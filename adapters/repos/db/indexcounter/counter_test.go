@@ -22,14 +22,14 @@ import (
 
 func TestReadOnDisk(t *testing.T) {
 	t.Run("missing counter file reads as 0", func(t *testing.T) {
-		count, err := ReadOnDisk(t.TempDir())
+		count, err := Read(t.TempDir())
 		require.NoError(t, err)
 		require.Equal(t, uint64(0), count)
 	})
 
 	t.Run("does not create the counter file", func(t *testing.T) {
 		dir := t.TempDir()
-		_, err := ReadOnDisk(dir)
+		_, err := Read(dir)
 		require.NoError(t, err)
 		_, statErr := os.Stat(filepath.Join(dir, "indexcount"))
 		require.True(t, os.IsNotExist(statErr), "ReadOnDisk must not create the counter file")
@@ -38,7 +38,7 @@ func TestReadOnDisk(t *testing.T) {
 	t.Run("empty counter file reads as 0", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), nil, 0o644))
-		count, err := ReadOnDisk(dir)
+		count, err := Read(dir)
 		require.NoError(t, err)
 		require.Equal(t, uint64(0), count)
 	})
@@ -48,7 +48,7 @@ func TestReadOnDisk(t *testing.T) {
 		var buf [8]byte
 		binary.LittleEndian.PutUint64(buf[:], 42)
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), buf[:], 0o644))
-		count, err := ReadOnDisk(dir)
+		count, err := Read(dir)
 		require.NoError(t, err)
 		require.Equal(t, uint64(42), count)
 	})
@@ -61,7 +61,7 @@ func TestReadOnDisk(t *testing.T) {
 			_, err := c.GetAndInc()
 			require.NoError(t, err)
 		}
-		count, err := ReadOnDisk(dir)
+		count, err := Read(dir)
 		require.NoError(t, err)
 		require.Equal(t, c.Get(), count)
 		require.Equal(t, uint64(3), count)

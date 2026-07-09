@@ -581,7 +581,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 // data still in an unflushed/reused WAL (unlike segment metadata). On any error it
 // returns false so the shard is loaded normally.
 func (i *Index) unloadedShardIsEmpty(shardName string) bool {
-	count, err := indexcounter.ReadOnDisk(shardPath(i.path(), shardName))
+	count, err := indexcounter.Read(shardPath(i.path(), shardName))
 	return err == nil && count == 0
 }
 

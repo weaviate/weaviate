@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -63,7 +64,7 @@ func New(shardPath string) (cr *Counter, rerr error) {
 	}, nil
 }
 
-// ReadOnDisk returns the persisted counter value for the shard at shardPath
+// Read returns the persisted counter value for the shard at shardPath
 // without opening/creating the counter for use. It returns 0 when the counter
 // file is missing or empty.
 //
@@ -72,8 +73,8 @@ func New(shardPath string) (cr *Counter, rerr error) {
 // including data still sitting in an unflushed/reused WAL, which segment metadata
 // would not yet reflect. This makes it a safe, cheap probe for deciding whether a
 // not-yet-loaded shard is empty.
-func ReadOnDisk(shardPath string) (uint64, error) {
-	f, err := os.Open(fmt.Sprintf("%s/indexcount", shardPath))
+func Read(shardPath string) (uint64, error) {
+	f, err := os.Open(filepath.Join(shardPath, "indexcount"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
