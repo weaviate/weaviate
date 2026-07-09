@@ -21,14 +21,11 @@ import (
 type SharedGauge struct {
 	mu    sync.Mutex
 	count int64
-	done  chan struct{} // closed when count reaches 0; replaced when count rises from 0
+	done  chan struct{} // lazily created by Wait while count>0; closed and cleared when count returns to 0
 }
 
 func NewSharedGauge() *SharedGauge {
-	// Start at zero: done channel is already closed.
-	done := make(chan struct{})
-	close(done)
-	return &SharedGauge{done: done}
+	return &SharedGauge{}
 }
 
 // Incr increments the gauge and returns the new count.
@@ -36,10 +33,6 @@ func (sc *SharedGauge) Incr() int64 {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
-	if sc.count == 0 {
-		// Open a fresh channel; waiters will block on it until count drops to 0 again.
-		sc.done = make(chan struct{})
-	}
 	sc.count++
 
 	return sc.count
@@ -56,8 +49,10 @@ func (sc *SharedGauge) Decr() int64 {
 
 	sc.count--
 
-	if sc.count == 0 {
+	if sc.count == 0 && sc.done != nil {
+		// Wake any waiters and drop the channel so the next waiter creates a fresh one.
 		close(sc.done)
+		sc.done = nil
 	}
 
 	return sc.count
@@ -78,6 +73,9 @@ func (sc *SharedGauge) Wait(ctx context.Context) error {
 		if sc.count == 0 {
 			sc.mu.Unlock()
 			return nil
+		}
+		if sc.done == nil {
+			sc.done = make(chan struct{})
 		}
 		done := sc.done
 		sc.mu.Unlock()
