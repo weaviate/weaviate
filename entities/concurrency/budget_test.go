@@ -42,6 +42,49 @@ func TestBudget(t *testing.T) {
 	assert.Equal(t, 4, budget)
 }
 
+func TestCtxWithBudgetIfAbsent(t *testing.T) {
+	t.Run("seeds budget when absent", func(t *testing.T) {
+		ctx := CtxWithBudgetIfAbsent(context.Background(), 7)
+		assert.Equal(t, 7, BudgetFromCtx(ctx, 99))
+	})
+
+	t.Run("preserves an existing budget", func(t *testing.T) {
+		// Mimics an admission grant seeded upstream: a downstream default
+		// must not clobber it.
+		ctx := CtxWithBudget(context.Background(), 5)
+		ctx = CtxWithBudgetIfAbsent(ctx, 100)
+		assert.Equal(t, 5, BudgetFromCtx(ctx, 99))
+	})
+
+	t.Run("preserves an existing budget of zero", func(t *testing.T) {
+		// A budget of 0 is still a set budget and must not be treated as absent.
+		ctx := CtxWithBudget(context.Background(), 0)
+		ctx = CtxWithBudgetIfAbsent(ctx, 100)
+		assert.Equal(t, 0, BudgetFromCtx(ctx, 99))
+	})
+
+	t.Run("grant then fractional reduction chains off the grant", func(t *testing.T) {
+		// An admission grant of 8 must flow through the read path's fractional
+		// reductions unchanged by the if-absent seed.
+		ctx := CtxWithBudget(context.Background(), 8)
+		ctx = CtxWithBudgetIfAbsent(ctx, 100)
+		ctx = ContextWithFractionalBudget(ctx, 2, 32)
+		assert.Equal(t, 4, BudgetFromCtx(ctx, 32))
+	})
+
+	t.Run("if-absent seed then fractional reduction chains off the seed", func(t *testing.T) {
+		ctx := CtxWithBudgetIfAbsent(context.Background(), 16)
+		ctx = ContextWithFractionalBudget(ctx, 4, 32)
+		assert.Equal(t, 4, BudgetFromCtx(ctx, 32))
+	})
+
+	t.Run("preserved grant is respected by BudgetFromCtxCapped", func(t *testing.T) {
+		ctx := CtxWithBudget(context.Background(), 3)
+		ctx = CtxWithBudgetIfAbsent(ctx, 100)
+		assert.Equal(t, 3, BudgetFromCtxCapped(ctx, 8))
+	})
+}
+
 func TestBudgetFromCtxCapped(t *testing.T) {
 	const cap = 8
 
