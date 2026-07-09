@@ -40,7 +40,7 @@ import (
 
 // UsageForIndex computes usage for a single collection. shardReadSem bounds the number of
 // concurrent shard readers within a single usage report — parallel UsageForIndex calls share
-// the same semaphore. Acquisition is FIFO.
+// the same semaphore.
 func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, shardReadSem *semaphore.Weighted, exactObjectCount bool, vectorsConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
 	var (
 		index  *Index
