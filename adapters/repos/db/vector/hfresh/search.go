@@ -14,10 +14,12 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -26,7 +28,115 @@ const (
 	// minimum max distance to use when pruning
 	pruningMinMaxDistance = 0.1
 	flatSearchCutoff      = 5_000
+
+	// defaultRescoreConcurrency bounds how many full-vector fetches one
+	// query's rescore phase issues in parallel. Overridable via
+	// HFRESH_RESCORE_CONCURRENCY (1 = sequential).
+	defaultRescoreConcurrency = 16
 )
+
+// rescoreCandidates computes exact distances for the RQ1 top candidates in q
+// and returns the k best. Full vectors are fetched with bounded parallelism;
+// when the index has view-based access configured, all fetches of one query
+// share a single consistent bucket view instead of acquiring one each.
+func (h *HFresh) rescoreCandidates(ctx context.Context, query []float32, q *ResultSet, k int, st *searchStats) (*ResultSet, error) {
+	candidates := make([]uint64, 0, q.Len())
+	for id := range q.Iter() {
+		candidates = append(candidates, id)
+	}
+
+	if h.getViewThunk != nil && h.vectorForIDWithView != nil {
+		view := h.getViewThunk()
+		defer view.ReleaseView()
+
+		// one reusable read buffer per worker
+		buffers := make([]common.VectorSlice, max(h.rescoreConcurrency, 1))
+		for i := range buffers {
+			buffers[i].Buff8 = make([]byte, 8)
+		}
+		return h.rescoreParallel(ctx, query, candidates, k, st, func(w int) fetchVectorFunc {
+			return func(ctx context.Context, id uint64) ([]float32, error) {
+				return h.vectorForIDWithView(ctx, id, &buffers[w], view)
+			}
+		})
+	}
+
+	return h.rescoreParallel(ctx, query, candidates, k, st, func(int) fetchVectorFunc {
+		return fetchVectorFunc(h.vectorForId)
+	})
+}
+
+type fetchVectorFunc func(ctx context.Context, id uint64) ([]float32, error)
+
+// rescoreParallel fans the candidates out over bounded workers. Each worker
+// keeps its own top-k and stats; both are merged at the end so the hot loop
+// needs no synchronization.
+func (h *HFresh) rescoreParallel(ctx context.Context, query []float32, candidates []uint64, k int, st *searchStats, fetchFor func(worker int) fetchVectorFunc) (*ResultSet, error) {
+	concurrency := max(min(h.rescoreConcurrency, len(candidates)), 1)
+
+	results := make([]*ResultSet, concurrency)
+	workerStats := make([]searchStats, concurrency)
+
+	work := func(w int) error {
+		fetch := fetchFor(w)
+		rs := NewResultSet(k)
+		results[w] = rs
+		ws := &workerStats[w]
+
+		for i := w; i < len(candidates); i += concurrency {
+			id := candidates[i]
+			vec, err := fetch(ctx, id)
+			if err != nil {
+				// The object may have been deleted between the posting scan
+				// and the rescore step (race condition). Skip stale entries
+				// gracefully.
+				var notFound storobj.ErrNotFound
+				if errors.As(err, &notFound) {
+					ws.RescoreNotFound++
+					continue
+				}
+				return err
+			}
+			ws.RescoreFetched++
+			vec = h.normalizeVec(vec)
+			dist, err := h.distancer.distancer.SingleDist(query, vec)
+			if err != nil {
+				return err
+			}
+			rs.Insert(id, dist)
+		}
+		return nil
+	}
+
+	if concurrency == 1 {
+		if err := work(0); err != nil {
+			return nil, err
+		}
+	} else {
+		eg := enterrors.NewErrorGroupWrapper(h.logger)
+		for w := range concurrency {
+			eg.Go(func() error {
+				return work(w)
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return nil, err
+		}
+	}
+
+	rescored := NewResultSet(k)
+	for w := range concurrency {
+		if results[w] == nil {
+			continue
+		}
+		for id, dist := range results[w].Iter() {
+			rescored.Insert(id, dist)
+		}
+		st.add(&workerStats[w])
+	}
+
+	return rescored, nil
+}
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	vector = h.normalizeVec(vector)
@@ -46,7 +156,12 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	queryDistancer := quantizer.NewDistancer(vector)
 
 	var selectedCentroids []uint64
-	var postings []Posting
+
+	// st collects this query's phase timings and IO counters; it always
+	// exists (cheap stack counters) but is only aggregated when profiling
+	// is enabled, and only exported when metrics are enabled.
+	var st searchStats
+	phaseStart := time.Now()
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
@@ -61,6 +176,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	if err != nil {
 		return nil, nil, err
 	}
+	st.Centroid = time.Since(phaseStart)
 	if len(centroids.data) == 0 {
 		return nil, nil, nil
 	}
@@ -71,6 +187,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
 
 	// filter out candidates that are too far away or have no vectors
+	phaseStart = time.Now()
 	selectedCentroids = make([]uint64, 0, candidateCentroidNum)
 	for i := 0; i < len(centroids.data) && len(selectedCentroids) < candidateCentroidNum; i++ {
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
@@ -86,25 +203,34 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
 	}
+	st.Filter = time.Since(phaseStart)
+	st.PostingsRequested = uint32(len(selectedCentroids))
 
-	// read all the selected postings
-	postings, err = h.PostingStore.MultiGet(ctx, selectedCentroids)
-	if err != nil {
-		return nil, nil, err
-	}
+	// Read the selected postings with bounded parallelism and scan each one
+	// as soon as it arrives, overlapping the scan with the remaining reads.
+	// A single consumer preserves the visited-set and merge-enqueue semantics
+	// of the sequential scan; final results are unaffected by arrival order
+	// since the rescore phase recomputes exact distances.
+	phaseStart = time.Now()
+	postingCh, wait := h.PostingStore.MultiGetStreamWithStats(ctx, selectedCentroids, &st)
 
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
 
 	var decompressBuf []uint64
+	var scanDur time.Duration
 
-	for i, p := range postings {
+	for res := range postingCh {
+		p := res.Posting
 		if p == nil { // posting nil if not found
 			continue
 		}
 
+		scanStart := time.Now()
+
 		// keep track of the posting size
 		postingSize := len(p)
+		st.Candidates += uint32(len(p))
 
 		for _, v := range p {
 			id := v.ID()
@@ -115,16 +241,19 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			}
 			if deleted {
 				postingSize--
+				st.Deleted++
 				continue
 			}
 
 			// skip duplicates
 			if visited.CheckAndVisit(id) {
+				st.Duplicates++
 				continue
 			}
 
 			// skip vectors that are not in the allow list
 			if allowList != nil && !allowList.Contains(id) {
+				st.AllowlistSkipped++
 				continue
 			}
 
@@ -140,32 +269,29 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		// if the posting size is lower than the configured minimum,
 		// enqueue a merge operation
 		if postingSize < int(h.minPostingSize) {
-			err = h.taskQueue.EnqueueMerge(selectedCentroids[i])
+			err = h.taskQueue.EnqueueMerge(selectedCentroids[res.Index])
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
+				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[res.Index])
 			}
 		}
+
+		scanDur += time.Since(scanStart)
+	}
+	if err := wait(); err != nil {
+		return nil, nil, err
 	}
 
-	rescored := NewResultSet(k)
-	for id := range q.Iter() {
-		vec, err := h.vectorForId(ctx, id)
-		if err != nil {
-			// The object may have been deleted between the posting scan and the
-			// rescore step (race condition). Skip stale entries gracefully.
-			var notFound storobj.ErrNotFound
-			if errors.As(err, &notFound) {
-				continue
-			}
-			return nil, nil, err
-		}
-		vec = h.normalizeVec(vec)
-		dist, err := h.distancer.distancer.SingleDist(vector, vec)
-		if err != nil {
-			return nil, nil, err
-		}
-		rescored.Insert(id, dist)
+	// Scan is pure scan time; Read is the remainder of the pipeline window,
+	// i.e. time the consumer spent waiting on posting reads.
+	st.Scan = scanDur
+	st.Read = time.Since(phaseStart) - scanDur
+
+	phaseStart = time.Now()
+	rescored, err := h.rescoreCandidates(ctx, vector, q, k, &st)
+	if err != nil {
+		return nil, nil, err
 	}
+	st.Rescore = time.Since(phaseStart)
 
 	ids := make([]uint64, rescored.Len())
 	dists := make([]float32, rescored.Len())
@@ -175,6 +301,10 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		dists[i] = dist
 		i++
 	}
+
+	st.Results = uint32(len(ids))
+	h.profiler.record(&st)
+	h.metrics.SearchPhases(&st)
 
 	return ids, dists, nil
 }

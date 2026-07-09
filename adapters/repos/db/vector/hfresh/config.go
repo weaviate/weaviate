@@ -51,6 +51,13 @@ type Config struct {
 	Centroids                 CentroidConfig                  `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks        cyclemanager.CycleCallbackGroup // Callbacks for handling tombstones
 	VectorForIDThunk          common.VectorForID[float32]     `json:"vectorForIDThunk,omitempty"` // Function to get a vector by index ID
+
+	// GetViewThunk and TempVectorForIDWithViewThunk allow the rescore phase
+	// to fetch all full vectors of one query through a single consistent
+	// bucket view instead of acquiring one view per candidate. Optional:
+	// when unset, rescoring falls back to VectorForIDThunk.
+	GetViewThunk                 common.GetViewThunk                     `json:"-"`
+	TempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32] `json:"-"`
 }
 
 type StoreConfig struct {

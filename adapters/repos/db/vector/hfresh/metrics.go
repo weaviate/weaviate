@@ -43,6 +43,12 @@ type Metrics struct {
 	storeGet         prometheus.Observer
 	storeAppend      prometheus.Observer
 	storePut         prometheus.Observer
+
+	searchCentroid prometheus.Observer
+	searchFilter   prometheus.Observer
+	searchRead     prometheus.Observer
+	searchScan     prometheus.Observer
+	searchRescore  prometheus.Observer
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -107,6 +113,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	storeAppend := prom.VectorIndexStoreOperationsDurations.With(opLabels("append"))
 	storePut := prom.VectorIndexStoreOperationsDurations.With(opLabels("put"))
 
+	searchCentroid := prom.VectorIndexDurations.With(opStepLabels("search", "centroid"))
+	searchFilter := prom.VectorIndexDurations.With(opStepLabels("search", "filter"))
+	searchRead := prom.VectorIndexDurations.With(opStepLabels("search", "posting_read"))
+	searchScan := prom.VectorIndexDurations.With(opStepLabels("search", "scan"))
+	searchRescore := prom.VectorIndexDurations.With(opStepLabels("search", "rescore"))
+
 	return &Metrics{
 		enabled:          true,
 		size:             size,
@@ -132,7 +144,30 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		storeGet:         storeGet,
 		storeAppend:      storeAppend,
 		storePut:         storePut,
+		searchCentroid:   searchCentroid,
+		searchFilter:     searchFilter,
+		searchRead:       searchRead,
+		searchScan:       searchScan,
+		searchRescore:    searchRescore,
 	}
+}
+
+// SearchPhases exports one query's per-phase durations. Durations are
+// observed in milliseconds (fractional) to match VectorIndexDurations.
+func (m *Metrics) SearchPhases(st *searchStats) {
+	if !m.enabled {
+		return
+	}
+
+	ms := func(d time.Duration) float64 {
+		return float64(d) / float64(time.Millisecond)
+	}
+
+	m.searchCentroid.Observe(ms(st.Centroid))
+	m.searchFilter.Observe(ms(st.Filter))
+	m.searchRead.Observe(ms(st.Read))
+	m.searchScan.Observe(ms(st.Scan))
+	m.searchRescore.Observe(ms(st.Rescore))
 }
 
 func (m *Metrics) SetSize(size int) {

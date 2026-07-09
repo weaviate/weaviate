@@ -15,17 +15,25 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
 	postingStoreSchemaVersionV1 = 1
 )
+
+// defaultReadConcurrency bounds how many posting reads a single MultiGet
+// issues in parallel. Overridable via HFRESH_READ_CONCURRENCY (1 = sequential).
+const defaultReadConcurrency = 16
 
 type PostingStore struct {
 	store    *lsmkv.Store
@@ -33,9 +41,14 @@ type PostingStore struct {
 	locks    *common.ShardedRWLocks
 	metrics  *Metrics
 	versions *PostingVersionsStore
+	logger   logrus.FieldLogger
+
+	// readConcurrency is the max number of parallel posting reads per
+	// MultiGet call.
+	readConcurrency int
 }
 
-func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Metrics, id string, cfg StoreConfig) (*PostingStore, error) {
+func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Metrics, logger logrus.FieldLogger, id string, cfg StoreConfig) (*PostingStore, error) {
 	bName := postingsBucketName(id)
 
 	versions := NewPostingVersionsStore(sharedBucket)
@@ -68,12 +81,28 @@ func NewPostingStore(store *lsmkv.Store, sharedBucket *lsmkv.Bucket, metrics *Me
 	}
 
 	return &PostingStore{
-		store:    store,
-		bucket:   store.Bucket(bName),
-		locks:    common.NewDefaultShardedRWLocks(),
-		metrics:  metrics,
-		versions: versions,
+		store:           store,
+		bucket:          store.Bucket(bName),
+		locks:           common.NewDefaultShardedRWLocks(),
+		metrics:         metrics,
+		versions:        versions,
+		logger:          logger,
+		readConcurrency: envIntOrDefault("HFRESH_READ_CONCURRENCY", defaultReadConcurrency),
 	}, nil
+}
+
+// envIntOrDefault reads a positive integer from the environment, falling back
+// to def when unset or invalid.
+func envIntOrDefault(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return def
+	}
+	return n
 }
 
 // schema of the key of the posting list:
@@ -93,6 +122,13 @@ func (p *PostingStore) getKeyBytes(ctx context.Context, postingID uint64) ([]byt
 }
 
 func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, error) {
+	return p.getWithStats(ctx, postingID, nil)
+}
+
+// getWithStats reads one posting and, when st is non-nil, accounts the read in
+// the per-query search stats (postings found/empty, disk segments touched,
+// memtable hits, payload bytes).
+func (p *PostingStore) getWithStats(ctx context.Context, postingID uint64, st *searchStats) (Posting, error) {
 	start := time.Now()
 	defer p.metrics.StoreGetDuration(start)
 
@@ -102,10 +138,26 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 		p.locks.RUnlock(postingID)
 		return nil, err
 	}
-	list, err := p.bucket.SetRawList(key)
+	list, stats, err := p.bucket.SetRawListWithStats(key)
 	p.locks.RUnlock(postingID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
+	}
+
+	if st != nil {
+		if len(list) > 0 {
+			st.PostingsRead++
+		} else {
+			st.PostingsEmpty++
+		}
+		st.SegmentReads += uint32(stats.SegmentsHit)
+		if stats.FlushingHit {
+			st.MemtableReads++
+		}
+		if stats.MemtableHit {
+			st.MemtableReads++
+		}
+		st.PostingBytes += uint64(stats.Bytes)
 	}
 
 	posting := Posting(make([]Vector, len(list)))
@@ -118,17 +170,123 @@ func (p *PostingStore) Get(ctx context.Context, postingID uint64) (Posting, erro
 }
 
 func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
-	postings := make([]Posting, 0, len(postingIDs))
+	return p.MultiGetWithStats(ctx, postingIDs, nil)
+}
 
-	for _, id := range postingIDs {
-		posting, err := p.Get(ctx, id)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get posting %d", id)
+// MultiGetWithStats behaves like MultiGet and, when st is non-nil, accounts
+// every read in the per-query search stats. Reads are issued in parallel,
+// bounded by the store's readConcurrency; results keep the order of
+// postingIDs.
+func (p *PostingStore) MultiGetWithStats(ctx context.Context, postingIDs []uint64, st *searchStats) ([]Posting, error) {
+	concurrency := min(p.readConcurrency, len(postingIDs))
+
+	if concurrency <= 1 {
+		postings := make([]Posting, 0, len(postingIDs))
+		for _, id := range postingIDs {
+			posting, err := p.getWithStats(ctx, id, st)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to get posting %d", id)
+			}
+			postings = append(postings, posting)
 		}
-		postings = append(postings, posting)
+		return postings, nil
+	}
+
+	postings := make([]Posting, len(postingIDs))
+	// each worker accumulates into its own stats to avoid synchronizing the
+	// hot counters; merged once below
+	workerStats := make([]searchStats, concurrency)
+
+	eg := enterrors.NewErrorGroupWrapper(p.logger)
+	for w := range concurrency {
+		eg.Go(func() error {
+			var ws *searchStats
+			if st != nil {
+				ws = &workerStats[w]
+			}
+			for i := w; i < len(postingIDs); i += concurrency {
+				posting, err := p.getWithStats(ctx, postingIDs[i], ws)
+				if err != nil {
+					return errors.Wrapf(err, "failed to get posting %d", postingIDs[i])
+				}
+				postings[i] = posting
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	if st != nil {
+		for i := range workerStats {
+			st.add(&workerStats[i])
+		}
 	}
 
 	return postings, nil
+}
+
+// PostingResult is one posting delivered by MultiGetStreamWithStats, tagged
+// with its index in the requested ID slice.
+type PostingResult struct {
+	Index   int
+	Posting Posting
+}
+
+// MultiGetStreamWithStats reads the postings with bounded parallelism and
+// delivers each one on the returned channel as soon as it is available
+// (arbitrary order), so the caller can overlap processing with the remaining
+// reads. The channel is buffered for all results: readers never block on a
+// slow consumer, and abandoning the channel early leaks nothing.
+//
+// The channel is closed once all reads finished. The returned wait function
+// reports the first read error and merges the per-worker stats into st; call
+// it exactly once, after draining the channel. Abandoning the stream without
+// calling it is safe (goroutines still complete; stats are simply dropped).
+func (p *PostingStore) MultiGetStreamWithStats(ctx context.Context, postingIDs []uint64, st *searchStats) (<-chan PostingResult, func() error) {
+	concurrency := max(min(p.readConcurrency, len(postingIDs)), 1)
+
+	ch := make(chan PostingResult, len(postingIDs))
+	workerStats := make([]searchStats, concurrency)
+	errCh := make(chan error, 1)
+
+	eg := enterrors.NewErrorGroupWrapper(p.logger)
+	for w := range concurrency {
+		eg.Go(func() error {
+			var ws *searchStats
+			if st != nil {
+				ws = &workerStats[w]
+			}
+			for i := w; i < len(postingIDs); i += concurrency {
+				posting, err := p.getWithStats(ctx, postingIDs[i], ws)
+				if err != nil {
+					return errors.Wrapf(err, "failed to get posting %d", postingIDs[i])
+				}
+				ch <- PostingResult{Index: i, Posting: posting}
+			}
+			return nil
+		})
+	}
+
+	enterrors.GoWrapper(func() {
+		errCh <- eg.Wait()
+		close(ch)
+	}, p.logger)
+
+	// the merge into st must happen here, in the caller's goroutine: the
+	// caller mutates st while consuming the channel (that's the point of the
+	// pipeline), so the closer goroutine must not touch it. The receive on
+	// errCh orders the merge after every worker's last write.
+	return ch, func() error {
+		err := <-errCh
+		if st != nil {
+			for i := range workerStats {
+				st.add(&workerStats[i])
+			}
+		}
+		return err
+	}
 }
 
 func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Posting) error {

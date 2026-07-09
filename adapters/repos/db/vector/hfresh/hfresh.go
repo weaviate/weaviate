@@ -91,7 +91,21 @@ type HFresh struct {
 
 	vectorForId common.VectorForID[float32]
 
+	// optional view-based vector access for the rescore phase: one
+	// consistent bucket view per query instead of one per candidate.
+	// When either is nil, rescoring falls back to vectorForId.
+	getViewThunk        common.GetViewThunk
+	vectorForIDWithView common.TempVectorForIDWithView[float32]
+
+	// rescoreConcurrency bounds how many full-vector fetches one query's
+	// rescore phase issues in parallel (1 = sequential).
+	rescoreConcurrency int
+
 	rootPath string
+
+	// profiler aggregates per-query search phase timings and IO counters.
+	// nil unless HFRESH_SEARCH_PROFILE is set; see profile.go.
+	profiler *searchProfiler
 }
 
 func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
@@ -108,12 +122,13 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
+	logger := cfg.Logger.WithField("component", "HFresh")
+
 	// initialize posting store used for storing actual postings and their vectors
-	postingStore, err := NewPostingStore(store, bucket, metrics, cfg.ID, cfg.Store)
+	postingStore, err := NewPostingStore(store, bucket, metrics, logger, cfg.ID, cfg.Store)
 	if err != nil {
 		return nil, err
 	}
-	logger := cfg.Logger.WithField("component", "HFresh")
 
 	h := HFresh{
 		id:            cfg.ID,
@@ -138,6 +153,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		searchProbe:      uc.SearchProbe,
 		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
 		rootPath:         cfg.RootPath,
+		profiler:         newSearchProfilerFromEnv(logger),
+
+		getViewThunk:        cfg.GetViewThunk,
+		vectorForIDWithView: cfg.TempVectorForIDWithViewThunk,
+		rescoreConcurrency:  envIntOrDefault("HFRESH_RESCORE_CONCURRENCY", defaultRescoreConcurrency),
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)

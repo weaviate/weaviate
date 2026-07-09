@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -102,6 +103,83 @@ func TestSearchWithEmptyIndex(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, ids)
 	require.Empty(t, dists)
+}
+
+// countingBucketView tracks acquisitions/releases so tests can verify the
+// rescore path shares one view instead of acquiring one per candidate.
+type countingBucketView struct {
+	acquired atomic.Int32
+	released atomic.Int32
+}
+
+func (v *countingBucketView) ReleaseView() { v.released.Add(1) }
+
+// TestParallelRescoreWithSharedView verifies that the view-based parallel
+// rescore path returns exactly the same results as the sequential
+// vectorForId fallback, acquires a single view per query, and accounts
+// rescore stats correctly at any concurrency.
+func TestParallelRescoreWithSharedView(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	vectorsSize := 500
+	k := 10
+	vectors, _ := testinghelpers.RandomVecsFixedSeed(vectorsSize, 0, 32)
+
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+		if int(indexID) < len(vectors) {
+			return vectors[indexID], nil
+		}
+		return nil, fmt.Errorf("vector not found for ID %d", indexID)
+	})
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	for i := range vectorsSize {
+		require.NoError(t, index.Add(t.Context(), uint64(i), vectors[i]))
+	}
+	for index.taskQueue.Size() > 0 {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	query := vectors[42]
+
+	// baseline: sequential fallback through vectorForId
+	index.getViewThunk = nil
+	index.vectorForIDWithView = nil
+	wantIDs, wantDists, err := index.SearchByVector(t.Context(), query, k, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, wantIDs)
+
+	view := &countingBucketView{}
+	index.getViewThunk = func() common.BucketView {
+		view.acquired.Add(1)
+		return view
+	}
+	index.vectorForIDWithView = func(ctx context.Context, id uint64, container *common.VectorSlice, v common.BucketView) ([]float32, error) {
+		require.Same(t, view, v, "rescore must use the shared view")
+		if int(id) < len(vectors) {
+			return vectors[id], nil
+		}
+		return nil, fmt.Errorf("vector not found for ID %d", id)
+	}
+
+	for _, concurrency := range []int{1, 4, 16} {
+		t.Run(fmt.Sprintf("concurrency=%d", concurrency), func(t *testing.T) {
+			view.acquired.Store(0)
+			view.released.Store(0)
+			index.rescoreConcurrency = concurrency
+
+			ids, dists, err := index.SearchByVector(t.Context(), query, k, nil)
+			require.NoError(t, err)
+			assert.Equal(t, wantIDs, ids)
+			assert.Equal(t, wantDists, dists)
+
+			// exactly one view per query, released
+			assert.EqualValues(t, 1, view.acquired.Load())
+			assert.EqualValues(t, 1, view.released.Load())
+		})
+	}
 }
 
 // TestSearchCosineDistanceRescore verifies that HFresh correctly computes and
