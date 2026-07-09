@@ -219,6 +219,7 @@ type Config struct {
 	HNSWVisitedListPoolMaxSize          int                    `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
 	HNSWFlatSearchConcurrency           int                    `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
 	HNSWAcornFilterRatio                float64                `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
+	BM25FilterTombMergeGateRatio        float64                `json:"bm25_merge_gate_ratio" yaml:"bm25_merge_gate_ratio"`
 	HNSWGeoIndexEF                      int                    `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
 	AsyncIndexingEnabled                bool                   `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
 	Sentry                              *entsentry.ConfigOpts  `json:"sentry" yaml:"sentry"`

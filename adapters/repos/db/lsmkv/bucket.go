@@ -160,6 +160,10 @@ type Bucket struct {
 	lazySegmentLoading  bool
 	lazyPropertyLengths *configRuntime.DynamicValue[bool]
 
+	// Block-max WAND filter/tombstone-fold gate, read in createDiskTermFromCV
+	// (see WithBM25FilterTombMergeGateRatio).
+	bm25FilterTombMergeGateRatio float64
+
 	// Canonical class name carried by the bucket. Required for any bucket
 	// whose readers go through the storobj decoders (the objects bucket); set
 	// via WithClassName at creation time so the decoders can stamp the
@@ -260,6 +264,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
 		minWalThreshold:              config.DefaultPersistenceMaxReuseWalSize,
+		bm25FilterTombMergeGateRatio: config.DefaultBM25FilterTombMergeGateRatio,
 	}
 
 	for _, opt := range opts {
@@ -2330,7 +2335,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			for _, n := range idfCounts {
 				sumDf += n
 			}
-			mergeFilterAndTombstones = float64(sumDf) >= bm25MergeGateRatio*float64(filterCard)
+			mergeFilterAndTombstones = float64(sumDf) >= b.bm25FilterTombMergeGateRatio*float64(filterCard)
 		}
 	}
 

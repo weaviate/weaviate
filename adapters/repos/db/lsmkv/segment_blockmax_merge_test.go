@@ -28,9 +28,9 @@ import (
 // bit-identical no-op on results: for a filtered query over a corpus with
 // tombstones, forcing the merge on (fold tombstones into the filter, one
 // membership check per candidate) must return exactly the same doc ids and
-// scores as forcing it off (filter + tombstones checked separately). The
-// bm25MergeGateRatio toggle isolates the code path from the workload's actual
-// sumDf/cardinality ratio so both branches are exercised deterministically.
+// scores as forcing it off (filter + tombstones checked separately). Forcing the
+// gate to +Inf/0 isolates the code path from the workload's actual sumDf/cardinality
+// ratio so both branches are exercised deterministically.
 func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 	ctx := context.Background()
 	logger := logrus.New()
@@ -142,12 +142,9 @@ func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 			}
 			filter := helpers.NewAllowListFromBitmap(bm)
 
-			prev := bm25MergeGateRatio
-			t.Cleanup(func() { bm25MergeGateRatio = prev })
-
-			bm25MergeGateRatio = math.Inf(1) // never merge: filter + tombstones checked separately
+			bucket.bm25FilterTombMergeGateRatio = math.Inf(1) // never merge: filter + tombstones checked separately
 			unmerged := search(t, bucket, filter, false)
-			bm25MergeGateRatio = 0 // always merge: tombstones folded into the filter
+			bucket.bm25FilterTombMergeGateRatio = 0 // always merge: tombstones folded into the filter
 			merged := search(t, bucket, filter, true)
 
 			require.NotEmpty(t, unmerged, "baseline returned nothing; workload is vacuous")

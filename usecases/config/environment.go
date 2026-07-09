@@ -40,10 +40,11 @@ const (
 	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
 	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
 	// on a single node cluster.
-	DefaultRaftBootstrapTimeout = 600
-	DefaultRaftBootstrapExpect  = 1
-	DefaultRaftDir              = "raft"
-	DefaultHNSWAcornFilterRatio = 0.4
+	DefaultRaftBootstrapTimeout         = 600
+	DefaultRaftBootstrapExpect          = 1
+	DefaultRaftDir                      = "raft"
+	DefaultHNSWAcornFilterRatio         = 0.4
+	DefaultBM25FilterTombMergeGateRatio = 1.0
 
 	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 
@@ -627,6 +628,20 @@ func FromEnv(config *Config) error {
 		"HNSW_ACORN_FILTER_RATIO",
 		func(val float64) { config.HNSWAcornFilterRatio = val },
 		DefaultHNSWAcornFilterRatio,
+	); err != nil {
+		return err
+	}
+
+	if err := parseFloatVerify(
+		"BM25_MERGE_GATE_RATIO",
+		DefaultBM25FilterTombMergeGateRatio,
+		func(val float64) { config.BM25FilterTombMergeGateRatio = val },
+		func(val float64, envName string) error {
+			if math.IsNaN(val) || val < 0 {
+				return fmt.Errorf("%s must be a non-negative float (0 always merges, +Inf disables the fold). Got: %v", envName, val)
+			}
+			return nil
+		},
 	); err != nil {
 		return err
 	}

@@ -48,16 +48,13 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	// swallow it.
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "true")
 
-	prevRatio := bm25MergeGateRatio
-	bm25MergeGateRatio = 0 // force the merge on for every query
-	t.Cleanup(func() { bm25MergeGateRatio = prevRatio })
-
 	ctx := context.Background()
 	logger := logrus.New()
 	logger.SetLevel(logrus.PanicLevel)
 	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyInverted))
+		WithStrategy(StrategyInverted),
+		WithBM25FilterTombMergeGateRatio(0)) // force the merge on for every query
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 
