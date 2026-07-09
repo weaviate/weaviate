@@ -459,7 +459,15 @@ func (b *Batch[T]) makeRequest(job BatchJob[T], texts []string, cfg moduletools.
 	}
 	if rateLimitNew != nil {
 		rateLimit.UpdateWithRateLimit(rateLimitNew)
-		b.rateLimitChannel <- rateLimitJob{rateLimit: rateLimitNew, apiKeyHash: job.apiKeyHash}
+		// Non-blocking: during a sequential batch the worker is inside sendBatch and
+		// not draining this channel, so a blocking send would deadlock once the buffer
+		// fills. Dropping is safe: the sequential path (the only one that fills the
+		// buffer) already applied the update in place above, and updateState keeps only
+		// the freshest update anyway.
+		select {
+		case b.rateLimitChannel <- rateLimitJob{rateLimit: rateLimitNew, apiKeyHash: job.apiKeyHash}:
+		default:
+		}
 	} else if b.settings.HasTokenLimit {
 		if tokensUsed > -1 {
 			tokensInCurrentBatch = tokensUsed

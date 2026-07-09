@@ -361,6 +361,41 @@ func TestBatchRequestMissingRLValues(t *testing.T) {
 	require.Less(t, time.Since(start), time.Millisecond*900)
 }
 
+// A batch that needs more vectorizer sub-requests than the rate-limit channel can
+// buffer must not deadlock: the worker is blocked inside sendBatch and cannot drain
+// the channel, so the send has to be non-blocking.
+func TestMakeRequestDoesNotBlockWhenRateLimitChannelFull(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	b := &Batch[[]float32]{
+		client:            &fakeBatchClientWithRL[[]float32]{},
+		rateLimitChannel:  make(chan rateLimitJob, BatchChannelSize),
+		endOfBatchChannel: make(chan endOfBatchJob, BatchChannelSize),
+		logger:            logger,
+		settings:          Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true},
+		Label:             "test",
+	}
+
+	// fill the channel to capacity so a blocking send would hang forever
+	for i := 0; i < BatchChannelSize; i++ {
+		b.rateLimitChannel <- rateLimitJob{}
+	}
+
+	job := BatchJob[[]float32]{ctx: context.Background(), cfg: cfg, errs: map[int]error{}, vecs: make([][]float32, 1)}
+
+	done := make(chan struct{})
+	go func() {
+		b.makeRequest(job, []string{"text"}, cfg, []int{0}, &modulecomponents.RateLimits{}, 4)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("makeRequest blocked on a full rateLimitChannel")
+	}
+}
+
 // fakeShortVectorClient returns fewer vectors than requested, mimicking a provider
 // that responds with a truncated result.
 type fakeShortVectorClient struct{}
