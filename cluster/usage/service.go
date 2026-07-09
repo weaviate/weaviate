@@ -87,7 +87,7 @@ func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Repo
 	// The semaphore is shared by all collections of this report, bounding concurrent shard
 	// readers at shardConcurrency. Up to shardConcurrency collections are in flight at once,
 	// so spare capacity left by one collection is used by the shards of the next.
-	shardConcurrency := int(s.shardConcurrency.Load())
+	shardConcurrency := max(int(s.shardConcurrency.Load()), 1)
 	shardReadSem := semaphore.NewWeighted(int64(shardConcurrency))
 
 	s.logger.Infof("Creating usage report with %d collections", len(collections))

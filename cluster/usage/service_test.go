@@ -646,7 +646,7 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 				}
 				select {
 				case <-barrier:
-				case <-time.After(30 * time.Second):
+				case <-time.After(5 * time.Second):
 					return fmt.Errorf("collections are not processed concurrently: %d/%d in flight",
 						entered.Load(), len(classes))
 				}
