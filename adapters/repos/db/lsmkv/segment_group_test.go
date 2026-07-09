@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -218,6 +219,75 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 
 	validateView(t, segments)
 	require.Greater(t, segAB.getCounter, 0, "new segment should have received calls")
+}
+
+// TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError pins the fix for a
+// pooled-buffer leak: roaringSetGet acquires the first layer's buffer (returning
+// its real release), then merges every following segment into it. If a later
+// merge fails, the error path returns noopRelease to the caller, so the deferred
+// cleanup — not the caller — must free the first layer's buffer. A regression
+// that overwrites the release the defer reads would leak that buffer on every
+// mid-merge disk error.
+func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
+	t.Parallel()
+
+	mergeErr := errors.New("simulated disk read error during merge")
+
+	t.Run("merge error frees first layer via defer, returns caller-safe noop", func(t *testing.T) {
+		// seg0 holds key1 and hands out a pooled buffer (its release must fire).
+		// seg1 fails mid-merge, which must not leak seg0's buffer.
+		seg0 := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{1, 2, 3}),
+		})
+		seg1 := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{4, 5, 6}),
+		})
+		seg1.roaringSetMergeErr = mergeErr
+
+		sg := &SegmentGroup{}
+		segments := []Segment{seg0, seg1}
+
+		out, release, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
+		require.ErrorIs(t, err, mergeErr)
+		require.Nil(t, out)
+		require.NotNil(t, release)
+
+		// the first layer's pooled buffer must have been released exactly once by
+		// the deferred cleanup, despite the error path returning noopRelease.
+		require.Equal(t, 1, seg0.roaringSetReleases,
+			"first layer's release must fire on merge error")
+
+		// the returned release must be the caller-safe noop; calling it must not
+		// double-release the first layer.
+		release()
+		require.Equal(t, 1, seg0.roaringSetReleases,
+			"returned release must be a noop; buffer already freed by defer")
+	})
+
+	t.Run("success path defers nothing, caller owns the release", func(t *testing.T) {
+		seg0 := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{1, 2, 3}),
+		})
+		seg1 := newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{4, 5, 6}),
+		})
+
+		sg := &SegmentGroup{}
+		segments := []Segment{seg0, seg1}
+
+		out, release, err := sg.roaringSetGet([]byte("key1"), segments, concurrency.SROAR_MERGE)
+		require.NoError(t, err)
+		require.NotNil(t, out)
+
+		// no error => the defer must not fire; the caller still holds the buffer.
+		require.Equal(t, 0, seg0.roaringSetReleases,
+			"success path must not release before the caller does")
+
+		// the returned release frees the first layer's buffer exactly once.
+		release()
+		require.Equal(t, 1, seg0.roaringSetReleases,
+			"caller's release must free the first layer exactly once")
+	})
 }
 
 func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentAddition(t *testing.T) {

@@ -85,8 +85,7 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		return layer.Additions, release, nil
 	}
 
-	// resolve the per-query merge/fan-out budget once, capped at the reader's
-	// configured concurrency, so all readers for this query share it
+	// conc is the per-query merge/fan-out budget shared by every reader below.
 	conc := concurrency.BudgetFromCtxCapped(ctx, r.concurrency)
 
 	lock := new(sync.Mutex)

@@ -13,12 +13,14 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -74,13 +76,108 @@ func TestRoaringSetWritePathRefCount(t *testing.T) {
 	require.Equal(t, []uint64{1, 3, 4, 5, 6, 7}, v.ToArray())
 }
 
-// TestBucket_RoaringSetGet_RespectsConcurrencyBudget: a budget of 1 must
-// serialize sroar's merge fan-out, so concurrent Gets can't blow the
-// goroutine ceiling regardless of segment/container count.
+// TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError pins the
+// fix for a pooled-buffer leak in the bucket-level assembly: the disk layers are
+// acquired first (returning their real release), then the flushing and active
+// memtables are read. If one of those reads fails, the error path returns
+// noopRelease to the caller, so the deferred cleanup — not the caller — must
+// free the disk buffer. A regression that overwrites the release the defer reads
+// would leak the disk buffer on every failed flushing/active read.
+func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *testing.T) {
+	t.Parallel()
+
+	readErr := errors.New("simulated memtable read error")
+
+	newDiskSeg := func() *fakeSegment {
+		return newFakeRoaringSetSegment(map[string]*sroar.Bitmap{
+			"key1": bitmapFromSlice([]uint64{1, 2, 3}),
+		})
+	}
+
+	t.Run("active read error frees disk layer via defer, returns caller-safe noop", func(t *testing.T) {
+		diskSeg := newDiskSeg()
+		active := newTestMemtableRoaringSet(nil)
+		active.roaringSetGetErr = readErr
+
+		b := Bucket{
+			strategy: StrategyRoaringSet,
+			disk:     &SegmentGroup{segments: []Segment{diskSeg}},
+		}
+		view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}}
+
+		bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte("key1"))
+		require.ErrorIs(t, err, readErr)
+		require.Nil(t, bm)
+		require.NotNil(t, release)
+
+		// the disk layer's pooled buffer must have been released exactly once by
+		// the deferred cleanup, despite the error path returning noopRelease.
+		require.Equal(t, 1, diskSeg.roaringSetReleases,
+			"disk layer's release must fire when the active read errors")
+
+		// the returned release must be the caller-safe noop; calling it must not
+		// double-release the disk layer.
+		release()
+		require.Equal(t, 1, diskSeg.roaringSetReleases,
+			"returned release must be a noop; buffer already freed by defer")
+	})
+
+	t.Run("flushing read error frees disk layer via defer", func(t *testing.T) {
+		diskSeg := newDiskSeg()
+		flushing := newTestMemtableRoaringSet(nil)
+		flushing.roaringSetGetErr = readErr
+		active := newTestMemtableRoaringSet(nil)
+
+		b := Bucket{
+			strategy: StrategyRoaringSet,
+			disk:     &SegmentGroup{segments: []Segment{diskSeg}},
+		}
+		view := BucketConsistentView{Active: active, Flushing: flushing, Disk: []Segment{diskSeg}}
+
+		bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte("key1"))
+		require.ErrorIs(t, err, readErr)
+		require.Nil(t, bm)
+		require.Equal(t, 1, diskSeg.roaringSetReleases,
+			"disk layer's release must fire when the flushing read errors")
+
+		release()
+		require.Equal(t, 1, diskSeg.roaringSetReleases)
+	})
+
+	t.Run("success path defers nothing, caller owns the release", func(t *testing.T) {
+		diskSeg := newDiskSeg()
+		active := newTestMemtableRoaringSet(nil)
+
+		b := Bucket{
+			strategy: StrategyRoaringSet,
+			disk:     &SegmentGroup{segments: []Segment{diskSeg}},
+		}
+		view := BucketConsistentView{Active: active, Disk: []Segment{diskSeg}}
+
+		bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte("key1"))
+		require.NoError(t, err)
+		require.NotNil(t, bm)
+
+		// no error => the defer must not fire; the caller still holds the buffer.
+		require.Equal(t, 0, diskSeg.roaringSetReleases,
+			"success path must not release before the caller does")
+
+		release()
+		require.Equal(t, 1, diskSeg.roaringSetReleases,
+			"caller's release must free the disk layer exactly once")
+	})
+}
+
+// TestBucket_RoaringSetGet_RespectsConcurrencyBudget pins RoaringSetGet's
+// merge fan-out to the per-query budget without blowing the goroutine ceiling.
 func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
+	// CI implication: the kill-switch CI leg (DISABLE_SROAR_MERGE_BUDGET=true)
+	// skips this bound by design and serves as the red control instead.
 	if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
 		t.Skip("budget cap disabled via kill switch")
 	}
+	// CI implication: 2-vCPU runners have SROAR_MERGE=1 and skip this entirely;
+	// the bound is only exercised on >=4-vCPU runners (SROAR_MERGE>=2).
 	if concurrency.SROAR_MERGE < 2 {
 		t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
 			concurrency.SROAR_MERGE)
@@ -133,8 +230,7 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, values, arr1)
 	require.Equal(t, arrDefault, arr1)
 
-	// budget=1 => merge ops spawn no workers, so each Get holds only its own
-	// goroutine; slack of 8 absorbs the sampler and transient runtime/GC noise
+	// budget=1 spawns no extra workers; slack absorbs sampler/GC noise
 	testinghelpers.AssertGoroutineCeiling(t, 16, 1, 8, 200*time.Millisecond, func() error {
 		bm, release, err := b.RoaringSetGet(budget1, key)
 		if err != nil {

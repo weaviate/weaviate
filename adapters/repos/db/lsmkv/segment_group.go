@@ -809,37 +809,44 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 		return nil, noopRelease, nil
 	}
 
-	release = noopRelease
+	// acquired frees the first layer's pooled buffer (all following segments
+	// merge into it). The defer releases it on any error after we've taken it,
+	// so a mid-merge disk read error can't leak the buffer back into the pool.
+	// It is a dedicated variable rather than the named release return because
+	// error paths overwrite the return with noopRelease for the caller; the
+	// defer must still see the real release.
+	acquired := noopRelease
 	// use bigger buffer for first layer, to make space for further merges
 	// with following layers
 	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.25)
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
-		if err == nil {
+		layer, layerRelease, getErr := segments[i].roaringSetGet(key, bitmapBufPool)
+		if getErr == nil {
 			out = append(out, layer)
-			release = layerRelease
+			acquired = layerRelease
 			i++
 			break
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, noopRelease, err
+		if !errors.Is(getErr, lsmkv.NotFound) {
+			return nil, noopRelease, getErr
 		}
 	}
 	defer func() {
 		if err != nil {
-			release()
+			acquired()
 		}
 	}()
 
 	for ; i < ln; i++ {
-		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool, maxConc); err != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool, maxConc); mergeErr != nil {
+			err = mergeErr
 			return nil, noopRelease, err
 		}
 	}
 
-	return out, release, nil
+	return out, acquired, nil
 }
 
 func (sg *SegmentGroup) count() int {

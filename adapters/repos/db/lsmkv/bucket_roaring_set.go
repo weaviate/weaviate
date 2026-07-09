@@ -79,24 +79,28 @@ func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitma
 func (b *Bucket) roaringSetGetFromConsistentView(
 	ctx context.Context, view BucketConsistentView, key []byte,
 ) (bm *sroar.Bitmap, release func(), err error) {
-	// resolve the sroar merge concurrency once so every layer merge for this
-	// key shares the same per-query budget instead of the old per-site constant
 	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
-	layers, release, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
+	layers, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
 	if err != nil {
 		return nil, noopRelease, err
 	}
+	// diskRelease frees the disk layers' pooled buffer. The defer releases it on
+	// any error path so a failed flushing/active read can't leak it back into
+	// the pool. It is a dedicated variable rather than the named release return
+	// because error paths overwrite the return with noopRelease for the caller;
+	// the defer must still see the real release.
 	defer func() {
 		if err != nil {
-			release()
+			diskRelease()
 		}
 	}()
 
 	if view.Flushing != nil {
-		flushing, err := view.Flushing.roaringSetGet(key)
-		if err != nil {
-			if !errors.Is(err, lsmkv.NotFound) {
+		flushing, flushErr := view.Flushing.roaringSetGet(key)
+		if flushErr != nil {
+			if !errors.Is(flushErr, lsmkv.NotFound) {
+				err = flushErr
 				return nil, noopRelease, err
 			}
 		} else {
@@ -104,14 +108,15 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 		}
 	}
 
-	activeBM, err := view.Active.roaringSetGet(key)
-	if err != nil {
-		if !errors.Is(err, lsmkv.NotFound) {
+	activeBM, activeErr := view.Active.roaringSetGet(key)
+	if activeErr != nil {
+		if !errors.Is(activeErr, lsmkv.NotFound) {
+			err = activeErr
 			return nil, noopRelease, err
 		}
 	} else {
 		layers = append(layers, activeBM)
 	}
 
-	return layers.Flatten(false, maxConc), release, nil
+	return layers.Flatten(false, maxConc), diskRelease, nil
 }

@@ -101,6 +101,14 @@ type fakeSegment struct {
 	path                  string
 	getCounter            int
 
+	// roaringSetReleases counts how many times the release func handed out by
+	// roaringSetGet was actually invoked, so tests can pin buffer-release
+	// behavior without a production seam.
+	roaringSetReleases int
+	// roaringSetMergeErr, when set, makes roaringSetMergeWith fail, simulating a
+	// mid-merge disk read error.
+	roaringSetMergeErr error
+
 	isMarkedForDeletion  bool
 	isStrippedExtensions bool
 	strippedLeftSegID    string
@@ -344,7 +352,7 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 	if val, ok := f.roaringStore[string(key)]; ok {
 		return roaringset.BitmapLayer{
 			Additions: val.Clone(),
-		}, func() {}, nil
+		}, func() { f.roaringSetReleases++ }, nil
 	}
 
 	return roaringset.BitmapLayer{}, nil, lsmkv.NotFound
@@ -352,6 +360,9 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 
 func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error {
 	f.getCounter++
+	if f.roaringSetMergeErr != nil {
+		return f.roaringSetMergeErr
+	}
 	layer, _, err := f.roaringSetGet(key, bitmapBufPool)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {

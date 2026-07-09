@@ -98,9 +98,31 @@ func TestBudgetCapDisabled_KillSwitch(t *testing.T) {
 	budgetCapDisabled = true
 	defer func() { budgetCapDisabled = prev }()
 
-	// kill switch on: limit is returned verbatim, ctx budget is ignored
-	assert.Equal(t, 8, BudgetFromCtxCapped(CtxWithBudget(context.Background(), 1), 8))
 	assert.True(t, BudgetCapDisabled())
+
+	tests := []struct {
+		name     string
+		budget   *int // nil => no budget in ctx
+		limit    int
+		expected int
+	}{
+		// kill switch on: ctx budget is ignored, limit is used as-is...
+		{name: "positive limit returned verbatim", budget: ptr(1), limit: 8, expected: 8},
+		{name: "ctx budget above limit still ignored", budget: ptr(16), limit: 8, expected: 8},
+		// ...except the floor of 1 still holds: a limit of 0 would otherwise
+		// mean "unlimited" to sroar and hang errgroup.SetLimit(0).
+		{name: "zero limit floored to 1", budget: nil, limit: 0, expected: 1},
+		{name: "zero limit floored to 1 even with ctx budget", budget: ptr(4), limit: 0, expected: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.budget != nil {
+				ctx = CtxWithBudget(ctx, *tt.budget)
+			}
+			assert.Equal(t, tt.expected, BudgetFromCtxCapped(ctx, tt.limit))
+		})
+	}
 }
 
 func ptr(i int) *int { return &i }

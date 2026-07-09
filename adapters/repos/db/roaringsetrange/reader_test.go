@@ -350,23 +350,38 @@ func TestCombinedReaderInnerReaders(t *testing.T) {
 // concurrent CombinedReader.Read calls never mutate a shared bitmap.
 type cloningInnerReader struct {
 	additions *sroar.Bitmap
+	// readDelay makes each Read take a bounded, sustained amount of time. The
+	// concurrency bound is enforced by the errgroup's SetLimit(conc): at most
+	// conc inner reads run at once. Without a sustained read, those workers are
+	// too short-lived for the 1ms goroutine sampler to catch, so an ignored
+	// budget (kill switch on) produces a red-control margin that is thin at
+	// small SROAR_MERGE — the sampler simply misses the extra workers. Holding
+	// each read open for a few sampler ticks makes the live-worker count reflect
+	// conc reliably, so the red control fails decisively even at SROAR_MERGE=2.
+	readDelay time.Duration
 }
 
 func (r *cloningInnerReader) Read(ctx context.Context, value uint64, operator filters.Operator,
 ) (roaringset.BitmapLayer, func(), error) {
+	if r.readDelay > 0 {
+		time.Sleep(r.readDelay)
+	}
 	return roaringset.BitmapLayer{
 		Additions: r.additions.Clone(),
 		Deletions: sroar.NewBitmap(),
 	}, noopRelease, nil
 }
 
-// TestCombinedReader_RespectsConcurrencyBudget: a budget of 1 must serialize
-// the outer layer merges, so hammering the reader can't inflate the live
-// goroutine count.
+// TestCombinedReader_RespectsConcurrencyBudget pins the outer layer merge to
+// the per-query budget without inflating the live goroutine count.
 func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
+	// CI implication: the kill-switch CI leg (DISABLE_SROAR_MERGE_BUDGET=true)
+	// skips this bound by design and serves as the red control instead.
 	if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
 		t.Skip("budget cap disabled via kill switch")
 	}
+	// CI implication: 2-vCPU runners have SROAR_MERGE=1 and skip this entirely;
+	// the bound is only exercised on >=4-vCPU runners (SROAR_MERGE>=2).
 	if concurrency.SROAR_MERGE < 2 {
 		t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
 			concurrency.SROAR_MERGE)
@@ -383,10 +398,13 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 	}
 
 	const numReaders = 8 // several outer merges per Read
+	// hold each inner read open for a few sampler ticks so the SetLimit(conc)
+	// fan-out is observable regardless of SROAR_MERGE (see cloningInnerReader).
+	const readDelay = 2 * time.Millisecond
 	newReader := func() *CombinedReader {
 		readers := make([]InnerReader, numReaders)
 		for i := range readers {
-			readers[i] = &cloningInnerReader{additions: roaringset.NewBitmap(values...)}
+			readers[i] = &cloningInnerReader{additions: roaringset.NewBitmap(values...), readDelay: readDelay}
 		}
 		return NewCombinedReader(readers, noopRelease, concurrency.SROAR_MERGE, logger)
 	}
@@ -411,9 +429,12 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 	// each in-flight Read holds <=3 goroutines: its own worker, the errgroup
 	// driver, and the one eg.Go worker budget=1 allows via eg.SetLimit(1).
 	// Sharing one reader across goroutines is safe since cloningInnerReader
-	// clones its bitmap per Read.
+	// clones its bitmap per Read. The sustained readDelay pins the budget=1 peak
+	// deterministically at 3/worker, so a slack of 8 keeps the green margin at
+	// +8 while the kill-switch red control overshoots by >=8 even at the
+	// smallest fan-out this test runs at (SROAR_MERGE=2 => conc=2).
 	shared := newReader()
-	testinghelpers.AssertGoroutineCeiling(t, 16, 3, 12, 200*time.Millisecond, func() error {
+	testinghelpers.AssertGoroutineCeiling(t, 16, 3, 8, 200*time.Millisecond, func() error {
 		bm, release, err := shared.Read(budget1, 0, filters.OperatorGreaterThanEqual)
 		if err != nil {
 			return err

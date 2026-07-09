@@ -18,9 +18,8 @@ import (
 	entcfg "github.com/weaviate/weaviate/entities/config"
 )
 
-// budgetCapDisabled restores pre-P1a behavior where sroar merge concurrency
-// was a fixed constant per call site, ignoring the per-query budget.
-// Escape hatch only; to be removed once the fix has soaked.
+// budgetCapDisabled is a temporary escape hatch: when set, sroar merge
+// concurrency ignores the per-query budget and uses the fixed constant again.
 var budgetCapDisabled = entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET"))
 
 // BudgetCapDisabled reports whether the sroar merge budget kill switch is set.
@@ -54,14 +53,15 @@ func ContextWithFractionalBudget(ctx context.Context, factor, fallback int) cont
 	return CtxWithBudget(ctx, newBudget)
 }
 
-// BudgetFromCtxCapped returns the per-query concurrency budget from ctx,
-// clamped to [1, limit]. limit doubles as the fallback when ctx carries no
-// budget (background callers: compaction, cursors, flush), which preserves
-// pre-budget behavior exactly. The floor of 1 is load-bearing: sroar's
-// *Conc merge ops treat maxConcurrency <= 0 as "unlimited".
+// BudgetFromCtxCapped returns ctx's per-query budget clamped to [1, limit];
+// limit is also the fallback when ctx carries no budget. The floor of 1 is
+// load-bearing: sroar's *Conc ops treat maxConcurrency<=0 as "unlimited".
 func BudgetFromCtxCapped(ctx context.Context, limit int) int {
 	if budgetCapDisabled {
-		return limit
+		// even with the cap disabled, keep the floor of 1: a limit of 0 would
+		// otherwise mean "unlimited" to sroar's *Conc ops (and hang an
+		// errgroup.SetLimit(0)), turning the kill switch into a footgun.
+		return max(limit, 1)
 	}
 	return clampBudget(BudgetFromCtx(ctx, limit), limit)
 }

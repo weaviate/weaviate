@@ -2091,11 +2091,21 @@ type testMemtable struct {
 	*Memtable
 	totalWriteCountIncs int
 	totalWriteCountDecs int
+	// roaringSetGetErr, when set, makes roaringSetGet fail, simulating a
+	// memtable read error mid-way through a consistent-view lookup.
+	roaringSetGetErr error
 }
 
 func (t *testMemtable) incWriterCount() {
 	t.totalWriteCountIncs++
 	t.Memtable.incWriterCount()
+}
+
+func (t *testMemtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+	if t.roaringSetGetErr != nil {
+		return roaringset.BitmapLayer{}, t.roaringSetGetErr
+	}
+	return t.Memtable.roaringSetGet(key)
 }
 
 func (t *testMemtable) decWriterCount() {

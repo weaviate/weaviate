@@ -46,8 +46,7 @@ func (r *SegmentReader) Read(ctx context.Context, value uint64, operator filters
 		return roaringset.BitmapLayer{}, noopRelease, err
 	}
 
-	// resolve the per-query merge budget once, capped at this reader's
-	// configured concurrency, and thread it through the merge helpers
+	// conc is the per-query merge budget, threaded through every read/merge helper below.
 	conc := concurrency.BudgetFromCtxCapped(ctx, r.concurrency)
 
 	switch operator {

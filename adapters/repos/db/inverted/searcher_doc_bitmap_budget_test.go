@@ -57,9 +57,13 @@ func TestDocBitmapInvertedRoaringSet_RowMergeBudget(t *testing.T) {
 	require.Len(t, defaultIDs, numRoaringRows*idsPerRow)
 
 	t.Run("goroutine ceiling under budget-1", func(t *testing.T) {
+		// CI implication: the kill-switch CI leg (DISABLE_SROAR_MERGE_BUDGET=true)
+		// skips this bound by design and serves as the red control instead.
 		if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
 			t.Skip("budget cap disabled via kill switch")
 		}
+		// CI implication: 2-vCPU runners have SROAR_MERGE=1 and skip this entirely;
+		// the bound is only exercised on >=4-vCPU runners (SROAR_MERGE>=2).
 		if concurrency.SROAR_MERGE < 2 {
 			t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
 				concurrency.SROAR_MERGE)

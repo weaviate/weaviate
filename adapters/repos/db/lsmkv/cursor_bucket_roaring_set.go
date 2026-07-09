@@ -61,8 +61,8 @@ func (b *Bucket) CursorRoaringSetCtx(ctx context.Context) CursorRoaringSet {
 	return b.cursorRoaringSet(false, concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE))
 }
 
-// CursorRoaringSetKeyOnlyCtx is like [Bucket.CursorRoaringSetKeyOnly] but caps
-// the per-key merge concurrency to the query's budget carried in ctx.
+// CursorRoaringSetKeyOnlyCtx is like [Bucket.CursorRoaringSetCtx] but only
+// returns keys.
 func (b *Bucket) CursorRoaringSetKeyOnlyCtx(ctx context.Context) CursorRoaringSet {
 	return b.cursorRoaringSet(true, concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE))
 }
