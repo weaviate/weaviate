@@ -12,6 +12,7 @@
 package roaringset
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,21 +100,29 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 		},
 	}
 
+	// Flatten must be identical regardless of the merge concurrency: single
+	// threaded (1), the minimum fan-out (2), and the default cap (SROAR_MERGE).
+	maxConcs := []int{1, 2, concurrency.SROAR_MERGE}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			input := make(BitmapLayers, len(test.inputs))
-			for i, inp := range test.inputs {
-				input[i].Additions = NewBitmap(inp.additions...)
-				input[i].Deletions = NewBitmap(inp.deletions...)
-			}
+			for _, maxConc := range maxConcs {
+				t.Run(fmt.Sprintf("maxConc=%d", maxConc), func(t *testing.T) {
+					input := make(BitmapLayers, len(test.inputs))
+					for i, inp := range test.inputs {
+						input[i].Additions = NewBitmap(inp.additions...)
+						input[i].Deletions = NewBitmap(inp.deletions...)
+					}
 
-			res := input.Flatten(false, concurrency.SROAR_MERGE)
-			for _, x := range test.expectedContained {
-				assert.True(t, res.Contains(x))
-			}
+					res := input.Flatten(false, maxConc)
+					for _, x := range test.expectedContained {
+						assert.True(t, res.Contains(x))
+					}
 
-			for _, x := range test.expectedNotContained {
-				assert.False(t, res.Contains(x))
+					for _, x := range test.expectedNotContained {
+						assert.False(t, res.Contains(x))
+					}
+				})
 			}
 		})
 	}

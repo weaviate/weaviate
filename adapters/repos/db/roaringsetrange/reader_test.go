@@ -14,7 +14,10 @@ package roaringsetrange
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -22,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -339,6 +343,145 @@ func TestCombinedReaderInnerReaders(t *testing.T) {
 		assert.Equal(t, 0, innerReader2.InUseCounter())
 		assert.Equal(t, 0, innerReader3.InUseCounter())
 	})
+}
+
+// cloningInnerReader returns a fresh clone of its additions on every Read, so
+// concurrent CombinedReader.Read calls never mutate a shared bitmap.
+type cloningInnerReader struct {
+	additions *sroar.Bitmap
+}
+
+func (r *cloningInnerReader) Read(ctx context.Context, value uint64, operator filters.Operator,
+) (roaringset.BitmapLayer, func(), error) {
+	return roaringset.BitmapLayer{
+		Additions: r.additions.Clone(),
+		Deletions: sroar.NewBitmap(),
+	}, noopRelease, nil
+}
+
+// TestCombinedReader_RespectsConcurrencyBudget proves the per-query budget
+// threaded into CombinedReader.Read caps sroar's merge fan-out. With a budget
+// of 1 the outer layer merges run single-threaded, so hammering the reader
+// from many callers cannot inflate the live goroutine count. Without the
+// budget each of the (readers-1) merges would fan out ~SROAR_MERGE workers.
+func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
+	if concurrency.SROAR_MERGE < 2 {
+		t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
+			concurrency.SROAR_MERGE)
+	}
+
+	logger, _ := test.NewNullLogger()
+
+	// one value per sroar container (stride 2^16). Many containers so each
+	// *Conc op spreads real work across min(n/24, SROAR_MERGE) workers that
+	// live long enough for the sampler to observe when the budget is ignored.
+	const numContainers = 8192
+	values := make([]uint64, numContainers)
+	for i := range values {
+		values[i] = uint64(i) << 16
+	}
+
+	const numReaders = 8 // several outer merges per Read
+	newReader := func() *CombinedReader {
+		readers := make([]InnerReader, numReaders)
+		for i := range readers {
+			readers[i] = &cloningInnerReader{additions: roaringset.NewBitmap(values...)}
+		}
+		return NewCombinedReader(readers, noopRelease, concurrency.SROAR_MERGE, logger)
+	}
+
+	ctx := context.Background()
+	budget1 := concurrency.CtxWithBudget(ctx, 1)
+
+	// correctness: a budget of 1 returns the same set as an unconstrained query
+	got1, release1, err := newReader().Read(budget1, 0, filters.OperatorGreaterThanEqual)
+	require.NoError(t, err)
+	arr1 := got1.ToArray()
+	release1()
+
+	gotDefault, releaseDefault, err := newReader().Read(ctx, 0, filters.OperatorGreaterThanEqual)
+	require.NoError(t, err)
+	arrDefault := gotDefault.ToArray()
+	releaseDefault()
+
+	require.Equal(t, values, arr1)
+	require.Equal(t, arrDefault, arr1)
+
+	// bounding leg
+	const (
+		numWorkers = 16
+		runFor     = 200 * time.Millisecond
+		// CombinedReader always drives its inner readers through an errgroup, so
+		// each in-flight Read keeps at most 3 goroutines alive: its own worker,
+		// the errgroup driver, and (because budget=1 forces eg.SetLimit(1)) a
+		// single limited eg.Go worker. The merge ops spawn zero workers at conc=1.
+		// Without the budget, conc=SROAR_MERGE lifts the eg limit and every Conc
+		// op fans out ~SROAR_MERGE-1 merge workers, blowing past this ceiling.
+		maxGoroutinesPerRead = 3
+		// absorbs the sampler goroutine and transient runtime/GC workers
+		noiseSlack = 12
+	)
+
+	stop := make(chan struct{})
+	samplerDone := make(chan struct{})
+	var maxSeen int // written only by the sampler, read after samplerDone closes
+
+	go func() {
+		defer close(samplerDone)
+		ticker := time.NewTicker(1 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if n := runtime.NumGoroutine(); n > maxSeen {
+					maxSeen = n
+				}
+			}
+		}
+	}()
+
+	time.Sleep(5 * time.Millisecond)
+	base := runtime.NumGoroutine()
+
+	firstErr := make(chan error, 1)
+	var wg sync.WaitGroup
+	deadline := time.Now().Add(runFor)
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := newReader()
+			for time.Now().Before(deadline) {
+				bm, release, err := r.Read(budget1, 0, filters.OperatorGreaterThanEqual)
+				if err != nil {
+					select {
+					case firstErr <- err:
+					default:
+					}
+					return
+				}
+				_ = bm
+				release()
+			}
+		}()
+	}
+	wg.Wait()
+	close(stop)
+	<-samplerDone
+
+	select {
+	case err := <-firstErr:
+		require.NoError(t, err)
+	default:
+	}
+
+	ceiling := base + numWorkers*maxGoroutinesPerRead + noiseSlack
+	assert.LessOrEqualf(t, maxSeen, ceiling,
+		"live goroutines peaked at %d, above base(%d)+workers(%d)*perRead(%d)+noise(%d)=%d; "+
+			"a budget of 1 must not fan out sroar merge workers",
+		maxSeen, base, numWorkers, maxGoroutinesPerRead, noiseSlack, ceiling)
 }
 
 func createTestMemtables(logger logrus.FieldLogger) (*Memtable, *Memtable, *Memtable) {
