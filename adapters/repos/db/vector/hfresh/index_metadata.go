@@ -192,7 +192,7 @@ func (h *HFresh) restoreMetadata() error {
 	// point read per never-touched vector ID, which on a large freshly
 	// started index turns every query into thousands of random disk reads
 	start := time.Now()
-	count, err := h.VersionMap.Restore(h.ctx)
+	count, err := h.VersionMap.Restore(h.ctx, h.logger)
 	if err != nil {
 		return errors.Wrap(err, "restore version map")
 	}

@@ -17,8 +17,10 @@ import (
 	"encoding/binary"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
@@ -195,6 +197,14 @@ func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVe
 	return newVersion, nil
 }
 
+// defaultRestoreConcurrency bounds how many parallel cursor scans Restore
+// runs. A single LSM cursor over ~1B tiny entries is CPU-bound in the
+// segment heap-merge (~3M entries/s measured), so the version keyspace is
+// partitioned by the first byte of the LE-encoded vector ID (256 disjoint
+// ranges) and scanned in parallel. Overridable via
+// HFRESH_RESTORE_CONCURRENCY (1 = sequential).
+const defaultRestoreConcurrency = 16
+
 // Restore bulk-loads every persisted vector version into the in-memory paged
 // array and returns how many were loaded. It must run at startup, before the
 // index serves queries: the map is otherwise populated lazily, and on a
@@ -202,20 +212,43 @@ func (v *VersionMap) MarkDeleted(ctx context.Context, vectorID uint64) (VectorVe
 // scan falls back to an LSM point read — thousands of random disk reads per
 // query until the full ID space has been touched.
 //
-// Restore writes to the pages without locking; callers must not use the map
-// concurrently until it returns.
-func (v *VersionMap) Restore(ctx context.Context) (int64, error) {
-	var count int64
-	err := v.store.Iter(ctx, func(vectorID uint64, version VectorVersion) error {
-		if version == 0 {
+// The paged array handles concurrent page installation; each ID belongs to
+// exactly one partition, so slot writes are disjoint across workers. Callers
+// must not use the map concurrently until Restore returns.
+func (v *VersionMap) Restore(ctx context.Context, logger logrus.FieldLogger) (int64, error) {
+	concurrency := envIntOrDefault("HFRESH_RESTORE_CONCURRENCY", defaultRestoreConcurrency)
+
+	counts := make([]int64, concurrency)
+
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	for w := range concurrency {
+		eg.Go(func() error {
+			for b := w; b < 256; b += concurrency {
+				err := v.store.iterFirstByte(ctx, byte(b), func(vectorID uint64, version VectorVersion) error {
+					if version == 0 {
+						return nil
+					}
+					page, slot := v.data.EnsurePageFor(vectorID)
+					page[slot] = version
+					counts[w]++
+					return nil
+				})
+				if err != nil {
+					return err
+				}
+			}
 			return nil
-		}
-		page, slot := v.data.EnsurePageFor(vectorID)
-		page[slot] = version
-		count++
-		return nil
-	})
-	return count, err
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return 0, err
+	}
+
+	var count int64
+	for _, c := range counts {
+		count += c
+	}
+	return count, nil
 }
 
 func (v *VersionMap) IsDeleted(ctx context.Context, vectorID uint64) (bool, error) {
@@ -264,13 +297,21 @@ func (v *VersionStore) Set(ctx context.Context, vectorID uint64, version VectorV
 	return v.bucket.Put(key[:], []byte{byte(version)})
 }
 
-// Iter calls fn for every persisted vector version.
-func (v *VersionStore) Iter(ctx context.Context, fn func(uint64, VectorVersion) error) error {
+// iterFirstByte calls fn for every persisted vector version whose LE-encoded
+// ID starts with firstByte — one of the 256 disjoint partitions of the
+// version keyspace.
+func (v *VersionStore) iterFirstByte(ctx context.Context, firstByte byte, fn func(uint64, VectorVersion) error) error {
 	c := v.bucket.Cursor()
 	defer c.Close()
 
+	seek := make([]byte, len(versionMapBucketPrefix)+1)
+	copy(seek, versionMapBucketPrefix)
+	seek[len(versionMapBucketPrefix)] = firstByte
+
 	var i int
-	for k, val := c.Seek(versionMapBucketPrefix); len(k) > 0 && bytes.HasPrefix(k, versionMapBucketPrefix); k, val = c.Next() {
+	for k, val := c.Seek(seek); len(k) > len(versionMapBucketPrefix) &&
+		bytes.HasPrefix(k, versionMapBucketPrefix) &&
+		k[len(versionMapBucketPrefix)] == firstByte; k, val = c.Next() {
 		i++
 		if len(val) == 0 {
 			continue

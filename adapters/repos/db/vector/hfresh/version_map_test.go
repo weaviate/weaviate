@@ -14,6 +14,7 @@ package hfresh
 import (
 	"testing"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -31,52 +32,67 @@ func makeVersionMap(t *testing.T) *VersionMap {
 // Restore must bulk-load every persisted version into the in-memory paged
 // array at startup. Without it, every first access of a vector ID during the
 // posting scan falls back to an LSM point read — thousands of random disk
-// reads per query on a freshly started node.
+// reads per query on a freshly started node. The scan is partitioned by the
+// first byte of the LE-encoded ID and run in parallel.
 func TestVersionMapRestore(t *testing.T) {
 	ctx := t.Context()
+	logger, _ := logrustest.NewNullLogger()
 
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
 
-	// persist versions, simulating a previous run
+	// persist versions, simulating a previous run. IDs are chosen to land in
+	// several different first-byte partitions of the LE encoding while
+	// staying within the paged array's ~1B capacity.
+	want := map[uint64]VectorVersion{
+		0:           3,
+		1:           4,
+		42:          tombstoneMask | 5, // deleted
+		255:         9,
+		256:         10,
+		257:         11,
+		65_536:      12,
+		1_000_000:   7,
+		500_000_000: 8,
+		999_999_999: 13,
+	}
 	vm := NewVersionMap(bucket)
-	require.NoError(t, vm.store.Set(ctx, 1, VectorVersion(3)))
-	require.NoError(t, vm.store.Set(ctx, 42, VectorVersion(tombstoneMask|5))) // deleted
-	require.NoError(t, vm.store.Set(ctx, 1_000_000, VectorVersion(7)))
+	for id, version := range want {
+		require.NoError(t, vm.store.Set(ctx, id, version))
+	}
 
 	// unrelated data under a different prefix in the same shared bucket must
 	// not be picked up
 	sizes := NewPostingSizesStore(bucket, postingSizesBucketPrefix)
 	require.NoError(t, sizes.Set(ctx, 42, 123))
 
-	// fresh map over the same bucket, as after a restart
-	vm2 := NewVersionMap(bucket)
-	count, err := vm2.Restore(ctx)
-	require.NoError(t, err)
-	require.EqualValues(t, 3, count)
+	for _, concurrency := range []string{"1", "8"} {
+		t.Run("concurrency="+concurrency, func(t *testing.T) {
+			t.Setenv("HFRESH_RESTORE_CONCURRENCY", concurrency)
 
-	// the versions are in memory: pages exist and hold the right values
-	for _, tc := range []struct {
-		id   uint64
-		want VectorVersion
-	}{
-		{1, 3},
-		{42, tombstoneMask | 5},
-		{1_000_000, 7},
-	} {
-		page, slot := vm2.data.GetPageFor(tc.id)
-		require.NotNil(t, page, "id %d not restored into memory", tc.id)
-		require.Equal(t, tc.want, page[slot], "id %d", tc.id)
+			// fresh map over the same bucket, as after a restart
+			vm2 := NewVersionMap(bucket)
+			count, err := vm2.Restore(ctx, logger)
+			require.NoError(t, err)
+			require.EqualValues(t, len(want), count)
+
+			// the versions are in memory: pages exist and hold the right values
+			for id, version := range want {
+				page, slot := vm2.data.GetPageFor(id)
+				require.NotNil(t, page, "id %d not restored into memory", id)
+				require.Equal(t, version, page[slot], "id %d", id)
+			}
+
+			// and the public API agrees
+			v, err := vm2.Get(ctx, 42)
+			require.NoError(t, err)
+			require.True(t, v.Deleted())
+			v, err = vm2.Get(ctx, 500_000_000)
+			require.NoError(t, err)
+			require.Equal(t, uint8(8), v.Version())
+		})
 	}
-
-	// and the public API agrees
-	v, err := vm2.Get(ctx, 42)
-	require.NoError(t, err)
-	require.True(t, v.Deleted())
-	v, err = vm2.Get(ctx, 1_000_000)
-	require.NoError(t, err)
-	require.Equal(t, uint8(7), v.Version())
 }
 
 func TestVectorVersion(t *testing.T) {
