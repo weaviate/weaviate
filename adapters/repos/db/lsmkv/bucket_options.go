@@ -114,10 +114,14 @@ func WithLazyPropertyLengths(lazy *configRuntime.DynamicValue[bool]) BucketOptio
 // WithBM25FilterTombMergeGateRatio sets the block-max WAND merged-filter gate: fold
 // tombstones into the filter only when summed query doc frequency >= ratio *
 // filter cardinality * disk-segment count (the fold clones the filter once per
-// segment). 0 always merges, +Inf disables the fold, default 1.
-func WithBM25FilterTombMergeGateRatio(ratio float64) BucketOption {
+// segment). 0 always merges, +Inf disables the fold, default 1. Read live at query
+// time via Get(), so runtime config can retune it without a restart. A nil ratio
+// leaves the bucket's default in place.
+func WithBM25FilterTombMergeGateRatio(ratio *configRuntime.DynamicValue[float64]) BucketOption {
 	return func(b *Bucket) error {
-		b.bm25FilterTombMergeGateRatio = ratio
+		if ratio != nil {
+			b.bm25FilterTombMergeGateRatio = ratio
+		}
 		return nil
 	}
 }

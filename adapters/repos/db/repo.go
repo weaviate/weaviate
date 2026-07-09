@@ -483,7 +483,7 @@ type Config struct {
 	HNSWAcornFilterRatio                         float64
 	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
-	BM25FilterTombMergeGateRatio                 float64
+	BM25FilterTombMergeGateRatio                 *configRuntime.DynamicValue[float64]
 
 	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
 	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]

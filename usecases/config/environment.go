@@ -635,7 +635,7 @@ func FromEnv(config *Config) error {
 	if err := parseFloatVerify(
 		"BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO",
 		DefaultBM25FilterTombMergeGateRatio,
-		func(val float64) { config.BM25FilterTombMergeGateRatio = val },
+		func(val float64) { config.BM25FilterTombMergeGateRatio = configRuntime.NewDynamicValue(val) },
 		func(val float64, envName string) error {
 			if math.IsNaN(val) || val < 0 {
 				return fmt.Errorf("%s must be a non-negative float (0 always merges, +Inf disables the fold). Got: %v", envName, val)

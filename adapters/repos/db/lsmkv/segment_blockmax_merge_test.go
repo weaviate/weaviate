@@ -142,9 +142,9 @@ func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 			}
 			filter := helpers.NewAllowListFromBitmap(bm)
 
-			bucket.bm25FilterTombMergeGateRatio = math.Inf(1) // never merge: filter + tombstones checked separately
+			require.NoError(t, bucket.bm25FilterTombMergeGateRatio.SetValue(math.Inf(1))) // never merge: filter + tombstones checked separately
 			unmerged := search(t, bucket, filter, false)
-			bucket.bm25FilterTombMergeGateRatio = 0 // always merge: tombstones folded into the filter
+			require.NoError(t, bucket.bm25FilterTombMergeGateRatio.SetValue(0)) // always merge: tombstones folded into the filter
 			merged := search(t, bucket, filter, true)
 
 			require.NotEmpty(t, unmerged, "baseline returned nothing; workload is vacuous")

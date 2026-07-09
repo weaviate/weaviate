@@ -1007,7 +1007,7 @@ type IndexConfig struct {
 	HNSWAcornFilterRatio                         float64
 	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
-	BM25FilterTombMergeGateRatio                 float64
+	BM25FilterTombMergeGateRatio                 *configRuntime.DynamicValue[float64]
 
 	QuerySlowLogEnabled        *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold      *configRuntime.DynamicValue[time.Duration]

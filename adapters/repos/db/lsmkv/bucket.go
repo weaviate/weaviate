@@ -161,8 +161,8 @@ type Bucket struct {
 	lazyPropertyLengths *configRuntime.DynamicValue[bool]
 
 	// Block-max WAND filter/tombstone-fold gate, read in createDiskTermFromCV
-	// (see WithBM25FilterTombMergeGateRatio).
-	bm25FilterTombMergeGateRatio float64
+	// (see WithBM25FilterTombMergeGateRatio). Runtime-tunable via Get().
+	bm25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]
 
 	// Canonical class name carried by the bucket. Required for any bucket
 	// whose readers go through the storobj decoders (the objects bucket); set
@@ -264,7 +264,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
 		minWalThreshold:              config.DefaultPersistenceMaxReuseWalSize,
-		bm25FilterTombMergeGateRatio: config.DefaultBM25FilterTombMergeGateRatio,
+		bm25FilterTombMergeGateRatio: configRuntime.NewDynamicValue(config.DefaultBM25FilterTombMergeGateRatio),
 	}
 
 	for _, opt := range opts {
@@ -2337,13 +2337,17 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			for _, n := range idfCounts {
 				sumDf += n
 			}
-			// nSeg (>=1) prices the per-segment clone into the gate: the fold runs
-			// an AndNot per disk segment that carries tombstones.
+			// nSeg (>=1) prices the per-segment clone into the gate. It uses the
+			// total disk-segment count as an upper bound on the folds: the actual
+			// fold runs an AndNot only for segments that carry tombstones, so on a
+			// mostly-tombstone-free workload this over-prices and may skip a fold
+			// that would have been cheap (see follow-up to price by tombstone-
+			// carrying segments only).
 			nSeg := float64(len(view.Disk))
 			if nSeg < 1 {
 				nSeg = 1
 			}
-			mergeFilterAndTombstones = float64(sumDf) >= b.bm25FilterTombMergeGateRatio*float64(filterCard)*nSeg
+			mergeFilterAndTombstones = float64(sumDf) >= b.bm25FilterTombMergeGateRatio.Get()*float64(filterCard)*nSeg
 		}
 	}
 

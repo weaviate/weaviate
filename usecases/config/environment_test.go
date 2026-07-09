@@ -327,7 +327,7 @@ func TestEnvironmentBM25FilterTombMergeGateRatio(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expected, conf.BM25FilterTombMergeGateRatio)
+				assert.Equal(t, tt.expected, conf.BM25FilterTombMergeGateRatio.Get())
 			}
 		})
 	}

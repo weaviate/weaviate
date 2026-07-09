@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // TestBlockMaxWandMergeFilterConcurrent runs many filtered queries folding
@@ -54,7 +55,7 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyInverted),
-		WithBM25FilterTombMergeGateRatio(0)) // force the merge on for every query
+		WithBM25FilterTombMergeGateRatio(configRuntime.NewDynamicValue(0.0))) // force the merge on for every query
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 
