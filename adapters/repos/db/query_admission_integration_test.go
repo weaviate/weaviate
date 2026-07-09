@@ -44,12 +44,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// TestQueryAdmissionConcurrency exercises the node-level admission limiter end
-// to end under a burst of concurrent filtered+BM25 shard searches. It asserts
-// three properties: (1) under load the limiter sheds cleanly (429), never
-// returning a corrupt or unexpected error; (2) admission bounds the aggregate
-// goroutine fan-out of the search internals; (3) the runtime kill switch turns
-// the limiter into a passthrough (no shedding).
+// TestQueryAdmissionConcurrency bursts concurrent filtered+BM25 shard
+// searches to verify clean shedding, bounded goroutine fan-out, and that the
+// runtime kill switch disables shedding live.
 func TestQueryAdmissionConcurrency(t *testing.T) {
 	const (
 		className   = "AdmissionClass"
@@ -66,9 +63,8 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 
 	importAdmissionObjects(t, repo, className, numObjects)
 
-	// filters != nil && keywordRanking != nil -> the admitted (filter + BM25)
-	// path. category is filterable and evenly spread over 10 values, so the
-	// filter matches ~10% of objects; body contains "alpha" in every object.
+	// filter+kwr hit the admitted (filter+BM25) path; category is evenly spread
+	// over 10 values (~10% match), body always contains "alpha".
 	filter := &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: filters.OperatorEqual,
@@ -82,8 +78,8 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"body"}, Query: "alpha"}
 	props := []string{"body", "category"}
 
-	// burst fires `concurrency` searches at once and returns how many were shed
-	// plus the peak goroutine count observed above the pre-burst baseline.
+	// burst fires `concurrency` searches at once and reports shed count and
+	// peak goroutine delta above the pre-burst baseline.
 	burst := func(t *testing.T) (shed int, peakDelta int) {
 		baseline := runtime.NumGoroutine()
 		var peak atomic.Int64
@@ -135,17 +131,14 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 		return int(shedCount.Load()), int(peak.Load()) - baseline
 	}
 
-	// Enabled: the limiter sheds most of the burst (only ~budget+queue can be
-	// in flight) and never surfaces an unexpected error.
+	// Only ~budget+queue can be in flight, so the limiter sheds most of the burst.
 	shedEnabled, peakEnabled := burst(t)
 	t.Logf("enabled:  shed=%d/%d peakGoroutineDelta=%d gomaxprocs=%d",
 		shedEnabled, concurrency, peakEnabled, runtime.GOMAXPROCS(0))
 	require.Positive(t, shedEnabled, "expected shedding at %d concurrent vs budget %d / queue %d",
 		concurrency, budget, maxQueue)
 
-	// Disabled: the kill switch turns Admit into a passthrough — no shedding at
-	// all, proving the runtime override takes effect live on an already-built
-	// limiter.
+	// The kill switch makes Admit a passthrough on an already-built limiter.
 	require.NoError(t, disabled.SetValue(true))
 	shedDisabled, peakDisabled := burst(t)
 	require.NoError(t, disabled.SetValue(false))
@@ -153,11 +146,8 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 		shedDisabled, concurrency, peakDisabled)
 	require.Zero(t, shedDisabled, "disabled admission must never shed")
 
-	// Goroutine bounding: admission caps the number of concurrently admitted
-	// queries, so the aggregate search-internal fan-out (dominated by BM25F's
-	// per-query GOMAXPROCS term parallelism) stays below the unbounded
-	// passthrough baseline. Only meaningful with real parallelism; on a single
-	// proc there is no fan-out to bound.
+	// Admission caps concurrent queries, bounding aggregate fan-out below the
+	// unbounded baseline; only observable with real parallelism (GOMAXPROCS>=2).
 	if runtime.GOMAXPROCS(0) >= 2 {
 		require.Less(t, peakEnabled, peakDisabled,
 			"admission should bound goroutine fan-out below the unbounded baseline")

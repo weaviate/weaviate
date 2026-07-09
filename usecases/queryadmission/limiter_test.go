@@ -287,10 +287,9 @@ func TestShedAtMaxQueue(t *testing.T) {
 	require.Equal(t, int64(0), l.usedForTest())
 }
 
-// TestWakeCancelRaceHandsGrantBack drives the exact interleaving where a
-// release wakes a waiter (grant lands on w.ready, waiter removed from the queue)
-// but that waiter is abandoning via its ctx.Done path. The reclaim branch in
-// cancelWaiter must return the grant so capacity does not leak.
+// TestWakeCancelRaceHandsGrantBack pins the race where a release wakes a
+// waiter that is simultaneously cancelling; cancelWaiter must reclaim the
+// grant instead of leaking it.
 func TestWakeCancelRaceHandsGrantBack(t *testing.T) {
 	l := newLimiter(t, Config{Capacity: 4, MaxQueue: 8})
 	releases := saturate(t, l, 4)

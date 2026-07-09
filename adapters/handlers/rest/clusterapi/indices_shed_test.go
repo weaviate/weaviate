@@ -32,8 +32,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
-// overloadedShards embeds the shards interface so only the method under test
-// needs an implementation; any other call would nil-panic and fail loudly.
+// overloadedShards embeds shards so only Search needs implementing; any other
+// call nil-panics.
 type overloadedShards struct {
 	shards
 	err error
@@ -51,9 +51,8 @@ type startedDB struct{}
 
 func (startedDB) StartupComplete() bool { return true }
 
-// TestSearchErrorStatusMapping verifies the coordinator ingress path returns
-// HTTP 429 (not 500) when the node sheds a query — so the retryClient backs off
-// — while unrelated errors still map to 500 and are not swallowed.
+// TestSearchErrorStatusMapping verifies a shed query maps to HTTP 429, while
+// unrelated errors still map to 500.
 func TestSearchErrorStatusMapping(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -71,8 +70,6 @@ func TestSearchErrorStatusMapping(t *testing.T) {
 	}
 }
 
-// serveShardSearch drives a real shard-search request through the Indices
-// handler with a shards impl whose Search returns searchErr.
 func serveShardSearch(t *testing.T, searchErr error) *httptest.ResponseRecorder {
 	t.Helper()
 	logger := logrus.New()
