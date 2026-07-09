@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -449,4 +450,153 @@ func TestConcurrentStress(t *testing.T) {
 	require.Equal(t, int64(0), l.usedForTest(), "capacity leaked")
 	require.Equal(t, int64(0), l.inflightForTest(), "inflight leaked")
 	require.Equal(t, 0, l.waitersLenForTest(), "waiters leaked")
+}
+
+// --- unit-test gaps ---------------------------------------------------------
+
+// TestAdmitZeroOrNegativeWantGrantsOne pins that a non-positive want floors to a
+// grant of exactly 1 (the per-query progress floor), never 0 or negative.
+func TestAdmitZeroOrNegativeWantGrantsOne(t *testing.T) {
+	for _, want := range []int{0, -5} {
+		l := newLimiter(t, Config{Capacity: 400})
+		_, rel, err := l.Admit(context.Background(), want)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), l.usedForTest(), "want=%d must floor to a grant of 1", want)
+		rel()
+		require.Equal(t, int64(0), l.usedForTest())
+	}
+}
+
+// TestSingleReleaseWakesMultipleWaiters pins that one releaseLocked pass wakes
+// several FIFO waiters when the released grant frees several units at once.
+func TestSingleReleaseWakesMultipleWaiters(t *testing.T) {
+	l := newLimiter(t, Config{Capacity: 16, MaxQueue: 16})
+
+	// One query holds a grant of 4 (remaining/4 == 4 on an empty cap-16 pool).
+	_, relBig, err := l.Admit(context.Background(), 4)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), l.usedForTest())
+
+	// Fill the remaining 12 units with want-1 grants so the node is saturated.
+	fill := saturate(t, l, 12)
+	require.Equal(t, int64(16), l.usedForTest())
+
+	// Park 5 want-1 waiters that HOLD their grant once woken (via the barrier),
+	// so the wake count reflects a single releaseLocked pass and cannot cascade.
+	const nWaiters = 5
+	woke := make(chan struct{}, nWaiters)
+	barrier := make(chan struct{})
+	for i := 0; i < nWaiters; i++ {
+		go func() {
+			_, rel, err := l.Admit(context.Background(), 1)
+			if err != nil {
+				return
+			}
+			woke <- struct{}{}
+			<-barrier
+			rel()
+		}()
+	}
+	waitFor(t, func() bool { return l.waitersLenForTest() == nWaiters })
+
+	// Releasing the grant of 4 frees 4 units; releaseLocked wakes 4 waiters FIFO
+	// in this single pass, then stops (capacity exhausted at 16 again).
+	relBig()
+	for i := 0; i < 4; i++ {
+		select {
+		case <-woke:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("expected 4 waiters woken in one release pass, only got %d", i)
+		}
+	}
+	// The 5th waiter cannot be woken: capacity is full and the woken 4 hold theirs.
+	select {
+	case <-woke:
+		t.Fatal("a 5th waiter woke, but the freed capacity was only 4 units")
+	case <-time.After(100 * time.Millisecond):
+	}
+	require.Equal(t, 1, l.waitersLenForTest(), "the 5th waiter must remain queued")
+
+	// Drain: release the held grants and the fill grants; everything unwinds.
+	close(barrier)
+	for _, r := range fill {
+		r()
+	}
+	waitFor(t, func() bool { return l.usedForTest() == 0 && l.waitersLenForTest() == 0 })
+}
+
+// TestShedIncrementsShedTotalMetric asserts a shed bumps query_admission_shed_total.
+func TestShedIncrementsShedTotalMetric(t *testing.T) {
+	l := newLimiter(t, Config{Capacity: 4, MaxQueue: 1})
+	releases := saturate(t, l, 4)
+
+	// Fill the single queue slot with a blocked waiter.
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+	go l.Admit(ctxA, 1) //nolint:errcheck // blocks until cancelled
+	waitFor(t, func() bool { return l.waitersLenForTest() == 1 })
+
+	require.Equal(t, float64(0), testutil.ToFloat64(l.shedTotal))
+
+	// Saturated + queue full -> shed.
+	_, rel, err := l.Admit(context.Background(), 1)
+	require.ErrorIs(t, err, ErrOverloaded)
+	rel() // no-op
+	require.Equal(t, float64(1), testutil.ToFloat64(l.shedTotal),
+		"a shed must increment query_admission_shed_total")
+
+	cancelA()
+	waitFor(t, func() bool { return l.waitersLenForTest() == 0 })
+	for _, r := range releases {
+		r()
+	}
+	require.Equal(t, int64(0), l.usedForTest())
+}
+
+// TestFlipToDisabledDrainsQueuedWaiters is the S3 guard: flipping the kill
+// switch to disabled does NOT actively wake already-parked waiters (DynamicValue
+// has no change hook), but they still drain via normal releases while new
+// arrivals bypass admission.
+func TestFlipToDisabledDrainsQueuedWaiters(t *testing.T) {
+	d := configRuntime.NewDynamicValue(false)
+	l := newLimiter(t, Config{Capacity: 2, MaxQueue: 8, Disabled: d})
+	releases := saturate(t, l, 2)
+	require.Equal(t, int64(2), l.usedForTest())
+
+	// Park two waiters while admission is enabled.
+	done := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, rel, err := l.Admit(context.Background(), 1)
+			if err == nil {
+				rel()
+			}
+			done <- err
+		}()
+	}
+	waitFor(t, func() bool { return l.waitersLenForTest() == 2 })
+
+	// Flip to disabled. The parked waiters are NOT actively woken by the flip.
+	require.NoError(t, d.SetValue(true))
+
+	// A new arrival is a passthrough and must not enqueue behind the parked two.
+	_, relNew, err := l.Admit(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, 2, l.waitersLenForTest(), "disabled passthrough must not enqueue")
+	relNew()
+
+	// The parked waiters still drain as the saturating grants are released.
+	for _, r := range releases {
+		r()
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("a queued waiter did not drain after flip-to-disabled")
+		}
+	}
+	require.Equal(t, int64(0), l.usedForTest())
+	require.Equal(t, 0, l.waitersLenForTest())
 }

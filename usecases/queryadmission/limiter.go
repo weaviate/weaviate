@@ -54,6 +54,14 @@ type Config struct {
 	// Disabled is a live kill switch. When it reports true, Admit is a
 	// passthrough (no accounting, no shedding). A nil pointer reads as false,
 	// i.e. admission control is enabled by default.
+	//
+	// Flipping to true takes effect for NEW arrivals immediately, but does not
+	// actively wake waiters already parked in the queue: DynamicValue exposes no
+	// change hook, so there is nothing to fire on the flip. Those waiters still
+	// make progress — each drains via a normal capacity release from an
+	// in-flight query (or leaves via its own ctx cancellation). Because new
+	// arrivals now bypass admission entirely, in-flight grants only fall, so the
+	// queue drains monotonically to empty and never re-fills.
 	Disabled *configRuntime.DynamicValue[bool]
 }
 
@@ -71,11 +79,16 @@ type waiter struct {
 // waiter cancelled the instant it wakes hands its grant back (cancelWaiter)
 // rather than leaking it.
 //
-// Nesting: a grant is never held while blocking on another node's admission,
-// except the deadline-bounded nested cross-reference fan-out, which re-enters
-// Admit on the same node; re-entrant calls inherit the parent's grant
-// (admissionKey) instead of acquiring a second one, so nesting cannot
-// deadlock against the parent's own budget.
+// Nesting: re-entrant admits on the SAME node inherit the parent's grant
+// (admissionKey) instead of acquiring a second one, so a nested cross-reference
+// search cannot deadlock against the parent's own budget. A grant IS, however,
+// held while a ref-filter fans out to a REMOTE node and blocks on that node's
+// admission. Liveness under mutual cross-node saturation does not rest on
+// releasing the grant; it rests on the bounded wait queue (arrivals past
+// MaxQueue are shed), the coordinator's bounded remote-retry backoff, and
+// request deadlines. The cost is degraded latency, not deadlock. The nested
+// cross-reference fan-out is itself bounded by a count (QueryNestedRefLimit),
+// not a deadline.
 type Limiter struct {
 	mu       sync.Mutex
 	capacity int64
@@ -158,21 +171,27 @@ func (l *Limiter) disabled() bool {
 // ctx error if ctx is/becomes done before a grant.
 //
 // Admit is nil-receiver-safe: a nil Limiter, disabled limiter, or re-entrant
-// call all return the ctx unchanged and a no-op release, so test fixtures
-// can skip wiring a limiter.
+// call all return the ctx unchanged and a no-op release. Both production
+// constructors wire the limiter unconditionally — db.New always builds it
+// (adapters/repos/db/repo.go) and it is threaded into every IndexConfig
+// (adapters/repos/db/init.go, migrator.go) — so a nil receiver never occurs in
+// production; it is purely a test-fixture affordance that lets a test build an
+// IndexConfig without wiring a limiter.
 func (l *Limiter) Admit(ctx context.Context, want int) (context.Context, func(), error) {
 	if l == nil || l.disabled() {
 		return ctx, func() {}, nil
+	}
+	// Never admit an already-expired ctx: it would take a grant only to be
+	// abandoned immediately downstream. Checked before the re-entrancy
+	// passthrough so a nested call under an already-cancelled parent short-
+	// circuits instead of proceeding on a dead ctx.
+	if err := ctx.Err(); err != nil {
+		return ctx, func() {}, err
 	}
 	// Re-entrant call: inherit the parent grant rather than risk the child
 	// waiting on capacity the parent already holds.
 	if ctx.Value(admissionKey{}) != nil {
 		return ctx, func() {}, nil
-	}
-	// Never admit an already-expired ctx: it would take a grant only to be
-	// abandoned immediately downstream.
-	if err := ctx.Err(); err != nil {
-		return ctx, func() {}, err
 	}
 
 	w64 := int64(want)
