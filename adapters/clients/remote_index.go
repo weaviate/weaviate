@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
@@ -395,6 +396,16 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	// send request
 	resp := &searchShardResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
+	if err != nil {
+		// After the retryer exhausts its attempts on a remote node that keeps
+		// shedding (HTTP 429), rehydrate queryadmission.ErrOverloaded so the
+		// shed keeps its identity up to the coordinator's ingress mapping
+		// (429 / gRPC ResourceExhausted) instead of degrading to a generic 500.
+		var sce *statusCodeError
+		if errors.As(err, &sce) && sce.StatusCode() == http.StatusTooManyRequests {
+			err = fmt.Errorf("%w: %w", queryadmission.ErrOverloaded, err)
+		}
+	}
 	return resp.Objects, resp.Distributions, resp.QueryProfiles, err
 }
 

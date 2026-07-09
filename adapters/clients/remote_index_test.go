@@ -35,7 +35,9 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 func TestRemoteIndexReInitShardIn(t *testing.T) {
@@ -374,4 +376,56 @@ func TestRemoteIndexRemoveAsyncReplicationTargetNode(t *testing.T) {
 		err := client.RemoveAsyncReplicationTargetNode(ctx, fs.host, indexName, shardName, override)
 		assert.Nil(t, err)
 	})
+}
+
+// TestRemoteIndexSearchShardShedRehydratesOverloaded pins M2: when a remote node
+// sheds every shard-search attempt with HTTP 429 and the retryer exhausts its
+// attempts, SearchShard must rehydrate queryadmission.ErrOverloaded so the shed
+// keeps its identity (429 / gRPC ResourceExhausted) at the coordinator ingress
+// mapping instead of degrading to a generic 500.
+func TestRemoteIndexSearchShardShedRehydratesOverloaded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := "/indices/C1/shards/S1/objects/_search"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("node overloaded, request shed"))
+	}
+
+	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, queryadmission.ErrOverloaded,
+		"a cross-node admission shed (429) surviving retry exhaustion must carry ErrOverloaded, got: %v", err)
+	// The underlying status detail is preserved for operators.
+	require.Contains(t, err.Error(), "429")
+}
+
+// TestRemoteIndexSearchShardNon429NotOverloaded is the negative control: a
+// non-429 exhaustion (500) must NOT be mislabelled as an admission shed.
+func TestRemoteIndexSearchShardNon429NotOverloaded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := "/indices/C1/shards/S1/objects/_search"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}
+
+	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
+		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
 }
