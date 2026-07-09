@@ -437,6 +437,111 @@ func TestMakeRequestFewerVectorsThanTexts(t *testing.T) {
 	require.Error(t, job.errs[1])
 }
 
+// fakePanicClient panics for the text "panic" and vectorizes everything else. Its
+// rate limit selects which scheduling path the panic happens on.
+type fakePanicClient struct {
+	rateLimit *modulecomponents.RateLimits
+}
+
+func (c *fakePanicClient) Vectorize(ctx context.Context, text []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	for i := range text {
+		if text[i] == "panic" {
+			panic("boom from vectorizer")
+		}
+	}
+	vectors := make([][]float32, len(text))
+	for i := range vectors {
+		vectors[i] = []float32{0, 1, 2, 3}
+	}
+	return &modulecomponents.VectorizationResult[[]float32]{Vector: vectors, Errors: make([]error, len(text))}, nil, 0, nil
+}
+
+func (c *fakePanicClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	return c.rateLimit
+}
+
+func (c *fakePanicClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
+}
+
+func submitWithTimeout(t *testing.T, v *Batch[[]float32], cfg moduletools.ClassConfig, skip []bool, tokens []int, texts []string) ([][]float32, map[int]error) {
+	t.Helper()
+	type result struct {
+		vecs [][]float32
+		errs map[int]error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		vecs, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokens, texts)
+		ch <- result{vecs, errs}
+	}()
+	select {
+	case r := <-ch:
+		return r.vecs, r.errs
+	case <-time.After(5 * time.Second):
+		t.Fatal("SubmitBatchAndWait did not return in time")
+		return nil, nil
+	}
+}
+
+// A panic while vectorizing one batch must not kill the worker: the panicking batch
+// must return an error for its objects (not a silent nil vector), and subsequent
+// batches must still be processed instead of blocking forever in SubmitBatchAndWait.
+func TestBatchWorkerSurvivesPanic(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
+
+	cases := []struct {
+		name      string
+		rateLimit *modulecomponents.RateLimits
+	}{
+		{
+			// RemainingRequests != 0 skips the probe path; a request limit of 1 keeps
+			// every batch above CanSendFullBatch's threshold, forcing the sequential
+			// path where a panic runs inside the worker goroutine.
+			name: "sequential path",
+			rateLimit: &modulecomponents.RateLimits{
+				RemainingRequests: 100, RemainingTokens: 100,
+				LimitRequests: 1, LimitTokens: 1000,
+				ResetRequests: time.Now().Add(time.Minute), ResetTokens: time.Now().Add(time.Minute),
+			},
+		},
+		{
+			// zero remaining requests/tokens make the rate limit look uninitialized, so
+			// the worker takes the probe path and panics there, outside sendBatch.
+			name:      "probe path",
+			rateLimit: &modulecomponents.RateLimits{},
+		},
+		{
+			// ample headroom lets CanSendFullBatch pass, so the batch is sent
+			// concurrently and panics inside the GoWrapper goroutine.
+			name: "concurrent path",
+			rateLimit: &modulecomponents.RateLimits{
+				RemainingRequests: 1000, RemainingTokens: 1000,
+				LimitRequests: 1000, LimitTokens: 1000,
+				ResetRequests: time.Now().Add(time.Minute), ResetTokens: time.Now().Add(time.Minute),
+			},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			v := NewBatchVectorizer[[]float32](&fakePanicClient{rateLimit: tt.rateLimit}, 200*time.Millisecond,
+				Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10}, logger, "test")
+
+			texts, tokenCounts := generateTokens([]*models.Object{{Class: "Car", Properties: map[string]interface{}{"test": "panic"}}})
+			_, errs := submitWithTimeout(t, v, cfg, []bool{false}, tokenCounts, texts)
+			require.Error(t, errs[0])
+
+			// the worker must have survived, so a normal batch still gets vectorized
+			texts, tokenCounts = generateTokens([]*models.Object{{Class: "Car", Properties: map[string]interface{}{"test": "normal"}}})
+			vecs, errs := submitWithTimeout(t, v, cfg, []bool{false}, tokenCounts, texts)
+			require.Len(t, errs, 0)
+			require.NotNil(t, vecs[0])
+		})
+	}
+}
+
 func TestEncoderCache(t *testing.T) {
 	cache := NewEncoderCache()
 

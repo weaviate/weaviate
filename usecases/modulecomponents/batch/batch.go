@@ -139,9 +139,18 @@ func (b *Batch[T]) batchWorker() {
 	}
 }
 
-// processJob schedules and sends a single batch job, returning the updated pacing
-// state (time-per-token and objects-per-batch) for the next job.
+// processJob schedules and sends one batch job and returns the updated pacing state
+// for the next job. It recovers a panic so one bad job cannot kill the worker: the
+// job's objects are errored and its submitter released.
 func (b *Batch[T]) processJob(job BatchJob[T], timePerToken float64, objectsPerBatch int, rateLimitPerApiKey map[[32]byte]*modulecomponents.RateLimits) (float64, int) {
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Errorf("batch vectorizer worker recovered from panic: %v", r)
+			b.failUnresolved(job)
+			job.wg.Done() //nolint:SA2000
+		}
+	}()
+
 	// observe how long the batch was in the queue waiting for processing
 	durWaiting := time.Since(job.startTime).Seconds()
 	monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.Label, "waiting_for_processing").
@@ -287,6 +296,19 @@ timeLoop:
 	return timePerToken, objectsPerBatch
 }
 
+// failUnresolved errors every object left without a vector, so a recovered panic
+// cannot leave one silently un-vectorized.
+func (b *Batch[T]) failUnresolved(job BatchJob[T]) {
+	for i := range job.texts {
+		if job.skipObject[i] {
+			continue
+		}
+		if job.errs[i] == nil && len(job.vecs[i]) == 0 {
+			job.errs[i] = errors.New("vectorization aborted after an internal error")
+		}
+	}
+}
+
 func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulecomponents.RateLimits, timePerToken float64, reservedReqs int, concurrentBatch bool) {
 	// Release the waiting submitter even on panic, so its handler cannot hang.
 	defer job.wg.Done()
@@ -298,7 +320,7 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 	actualTokensUsed := 0
 
 	// Release the concurrency slot and reserved budget even on panic; leaking either
-	// wedges the worker.
+	// stops the worker from scheduling further batches.
 	defer func() {
 		objectsPerRequest := 0
 		if numRequests > 0 {
@@ -317,6 +339,15 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 		}
 		b.concurrentBatches.Add(-1)
 		monitoring.GetMetrics().T2VBatches.WithLabelValues(b.Label).Dec()
+	}()
+
+	// Recover a panic so it cannot kill the worker or escape the goroutine; runs
+	// before the cleanup above, erroring any unfinished object.
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Errorf("batch vectorizer recovered from panic while sending batch: %v", r)
+			b.failUnresolved(job)
+		}
 	}()
 
 	texts := make([]string, 0, 100)
