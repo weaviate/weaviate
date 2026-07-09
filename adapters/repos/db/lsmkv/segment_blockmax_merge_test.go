@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // TestBlockMaxWandMergeFilterIdentity proves the tiered merged-filter is a
@@ -90,7 +91,8 @@ func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyInverted))
+				WithStrategy(StrategyInverted),
+				WithBM25FilterTombMergeGateRatio(configRuntime.NewDynamicValue(1.0)))
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 

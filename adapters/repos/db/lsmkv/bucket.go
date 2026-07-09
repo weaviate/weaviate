@@ -264,7 +264,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		haltedFlushTimer:             interval.NewBackoffTimer(),
 		writeSegmentInfoIntoFileName: false,
 		minWalThreshold:              config.DefaultPersistenceMaxReuseWalSize,
-		bm25FilterTombMergeGateRatio: configRuntime.NewDynamicValue(config.DefaultBM25FilterTombMergeGateRatio),
 	}
 
 	for _, opt := range opts {
@@ -2179,7 +2178,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	return b.createDiskTermFromCV(ctx, view, N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, config)
 }
 
-func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistentView, N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
+func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistentView, N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, bm25Config schema.BM25Config) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
 	defer func() {
 		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 			if r := recover(); r != nil {
@@ -2253,7 +2252,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		var active, flushing *SegmentBlockMax
 		if view.Active != nil {
 			if mapPairs, err := view.Active.getMap(key); err == nil {
-				if active = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config); active != nil {
+				if active = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, bm25Config); active != nil {
 					n2, _ := addDataToTerm(mapPairs, filterDocIds, active)
 					if active.Count() > 0 {
 						output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
@@ -2269,7 +2268,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 
 		if view.Flushing != nil {
 			if mapPairs, err := view.Flushing.getMap(key); err == nil {
-				if flushing = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config); flushing != nil {
+				if flushing = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, bm25Config); flushing != nil {
 					n2, _ := addDataToTerm(mapPairs, filterDocIds, flushing)
 					if flushing.Count() > 0 {
 						output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
@@ -2358,7 +2357,11 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			if nSeg < 1 {
 				nSeg = 1
 			}
-			mergeFilterAndTombstones = float64(sumDf) >= b.bm25FilterTombMergeGateRatio.Get()*float64(filterCard)*nSeg
+			gateRatio := config.DefaultBM25FilterTombMergeGateRatio
+			if b.bm25FilterTombMergeGateRatio != nil {
+				gateRatio = b.bm25FilterTombMergeGateRatio.Get()
+			}
+			mergeFilterAndTombstones = float64(sumDf) >= gateRatio*float64(filterCard)*nSeg
 		}
 	}
 
@@ -2425,7 +2428,7 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			if diskNodeOk[idx] {
 				node = &diskNodes[idx]
 			}
-			term := segment.newSegmentBlockMax(node, []byte(key), i, idfs[i], propertyBoost, segTomb, segMemTomb, segFilter, averagePropLength, config)
+			term := segment.newSegmentBlockMax(node, []byte(key), i, idfs[i], propertyBoost, segTomb, segMemTomb, segFilter, averagePropLength, bm25Config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}

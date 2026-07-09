@@ -115,13 +115,11 @@ func WithLazyPropertyLengths(lazy *configRuntime.DynamicValue[bool]) BucketOptio
 // tombstones into the filter only when summed query doc frequency >= ratio *
 // filter cardinality * disk-segment count (the fold clones the filter once per
 // segment). 0 always merges, +Inf disables the fold, default 1. Read live at query
-// time via Get(), so runtime config can retune it without a restart. A nil ratio
-// leaves the bucket's default in place.
+// time, so runtime config can retune it without a restart. When left unset the read
+// falls back to the default ratio.
 func WithBM25FilterTombMergeGateRatio(ratio *configRuntime.DynamicValue[float64]) BucketOption {
 	return func(b *Bucket) error {
-		if ratio != nil {
-			b.bm25FilterTombMergeGateRatio = ratio
-		}
+		b.bm25FilterTombMergeGateRatio = ratio
 		return nil
 	}
 }
