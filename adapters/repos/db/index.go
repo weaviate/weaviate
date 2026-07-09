@@ -3294,7 +3294,16 @@ func (i *Index) drop() error {
 
 	if keepFiles {
 		// backup framework expects the DeleteMarkerAdd-prefixed rename
-		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
+		marker := filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID()))
+		if err := os.Rename(i.path(), marker); err != nil {
+			return err
+		}
+		// drop blocks on backupLock until ReleaseBackup runs, so if that already
+		// finished it looked for the marker before this rename created it.
+		if i.lastBackup.Load() == nil {
+			return os.RemoveAll(marker)
+		}
+		return nil
 	}
 
 	// rename sync (must complete even if ctx is expired); RemoveAll async

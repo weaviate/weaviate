@@ -582,17 +582,18 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 		return nil
 	}
 
-	// drop index
-	db.indexLock.Lock()
-	delete(db.indices, indexID(className))
-	db.indexLock.Unlock()
-
 	index.dropIndex.Lock()
-	defer index.dropIndex.Unlock()
 	if err := index.drop(); err != nil {
 		db.logger.WithField("action", "delete_index").WithField("class", className).
 			Errorf("drop index: %v", err)
 	}
+	index.dropIndex.Unlock()
+
+	// Unpublish after the drop: db.ReleaseBackup's GetIndex()==nil branch never
+	// releases backupLock, so an early delete hangs dropShard forever.
+	db.indexLock.Lock()
+	delete(db.indices, indexID(className))
+	db.indexLock.Unlock()
 
 	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
 		db.logger.Errorf("can't delete prometheus metrics: %v", err)
