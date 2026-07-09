@@ -52,7 +52,8 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// k > rescoreLimit at rescoreLimit results. Any rework of
 	// this path (e.g. decoupled routing/rerank budgets) must preserve
 	// max(k, rescoreLimit) semantics for the candidate depth.
-	rescoreLimit := max(k, int(h.rescoreLimit))
+	// Atomic loads: UpdateUserConfig stores these fields concurrently.
+	rescoreLimit := max(k, int(atomic.LoadUint32(&h.rescoreLimit)))
 	queryDistancer := quantizer.NewDistancer(vector)
 
 	var selectedCentroids []uint64
@@ -60,7 +61,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	// If k is larger than the configured number of candidates, use k as the candidate number
 	// to enlarge the search space.
-	candidateCentroidNum := max(k, int(h.searchProbe))
+	candidateCentroidNum := max(k, int(atomic.LoadUint32(&h.searchProbe)))
 
 	nAllowList := allowList
 	if allowList != nil {
@@ -420,13 +421,13 @@ func (h *HFresh) searchByFDE(
 	allowList helpers.AllowList,
 ) ([]uint64, error) {
 	queryFDE = h.normalizeVec(queryFDE)
-	if h.quantizer == nil {
-		if atomic.LoadUint32(&h.dims) == 0 {
-			return nil, nil
-		}
-		return nil, errors.New("quantizer not initialized")
+	// loadQuantizer's atomic dims read pairs with the store that publishes
+	// the quantizer; never read h.quantizer without it (see SearchByVector)
+	_, quantizer := h.loadQuantizer()
+	if quantizer == nil {
+		return nil, nil
 	}
-	queryDistancer := h.quantizer.NewDistancer(queryFDE)
+	queryDistancer := quantizer.NewDistancer(queryFDE)
 
 	// Step 1: Centroid selection - controlled by routingBudget only
 	nAllowList := allowList
@@ -503,7 +504,7 @@ func (h *HFresh) searchByFDE(
 				continue
 			}
 
-			decompressBuf = h.quantizer.FromCompressedBytesInto(v.Data(), decompressBuf)
+			decompressBuf = quantizer.FromCompressedBytesInto(v.Data(), decompressBuf)
 			dist, err := queryDistancer.Distance(decompressBuf)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
