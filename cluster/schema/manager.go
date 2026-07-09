@@ -224,12 +224,22 @@ func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
-	classInfo := s.schema.ClassInfo(req.Class)
-
-	// Discard restoring a class if it already exists
-	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
-		s.log.WithField("class", req.Class).Info("class already restored")
-		return fmt.Errorf("class name %s already exists", req.Class)
+	// Discard restoring a class if it, or a similar name, already exists.
+	// ClassEqual mirrors the ADD_CLASS branch below: index directories are
+	// lowercased on disk, so a variable case restore would land its data in
+	// the existing class's directory even though the exact name check passes.
+	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS {
+		if other, isAlias := s.schema.ClassEqual(req.Class); other != "" {
+			item := "class"
+			if isAlias {
+				item = "alias"
+			}
+			s.log.WithField("class", req.Class).Infof("restore discarded: %s %q already exists", item, other)
+			if other == req.Class {
+				return fmt.Errorf("%s name %s already exists", item, req.Class)
+			}
+			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
+		}
 	}
 
 	// Discard adding class if the name already exists or a similar one exists

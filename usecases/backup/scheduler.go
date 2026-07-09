@@ -27,8 +27,11 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 var (
@@ -55,6 +58,9 @@ type Scheduler struct {
 	backupper  *coordinator
 	restorer   *coordinator
 	backends   BackupBackendProvider
+	// nil when dynamic DB users are not enabled.
+	userLister UserLister
+	schema     schemaManger
 }
 
 // NewScheduler creates a new scheduler with two coordinators
@@ -62,6 +68,7 @@ func NewScheduler(
 	authorizer authorization.Authorizer,
 	client client,
 	sourcer Selector,
+	userLister UserLister,
 	backends BackupBackendProvider,
 	nodeResolver NodeResolver,
 	schema schemaManger,
@@ -71,6 +78,8 @@ func NewScheduler(
 		logger:     logger,
 		authorizer: authorizer,
 		backends:   backends,
+		userLister: userLister,
+		schema:     schema,
 		backupper: newCoordinator(
 			sourcer,
 			client,
@@ -147,7 +156,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	classes, err := s.validateBackupRequest(ctx, store, req)
+	classes, users, err := s.validateBackupRequest(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
@@ -167,6 +176,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		ID:           req.ID,
 		Backend:      req.Backend,
 		Classes:      classes,
+		Users:        users,
 		Compression:  req.Compression,
 		Bucket:       req.Bucket,
 		Path:         req.Path,
@@ -228,9 +238,13 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		meta.Include(allowed)
 	}
 
-	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
+	schema, userBlobs, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := s.validateNamespaceStripping(ctx, schema, userBlobs, meta.Classes(), req.UserRestoreOption); err != nil {
+		return nil, backup.NewErrUnprocessable(err)
 	}
 	status := string(backup.Started)
 	data := &models.BackupRestoreResponse{
@@ -622,34 +636,36 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 	return cs, nil
 }
 
-func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
+// validateBackupRequest resolves the request into concrete classes and
+// users. users is empty unless includeUsers was supplied.
+func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) (classes, users []string, err error) {
 	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
-		return nil, errLocalBackendDBRO
+		return nil, nil, errLocalBackendDBRO
 	}
 
 	if err := validateID(req.ID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if req.BaseBackupID != "" {
 		if err := validateID(req.BaseBackupID); err != nil {
-			return nil, fmt.Errorf("base backup id: %w", err)
+			return nil, nil, fmt.Errorf("base backup id: %w", err)
 		}
 		if req.ID == req.BaseBackupID {
-			return nil, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
+			return nil, nil, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
 		}
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, errIncludeExclude
+		return nil, nil, errIncludeExclude
 	}
 
 	if dup := findDuplicate(req.Include); dup != "" {
-		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
+		return nil, nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 
 	// Get all available classes first for wildcard expansion
 	allClasses := s.backupper.selector.ListClasses(ctx)
 	if len(allClasses) == 0 {
-		return nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
+		return nil, nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
 	}
 
 	// Expand wildcards in Include list
@@ -658,31 +674,74 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	// Expand wildcards in Exclude list
 	exclude := expandWildcards(req.Exclude, allClasses)
 
-	classes := include
+	classes = include
 	if len(classes) == 0 {
 		classes = allClasses
 	}
 	if classes = filterClasses(classes, exclude); len(classes) == 0 {
-		return nil, fmt.Errorf("empty class list: please choose from : %v", allClasses)
+		return nil, nil, fmt.Errorf("empty class list: please choose from : %v", allClasses)
 	}
 
 	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	users, err = s.resolveUsers(req.IncludeUsers)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if err := s.checkIfBackupExists(ctx, store, req); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// validate base backup chain
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
-		return nil, fmt.Errorf("get compression type: %w", err)
+		return nil, nil, fmt.Errorf("get compression type: %w", err)
 	}
 	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
-		return nil, fmt.Errorf("resolve base backup chain: %w", err)
+		return nil, nil, fmt.Errorf("resolve base backup chain: %w", err)
 	}
 
-	return classes, nil
+	return classes, users, nil
+}
+
+// resolveUsers expands includeUsers selectors. Empty input → nil (ordinary
+// backup; whole-cluster snapshot is the participant's default).
+func (s *Scheduler) resolveUsers(includeUsers []string) ([]string, error) {
+	if len(includeUsers) == 0 {
+		return nil, nil
+	}
+	if s.userLister == nil {
+		return nil, errors.New("'includeUsers' was set but dynamic DB users are not enabled")
+	}
+	return resolveUserSelectors(includeUsers, s.userLister.ListAllUsers())
+}
+
+// resolveUserSelectors mirrors class-selector semantics: '*'/'?' wildcards,
+// dedup, exact selectors must exist, and a non-empty list matching nothing
+// errors. Absent includeUsers is the caller's job — not equivalent to "all".
+func resolveUserSelectors(includeUsers, allUsers []string) ([]string, error) {
+	if dup := findDuplicate(includeUsers); dup != "" {
+		return nil, fmt.Errorf("user list 'includeUsers' contains duplicate: %s", dup)
+	}
+
+	users := expandWildcards(includeUsers, allUsers)
+
+	known := make(map[string]struct{}, len(allUsers))
+	for _, u := range allUsers {
+		known[u] = struct{}{}
+	}
+	for _, u := range users {
+		if _, ok := known[u]; !ok {
+			return nil, fmt.Errorf("user %q in 'includeUsers' does not exist", u)
+		}
+	}
+	if len(users) == 0 {
+		return nil, fmt.Errorf("no dynamic users match 'includeUsers' %v", includeUsers)
+	}
+	return users, nil
 }
 
 func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, req *BackupRequest) error {
@@ -767,16 +826,150 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	return meta, nil
 }
 
+// validateNamespaceStripping fails a restore into a namespace-disabled
+// cluster when stripping the "<namespace>:" qualification would collide
+// distinct backup entities (usecases/schema.Handler.RestoreClass and the
+// dynamic-user snapshot restore strip at apply time).
+//
+// Everything is validated from the per-node descriptors (the payload nodes
+// actually restore) filtered down to the selected classes.
+func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors []backup.ClassDescriptor, userBlobs [][]byte, selectedClasses []string, userRestoreOption string) error {
+	if s.schema.NamespacesEnabled() {
+		return nil // restore does not strip namespaces
+	}
+
+	selected := make(map[string]struct{}, len(selectedClasses))
+	for _, name := range selectedClasses {
+		selected[name] = struct{}{}
+	}
+
+	type group struct {
+		sources  []string
+		short    string
+		stripped bool
+	}
+	classes := make(map[string]*group, len(descriptors))
+	aliases := make(map[string]*group, 8)
+	collect := func(m map[string]*group, source, short string) *group {
+		key := strings.ToLower(short)
+		g, ok := m[key]
+		if !ok {
+			g = &group{short: short}
+			m[key] = g
+		}
+		g.sources = append(g.sources, source)
+		if short != source {
+			g.stripped = true
+		}
+		return g
+	}
+
+	anyAliasStripped := false
+	for i := range descriptors {
+		d := &descriptors[i]
+		if _, ok := selected[d.Name]; !ok {
+			continue
+		}
+		collect(classes, d.Name, schema.UppercaseClassName(namespacing.StripQualification(d.Name)))
+		if !d.AliasesIncluded || len(d.Aliases) == 0 {
+			continue
+		}
+		var classAliases []*models.Alias
+		if err := json.Unmarshal(d.Aliases, &classAliases); err != nil {
+			return fmt.Errorf("unmarshal aliases of class %q: %w", d.Name, err)
+		}
+		for _, a := range classAliases {
+			if collect(aliases, a.Alias, namespacing.StripQualification(a.Alias)).stripped {
+				anyAliasStripped = true
+			}
+		}
+	}
+
+	var errs []string
+	for _, g := range classes {
+		if len(g.sources) > 1 {
+			slices.Sort(g.sources)
+			errs = append(errs, fmt.Sprintf("classes %v strip to the same name %q", g.sources, g.short))
+		}
+	}
+
+	// A stripped class may also take the name of an entity already in the
+	// cluster. Unqualified names are skipped: those keep the pre-existing lazy
+	// per-class semantics, so namespace-free restores behave as before.
+	for _, g := range classes {
+		if !g.stripped {
+			continue
+		}
+		if cur := s.schema.ClassEqual(g.short); cur != "" {
+			slices.Sort(g.sources)
+			errs = append(errs, fmt.Sprintf("classes %v strip to %q, which already exists in the cluster as %q", g.sources, g.short, cur))
+		}
+	}
+
+	// A stripped alias landing on a live class errors in CreateAlias
+	// after its class's data is already committed
+	if anyAliasStripped {
+		live := s.restorer.selector.ListClasses(ctx)
+		liveByFold := make(map[string]string, len(live))
+		for _, c := range live {
+			liveByFold[strings.ToLower(c)] = c
+		}
+		for key, g := range aliases {
+			if !g.stripped {
+				continue
+			}
+			if cur, ok := liveByFold[key]; ok {
+				slices.Sort(g.sources)
+				errs = append(errs, fmt.Sprintf("aliases %v strip to %q, which already exists as class %q in the cluster", g.sources, g.short, cur))
+			}
+		}
+	}
+
+	// Without the checks below, two aliases stripping to the same name make
+	// the later CreateAlias silently skip (or overwrite, with overwriteAlias),
+	// and an alias stripping onto a restored class name fails that class
+	// mid-restore after its data is already committed.
+	for key, g := range aliases {
+		if len(g.sources) > 1 {
+			slices.Sort(g.sources)
+			errs = append(errs, fmt.Sprintf("aliases %v strip to the same name %q", g.sources, g.short))
+		}
+		if cls, ok := classes[key]; ok && (g.stripped || cls.stripped) {
+			slices.Sort(g.sources)
+			errs = append(errs, fmt.Sprintf("aliases %v strip to %q, which collides with backup class %v", g.sources, g.short, cls.sources))
+		}
+	}
+
+	// The user snapshot blobs are opaque here; the dry-run reuses the exact
+	// strip-and-collide logic the real restore runs, covering every id-keyed
+	// field and both filtered (includeUsers) and whole-cluster snapshots.
+	if userRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
+		for _, blob := range userBlobs {
+			if err := apikey.ValidateNamespaceStrip(blob); err != nil {
+				errs = append(errs, fmt.Sprintf("dynamic users: %v", err))
+			}
+		}
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	slices.Sort(errs)
+	return fmt.Errorf("restoring into a cluster without namespaces strips namespace qualifications, which would cause name collisions: %s. Restore one namespace at a time using 'include'/'exclude', or remove the conflicting entities from the target cluster first", strings.Join(errs, "; "))
+}
+
 // fetchSchema retrieves and returns the latest schema for all classes
-// In pre-raft scenarios where schema may diverge, some guesswork is necessary
+// In pre-raft scenarios where schema may diverge, some guesswork is necessary.
+// It also returns the per-node dynamic-user snapshot blobs (deduped; empty
+// when the backup carries no users).
 func (s *Scheduler) fetchSchema(
 	ctx context.Context,
 	backend string,
 	overrideBucket string,
 	overridePath string,
 	req *backup.DistributedBackupDescriptor,
-) ([]backup.ClassDescriptor, error) {
-	f := func(node string) ([]backup.ClassDescriptor, error) {
+) ([]backup.ClassDescriptor, [][]byte, error) {
+	f := func(node string) (*backup.BackupDescriptor, error) {
 		store, err := nodeBackend(node, s.backends, backend, req.ID, overrideBucket, overridePath)
 		if err != nil {
 			return nil, err
@@ -785,27 +978,43 @@ func (s *Scheduler) fetchSchema(
 		if err != nil {
 			return nil, err
 		}
-		return meta.Classes, nil
+		return meta, nil
 	}
 
 	if req.Leader != "" {
-		return f(req.Leader) // raft version of the backup
+		meta, err := f(req.Leader) // raft version of the backup
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetch meta of node %q: %w", req.Leader, err)
+		}
+		var userBlobs [][]byte
+		if len(meta.UserBackups) > 0 {
+			userBlobs = [][]byte{meta.UserBackups}
+		}
+		return meta.Classes, userBlobs, nil
 	}
 
 	// union
 	m := make(map[string]backup.ClassDescriptor, 64)
+	var userBlobs [][]byte
+	seenBlobs := make(map[string]struct{}, 1)
 	for k := range req.Nodes {
-		xs, err := f(k)
+		meta, err := f(k)
 		if err != nil {
-			break
+			// Fail closed: a partial union would silently skip the missing
+			// node's classes at restore time and blind the strip validation.
+			return nil, nil, fmt.Errorf("fetch meta of node %q: %w", k, err)
 		}
 		// guess the most up to date version
-		for _, x := range xs {
+		for _, x := range meta.Classes {
 			c, ok := m[x.Name]
 			if !ok || len(x.ShardingState) > len(c.ShardingState) {
 				m[x.Name] = x
 				continue
 			}
+		}
+		if _, ok := seenBlobs[string(meta.UserBackups)]; len(meta.UserBackups) > 0 && !ok {
+			seenBlobs[string(meta.UserBackups)] = struct{}{}
+			userBlobs = append(userBlobs, meta.UserBackups)
 		}
 	}
 	xs := make([]backup.ClassDescriptor, len(m))
@@ -814,7 +1023,7 @@ func (s *Scheduler) fetchSchema(
 		xs[i] = v
 		i++
 	}
-	return xs, nil
+	return xs, userBlobs, nil
 }
 
 func logOperation(logger logrus.FieldLogger, name, id, backend string, begin time.Time, err error) {
