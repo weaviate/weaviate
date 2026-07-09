@@ -258,7 +258,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	// invert once at the end if it's a deny list, to avoid multiple inversions in case of nested ORs
 	if dbm.isDenyList {
 		universe, universeRelease := s.bitmapFactory.GetBitmap()
-		universe.AndNotConc(dbm.docIDs, concurrency.SROAR_MERGE)
+		universe.AndNotConc(dbm.docIDs, concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE))
 		dbm.release()
 		return helpers.NewAllowListCloseableFromBitmap(universe, universeRelease), nil
 	}

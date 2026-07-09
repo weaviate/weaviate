@@ -100,9 +100,14 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 	resultCh := make(chan *docBitmap, 1) // merge result
 	var err error
 
+	// the merge goroutine runs concurrently with child resolution (which halves
+	// the budget per level), so cap it at the parent-level budget: a deliberate
+	// mild overshoot rather than trying to track the children's fractional split
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+
 	// merge subresults in separate goroutine using dbmCh (in) and resultCh (out)
 	enterrors.GoWrapper(func() {
-		processDocIDs(maxN, pv.operator, dbmCh, resultCh)
+		processDocIDs(maxN, pv.operator, dbmCh, resultCh, mergeConc)
 	}, s.logger)
 
 	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
@@ -187,7 +192,7 @@ func (pv *propValuePair) resolveDocIDsNot(ctx context.Context, s *Searcher) (*do
 
 // processDocIDs merges received from dbmCh channel docBitmaps and sends result to resultCh channel.
 // Children are merged in batches of size [maxN]
-func processDocIDs(maxN int, operator filters.Operator, dbmCh <-chan *docBitmap, resultCh chan<- *docBitmap) {
+func processDocIDs(maxN int, operator filters.Operator, dbmCh <-chan *docBitmap, resultCh chan<- *docBitmap, maxConc int) {
 	dbms := make([]*docBitmap, 0, maxN)
 	var result *docBitmap
 	defer func() {
@@ -202,17 +207,17 @@ func processDocIDs(maxN int, operator filters.Operator, dbmCh <-chan *docBitmap,
 		dbms = append(dbms, dbm)
 		// merge if [maxN] children is received
 		if len(dbms) == maxN {
-			dbms = mergeDocIDs(operator, dbms)
+			dbms = mergeDocIDs(operator, dbms, maxConc)
 		}
 	}
 	// merge remaining children
-	if dbms = mergeDocIDs(operator, dbms); len(dbms) > 0 {
+	if dbms = mergeDocIDs(operator, dbms, maxConc); len(dbms) > 0 {
 		// merged result is first element of docBitmaps slice
 		result = dbms[0]
 	}
 }
 
-func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *docBitmap {
+func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator, maxConc int) *docBitmap {
 	//	- both A and B are denylists
 	//	  !A  or !B -> !(A and B) -> denylist A.And(B)
 	//	  !A and !B -> !(A  or B) -> denylist A.Or(B)
@@ -257,10 +262,10 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *
 		// !A  or !B -> !(A and B) -> denylist A.And(B)
 		if operator == filters.OperatorAnd {
 			swapForEfficiency(filters.OperatorOr)
-			a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE)
+			a.docIDs.OrConc(b.docIDs, maxConc)
 		} else {
 			swapForEfficiency(filters.OperatorAnd)
-			a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE)
+			a.docIDs.AndConc(b.docIDs, maxConc)
 		}
 
 	case a.IsDenyList() || b.IsDenyList():
@@ -272,19 +277,19 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *
 		// !A and B -> allowlist B.AndNot(A)
 		// !A  or B -> denylist  A.AndNot(B)
 		if operator == filters.OperatorAnd {
-			b.docIDs.AndNotConc(a.docIDs, concurrency.SROAR_MERGE)
+			b.docIDs.AndNotConc(a.docIDs, maxConc)
 			a, b = b, a // a=result(allowlist), b=old denylist(released by defer)
 		} else {
-			a.docIDs.AndNotConc(b.docIDs, concurrency.SROAR_MERGE)
+			a.docIDs.AndNotConc(b.docIDs, maxConc)
 		}
 
 	default:
 		// Both allowlists.
 		swapForEfficiency(operator)
 		if operator == filters.OperatorAnd {
-			a.docIDs.AndConc(b.docIDs, concurrency.SROAR_MERGE)
+			a.docIDs.AndConc(b.docIDs, maxConc)
 		} else {
-			a.docIDs.OrConc(b.docIDs, concurrency.SROAR_MERGE)
+			a.docIDs.OrConc(b.docIDs, maxConc)
 		}
 	}
 	return a
@@ -296,13 +301,13 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *
 // If slice of size 0 or 1 is provided, it is returned without any change.
 // Merge is performed starting from bitmap with most containers for OR operator
 // or starting from bitmap with least containers for AND operator.
-func mergeDocIDs(operator filters.Operator, dbms []*docBitmap) []*docBitmap {
+func mergeDocIDs(operator filters.Operator, dbms []*docBitmap, maxConc int) []*docBitmap {
 	if len(dbms) <= 1 {
 		return dbms
 	}
 
 	for i := 0; i < len(dbms)-1; i++ {
-		dbms[0] = mergeBitmapsAndOrWithDenyList(dbms[0], dbms[i+1], operator)
+		dbms[0] = mergeBitmapsAndOrWithDenyList(dbms[0], dbms[i+1], operator, maxConc)
 	}
 
 	return dbms[:1]
