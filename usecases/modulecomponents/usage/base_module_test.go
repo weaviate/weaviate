@@ -29,9 +29,9 @@ import (
 	configruntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// TestBaseModule_EnvShardConcurrencyReachesService verifies USAGE_SHARD_CONCURRENCY reaches
+// TestBaseModule_EnvConcurrencyReachesService verifies USAGE_SHARD_CONCURRENCY reaches
 // the usage service regardless of whether the service is wired before or after module Init.
-func TestBaseModule_EnvShardConcurrencyReachesService(t *testing.T) {
+func TestBaseModule_EnvConcurrencyReachesService(t *testing.T) {
 	t.Setenv("USAGE_SHARD_CONCURRENCY", "3")
 
 	mockStorage := NewMockStorageBackend(t)
@@ -54,10 +54,10 @@ func TestBaseModule_EnvShardConcurrencyReachesService(t *testing.T) {
 	assert.Equal(t, 3, module.shardConcurrency)
 }
 
-// TestBaseModule_RuntimeOverridesShardConcurrencyReachesService exercises the full runtime
+// TestBaseModule_RuntimeOverridesConcurrencyReachesService exercises the full runtime
 // overrides chain: overrides file → ConfigManager → shared DynamicValue → module reloadConfig
 // → usage service.
-func TestBaseModule_RuntimeOverridesShardConcurrencyReachesService(t *testing.T) {
+func TestBaseModule_RuntimeOverridesConcurrencyReachesService(t *testing.T) {
 	overridesPath := filepath.Join(t.TempDir(), "overrides.yaml")
 	require.NoError(t, os.WriteFile(overridesPath, []byte(""), 0o644))
 
