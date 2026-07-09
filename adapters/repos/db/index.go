@@ -490,10 +490,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.shards.Store(shardName, lazyShard)
 				return nil
 			default:
-				// Defer empty (e.g. pre-provisioned) multi-tenant tenants: keep them
-				// unloaded until first accessed instead of paying the fixed per-shard
-				// footprint. Lazy mode defers in the background loader instead, so the
-				// check lives here to avoid probing the same shard twice.
+				// avoid footprint of empty shards
 				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
@@ -600,8 +597,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 
 	lazyShard, ok := shard.(*LazyLoadShard)
 	if ok {
-		// Leave empty (e.g. pre-provisioned) multi-tenant tenants unloaded until
-		// first accessed instead of force-loading them here.
+		// avoid footprint of empty shards
 		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 			return nil
 		}
