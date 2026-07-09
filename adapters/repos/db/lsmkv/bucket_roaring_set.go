@@ -64,6 +64,9 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return active.roaringSetAddBitmap(key, bm)
 }
 
+// RoaringSetGet returns the flattened bitmap stored under key. ctx is consulted
+// only for the per-query concurrency budget (concurrency.BudgetFromCtxCapped),
+// not for cancellation.
 func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitmap, release func(), err error) {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return nil, noopRelease, err
