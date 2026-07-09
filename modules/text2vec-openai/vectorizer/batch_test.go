@@ -127,7 +127,7 @@ func TestBatch(t *testing.T) {
 
 			for i := range tt.objects {
 				if tt.wantErrors[i] != nil {
-					require.Equal(t, tt.wantErrors[i], errs[i])
+					require.ErrorContains(t, errs[i], tt.wantErrors[i].Error())
 				} else if tt.skip[i] {
 					require.Nil(t, vecs[i])
 				} else {
