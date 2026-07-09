@@ -632,19 +632,29 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// One validator for both the startup value and, via NewDynamicValueWithValidation,
+	// runtime config updates — SetValue rejects an invalid new value instead of
+	// silently applying it.
+	bm25GateValidate := func(val float64) error {
+		if math.IsNaN(val) || val < 0 {
+			return fmt.Errorf("BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO must be a non-negative float (0 always merges, +Inf disables the fold). Got: %v", val)
+		}
+		return nil
+	}
+	bm25GateRatio := DefaultBM25FilterTombMergeGateRatio
 	if err := parseFloatVerify(
 		"BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO",
 		DefaultBM25FilterTombMergeGateRatio,
-		func(val float64) { config.BM25FilterTombMergeGateRatio = configRuntime.NewDynamicValue(val) },
-		func(val float64, envName string) error {
-			if math.IsNaN(val) || val < 0 {
-				return fmt.Errorf("%s must be a non-negative float (0 always merges, +Inf disables the fold). Got: %v", envName, val)
-			}
-			return nil
-		},
+		func(val float64) { bm25GateRatio = val },
+		func(val float64, _ string) error { return bm25GateValidate(val) },
 	); err != nil {
 		return err
 	}
+	bm25GateDV, err := configRuntime.NewDynamicValueWithValidation(bm25GateRatio, bm25GateValidate)
+	if err != nil {
+		return err
+	}
+	config.BM25FilterTombMergeGateRatio = bm25GateDV
 
 	if err := parseInt(
 		"HNSW_GEO_INDEX_EF",

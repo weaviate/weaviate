@@ -333,6 +333,26 @@ func TestEnvironmentBM25FilterTombMergeGateRatio(t *testing.T) {
 	}
 }
 
+func TestBM25GateRatioRuntimeValidation(t *testing.T) {
+	// The env value is validated at startup; NewDynamicValueWithValidation carries
+	// the same validator, so runtime config updates via SetValue are rejected too.
+	conf := Config{}
+	require.NoError(t, FromEnv(&conf))
+	dv := conf.BM25FilterTombMergeGateRatio
+	require.NotNil(t, dv)
+	require.Equal(t, DefaultBM25FilterTombMergeGateRatio, dv.Get())
+
+	// valid runtime updates apply
+	require.NoError(t, dv.SetValue(2.5))
+	assert.Equal(t, 2.5, dv.Get())
+	require.NoError(t, dv.SetValue(math.Inf(1)))
+
+	// invalid runtime updates are rejected; the last valid value is retained
+	require.Error(t, dv.SetValue(-1))
+	require.Error(t, dv.SetValue(math.NaN()))
+	assert.Equal(t, math.Inf(1), dv.Get())
+}
+
 func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
 	t.Run("DISABLE_LAZY_LOAD_SHARDS=true sets EnableLazyLoadShards=false", func(t *testing.T) {
 		t.Setenv("DISABLE_LAZY_LOAD_SHARDS", "true")
