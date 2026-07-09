@@ -72,13 +72,9 @@ func TestRoaringSetWritePathRefCount(t *testing.T) {
 	require.Equal(t, []uint64{1, 3, 4, 5, 6, 7}, v.ToArray())
 }
 
-// TestBucket_RoaringSetGet_RespectsConcurrencyBudget proves the per-query
-// budget threaded into RoaringSetGet actually caps sroar's internal merge
-// fan-out. With a budget of 1 the *Conc merge ops run single-threaded, so
-// hammering the bucket from K callers cannot inflate the live goroutine count
-// beyond K (plus slack), no matter how many disk segments or containers are
-// involved. A regression that stopped honoring the budget would let each Get
-// fan out ~SROAR_MERGE workers per merge and blow the ceiling.
+// TestBucket_RoaringSetGet_RespectsConcurrencyBudget: a budget of 1 must
+// serialize sroar's merge fan-out, so concurrent Gets can't blow the
+// goroutine ceiling regardless of segment/container count.
 func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	if concurrency.SROAR_MERGE < 2 {
 		t.Skipf("SROAR_MERGE=%d < 2: no merge fan-out possible, nothing to bound",
@@ -99,8 +95,8 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	// never auto-flush; we flush explicitly to control the disk segment count
 	b.SetMemtableThreshold(1e9)
 
-	// one value per sroar container (stride 2^16) => ~200 containers, enough
-	// that the *Conc ops want min(200/24, SROAR_MERGE) ~ 8 > 1 merge workers
+	// one value per sroar container (stride 2^16); enough that merge ops
+	// actually want >1 worker (min(200/24, SROAR_MERGE))
 	const numContainers = 200
 	values := make([]uint64, numContainers)
 	for i := range values {
@@ -118,8 +114,7 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 
 	budget1 := concurrency.CtxWithBudget(ctx, 1)
 
-	// correctness: a budget of 1 returns exactly the same set as an
-	// unconstrained query (merges are deterministic regardless of concurrency)
+	// correctness: budget=1 result must match the unconstrained query
 	got1, release1, err := b.RoaringSetGet(budget1, key)
 	require.NoError(t, err)
 	arr1 := got1.ToArray()
@@ -133,9 +128,8 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, values, arr1)
 	require.Equal(t, arrDefault, arr1)
 
-	// bounding leg: with a budget of 1 each in-flight Get keeps only its own
-	// worker goroutine alive (the merge ops spawn zero workers at conc=1);
-	// noise slack of 8 absorbs the sampler and transient runtime/GC workers
+	// budget=1 => merge ops spawn no workers, so each Get holds only its own
+	// goroutine; slack of 8 absorbs the sampler and transient runtime/GC noise
 	testinghelpers.AssertGoroutineCeiling(t, 16, 1, 8, 200*time.Millisecond, func() error {
 		bm, release, err := b.RoaringSetGet(budget1, key)
 		if err != nil {
