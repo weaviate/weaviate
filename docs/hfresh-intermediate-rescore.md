@@ -99,3 +99,59 @@ Recall at probe 1024 should move from 71.3% (rerank 350) toward the
 exact-FDE pool ceiling of ~76.0-76.3% (ceiling 77.4% global minus ~1pp pool
 residue minus ~0.3pp M gap), and from 75.1% toward ~80.9% at rerank 512.
 Latency adds ~M × (bucket read + 2 SIMD dots) ≈ 5-15ms/query at rerank 350.
+
+## Measured results (lifestyle/119K, in-process lab calibrated ±0.5pp vs e2e)
+
+661 queries, recall@10 vs exact GT, A/B via the test seam on the same build:
+
+| probe | rerank | without stage | with stage | Δ | exact-FDE ceiling | distance |
+|---|---|---|---|---|---|---|
+| 512 | 350 | 69.4% | 73.7% | +4.3pp | 77.4% | 3.7pp |
+| 512 | 512 | 72.9% | 77.0% | +4.1pp | 81.2% | 4.2pp |
+| 1024 | 350 | 71.3% | **76.1%** | **+4.8pp** | 77.4% | **1.3pp** |
+| 1024 | 512 | 75.1% | **79.8%** | **+4.7pp** | 81.2% | **1.4pp** |
+
+At probe 1024 the pipeline sits 1.3-1.4pp from the global exact-FDE
+ceiling — the residue is the ~1pp routing loss (A) plus the ~0.3pp M gap,
+exactly the study's predicted decomposition. The remaining distance at
+probe 512 is that probe's own routing residue.
+
+Latency: p50 +9-13ms (+20-27%) at probe 1024 (39.5→48.4ms at rerank 350,
+49.9→63.0ms at rerank 512); at probe 512/rerank 350 the stage was
+latency-neutral in this run. Measured with a warm page cache — the added
+IO is invisible locally and must be budgeted from the accounting below.
+
+**IO added per query (accounting):** M × 10.24KB full-FDE reads —
+rerank 350 → M=2100 → **21.5MB**; rerank 512 → M=3072 → **31.5MB**;
+reference: the MaxSim stage reads ~17.5MB (350 × ~50KB objects). This is
+the explicit zero-new-storage trade; the RQ8/RQ4 source cuts it 4×/8×.
+
+## e2e recall (recreation/10K, threshold 0.80)
+
+Official e2e protocol run (`test_recall_hfresh_multivector`, this build):
+**FAILS at its first sweep point — probe=16 → recall 77.03% < 0.80** (the
+test asserts per-probe and aborts, so probes 32-512 were not exercised by
+the e2e itself).
+
+Full in-process A/B curve (same protocol as the lifestyle lab; note the
+in-process rebuild has a different layout than the server ingest, so
+absolute values differ from the e2e — the e2e's 77.0% at probe 16 vs the
+lab's 68.6% — while the with/without delta is layout-independent):
+
+| probe | without stage | with stage | Δ |
+|---|---|---|---|
+| 16 | 66.5% | 68.6% | +2.1pp |
+| 32 | 72.6% | 75.9% | +3.3pp |
+| 64 | 78.2% | **82.8%** | +4.6pp |
+| 128 | 81.4% | **87.1%** | +5.7pp |
+| 256 | 83.4% | **89.3%** | +5.9pp |
+| 512 | 83.5% | **89.4%** | +5.9pp |
+
+Reading for the decision session: the stage lifts every funnel-bound cell
+above the 0.80 threshold (probe ≥ 64 in-process, saturating at ~89.4%,
+i.e. recreation's exact-FDE ceiling at this rerank), but probes 16-32 are
+routing-bound (category A: 16 of ~350 postings) — no rescore stage can
+recover neighbors that were never scanned. The e2e spec demands 0.80 at
+EVERY probe including 16, which mixes the routing-bound and funnel-bound
+regimes in a single threshold; whether probe=16 should promise 0.80 is a
+routing/spec question, not an intermediate-rescore one.
