@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -814,6 +815,11 @@ func (i *indices) postSearchObjects() http.Handler {
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		if errors.Is(err, queryadmission.ErrOverloaded) {
+			// The coordinator's retryClient retries 429 with bounded backoff.
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
 			return
 		}
 		if err != nil {
