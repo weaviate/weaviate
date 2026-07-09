@@ -9,9 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package testinghelpers provides shared assertions for tests that verify
-// concurrency-budget behavior, most notably that hot read paths do not fan
-// out more goroutines than their per-query budget allows.
+// Package testinghelpers provides shared assertions for concurrency-budget
+// tests: verifying hot read paths don't fan out more goroutines than budgeted.
 package testinghelpers
 
 import (
@@ -24,16 +23,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// AssertGoroutineCeiling hammers do from numWorkers goroutines for runFor
-// while sampling runtime.NumGoroutine every millisecond, then asserts the
-// observed peak stayed within baseline + numWorkers*maxPerWorker + noiseSlack.
-//
-// The baseline is captured after the sampler goroutine has started, so it
-// includes the sampler but excludes the workers about to launch. maxPerWorker
-// is the number of goroutines one in-flight do call may legitimately keep
-// alive (the worker itself plus any bounded helpers); noiseSlack absorbs
-// transient runtime/GC workers. do returning an error stops that worker and
-// fails the test after all workers finish.
+// AssertGoroutineCeiling runs do from numWorkers goroutines for runFor and
+// asserts peak live goroutines stay within baseline + numWorkers*maxPerWorker
+// + noiseSlack, where maxPerWorker bounds the goroutines one in-flight do
+// call may legitimately hold.
 func AssertGoroutineCeiling(t *testing.T, numWorkers, maxPerWorker, noiseSlack int,
 	runFor time.Duration, do func() error,
 ) {
