@@ -355,7 +355,8 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 	}()
 
 	// Recover a panic so it cannot kill the worker or escape the goroutine; runs
-	// before the cleanup above, erroring any unfinished object.
+	// before the cleanup above, erroring any unfinished object. Must not re-panic:
+	// processJob's recover would then fire a second job.wg.Done.
 	defer func() {
 		if r := recover(); r != nil {
 			b.logger.Errorf("batch vectorizer recovered from panic while sending batch: %v", r)
@@ -511,9 +512,9 @@ func (b *Batch[T]) makeRequest(job BatchJob[T], texts []string, cfg moduletools.
 		rateLimit.UpdateWithRateLimit(rateLimitNew)
 		// Non-blocking: during a sequential batch the worker is inside sendBatch and
 		// not draining this channel, so a blocking send would deadlock once the buffer
-		// fills. Dropping is safe: the sequential path (the only one that fills the
-		// buffer) already applied the update in place above, and updateState keeps only
-		// the freshest update anyway.
+		// fills. Dropping is safe: the sequential path applied the update in place above,
+		// and a dropped concurrent update only costs a slightly staler rate-limit
+		// estimate, corrected on the next drained update.
 		select {
 		case b.rateLimitChannel <- rateLimitJob{rateLimit: rateLimitNew, apiKeyHash: job.apiKeyHash}:
 		default:

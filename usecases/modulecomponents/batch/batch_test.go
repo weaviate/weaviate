@@ -405,14 +405,20 @@ func TestMakeRequestDoesNotBlockWhenRateLimitChannelFull(t *testing.T) {
 	}
 }
 
-// fakeShortVectorClient returns fewer vectors than requested, mimicking a provider
-// that responds with a truncated result.
-type fakeShortVectorClient struct{}
+// fakeShortVectorClient returns a fixed number of vectors regardless of how many
+// texts it was given, mimicking a provider that responds with a truncated result.
+type fakeShortVectorClient struct {
+	vectorsToReturn int
+}
 
 func (c *fakeShortVectorClient) Vectorize(ctx context.Context, text []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	vectors := make([][]float32, c.vectorsToReturn)
+	for i := range vectors {
+		vectors[i] = []float32{0, 1, 2, 3}
+	}
 	return &modulecomponents.VectorizationResult[[]float32]{
-		Vector: make([][]float32, 0),
+		Vector: vectors,
 		Errors: make([]error, len(text)),
 	}, nil, 0, nil
 }
@@ -426,24 +432,44 @@ func (c *fakeShortVectorClient) GetApiKeyHash(ctx context.Context, cfg moduletoo
 }
 
 // A provider returning fewer vectors than inputs must produce an error for the
-// missing objects instead of panicking on an out-of-range index.
+// missing objects instead of panicking on an out-of-range index. The objects that
+// did come back must still keep their vectors.
 func TestMakeRequestFewerVectorsThanTexts(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
-	b := &Batch[[]float32]{
-		client:            &fakeShortVectorClient{},
-		rateLimitChannel:  make(chan rateLimitJob, BatchChannelSize),
-		endOfBatchChannel: make(chan endOfBatchJob, BatchChannelSize),
-		logger:            logger,
-		Label:             "test",
-	}
-	job := BatchJob[[]float32]{ctx: context.Background(), cfg: cfg, errs: map[int]error{}, vecs: make([][]float32, 2)}
 
-	require.NotPanics(t, func() {
-		b.makeRequest(job, []string{"a", "b"}, cfg, []int{0, 1}, &modulecomponents.RateLimits{}, 2)
-	})
-	require.Error(t, job.errs[0])
-	require.Error(t, job.errs[1])
+	cases := []struct {
+		name            string
+		vectorsToReturn int
+		wantErr         []bool // per object: expect an error rather than a vector
+	}{
+		{name: "none of two", vectorsToReturn: 0, wantErr: []bool{true, true}},
+		{name: "one of two", vectorsToReturn: 1, wantErr: []bool{false, true}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &Batch[[]float32]{
+				client:            &fakeShortVectorClient{vectorsToReturn: tt.vectorsToReturn},
+				rateLimitChannel:  make(chan rateLimitJob, BatchChannelSize),
+				endOfBatchChannel: make(chan endOfBatchJob, BatchChannelSize),
+				logger:            logger,
+				Label:             "test",
+			}
+			job := BatchJob[[]float32]{ctx: context.Background(), cfg: cfg, errs: map[int]error{}, vecs: make([][]float32, 2)}
+
+			require.NotPanics(t, func() {
+				b.makeRequest(job, []string{"a", "b"}, cfg, []int{0, 1}, &modulecomponents.RateLimits{}, 2)
+			})
+			for i, wantErr := range tt.wantErr {
+				if wantErr {
+					require.Error(t, job.errs[i])
+				} else {
+					require.NoError(t, job.errs[i])
+					require.NotNil(t, job.vecs[i])
+				}
+			}
+		})
+	}
 }
 
 // fakePanicClient panics for the text "panic" and vectorizes everything else. Its
@@ -549,6 +575,30 @@ func TestBatchWorkerSurvivesPanic(t *testing.T) {
 			require.NotNil(t, vecs[0])
 		})
 	}
+}
+
+// failUnresolved must error only the objects still missing a vector: a vectorized
+// object keeps its vector, a skipped object stays untouched, and an object that
+// already carries an error is not overwritten.
+func TestFailUnresolved(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	b := &Batch[[]float32]{logger: logger, Label: "test"}
+
+	preExisting := fmt.Errorf("provider rejected object")
+	job := BatchJob[[]float32]{
+		texts:      []string{"vectorized", "skipped", "missing", "already errored"},
+		skipObject: []bool{false, true, false, false},
+		vecs:       [][]float32{{0, 1, 2, 3}, nil, nil, nil},
+		errs:       map[int]error{3: preExisting},
+	}
+
+	b.failUnresolved(job)
+
+	require.NotNil(t, job.vecs[0])
+	require.NoError(t, job.errs[0])
+	require.NoError(t, job.errs[1]) // skipped object untouched
+	require.Error(t, job.errs[2])   // only the missing object gets a fresh error
+	require.Equal(t, preExisting, job.errs[3])
 }
 
 // SubmitBatchAndWait must not hang forever when a job never signals completion:
