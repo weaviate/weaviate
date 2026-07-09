@@ -33,18 +33,32 @@ const (
 	// query's rescore phase issues in parallel. Overridable via
 	// HFRESH_RESCORE_CONCURRENCY (1 = sequential).
 	defaultRescoreConcurrency = 16
+
+	// Adaptive rescore: candidates are processed in RQ1-estimate order in
+	// batches. The first batch is max(4k, rescoreMinCandidates) to stabilize
+	// the exact top-k and the observed estimation error before the cutoff is
+	// trusted; subsequent batches are rescoreBatchSize. The phase stops when
+	// the next candidate's estimate exceeds the k-th exact distance so far
+	// plus a per-query margin derived from the worst observed overestimation
+	// (estimate - exact), scaled by rescoreMarginFactor. Candidates are
+	// sorted by estimate, so once one fails the bound all remaining do too.
+	rescoreMinCandidates = 64
+	rescoreBatchSize     = 32
+	rescoreMarginFactor  = 1.5
 )
 
 // rescoreCandidates computes exact distances for the RQ1 top candidates in q
 // and returns the k best. Full vectors are fetched with bounded parallelism;
 // when the index has view-based access configured, all fetches of one query
-// share a single consistent bucket view instead of acquiring one each.
+// share a single consistent bucket view instead of acquiring one each. With
+// adaptive rescore enabled, the candidate list is cut off early once the
+// remaining estimates provably cannot enter the top k.
 func (h *HFresh) rescoreCandidates(ctx context.Context, query []float32, q *ResultSet, k int, st *searchStats) (*ResultSet, error) {
-	candidates := make([]uint64, 0, q.Len())
-	for id := range q.Iter() {
-		candidates = append(candidates, id)
-	}
+	// candidates arrive sorted by estimated distance, ascending
+	candidates := make([]Result, q.Len())
+	copy(candidates, q.data)
 
+	var fetchFor func(worker int) fetchVectorFunc
 	if h.getViewThunk != nil && h.vectorForIDWithView != nil {
 		view := h.getViewThunk()
 		defer view.ReleaseView()
@@ -54,38 +68,78 @@ func (h *HFresh) rescoreCandidates(ctx context.Context, query []float32, q *Resu
 		for i := range buffers {
 			buffers[i].Buff8 = make([]byte, 8)
 		}
-		return h.rescoreParallel(ctx, query, candidates, k, st, func(w int) fetchVectorFunc {
+		fetchFor = func(w int) fetchVectorFunc {
 			return func(ctx context.Context, id uint64) ([]float32, error) {
 				return h.vectorForIDWithView(ctx, id, &buffers[w], view)
 			}
-		})
+		}
+	} else {
+		fetchFor = func(int) fetchVectorFunc {
+			return fetchVectorFunc(h.vectorForId)
+		}
 	}
 
-	return h.rescoreParallel(ctx, query, candidates, k, st, func(int) fetchVectorFunc {
-		return fetchVectorFunc(h.vectorForId)
-	})
+	rescored := NewResultSet(k)
+
+	// worst observed overestimation of the RQ1 estimate: how far above the
+	// exact distance an estimate has been seen to land. A candidate can only
+	// be wrongly skipped if its estimate overshoots by more than the margin
+	// derived from this.
+	var maxOverestimation float32
+
+	pos := 0
+	for pos < len(candidates) {
+		end := min(pos+rescoreBatchSize, len(candidates))
+		if pos == 0 {
+			end = min(max(4*k, rescoreMinCandidates), len(candidates))
+		} else if h.adaptiveRescore && rescored.Len() >= k {
+			margin := rescoreMarginFactor * max(maxOverestimation, 0)
+			threshold := rescored.data[k-1].Distance + margin
+			if candidates[pos].Distance > threshold {
+				st.RescoreSkipped += uint32(len(candidates) - pos)
+				break
+			}
+		}
+
+		batch := candidates[pos:end]
+		exact, err := h.rescoreBatch(ctx, query, batch, st, fetchFor)
+		if err != nil {
+			return nil, err
+		}
+		for i, dist := range exact {
+			if dist < 0 { // not found (deleted between scan and rescore)
+				continue
+			}
+			rescored.Insert(batch[i].ID, dist)
+			if over := batch[i].Distance - dist; over > maxOverestimation {
+				maxOverestimation = over
+			}
+		}
+
+		pos = end
+	}
+
+	return rescored, nil
 }
 
 type fetchVectorFunc func(ctx context.Context, id uint64) ([]float32, error)
 
-// rescoreParallel fans the candidates out over bounded workers. Each worker
-// keeps its own top-k and stats; both are merged at the end so the hot loop
-// needs no synchronization.
-func (h *HFresh) rescoreParallel(ctx context.Context, query []float32, candidates []uint64, k int, st *searchStats, fetchFor func(worker int) fetchVectorFunc) (*ResultSet, error) {
-	concurrency := max(min(h.rescoreConcurrency, len(candidates)), 1)
+// rescoreBatch computes exact distances for one batch of candidates using
+// bounded parallel fetches. The returned slice is indexed like the batch; a
+// negative distance marks a candidate whose object no longer exists. Each
+// worker accumulates its own stats, merged into st at the end.
+func (h *HFresh) rescoreBatch(ctx context.Context, query []float32, batch []Result, st *searchStats, fetchFor func(worker int) fetchVectorFunc) ([]float32, error) {
+	concurrency := max(min(h.rescoreConcurrency, len(batch)), 1)
 
-	results := make([]*ResultSet, concurrency)
+	exact := make([]float32, len(batch))
 	workerStats := make([]searchStats, concurrency)
 
 	work := func(w int) error {
 		fetch := fetchFor(w)
-		rs := NewResultSet(k)
-		results[w] = rs
 		ws := &workerStats[w]
 
-		for i := w; i < len(candidates); i += concurrency {
-			id := candidates[i]
-			vec, err := fetch(ctx, id)
+		for i := w; i < len(batch); i += concurrency {
+			vec, err := fetch(ctx, batch[i].ID)
 			if err != nil {
 				// The object may have been deleted between the posting scan
 				// and the rescore step (race condition). Skip stale entries
@@ -93,6 +147,7 @@ func (h *HFresh) rescoreParallel(ctx context.Context, query []float32, candidate
 				var notFound storobj.ErrNotFound
 				if errors.As(err, &notFound) {
 					ws.RescoreNotFound++
+					exact[i] = -1
 					continue
 				}
 				return err
@@ -103,7 +158,7 @@ func (h *HFresh) rescoreParallel(ctx context.Context, query []float32, candidate
 			if err != nil {
 				return err
 			}
-			rs.Insert(id, dist)
+			exact[i] = dist
 		}
 		return nil
 	}
@@ -124,18 +179,11 @@ func (h *HFresh) rescoreParallel(ctx context.Context, query []float32, candidate
 		}
 	}
 
-	rescored := NewResultSet(k)
 	for w := range concurrency {
-		if results[w] == nil {
-			continue
-		}
-		for id, dist := range results[w].Iter() {
-			rescored.Insert(id, dist)
-		}
 		st.add(&workerStats[w])
 	}
 
-	return rescored, nil
+	return exact, nil
 }
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {

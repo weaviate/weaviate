@@ -105,6 +105,19 @@ func envIntOrDefault(key string, def int) int {
 	return n
 }
 
+// envBoolOrDefault reads a boolean from the environment, falling back to def
+// when unset. "0", "false", "off" and "no" disable; everything else enables.
+func envBoolOrDefault(key string, def bool) bool {
+	switch os.Getenv(key) {
+	case "":
+		return def
+	case "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
+}
+
 // schema of the key of the posting list:
 // - 1 byte: schema version of the posting store
 // - 8 bytes: posting ID (little endian uint64)

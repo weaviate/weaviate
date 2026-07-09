@@ -266,6 +266,17 @@ the actual disk ceiling.
    the next candidate's estimated distance (plus a calibrated RQ error margin)
    cannot beat the current exact k-th distance. `rescoreLimit` stays as the cap.
    Expected: ~350 → ~100 fetches on average, full spend only on hard queries.
+
+   **Implemented.** Candidates are rescored in batches (first batch
+   max(4k, 64) to stabilize the threshold, then 32 at a time, parallel
+   fetches within each batch). The margin is learned per query: 1.5× the
+   worst observed overestimation (RQ1 estimate − exact) among candidates
+   already rescored — self-calibrating across dimensionalities and datasets,
+   no global constant. Skips are counted (`rescore_skipped` in the profiler
+   line). Kill switch: `HFRESH_ADAPTIVE_RESCORE=0`. Equivalence pinned by
+   test (adaptive results byte-identical to full rescore while skipping).
+   Recall gate: rerun dbpedia-1M locally comparing recall per probe against
+   the previous build — must be within run-to-run noise.
 2. **Adaptive probe termination**: process postings in centroid-distance
    order; stop reading when the working top-`rescoreLimit` set stabilizes
    (no improvement over the last N postings, N tuned for recall parity).

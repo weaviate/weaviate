@@ -101,6 +101,12 @@ type HFresh struct {
 	// rescore phase issues in parallel (1 = sequential).
 	rescoreConcurrency int
 
+	// adaptiveRescore enables the early-exit rescore: candidates are
+	// rescored in RQ1-estimate order and the phase stops once the next
+	// estimate provably cannot enter the top k. Disable via
+	// HFRESH_ADAPTIVE_RESCORE=0 to always rescore the full candidate set.
+	adaptiveRescore bool
+
 	rootPath string
 
 	// profiler aggregates per-query search phase timings and IO counters.
@@ -158,6 +164,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		getViewThunk:        cfg.GetViewThunk,
 		vectorForIDWithView: cfg.TempVectorForIDWithViewThunk,
 		rescoreConcurrency:  envIntOrDefault("HFRESH_RESCORE_CONCURRENCY", defaultRescoreConcurrency),
+		adaptiveRescore:     envBoolOrDefault("HFRESH_ADAPTIVE_RESCORE", true),
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)

@@ -47,6 +47,7 @@ type searchStats struct {
 
 	RescoreFetched  uint32 // full vectors fetched during rescore
 	RescoreNotFound uint32 // rescore candidates deleted between scan and rescore
+	RescoreSkipped  uint32 // candidates skipped by the adaptive rescore cutoff
 	Results         uint32 // final results returned
 }
 
@@ -66,6 +67,7 @@ func (st *searchStats) add(o *searchStats) {
 	st.AllowlistSkipped += o.AllowlistSkipped
 	st.RescoreFetched += o.RescoreFetched
 	st.RescoreNotFound += o.RescoreNotFound
+	st.RescoreSkipped += o.RescoreSkipped
 	st.Results += o.Results
 }
 
@@ -118,6 +120,7 @@ type profileWindow struct {
 	allowlistSkipped  logHist
 	rescoreFetched    logHist
 	rescoreNotFound   logHist
+	rescoreSkipped    logHist
 	results           logHist
 }
 
@@ -160,6 +163,7 @@ func (p *searchProfiler) record(st *searchStats) {
 	w.allowlistSkipped.Record(uint64(st.AllowlistSkipped))
 	w.rescoreFetched.Record(uint64(st.RescoreFetched))
 	w.rescoreNotFound.Record(uint64(st.RescoreNotFound))
+	w.rescoreSkipped.Record(uint64(st.RescoreSkipped))
 	w.results.Record(uint64(st.Results))
 
 	n := p.queries.Add(1)
@@ -179,6 +183,7 @@ type profileSnapshot struct {
 	Candidates, Duplicates, Deleted                *logHist
 	AllowlistSkipped                               *logHist
 	RescoreFetched, RescoreNotFound, Results       *logHist
+	RescoreSkipped                                 *logHist
 
 	ReadPct            float64 // posting-read share of the summed phase time
 	SegmentsPerPosting float64 // avg disk segments contributing to one posting read
@@ -210,6 +215,7 @@ func (p *searchProfiler) snapshotWindow(w *profileWindow) profileSnapshot {
 		AllowlistSkipped:  &w.allowlistSkipped,
 		RescoreFetched:    &w.rescoreFetched,
 		RescoreNotFound:   &w.rescoreNotFound,
+		RescoreSkipped:    &w.rescoreSkipped,
 		Results:           &w.results,
 	}
 
@@ -269,6 +275,7 @@ func (p *searchProfiler) log(cumulative uint64) {
 		"allowlist_skipped": math.Round(s.AllowlistSkipped.Mean()),
 		"rescore_fetched":   math.Round(s.RescoreFetched.Mean()),
 		"rescore_not_found": math.Round(s.RescoreNotFound.Mean()),
+		"rescore_skipped":   math.Round(s.RescoreSkipped.Mean()),
 		"results_mean":      math.Round(s.Results.Mean()),
 	}).Info("hfresh search profile")
 }
