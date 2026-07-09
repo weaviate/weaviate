@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 )
 
 func TestSearchTreatsPartiallyInitializedDimensionsAsEmptyIndex(t *testing.T) {
@@ -464,4 +465,49 @@ func TestResultSetTieBreak(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestConfigUpdateDoesNotRaceSearch pins the memory-safety contract of the
+// tunable search budgets: UpdateUserConfig stores searchProbe and
+// rescoreLimit atomically while searches are in flight, so every read on the
+// search paths must be atomic too. A plain read here is a data race — this
+// test fails under -race without the atomic loads in SearchByVector and
+// muveraSearchBudgets.
+func TestConfigUpdateDoesNotRaceSearch(t *testing.T) {
+	const (
+		dim    = 16
+		nDocs  = 50
+		rounds = 200
+	)
+	rng := rand.New(rand.NewSource(3))
+	vectors := make([][]float32, nDocs)
+	for i := range vectors {
+		v := make([]float32, dim)
+		for j := range v {
+			v[j] = rng.Float32()
+		}
+		vectors[i] = v
+	}
+	tf := createHFreshIndexWithVectorStore(t, vectors)
+	for i, v := range vectors {
+		addVectorToIndex(t, &tf, uint64(i), v)
+	}
+
+	probe := vectors[0]
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < rounds; i++ {
+			uc := ent.NewDefaultUserConfig()
+			uc.SearchProbe = uint32(8 + i%64)
+			uc.RQ.RescoreLimit = 100 + i%300
+			require.NoError(t, tf.Index.UpdateUserConfig(uc, func() {}))
+		}
+	}()
+	for i := 0; i < rounds; i++ {
+		_, _, err := tf.Index.SearchByVector(t.Context(), probe, 10, nil)
+		require.NoError(t, err)
+		_, _ = tf.Index.muveraSearchBudgets(10)
+	}
+	<-done
 }
