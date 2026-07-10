@@ -147,6 +147,25 @@ func (h *Handler) parsePagination(common *models.SearchCommon) (*filters.Paginat
 		pagination.Autocut = int(*common.AutoLimit)
 	}
 
+	// bound the page here so oversized values fail with a client error
+	// instead of surfacing from the db layer (or overflowing the int sum
+	// into the negative special limit flags)
+	if h.maximumResults > 0 {
+		if common.Limit != nil && *common.Limit > h.maximumResults {
+			return nil, newAPIError(http.StatusBadRequest,
+				"limit must not exceed QUERY_MAXIMUM_RESULTS (%d), got %d", h.maximumResults, *common.Limit)
+		}
+		if common.Offset != nil && *common.Offset > h.maximumResults {
+			return nil, newAPIError(http.StatusBadRequest,
+				"offset must not exceed QUERY_MAXIMUM_RESULTS (%d), got %d", h.maximumResults, *common.Offset)
+		}
+		if int64(pagination.Offset)+int64(pagination.Limit) > h.maximumResults {
+			return nil, newAPIError(http.StatusBadRequest,
+				"offset + limit must not exceed QUERY_MAXIMUM_RESULTS (%d), got %d",
+				h.maximumResults, int64(pagination.Offset)+int64(pagination.Limit))
+		}
+	}
+
 	return pagination, nil
 }
 

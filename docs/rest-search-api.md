@@ -221,6 +221,16 @@ and it matches the GraphQL API's key for the same data. A property named
 `metadata` is now an ordinary property (regression tests in
 `request_test.go` / `reply_test.go`).
 
+Also on 2026-07-10 (Copilot review, two rounds): a denied request against
+an alias no longer names the alias target in the 403 (deny on the
+caller-supplied name); certainty outside [0,1] → 400; `limit`/`offset` and
+their sum are capped at `QUERY_MAXIMUM_RESULTS` pre-db (400; also closes an
+int-overflow path into the negative special limit flags); 429 declared in
+the spec with a typed responder; and swagger-layer errors on search routes
+(bind validation, 405, 415, 401) are re-shaped into the standard
+`ErrorResponse` body by a search-scoped `api.ServeError` wrapper, so the
+error contract has one body shape.
+
 Also on 2026-07-10 (review): error classification moved from message
 substrings to typed errors. The blocker was that the explorer wrapped
 errors with pkg/errors `Errorf("...: %v", err)`, which drops `Unwrap` — the
@@ -312,11 +322,11 @@ enforced by the generated model at bind time; the rest are the handler's.
 | Field | Type | Behavior |
 |---|---|---|
 | `query` | `[]string` (required) | the near-text concepts, embedded server-side; array-only (single concept = one-element array); absent → 422 (swagger required); `[]` or empty concept → 400 |
-| `certainty` | `*float64` (ptr) | cosine-only (else 422); mutually exclusive with `distance` (else 400) |
+| `certainty` | `*float64` (ptr) | cosine-only (else 422); mutually exclusive with `distance` (else 400); outside [0,1] → 400 |
 | `distance` | `*float64` (ptr) | max vector distance |
 | `target_vector` | `string` | required when the collection has >1 named vector (else 422); unknown name → 400; sole named vector selected implicitly |
 | `where` | `*models.WhereFilter` | reuses the existing definition; schema violation (bad operator enum / value type) → 422 (swagger); schema-valid but unknown property → 400 (handler `filterext.Parse`) |
-| `limit` / `offset` | `*int64` (ptr) | negative → 400; `limit` 0/omitted → `QUERY_DEFAULTS_LIMIT` |
+| `limit` / `offset` | `*int64` (ptr) | negative → 400; `limit` 0/omitted → `QUERY_DEFAULTS_LIMIT`; each and their sum capped at `QUERY_MAXIMUM_RESULTS` (else 400, checked pre-db so int overflow cannot reach the negative special limit flags) |
 | `auto_limit` | `*int64` (ptr) | maps to autocut |
 | `return_properties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; `_additional` → 400 (reserved) |
 | `return_metadata` | `[]string` (enum) | `id`, `distance`, `certainty`, `score`, `explain_score`, `creation_time`, `last_update_time`; omitted → `id`; unknown value → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
@@ -327,27 +337,30 @@ enforced by the generated model at bind time; the rest are the handler's.
 
 | Condition | Status | Body shape |
 |---|---|---|
-| malformed JSON body; `query` string form (array-only); wrong field type | 400 | swagger `{"code","message"}` |
-| missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; schema-invalid `where` (bad operator/type) | 422 | swagger `{"code","message"}` |
-| empty `query` array / empty concept; unknown `target_vector`; negative paging; both certainty+distance; semantically-invalid `where` (unknown property); `_additional` in `return_properties` | 400 | `ErrorResponse` |
-| missing or invalid credentials | 401 | swagger security layer |
+| malformed JSON body; `query` string form (array-only); wrong field type | 400 | `ErrorResponse` |
+| missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; schema-invalid `where` (bad operator/type) | 422 | `ErrorResponse` |
+| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; both certainty+distance; semantically-invalid `where` (unknown property); `_additional` in `return_properties` | 400 | `ErrorResponse` |
+| missing or invalid credentials | 401 | `ErrorResponse` |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
 | unknown collection; unknown tenant | 404 | `ErrorResponse` |
 | no vectorizer / missing `target_vector` on multi-vector collection / certainty on non-cosine / reserved param present / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / API disabled | 422 | `ErrorResponse` |
 | embedding provider failure | 502 | `ErrorResponse` |
-| rate limited (traverser) | 429 | `ErrorResponse` (via `middleware.Error`) — only the traverser's own typed `ErrRateLimit` maps here; an embedding provider's rate-limit error is an ordinary vectorization failure and maps to 502 |
-| other method on the route | 405 + `Allow: POST` | swagger `{"code","message"}` |
-| non-JSON or absent Content-Type | 415 | swagger `{"code","message"}` |
+| rate limited (traverser) | 429 | `ErrorResponse` — only the traverser's own typed `ErrRateLimit` maps here; an embedding provider's rate-limit error is an ordinary vectorization failure and maps to 502 |
+| other method on the route | 405 + `Allow: POST` | `ErrorResponse` |
+| non-JSON or absent Content-Type | 415 | `ErrorResponse` |
 
-Note the two error tiers: the generated model validates the request
-**schema** at bind time (required `query`, enums, `where` structure, field
-types) and returns swagger-shaped 400/422 before the handler runs; the
-handler then applies **semantic** validation (unknown property, no
-vectorizer, tenant/MT mismatch, ...) returning `ErrorResponse`-shaped
-statuses. The `search` unit tests exercise the handler tier in isolation
-(they bypass the router), so a few of them assert the handler's 400 for
-inputs that live would reject with a swagger 422 first — this is called out
-in `TestParseWhere` / `TestParseConsistencyLevel`.
+Every search error now has the same `{"error":[{"message":"…"}]}` body:
+the generated model still validates the request **schema** at bind time
+(required `query`, enums, `where` structure, field types) before the
+handler runs, but a search-route-scoped `api.ServeError` wrapper
+(`search.ServeError`) re-shapes the swagger layer's `{"code","message"}`
+bodies into `ErrorResponse` — statuses and headers (e.g. `Allow` on 405)
+are exactly what the default renderer computes. The handler tier applies
+**semantic** validation (unknown property, no vectorizer, tenant/MT
+mismatch, ...). The `search` unit tests exercise the handler tier in
+isolation (they bypass the router), so a few of them assert the handler's
+400 for inputs that live would reject with a swagger 422 first — this is
+called out in `TestParseWhere` / `TestParseConsistencyLevel`.
 
 `statusFromError` matches typed errors (`errors.Is`/`errors.As`) attached at
 the producers: `ErrNoVectorizerModule` (usecases/modules),

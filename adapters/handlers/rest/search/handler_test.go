@@ -118,12 +118,13 @@ func newTestHandler(t *testing.T) *testDeps {
 		authorizer: mocks.NewMockAuthorizer(),
 	}
 	deps.handler = NewHandler(HandlerConfig{
-		Traverser:    deps.searcher,
-		SchemaReader: deps.schemaReader,
-		Authorizer:   deps.authorizer,
-		DefaultLimit: 10,
-		Disabled:     runtime.NewDynamicValue(false),
-		Logger:       logrus.New(),
+		Traverser:      deps.searcher,
+		SchemaReader:   deps.schemaReader,
+		Authorizer:     deps.authorizer,
+		DefaultLimit:   10,
+		MaximumResults: 10000,
+		Disabled:       runtime.NewDynamicValue(false),
+		Logger:         logrus.New(),
 	})
 	return deps
 }

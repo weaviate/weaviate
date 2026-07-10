@@ -14,6 +14,7 @@ package rest
 import (
 	"net/http"
 
+	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -34,9 +35,24 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		Authorizer:        appState.Authorizer,
 		NamespacesEnabled: appState.ServerConfig.Config.Namespaces.Enabled,
 		DefaultLimit:      appState.ServerConfig.Config.QueryDefaults.Limit,
+		MaximumResults:    appState.ServerConfig.Config.QueryMaximumResults,
 		Disabled:          appState.ServerConfig.Config.DisableRESTSearch,
 		Logger:            appState.Logger,
 	})
+
+	// swagger-layer errors (bind validation, security, routing) on search
+	// routes use the same ErrorResponse shape as handler errors
+	defaultServeError := api.ServeError
+	if defaultServeError == nil {
+		defaultServeError = openapierrors.ServeError
+	}
+	api.ServeError = func(rw http.ResponseWriter, r *http.Request, err error) {
+		if r != nil && restsearch.IsSearchRoute(r.URL.Path) {
+			restsearch.ServeError(rw, r, err)
+			return
+		}
+		defaultServeError(rw, r, err)
+	}
 
 	api.SearchSearchNearTextHandler = searchops.SearchNearTextHandlerFunc(
 		func(params searchops.SearchNearTextParams, principal *models.Principal) middleware.Responder {

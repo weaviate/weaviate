@@ -204,6 +204,31 @@ func TestParsePagination(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 		})
 	}
+
+	// pages beyond QUERY_MAXIMUM_RESULTS (fixture: 10000) are a 400 here,
+	// not a db-layer error; huge values must not overflow into the negative
+	// special limit flags
+	for name, body := range map[string]string{
+		"limit above maximum":          `{"query":["space"],"limit":10001}`,
+		"offset above maximum":         `{"query":["space"],"offset":10001}`,
+		"offset + limit above maximum": `{"query":["space"],"offset":6000,"limit":6000}`,
+		"int64-boundary limit":         `{"query":["space"],"limit":9223372036854775807}`,
+		"overflowing sum":              `{"query":["space"],"offset":9223372036854775806,"limit":2}`,
+	} {
+		t.Run(name+" is a 400", func(t *testing.T) {
+			_, apiErr := buildParams(t, movieClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "QUERY_MAXIMUM_RESULTS")
+		})
+	}
+
+	t.Run("offset + limit at the maximum is valid", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"offset":5000,"limit":5000}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, 5000, searcher.lastParams.Pagination.Limit)
+		assert.Equal(t, 5000, searcher.lastParams.Pagination.Offset)
+	})
 }
 
 func TestParseCertaintyAndDistance(t *testing.T) {

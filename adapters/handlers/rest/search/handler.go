@@ -63,6 +63,7 @@ type HandlerConfig struct {
 	Authorizer        authorization.Authorizer
 	NamespacesEnabled bool
 	DefaultLimit      int64
+	MaximumResults    int64
 	Disabled          *runtime.DynamicValue[bool]
 	Logger            logrus.FieldLogger
 }
@@ -75,6 +76,7 @@ type Handler struct {
 	authorizer        authorization.Authorizer
 	namespacesEnabled bool
 	defaultLimit      int64
+	maximumResults    int64
 	disabled          *runtime.DynamicValue[bool]
 	logger            logrus.FieldLogger
 }
@@ -86,6 +88,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		authorizer:        cfg.Authorizer,
 		namespacesEnabled: cfg.NamespacesEnabled,
 		defaultLimit:      cfg.DefaultLimit,
+		maximumResults:    cfg.MaximumResults,
 		disabled:          cfg.Disabled,
 		logger:            cfg.Logger,
 	}

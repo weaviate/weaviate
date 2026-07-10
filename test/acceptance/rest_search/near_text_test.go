@@ -414,6 +414,8 @@ func TestRESTSearchNearText(t *testing.T) {
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "query")
+		// bind-tier errors use the same ErrorResponse shape as handler errors
+		assert.Contains(t, out, "error", "bind errors must be ErrorResponse-shaped: %v", out)
 	})
 }
 

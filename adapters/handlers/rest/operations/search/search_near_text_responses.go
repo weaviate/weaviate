@@ -233,7 +233,7 @@ func (o *SearchNearTextNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const SearchNearTextUnprocessableEntityCode int = 422
 
 /*
-SearchNearTextUnprocessableEntity Either a request-schema violation (a missing required field such as `query`, or an invalid enum value — rejected by the generated validation layer with a `{"code","message"}` body), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.
+SearchNearTextUnprocessableEntity Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.
 
 swagger:response searchNearTextUnprocessableEntity
 */
