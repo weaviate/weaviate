@@ -807,6 +807,32 @@ jobs:
           max_attempts: 1
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  Acceptance-DropVectorIndex-Tests:
+    name: drop-vector-index (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "suite"
+            test: "--acceptance-drop-vector-index"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+      - name: Login to Docker Hub
+        uses: ./.github/actions/docker-login
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests drop-vector-index
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+        with:
+          timeout_minutes: 30
+          max_attempts: 1
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
