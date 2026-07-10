@@ -20,10 +20,14 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestDropVectorIndex runs the drop-vector-index e2e suite against one shared
-// Weaviate instance. PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS=1 makes
-// memtables become segments promptly, so drops exercise real segment rewrites.
-func TestDropVectorIndex(t *testing.T) {
+// The suite runs identically against a single node and a 3-node cluster; on
+// the cluster, finalize additionally proves cross-node unit completion and
+// RAFT propagation of the schema removal.
+//
+// PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS=1 makes memtables become
+// segments promptly, so drops exercise real segment rewrites.
+
+func TestDropVectorIndex_SingleNode(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
@@ -35,6 +39,25 @@ func TestDropVectorIndex(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 
+	runSuite(t, compose)
+}
+
+func TestDropVectorIndex_Cluster(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	runSuite(t, compose)
+}
+
+func runSuite(t *testing.T, compose *docker.DockerCompose) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 

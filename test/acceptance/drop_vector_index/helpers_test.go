@@ -75,10 +75,18 @@ func eventuallyTargetVectorRemoved(t *testing.T, className, targetVector string)
 
 func listAllObjectsWithVectors(t *testing.T, className string) []*models.Object {
 	t.Helper()
+	return listObjectsWithVectors(t, className, "")
+}
+
+func listObjectsWithVectors(t *testing.T, className, tenant string) []*models.Object {
+	t.Helper()
 	limit := int64(100)
 	include := "vector"
-	resp, err := helper.Client(t).Objects.ObjectsList(
-		clobjects.NewObjectsListParams().WithClass(&className).WithLimit(&limit).WithInclude(&include), nil)
+	params := clobjects.NewObjectsListParams().WithClass(&className).WithLimit(&limit).WithInclude(&include)
+	if tenant != "" {
+		params.WithTenant(&tenant)
+	}
+	resp, err := helper.Client(t).Objects.ObjectsList(params, nil)
 	require.NoError(t, err)
 	return resp.Payload.Objects
 }
@@ -152,11 +160,5 @@ func errorResponseText(err error) string {
 
 func listTenantObjectsWithVectors(t *testing.T, className, tenant string) []*models.Object {
 	t.Helper()
-	limit := int64(100)
-	include := "vector"
-	resp, err := helper.Client(t).Objects.ObjectsList(
-		clobjects.NewObjectsListParams().WithClass(&className).WithTenant(&tenant).
-			WithLimit(&limit).WithInclude(&include), nil)
-	require.NoError(t, err)
-	return resp.Payload.Objects
+	return listObjectsWithVectors(t, className, tenant)
 }
