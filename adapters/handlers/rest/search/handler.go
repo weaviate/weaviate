@@ -24,10 +24,12 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -211,62 +213,39 @@ func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Pr
 			authorizedCollections[classTenantName] = class
 		}
 		if class == nil {
-			return nil, fmt.Errorf("could not find collection %s in schema", name)
+			return nil, fmt.Errorf("%w %s in schema", errCollectionNotFound, name)
 		}
 		return class, nil
 	}
 }
 
-// Substrings of upstream error messages that statusFromError matches, kept
-// as named constants (single source of truth) because these upstream errors
-// are plain fmt.Errorf strings with no typed sentinel to match on. A wording
-// change upstream must fail a statusFromError test (see handler_test.go),
-// not silently mis-map in production. TODO: promote these to typed
-// sentinels in their core packages so the string matching can be dropped
-// (tracked separately).
-const (
-	// usecases/modules/modules.go VectorFromSearchParam — near-text on a
-	// collection whose (target) vector has no vectorizer module.
-	errNoVectorizerMarker = "Make sure a vectorizer module is configured"
-	// usecases/traverser/explorer.go + near_params_vector.go — the embedding
-	// provider failed to produce a query vector.
-	errVectorizeParamsMarker = "vectorize params"
-	errVectorizeSearchMarker = "vectorize search vector"
-	// entities/schema/configvalidation/config_validation.go — certainty
-	// requested on a non-cosine vector index.
-	errCertaintyMarker = "can't compute and return certainty"
-	// adapters/repos/db/multitenancy/validator.go — tenant usage does not
-	// match the collection's multi-tenancy configuration.
-	errMTDisabledWithTenantMarker   = "multi-tenancy disabled, but request was with tenant"
-	errMTEnabledWithoutTenantMarker = "multi-tenancy enabled, but request was without tenant"
-	// Collection not present in the schema. Two markers because the wording
-	// differs by source: this handler's classGetterWithAuthz says
-	// "collection" (our user-facing rename), while the upstream traverser
-	// still says "class" — both must map to 404.
-	errCollectionNotFoundMarker = "could not find collection"
-	errClassNotFoundMarker      = "could not find class"
-	// entities/errors tenant sentinels' messages. Kept as a fallback to the
-	// typed errors.Is checks below because the search path wraps tenant
-	// errors through objects.NewErrMultiTenancy and full sentinel coverage
-	// on the reaching error is not verified without a live run; the live
-	// smoke exercises the unknown-tenant path. Follow-up: confirm sentinel
-	// coverage end-to-end, then drop these fallbacks.
-	errTenantNotFoundMarker  = "tenant not found"
-	errTenantNotActiveMarker = "tenant not active"
-)
+// errCollectionNotFound marks a collection missing from the schema. It is
+// produced by classGetterWithAuthz via %w, so the message stays "could not
+// find collection <name> in schema" while statusFromError matches by
+// sentinel instead of substring.
+var errCollectionNotFound = errors.New("could not find collection")
+
+// errClassNotFoundMarker is the one remaining substring fallback: "could not
+// find class %s in schema" has many producers across the db layer (reachable
+// here e.g. when a collection is deleted mid-request) and none carries a
+// sentinel yet. Unlike the typed cases, a wording change upstream would
+// silently degrade this mapping to 500 — acceptable for a race-only path.
+// TODO: add an ErrClassNotFound sentinel to entities/errors, attach it at
+// the upstream producers, then drop this marker (tracked separately).
+const errClassNotFoundMarker = "could not find class"
 
 // statusFromError maps errors surfaced by authorization, schema access and
-// the traverser onto the REST search status codes. Typed/sentinel errors are
-// matched with errors.As/errors.Is; the remaining cases match the named
-// substring constants above (their upstream producers have no sentinel yet).
+// the traverser onto the REST search status codes. All expected cases are
+// matched by type (errors.Is/errors.As); the producers attach the typed
+// errors from entities/errors and the wrap chain preserves them (see
+// usecases/traverser/explorer.go, near_params_vector.go — wraps there must
+// stay %w/Wrapf, never %v/%s, or these matches silently degrade to 500).
 //
-// ORDERING INVARIANT: the substring switch matches message fragments and
-// several markers can co-occur in one message, so case order is load-bearing.
-// In particular the no-vectorizer error from usecases/modules ("could not
-// vectorize input ... Make sure a vectorizer module is configured for this
-// class") arrives wrapped in the explorer's "vectorize params:" prefix — the
-// errNoVectorizerMarker (422) case MUST stay above the errVectorizeParams
-// (502) case, or a config problem would be misreported as a provider outage.
+// ORDERING INVARIANT: a missing-vectorizer configuration error surfaces
+// through the vectorization call path wrapped inside an
+// ErrQueryVectorization, so the ErrNoVectorizerModule case (422, config
+// problem) MUST stay above the ErrQueryVectorization case (502, provider
+// outage).
 func statusFromError(err error) *APIError {
 	var forbidden autherrs.Forbidden
 	if errors.As(err, &forbidden) {
@@ -279,28 +258,37 @@ func statusFromError(err error) *APIError {
 		return &APIError{Status: http.StatusTooManyRequests, Err: err}
 	}
 
-	msg := err.Error()
 	switch {
-	case errors.Is(err, enterrors.ErrTenantNotFound) || strings.Contains(msg, errTenantNotFoundMarker):
+	case errors.Is(err, enterrors.ErrTenantNotFound):
 		return &APIError{Status: http.StatusNotFound, Err: err}
-	case errors.Is(err, enterrors.ErrTenantNotActive) || strings.Contains(msg, errTenantNotActiveMarker):
+	case errors.Is(err, enterrors.ErrTenantNotActive):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case strings.Contains(msg, errMTDisabledWithTenantMarker) ||
-		strings.Contains(msg, errMTEnabledWithoutTenantMarker):
+	case errors.As(err, &objects.ErrMultiTenancy{}):
+		// remaining multi-tenancy validation failures (the tenant sentinels
+		// above are checked first): tenant on a non-MT collection, or a
+		// missing tenant on an MT collection
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case strings.Contains(msg, errCollectionNotFoundMarker) ||
-		strings.Contains(msg, errClassNotFoundMarker):
+	case errors.Is(err, errCollectionNotFound):
 		return &APIError{Status: http.StatusNotFound, Err: err}
-	case strings.Contains(msg, errNoVectorizerMarker):
+	case errors.As(err, &enterrors.ErrNoVectorizerModule{}):
 		// near-text on a collection without a vectorizer: valid request,
-		// unrunnable configuration
+		// unrunnable configuration. MUST stay above ErrQueryVectorization.
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case strings.Contains(msg, errCertaintyMarker):
+	case errors.As(err, &enterrors.ErrCertaintyIncompatible{}):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case strings.Contains(msg, errVectorizeParamsMarker) ||
-		strings.Contains(msg, errVectorizeSearchMarker):
+	case errors.As(err, &inverted.MissingIndexError{}):
+		// a filter targets a property whose inverted index is disabled:
+		// valid request, unrunnable collection configuration
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	case errors.As(err, &enterrors.ErrQueryVectorization{}):
 		// the embedding provider failed, the search cannot run
 		return &APIError{Status: http.StatusBadGateway, Err: err}
+	}
+
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, errClassNotFoundMarker):
+		return &APIError{Status: http.StatusNotFound, Err: err}
 	case strings.Contains(msg, "invalid 'where' filter"):
 		// this wrap is ours (parseWhere), not upstream-fragile
 		return &APIError{Status: http.StatusBadRequest, Err: err}

@@ -75,7 +75,8 @@ func buildParams(t *testing.T, class *models.Class, body string) (*fakeSearcher,
 		if c, ok := deps.schemaReader.classes[name]; ok {
 			return c, nil
 		}
-		return nil, fmt.Errorf("could not find collection %s in schema", name)
+		// same sentinel the real classGetterWithAuthz produces
+		return nil, fmt.Errorf("%w %s in schema", errCollectionNotFound, name)
 	}
 
 	params, apiErr := deps.handler.buildNearTextParams(class, class.Class, parsed, getClass, nil)
@@ -361,8 +362,8 @@ func TestParseReturnProperties(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
 
-	t.Run("metadata is reserved", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_properties":["metadata"]}`)
+	t.Run("_additional is reserved", func(t *testing.T) {
+		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_properties":["_additional"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})

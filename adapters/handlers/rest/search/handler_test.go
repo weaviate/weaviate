@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	pkgerrors "github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,13 +27,16 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 type fakeSearcher struct {
@@ -385,24 +389,44 @@ func TestHandlerLowercasesCollection(t *testing.T) {
 	assert.Equal(t, "Movie", deps.searcher.lastParams.ClassName)
 }
 
+// TestHandlerTraverserErrorMapping builds each error the way its real
+// producer does — typed error from entities/errors (or usecases/objects),
+// wrapped in the pkg/errors chain the traverser applies. Using pkgerrors
+// here is deliberate: it pins that pkg/errors wraps preserve Unwrap, which
+// is what lets the typed matching in statusFromError see through the
+// explorer's prefixes. If a producer stops attaching its typed error, or a
+// wrap in the chain goes back to a chain-breaking %v, these cases fail.
 func TestHandlerTraverserErrorMapping(t *testing.T) {
+	// certainty error via the real producer, wrapped as explorer.go does
+	l2Class := movieClass()
+	l2Class.VectorIndexConfig = hnsw.UserConfig{Distance: "l2-squared"}
+	certaintyErr := configvalidation.CheckCertaintyCompatibility(l2Class, nil)
+	require.Error(t, certaintyErr)
+
 	tests := []struct {
 		name       string
 		err        error
 		wantStatus int
 	}{
 		{
-			// smoke-covered live (embedding provider failure)
-			name:       "embedding provider failure",
-			err:        fmt.Errorf("explorer: get class: vectorize params: remote client vectorize: connection refused"),
+			// smoke-covered live (embedding provider failure), wrapped as
+			// explorer.getClassVectorSearch does
+			name: "embedding provider failure",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(fmt.Errorf("remote client vectorize: connection refused")),
+				"explorer: get class: vectorize params"),
 			wantStatus: http.StatusBadGateway,
 		},
 		{
-			// ORDERING GUARD + smoke-covered: this real message carries BOTH
-			// the "vectorize params" (502) prefix and the no-vectorizer (422)
-			// marker; the no-vectorizer case must win.
-			name:       "no vectorizer configured",
-			err:        fmt.Errorf("explorer: get class: vectorize params: could not vectorize input for collection Movie with search-type nearText, targetVector  and parameters &{}. Make sure a vectorizer module is configured for this class"),
+			// ORDERING GUARD + smoke-covered: the no-vectorizer config error
+			// (usecases/modules) surfaces wrapped inside the vectorization
+			// path's ErrQueryVectorization; the 422 config case must win
+			// over the 502 provider-outage case.
+			name: "no vectorizer configured",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					enterrors.NewErrNoVectorizerModule(fmt.Errorf("could not vectorize input for collection Movie with search-type nearText, targetVector  and parameters &{}. Make sure a vectorizer module is configured for this class"))),
+				"explorer: get class: vectorize params"),
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
@@ -412,48 +436,65 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			wantStatus: http.StatusTooManyRequests,
 		},
 		{
-			// real ErrTenantNotFound sentinel wrapped as the DB layer does
-			name:       "tenant not found (sentinel)",
-			err:        fmt.Errorf("search index movie: %w", enterrors.ErrTenantNotFound),
+			// tenant sentinel attached the way the multitenancy validator
+			// does (objects.NewErrMultiTenancy around the sentinel), wrapped
+			// the way the db/explorer chain does
+			name: "tenant not found (sentinel through the MT/explorer chain)",
+			err: pkgerrors.Wrapf(
+				objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, "unknownTenant")),
+				"explorer: get class: vector search"),
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			// real ErrTenantNotActive sentinel wrapped
-			name:       "tenant not active (sentinel)",
-			err:        fmt.Errorf("shard read: %w", enterrors.ErrTenantNotActive),
+			name: "tenant not active (sentinel through the MT/explorer chain)",
+			err: pkgerrors.Wrapf(
+				objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", enterrors.ErrTenantNotActive, "coldTenant")),
+				"explorer: get class: vector search"),
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			// string fallback still maps a plain-string tenant-not-found
-			name:       "tenant not found (string fallback)",
-			err:        fmt.Errorf("class Movie has multi-tenancy enabled, tenant not found: \"unknownTenant\""),
+			// MT validation failures without a tenant sentinel map 422 via
+			// the typed objects.ErrMultiTenancy
+			name: "tenant on non-multi-tenant collection",
+			err: pkgerrors.Wrapf(
+				objects.NewErrMultiTenancy(fmt.Errorf("class Movie has multi-tenancy disabled, but request was with tenant")),
+				"explorer: get class: vector search"),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "missing tenant on multi-tenant collection",
+			err: objects.NewErrMultiTenancy(
+				fmt.Errorf("class Movie has multi-tenancy enabled, but request was without tenant")),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			// ours, produced by classGetterWithAuthz via the sentinel
+			name:       "collection not found (ours: sentinel)",
+			err:        fmt.Errorf("%w %s in schema", errCollectionNotFound, "Movie"),
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "tenant on non-multi-tenant collection",
-			err:        fmt.Errorf("explorer: get class: vector search: object vector search at index movie: class Movie has multi-tenancy disabled, but request was with tenant"),
-			wantStatus: http.StatusUnprocessableEntity,
-		},
-		{
-			name:       "missing tenant on multi-tenant collection",
-			err:        fmt.Errorf("class Movie has multi-tenancy enabled, but request was without tenant"),
-			wantStatus: http.StatusUnprocessableEntity,
-		},
-		{
-			// our renamed message
-			name:       "collection not found (ours: collection)",
-			err:        fmt.Errorf("could not find collection Movie in schema"),
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			// upstream traverser still says "class"
-			name:       "class not found (upstream: class)",
+			// upstream "could not find class %s in schema" has many
+			// producers and no sentinel yet — the one remaining string
+			// fallback (reachable when a collection is deleted mid-request)
+			name:       "class not found (upstream string fallback)",
 			err:        fmt.Errorf("could not find class Movie in schema"),
 			wantStatus: http.StatusNotFound,
 		},
 		{
+			// real producer (configvalidation), wrapped as explorer.go does
 			name:       "certainty on non-cosine",
-			err:        fmt.Errorf("can't compute and return certainty when vector index is configured with l2-squared distance"),
+			err:        fmt.Errorf("additional: %w for class: %v", certaintyErr, "Movie"),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			// where filter on a property whose inverted index is disabled
+			// (adapters/repos/db/inverted searcher), wrapped as the explorer
+			// vector-search path does
+			name: "filter on property without inverted index",
+			err: pkgerrors.Wrapf(
+				inverted.NewMissingFilterableIndexError("rating"),
+				"explorer: get class: vector search"),
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{

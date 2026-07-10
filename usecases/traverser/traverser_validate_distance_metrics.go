@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
@@ -137,7 +138,7 @@ func crossClassDistCompatError(classDistanceConfigs map[string]string) error {
 }
 
 func certaintyUnsupportedError(distType string) error {
-	return errors.Errorf(
+	return enterrors.NewErrCertaintyIncompatible(errors.Errorf(
 		"can't compute and return certainty when vector index is configured with %s distance",
-		distType)
+		distType))
 }

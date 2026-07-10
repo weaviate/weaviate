@@ -6496,7 +6496,7 @@ func init() {
     },
     "/search/{collection}/near-text": {
       "post": {
-        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key.",
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key.",
         "consumes": [
           "application/json"
         ],
@@ -6552,7 +6552,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or the REST Search API is disabled.",
+            "description": "The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10389,7 +10389,7 @@ func init() {
           "x-nullable": true
         },
         "return_metadata": {
-          "description": "The retrieval metadata to return under the ` + "`" + `metadata` + "`" + ` key of each result. Omitted returns ` + "`" + `id` + "`" + `.",
+          "description": "The retrieval metadata to return under the ` + "`" + `_additional` + "`" + ` key of each result. Omitted returns ` + "`" + `id` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string",
@@ -10466,7 +10466,7 @@ func init() {
       ]
     },
     "SearchResponse": {
-      "description": "The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key. Shared by all REST search endpoints.",
+      "description": "The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key. Shared by all REST search endpoints.",
       "type": "object",
       "properties": {
         "results": {
@@ -10486,7 +10486,7 @@ func init() {
       }
     },
     "SearchResultObject": {
-      "description": "A single search hit: the object's selected properties at the root and retrieval metadata under ` + "`" + `metadata` + "`" + ` (only the requested keys among ` + "`" + `id` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `score` + "`" + `, ` + "`" + `explain_score` + "`" + `, ` + "`" + `creation_time` + "`" + `, ` + "`" + `last_update_time` + "`" + ` are present).",
+      "description": "A single search hit: the object's selected properties at the root and retrieval metadata under ` + "`" + `_additional` + "`" + ` (only the requested keys among ` + "`" + `id` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `score` + "`" + `, ` + "`" + `explain_score` + "`" + `, ` + "`" + `creation_time` + "`" + `, ` + "`" + `last_update_time` + "`" + ` are present).",
       "type": "object"
     },
     "ShardProgress": {
@@ -11209,7 +11209,7 @@ func init() {
       "name": "graphql"
     },
     {
-      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; results are flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key.",
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; results are flat JSON objects with retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key.",
       "name": "search"
     },
     {
@@ -17818,7 +17818,7 @@ func init() {
     },
     "/search/{collection}/near-text": {
       "post": {
-        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key.",
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key.",
         "consumes": [
           "application/json"
         ],
@@ -17874,7 +17874,7 @@ func init() {
             }
           },
           "422": {
-            "description": "The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or the REST Search API is disabled.",
+            "description": "The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -22086,7 +22086,7 @@ func init() {
           "x-nullable": true
         },
         "return_metadata": {
-          "description": "The retrieval metadata to return under the ` + "`" + `metadata` + "`" + ` key of each result. Omitted returns ` + "`" + `id` + "`" + `.",
+          "description": "The retrieval metadata to return under the ` + "`" + `_additional` + "`" + ` key of each result. Omitted returns ` + "`" + `id` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string",
@@ -22163,7 +22163,7 @@ func init() {
       ]
     },
     "SearchResponse": {
-      "description": "The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key. Shared by all REST search endpoints.",
+      "description": "The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key. Shared by all REST search endpoints.",
       "type": "object",
       "properties": {
         "results": {
@@ -22183,7 +22183,7 @@ func init() {
       }
     },
     "SearchResultObject": {
-      "description": "A single search hit: the object's selected properties at the root and retrieval metadata under ` + "`" + `metadata` + "`" + ` (only the requested keys among ` + "`" + `id` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `score` + "`" + `, ` + "`" + `explain_score` + "`" + `, ` + "`" + `creation_time` + "`" + `, ` + "`" + `last_update_time` + "`" + ` are present).",
+      "description": "A single search hit: the object's selected properties at the root and retrieval metadata under ` + "`" + `_additional` + "`" + ` (only the requested keys among ` + "`" + `id` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `score` + "`" + `, ` + "`" + `explain_score` + "`" + `, ` + "`" + `creation_time` + "`" + `, ` + "`" + `last_update_time` + "`" + ` are present).",
       "type": "object"
     },
     "ShardProgress": {
@@ -22918,7 +22918,7 @@ func init() {
       "name": "graphql"
     },
     {
-      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; results are flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key.",
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; results are flat JSON objects with retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key.",
       "name": "search"
     },
     {

@@ -210,6 +210,30 @@ Also on 2026-07-09 (Ivan): the reserved response metadata key was renamed
 from `_metadata` to `metadata` (the wire key, and the reserved name rejected
 in `return_properties`).
 
+On 2026-07-10 (review): the reserved response metadata key was renamed again,
+from `metadata` to `_additional`. `metadata` is a legal — and common —
+property name, so a collection property named `metadata` was silently
+shadowed by the retrieval metadata in every response (and unreachable via
+`return_properties`, which rejected the name). `_additional` is already a
+forbidden property name (`entities/schema/validation.go`
+`reservedPropertyNames`), so the collision is impossible by construction —
+and it matches the GraphQL API's key for the same data. A property named
+`metadata` is now an ordinary property (regression tests in
+`request_test.go` / `reply_test.go`).
+
+Also on 2026-07-10 (review): error classification moved from message
+substrings to typed errors. The blocker was that the explorer wrapped
+errors with pkg/errors `Errorf("...: %v", err)`, which drops `Unwrap` — the
+tenant sentinels attached in `adapters/repos/db/multitenancy` never reached
+the handler, so its `errors.Is` checks were dead and only the string
+fallbacks worked. Those wraps are now chain-preserving
+(`errors.Wrapf`/`%w`, byte-identical messages), and the producers attach
+typed errors from `entities/errors` (`ErrNoVectorizerModule`,
+`ErrQueryVectorization`, `ErrCertaintyIncompatible`). Drift guards live in
+the producing packages (`usecases/modules`, `usecases/traverser`,
+`entities/schema/configvalidation`): if a producer stops attaching its type
+or a wrap goes back to `%v`, a test fails next to the code that broke it.
+
 ---
 
 ## 2. Implementation
@@ -254,8 +278,9 @@ in `return_properties`).
   deterministic no-vectorizer 422 pre-check, `return_metadata` →
   `additional.Properties`, `return_properties` incl. one-hop dot-path refs.
 - `adapters/handlers/rest/search/reply.go` — traverser output →
-  `models.SearchResponse` (shared): flat objects, `_additional` renamed to
-  `metadata`, nested-object pruning to the selected nested properties
+  `models.SearchResponse` (shared): flat objects, retrieval metadata under
+  the reserved `_additional` key (a forbidden property name, so it cannot
+  collide with user data), nested-object pruning to the selected nested properties
   (blobs never leak), references as nested arrays, vectors never returned,
   no `count` field, `took_ms` in integer milliseconds.
 - `adapters/handlers/rest/middlewares.go` — operational-mode
@@ -293,7 +318,7 @@ enforced by the generated model at bind time; the rest are the handler's.
 | `where` | `*models.WhereFilter` | reuses the existing definition; schema violation (bad operator enum / value type) → 422 (swagger); schema-valid but unknown property → 400 (handler `filterext.Parse`) |
 | `limit` / `offset` | `*int64` (ptr) | negative → 400; `limit` 0/omitted → `QUERY_DEFAULTS_LIMIT` |
 | `auto_limit` | `*int64` (ptr) | maps to autocut |
-| `return_properties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; `metadata` → 400 (reserved) |
+| `return_properties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; `_additional` → 400 (reserved) |
 | `return_metadata` | `[]string` (enum) | `id`, `distance`, `certainty`, `score`, `explain_score`, `creation_time`, `last_update_time`; omitted → `id`; unknown value → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
 | `tenant` | `string` | tenant-scoped authz (`ShardsData`) |
 | `consistency_level` | `string` (enum) | ONE / QUORUM / ALL; other value → 422 (swagger enum) |
@@ -304,13 +329,13 @@ enforced by the generated model at bind time; the rest are the handler's.
 |---|---|---|
 | malformed JSON body; `query` string form (array-only); wrong field type | 400 | swagger `{"code","message"}` |
 | missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; schema-invalid `where` (bad operator/type) | 422 | swagger `{"code","message"}` |
-| empty `query` array / empty concept; unknown `target_vector`; negative paging; both certainty+distance; semantically-invalid `where` (unknown property); `metadata` in `return_properties` | 400 | `ErrorResponse` |
+| empty `query` array / empty concept; unknown `target_vector`; negative paging; both certainty+distance; semantically-invalid `where` (unknown property); `_additional` in `return_properties` | 400 | `ErrorResponse` |
 | missing or invalid credentials | 401 | swagger security layer |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
 | unknown collection; unknown tenant | 404 | `ErrorResponse` |
-| no vectorizer / missing `target_vector` on multi-vector collection / certainty on non-cosine / reserved param present / tenant-vs-MT-config mismatch / tenant not active / API disabled | 422 | `ErrorResponse` |
+| no vectorizer / missing `target_vector` on multi-vector collection / certainty on non-cosine / reserved param present / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / API disabled | 422 | `ErrorResponse` |
 | embedding provider failure | 502 | `ErrorResponse` |
-| rate limited (traverser) | 429 | `ErrorResponse` (via `middleware.Error`) — effectively theoretical: provider rate-limit errors arrive wrapped in `vectorize params:` and hit the 502 mapping first (see the `statusFromError` ordering invariant) |
+| rate limited (traverser) | 429 | `ErrorResponse` (via `middleware.Error`) — only the traverser's own typed `ErrRateLimit` maps here; an embedding provider's rate-limit error is an ordinary vectorization failure and maps to 502 |
 | other method on the route | 405 + `Allow: POST` | swagger `{"code","message"}` |
 | non-JSON or absent Content-Type | 415 | swagger `{"code","message"}` |
 
@@ -324,9 +349,18 @@ statuses. The `search` unit tests exercise the handler tier in isolation
 inputs that live would reject with a swagger 422 first — this is called out
 in `TestParseWhere` / `TestParseConsistencyLevel`.
 
-`statusFromError` matches on upstream message substrings; **case order is
-load-bearing** (the no-vectorizer 422 marker co-occurs with the 502
-"vectorize params" marker) — see the comment on the function.
+`statusFromError` matches typed errors (`errors.Is`/`errors.As`) attached at
+the producers: `ErrNoVectorizerModule` (usecases/modules),
+`ErrQueryVectorization` (vectorize wrap sites in usecases/traverser +
+usecases/modules), `ErrCertaintyIncompatible`
+(entities/schema/configvalidation), the tenant sentinels
+(adapters/repos/db/multitenancy), `objects.ErrMultiTenancy`, and the
+handler's own collection-not-found sentinel. **Case order is still
+load-bearing** in one place: a no-vectorizer config error surfaces wrapped
+inside an `ErrQueryVectorization`, so the 422 check precedes the 502 check —
+see the comment on the function. The single remaining substring fallback is
+the upstream "could not find class ... in schema" (many producers, no
+sentinel yet; reachable when a collection is deleted mid-request).
 
 ### DISABLE_REST_SEARCH
 
@@ -443,7 +477,7 @@ curl -s -X POST -H 'Content-Type: application/json' \
   -d '{"query":["spaceship galaxy"],"limit":3,
        "return_properties":["title"],"return_metadata":["id","distance"]}' \
   http://127.0.0.1:8091/v1/search/Movie/near-text
-# -> {"results":[{"title":"...","metadata":{"id":"...","distance":0.12}}],"took_ms":8}
+# -> {"results":[{"title":"...","_additional":{"id":"...","distance":0.12}}],"took_ms":8}
 ```
 
 If you have the local harness, run it against the running instance

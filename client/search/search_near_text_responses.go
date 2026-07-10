@@ -144,7 +144,6 @@ func (o *SearchNearTextOK) GetPayload() *models.SearchResponse {
 }
 
 func (o *SearchNearTextOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.SearchResponse)
 
 	// response payload
@@ -212,7 +211,6 @@ func (o *SearchNearTextBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearTextBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -233,8 +231,7 @@ SearchNearTextUnauthorized describes a response with status code 401, with defau
 
 Unauthorized or invalid credentials.
 */
-type SearchNearTextUnauthorized struct {
-}
+type SearchNearTextUnauthorized struct{}
 
 // IsSuccess returns true when this search near text unauthorized response has a 2xx status code
 func (o *SearchNearTextUnauthorized) IsSuccess() bool {
@@ -275,7 +272,6 @@ func (o *SearchNearTextUnauthorized) String() string {
 }
 
 func (o *SearchNearTextUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -336,7 +332,6 @@ func (o *SearchNearTextForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearTextForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -404,7 +399,6 @@ func (o *SearchNearTextNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearTextNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -423,7 +417,7 @@ func NewSearchNearTextUnprocessableEntity() *SearchNearTextUnprocessableEntity {
 /*
 SearchNearTextUnprocessableEntity describes a response with status code 422, with default header values.
 
-The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or the REST Search API is disabled.
+The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.
 */
 type SearchNearTextUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -472,7 +466,6 @@ func (o *SearchNearTextUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearTextUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -540,7 +533,6 @@ func (o *SearchNearTextInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearTextInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -608,7 +600,6 @@ func (o *SearchNearTextBadGateway) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearTextBadGateway) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

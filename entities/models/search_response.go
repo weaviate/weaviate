@@ -23,11 +23,10 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// SearchResponse The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved `metadata` key. Shared by all REST search endpoints.
+// SearchResponse The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved `_additional` key. Shared by all REST search endpoints.
 //
 // swagger:model SearchResponse
 type SearchResponse struct {
-
 	// The matched objects, ordered by relevance.
 	Results []SearchResultObject `json:"results"`
 

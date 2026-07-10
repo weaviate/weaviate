@@ -325,9 +325,9 @@ func parseReturnProperties(class *models.Class, returnProperties []string,
 		if entry == "" {
 			return nil, newAPIError(http.StatusBadRequest, "return_properties entries must not be empty")
 		}
-		if entry == "metadata" {
+		if entry == "_additional" {
 			return nil, newAPIError(http.StatusBadRequest,
-				"metadata is a reserved name, request metadata via return_metadata")
+				"_additional is a reserved name, request metadata via return_metadata")
 		}
 
 		root, sub, isDotPath := strings.Cut(entry, ".")
