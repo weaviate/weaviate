@@ -12,7 +12,6 @@
 package cyclemanager
 
 import (
-	"container/heap"
 	"testing"
 	"time"
 
@@ -21,20 +20,13 @@ import (
 )
 
 func TestDueHeap_PopOrder(t *testing.T) {
-	base := time.Now()
-
-	type entry struct {
-		name    string
-		nextDue time.Time
-	}
+	base := time.Now().UnixNano()
 
 	tests := []struct {
-		name    string
-		entries []entry
-		want    []string // names in exact pop order, when order is fully determined
-		// names that must occupy the first len(wantPrefix) pops, in any order
-		// (used when some entries share a due time)
-		wantPrefix []string
+		name       string
+		entries    []dueEntry
+		want       []uint32 // callbackIds in exact pop order
+		wantPrefix []uint32 // callbackIds that must occupy the first len(wantPrefix) pops, in any order
 	}{
 		{
 			name:    "empty",
@@ -43,116 +35,85 @@ func TestDueHeap_PopOrder(t *testing.T) {
 		},
 		{
 			name:    "single",
-			entries: []entry{{"a", base}},
-			want:    []string{"a"},
+			entries: []dueEntry{{callbackId: 1, due: base, schedGen: 10}},
+			want:    []uint32{1},
 		},
 		{
 			name: "ascending input",
-			entries: []entry{
-				{"a", base},
-				{"b", base.Add(time.Second)},
-				{"c", base.Add(2 * time.Second)},
+			entries: []dueEntry{
+				{callbackId: 1, due: base, schedGen: 1},
+				{callbackId: 2, due: base + int64(time.Second), schedGen: 2},
+				{callbackId: 3, due: base + int64(2*time.Second), schedGen: 3},
 			},
-			want: []string{"a", "b", "c"},
+			want: []uint32{1, 2, 3},
 		},
 		{
 			name: "descending input",
-			entries: []entry{
-				{"c", base.Add(2 * time.Second)},
-				{"b", base.Add(time.Second)},
-				{"a", base},
+			entries: []dueEntry{
+				{callbackId: 3, due: base + int64(2*time.Second), schedGen: 3},
+				{callbackId: 2, due: base + int64(time.Second), schedGen: 2},
+				{callbackId: 1, due: base, schedGen: 1},
 			},
-			want: []string{"a", "b", "c"},
+			want: []uint32{1, 2, 3},
 		},
 		{
 			name: "shuffled with equal due times",
-			entries: []entry{
-				{"late", base.Add(3 * time.Second)},
-				{"early1", base},
-				{"mid", base.Add(time.Second)},
-				{"early2", base},
+			entries: []dueEntry{
+				{callbackId: 4, due: base + int64(3*time.Second), schedGen: 4},
+				{callbackId: 1, due: base, schedGen: 1},
+				{callbackId: 3, due: base + int64(time.Second), schedGen: 3},
+				{callbackId: 2, due: base, schedGen: 2},
 			},
-			// two entries share base; they must pop before mid/late, but their
-			// relative order within the tie is unspecified.
-			wantPrefix: []string{"early1", "early2"},
+			// callbackId 1 and 2 share base due; they must pop before 3 and 4,
+			// but their relative order within the tie is unspecified.
+			wantPrefix: []uint32{1, 2},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := &dueHeap{}
-			heap.Init(h)
 			for _, e := range tt.entries {
-				heap.Push(h, &cycleCallbackMeta{customId: e.name, nextDue: e.nextDue})
+				h.push(e)
 			}
 
-			var popped []time.Time
-			var names []string
-			for h.Len() > 0 {
-				meta := heap.Pop(h).(*cycleCallbackMeta)
-				popped = append(popped, meta.nextDue)
-				names = append(names, meta.customId)
+			var poppedDue []int64
+			var poppedIds []uint32
+			var poppedSched []uint64
+			origSched := make(map[uint32]uint64, len(tt.entries))
+			for _, e := range tt.entries {
+				origSched[e.callbackId] = e.schedGen
 			}
 
-			// pop order is always non-decreasing in nextDue
-			for i := 1; i < len(popped); i++ {
-				assert.False(t, popped[i].Before(popped[i-1]),
-					"pop %d (%v) before pop %d (%v)", i, popped[i], i-1, popped[i-1])
+			for len(*h) > 0 {
+				e := h.pop()
+				poppedDue = append(poppedDue, e.due)
+				poppedIds = append(poppedIds, e.callbackId)
+				poppedSched = append(poppedSched, e.schedGen)
 			}
+
+			// pop order is always non-decreasing in due
+			for i := 1; i < len(poppedDue); i++ {
+				assert.False(t, poppedDue[i] < poppedDue[i-1],
+					"pop %d (%v) before pop %d (%v)", i, poppedDue[i], i-1, poppedDue[i-1])
+			}
+
+			// value integrity: each popped entry retains its original callbackId and schedGen
+			for i, id := range poppedIds {
+				expected, ok := origSched[id]
+				require.True(t, ok, "popped unknown callbackId %d", id)
+				assert.Equal(t, expected, poppedSched[i],
+					"schedGen mismatch for callbackId %d at pop %d", id, i)
+			}
+
 			if tt.want != nil {
-				assert.Equal(t, tt.want, names)
+				assert.Equal(t, tt.want, poppedIds)
 			}
 			if tt.wantPrefix != nil {
-				require.GreaterOrEqual(t, len(names), len(tt.wantPrefix))
-				assert.ElementsMatch(t, tt.wantPrefix, names[:len(tt.wantPrefix)])
+				require.GreaterOrEqual(t, len(poppedIds), len(tt.wantPrefix))
+				assert.ElementsMatch(t, tt.wantPrefix, poppedIds[:len(tt.wantPrefix)])
 			}
 		})
-	}
-}
-
-func TestDueHeap_HeapIndexConsistency(t *testing.T) {
-	base := time.Now()
-	h := &dueHeap{}
-	heap.Init(h)
-
-	metas := []*cycleCallbackMeta{
-		{callbackId: 3, customId: "d", nextDue: base.Add(3 * time.Second)},
-		{callbackId: 0, customId: "a", nextDue: base},
-		{callbackId: 2, customId: "c", nextDue: base.Add(2 * time.Second)},
-		{callbackId: 1, customId: "b", nextDue: base.Add(time.Second)},
-	}
-	for _, m := range metas {
-		heap.Push(h, m)
-	}
-
-	// every queued meta's heapIndex points back at its slot
-	for i, m := range *h {
-		assert.Equal(t, i, m.heapIndex, "heapIndex mismatch for %s", m.customId)
-	}
-
-	// the top of the heap is the earliest-due entry, carrying its callbackId
-	// intact for the lazy map lookup on pop
-	assert.Equal(t, uint32(0), (*h)[0].callbackId)
-
-	// remove the middle element by its tracked index; remaining indices stay valid
-	victim := metas[2] // "c"
-	require.GreaterOrEqual(t, victim.heapIndex, 0)
-	heap.Remove(h, victim.heapIndex)
-	assert.Equal(t, -1, victim.heapIndex, "removed meta keeps heapIndex -1")
-	for i, m := range *h {
-		assert.Equal(t, i, m.heapIndex, "heapIndex mismatch after remove for %s", m.customId)
-	}
-
-	// draining sets heapIndex -1 on every popped meta and preserves due order
-	var prev time.Time
-	first := true
-	for h.Len() > 0 {
-		meta := heap.Pop(h).(*cycleCallbackMeta)
-		assert.Equal(t, -1, meta.heapIndex)
-		if !first {
-			assert.False(t, meta.nextDue.Before(prev))
-		}
-		prev, first = meta.nextDue, false
 	}
 }
 
@@ -163,17 +124,17 @@ func TestComputeNextDue(t *testing.T) {
 	tests := []struct {
 		name string
 		meta *cycleCallbackMeta
-		want time.Time
+		want int64
 	}{
 		{
 			name: "nil interval is always due at started",
 			meta: &cycleCallbackMeta{started: started, intervals: nil},
-			want: started,
+			want: started.UnixNano(),
 		},
 		{
 			name: "interval adds Get() to started",
 			meta: &cycleCallbackMeta{started: started, intervals: NewFixedIntervals(interval)},
-			want: started.Add(interval),
+			want: started.Add(interval).UnixNano(),
 		},
 	}
 
