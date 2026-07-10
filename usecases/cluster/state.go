@@ -20,11 +20,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+)
+
+var (
+	joinInitialInterval = time.Second
+	joinTimeout         = 60 * time.Second
 )
 
 // NodeResolver provides read-only access to cluster nodes and their addresses.
@@ -204,23 +211,31 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 
 	if len(joinAddr) > 0 {
 		joinHost := extractHost(joinAddr[0])
-		_, err := net.LookupIP(joinHost)
-		if err != nil {
+		if _, err := net.LookupIP(joinHost); err != nil {
 			logger.WithFields(logrus.Fields{
 				"action":          "cluster_attempt_join",
 				"remote_hostname": joinAddr[0],
-			}).WithError(err).Warn(
-				"specified hostname to join cluster cannot be resolved. This is fine" +
-					"if this is the first node of a new cluster, but problematic otherwise.")
-		} else {
+			}).Warnf("specified hostname to join cluster cannot be resolved. This is fine "+
+				"if this is the first node of a new cluster, but problematic otherwise: %v", err)
+		} else if err := backoff.Retry(func() error {
 			_, err := state.list.Join(joinAddr)
-			if err != nil {
-				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
-					"remote_hostname": joinAddr,
-				}).WithError(err).Error("memberlist join not successful")
+			if err != nil && userConfig.RaftBootstrapExpect <= 1 {
+				// A sole seed has no peer coming up behind it, so a failed join is
+				// a misconfiguration rather than a race. Waiting cannot fix it.
+				return backoff.Permanent(err)
+			}
+			return err
+		}, utils.NewExponentialBackoff(joinInitialInterval, joinTimeout)); err != nil {
+			entry := logger.WithFields(logrus.Fields{
+				"action":          "memberlist_init",
+				"remote_hostname": joinAddr,
+			})
+			if userConfig.RaftBootstrapExpect <= 1 {
+				entry.Errorf("memberlist join not successful: %v", err)
 				return nil, errors.Wrap(err, "join cluster")
 			}
+			// The periodic rejoin below still converges the cluster.
+			entry.Warnf("memberlist join not successful, periodic rejoin will retry: %v", err)
 		}
 	}
 
