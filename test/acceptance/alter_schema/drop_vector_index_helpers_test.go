@@ -105,3 +105,17 @@ func nearVectorQuery(className, targetVector string, vector []float32, limit int
 	return fmt.Sprintf(`{ Get { %s(nearVector: {vector: %s, targetVectors: [%q]}, limit: %d) { _additional { id } } } }`,
 		className, vec, targetVector, limit)
 }
+
+// batchItemError flattens a batch item's per-object error messages ("" = success).
+func batchItemError(item *models.ObjectsGetResponse) string {
+	if item == nil || item.Result == nil || item.Result.Errors == nil {
+		return ""
+	}
+	var text string
+	for _, e := range item.Result.Errors.Error {
+		if e != nil {
+			text += e.Message + " "
+		}
+	}
+	return text
+}
