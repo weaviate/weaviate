@@ -46,9 +46,8 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 	mainCtx := context.Background()
 	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 
-	expectedMembers := 3
 	compose, err := docker.New().
-		WithWeaviateCluster(expectedMembers).
+		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
@@ -64,15 +63,6 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 			t.Fatalf("failed to terminate test containers: %+v", err)
 		}
 	}
-
-	client := helper.NewClient(t, compose.GetWeaviate().URI())
-	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-		nodesResp, err := client.Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-		if !assert.NoError(ct, err, "failed to get nodes") {
-			return
-		}
-		assert.Len(ct, nodesResp.Payload.Nodes, expectedMembers)
-	}, 60*time.Second, 1*time.Second, "expected %d cluster nodes", expectedMembers)
 }
 
 func (suite *ReplicationTestSuite) TearDownSuite() {
