@@ -219,40 +219,26 @@ func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Pr
 	}
 }
 
-// errCollectionNotFound marks a collection missing from the schema. It is
-// produced by classGetterWithAuthz via %w, so the message stays "could not
-// find collection <name> in schema" while statusFromError matches by
-// sentinel instead of substring.
+// errCollectionNotFound marks a collection missing from the schema.
 var errCollectionNotFound = errors.New("could not find collection")
 
-// errClassNotFoundMarker is the one remaining substring fallback: "could not
-// find class %s in schema" has many producers across the db layer (reachable
-// here e.g. when a collection is deleted mid-request) and none carries a
-// sentinel yet. Unlike the typed cases, a wording change upstream would
-// silently degrade this mapping to 500 — acceptable for a race-only path.
-// TODO: add an ErrClassNotFound sentinel to entities/errors, attach it at
-// the upstream producers, then drop this marker (tracked separately).
+// errClassNotFoundMarker is a string fallback for the upstream "could not
+// find class %s in schema" errors, which carry no sentinel yet (many
+// producers; reachable when a collection is deleted mid-request).
+// TODO: add an ErrClassNotFound sentinel upstream, then drop this.
 const errClassNotFoundMarker = "could not find class"
 
-// statusFromError maps errors surfaced by authorization, schema access and
-// the traverser onto the REST search status codes. All expected cases are
-// matched by type (errors.Is/errors.As); the producers attach the typed
-// errors from entities/errors and the wrap chain preserves them (see
-// usecases/traverser/explorer.go, near_params_vector.go — wraps there must
-// stay %w/Wrapf, never %v/%s, or these matches silently degrade to 500).
+// statusFromError maps traverser/authz/schema errors onto HTTP statuses via
+// errors.Is/As. This relies on the wrap chain staying %w/Wrapf (never
+// %v/%s), or the typed matches silently degrade to 500.
 //
-// ORDERING INVARIANT: a missing-vectorizer configuration error surfaces
-// through the vectorization call path wrapped inside an
-// ErrQueryVectorization, so the ErrNoVectorizerModule case (422, config
-// problem) MUST stay above the ErrQueryVectorization case (502, provider
-// outage).
+// ORDERING: ErrNoVectorizerModule (422) must precede ErrQueryVectorization
+// (502) — the former arrives wrapped inside the latter.
 func statusFromError(err error) *APIError {
 	var forbidden autherrs.Forbidden
 	if errors.As(err, &forbidden) {
 		return &APIError{Status: http.StatusForbidden, Err: err}
 	}
-	// typed rate-limit error (entities/errors.NewErrRateLimit) — matched by
-	// type so its "429 Too many requests" wording is irrelevant here.
 	var rateLimit enterrors.ErrRateLimit
 	if errors.As(err, &rateLimit) {
 		return &APIError{Status: http.StatusTooManyRequests, Err: err}
@@ -264,24 +250,20 @@ func statusFromError(err error) *APIError {
 	case errors.Is(err, enterrors.ErrTenantNotActive):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &objects.ErrMultiTenancy{}):
-		// remaining multi-tenancy validation failures (the tenant sentinels
-		// above are checked first): tenant on a non-MT collection, or a
-		// missing tenant on an MT collection
+		// tenant-vs-collection mismatch (tenant sentinels checked above)
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.Is(err, errCollectionNotFound):
 		return &APIError{Status: http.StatusNotFound, Err: err}
 	case errors.As(err, &enterrors.ErrNoVectorizerModule{}):
-		// near-text on a collection without a vectorizer: valid request,
-		// unrunnable configuration. MUST stay above ErrQueryVectorization.
+		// must stay above ErrQueryVectorization (see func doc)
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &enterrors.ErrCertaintyIncompatible{}):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &inverted.MissingIndexError{}):
-		// a filter targets a property whose inverted index is disabled:
-		// valid request, unrunnable collection configuration
+		// filter on a property whose inverted index is disabled
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &enterrors.ErrQueryVectorization{}):
-		// the embedding provider failed, the search cannot run
+		// embedding provider failure
 		return &APIError{Status: http.StatusBadGateway, Err: err}
 	}
 
