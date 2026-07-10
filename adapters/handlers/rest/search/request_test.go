@@ -236,6 +236,29 @@ func TestParseCertaintyAndDistance(t *testing.T) {
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 	})
+
+	// certainty is normalized: values outside [0,1] are a 400, the
+	// boundaries are valid
+	for name, body := range map[string]string{
+		"negative certainty": `{"query":["space"],"certainty":-0.1}`,
+		"certainty above 1":  `{"query":["space"],"certainty":1.5}`,
+	} {
+		t.Run(name+" is a 400", func(t *testing.T) {
+			_, apiErr := buildParams(t, movieClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "certainty")
+		})
+	}
+	for name, body := range map[string]string{
+		"certainty 0": `{"query":["space"],"certainty":0}`,
+		"certainty 1": `{"query":["space"],"certainty":1}`,
+	} {
+		t.Run(name+" is valid", func(t *testing.T) {
+			_, apiErr := buildParams(t, movieClass(), body)
+			require.Nil(t, apiErr)
+		})
+	}
 }
 
 func TestTargetVectors(t *testing.T) {

@@ -122,6 +122,7 @@ func newTestHandler(t *testing.T) *testDeps {
 		SchemaReader: deps.schemaReader,
 		Authorizer:   deps.authorizer,
 		DefaultLimit: 10,
+		Disabled:     runtime.NewDynamicValue(false),
 		Logger:       logrus.New(),
 	})
 	return deps
@@ -379,6 +380,20 @@ func TestHandlerResolvesAliases(t *testing.T) {
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.Nil(t, apiErr)
 	assert.Equal(t, "Movie", deps.searcher.lastParams.ClassName)
+}
+
+// TestHandlerAliasForbiddenDoesNotLeakTarget: a denied request against an
+// alias must not disclose the alias's target collection in the 403.
+func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Movie"))
+
+	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+	assert.NotContains(t, apiErr.Error(), "Movie", "403 must not name the alias target")
+	assert.Contains(t, apiErr.Error(), "Films")
 }
 
 func TestHandlerLowercasesCollection(t *testing.T) {

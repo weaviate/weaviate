@@ -195,6 +195,10 @@ func parseNearText(class *models.Class, body *models.SearchNearTextRequest, targ
 	if body.Certainty != nil && body.Distance != nil {
 		return nil, newAPIError(http.StatusBadRequest, "near_text: cannot provide both distance and certainty")
 	}
+	if body.Certainty != nil && (*body.Certainty < 0 || *body.Certainty > 1) {
+		return nil, newAPIError(http.StatusBadRequest,
+			"certainty must be between 0 and 1, got %v", *body.Certainty)
+	}
 
 	params := &nearText.NearTextParams{
 		Values:        values,

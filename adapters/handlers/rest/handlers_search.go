@@ -64,12 +64,14 @@ func searchNearTextErrResponder(apiErr *restsearch.APIError) middleware.Responde
 		return searchops.NewSearchNearTextNotFound().WithPayload(payload)
 	case http.StatusUnprocessableEntity:
 		return searchops.NewSearchNearTextUnprocessableEntity().WithPayload(payload)
+	case http.StatusTooManyRequests:
+		return searchops.NewSearchNearTextTooManyRequests().WithPayload(payload)
 	case http.StatusBadGateway:
 		return searchops.NewSearchNearTextBadGateway().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return searchops.NewSearchNearTextInternalServerError().WithPayload(payload)
 	default:
-		// statuses without a declared response (e.g. 429 on rate limiting)
+		// statuses without a declared response
 		return middleware.Error(apiErr.Status, payload)
 	}
 }

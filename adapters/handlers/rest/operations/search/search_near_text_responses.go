@@ -73,7 +73,7 @@ func (o *SearchNearTextOK) WriteResponse(rw http.ResponseWriter, producer runtim
 const SearchNearTextBadRequestCode int = 400
 
 /*
-SearchNearTextBadRequest Malformed request body or an invalid parameter value.
+SearchNearTextBadRequest An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.
 
 swagger:response searchNearTextBadRequest
 */
@@ -233,7 +233,7 @@ func (o *SearchNearTextNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const SearchNearTextUnprocessableEntityCode int = 422
 
 /*
-SearchNearTextUnprocessableEntity The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.
+SearchNearTextUnprocessableEntity Either a request-schema violation (a missing required field such as `query`, or an invalid enum value — rejected by the generated validation layer with a `{"code","message"}` body), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.
 
 swagger:response searchNearTextUnprocessableEntity
 */
@@ -266,6 +266,51 @@ func (o *SearchNearTextUnprocessableEntity) SetPayload(payload *models.ErrorResp
 func (o *SearchNearTextUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// SearchNearTextTooManyRequestsCode is the HTTP code returned for type SearchNearTextTooManyRequests
+const SearchNearTextTooManyRequestsCode int = 429
+
+/*
+SearchNearTextTooManyRequests The server's query rate limit was reached; retry later.
+
+swagger:response searchNearTextTooManyRequests
+*/
+type SearchNearTextTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSearchNearTextTooManyRequests creates SearchNearTextTooManyRequests with default headers values
+func NewSearchNearTextTooManyRequests() *SearchNearTextTooManyRequests {
+
+	return &SearchNearTextTooManyRequests{}
+}
+
+// WithPayload adds the payload to the search near text too many requests response
+func (o *SearchNearTextTooManyRequests) WithPayload(payload *models.ErrorResponse) *SearchNearTextTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the search near text too many requests response
+func (o *SearchNearTextTooManyRequests) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SearchNearTextTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

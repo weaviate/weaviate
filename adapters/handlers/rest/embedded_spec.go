@@ -6531,7 +6531,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Malformed request body or an invalid parameter value.",
+            "description": "An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6552,7 +6552,13 @@ func init() {
             }
           },
           "422": {
-            "description": "The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value — rejected by the generated validation layer with a ` + "`" + `{\"code\",\"message\"}` + "`" + ` body), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17853,7 +17859,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Malformed request body or an invalid parameter value.",
+            "description": "An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17874,7 +17880,13 @@ func init() {
             }
           },
           "422": {
-            "description": "The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value — rejected by the generated validation layer with a ` + "`" + `{\"code\",\"message\"}` + "`" + ` body), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

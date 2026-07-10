@@ -151,6 +151,16 @@ func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 	getClass := h.classGetterWithAuthz(ctx, principal, tenant)
 	class, err := getClass(resolved)
 	if err != nil {
+		var forbidden autherrs.Forbidden
+		if resolved != collection && errors.As(err, &forbidden) {
+			// deny on the name the caller sent — a 403 must not disclose
+			// the alias target
+			deniedPrincipal := principal
+			if deniedPrincipal == nil {
+				deniedPrincipal = &models.Principal{Username: "anonymous"}
+			}
+			err = autherrs.NewForbidden(deniedPrincipal, authorization.READ, dataResources(collection, tenant)...)
+		}
 		return nil, strip(statusFromError(err))
 	}
 
@@ -191,6 +201,15 @@ func (h *Handler) NearText(ctx context.Context, principal *models.Principal,
 		})
 }
 
+// dataResources is the authorization resource set for a collection's (or
+// tenant's) data.
+func dataResources(collection, tenant string) []string {
+	if tenant != "" {
+		return authorization.ShardsData(collection, tenant)
+	}
+	return authorization.CollectionsData(collection)
+}
+
 // classGetterWithAuthz returns a class getter that authorizes READ on the
 // collection's (or tenant's) data before reading its schema. READ on data is
 // sufficient for querying: the schema exposes nothing a data reader cannot
@@ -202,11 +221,7 @@ func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Pr
 		classTenantName := name + "#" + tenant
 		class, ok := authorizedCollections[classTenantName]
 		if !ok {
-			resources := authorization.CollectionsData(name)
-			if tenant != "" {
-				resources = authorization.ShardsData(name, tenant)
-			}
-			if err := h.authorizer.Authorize(ctx, principal, authorization.READ, resources...); err != nil {
+			if err := h.authorizer.Authorize(ctx, principal, authorization.READ, dataResources(name, tenant)...); err != nil {
 				return nil, err
 			}
 			class = h.schemaReader.ReadOnlyClass(name)

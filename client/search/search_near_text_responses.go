@@ -70,6 +70,12 @@ func (o *SearchNearTextReader) ReadResponse(response runtime.ClientResponse, con
 			return nil, err
 		}
 		return nil, result
+	case 429:
+		result := NewSearchNearTextTooManyRequests()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewSearchNearTextInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -163,7 +169,7 @@ func NewSearchNearTextBadRequest() *SearchNearTextBadRequest {
 /*
 SearchNearTextBadRequest describes a response with status code 400, with default header values.
 
-Malformed request body or an invalid parameter value.
+An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.
 */
 type SearchNearTextBadRequest struct {
 	Payload *models.ErrorResponse
@@ -423,7 +429,7 @@ func NewSearchNearTextUnprocessableEntity() *SearchNearTextUnprocessableEntity {
 /*
 SearchNearTextUnprocessableEntity describes a response with status code 422, with default header values.
 
-The request is well-formed but cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.
+Either a request-schema violation (a missing required field such as `query`, or an invalid enum value — rejected by the generated validation layer with a `{"code","message"}` body), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.
 */
 type SearchNearTextUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -472,6 +478,74 @@ func (o *SearchNearTextUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearTextUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewSearchNearTextTooManyRequests creates a SearchNearTextTooManyRequests with default headers values
+func NewSearchNearTextTooManyRequests() *SearchNearTextTooManyRequests {
+	return &SearchNearTextTooManyRequests{}
+}
+
+/*
+SearchNearTextTooManyRequests describes a response with status code 429, with default header values.
+
+The server's query rate limit was reached; retry later.
+*/
+type SearchNearTextTooManyRequests struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this search near text too many requests response has a 2xx status code
+func (o *SearchNearTextTooManyRequests) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this search near text too many requests response has a 3xx status code
+func (o *SearchNearTextTooManyRequests) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this search near text too many requests response has a 4xx status code
+func (o *SearchNearTextTooManyRequests) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this search near text too many requests response has a 5xx status code
+func (o *SearchNearTextTooManyRequests) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this search near text too many requests response a status code equal to that given
+func (o *SearchNearTextTooManyRequests) IsCode(code int) bool {
+	return code == 429
+}
+
+// Code gets the status code for the search near text too many requests response
+func (o *SearchNearTextTooManyRequests) Code() int {
+	return 429
+}
+
+func (o *SearchNearTextTooManyRequests) Error() string {
+	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *SearchNearTextTooManyRequests) String() string {
+	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextTooManyRequests  %+v", 429, o.Payload)
+}
+
+func (o *SearchNearTextTooManyRequests) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SearchNearTextTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 
