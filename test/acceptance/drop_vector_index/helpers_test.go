@@ -87,7 +87,13 @@ func listAllObjectsWithVectors(t *testing.T, className string) []*models.Object 
 // returns the number of results.
 func nearVectorResults(t *testing.T, className, targetVector string, vector []float32, limit int) int {
 	t.Helper()
-	resp := graphqlhelper.QueryGraphQLOrFatal(t, nil, "", nearVectorQuery(className, targetVector, vector, limit), nil)
+	return nearVectorTenantResults(t, className, "", targetVector, vector, limit)
+}
+
+// nearVectorTenantResults is the multi-tenant variant; tenant "" omits the arg.
+func nearVectorTenantResults(t *testing.T, className, tenant, targetVector string, vector []float32, limit int) int {
+	t.Helper()
+	resp := graphqlhelper.QueryGraphQLOrFatal(t, nil, "", nearVectorQuery(className, tenant, targetVector, vector, limit), nil)
 	require.Empty(t, resp.Errors)
 	get := resp.Data["Get"].(map[string]interface{})
 	results := get[className].([]interface{})
@@ -97,13 +103,22 @@ func nearVectorResults(t *testing.T, className, targetVector string, vector []fl
 // nearVectorErrors runs the same search expecting a resolver error.
 func nearVectorErrors(t *testing.T, className, targetVector string, vector []float32) []*models.GraphQLError {
 	t.Helper()
-	return graphqlhelper.ErrorGraphQL(t, nil, nearVectorQuery(className, targetVector, vector, 1))
+	return nearVectorTenantErrors(t, className, "", targetVector, vector)
 }
 
-func nearVectorQuery(className, targetVector string, vector []float32, limit int) string {
+func nearVectorTenantErrors(t *testing.T, className, tenant, targetVector string, vector []float32) []*models.GraphQLError {
+	t.Helper()
+	return graphqlhelper.ErrorGraphQL(t, nil, nearVectorQuery(className, tenant, targetVector, vector, 1))
+}
+
+func nearVectorQuery(className, tenant, targetVector string, vector []float32, limit int) string {
 	vec, _ := json.Marshal(vector)
-	return fmt.Sprintf(`{ Get { %s(nearVector: {vector: %s, targetVectors: [%q]}, limit: %d) { _additional { id } } } }`,
-		className, vec, targetVector, limit)
+	tenantArg := ""
+	if tenant != "" {
+		tenantArg = fmt.Sprintf("tenant: %q, ", tenant)
+	}
+	return fmt.Sprintf(`{ Get { %s(%snearVector: {vector: %s, targetVectors: [%q]}, limit: %d) { _additional { id } } } }`,
+		className, tenantArg, vec, targetVector, limit)
 }
 
 // batchItemError flattens a batch item's per-object error messages ("" = success).
@@ -133,4 +148,15 @@ func errorResponseText(err error) string {
 		}
 	}
 	return text
+}
+
+func listTenantObjectsWithVectors(t *testing.T, className, tenant string) []*models.Object {
+	t.Helper()
+	limit := int64(100)
+	include := "vector"
+	resp, err := helper.Client(t).Objects.ObjectsList(
+		clobjects.NewObjectsListParams().WithClass(&className).WithTenant(&tenant).
+			WithLimit(&limit).WithInclude(&include), nil)
+	require.NoError(t, err)
+	return resp.Payload.Objects
 }

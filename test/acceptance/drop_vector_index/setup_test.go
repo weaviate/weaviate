@@ -40,4 +40,5 @@ func TestDropVectorIndex(t *testing.T) {
 
 	t.Run("lifecycle", testLifecycle())
 	t.Run("write matrix", testWriteMatrix())
+	t.Run("multi tenant", testMultiTenant())
 }
