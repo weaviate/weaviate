@@ -1292,6 +1292,23 @@ func (sched *AsyncReplicationScheduler) deferDescent(entry *asyncSchedulerEntry)
 	sched.resultCh <- asyncSchedulerResult{entry: entry, deferDescent: true}
 }
 
+// prefilterCtx builds the context for one batched pre-filter. It must abort when
+// the index closes: index.drop() cancels closingCtx etc.
+func (sched *AsyncReplicationScheduler) prefilterCtx(
+	idx *Index, timeout time.Duration,
+) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(sched.ctx, timeout)
+
+	if idx == nil || idx.closingCtx == nil {
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(idx.closingCtx, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
+}
+
 // classifyBatch runs the root pre-filter, recording confirmed-in-sync entries in
 // scratch.skip; ineligible shards and any failure classify "descend" (conservative).
 func (sched *AsyncReplicationScheduler) classifyBatch(batch []*asyncSchedulerEntry, scratch *batchScratch) {
@@ -1323,9 +1340,9 @@ func (sched *AsyncReplicationScheduler) classifyBatch(batch []*asyncSchedulerEnt
 
 	s0 := batch[0].shard
 	cfg := sched.effectiveConfig(s0)
-	ctx, cancel := context.WithTimeout(sched.ctx, cfg.diffPerNodeTimeout)
+	ctx, cancel := sched.prefilterCtx(s0.index, cfg.diffPerNodeTimeout)
 	// defer so the timer is released even if PrefilterShardRoots panics (an inline
-	// cancel() would be skipped, leaking it until sched.ctx is done).
+	// cancel() would be skipped, leaking it until the parent is done).
 	defer cancel()
 	needFull, stats := s0.index.replicator.PrefilterShardRoots(ctx, scratch.roots)
 	sched.metrics.observeRootPrefilterBatch(len(scratch.roots))
