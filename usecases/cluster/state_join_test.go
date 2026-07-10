@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"net"
 	"testing"
 	"time"
 
@@ -24,6 +25,19 @@ import (
 // the gossip dial — which is exactly what a peer whose port has not bound yet
 // looks like.
 const deadJoinAddr = "127.0.0.1:1"
+
+// freeGossipPort returns a port nothing is listening on, so the test does not
+// collide with memberlist's default 7946
+func freeGossipPort(t *testing.T) int {
+	t.Helper()
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := l.Addr().(*net.TCPAddr).Port
+	require.NoError(t, l.Close())
+
+	return port
+}
 
 // shrinkJoinBudget makes the retry window small enough to sleep through in a
 // unit test, and restores it afterwards.
@@ -69,6 +83,8 @@ func TestInitJoinRetryPolicy(t *testing.T) {
 		},
 	}
 
+	gossipPort := freeGossipPort(t)
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			shrinkJoinBudget(t, testInitialInterval, testJoinTimeout)
@@ -78,6 +94,7 @@ func TestInitJoinRetryPolicy(t *testing.T) {
 				Hostname:            "node1",
 				Localhost:           true,
 				Join:                deadJoinAddr,
+				GossipBindPort:      gossipPort,
 				RaftBootstrapExpect: test.bootstrapExpect,
 			}
 
