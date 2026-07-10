@@ -91,6 +91,9 @@ type DB struct {
 	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
 
+	// dropping holds indices whose index.drop() is still running for backup purposes.
+	dropping sync.Map
+
 	jobQueueCh          chan job
 	scheduler           *queue.Scheduler
 	shutDownWg          sync.WaitGroup
@@ -575,25 +578,40 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 	return index
 }
 
+// droppingIndex returns an index whose drop is still in flight, or nil. Only
+// db.ReleaseBackup may use it: drop() parks on backupLock, which nothing but
+// idx.ReleaseBackup releases. Everything else wants GetIndex, which reports a
+// deleted class as gone.
+func (db *DB) droppingIndex(id string) *Index {
+	if idx, ok := db.dropping.Load(id); ok {
+		return idx.(*Index)
+	}
+	return nil
+}
+
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil
 	}
+	id := indexID(className)
+
+	// Register before unpublishing: db.ReleaseBackup must find the index in one
+	// map or the other, never neither.
+	db.dropping.Store(id, index)
+	defer db.dropping.Delete(id)
+
+	db.indexLock.Lock()
+	delete(db.indices, id)
+	db.indexLock.Unlock()
 
 	index.dropIndex.Lock()
+	defer index.dropIndex.Unlock()
 	if err := index.drop(); err != nil {
 		db.logger.WithField("action", "delete_index").WithField("class", className).
 			Errorf("drop index: %v", err)
 	}
-	index.dropIndex.Unlock()
-
-	// Unpublish after the drop: db.ReleaseBackup's GetIndex()==nil branch never
-	// releases backupLock, so an early delete hangs dropShard forever.
-	db.indexLock.Lock()
-	delete(db.indices, indexID(className))
-	db.indexLock.Unlock()
 
 	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
 		db.logger.Errorf("can't delete prometheus metrics: %v", err)

@@ -158,6 +158,12 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 	}()
 
 	idx := db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		// a class deleted mid-backup is unpublished before its drop runs, and that
+		// drop parks on backupLock until this call releases it.
+		idx = db.droppingIndex(indexID(schema.ClassName(class)))
+	}
+
 	if idx != nil {
 		return idx.ReleaseBackup(ctx, bakID)
 	} else {
