@@ -39,8 +39,10 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants(
 	var (
 		clusterSize      = 3
 		tenantCount      = 12
+		seedPerTenant    = 2
 		objectsPerTenant = 20
 	)
+	objectsAfterRepair := seedPerTenant + objectsPerTenant
 
 	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
@@ -86,6 +88,21 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants(
 		helper.CreateTenants(t, paragraphClass.Class, tenants)
 	})
 
+	// A tenant shard with a zero index counter stays unloaded on restart, leaving
+	// its hashtree cold and the restarted replica absent from the root compare.
+	t.Run("seed every tenant on all nodes", func(t *testing.T) {
+		for _, tenant := range tenantNames {
+			batch := make([]*models.Object, seedPerTenant)
+			for i := range batch {
+				batch[i] = articles.NewParagraph().
+					WithContents(fmt.Sprintf("%s#seed-%d", tenant, i)).
+					WithTenant(tenant).
+					Object()
+			}
+			common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelAll)
+		}
+	})
+
 	node := 3
 
 	t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
@@ -129,7 +146,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants(
 			for _, tenant := range tenantNames {
 				resp := common.GQLTenantGet(t, compose.GetWeaviateNode(node).URI(),
 					paragraphClass.Class, types.ConsistencyLevelOne, tenant)
-				require.Len(ct, resp, objectsPerTenant, "tenant %s not fully reconciled", tenant)
+				require.Len(ct, resp, objectsAfterRepair, "tenant %s not fully reconciled", tenant)
 			}
 		}, 180*time.Second, 5*time.Second, "not all tenants were asynchronously reconciled")
 	})
