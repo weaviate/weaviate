@@ -735,6 +735,15 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 }
 
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
+	// Stop background work before tearing anything down
+	h.shutdownCtxCancel()
+
+	// Drain the commit-log maintenance cycles. commitLog.Drop drains them too,
+	// but not until the compressor and cache are already gone.
+	if err := h.commitLog.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "hnsw drop")
+	}
+
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
