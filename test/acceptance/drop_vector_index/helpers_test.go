@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package alterschema
+package drop_vector_index
 
 import (
 	"encoding/json"
@@ -115,6 +115,21 @@ func batchItemError(item *models.ObjectsGetResponse) string {
 	for _, e := range item.Result.Errors.Error {
 		if e != nil {
 			text += e.Message + " "
+		}
+	}
+	return text
+}
+
+// errorResponseText flattens a go-swagger error into searchable text: Error()
+// prints payload pointers, so the payload messages must be extracted through
+// GetPayload.
+func errorResponseText(err error) string {
+	text := err.Error()
+	if p, ok := err.(interface{ GetPayload() *models.ErrorResponse }); ok && p.GetPayload() != nil {
+		for _, item := range p.GetPayload().Error {
+			if item != nil {
+				text += " " + item.Message
+			}
 		}
 	}
 	return text
