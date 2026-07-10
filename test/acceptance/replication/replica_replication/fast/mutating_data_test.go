@@ -118,8 +118,11 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		if shard.Shard != tenantName {
 			continue
 		}
-		sourceNode = shard.Replicas[0]                                 // Take the first (of two) replica as the source node
-		targetNode = symmetricDifference(nodeNames, shard.Replicas)[0] // Choose the other node as the target
+		others := symmetricDifference(nodeNames, shard.Replicas)
+		require.NotEmpty(t, others, "no node outside the replica set of tenant %s (nodes=%v, replicas=%v)",
+			tenantName, nodeNames, shard.Replicas)
+		sourceNode = shard.Replicas[0]
+		targetNode = others[0]
 	}
 
 	// Start replication

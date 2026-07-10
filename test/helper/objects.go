@@ -43,6 +43,8 @@ func SetupClient(uri string) {
 	if len(res) == 2 {
 		host, port = res[0], res[1]
 	}
+	serverMu.Lock()
+	defer serverMu.Unlock()
 	ServerHost = host
 	ServerPort = port
 }
@@ -117,6 +119,8 @@ func SetupGRPCClient(t *testing.T, uri string) {
 	if len(res) == 2 {
 		host, port = res[0], res[1]
 	}
+	serverMu.Lock()
+	defer serverMu.Unlock()
 	ServerGRPCHost = host
 	ServerGRPCPort = port
 }
