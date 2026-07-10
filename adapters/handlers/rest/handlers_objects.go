@@ -859,6 +859,11 @@ func parseIncludeParam(in *string, modulesProvider ModulesProvider, includeModul
 		}
 		if prop == "vector" {
 			out.Vector = true
+			// Named vectors too: the remote-shard result marshaling
+			// (storobj.MarshalBinaryOptional) strips target vectors unless this is
+			// set, so without it a cluster LIST returns nil Vectors for objects on
+			// remote shards while a single-node LIST returns them.
+			out.IncludeAllTargetVectors = true
 			continue
 		}
 		if includeModuleParams && modulesProvider != nil {

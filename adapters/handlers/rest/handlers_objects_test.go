@@ -1050,6 +1050,22 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 	})
 }
 
+// TestParseIncludeParam_VectorIncludesTargetVectors pins that ?include=vector
+// requests named (target) vectors too: without IncludeAllTargetVectors the
+// remote-shard result marshaling strips them, so a cluster LIST silently
+// returns nil Vectors for remote objects while single-node returns them.
+func TestParseIncludeParam_VectorIncludesTargetVectors(t *testing.T) {
+	include := "vector"
+	out, err := parseIncludeParam(&include, nil, false, nil)
+	require.NoError(t, err)
+	require.True(t, out.Vector)
+	require.True(t, out.IncludeAllTargetVectors)
+
+	out, err = parseIncludeParam(nil, nil, false, nil)
+	require.NoError(t, err)
+	require.False(t, out.IncludeAllTargetVectors)
+}
+
 type fakeManager struct {
 	getObjectReturn *models.Object
 	getObjectErr    error
