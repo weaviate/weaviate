@@ -196,7 +196,7 @@ func parseNearText(class *models.Class, body *models.SearchNearTextRequest, targ
 	}
 
 	if body.Certainty != nil && body.Distance != nil {
-		return nil, newAPIError(http.StatusBadRequest, "near_text: cannot provide distance and certainty")
+		return nil, newAPIError(http.StatusBadRequest, "near_text: cannot provide both distance and certainty")
 	}
 
 	params := &nearText.NearTextParams{
@@ -232,7 +232,7 @@ func parseQuery(query []string) ([]string, *APIError) {
 	}
 	for _, concept := range query {
 		if concept == "" {
-			return nil, newAPIError(http.StatusBadRequest, "query concepts must not be empty")
+			return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
 		}
 	}
 	return query, nil
@@ -504,8 +504,6 @@ func isNestedDataType(dataType []string) bool {
 	return len(dataType) == 1 && schema.IsNested(schema.DataType(dataType[0]))
 }
 
-// allNonRefNonBlobProperties returns the default property selection: every
-// non-reference, non-blob property (recursing into nested objects).
 func allNonRefNonBlobProperties(class *models.Class) (search.SelectProperties, error) {
 	props := make(search.SelectProperties, 0, len(class.Properties))
 	for _, prop := range class.Properties {

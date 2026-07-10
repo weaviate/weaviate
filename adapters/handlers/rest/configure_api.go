@@ -2672,9 +2672,6 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
 		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
-		// No hook: the REST search handler reads DisableRESTSearch.Get() per
-		// request, so a runtime flip takes effect immediately without any
-		// rebuild (unlike DisableGraphQL, which drops/rebuilds the schema).
 		registered.DisableRESTSearch = appState.ServerConfig.Config.DisableRESTSearch
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {

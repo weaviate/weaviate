@@ -263,12 +263,7 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// search requests are POSTs (an HTTP write method) but are
-		// semantically reads. isSearch is the pure route-shape check;
-		// searchReadAllowed is the read-mode carve-out, granted only when
-		// the feature is enabled (a disabled search is left to the handler
-		// to reject with 422). In write-only mode a search is blocked as a
-		// read regardless of the disable flag.
+		// search requests are POSTs (an HTTP write method) but are semantically reads
 		isSearch := restsearch.IsSearchRoute(r.URL.Path)
 		searchReadAllowed := isSearch && !state.ServerConfig.Config.DisableRESTSearch.Get()
 		switch state.ServerConfig.Config.OperationalMode.Get() {
@@ -283,9 +278,6 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 				return
 			}
 		case config.WRITE_ONLY:
-			// a search is a read, so it is blocked in write-only mode
-			// regardless of the disable flag: POST is an HTTP write, so the
-			// method-based check alone would otherwise let it through.
 			if (config.IsHTTPRead(r.Method) && !whitelist(r.URL.Path, config.WriteOnlyWhitelist)) || isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrWriteOnlyModeEnabled)
 				return

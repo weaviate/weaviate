@@ -3818,7 +3818,7 @@
       "type": "object",
       "properties": {
         "where": {
-          "description": "A conditional filter in the same JSON shape as the GraphQL `where` filter.",
+          "description": "A conditional filter to limit the objects that are searched.",
           "$ref": "#/definitions/WhereFilter"
         },
         "limit": {
@@ -11132,7 +11132,7 @@
     "/search/{collection}/near-text": {
       "post": {
         "summary": "Search a collection with near-text",
-        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved `metadata` key. Part of the REST Search API (design notes: docs/rest-search-api.md in the Weaviate repository); can be turned off with `DISABLE_REST_SEARCH=true`, in which case requests are rejected with 422.",
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved `metadata` key.",
         "tags": [
           "search"
         ],

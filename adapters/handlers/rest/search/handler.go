@@ -9,13 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package search implements the REST search API
-// (POST /v1/search/{collection}/near-text). The endpoint is part of the
-// swagger surface (openapi-specs/schema.json, operation search.nearText);
-// this package holds the handler logic behind the generated operation:
-// body parsing, authorization, execution via the traverser and reply
-// building. Design notes and the decision log live in
-// docs/rest-search-api.md.
 package search
 
 import (
@@ -68,11 +61,8 @@ type HandlerConfig struct {
 	Authorizer        authorization.Authorizer
 	NamespacesEnabled bool
 	DefaultLimit      int64
-	// Disabled reflects DISABLE_REST_SEARCH: when it resolves true, requests
-	// are rejected with 422. It is a runtime value read per request, so the
-	// flag can be flipped without a restart.
-	Disabled *runtime.DynamicValue[bool]
-	Logger   logrus.FieldLogger
+	Disabled          *runtime.DynamicValue[bool]
+	Logger            logrus.FieldLogger
 }
 
 // Handler implements the search endpoints. The caller is authenticated in
@@ -231,9 +221,9 @@ func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Pr
 // as named constants (single source of truth) because these upstream errors
 // are plain fmt.Errorf strings with no typed sentinel to match on. A wording
 // change upstream must fail a statusFromError test (see handler_test.go),
-// not silently mis-map in production. Follow-up: promote these to typed
+// not silently mis-map in production. TODO: promote these to typed
 // sentinels in their core packages so the string matching can be dropped
-// (tracked separately — out of scope for this PR).
+// (tracked separately).
 const (
 	// usecases/modules/modules.go VectorFromSearchParam — near-text on a
 	// collection whose (target) vector has no vectorizer module.
