@@ -65,10 +65,13 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 		}
 	}
 
-	assert.EventuallyWithT(suite.T(), func(ct *assert.CollectT) {
-		nodesResp, err := helper.Client(suite.T()).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-		require.NoError(ct, err, "failed to get nodes")
-		require.Len(ct, nodesResp.Payload.Nodes, expectedMembers)
+	client := helper.NewClient(t, compose.GetWeaviate().URI())
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		nodesResp, err := client.Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		if !assert.NoError(ct, err, "failed to get nodes") {
+			return
+		}
+		assert.Len(ct, nodesResp.Payload.Nodes, expectedMembers)
 	}, 60*time.Second, 1*time.Second, "expected %d cluster nodes", expectedMembers)
 }
 
