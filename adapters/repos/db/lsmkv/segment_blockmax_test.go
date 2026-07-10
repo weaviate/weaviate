@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -110,7 +111,7 @@ func TestBlockMaxWandSinglePostingNotPruned(t *testing.T) {
 	corpusN := len(commonDocs) + 1 // distinct documents
 	limit := len(commonDocs)       // forces the heap to fill before the rare doc
 
-	got := runBlockMaxWand(t, bucket, []string{commonTerm, rareTerm}, corpusN, limit)
+	got := runBlockMaxWand(t, bucket, []string{commonTerm, rareTerm}, nil, corpusN, limit)
 
 	_, found := got[rareDocID]
 	require.True(t, found,
@@ -127,8 +128,9 @@ func TestBlockMaxWandSinglePostingNotPruned(t *testing.T) {
 }
 
 // runBlockMaxWand runs the block-max WAND search the same way createDiskTermFromCV
-// feeds it in production and returns docID -> score across all segments/memtables.
-func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, corpusN, limit int) map[uint64]float32 {
+// feeds it in production, under an optional filter, and returns docID -> score
+// across all segments/memtables.
+func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, filter helpers.AllowList, corpusN, limit int) map[uint64]float32 {
 	t.Helper()
 	ctx := context.Background()
 
@@ -141,7 +143,7 @@ func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, corpusN, li
 		boosts[i] = 1
 	}
 
-	diskTerms, _, _, err := bucket.createDiskTermFromCV(ctx, view, float64(corpusN), nil, queries, "", 1, boosts, config)
+	diskTerms, _, _, err := bucket.createDiskTermFromCV(ctx, view, float64(corpusN), filter, queries, "", 1, boosts, config)
 	require.NoError(t, err)
 
 	got := make(map[uint64]float32)
