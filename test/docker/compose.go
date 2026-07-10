@@ -32,7 +32,6 @@ import (
 
 	apiclient "github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/nodes"
-
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -1276,13 +1275,18 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 }
 
 // waitForMembership blocks until every node's /v1/nodes lists all `size` peers.
-// No 3-node compose enables authentication, so the calls go out unauthenticated.
+//
+// The calls go out unauthenticated. The one 3-node compose that enables auth is
+// cluster_api_auth, whose WithWeaviateBasicAuth guards the internal cluster port
+// rather than the public API. A 3-node compose that turned on RBAC, API keys, or
+// OIDC would have /v1/nodes reject these calls, and this wait would time out
+// rather than report the real cause.
 func waitForMembership(ctx context.Context, cs []*DockerContainer, size int) error {
 	if size < 2 {
 		return nil
 	}
 	const (
-		membershipTimeout = 60 * time.Second
+		membershipTimeout = 120 * time.Second
 		pollInterval      = time.Second
 	)
 
