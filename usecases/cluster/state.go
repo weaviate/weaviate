@@ -204,6 +204,19 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 		}).Errorf("memberlist not created: %v", err)
 		return nil, errors.Wrap(err, "create memberlist")
 	}
+
+	// memberlist.Create has bound the gossip sockets. Any error from here on
+	// returns a nil State, so no caller is left with a handle to close them
+	defer func() {
+		if err == nil {
+			return
+		}
+		if shutdownErr := state.list.Shutdown(); shutdownErr != nil {
+			logger.WithField("action", "memberlist_init").
+				Warnf("memberlist shutdown after failed init: %v", shutdownErr)
+		}
+	}()
+
 	var joinAddr []string
 	if userConfig.Join != "" {
 		joinAddr = strings.Split(userConfig.Join, ",")
