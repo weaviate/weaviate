@@ -230,7 +230,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
 
-	rescoreLimit := int(h.rescoreLimit)
+	// k > rescoreLimit must not cap the result set at rescoreLimit results
+	// (issue #277). Any rework of this path (e.g. decoupled routing/rerank
+	// budgets) must preserve max(k, rescoreLimit) semantics for the
+	// candidate depth.
+	rescoreLimit := max(k, int(h.rescoreLimit))
 	queryDistancer := quantizer.NewDistancer(vector)
 
 	var selectedCentroids []uint64

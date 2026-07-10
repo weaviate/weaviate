@@ -188,6 +188,41 @@ func TestParallelRescoreWithSharedView(t *testing.T) {
 	}
 }
 
+// A request with k larger than the configured rescoreLimit must still return
+// k results: the candidate depth is max(k, rescoreLimit), not rescoreLimit
+// (issue #277). SearchByVectorDistance relies on this when it grows its limit
+// past the configured rescoreLimit.
+func TestSearchKLargerThanRescoreLimit(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+	uc.RQ.RescoreLimit = 50
+
+	vectorsSize := 200
+	k := 120
+	vectors, _ := testinghelpers.RandomVecsFixedSeed(vectorsSize, 0, 32)
+
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+		if int(indexID) < len(vectors) {
+			return vectors[indexID], nil
+		}
+		return nil, fmt.Errorf("vector not found for ID %d", indexID)
+	})
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	for i := range vectorsSize {
+		require.NoError(t, index.Add(t.Context(), uint64(i), vectors[i]))
+	}
+	for index.taskQueue.Size() > 0 {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	ids, dists, err := index.SearchByVector(t.Context(), vectors[3], k, nil)
+	require.NoError(t, err)
+	assert.Len(t, ids, k, "k results expected even though k > rescoreLimit")
+	assert.Len(t, dists, k)
+}
+
 // TestSearchCosineDistanceRescore verifies that HFresh correctly computes and
 // reports distances when using cosine distance. The VectorForIDThunk returns
 // raw (unnormalized) vectors to simulate the real object store, where vectors
