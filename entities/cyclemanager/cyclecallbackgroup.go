@@ -115,6 +115,24 @@ func (g *cycleCallbackGroup) schedule(m *cycleCallbackMeta) {
 	m.schedGen++
 	due := g.computeNextDue(m)
 	g.heap.push(dueEntry{callbackId: m.callbackId, due: due, schedGen: m.schedGen})
+
+	// Stale entries are otherwise reclaimed only lazily on pop, so churn on a
+	// far-future callback can pile them up. Compact past ~2x the live-entry ceiling
+	// to keep heap size, and pop cost, bounded by the registered-callback count.
+	if len(g.heap) > 2*len(g.metas)+8 {
+		g.compactHeap()
+	}
+}
+
+// compactHeap drops every stale entry — callback gone, or schedGen superseded —
+// keeping the single current entry per registered callback. It removes only
+// provably-dead entries, so every survivor is one drainDue would still act on.
+// Caller holds the lock.
+func (g *cycleCallbackGroup) compactHeap() {
+	g.heap.compact(func(e dueEntry) bool {
+		meta, ok := g.metas[e.callbackId]
+		return ok && e.schedGen == meta.schedGen
+	})
 }
 
 // reschedule re-queues meta after a tick in which it was not run (abort path).
@@ -176,9 +194,8 @@ func (g *cycleCallbackGroup) Register(id string, cycleCallback CycleCallback, op
 		return meta.abort
 	}
 
-	// Publish the meta and push the first heap entry under the lock. defer ensures
-	// the lock is released even if schedule (which calls computeNextDue → Get())
-	// panics, so a panic here cannot leave the group locked.
+	// Publish the meta before scheduling so compaction (which schedule may trigger)
+	// keeps the entry it just pushed.
 	var callbackId uint32
 	func() {
 		g.Lock()

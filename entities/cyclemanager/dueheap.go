@@ -78,3 +78,21 @@ func (h dueHeap) down(i int) {
 		i = smallest
 	}
 }
+
+// compact drops every entry for which keep returns false, then rebuilds the
+// min-heap invariant in O(n) via Floyd's build-heap. It filters in place into the
+// existing backing array, allocating nothing. Runs off the hot push/pop path
+// (only when the heap has grown too large), so keep may be a closure.
+func (h *dueHeap) compact(keep func(dueEntry) bool) {
+	a := *h
+	kept := a[:0]
+	for _, e := range a {
+		if keep(e) {
+			kept = append(kept, e)
+		}
+	}
+	*h = kept
+	for i := len(kept)/2 - 1; i >= 0; i-- {
+		kept.down(i)
+	}
+}

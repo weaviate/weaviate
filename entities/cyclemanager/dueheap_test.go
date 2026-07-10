@@ -117,6 +117,33 @@ func TestDueHeap_PopOrder(t *testing.T) {
 	}
 }
 
+func TestDueHeap_Compact(t *testing.T) {
+	base := time.Now().UnixNano()
+
+	h := &dueHeap{}
+	for i := 0; i < 20; i++ {
+		// Interleave "keep" (even) and "drop" (odd) ids across a range of due
+		// times so compaction has a multi-level heap to rebuild.
+		h.push(dueEntry{callbackId: uint32(i), due: base + int64(i%7)*int64(time.Second), schedGen: 1})
+	}
+
+	h.compact(func(e dueEntry) bool { return e.callbackId%2 == 0 })
+
+	// Only even ids survive.
+	require.Len(t, *h, 10)
+	for _, e := range *h {
+		assert.Zero(t, e.callbackId%2, "odd id %d should have been dropped", e.callbackId)
+	}
+
+	// The invariant is restored: pops come out in non-decreasing due order.
+	var prev int64 = -1
+	for len(*h) > 0 {
+		e := h.pop()
+		assert.GreaterOrEqual(t, e.due, prev, "pop out of order")
+		prev = e.due
+	}
+}
+
 func TestComputeNextDue(t *testing.T) {
 	g := &cycleCallbackGroup{epoch: time.Now()}
 	started := time.Now()

@@ -1398,12 +1398,12 @@ func TestCycleCallback_StaleEntryBoundedGrowth(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
 
-	const N = 10
+	// Far-future interval so nothing ever drains: without compaction each cycle
+	// would orphan a stale entry and the heap would grow linearly with N.
+	const N = 1000
 	ctrl := g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true },
 		WithIntervals(NewFixedIntervals(time.Hour)))
 
-	// N Deactivate/Activate cycles without draining; each cycle may leave one
-	// stale entry in the heap.
 	for i := 0; i < N; i++ {
 		require.NoError(t, ctrl.Deactivate(context.Background()))
 		require.NoError(t, ctrl.Activate())
@@ -1418,19 +1418,133 @@ func TestCycleCallback_StaleEntryBoundedGrowth(t *testing.T) {
 	}
 	meta := g.metas[callbackId]
 
-	staleEntries := 0
 	liveEntries := 0
 	for _, e := range g.heap {
-		if e.callbackId == callbackId {
-			if e.schedGen == meta.schedGen {
-				liveEntries++
-			} else {
-				staleEntries++
-			}
+		if e.callbackId == callbackId && e.schedGen == meta.schedGen {
+			liveEntries++
 		}
 	}
 	assert.Equal(t, 1, liveEntries, "exactly one live entry")
-	assert.LessOrEqual(t, staleEntries, N)
+	// Compaction keeps the heap bounded by the registered-callback count, no matter
+	// how many Deactivate/Activate cycles churn through it.
+	assert.LessOrEqual(t, len(g.heap), 2*len(g.metas)+8,
+		"heap stays bounded regardless of churn")
+}
+
+// TestCycleCallback_CompactHeapKeepsInvariant churns several callbacks with
+// distinct due times to trigger compaction, then verifies the rebuilt heap is
+// still a valid min-heap holding exactly the one current entry per callback.
+func TestCycleCallback_CompactHeapKeepsInvariant(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+
+	const callbacks = 6
+	ctrls := make([]CycleCallbackCtrl, callbacks)
+	for i := 0; i < callbacks; i++ {
+		// Distinct intervals give distinct due times, so compaction's re-heapify
+		// has a real multi-level heap to rebuild.
+		ctrls[i] = g.Register(fmt.Sprintf("c%d", i),
+			func(shouldAbort ShouldAbortCallback) bool { return true },
+			WithIntervals(NewFixedIntervals(time.Duration(i+1)*time.Hour)))
+	}
+
+	// Churn every callback well past the compaction threshold.
+	for round := 0; round < 200; round++ {
+		ctrl := ctrls[round%callbacks]
+		require.NoError(t, ctrl.Deactivate(context.Background()))
+		require.NoError(t, ctrl.Activate())
+	}
+
+	g.Lock()
+	defer g.Unlock()
+
+	// Compaction bounds the total entry count (some bounded stale entries may
+	// remain between compactions; only the count is capped, not stale presence).
+	assert.LessOrEqual(t, len(g.heap), 2*len(g.metas)+8, "heap bounded after churn")
+
+	// Every callback still has exactly one live (current-schedGen) entry, so it
+	// will still fire; stragglers, if any, are stale duplicates.
+	live := map[uint32]int{}
+	for _, e := range g.heap {
+		meta, ok := g.metas[e.callbackId]
+		require.True(t, ok, "no entry may reference an unregistered callback")
+		if e.schedGen == meta.schedGen {
+			live[e.callbackId]++
+		}
+	}
+	for id, n := range live {
+		assert.Equal(t, 1, n, "callback %d has exactly one live entry", id)
+	}
+	assert.Len(t, live, callbacks, "every callback still scheduled")
+
+	// Min-heap invariant: each parent is due no later than its children — this is
+	// what compactHeap's Floyd re-heapify must restore.
+	for i := range g.heap {
+		if l := 2*i + 1; l < len(g.heap) {
+			assert.LessOrEqual(t, g.heap[i].due, g.heap[l].due, "heap property at %d/left", i)
+		}
+		if r := 2*i + 2; r < len(g.heap) {
+			assert.LessOrEqual(t, g.heap[i].due, g.heap[r].due, "heap property at %d/right", i)
+		}
+	}
+}
+
+// TestCycleCallback_RegisterDuringCompaction guards the interaction between
+// Register and heap compaction: when schedule (called during Register) triggers
+// compaction, it must recognize the callback being registered and keep its
+// freshly-pushed entry rather than dropping it as stale.
+func TestCycleCallback_RegisterDuringCompaction(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+
+	// Bloat the heap so the next Register actually compacts. Churn can't: every
+	// schedule self-compacts, and registering a callback raises the threshold faster
+	// than it adds entries. Unregister is the lever — it leaves entries behind and
+	// never compacts. Register a batch, then unregister most of it.
+	const fillers = 20
+	ctrls := make([]CycleCallbackCtrl, fillers)
+	for i := 0; i < fillers; i++ {
+		ctrls[i] = g.Register(fmt.Sprintf("filler%d", i),
+			func(shouldAbort ShouldAbortCallback) bool { return true },
+			WithIntervals(NewFixedIntervals(time.Hour)))
+	}
+	for i := 1; i < fillers; i++ { // keep filler0 so metas stays > 0
+		require.NoError(t, ctrls[i].Unregister(context.Background()))
+	}
+
+	g.Lock()
+	heapBefore := len(g.heap)
+	metasBefore := len(g.metas)
+	g.Unlock()
+	// Registering "fresh" raises metas to metasBefore+1; the heap must exceed that
+	// post-register threshold so schedule actually compacts mid-registration.
+	require.Greater(t, heapBefore, 2*(metasBefore+1)+8,
+		"setup must leave the heap over the post-register compaction threshold")
+
+	g.Register("fresh", func(shouldAbort ShouldAbortCallback) bool { return true })
+
+	g.Lock()
+	defer g.Unlock()
+
+	// Compaction actually ran during Register: the stale filler entries were reclaimed.
+	require.Less(t, len(g.heap), heapBefore, "compaction should have run during Register")
+
+	var freshID uint32
+	found := false
+	for id, m := range g.metas {
+		if m.name == "fresh" {
+			freshID, found = id, true
+		}
+	}
+	require.True(t, found, "fresh callback is registered")
+
+	live := 0
+	for _, e := range g.heap {
+		if e.callbackId == freshID && e.schedGen == g.metas[freshID].schedGen {
+			live++
+		}
+	}
+	assert.Equal(t, 1, live, "fresh callback must stay scheduled through compaction")
 }
 
 func TestCycleCallback_DeactivatePriorityClaimedButNotStarted(t *testing.T) {
