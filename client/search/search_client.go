@@ -49,7 +49,7 @@ type ClientService interface {
 /*
 SearchNearText searches a collection with near text
 
-Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved `metadata` key. Part of the REST Search API (design notes: docs/rest-search-api.md in the Weaviate repository); can be turned off with `DISABLE_REST_SEARCH=true`, in which case requests are rejected with 422.
+Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved `metadata` key.
 */
 func (a *Client) SearchNearText(params *SearchNearTextParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchNearTextOK, error) {
 	// TODO: Validate the params before sending

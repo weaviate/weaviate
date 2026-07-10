@@ -180,7 +180,7 @@ observable change — same wire shapes, status codes and live smoke
 - **Shared request base via `allOf`.** A new `SearchCommon` definition holds
   every field common to all search types (`where`, `limit`/`offset`/
   `auto_limit`, `return_properties`, `return_metadata`, `tenant`,
-  `consistency_level`, and all ten reserved fields).
+  `consistency_level`, and the seven search-reserved fields).
   `SearchNearTextRequest = allOf[SearchCommon, {query (required), certainty,
   distance, target_vector}]` — `target_vector` stays near-text-specific (bm25
   won't have it). go-swagger generates `SearchNearTextRequest` with an
@@ -297,8 +297,7 @@ enforced by the generated model at bind time; the rest are the handler's.
 | `return_metadata` | `[]string` (enum) | `id`, `distance`, `certainty`, `score`, `explain_score`, `creation_time`, `last_update_time`; omitted → `id`; unknown value → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
 | `tenant` | `string` | tenant-scoped authz (`ShardsData`) |
 | `consistency_level` | `string` (enum) | ONE / QUORUM / ALL; other value → 422 (swagger enum) |
-| reserved | `*string` / `*int64` (ptr) | `single_prompt`, `grouped_task` (RAG, deferred), `group_by`, `number_of_groups`, `objects_per_group`, `rerank_property`, `rerank_query`, `return_metrics`, `over`, `object_limit` — declared but return 422 "not yet supported" when present (non-nil) |
-
+| reserved | `*string` / `*int64` (ptr) | `single_prompt`, `grouped_task` (RAG, deferred), `group_by`, `number_of_groups`, `objects_per_group`, `rerank_property`, `rerank_query` — declared but return 422 "not yet supported" when present (non-nil).
 ### Error-status table (as built)
 
 | Condition | Status | Body shape |

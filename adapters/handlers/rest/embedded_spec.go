@@ -6496,7 +6496,7 @@ func init() {
     },
     "/search/{collection}/near-text": {
       "post": {
-        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key. Part of the REST Search API (design notes: docs/rest-search-api.md in the Weaviate repository); can be turned off with ` + "`" + `DISABLE_REST_SEARCH=true` + "`" + `, in which case requests are rejected with 422.",
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key.",
         "consumes": [
           "application/json"
         ],
@@ -10366,12 +10366,6 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "object_limit": {
-          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true
-        },
         "objects_per_group": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
@@ -10382,11 +10376,6 @@ func init() {
           "description": "The number of objects to skip before returning results. Used with ` + "`" + `limit` + "`" + ` for pagination.",
           "type": "integer",
           "format": "int64",
-          "x-nullable": true
-        },
-        "over": {
-          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
-          "type": "string",
           "x-nullable": true
         },
         "rerank_property": {
@@ -10415,11 +10404,6 @@ func init() {
             ]
           }
         },
-        "return_metrics": {
-          "description": "Reserved for aggregation metrics. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
-        },
         "return_properties": {
           "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
           "type": "array",
@@ -10437,7 +10421,7 @@ func init() {
           "type": "string"
         },
         "where": {
-          "description": "A conditional filter in the same JSON shape as the GraphQL ` + "`" + `where` + "`" + ` filter.",
+          "description": "A conditional filter to limit the objects that are searched.",
           "$ref": "#/definitions/WhereFilter"
         }
       }
@@ -17834,7 +17818,7 @@ func init() {
     },
     "/search/{collection}/near-text": {
       "post": {
-        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key. Part of the REST Search API (design notes: docs/rest-search-api.md in the Weaviate repository); can be turned off with ` + "`" + `DISABLE_REST_SEARCH=true` + "`" + `, in which case requests are rejected with 422.",
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `metadata` + "`" + ` key.",
         "consumes": [
           "application/json"
         ],
@@ -22079,12 +22063,6 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "object_limit": {
-          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true
-        },
         "objects_per_group": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
@@ -22095,11 +22073,6 @@ func init() {
           "description": "The number of objects to skip before returning results. Used with ` + "`" + `limit` + "`" + ` for pagination.",
           "type": "integer",
           "format": "int64",
-          "x-nullable": true
-        },
-        "over": {
-          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
-          "type": "string",
           "x-nullable": true
         },
         "rerank_property": {
@@ -22128,11 +22101,6 @@ func init() {
             ]
           }
         },
-        "return_metrics": {
-          "description": "Reserved for aggregation metrics. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
-        },
         "return_properties": {
           "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
           "type": "array",
@@ -22150,7 +22118,7 @@ func init() {
           "type": "string"
         },
         "where": {
-          "description": "A conditional filter in the same JSON shape as the GraphQL ` + "`" + `where` + "`" + ` filter.",
+          "description": "A conditional filter to limit the objects that are searched.",
           "$ref": "#/definitions/WhereFilter"
         }
       }

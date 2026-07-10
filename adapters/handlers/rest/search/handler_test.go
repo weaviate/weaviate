@@ -353,7 +353,7 @@ func TestHandlerUnknownCollection(t *testing.T) {
 	_, apiErr := doNearText(t, deps, nil, "Unknown", `{"query":["space"]}`)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusNotFound, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "could not find class")
+	assert.Contains(t, apiErr.Error(), "could not find collection")
 }
 
 func TestHandlerTenantAuthorization(t *testing.T) {
@@ -440,6 +440,18 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
+			// our renamed message
+			name:       "collection not found (ours: collection)",
+			err:        fmt.Errorf("could not find collection Movie in schema"),
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			// upstream traverser still says "class"
+			name:       "class not found (upstream: class)",
+			err:        fmt.Errorf("could not find class Movie in schema"),
+			wantStatus: http.StatusNotFound,
+		},
+		{
 			name:       "certainty on non-cosine",
 			err:        fmt.Errorf("can't compute and return certainty when vector index is configured with l2-squared distance"),
 			wantStatus: http.StatusUnprocessableEntity,
@@ -472,11 +484,11 @@ func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps.handler.namespacesEnabled = true
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
-	// unknown collection: the internal error names the qualified class
+	// unknown collection: the internal error names the qualified collection
 	// ("ns1:Unknown"); the caller must only ever see its own short name
 	_, apiErr := doNearText(t, deps, principal, "Unknown", `{"query":["space"]}`)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusNotFound, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "could not find class Unknown")
+	assert.Contains(t, apiErr.Error(), "could not find collection Unknown")
 	assert.NotContains(t, apiErr.Error(), "ns1:")
 }

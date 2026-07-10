@@ -75,7 +75,7 @@ func buildParams(t *testing.T, class *models.Class, body string) (*fakeSearcher,
 		if c, ok := deps.schemaReader.classes[name]; ok {
 			return c, nil
 		}
-		return nil, fmt.Errorf("could not find class %s in schema", name)
+		return nil, fmt.Errorf("could not find collection %s in schema", name)
 	}
 
 	params, apiErr := deps.handler.buildNearTextParams(class, class.Class, parsed, getClass, nil)
@@ -113,9 +113,6 @@ func TestReservedFieldsRejected(t *testing.T) {
 		"objects_per_group": `2`,
 		"rerank_property":   `"x"`,
 		"rerank_query":      `"x"`,
-		"return_metrics":    `"x"`,
-		"over":              `"x"`,
-		"object_limit":      `2`,
 	}
 	for field, value := range reserved {
 		t.Run(field, func(t *testing.T) {

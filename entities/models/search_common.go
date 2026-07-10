@@ -31,7 +31,6 @@ import (
 //
 // swagger:model SearchCommon
 type SearchCommon struct {
-
 	// Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.
 	AutoLimit *int64 `json:"auto_limit,omitempty"`
 
@@ -51,17 +50,11 @@ type SearchCommon struct {
 	// Reserved for grouped search. Returns 422 (not yet supported).
 	NumberOfGroups *int64 `json:"number_of_groups,omitempty"`
 
-	// Reserved for aggregation. Returns 422 (not yet supported).
-	ObjectLimit *int64 `json:"object_limit,omitempty"`
-
 	// Reserved for grouped search. Returns 422 (not yet supported).
 	ObjectsPerGroup *int64 `json:"objects_per_group,omitempty"`
 
 	// The number of objects to skip before returning results. Used with `limit` for pagination.
 	Offset *int64 `json:"offset,omitempty"`
-
-	// Reserved for aggregation. Returns 422 (not yet supported).
-	Over *string `json:"over,omitempty"`
 
 	// Reserved for reranking. Returns 422 (not yet supported).
 	RerankProperty *string `json:"rerank_property,omitempty"`
@@ -72,9 +65,6 @@ type SearchCommon struct {
 	// The retrieval metadata to return under the `metadata` key of each result. Omitted returns `id`.
 	ReturnMetadata []string `json:"return_metadata"`
 
-	// Reserved for aggregation metrics. Returns 422 (not yet supported).
-	ReturnMetrics *string `json:"return_metrics,omitempty"`
-
 	// The properties to return. A dot-path selects one hop across a reference (e.g. `hasAuthor.name`). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.
 	ReturnProperties []string `json:"return_properties"`
 
@@ -84,7 +74,7 @@ type SearchCommon struct {
 	// The tenant to search in a multi-tenant collection.
 	Tenant string `json:"tenant,omitempty"`
 
-	// A conditional filter in the same JSON shape as the GraphQL `where` filter.
+	// A conditional filter to limit the objects that are searched.
 	Where *WhereFilter `json:"where,omitempty"`
 }
 
@@ -180,12 +170,10 @@ func (m *SearchCommon) validateReturnMetadata(formats strfmt.Registry) error {
 	}
 
 	for i := 0; i < len(m.ReturnMetadata); i++ {
-
 		// value enum
 		if err := m.validateReturnMetadataItemsEnum("return_metadata"+"."+strconv.Itoa(i), "body", m.ReturnMetadata[i]); err != nil {
 			return err
 		}
-
 	}
 
 	return nil
@@ -225,7 +213,6 @@ func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Regis
 }
 
 func (m *SearchCommon) contextValidateWhere(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Where != nil {
 		if err := m.Where.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

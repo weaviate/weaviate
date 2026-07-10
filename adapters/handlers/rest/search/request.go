@@ -44,9 +44,6 @@ func checkReservedFields(common *models.SearchCommon) *APIError {
 		{"objects_per_group", common.ObjectsPerGroup != nil},
 		{"rerank_property", common.RerankProperty != nil},
 		{"rerank_query", common.RerankQuery != nil},
-		{"return_metrics", common.ReturnMetrics != nil},
-		{"over", common.Over != nil},
-		{"object_limit", common.ObjectLimit != nil},
 	}
 	for _, r := range reserved {
 		if r.present {
@@ -165,7 +162,7 @@ func resolveTargetVectors(class *models.Class, targetVector string) ([]string, *
 	if len(targetVectors) == 0 && !modelsext.ClassHasLegacyVectorIndex(class) {
 		if len(class.VectorConfig) > 1 {
 			return nil, newAPIError(http.StatusUnprocessableEntity,
-				"class %s has multiple vectors, but no target vectors were provided", class.Class)
+				"collection %s has multiple vectors, but no target vectors were provided", class.Class)
 		}
 		for name := range class.VectorConfig {
 			targetVectors = append(targetVectors, name)
@@ -179,7 +176,7 @@ func resolveTargetVectors(class *models.Class, targetVector string) ([]string, *
 				configuredNamedVectors = append(configuredNamedVectors, key)
 			}
 			return nil, newAPIError(http.StatusBadRequest,
-				"class %s does not have named vector %v configured. Available named vectors %v",
+				"collection %s does not have named vector %v configured. Available named vectors %v",
 				class.Class, target, configuredNamedVectors)
 		}
 	}
@@ -244,7 +241,7 @@ func parseQuery(query []string) ([]string, *APIError) {
 func checkVectorizer(class *models.Class, targetVectors []string) *APIError {
 	noVectorizer := func(target string) *APIError {
 		return newAPIError(http.StatusUnprocessableEntity,
-			"near-text is not supported: class %s has no vectorizer module configured for target vector %q",
+			"near-text is not supported: collection %s has no vectorizer module configured for target vector %q",
 			class.Class, target)
 	}
 

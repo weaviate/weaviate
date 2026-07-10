@@ -211,7 +211,7 @@ func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Pr
 			authorizedCollections[classTenantName] = class
 		}
 		if class == nil {
-			return nil, fmt.Errorf("could not find class %s in schema", name)
+			return nil, fmt.Errorf("could not find collection %s in schema", name)
 		}
 		return class, nil
 	}
@@ -239,9 +239,12 @@ const (
 	// match the collection's multi-tenancy configuration.
 	errMTDisabledWithTenantMarker   = "multi-tenancy disabled, but request was with tenant"
 	errMTEnabledWithoutTenantMarker = "multi-tenancy enabled, but request was without tenant"
-	// usecases/traverser + this handler's classGetterWithAuthz — collection
-	// not present in the schema.
-	errClassNotFoundMarker = "could not find class"
+	// Collection not present in the schema. Two markers because the wording
+	// differs by source: this handler's classGetterWithAuthz says
+	// "collection" (our user-facing rename), while the upstream traverser
+	// still says "class" — both must map to 404.
+	errCollectionNotFoundMarker = "could not find collection"
+	errClassNotFoundMarker      = "could not find class"
 	// entities/errors tenant sentinels' messages. Kept as a fallback to the
 	// typed errors.Is checks below because the search path wraps tenant
 	// errors through objects.NewErrMultiTenancy and full sentinel coverage
@@ -285,7 +288,8 @@ func statusFromError(err error) *APIError {
 	case strings.Contains(msg, errMTDisabledWithTenantMarker) ||
 		strings.Contains(msg, errMTEnabledWithoutTenantMarker):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case strings.Contains(msg, errClassNotFoundMarker):
+	case strings.Contains(msg, errCollectionNotFoundMarker) ||
+		strings.Contains(msg, errClassNotFoundMarker):
 		return &APIError{Status: http.StatusNotFound, Err: err}
 	case strings.Contains(msg, errNoVectorizerMarker):
 		// near-text on a collection without a vectorizer: valid request,

@@ -3911,22 +3911,6 @@
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
-        },
-        "return_metrics": {
-          "description": "Reserved for aggregation metrics. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
-        },
-        "over": {
-          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
-        },
-        "object_limit": {
-          "description": "Reserved for aggregation. Returns 422 (not yet supported).",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true
         }
       }
     },
