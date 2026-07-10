@@ -698,6 +698,49 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		assert.Equal(t, int64(1), atomic.LoadInt64(&c1))
 		assert.Equal(t, int64(0), atomic.LoadInt64(&c2))
 	})
+
+	// drainDue snapshots the due set at the start of a tick, so a callback
+	// registered while an earlier one is running is deferred to the next tick.
+	// This matches the parallel path; both dispatch paths share one contract.
+	t.Run("register new while executing runs it on next tick", func(t *testing.T) {
+		var c1, c2 int64
+		chFinished := make(chan struct{}, 1)
+
+		synctest.Test(t, func(t *testing.T) {
+			// tickRunning is closed by c1 when it starts executing; release is
+			// closed by the test to let c1 proceed. This rendezvous is a true
+			// happens-before guarantee that Register("c2") is called while the
+			// tick is in-progress, after drainDue snapshotted the due set.
+			tickRunning := make(chan struct{})
+			release := make(chan struct{})
+
+			callbacks := NewCallbackGroup("id", logger, 1)
+			callbacks.Register("c1", func(shouldAbort ShouldAbortCallback) bool {
+				close(tickRunning)
+				<-release
+				atomic.AddInt64(&c1, 1)
+				return true
+			})
+
+			go func() {
+				callbacks.CycleCallback(shouldNotAbort)
+				chFinished <- struct{}{}
+			}()
+			<-tickRunning
+			callbacks.Register("c2", func(shouldAbort ShouldAbortCallback) bool {
+				atomic.AddInt64(&c2, 1)
+				return true
+			})
+			close(release)
+			<-chFinished
+
+			assert.Equal(t, int64(1), atomic.LoadInt64(&c1))
+			assert.Equal(t, int64(0), atomic.LoadInt64(&c2))
+
+			assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+			assert.Equal(t, int64(1), atomic.LoadInt64(&c2))
+		})
+	})
 }
 
 func TestCycleCallback_Sequential_Unregister(t *testing.T) {
@@ -1441,6 +1484,39 @@ func TestCycleCallback_UnregisterNilOnAbsentID(t *testing.T) {
 	assert.Nil(t, ctrl.Unregister(context.Background()))
 }
 
+// TestCycleCallback_ControlErrorBranches covers the early-return error paths of
+// the control operations: acting on an absent callback id, and acting with an
+// already-cancelled context.
+func TestCycleCallback_ControlErrorBranches(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("absent id", func(t *testing.T) {
+		g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+		ghost := &cycleCallbackCtrl{
+			callbackId:       99,
+			callbackCustomId: "ghost",
+			isActive:         g.isActive,
+			activate:         g.activate,
+			deactivate:       g.deactivate,
+			unregister:       g.unregister,
+		}
+
+		assert.ErrorIs(t, ghost.Activate(), ErrorCallbackNotFound)
+		assert.ErrorIs(t, ghost.Deactivate(context.Background()), ErrorCallbackNotFound)
+	})
+
+	t.Run("pre-cancelled context", func(t *testing.T) {
+		g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+		ctrl := g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true })
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		assert.ErrorIs(t, ctrl.Deactivate(ctx), context.Canceled)
+		assert.ErrorIs(t, ctrl.Unregister(ctx), context.Canceled)
+	})
+}
+
 func TestCycleCallback_ConcurrentRegisterUnregisterLeakCheck(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	g := NewCallbackGroup("id", logger, 4).(*cycleCallbackGroup)
@@ -1493,8 +1569,12 @@ func TestCycleCallback_StressRace(t *testing.T) {
 	const stable = 4
 	ctrls := make([]CycleCallbackCtrl, stable)
 	for i := 0; i < stable; i++ {
+		// Interval-bearing callbacks so the Activate path drives computeNextDue's
+		// interval Get() concurrently with the running callback's Reset/Advance,
+		// exercising the interval state under -race.
 		ctrls[i] = callbacks.Register(fmt.Sprintf("stable%d", i),
-			func(shouldAbort ShouldAbortCallback) bool { return true })
+			func(shouldAbort ShouldAbortCallback) bool { return true },
+			WithIntervals(NewExpIntervals(time.Millisecond, 10*time.Millisecond, 2, 4)))
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -1535,6 +1615,75 @@ func TestCycleCallback_StressRace(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// TestCycleCallback_StopWaitsForInFlightRun asserts the Deactivate/Unregister
+// contract: the call must not return while a callback body is executing. Because
+// teardown reschedules a still-active callback, a run that finishes mid-wait can
+// start a fresh run before the stopper commits — the stopper must wait for that
+// one too.
+//
+// The body sleeps briefly so an overlapping run is observable via inFlight, and
+// the attempt is repeated because hitting the reschedule-then-rerun window
+// depends on scheduling.
+func TestCycleCallback_StopWaitsForInFlightRun(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	modes := []struct {
+		name string
+		stop func(ctrl CycleCallbackCtrl) error
+	}{
+		{"deactivate", func(ctrl CycleCallbackCtrl) error { return ctrl.Deactivate(context.Background()) }},
+		{"unregister", func(ctrl CycleCallbackCtrl) error { return ctrl.Unregister(context.Background()) }},
+	}
+
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			for attempt := 0; attempt < 50; attempt++ {
+				g := NewCallbackGroup("id", logger, 4)
+
+				var inFlight atomic.Int32
+				firstRun := make(chan struct{})
+				var once sync.Once
+				ctrl := g.Register("c", func(shouldAbort ShouldAbortCallback) bool {
+					inFlight.Add(1)
+					defer inFlight.Add(-1)
+					once.Do(func() { close(firstRun) })
+					time.Sleep(10 * time.Microsecond)
+					return true
+				})
+
+				stopTicking := make(chan struct{})
+				ticking := runTicks(g, stopTicking)
+
+				<-firstRun
+				require.NoError(t, mode.stop(ctrl))
+				require.Zero(t, inFlight.Load(),
+					"%s returned while a callback body was in flight (attempt %d)", mode.name, attempt)
+
+				close(stopTicking)
+				<-ticking
+			}
+		})
+	}
+}
+
+// runTicks drives CycleCallback in a loop until stop is closed, returning a channel
+// that closes once the loop has exited.
+func runTicks(g CycleCallbackGroup, stop <-chan struct{}) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				g.CycleCallback(func() bool { return false })
+			}
+		}
+	}()
+	return done
 }
 
 // TestCycleCallback_RunWithIntervals exercises computeNextDue and interval Reset/Advance
@@ -1848,64 +1997,6 @@ func TestCycleCallback_ConcurrentWaiters(t *testing.T) {
 		assert.NoError(t, <-unregisterErr2)
 	})
 }
-
-// TestCycleCallback_PanicUnderLockDoesNotDeadlock guards against a lock leak caused by a
-// panic while the group lock is held. schedule calls computeNextDue, which
-// calls CycleIntervals.Get(); if Get() panics (e.g. due to a nil dereference or
-// user error), the group lock must still be released so subsequent operations
-// can proceed. This test exercises that path via activate, which calls schedule
-// under the lock.
-func TestCycleCallback_PanicUnderLockDoesNotDeadlock(t *testing.T) {
-	intervals := &panicCycleIntervals{}
-
-	logger, _ := test.NewNullLogger()
-	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
-
-	// Register with Get() returning normally (flag not yet set), so the initial
-	// schedule in Register succeeds.
-	ctrl := g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true },
-		WithIntervals(intervals))
-
-	// Deactivate so the next Activate will call schedule → Get() under the lock.
-	require.NoError(t, ctrl.Deactivate(context.Background()))
-
-	// Arm the panic, then call Activate. activate holds the group lock when it
-	// calls schedule → computeNextDue → Get(), which now panics. The defer in
-	// activate must release the lock before the panic unwinds.
-	intervals.armed.Store(true)
-	require.Panics(t, func() { ctrl.Activate() }) //nolint:errcheck
-
-	// If the lock leaked, any operation that acquires it would block forever.
-	// Prove the lock was released by running a follow-up operation with a timeout.
-	done := make(chan struct{})
-	go func() {
-		// isActive acquires the group lock; it must not block.
-		g.isActive(0, "c")
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// lock was released: group is healthy
-	case <-time.After(2 * time.Second):
-		t.Fatal("group lock leaked after panic in activate: follow-up isActive blocked")
-	}
-}
-
-// panicCycleIntervals is a CycleIntervals whose Get panics when armed.
-type panicCycleIntervals struct {
-	armed atomic.Bool
-}
-
-func (p *panicCycleIntervals) Get() time.Duration {
-	if p.armed.Load() {
-		panic("injected panic in Get()")
-	}
-	return 10 * time.Millisecond
-}
-
-func (p *panicCycleIntervals) Reset()   {}
-func (p *panicCycleIntervals) Advance() {}
 
 // BenchmarkCycleCallback measures the hot-path allocation profile with a single
 // always-due no-op callback on a sequential (routinesLimit=1) group, so no

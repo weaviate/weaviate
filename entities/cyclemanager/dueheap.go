@@ -14,11 +14,11 @@ package cyclemanager
 // dueEntry is a single heap slot. The schedGen field lets drainDue discard
 // stale entries without an explicit remove.
 //
-// due is stored as Unix-nanoseconds (int64) rather than time.Time on purpose:
-// time.Time embeds a *Location pointer, which turns every heap swap into a GC
-// write barrier — a large cost when a tick sifts many entries. An int64 key
-// makes dueEntry pointer-free, so swaps are plain memory moves and comparisons
-// are integer compares.
+// due is stored as nanoseconds relative to the group epoch (int64) rather than
+// time.Time on purpose: time.Time embeds a *Location pointer, which turns every
+// heap swap into a GC write barrier — a large cost when a tick sifts many
+// entries. An int64 key makes dueEntry pointer-free, so swaps are plain memory
+// moves and comparisons are integer compares.
 type dueEntry struct {
 	callbackId uint32
 	due        int64
@@ -77,12 +77,4 @@ func (h dueHeap) down(i int) {
 		h[i], h[smallest] = h[smallest], h[i]
 		i = smallest
 	}
-}
-
-// computeNextDue returns when meta is next eligible to run, as Unix-nanoseconds.
-func computeNextDue(m *cycleCallbackMeta) int64 {
-	if m.intervals == nil {
-		return m.started.UnixNano()
-	}
-	return m.started.Add(m.intervals.Get()).UnixNano()
 }

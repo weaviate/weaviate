@@ -118,6 +118,7 @@ func TestDueHeap_PopOrder(t *testing.T) {
 }
 
 func TestComputeNextDue(t *testing.T) {
+	g := &cycleCallbackGroup{epoch: time.Now()}
 	started := time.Now()
 	interval := 5 * time.Second
 
@@ -129,18 +130,18 @@ func TestComputeNextDue(t *testing.T) {
 		{
 			name: "nil interval is always due at started",
 			meta: &cycleCallbackMeta{started: started, intervals: nil},
-			want: started.UnixNano(),
+			want: started.Sub(g.epoch).Nanoseconds(),
 		},
 		{
 			name: "interval adds Get() to started",
 			meta: &cycleCallbackMeta{started: started, intervals: NewFixedIntervals(interval)},
-			want: started.Add(interval).UnixNano(),
+			want: started.Add(interval).Sub(g.epoch).Nanoseconds(),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, computeNextDue(tt.meta))
+			assert.Equal(t, tt.want, g.computeNextDue(tt.meta))
 		})
 	}
 }

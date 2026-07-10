@@ -131,6 +131,9 @@ func (t *noopTicker) CycleExecuted(executed bool) {
 
 // ===== Intervals =====
 
+// CycleIntervals yields the delay before a callback's next run. Get is called by
+// the scheduler while the group lock is held, so implementations must be total:
+// Get, Reset, and Advance must return normally and never panic.
 type CycleIntervals interface {
 	Get() time.Duration
 	Reset()
