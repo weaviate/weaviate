@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
@@ -45,8 +46,9 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 	mainCtx := context.Background()
 	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 
+	expectedMembers := 3
 	compose, err := docker.New().
-		WithWeaviateCluster(3).
+		WithWeaviateCluster(expectedMembers).
 		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
@@ -62,6 +64,12 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 			t.Fatalf("failed to terminate test containers: %+v", err)
 		}
 	}
+
+	assert.EventuallyWithT(suite.T(), func(ct *assert.CollectT) {
+		nodesResp, err := helper.Client(suite.T()).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		require.NoError(ct, err, "failed to get nodes")
+		require.Len(ct, nodesResp.Payload.Nodes, expectedMembers)
+	}, 60*time.Second, 1*time.Second, "expected %d cluster nodes", expectedMembers)
 }
 
 func (suite *ReplicationTestSuite) TearDownSuite() {

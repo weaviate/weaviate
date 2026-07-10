@@ -22,16 +22,12 @@ import (
 
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
-	httptransport "github.com/go-openapi/runtime/client"
-	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"golang.org/x/sync/errgroup"
 
-	apiclient "github.com/weaviate/weaviate/client"
-	"github.com/weaviate/weaviate/client/nodes"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -1264,63 +1260,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		return cs, fmt.Errorf("startCluster phase 2 (readiness): %w", err)
 	}
 
-	// Phase 3: Readiness only means Raft quorum, which three nodes reach with two.
-	// A class created before the third node joins is sized against the smaller
-	// membership, so wait until every node sees all its peers.
-	if err := waitForMembership(ctx, cs, size); err != nil {
-		return cs, fmt.Errorf("startCluster phase 3 (membership): %w", err)
-	}
-
 	return cs, nil
-}
-
-// waitForMembership blocks until every node's /v1/nodes lists all `size` peers.
-//
-// The calls go out unauthenticated. The one 3-node compose that enables auth is
-// cluster_api_auth, whose WithWeaviateBasicAuth guards the internal cluster port
-// rather than the public API. A 3-node compose that turned on RBAC, API keys, or
-// OIDC would have /v1/nodes reject these calls, and this wait would time out
-// rather than report the real cause.
-func waitForMembership(ctx context.Context, cs []*DockerContainer, size int) error {
-	if size < 2 {
-		return nil
-	}
-	const (
-		membershipTimeout = 120 * time.Second
-		pollInterval      = time.Second
-	)
-
-	eg := errgroup.Group{}
-	for i := 0; i < size; i++ {
-		c := cs[i]
-		if c == nil {
-			continue
-		}
-		hostname := []string{Weaviate0, Weaviate1, Weaviate2}[i]
-		eg.Go(func() error {
-			client := apiclient.New(httptransport.New(c.URI(), "/v1", []string{"http"}), strfmt.Default)
-			params := nodes.NewNodesGetParams().WithContext(ctx)
-
-			var last string
-			for deadline := time.Now().Add(membershipTimeout); time.Now().Before(deadline); {
-				resp, err := client.Nodes.NodesGet(params, nil)
-				switch {
-				case ctx.Err() != nil:
-					return ctx.Err()
-				case err != nil:
-					last = fmt.Sprintf("list cluster nodes: %v", err)
-				case len(resp.Payload.Nodes) == size:
-					return nil
-				default:
-					last = fmt.Sprintf("memberlist has %d of %d nodes", len(resp.Payload.Nodes), size)
-				}
-				time.Sleep(pollInterval)
-			}
-			return fmt.Errorf("startCluster[%s]: cluster did not form within %s: %s",
-				hostname, membershipTimeout, last)
-		})
-	}
-	return eg.Wait()
 }
 
 func copySettings(s map[string]string) map[string]string {
