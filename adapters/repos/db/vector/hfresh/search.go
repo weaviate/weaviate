@@ -341,7 +341,15 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// of the sequential scan; final results are unaffected by arrival order
 	// since the rescore phase recomputes exact distances.
 	phaseStart = time.Now()
-	postingCh, wait := h.PostingStore.MultiGetStreamWithStats(ctx, selectedCentroids, &st, readConcurrency)
+	// Postings streamed here are ZERO-COPY: each Posting aliases memory of the
+	// consistent view held inside the stream, valid only until done() releases
+	// that view. The scan loop below only extracts IDs and distances (into q and
+	// the merge queue) and never retains posting bytes, so releasing the view
+	// right after the loop is safe. done() is deferred so every return path
+	// (including a mid-scan error) releases the view; the explicit call after
+	// the loop keeps error handling, and done() is idempotent.
+	postingCh, done := h.PostingStore.MultiGetStreamWithStats(ctx, selectedCentroids, &st, readConcurrency)
+	defer done()
 
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
@@ -363,6 +371,19 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 		for _, v := range p {
 			id := v.ID()
+			// Skip duplicates BEFORE the deleted check. On real data ~58% of
+			// candidates are duplicates, and the visited bitset check is far
+			// cheaper than IsDeleted (which takes two RWMutex atomics per call).
+			// Deliberate semantic tradeoff: duplicate occurrences of a deleted
+			// vector no longer decrement this posting's live-size count, so a
+			// merge may be triggered marginally later. Merge itself recounts live
+			// entries via GarbageCollect, so this only affects merge-trigger
+			// latency, never correctness.
+			if visited.CheckAndVisit(id) {
+				st.Duplicates++
+				continue
+			}
+
 			// skip deleted vectors
 			deleted, err := h.VersionMap.IsDeleted(context.Background(), id)
 			if err != nil {
@@ -371,12 +392,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			if deleted {
 				postingSize--
 				st.Deleted++
-				continue
-			}
-
-			// skip duplicates
-			if visited.CheckAndVisit(id) {
-				st.Duplicates++
 				continue
 			}
 
@@ -406,7 +421,10 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 		scanDur += time.Since(scanStart)
 	}
-	if err := wait(); err != nil {
+	// Explicitly release the view now (idempotent with the deferred done): the
+	// scan is finished and nothing below retains posting bytes, so there is no
+	// reason to hold the view through the rescore phase.
+	if err := done(); err != nil {
 		return nil, nil, err
 	}
 

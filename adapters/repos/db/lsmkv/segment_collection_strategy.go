@@ -95,6 +95,49 @@ func (s *segment) getCollectionBytes(key []byte) ([][]byte, error) {
 	return s.collectionStratParseDataBytes(contentsCopy)
 }
 
+// getCollectionBytesNoCopy behaves like getCollectionBytes but, when the
+// segment serves reads from its in-memory/mmap contents (s.readFromMemory),
+// parses directly over that memory and returns the values as sub-slices of it
+// WITHOUT copying.
+//
+// WARNING: the returned slices alias the segment's contents. They are valid
+// ONLY while the caller holds a consistent view that refcounts this segment
+// (the view keeps the mmap mapped / the segment un-dropped). Retaining or
+// mutating them after the view is released is a use-after-free against memory a
+// completed compaction may have unmapped. Callers that must outlive the view
+// have to use the copying getCollectionBytes instead.
+//
+// Segments on the pread strategy (readFromMemory == false: no stable in-memory
+// slice to alias, reads go through the file descriptor) transparently fall back
+// to the copying getCollectionBytes. Correctness over purity.
+func (s *segment) getCollectionBytesNoCopy(key []byte) ([][]byte, error) {
+	if !s.readFromMemory {
+		// pread segment: no usable in-memory contents to alias.
+		return s.getCollectionBytes(key)
+	}
+
+	if s.strategy != segmentindex.StrategySetCollection {
+		return nil, fmt.Errorf("getCollectionBytesNoCopy only possible for strategy %q, got %q",
+			StrategySetCollection, s.strategy)
+	}
+
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return nil, lsmkv.NotFound
+	}
+
+	node, err := s.index.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Zero-copy: parse directly over the segment's in-memory/mmap contents.
+	// collectionStratParseDataBytes returns sub-slices of its input, so the
+	// returned values alias s.contents (valid only while a view holds the
+	// segment). This is the same parse the copying path runs over its
+	// contentsCopy; the only difference is that we skip the copy.
+	return s.collectionStratParseDataBytes(s.contents[node.Start:node.End])
+}
+
 func (s *segment) collectionStratParseDataBytes(in []byte) ([][]byte, error) {
 	if len(in) == 0 {
 		return nil, lsmkv.NotFound

@@ -227,6 +227,11 @@ func (s *lazySegment) getCollectionBytes(key []byte) ([][]byte, error) {
 	return s.segment.getCollectionBytes(key)
 }
 
+func (s *lazySegment) getCollectionBytesNoCopy(key []byte) ([][]byte, error) {
+	s.mustLoad()
+	return s.segment.getCollectionBytesNoCopy(key)
+}
+
 func (s *lazySegment) getInvertedData() *segmentInvertedData {
 	s.mustLoad()
 	return s.segment.getInvertedData()

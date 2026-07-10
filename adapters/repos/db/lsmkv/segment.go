@@ -64,6 +64,7 @@ type Segment interface {
 	getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
 	getCollectionBytes(key []byte) ([][]byte, error)
+	getCollectionBytesNoCopy(key []byte) ([][]byte, error)
 	getInvertedData() *segmentInvertedData
 	isLoaded() bool
 	markForDeletion() error

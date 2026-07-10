@@ -231,6 +231,48 @@ func TestStore(t *testing.T) {
 		}
 	})
 
+	t.Run("multi-get stream matches copying multi-get; done is idempotent", func(t *testing.T) {
+		store := testinghelpers.NewDummyStore(t)
+		s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		})
+		require.NoError(t, err)
+
+		ids := make([]uint64, 0, 40)
+		for i := range uint64(40) {
+			ids = append(ids, i)
+			if i%4 == 3 { // holes
+				continue
+			}
+			var posting Posting
+			for j := range int(i%6) + 1 {
+				posting = posting.AddVector(NewVector(i*1000+uint64(j), 1, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}))
+			}
+			require.NoError(t, s.Put(ctx, i, posting))
+		}
+
+		// reference results from the copying path
+		copied, err := s.MultiGetWithStats(ctx, ids, nil)
+		require.NoError(t, err)
+
+		var st searchStats
+		ch, done := s.MultiGetStreamWithStats(ctx, ids, &st, 8)
+
+		// Compare bytes while the view is still held (the streamed postings
+		// alias view memory and are only valid until done() releases it).
+		seen := 0
+		for res := range ch {
+			require.Equal(t, copied[res.Index], res.Posting,
+				"streamed posting at index %d must byte-equal the copying read", res.Index)
+			seen++
+		}
+		require.Equal(t, len(ids), seen)
+
+		require.NoError(t, done())
+		// done() is idempotent: a second call is safe and returns the same error.
+		require.NoError(t, done())
+	})
+
 	t.Run("multi-get stream with no ids", func(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
 		s, err := NewPostingStoreTest(store, NewMetrics(nil, "n/a", "n/a"), "test_bucket", StoreConfig{

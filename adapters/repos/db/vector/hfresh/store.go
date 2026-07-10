@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/maypok86/otter/v2"
@@ -171,6 +172,39 @@ func (p *PostingStore) getWithStats(ctx context.Context, postingID uint64, st *s
 		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
 	}
 
+	return buildPosting(list, stats, st), nil
+}
+
+// getWithStatsFromView is like getWithStats but reads the posting bytes WITHOUT
+// copying them out of the segment memory, under a caller-held consistent view.
+//
+// WARNING: the returned Posting aliases the view's segment/memtable memory (see
+// (*Bucket).SetRawListWithStatsFromView). It is valid ONLY until the view is
+// released; callers must extract everything they need (IDs, distances) during
+// the scan and must not retain the Posting — or any Vector in it — past
+// release.
+func (p *PostingStore) getWithStatsFromView(ctx context.Context, view lsmkv.BucketConsistentView, postingID uint64, st *searchStats) (Posting, error) {
+	start := time.Now()
+	defer p.metrics.StoreGetDuration(start)
+
+	p.locks.RLock(postingID)
+	key, err := p.getKeyBytes(ctx, postingID)
+	if err != nil {
+		p.locks.RUnlock(postingID)
+		return nil, err
+	}
+	list, stats, err := p.bucket.SetRawListWithStatsFromView(view, key)
+	p.locks.RUnlock(postingID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get posting %d", postingID)
+	}
+
+	return buildPosting(list, stats, st), nil
+}
+
+// buildPosting accounts the read in st (when non-nil) and wraps the raw values
+// as a Posting. The Vectors alias the input list's backing memory.
+func buildPosting(list [][]byte, stats lsmkv.SetRawListStats, st *searchStats) Posting {
 	if st != nil {
 		if len(list) > 0 {
 			st.PostingsRead++
@@ -188,12 +222,11 @@ func (p *PostingStore) getWithStats(ctx context.Context, postingID uint64, st *s
 	}
 
 	posting := Posting(make([]Vector, len(list)))
-
 	for i, v := range list {
 		posting[i] = Vector(v)
 	}
 
-	return posting, nil
+	return posting
 }
 
 func (p *PostingStore) MultiGet(ctx context.Context, postingIDs []uint64) ([]Posting, error) {
@@ -265,12 +298,26 @@ type PostingResult struct {
 // delivers each one on the returned channel as soon as it is available
 // (arbitrary order), so the caller can overlap processing with the remaining
 // reads. The channel is buffered for all results: readers never block on a
-// slow consumer, and abandoning the channel early leaks nothing.
+// slow consumer, and abandoning the channel early stalls nothing.
 //
-// The channel is closed once all reads finished. The returned wait function
-// reports the first read error and merges the per-worker stats into st; call
-// it exactly once, after draining the channel. Abandoning the stream without
-// calling it is safe (goroutines still complete; stats are simply dropped).
+// Reads are ZERO-COPY: a single consistent bucket view is acquired up front and
+// held for the whole stream; posting bytes are returned as sub-slices of the
+// view's segment/memtable memory instead of being copied out. The view
+// refcounts the disk segments, so their mmaps cannot be unmapped while it is
+// held.
+//
+// WARNING: every delivered Posting aliases the view's memory and is valid ONLY
+// until the returned done function releases the view. The consumer must extract
+// what it needs (IDs, distances) during the scan and MUST NOT retain any
+// Posting — or Vector bytes — past done(). Callers that need results to outlive
+// the read must use MultiGet/MultiGetWithStats (which copy).
+//
+// The channel is closed once all reads finished. The returned done function is
+// idempotent (safe to call multiple times): it waits for the workers, reports
+// the first read error, merges the per-worker stats into st, and RELEASES the
+// view. It MUST be called (e.g. via defer) — unlike the old wait function,
+// abandoning the stream without calling done leaks the consistent view and
+// blocks compactions.
 //
 // concurrency caps the number of parallel reads; the search path passes a
 // load-adaptive value derived from the CPU budget and in-flight query count,
@@ -283,6 +330,10 @@ func (p *PostingStore) MultiGetStreamWithStats(ctx context.Context, postingIDs [
 	workerStats := make([]searchStats, concurrency)
 	errCh := make(chan error, 1)
 
+	// One consistent view for the whole stream. All workers read posting bytes
+	// without copying, aliasing this view's segment memory; done() releases it.
+	view := p.bucket.GetConsistentView()
+
 	eg := enterrors.NewErrorGroupWrapper(p.logger)
 	for w := range concurrency {
 		eg.Go(func() error {
@@ -291,7 +342,7 @@ func (p *PostingStore) MultiGetStreamWithStats(ctx context.Context, postingIDs [
 				ws = &workerStats[w]
 			}
 			for i := w; i < len(postingIDs); i += concurrency {
-				posting, err := p.getWithStats(ctx, postingIDs[i], ws)
+				posting, err := p.getWithStatsFromView(ctx, view, postingIDs[i], ws)
 				if err != nil {
 					return errors.Wrapf(err, "failed to get posting %d", postingIDs[i])
 				}
@@ -306,19 +357,29 @@ func (p *PostingStore) MultiGetStreamWithStats(ctx context.Context, postingIDs [
 		close(ch)
 	}, p.logger)
 
-	// the merge into st must happen here, in the caller's goroutine: the
-	// caller mutates st while consuming the channel (that's the point of the
-	// pipeline), so the closer goroutine must not touch it. The receive on
-	// errCh orders the merge after every worker's last write.
-	return ch, func() error {
-		err := <-errCh
-		if st != nil {
-			for i := range workerStats {
-				st.add(&workerStats[i])
+	// done is idempotent (sync.Once). The stats merge must happen in the
+	// caller's goroutine: the caller mutates st while consuming the channel
+	// (that's the point of the pipeline), so the closer goroutine must not
+	// touch it. The receive on errCh orders the merge after every worker's last
+	// write. The view is released only after all workers have finished, so no
+	// worker can dereference unmapped memory.
+	var (
+		once    sync.Once
+		doneErr error
+	)
+	done := func() error {
+		once.Do(func() {
+			doneErr = <-errCh
+			if st != nil {
+				for i := range workerStats {
+					st.add(&workerStats[i])
+				}
 			}
-		}
-		return err
+			view.ReleaseView()
+		})
+		return doneErr
 	}
+	return ch, done
 }
 
 func (p *PostingStore) Put(ctx context.Context, postingID uint64, posting Posting) error {
