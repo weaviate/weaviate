@@ -207,10 +207,8 @@ func TestStore(t *testing.T) {
 		require.NoError(t, err)
 
 		for _, concurrency := range []int{1, 8} {
-			s.readConcurrency = concurrency
-
 			var st searchStats
-			ch, wait := s.MultiGetStreamWithStats(ctx, ids, &st)
+			ch, wait := s.MultiGetStreamWithStats(ctx, ids, &st, concurrency)
 
 			got := make(map[int]Posting)
 			for res := range ch {
@@ -240,7 +238,7 @@ func TestStore(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		ch, wait := s.MultiGetStreamWithStats(ctx, nil, nil)
+		ch, wait := s.MultiGetStreamWithStats(ctx, nil, nil, 8)
 		for range ch {
 			t.Fatal("no postings expected")
 		}

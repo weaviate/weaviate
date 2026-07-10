@@ -98,8 +98,21 @@ type HFresh struct {
 	vectorForIDWithView common.TempVectorForIDWithView[float32]
 
 	// rescoreConcurrency bounds how many full-vector fetches one query's
-	// rescore phase issues in parallel (1 = sequential).
+	// rescore phase issues in parallel (1 = sequential). This is the
+	// configured maximum; the effective per-query value is derived adaptively
+	// unless adaptiveConcurrencyEnabled is false.
 	rescoreConcurrency int
+
+	// searchInflight counts SearchByVector calls currently past the flatSearch
+	// early-return, i.e. actively fanning out. It drives the load-adaptive
+	// inner concurrency: fewer in-flight queries => larger per-query fan-out.
+	searchInflight atomic.Int64
+
+	// adaptiveConcurrencyEnabled gates the load-adaptive inner concurrency.
+	// When false, the fixed configured maxima (readConcurrency /
+	// rescoreConcurrency) are used exactly as before. Disable via
+	// HFRESH_ADAPTIVE_CONCURRENCY=0.
+	adaptiveConcurrencyEnabled bool
 
 	// adaptiveRescore enables the early-exit rescore: candidates are
 	// rescored in RQ1-estimate order and the phase stops once the next
@@ -172,12 +185,13 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		rootPath:         cfg.RootPath,
 		profiler:         newSearchProfilerFromEnv(logger),
 
-		getViewThunk:        cfg.GetViewThunk,
-		vectorForIDWithView: cfg.TempVectorForIDWithViewThunk,
-		rescoreConcurrency:  envIntOrDefault("HFRESH_RESCORE_CONCURRENCY", defaultRescoreConcurrency),
-		adaptiveRescore:     envBoolOrDefault("HFRESH_ADAPTIVE_RESCORE", true),
-		rescoreMarginFactor: envFloatOrDefault("HFRESH_RESCORE_MARGIN_FACTOR", defaultRescoreMarginFactor),
-		rescoreMin:          envIntOrDefault("HFRESH_RESCORE_MIN", defaultRescoreMin),
+		getViewThunk:               cfg.GetViewThunk,
+		vectorForIDWithView:        cfg.TempVectorForIDWithViewThunk,
+		rescoreConcurrency:         envIntOrDefault("HFRESH_RESCORE_CONCURRENCY", defaultRescoreConcurrency),
+		adaptiveConcurrencyEnabled: envBoolOrDefault("HFRESH_ADAPTIVE_CONCURRENCY", true),
+		adaptiveRescore:            envBoolOrDefault("HFRESH_ADAPTIVE_RESCORE", true),
+		rescoreMarginFactor:        envFloatOrDefault("HFRESH_RESCORE_MARGIN_FACTOR", defaultRescoreMarginFactor),
+		rescoreMin:                 envIntOrDefault("HFRESH_RESCORE_MIN", defaultRescoreMin),
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)

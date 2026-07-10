@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,6 +56,39 @@ const (
 
 type fetchVectorFunc func(ctx context.Context, id uint64) ([]float32, error)
 
+// adaptiveConcurrency computes a per-query inner fan-out from the CPU budget
+// and the number of searches currently in flight:
+//
+//	clamp(maxProcs / inflight, 1, configuredMax)
+//
+// inflight is always >= 1 (the caller counts itself); a defensive floor keeps
+// the division safe if a caller ever passes something smaller.
+func adaptiveConcurrency(maxProcs, inflight, configuredMax int) int {
+	if inflight < 1 {
+		inflight = 1
+	}
+	return max(min(maxProcs/inflight, configuredMax), 1)
+}
+
+// queryConcurrency returns the inner fan-out this query should use for a phase
+// whose fixed, env-configured maximum is configuredMax. When the adaptive
+// governor is disabled it returns configuredMax unchanged (today's behavior).
+//
+// The bound is multiplicative: total runnable work is client_parallelism ×
+// inner_concurrency, and that product must not blow past the number of cores.
+// The fan-out is a clear win when queries block on IO or cores would otherwise
+// sit idle (few concurrent queries, or the large-dataset case where posting
+// reads hit disk); it becomes a tax once the box is already CPU-saturated with
+// many concurrent queries, where the extra goroutines only add scheduling
+// overhead. Dividing the core budget by the in-flight query count tracks that
+// crossover automatically.
+func (h *HFresh) queryConcurrency(configuredMax int, inflight int64) int {
+	if !h.adaptiveConcurrencyEnabled {
+		return configuredMax
+	}
+	return adaptiveConcurrency(runtime.GOMAXPROCS(0), int(inflight), configuredMax)
+}
+
 // rescoreCandidates computes exact distances for the RQ1 top candidates in q
 // and returns the k best. Full vectors are fetched with bounded parallelism;
 // when the index has view-based access configured, all fetches of one query
@@ -80,7 +114,7 @@ type fetchVectorFunc func(ctx context.Context, id uint64) ([]float32, error)
 // informed than the strictest (barrier-based) cutoff — so recall is never
 // harmed by the nondeterminism itself; only the count of skipped candidates
 // varies slightly between runs.
-func (h *HFresh) rescoreCandidates(ctx context.Context, query []float32, q *ResultSet, k int, st *searchStats) (*ResultSet, error) {
+func (h *HFresh) rescoreCandidates(ctx context.Context, query []float32, q *ResultSet, k int, st *searchStats, concurrency int) (*ResultSet, error) {
 	// candidates arrive sorted by estimated distance, ascending
 	candidates := make([]Result, q.Len())
 	copy(candidates, q.data)
@@ -91,7 +125,7 @@ func (h *HFresh) rescoreCandidates(ctx context.Context, query []float32, q *Resu
 		defer view.ReleaseView()
 
 		// one reusable read buffer per worker
-		buffers := make([]common.VectorSlice, max(h.rescoreConcurrency, 1))
+		buffers := make([]common.VectorSlice, max(concurrency, 1))
 		for i := range buffers {
 			buffers[i].Buff8 = make([]byte, 8)
 		}
@@ -106,7 +140,7 @@ func (h *HFresh) rescoreCandidates(ctx context.Context, query []float32, q *Resu
 		}
 	}
 
-	concurrency := max(min(h.rescoreConcurrency, len(candidates)), 1)
+	concurrency = max(min(concurrency, len(candidates)), 1)
 	workerStats := make([]searchStats, concurrency)
 
 	rescored := NewResultSet(k)
@@ -230,6 +264,19 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
 
+	// Count this query against the in-flight total for the whole fan-out phase.
+	// flatSearch returns above without fanning out, so it is deliberately not
+	// counted. Add returns the post-increment value, so inflight is always >= 1
+	// (this query is included).
+	inflight := h.searchInflight.Add(1)
+	defer h.searchInflight.Add(-1)
+
+	// Derive the per-query inner fan-out for both parallel phases once, from a
+	// single in-flight snapshot, so posting reads and rescore agree on the
+	// budget. See queryConcurrency for the multiplicative-bound rationale.
+	readConcurrency := h.queryConcurrency(h.PostingStore.readConcurrency, inflight)
+	rescoreConcurrency := h.queryConcurrency(h.rescoreConcurrency, inflight)
+
 	// k > rescoreLimit must not cap the result set at rescoreLimit results
 	// (issue #277). Any rework of this path (e.g. decoupled routing/rerank
 	// budgets) must preserve max(k, rescoreLimit) semantics for the
@@ -294,7 +341,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	// of the sequential scan; final results are unaffected by arrival order
 	// since the rescore phase recomputes exact distances.
 	phaseStart = time.Now()
-	postingCh, wait := h.PostingStore.MultiGetStreamWithStats(ctx, selectedCentroids, &st)
+	postingCh, wait := h.PostingStore.MultiGetStreamWithStats(ctx, selectedCentroids, &st, readConcurrency)
 
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
@@ -369,7 +416,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	st.Read = time.Since(phaseStart) - scanDur
 
 	phaseStart = time.Now()
-	rescored, err := h.rescoreCandidates(ctx, vector, q, k, &st)
+	rescored, err := h.rescoreCandidates(ctx, vector, q, k, &st, rescoreConcurrency)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -271,8 +271,13 @@ type PostingResult struct {
 // reports the first read error and merges the per-worker stats into st; call
 // it exactly once, after draining the channel. Abandoning the stream without
 // calling it is safe (goroutines still complete; stats are simply dropped).
-func (p *PostingStore) MultiGetStreamWithStats(ctx context.Context, postingIDs []uint64, st *searchStats) (<-chan PostingResult, func() error) {
-	concurrency := max(min(p.readConcurrency, len(postingIDs)), 1)
+//
+// concurrency caps the number of parallel reads; the search path passes a
+// load-adaptive value derived from the CPU budget and in-flight query count,
+// rather than the fixed p.readConcurrency used by the non-search MultiGet
+// paths.
+func (p *PostingStore) MultiGetStreamWithStats(ctx context.Context, postingIDs []uint64, st *searchStats, concurrency int) (<-chan PostingResult, func() error) {
+	concurrency = max(min(concurrency, len(postingIDs)), 1)
 
 	ch := make(chan PostingResult, len(postingIDs))
 	workerStats := make([]searchStats, concurrency)
