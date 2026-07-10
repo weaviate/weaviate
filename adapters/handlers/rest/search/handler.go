@@ -116,14 +116,10 @@ func (e *APIError) Error() string {
 type buildParamsFunc func(class *models.Class, className string,
 	getClass func(string) (*models.Class, error)) (dto.GetParams, *APIError)
 
-// execute is the search-type-agnostic orchestrator shared by every REST
-// search endpoint. It carries the fixed request flow — disabled check,
-// reserved-field rejection before any schema access, namespace/alias
-// resolution, authorization before schema access, params build, traverser
-// execution, reply build — and delegates only the search-type-specific
-// dto.GetParams construction to buildParams. The reserved-before-authz and
-// authz-before-schema ordering is load-bearing (a caller must not learn
-// whether a collection exists before passing authorization).
+// execute is the orchestrator shared by every REST search endpoint; only
+// the search-type-specific dto.GetParams construction is delegated to
+// buildParams. The authz-before-schema ordering is load-bearing: a caller
+// must not learn whether a collection exists before passing authorization.
 func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 	collection, tenant string, common *models.SearchCommon, buildParams buildParamsFunc,
 ) (*models.SearchResponse, *APIError) {

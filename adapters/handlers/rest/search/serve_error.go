@@ -22,11 +22,8 @@ import (
 )
 
 // ServeError renders go-swagger-layer errors (bind validation, security,
-// routing) for the search routes in the standard ErrorResponse shape, so
-// every search error body is {"error":[{"message":...}]}. Status codes and
-// headers (e.g. Allow on 405) stay exactly as the default go-openapi
-// renderer computes them: the default runs into a buffer and only a
-// {"code","message"} body is re-shaped.
+// routing) on search routes in the standard ErrorResponse body. The default
+// renderer runs into a buffer, so statuses and headers stay unchanged.
 func ServeError(rw http.ResponseWriter, r *http.Request, err error) {
 	rec := &responseRecorder{header: http.Header{}}
 	openapierrors.ServeError(rec, r, err)

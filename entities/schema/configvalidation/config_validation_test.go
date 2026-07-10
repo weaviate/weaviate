@@ -62,9 +62,8 @@ func TestCertainty(t *testing.T) {
 	}
 }
 
-// TestCertaintyIncompatibleTypedError pins that the non-cosine certainty
-// error carries entities/errors.ErrCertaintyIncompatible. API handlers (e.g.
-// adapters/handlers/rest/search) classify the failure by this type.
+// API handlers (e.g. adapters/handlers/rest/search) classify the non-cosine
+// certainty failure by this type.
 func TestCertaintyIncompatibleTypedError(t *testing.T) {
 	class := &models.Class{VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceDot}}
 

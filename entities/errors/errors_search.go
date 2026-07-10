@@ -11,15 +11,12 @@
 
 package errors
 
-// Typed search-path errors. They wrap the original error without altering its
-// message, so API handlers can classify failures with errors.As instead of
-// matching message substrings. All implement Unwrap so sentinels deeper in
-// the chain (e.g. an ErrNoVectorizerModule inside an ErrQueryVectorization)
-// stay reachable.
+// Typed search-path errors: they wrap without altering the message and
+// implement Unwrap, so handlers classify with errors.As and nested
+// sentinels stay reachable.
 
-// ErrNoVectorizerModule marks a search that requires server-side
-// vectorization on a collection (or target vector) with no vectorizer module
-// configured: a valid request against an unrunnable configuration.
+// ErrNoVectorizerModule: the search needs server-side vectorization but the
+// collection (or target vector) has no vectorizer module configured.
 type ErrNoVectorizerModule struct {
 	err error
 }
@@ -37,9 +34,7 @@ func NewErrNoVectorizerModule(err error) ErrNoVectorizerModule {
 }
 
 // ErrQueryVectorization marks a failure to turn the query into a vector.
-// Check for ErrNoVectorizerModule first: a missing-vectorizer configuration
-// error also surfaces through the vectorization call path, wrapped inside an
-// ErrQueryVectorization.
+// Check ErrNoVectorizerModule first — it surfaces wrapped inside this one.
 type ErrQueryVectorization struct {
 	err error
 }
@@ -56,8 +51,8 @@ func NewErrQueryVectorization(err error) ErrQueryVectorization {
 	return ErrQueryVectorization{err}
 }
 
-// ErrCertaintyIncompatible marks a certainty request against a vector index
-// whose distance metric is not cosine, where certainty cannot be computed.
+// ErrCertaintyIncompatible marks a certainty request against a non-cosine
+// vector index.
 type ErrCertaintyIncompatible struct {
 	err error
 }

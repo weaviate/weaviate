@@ -9,12 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package rest_search covers the REST Search API
-// (POST /v1/search/{collection}/near-text) end-to-end: the raw wire contract
-// (flat objects, retrieval metadata under the reserved "_additional" key) and
-// the error-status mapping that unit tests can only pin against copied
-// fixtures — here the errors come from the real producers through the real
-// wrap chain.
+// Package rest_search covers POST /v1/search/{collection}/near-text end to
+// end: the raw wire contract and the live error-status mapping.
 package rest_search
 
 import (
@@ -113,9 +109,7 @@ func movieClass() *models.Class {
 				Name: "rating", DataType: schema.DataTypeInt.PropString(),
 				IndexFilterable: func() *bool { b := false; return &b }(),
 			},
-			// a property named "metadata" must behave as ordinary user data;
-			// the reserved response key is "_additional" (a forbidden
-			// property name), so no collision is possible
+			// must behave as ordinary user data next to "_additional"
 			{Name: "metadata", DataType: schema.DataTypeText.PropString()},
 			{
 				Name: "details", DataType: schema.DataTypeObject.PropString(),
@@ -302,8 +296,7 @@ func TestRESTSearchNearText(t *testing.T) {
 	})
 
 	t.Run("filter on a property without an inverted index is a 422", func(t *testing.T) {
-		// live guard for the inverted.MissingIndexError mapping: reachable
-		// only because the explorer's wrap chain preserves the typed error
+		// live guard for the inverted.MissingIndexError mapping
 		status, out := postNearText(t, "Movie", map[string]interface{}{
 			"query": []string{"spaceship galaxy"},
 			"where": map[string]interface{}{
@@ -347,9 +340,7 @@ func TestRESTSearchNearText(t *testing.T) {
 	})
 
 	t.Run("no vectorizer is a 422, not a 502", func(t *testing.T) {
-		// live guard for the typed-error ordering: the no-vectorizer config
-		// error surfaces through the vectorization path and must map to 422
-		// (unrunnable configuration), not 502 (provider outage)
+		// live guard for the typed-error ordering (config 422, not 502)
 		status, out := postNearText(t, "Notes", map[string]interface{}{
 			"query": []string{"anything"},
 		})

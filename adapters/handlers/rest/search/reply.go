@@ -24,10 +24,8 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 )
 
-// metadataKey is the reserved key carrying retrieval metadata on each result
-// object. "_additional" is a reserved property name (see
-// entities/schema/validation.go), so it can never collide with a collection
-// property; it also matches the GraphQL API's key for the same data.
+// metadataKey carries retrieval metadata on each result. "_additional" is a
+// forbidden property name, so it cannot collide with user data.
 const metadataKey = "_additional"
 
 // buildResponse converts the traverser's raw results into the flat

@@ -147,9 +147,8 @@ func (h *Handler) parsePagination(common *models.SearchCommon) (*filters.Paginat
 		pagination.Autocut = int(*common.AutoLimit)
 	}
 
-	// bound the page here so oversized values fail with a client error
-	// instead of surfacing from the db layer (or overflowing the int sum
-	// into the negative special limit flags)
+	// cap the page pre-db: a client error instead of a db 500, and no int
+	// overflow into the negative special limit flags
 	if h.maximumResults > 0 {
 		if common.Limit != nil && *common.Limit > h.maximumResults {
 			return nil, newAPIError(http.StatusBadRequest,

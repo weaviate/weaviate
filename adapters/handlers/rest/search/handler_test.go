@@ -405,13 +405,9 @@ func TestHandlerLowercasesCollection(t *testing.T) {
 	assert.Equal(t, "Movie", deps.searcher.lastParams.ClassName)
 }
 
-// TestHandlerTraverserErrorMapping builds each error the way its real
-// producer does — typed error from entities/errors (or usecases/objects),
-// wrapped in the pkg/errors chain the traverser applies. Using pkgerrors
-// here is deliberate: it pins that pkg/errors wraps preserve Unwrap, which
-// is what lets the typed matching in statusFromError see through the
-// explorer's prefixes. If a producer stops attaching its typed error, or a
-// wrap in the chain goes back to a chain-breaking %v, these cases fail.
+// TestHandlerTraverserErrorMapping builds each error via its real producer
+// and the real pkg/errors wrap chain — if a producer stops attaching its
+// typed error or a wrap goes back to a chain-breaking %v, a case fails.
 func TestHandlerTraverserErrorMapping(t *testing.T) {
 	// certainty error via the real producer, wrapped as explorer.go does
 	l2Class := movieClass()
@@ -425,8 +421,6 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			// smoke-covered live (embedding provider failure), wrapped as
-			// explorer.getClassVectorSearch does
 			name: "embedding provider failure",
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(fmt.Errorf("remote client vectorize: connection refused")),
@@ -434,10 +428,8 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			wantStatus: http.StatusBadGateway,
 		},
 		{
-			// ORDERING GUARD + smoke-covered: the no-vectorizer config error
-			// (usecases/modules) surfaces wrapped inside the vectorization
-			// path's ErrQueryVectorization; the 422 config case must win
-			// over the 502 provider-outage case.
+			// ORDERING GUARD: the no-vectorizer error arrives wrapped inside
+			// ErrQueryVectorization; 422 must win over 502
 			name: "no vectorizer configured",
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(
@@ -452,9 +444,7 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			wantStatus: http.StatusTooManyRequests,
 		},
 		{
-			// tenant sentinel attached the way the multitenancy validator
-			// does (objects.NewErrMultiTenancy around the sentinel), wrapped
-			// the way the db/explorer chain does
+			// sentinel attached the way the MT validator + explorer chain does
 			name: "tenant not found (sentinel through the MT/explorer chain)",
 			err: pkgerrors.Wrapf(
 				objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, "unknownTenant")),
@@ -469,8 +459,6 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			// MT validation failures without a tenant sentinel map 422 via
-			// the typed objects.ErrMultiTenancy
 			name: "tenant on non-multi-tenant collection",
 			err: pkgerrors.Wrapf(
 				objects.NewErrMultiTenancy(fmt.Errorf("class Movie has multi-tenancy disabled, but request was with tenant")),
@@ -484,29 +472,22 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			// ours, produced by classGetterWithAuthz via the sentinel
 			name:       "collection not found (ours: sentinel)",
 			err:        fmt.Errorf("%w %s in schema", errCollectionNotFound, "Movie"),
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			// upstream "could not find class %s in schema" has many
-			// producers and no sentinel yet — the one remaining string
-			// fallback (reachable when a collection is deleted mid-request)
+			// the one remaining string fallback (see errClassNotFoundMarker)
 			name:       "class not found (upstream string fallback)",
 			err:        fmt.Errorf("could not find class Movie in schema"),
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			// real producer (configvalidation), wrapped as explorer.go does
 			name:       "certainty on non-cosine",
 			err:        fmt.Errorf("additional: %w for class: %v", certaintyErr, "Movie"),
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			// where filter on a property whose inverted index is disabled
-			// (adapters/repos/db/inverted searcher), wrapped as the explorer
-			// vector-search path does
 			name: "filter on property without inverted index",
 			err: pkgerrors.Wrapf(
 				inverted.NewMissingFilterableIndexError("rating"),
