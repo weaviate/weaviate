@@ -27,6 +27,7 @@ import (
 //
 // swagger:model SearchResponse
 type SearchResponse struct {
+
 	// The matched objects, ordered by relevance.
 	Results []SearchResultObject `json:"results"`
 
