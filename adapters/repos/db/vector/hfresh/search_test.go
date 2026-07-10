@@ -135,6 +135,12 @@ func TestParallelRescoreWithSharedView(t *testing.T) {
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 
+	// This test's subject is view sharing across concurrency levels, not the
+	// adaptive cutoff. The streaming cutoff is deliberately nondeterministic
+	// (fetches in flight when it fires still complete), so disable it here to
+	// keep results byte-identical across rescoreConcurrency 1/4/16.
+	index.adaptiveRescore = false
+
 	for i := range vectorsSize {
 		require.NoError(t, index.Add(t.Context(), uint64(i), vectors[i]))
 	}

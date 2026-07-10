@@ -107,6 +107,17 @@ type HFresh struct {
 	// HFRESH_ADAPTIVE_RESCORE=0 to always rescore the full candidate set.
 	adaptiveRescore bool
 
+	// rescoreMarginFactor scales the worst observed overestimation into the
+	// safety margin added to the k-th exact distance before the adaptive
+	// cutoff fires. Higher = more conservative (more candidates rescored).
+	// Overridable via HFRESH_RESCORE_MARGIN_FACTOR.
+	rescoreMarginFactor float32
+
+	// rescoreMin is the minimum number of candidates rescored before the
+	// adaptive cutoff is trusted. The effective floor is max(4*k, rescoreMin).
+	// Overridable via HFRESH_RESCORE_MIN.
+	rescoreMin int
+
 	rootPath string
 
 	// profiler aggregates per-query search phase timings and IO counters.
@@ -165,6 +176,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		vectorForIDWithView: cfg.TempVectorForIDWithViewThunk,
 		rescoreConcurrency:  envIntOrDefault("HFRESH_RESCORE_CONCURRENCY", defaultRescoreConcurrency),
 		adaptiveRescore:     envBoolOrDefault("HFRESH_ADAPTIVE_RESCORE", true),
+		rescoreMarginFactor: envFloatOrDefault("HFRESH_RESCORE_MARGIN_FACTOR", defaultRescoreMarginFactor),
+		rescoreMin:          envIntOrDefault("HFRESH_RESCORE_MIN", defaultRescoreMin),
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)

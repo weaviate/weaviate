@@ -14,6 +14,8 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -34,25 +36,50 @@ const (
 	// HFRESH_RESCORE_CONCURRENCY (1 = sequential).
 	defaultRescoreConcurrency = 16
 
-	// Adaptive rescore: candidates are processed in RQ1-estimate order in
-	// batches. The first batch is max(4k, rescoreMinCandidates) to stabilize
-	// the exact top-k and the observed estimation error before the cutoff is
-	// trusted; subsequent batches are rescoreBatchSize. The phase stops when
-	// the next candidate's estimate exceeds the k-th exact distance so far
-	// plus a per-query margin derived from the worst observed overestimation
-	// (estimate - exact), scaled by rescoreMarginFactor. Candidates are
-	// sorted by estimate, so once one fails the bound all remaining do too.
-	rescoreMinCandidates = 64
-	rescoreBatchSize     = 32
-	rescoreMarginFactor  = 1.5
+	// defaultRescoreMin is the default minimum number of candidates rescored
+	// before the adaptive cutoff is trusted. The effective floor is
+	// max(4*k, rescoreMin). Overridable via HFRESH_RESCORE_MIN.
+	//
+	// Calibrated on dbpedia-1M (1536d) and snowflake-8.7M (768d): 128 holds
+	// recall within noise (±0.05pp) of a full rescore at every searchProbe
+	// while keeping most of the adaptive win (+32% QPS at probe 16 on
+	// dbpedia); 64 trails full rescore by 0.1-0.2pp at high probes.
+	defaultRescoreMin = 128
+
+	// defaultRescoreMarginFactor scales the worst observed overestimation
+	// (estimate - exact) into the safety margin added to the k-th exact
+	// distance before the adaptive cutoff fires. Overridable via
+	// HFRESH_RESCORE_MARGIN_FACTOR.
+	defaultRescoreMarginFactor = 2.0
 )
+
+type fetchVectorFunc func(ctx context.Context, id uint64) ([]float32, error)
 
 // rescoreCandidates computes exact distances for the RQ1 top candidates in q
 // and returns the k best. Full vectors are fetched with bounded parallelism;
 // when the index has view-based access configured, all fetches of one query
-// share a single consistent bucket view instead of acquiring one each. With
-// adaptive rescore enabled, the candidate list is cut off early once the
-// remaining estimates provably cannot enter the top k.
+// share a single consistent bucket view instead of acquiring one each.
+//
+// The rescore runs as a single streaming worker pool with no per-batch
+// barriers: workers claim candidate indices from a shared atomic counter in
+// ascending (estimate) order and fetch/rescore them independently. Shared
+// state (the top-k set, the worst observed overestimation, the completed
+// count and the cutoff threshold) lives behind one mutex; it is touched only
+// a few hundred times per query, so the contention is negligible.
+//
+// With adaptive rescore enabled, a worker skips (and publishes a stop signal
+// for) the remaining candidates once the next candidate's estimate provably
+// cannot enter the top k: candidates[i].Distance > kthExact +
+// factor*max(maxOverestimation, 0). The cutoff is only trusted after both
+// (a) at least max(4*k, rescoreMin) candidates have been rescored and (b) the
+// top-k set is full.
+//
+// Streaming makes the exact skip point nondeterministic: fetches already in
+// flight when the cutoff fires still complete and are folded in. That only
+// ever ADDS information — the resulting top-k can only be equal-or-better
+// informed than the strictest (barrier-based) cutoff — so recall is never
+// harmed by the nondeterminism itself; only the count of skipped candidates
+// varies slightly between runs.
 func (h *HFresh) rescoreCandidates(ctx context.Context, query []float32, q *ResultSet, k int, st *searchStats) (*ResultSet, error) {
 	// candidates arrive sorted by estimated distance, ascending
 	candidates := make([]Result, q.Len())
@@ -79,67 +106,57 @@ func (h *HFresh) rescoreCandidates(ctx context.Context, query []float32, q *Resu
 		}
 	}
 
-	rescored := NewResultSet(k)
-
-	// worst observed overestimation of the RQ1 estimate: how far above the
-	// exact distance an estimate has been seen to land. A candidate can only
-	// be wrongly skipped if its estimate overshoots by more than the margin
-	// derived from this.
-	var maxOverestimation float32
-
-	pos := 0
-	for pos < len(candidates) {
-		end := min(pos+rescoreBatchSize, len(candidates))
-		if pos == 0 {
-			end = min(max(4*k, rescoreMinCandidates), len(candidates))
-		} else if h.adaptiveRescore && rescored.Len() >= k {
-			margin := rescoreMarginFactor * max(maxOverestimation, 0)
-			threshold := rescored.data[k-1].Distance + margin
-			if candidates[pos].Distance > threshold {
-				st.RescoreSkipped += uint32(len(candidates) - pos)
-				break
-			}
-		}
-
-		batch := candidates[pos:end]
-		exact, err := h.rescoreBatch(ctx, query, batch, st, fetchFor)
-		if err != nil {
-			return nil, err
-		}
-		for i, dist := range exact {
-			if dist < 0 { // not found (deleted between scan and rescore)
-				continue
-			}
-			rescored.Insert(batch[i].ID, dist)
-			if over := batch[i].Distance - dist; over > maxOverestimation {
-				maxOverestimation = over
-			}
-		}
-
-		pos = end
-	}
-
-	return rescored, nil
-}
-
-type fetchVectorFunc func(ctx context.Context, id uint64) ([]float32, error)
-
-// rescoreBatch computes exact distances for one batch of candidates using
-// bounded parallel fetches. The returned slice is indexed like the batch; a
-// negative distance marks a candidate whose object no longer exists. Each
-// worker accumulates its own stats, merged into st at the end.
-func (h *HFresh) rescoreBatch(ctx context.Context, query []float32, batch []Result, st *searchStats, fetchFor func(worker int) fetchVectorFunc) ([]float32, error) {
-	concurrency := max(min(h.rescoreConcurrency, len(batch)), 1)
-
-	exact := make([]float32, len(batch))
+	concurrency := max(min(h.rescoreConcurrency, len(candidates)), 1)
 	workerStats := make([]searchStats, concurrency)
+
+	rescored := NewResultSet(k)
+	minRescore := max(4*k, h.rescoreMin)
+
+	var (
+		mu sync.Mutex
+		// worst observed overestimation of the RQ1 estimate: how far above
+		// the exact distance an estimate has been seen to land. A candidate
+		// can only be wrongly skipped if its estimate overshoots by more than
+		// the margin derived from this.
+		maxOverestimation float32
+		completed         int     // candidates rescored so far
+		threshold         float32 // cutoff, valid only once thresholdReady
+		thresholdReady    bool
+	)
+
+	// next hands out candidate indices in ascending order; stop is published
+	// by the first worker whose claimed candidate falls past the cutoff, and
+	// observed by every other worker so they exit promptly.
+	var next atomic.Int64
+	var stop atomic.Bool
 
 	work := func(w int) error {
 		fetch := fetchFor(w)
 		ws := &workerStats[w]
 
-		for i := w; i < len(batch); i += concurrency {
-			vec, err := fetch(ctx, batch[i].ID)
+		for {
+			if h.adaptiveRescore && stop.Load() {
+				return nil
+			}
+
+			i := int(next.Add(1)) - 1
+			if i >= len(candidates) {
+				return nil
+			}
+
+			if h.adaptiveRescore {
+				mu.Lock()
+				skip := thresholdReady && candidates[i].Distance > threshold
+				mu.Unlock()
+				if skip {
+					// All later candidates have an even larger estimate, so
+					// they fail the same bound. Signal the pool to wind down.
+					stop.Store(true)
+					return nil
+				}
+			}
+
+			vec, err := fetch(ctx, candidates[i].ID)
 			if err != nil {
 				// The object may have been deleted between the posting scan
 				// and the rescore step (race condition). Skip stale entries
@@ -147,7 +164,6 @@ func (h *HFresh) rescoreBatch(ctx context.Context, query []float32, batch []Resu
 				var notFound storobj.ErrNotFound
 				if errors.As(err, &notFound) {
 					ws.RescoreNotFound++
-					exact[i] = -1
 					continue
 				}
 				return err
@@ -158,9 +174,19 @@ func (h *HFresh) rescoreBatch(ctx context.Context, query []float32, batch []Resu
 			if err != nil {
 				return err
 			}
-			exact[i] = dist
+
+			mu.Lock()
+			rescored.Insert(candidates[i].ID, dist)
+			if over := candidates[i].Distance - dist; over > maxOverestimation {
+				maxOverestimation = over
+			}
+			completed++
+			if completed >= minRescore && rescored.Len() >= k {
+				threshold = rescored.data[k-1].Distance + h.rescoreMarginFactor*max(maxOverestimation, 0)
+				thresholdReady = true
+			}
+			mu.Unlock()
 		}
-		return nil
 	}
 
 	if concurrency == 1 {
@@ -179,11 +205,15 @@ func (h *HFresh) rescoreBatch(ctx context.Context, query []float32, batch []Resu
 		}
 	}
 
+	var fetched, notFound int
 	for w := range concurrency {
+		fetched += int(workerStats[w].RescoreFetched)
+		notFound += int(workerStats[w].RescoreNotFound)
 		st.add(&workerStats[w])
 	}
+	st.RescoreSkipped = uint32(len(candidates) - fetched - notFound)
 
-	return exact, nil
+	return rescored, nil
 }
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {

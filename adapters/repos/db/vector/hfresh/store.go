@@ -105,6 +105,20 @@ func envIntOrDefault(key string, def int) int {
 	return n
 }
 
+// envFloatOrDefault reads a non-negative float from the environment, falling
+// back to def when unset or invalid.
+func envFloatOrDefault(key string, def float32) float32 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 32)
+	if err != nil || f < 0 {
+		return def
+	}
+	return float32(f)
+}
+
 // envBoolOrDefault reads a boolean from the environment, falling back to def
 // when unset. "0", "false", "off" and "no" disable; everything else enables.
 func envBoolOrDefault(key string, def bool) bool {
