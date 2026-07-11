@@ -48,6 +48,7 @@ func TestDropVectorIndex_Cluster(t *testing.T) {
 	}()
 
 	runSuite(t, compose)
+	t.Run("replicated drop", testReplicatedDrop(compose))
 }
 
 func TestDropVectorIndex_Restart_SingleNode(t *testing.T) {
@@ -87,8 +88,10 @@ func runSuite(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("lifecycle", testLifecycle())
 	t.Run("write matrix", testWriteMatrix())
 	t.Run("multi tenant", testMultiTenant())
-	t.Run("sustained load", testSustainedLoad())
+	t.Run("sustained load", testSustainedLoad(compose))
 	t.Run("concurrent drops", testConcurrentDrops())
 	t.Run("delete class mid-drop", testDeleteClassMidDrop())
 	t.Run("drop rejections", testDropRejections())
+	t.Run("tenant mutation during drop", testTenantMutationDuringDrop())
+	t.Run("multi vector", testMultiVector())
 }

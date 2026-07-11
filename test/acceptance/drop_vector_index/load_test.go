@@ -13,25 +13,31 @@ package drop_vector_index
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testSustainedLoad pins two contracts around a drop under live traffic:
+// testSustainedLoad pins three contracts around a drop under live traffic:
 // object reads mirror PHYSICAL state (un-rewritten objects still surface the
-// dropped vector right after the drop — no response-layer filter), and the
-// collection stays fully available while the drop task runs. The task cannot
-// finalize before its first 30s poll tick, so a ~35s write/query loop is
-// guaranteed to overlap an active drop end to end.
-func testSustainedLoad() func(t *testing.T) {
+// dropped vector right after the drop — no response-layer filter), the marker
+// propagates to every node's local schema (each node's shard-level reject
+// reads its own view, so a carrying write in the propagation window can be
+// accepted by a not-yet-applied owner — by design), and the collection stays
+// fully available while the drop task runs. The task cannot finalize before
+// its first 30s poll tick, so a ~35s write/query loop is guaranteed to
+// overlap an active drop end to end.
+func testSustainedLoad(compose *docker.DockerCompose) func(t *testing.T) {
 	return func(t *testing.T) {
 		const (
 			className  = "DropVectorIndexSustainedLoad"
@@ -111,6 +117,20 @@ func testSustainedLoad() func(t *testing.T) {
 			t.Logf("%d/%d objects still surface the dropped vector right after the drop", stillCarrying, baseCount)
 		})
 
+		t.Run("marker is visible on every node", func(t *testing.T) {
+			defer helper.SetupClient(compose.GetWeaviate().URI())
+			for _, uri := range weaviateNodeURIs(compose) {
+				helper.SetupClient(uri)
+				require.EventuallyWithT(t, func(collect *assert.CollectT) {
+					got := helper.GetClass(t, className)
+					cfg, ok := got.VectorConfig[dropped]
+					if assert.True(collect, ok) {
+						assert.Equal(collect, "none", cfg.VectorIndexType)
+					}
+				}, 15*time.Second, 200*time.Millisecond, "marker on %s", uri)
+			}
+		})
+
 		var cleanWrites int
 		t.Run("sustained writes and queries while the drop task is active", func(t *testing.T) {
 			deadline := time.Now().Add(loadFor)
@@ -136,6 +156,15 @@ func testSustainedLoad() func(t *testing.T) {
 						Vectors:    models.Vectors{dropped: randVec(droppedDim, 5)},
 					}), nil)
 				require.Error(t, err, "carrying write %d during the drop", i)
+				// The reject text legitimately transitions when finalize lands
+				// mid-loop: dropped-vector reject while the marker is set, plain
+				// unknown-vector reject once the entry is gone. Both are valid;
+				// anything else (e.g. already-exists) is not.
+				text := errorResponseText(err)
+				require.True(t,
+					strings.Contains(text, "vector index") ||
+						strings.Contains(text, "does not have configuration for vector"),
+					"carrying write %d: unexpected reject: %s", i, text)
 
 				time.Sleep(time.Second)
 			}
@@ -148,6 +177,17 @@ func testSustainedLoad() func(t *testing.T) {
 
 		t.Run("exact counts and clean state after finalize", func(t *testing.T) {
 			objs := listAllObjectsWithVectors(t, className)
+			expected := map[strfmt.UUID]bool{}
+			for i := range baseCount {
+				expected[baseID(i)] = true
+			}
+			for i := range cleanWrites {
+				expected[loadID(i)] = true
+			}
+			for _, obj := range objs {
+				require.Truef(t, expected[obj.ID], "unexpected object %s (name=%v) — "+
+					"a rejected carrying write must not persist", obj.ID, obj.Properties)
+			}
 			require.Len(t, objs, baseCount+cleanWrites,
 				"every base object and every mid-drop clean write must survive; nothing extra")
 			for _, obj := range objs {

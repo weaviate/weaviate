@@ -22,6 +22,7 @@ import (
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -123,6 +124,18 @@ func nearVectorQuery(className, tenant, targetVector string, vector []float32, l
 		className, tenantArg, vec, targetVector, limit)
 }
 
+// weaviateNodeURIs returns the REST URIs of all weaviate nodes in the compose
+// (single-node composes have just weaviate-0).
+func weaviateNodeURIs(compose *docker.DockerCompose) []string {
+	var uris []string
+	for n := 1; n <= 3; n++ {
+		if c := compose.GetWeaviateNode(n); c != nil {
+			uris = append(uris, c.URI())
+		}
+	}
+	return uris
+}
+
 // batchItemError flattens a batch item's errors ("" = success).
 func batchItemError(item *models.ObjectsGetResponse) string {
 	if item == nil || item.Result == nil || item.Result.Errors == nil {
@@ -142,6 +155,16 @@ func batchItemError(item *models.ObjectsGetResponse) string {
 func errorResponseText(err error) string {
 	text := err.Error()
 	if p, ok := err.(interface{ GetPayload() *models.ErrorResponse }); ok && p.GetPayload() != nil {
+		for _, item := range p.GetPayload().Error {
+			if item != nil {
+				text += " " + item.Message
+			}
+		}
+	}
+	if p, ok := err.(interface {
+		GetPayload() *models.RestrictionViolationResponse
+	}); ok && p.GetPayload() != nil {
+		text += " " + p.GetPayload().Message
 		for _, item := range p.GetPayload().Error {
 			if item != nil {
 				text += " " + item.Message
