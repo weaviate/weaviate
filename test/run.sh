@@ -61,6 +61,8 @@ function main() {
   run_acceptance_drop_vector_index=false
   run_acceptance_drop_vector_index_singlenode=false
   run_acceptance_drop_vector_index_cluster=false
+  run_acceptance_drop_vector_index_restart_singlenode=false
+  run_acceptance_drop_vector_index_restart_cluster=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -120,6 +122,8 @@ function main() {
           --acceptance-drop-vector-index|-advi) run_all_tests=false; run_acceptance_drop_vector_index=true;;
           --acceptance-drop-vector-index-singlenode|-advis) run_all_tests=false; run_acceptance_drop_vector_index_singlenode=true;;
           --acceptance-drop-vector-index-cluster|-advic) run_all_tests=false; run_acceptance_drop_vector_index_cluster=true;;
+          --acceptance-drop-vector-index-restart-singlenode|-advirs) run_all_tests=false; run_acceptance_drop_vector_index_restart_singlenode=true;;
+          --acceptance-drop-vector-index-restart-cluster|-advirc) run_all_tests=false; run_acceptance_drop_vector_index_restart_cluster=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -426,6 +430,16 @@ function main() {
   if $run_acceptance_drop_vector_index_cluster; then
     echo "running drop-vector-index cluster acceptance tests"
     run_acceptance_drop_vector_index_cluster
+  fi
+
+  if $run_acceptance_drop_vector_index_restart_singlenode; then
+    echo "running drop-vector-index restart single-node acceptance tests"
+    run_acceptance_drop_vector_index_restart_singlenode
+  fi
+
+  if $run_acceptance_drop_vector_index_restart_cluster; then
+    echo "running drop-vector-index restart cluster acceptance tests"
+    run_acceptance_drop_vector_index_restart_cluster
   fi
   echo "Done!"
 }
@@ -998,6 +1012,20 @@ function run_acceptance_drop_vector_index_cluster() {
   echo_green "acceptance — drop-vector-index-cluster"
   AOF_GROUP_RUN='^TestDropVectorIndex_Cluster$' \
     run_aof_group "drop-vector-index-cluster" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_restart_singlenode() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-restart-singlenode"
+  AOF_GROUP_RUN='^TestDropVectorIndex_Restart_SingleNode$' \
+    run_aof_group "drop-vector-index-restart-singlenode" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_restart_cluster() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-restart-cluster"
+  AOF_GROUP_RUN='^TestDropVectorIndex_Restart_Cluster$' \
+    run_aof_group "drop-vector-index-restart-cluster" test/acceptance/drop_vector_index
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

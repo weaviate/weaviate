@@ -818,6 +818,10 @@ jobs:
             test: "--acceptance-drop-vector-index-singlenode"
           - name: "cluster"
             test: "--acceptance-drop-vector-index-cluster"
+          - name: "restart-singlenode"
+            test: "--acceptance-drop-vector-index-restart-singlenode"
+          - name: "restart-cluster"
+            test: "--acceptance-drop-vector-index-restart-cluster"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Set up Go
