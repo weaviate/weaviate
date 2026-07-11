@@ -24,10 +24,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testMultiTenant pins the drop lifecycle across many active tenants: finalize
-// requires every tenant's cleanup unit to drain, so the entry disappearing
-// proves per-tenant coverage, and every tenant's stored objects must come out
-// stripped.
+// testMultiTenant pins the drop across many active tenants: finalize requires
+// every tenant's unit to drain, and every tenant must come out stripped.
 func testMultiTenant() func(t *testing.T) {
 	return func(t *testing.T) {
 		const (
@@ -92,7 +90,7 @@ func testMultiTenant() func(t *testing.T) {
 				}
 				helper.CreateObjectsBatch(t, batch)
 			}
-			time.Sleep(5 * time.Second) // let the 1s dirty-flush turn memtables into segments
+			time.Sleep(5 * time.Second) // past the 1s dirty-flush
 		})
 
 		t.Run("all tenants carry both vectors before drop", func(t *testing.T) {

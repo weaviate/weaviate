@@ -87,4 +87,5 @@ func runSuite(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("lifecycle", testLifecycle())
 	t.Run("write matrix", testWriteMatrix())
 	t.Run("multi tenant", testMultiTenant())
+	t.Run("sustained load", testSustainedLoad())
 }

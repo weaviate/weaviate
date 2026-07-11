@@ -27,33 +27,23 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// runRestartSuite pins crash recovery: a drop must converge to the finalized
-// state (entry gone, objects stripped, sibling intact) across an ungraceful
-// restart, whether the kill lands mid-cleanup or right after the drop call
-// (the marker-committed/enqueue-uncertain window). The provider polls pending
-// sets on a 30s ticker, so a kill within seconds of the drop is GUARANTEED to
-// interrupt a non-finished task — no timing luck involved. Recovery is
-// whichever path applies: DTM task resume + edit-op recovery on shard load, or
-// startup reconciliation re-enqueueing for a marker with no task.
-//
-// The killed node is always weaviate-0 — the node the client talks to, and on
-// a cluster (typically) the RAFT leader, so the cluster variant additionally
-// exercises leader loss mid-drop. The class is created with 3 shards so on a
-// cluster every node (including the killed one) owns cleanup work.
+// runRestartSuite pins crash recovery: a drop must converge (entry gone,
+// objects stripped, sibling intact) across an ungraceful restart. The task
+// polls on a 30s ticker, so a kill within seconds of the drop is guaranteed to
+// interrupt it mid-flight. Killing weaviate-0 (the client's node, on a cluster
+// typically the RAFT leader) plus 3 shards means the killed node always owns
+// cleanup work; the cluster variant adds leader loss.
 func runRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 	ctx := context.Background()
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
-	// Startup adds the DTM readiness probe (up to ~60s) before reconciliation
-	// can re-enqueue, on top of the 30s poll ticker — hence the wider window.
+	// Wider than finalizeTimeout: startup adds a DTM readiness probe (~60s).
 	const postRestartFinalizeTimeout = 5 * time.Minute
 
 	killAndRestart := func(t *testing.T) {
-		// By name, not StopNode(1): the node-number helpers are off by one vs
-		// the container names ("weaviate-0"...). Stop silently no-ops on an
-		// unknown name, but the paired Start errors on it, so a wrong name
-		// cannot slip through as a fake restart.
+		// By name — the numeric node helpers are off by one vs container names,
+		// and Stop no-ops silently on an unknown name (Start would error).
 		zero := 0 * time.Second
 		require.NoError(t, compose.Stop(ctx, docker.Weaviate0, &zero), "SIGKILL node")
 		require.NoError(t, compose.Start(ctx, docker.Weaviate0), "restart node")
@@ -96,8 +86,7 @@ func runRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 					clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
 				require.NoError(t, err)
 
-				// Insert in flushed waves so the drop has several real segments
-				// to rewrite — an op with work left across the kill.
+				// Flushed waves -> several segments -> work left across the kill.
 				for wave := range 4 {
 					batch := make([]*models.Object, 0, count/4)
 					for i := range count / 4 {
@@ -113,7 +102,7 @@ func runRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 						})
 					}
 					helper.CreateObjectsBatch(t, batch)
-					time.Sleep(1500 * time.Millisecond) // > dirty-flush interval: each wave becomes a segment
+					time.Sleep(1500 * time.Millisecond) // past the 1s dirty-flush
 				}
 			})
 
@@ -124,9 +113,7 @@ func runRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 			})
 
 			t.Run("drop converges after restart", func(t *testing.T) {
-				// Error-tolerant class fetch: right after the restart the node may
-				// still be rejoining/loading, and a hard-failing helper here would
-				// turn a slow boot into a test failure.
+				// Error-tolerant fetch: the node may still be rejoining.
 				require.EventuallyWithT(t, func(collect *assert.CollectT) {
 					resp, err := helper.Client(t).Schema.SchemaObjectsGet(
 						clschema.NewSchemaObjectsGetParams().WithClassName(className), nil)
@@ -156,13 +143,9 @@ func runRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 		}
 	}
 
-	// Killed a few seconds in: the task is armed (edit ops registered in the
-	// shard sidecar) but cannot have finished its first 30s poll tick —
-	// recovery must resume/re-cover the op, not start from a clean slate.
+	// Armed but pre-first-poll-tick: recovery must resume the op.
 	t.Run("crash mid-cleanup", journey("DropVectorIndexRestartMidCleanup", 1, 3*time.Second))
 
-	// Killed immediately after the drop call returned: the marker is durable
-	// but the task may or may not have been enqueued — either the task resumes
-	// or startup reconciliation re-enqueues for the orphaned marker.
+	// Marker durable, enqueue uncertain: task resume or reconcile re-enqueue.
 	t.Run("crash right after drop", journey("DropVectorIndexRestartAfterDrop", 2, 0))
 }

@@ -91,9 +91,7 @@ func testLifecycle() func(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			// With PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS=1 this is enough
-			// for the memtables to become segments, so the drop's cleanup rewrites
-			// real segment files rather than finding an empty pending set.
+			// Past the 1s dirty-flush: cleanup gets real segments to rewrite.
 			time.Sleep(5 * time.Second)
 		})
 

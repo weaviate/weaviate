@@ -26,9 +26,8 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-// finalizeTimeout bounds the wait for a drop's background cleanup to complete
-// and remove the VectorConfig entry; the drop task polls pending sets on a 30s
-// ticker, so completion typically lands within the first two ticks.
+// finalizeTimeout bounds the wait for the VectorConfig entry to disappear;
+// the drop task polls on a 30s ticker, so completion lands within a few ticks.
 const finalizeTimeout = 3 * time.Minute
 
 func randVec(dim int, seed float32) []float32 {
@@ -39,7 +38,6 @@ func randVec(dim int, seed float32) []float32 {
 	return v
 }
 
-// vecDim returns the dimensionality of a REST-decoded named vector.
 func vecDim(t *testing.T, v models.Vector) int {
 	t.Helper()
 	switch vec := v.(type) {
@@ -62,8 +60,7 @@ func dropTargetVector(t *testing.T, className, targetVector string) {
 }
 
 // eventuallyTargetVectorRemoved waits for the full drop lifecycle: the entry
-// must disappear from the schema entirely (marker set -> cleanup drained ->
-// finalize removed it).
+// must disappear from the schema entirely.
 func eventuallyTargetVectorRemoved(t *testing.T, className, targetVector string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
@@ -91,14 +88,11 @@ func listObjectsWithVectors(t *testing.T, className, tenant string) []*models.Ob
 	return resp.Payload.Objects
 }
 
-// nearVectorResults runs a Get nearVector search against targetVector and
-// returns the number of results.
 func nearVectorResults(t *testing.T, className, targetVector string, vector []float32, limit int) int {
 	t.Helper()
 	return nearVectorTenantResults(t, className, "", targetVector, vector, limit)
 }
 
-// nearVectorTenantResults is the multi-tenant variant; tenant "" omits the arg.
 func nearVectorTenantResults(t *testing.T, className, tenant, targetVector string, vector []float32, limit int) int {
 	t.Helper()
 	resp := graphqlhelper.QueryGraphQLOrFatal(t, nil, "", nearVectorQuery(className, tenant, targetVector, vector, limit), nil)
@@ -108,7 +102,7 @@ func nearVectorTenantResults(t *testing.T, className, tenant, targetVector strin
 	return len(results)
 }
 
-// nearVectorErrors runs the same search expecting a resolver error.
+// nearVectorErrors runs the search expecting a resolver error.
 func nearVectorErrors(t *testing.T, className, targetVector string, vector []float32) []*models.GraphQLError {
 	t.Helper()
 	return nearVectorTenantErrors(t, className, "", targetVector, vector)
@@ -129,7 +123,7 @@ func nearVectorQuery(className, tenant, targetVector string, vector []float32, l
 		className, tenantArg, vec, targetVector, limit)
 }
 
-// batchItemError flattens a batch item's per-object error messages ("" = success).
+// batchItemError flattens a batch item's errors ("" = success).
 func batchItemError(item *models.ObjectsGetResponse) string {
 	if item == nil || item.Result == nil || item.Result.Errors == nil {
 		return ""
@@ -143,9 +137,8 @@ func batchItemError(item *models.ObjectsGetResponse) string {
 	return text
 }
 
-// errorResponseText flattens a go-swagger error into searchable text: Error()
-// prints payload pointers, so the payload messages must be extracted through
-// GetPayload.
+// errorResponseText flattens a go-swagger error into searchable text (Error()
+// prints payload pointers).
 func errorResponseText(err error) string {
 	text := err.Error()
 	if p, ok := err.(interface{ GetPayload() *models.ErrorResponse }); ok && p.GetPayload() != nil {

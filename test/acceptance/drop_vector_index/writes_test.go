@@ -26,12 +26,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testWriteMatrix pins the write matrix around a drop, both while
-// the "none" marker is set and after the entry is finalized away: writes
-// carrying the dropped vector are rejected on every write path (single-object
-// and batch), writes not carrying it succeed (property PATCH, batch
-// references, clean creates) — an object must never be collateral damage of a
-// vector it does not use.
+// testWriteMatrix pins write behavior while the marker is set and after
+// finalize: carrying writes rejected on every path (single + batch), clean
+// writes/PATCH/refs never collateral damage.
 func testWriteMatrix() func(t *testing.T) {
 	return func(t *testing.T) {
 		const (
@@ -114,18 +111,15 @@ func testWriteMatrix() func(t *testing.T) {
 				}), nil)
 			require.NoError(t, err)
 
-			time.Sleep(3 * time.Second) // let the 1s dirty-flush turn memtables into segments
+			time.Sleep(3 * time.Second) // past the 1s dirty-flush
 		})
 
 		t.Run("drop the vector index", func(t *testing.T) {
 			dropTargetVector(t, className, dropped)
 		})
 
-		// The marker applies synchronously with the drop call, so the write
-		// semantics below are already in force while cleanup still runs. wantErr
-		// pins the phase transition: while the marker is set the reject is the
-		// dropped-vector one; after finalize the entry is gone and the same write
-		// fails as a plain unknown vector.
+		// wantErr pins the phase transition: marker set -> dropped-vector reject;
+		// after finalize the entry is gone -> plain unknown-vector reject.
 		writeMatrix := func(phase string, idOffset int, wantErr string) func(t *testing.T) {
 			return func(t *testing.T) {
 				mkID := func(i int) strfmt.UUID {
