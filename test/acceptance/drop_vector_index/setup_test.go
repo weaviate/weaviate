@@ -81,6 +81,21 @@ func TestDropVectorIndex_Restart_Cluster(t *testing.T) {
 	runRestartSuite(t, compose)
 }
 
+func TestDropVectorIndex_RollingRestart_Cluster(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	runRollingRestartSuite(t, compose)
+}
+
 func runSuite(t *testing.T, compose *docker.DockerCompose) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
