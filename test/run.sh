@@ -1152,8 +1152,10 @@ function run_acceptance_async_replication_tests() {
   # Build once up front and reuse via TEST_WEAVIATE_IMAGE; otherwise each package
   # below rebuilds the image through testcontainers and the second package can
   # exceed the container-start deadline in CI.
+  # offload_abort_async is an async-replication divergence test triggered via
+  # tenant offload; it reuses the same image (the offload-s3 module is compiled in).
   build_weaviate_test_image
-  for pkg in $(go list ./.../ | grep 'test/acceptance/replication/async_replication'); do
+  for pkg in $(go list ./.../ | grep -E 'test/acceptance/replication/(async_replication|offload_abort_async)'); do
     if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
