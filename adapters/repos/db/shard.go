@@ -309,7 +309,8 @@ type Shard struct {
 	// Done() for hashbeat cycles is called before the result is sent back to
 	// the dispatcher, so the scheduler cannot re-dispatch until Done() fires.
 	// Callers that need a strict happens-before guarantee call asyncRepWg.Wait()
-	// after Deregister to ensure all goroutines have fully exited.
+	// after Deregister; Deregister settles Done()s for batches still queued, so
+	// Wait() only covers cycles that actually started.
 	asyncRepWg sync.WaitGroup
 
 	// asyncRepNeedsRebuild is set by runEntry when the effective hashtree height
