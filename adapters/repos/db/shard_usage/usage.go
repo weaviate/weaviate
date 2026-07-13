@@ -103,7 +103,7 @@ func usageDisk(shardUsage *types.ShardUsage) *types.UsageDisk {
 // Concurrent usage reports (overlapping periodic collections, /debug/usage, both usage modules
 // enabled) and the node-wide metrics observer may otherwise open the same bucket at once,
 // which lsmkv's GlobalBucketRegistry rejects with "bucket already registered".
-var unloadedDimensionsBucketLocks = entsync.NewKeyLocker()
+var unloadedDimensionsBucketLocks = entsync.NewKeyLockerContext()
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
 func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
@@ -113,7 +113,9 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 		return types.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
 	}
 
-	unloadedDimensionsBucketLocks.Lock(bucketPath)
+	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
+		return types.Dimensionality{}, fmt.Errorf("lock dimensions bucket: %w", err)
+	}
 	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
 
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,

@@ -456,11 +456,13 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 	require.NoError(t, b.Shutdown(ctx))
 
 	var wg sync.WaitGroup
+	start := make(chan struct{})
 	errs := make(chan error, 80)
 	for range 8 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			<-start
 			for range 10 {
 				if _, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, "text"); err != nil {
 					errs <- err
@@ -468,6 +470,7 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 			}
 		}()
 	}
+	close(start)
 	wg.Wait()
 	close(errs)
 	for err := range errs {
