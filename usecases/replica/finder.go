@@ -348,6 +348,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
+	// Async repl. is internal work: AllowTenantActivation stays off, so routing a multi-tenant shard never
+	// revives a deactivated tenant. Routing fails for one instead, and the cycle skips it.
 	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
 	routingPlan, err := f.router.BuildReadRoutingPlan(options)
 	if err != nil {
@@ -495,6 +497,7 @@ func (f *Finder) CompareDigests(ctx context.Context,
 // targetHostAddrsForShard resolves a shard's remote replica host addresses
 // (excluding the local node), mirroring CollectShardDifferences.
 func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
+	// Internal: never activates a tenant (see CollectShardDifferences).
 	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
 	routingPlan, err := f.router.BuildReadRoutingPlan(options)
 	if err != nil {
@@ -699,6 +702,7 @@ type AsyncCheckpointShardStatus struct {
 }
 
 func (f *Finder) remoteReplicaHosts(shardName string) (names []string, addrs []string) {
+	// Internal: never activates a tenant (see CollectShardDifferences).
 	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
 	routingPlan, err := f.router.BuildReadRoutingPlan(options)
 	if err != nil {

@@ -68,7 +68,9 @@ type SchemaGetter interface {
 
 	ShardOwner(class, shard string) (string, error)
 	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
-	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)
+	// allowImplicitActivation may only be set by callers acting for an external user request;
+	// it lets the lookup activate a COLD tenant under auto tenant activation.
+	OptimisticTenantStatus(ctx context.Context, class string, tenants string, allowImplicitActivation bool) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
 }
@@ -310,7 +312,15 @@ func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, te
 // Overall, we keep the (very common) happy path, free from expensive
 // leader-lookups and only fall back to the leader if the local result implies
 // an unhappy path.
-func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string) (map[string]string, error) {
+//
+// allowImplicitActivation decides whether the leader fallback may also activate a COLD
+// tenant (a RAFT write) when the collection has auto tenant activation enabled. Only pass
+// true when acting for an external user request: activation encodes the user's intent to
+// use the tenant. Internal, cluster-driven callers pass false, so that background work
+// cannot revive a tenant an operator deactivated.
+func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string,
+	allowImplicitActivation bool,
+) (map[string]string, error) {
 	var foundTenant bool
 	var status string
 	err := m.schemaReader.Read(class, true, func(_ *models.Class, ss *sharding.State) error {
@@ -330,6 +340,10 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 	if !foundTenant || status != models.TenantActivityStatusHOT {
 		// either no state at all or state does not imply happy path -> delegate to
 		// leader
+		if !allowImplicitActivation {
+			// TenantsStatus asks the leader without the activation side effect.
+			return m.TenantsStatus(class, tenant)
+		}
 		return m.TenantsShards(ctx, class, tenant)
 	}
 

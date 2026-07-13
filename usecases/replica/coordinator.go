@@ -333,6 +333,8 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 	timeout time.Duration,
 ) (<-chan Result[T], int, error) {
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
+	// Only runs on the node serving an external request, so auto tenant activation applies.
+	options.AllowTenantActivation = true
 	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)

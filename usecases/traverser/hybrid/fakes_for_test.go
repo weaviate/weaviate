@@ -92,7 +92,7 @@ func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenan
 	return nil, nil
 }
 
-func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
