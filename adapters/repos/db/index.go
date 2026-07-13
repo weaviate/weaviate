@@ -1582,6 +1582,29 @@ func (i *Index) ReconcileAsyncReplicationForShard(ctx context.Context, shardName
 	return ctrl.disableAsyncReplication(ctx)
 }
 
+// resumeAfterAbortedOffload reverses an aborted offloading HaltForTransfer: resume maintenance and rebuild async replication from a full scan so the shard cannot silently diverge. No-op when not loaded.
+func (i *Index) resumeAfterAbortedOffload(ctx context.Context, shardName string) error {
+	shard := i.shards.Loaded(shardName)
+	if shard == nil {
+		return nil
+	}
+
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
+	}
+
+	// Idempotent when not halted (e.g. HaltForTransfer failed and self-resumed).
+	if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+		return fmt.Errorf("resume maintenance cycles on shard %q: %w", shardName, err)
+	}
+
+	i.replicationConfigLock.Lock()
+	defer i.replicationConfigLock.Unlock()
+
+	return ctrl.rebuildAsyncReplicationFromScratch(ctx, i.asyncReplicationEnabledForShard(shardName), i.Config.AsyncReplicationConfig)
+}
+
 // parseDateFieldsInProps checks the schema for the current class for which
 // fields are date fields, then - if they are set - parses them accordingly.
 // Works for both date and date[].

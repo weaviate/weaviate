@@ -239,6 +239,10 @@ type asyncReplicationController interface {
 	// hasActiveAsyncReplicationTargetOverrides reports whether the shard holds
 	// target-node overrides that force async replication on.
 	hasActiveAsyncReplicationTargetOverrides() bool
+	// removePersistedHashtree deletes any persisted hashtree (.ht) snapshot.
+	removePersistedHashtree() error
+	// rebuildAsyncReplicationFromScratch drops any snapshot and rebuilds from a full scan.
+	rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
