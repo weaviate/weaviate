@@ -710,23 +710,23 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 }
 
 // entrypointDistWithRepair returns a usable search entrypoint and its distance
-// to the query vector, repairing the global entrypoint if its object was
-// deleted from the object store. Terminates: distToNode tombstones dead nodes
-// and repair never selects tombstoned nodes, so each iteration either succeeds
-// or rules out another dead node. Returns errNoUsableEntrypoint if no usable
-// node remains.
+// to the query vector, repairing dead (nil or deleted-in-store) entrypoints.
+// Terminates: each iteration either succeeds or rules out another dead node.
+// Returns errNoUsableEntrypoint if no usable node remains.
 func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
 	distancer compressionhelpers.CompressorDistancer, entryPointID uint64,
 	searchVec []float32,
 ) (uint64, float32, error) {
 	for {
-		dist, err := h.distToNode(distancer, entryPointID, searchVec)
-		if err == nil {
-			return entryPointID, dist, nil
-		}
-		var e storobj.ErrNotFound
-		if !errors.As(err, &e) {
-			return 0, 0, errors.Wrap(err, "distance between entrypoint and query node")
+		if h.nodeByID(entryPointID) != nil {
+			dist, err := h.distToNode(distancer, entryPointID, searchVec)
+			if err == nil {
+				return entryPointID, dist, nil
+			}
+			var e storobj.ErrNotFound
+			if !errors.As(err, &e) {
+				return 0, 0, errors.Wrap(err, "distance between entrypoint and query node")
+			}
 		}
 		if err := ctx.Err(); err != nil {
 			return 0, 0, err

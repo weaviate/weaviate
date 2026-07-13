@@ -147,12 +147,15 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 
 		return h.isEmptyUnlocked()
 	}()
-	// It can happen that between calls of isEmptyUnlocked and resetUnlocked
-	// values of h.nodes will change (due to locks being RUnlocked and Locked again)
-	// This is acceptable in order to avoid long Locking of all striped locks
 	if empty {
 		h.shardedNodeLocks.LockAll()
 		defer h.shardedNodeLocks.UnlockAll()
+
+		// never wipe live nodes over a dangling entrypoint — the next search
+		// or insert repairs it reactively
+		if h.hasLiveNodesUnlocked() {
+			return false, nil
+		}
 
 		return true, h.resetUnlocked()
 	}
