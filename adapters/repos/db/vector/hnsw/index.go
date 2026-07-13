@@ -734,26 +734,15 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// Drop stops the index exactly as Shutdown does, then removes the commit log's
+// files. Dropping before stopping would leave the maintenance cycles and the
+// tombstone cleanup running against state being torn down underneath them.
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
-	// cancel tombstone cleanup goroutine
-	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
+	if err := h.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
-	if h.compressed.Load() {
-		err := h.compressor.Drop()
-		if err != nil {
-			return fmt.Errorf("failed to shutdown compressed store")
-		}
-	} else {
-		// cancel vector cache goroutine
-		h.cache.Drop()
-	}
-
-	// cancel commit logger last, as the tombstone cleanup cycle might still
-	// write while it's still running
-	err := h.commitLog.Drop(ctx, keepFiles)
-	if err != nil {
+	if err := h.commitLog.Drop(ctx, keepFiles); err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
 

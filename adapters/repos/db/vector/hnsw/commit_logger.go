@@ -579,10 +579,15 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
+	// Drain before locking: Shutdown waits for an in-flight switchCommitLogs,
+	// which starts by taking l.Mutex. Holding it here deadlocks both until ctx
+	// expires. Report the drain error only after the fd is closed, or a timed-out
+	// drain leaks it.
+	shutdownErr := l.Shutdown(ctx)
+
 	l.Lock()
 	defer l.Unlock()
 
-	// Flush and close the file
 	if err := l.currentWriter.Flush(); err != nil {
 		return errors.Wrap(err, "flush hnsw commit logger prior to delete")
 	}
@@ -590,9 +595,8 @@ func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "close hnsw commit logger prior to delete")
 	}
 
-	// stop all goroutines
-	if err := l.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "drop commitlog")
+	if shutdownErr != nil {
+		return errors.Wrap(shutdownErr, "drop commitlog")
 	}
 
 	if keepFiles {
