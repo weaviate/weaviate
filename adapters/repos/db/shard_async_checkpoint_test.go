@@ -14,12 +14,17 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -247,4 +252,146 @@ func TestShard_CreateAsyncCheckpoint_ConcurrentRaceIsSerialised(t *testing.T) {
 	// one is at or after the earliest proposal.
 	assert.GreaterOrEqual(t, ca.UnixMilli(), base.UnixMilli())
 	assert.Greater(t, cutoff, int64(0))
+}
+
+const (
+	ckA = strfmt.UUID("00000000-0000-0000-0000-0000000000a1")
+	ckB = strfmt.UUID("00000000-0000-0000-0000-0000000000b2")
+	ckC = strfmt.UUID("00000000-0000-0000-0000-0000000000c3")
+)
+
+type ckOp struct {
+	del      bool
+	id       strfmt.UUID
+	ts       int64
+	old      int64
+	delEvent int64
+}
+
+func ckApply(t *testing.T, s *Shard, op ckOp) {
+	t.Helper()
+	idBytes, err := uuid.MustParse(op.id.String()).MarshalBinary()
+	require.NoError(t, err)
+	if op.del {
+		require.NoError(t, s.deleteObjectHashTree(idBytes, op.ts, op.delEvent))
+		return
+	}
+	obj := &storobj.Object{Object: models.Object{ID: op.id, LastUpdateTimeUnix: op.ts}}
+	require.NoError(t, s.upsertObjectHashTree(obj, idBytes, objectInsertStatus{oldUpdateTime: op.old}))
+}
+
+// ckRoot builds a fresh shard, applies before-ops, creates a checkpoint at cutoff, applies after-ops, returns the checkpoint root.
+func ckRoot(t *testing.T, cutoff int64, before, after []ckOp) hashtree.Digest {
+	t.Helper()
+	s := shardWithHashtree(t)
+	for _, op := range before {
+		ckApply(t, s, op)
+	}
+	require.NoError(t, s.CreateAsyncCheckpoint(context.Background(), cutoff, time.UnixMilli(cutoff)))
+	for _, op := range after {
+		ckApply(t, s, op)
+	}
+	root, _, _, ok := s.AsyncCheckpointRoot(context.Background())
+	require.True(t, ok)
+	return root
+}
+
+func TestShard_AsyncCheckpoint_AbsorbsLatePreCutoffObjects(t *testing.T) {
+	const cutoff = 200
+	full := ckRoot(t, cutoff, []ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 110}, {id: ckC, ts: 120}}, nil)
+	behind := ckRoot(t, cutoff, []ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 110}}, nil)
+	require.NotEqual(t, full, behind, "a shard missing a pre-cutoff object must not already match")
+
+	caughtUp := ckRoot(t, cutoff,
+		[]ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 110}},
+		[]ckOp{{id: ckC, ts: 120}})
+	require.Equal(t, full, caughtUp, "a pre-cutoff object arriving after creation must converge the root")
+}
+
+func TestShard_AsyncCheckpoint_FoldGating(t *testing.T) {
+	const cutoff = 200
+	tests := []struct {
+		name                             string
+		beforeA, afterA, beforeB, afterB []ckOp
+	}{
+		{
+			name:    "pre-cutoff create absorbed",
+			beforeA: []ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 120}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{id: ckB, ts: 120}},
+		},
+		{
+			name:    "post-cutoff create excluded",
+			beforeA: []ckOp{{id: ckA, ts: 100}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{id: ckB, ts: 250}},
+		},
+		{
+			name:    "pre-cutoff update absorbed",
+			beforeA: []ckOp{{id: ckA, ts: 150}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{id: ckA, ts: 150, old: 100}},
+		},
+		{
+			name:    "post-cutoff update keeps pre-cutoff version",
+			beforeA: []ckOp{{id: ckA, ts: 100}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{id: ckA, ts: 250, old: 100}},
+		},
+		{
+			name:    "pre-cutoff delete absorbed",
+			beforeA: []ckOp{{id: ckB, ts: 110}},
+			beforeB: []ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 110}}, afterB: []ckOp{{del: true, id: ckA, ts: 100, delEvent: 150}},
+		},
+		{
+			name:    "post-cutoff delete keeps object",
+			beforeA: []ckOp{{id: ckA, ts: 100}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{del: true, id: ckA, ts: 100, delEvent: 250}},
+		},
+		{
+			name:    "resurrection converges to recreated state",
+			beforeA: []ckOp{{id: ckA, ts: 150}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{del: true, id: ckA, ts: 100, delEvent: 120}, {id: ckA, ts: 150}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reference := ckRoot(t, cutoff, tt.beforeA, tt.afterA)
+			journey := ckRoot(t, cutoff, tt.beforeB, tt.afterB)
+			require.Equal(t, reference, journey)
+		})
+	}
+}
+
+func TestShard_AsyncCheckpoint_ConcurrentFoldIsRaceFree(t *testing.T) {
+	ctx := context.Background()
+	s := shardWithHashtree(t)
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 1_000_000, time.UnixMilli(1_000_000)))
+
+	const writers = 8
+	var wg sync.WaitGroup
+	wg.Add(writers + 1)
+	for w := 0; w < writers; w++ {
+		w := w
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				id := strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", w*1000+i))
+				idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+				if err != nil {
+					continue
+				}
+				obj := &storobj.Object{Object: models.Object{ID: id, LastUpdateTimeUnix: 500_000}}
+				s.asyncReplicationRWMux.RLock()
+				_ = s.upsertObjectHashTree(obj, idBytes, objectInsertStatus{})
+				s.asyncReplicationRWMux.RUnlock()
+			}
+		}()
+	}
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			_ = s.DeleteAsyncCheckpoint(ctx)
+			_ = s.CreateAsyncCheckpoint(ctx, 1_000_000, time.UnixMilli(int64(1_000_001+i)))
+		}
+	}()
+	wg.Wait()
+
+	require.NotPanics(t, func() { s.AsyncCheckpointRoot(ctx) })
 }

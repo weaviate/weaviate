@@ -100,7 +100,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	}
 	s.AppendChangeLogDelete(idBytes, logTime)
 
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime, logTime); err != nil {
 		return false, fmt.Errorf("object deletion in hashtree: %w", err)
 	}
 
@@ -206,15 +206,15 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	return nil
 }
 
-func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
+func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte, updateTime, deletionEventMs int64) error {
 	if s.hashtree == nil {
 		return nil
 	}
 
-	return s.deleteObjectHashTree(uuidBytes, updateTime)
+	return s.deleteObjectHashTree(uuidBytes, updateTime, deletionEventMs)
 }
 
-func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
+func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime, deletionEventMs int64) error {
 	if len(uuidBytes) != 16 {
 		return fmt.Errorf("invalid object uuid")
 	}
@@ -233,6 +233,14 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	// object deletion is treated as non-existent because the deletion time or
 	// tombstone may not be available
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
+
+	// Fold ≤cutoff deletions out of the active checkpoint; a post-cutoff delete keeps the pre-cutoff object.
+	// The clone shares the live tree's leaf layout (any height-changing rebuild clears the checkpoint first).
+	if cpht := s.asyncCheckpointHashtree; cpht != nil && deletionEventMs <= s.asyncCheckpointCutoff {
+		if err := cpht.AggregateLeafWith(leaf, objectDigest[:]); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

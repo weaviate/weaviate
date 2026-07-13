@@ -344,14 +344,29 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	var objectDigest [16 + 8]byte
 	copy(objectDigest[:], uuidBytes)
 
+	// Fold ≤cutoff changes into the active checkpoint so it converges post-creation; post-cutoff writes are excluded.
+	// The clone shares the live tree's leaf layout (any height-changing rebuild clears the checkpoint first).
+	cpht := s.asyncCheckpointHashtree
+	foldCheckpoint := cpht != nil && object.Object.LastUpdateTimeUnix <= s.asyncCheckpointCutoff
+
 	if status.oldUpdateTime > 0 {
 		// Given only latest object version is maintained, previous registration is erased
 		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
 		s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
+		if foldCheckpoint {
+			if err := cpht.AggregateLeafWith(leaf, objectDigest[:]); err != nil {
+				return err
+			}
+		}
 	}
 
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
+	if foldCheckpoint {
+		if err := cpht.AggregateLeafWith(leaf, objectDigest[:]); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
