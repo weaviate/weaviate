@@ -34,7 +34,7 @@ type RoutingPlanBuildOptions struct {
 	ConsistencyLevel    ConsistencyLevel
 	DirectCandidateNode string
 
-	//AllowTenantActivation if set to true, it will activate a COLD tenant under auto tenant activation.
+	// AllowTenantActivation if set to true, it will activate a COLD tenant under auto tenant activation.
 	// Rule of thumb: only set to true if the plan serves an external request.
 	AllowTenantActivation bool
 }
