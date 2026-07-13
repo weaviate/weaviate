@@ -325,7 +325,7 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_Success(t *testing.T) {
 		"luke": models.TenantActivityStatusHOT,
 	}
 	mockSchemaGetter.EXPECT().
-		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+		OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatus, nil)
 
 	mockReplicationFSM.EXPECT().
@@ -367,7 +367,7 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotFound(t *testin
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	tenantStatus := map[string]string{}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatus, errors.New("tenant not found: \"luke\""))
 
 	r := router.NewBuilder(
@@ -396,7 +396,7 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotActive(t *testi
 	tenantStatus := map[string]string{
 		"luke": models.TenantActivityStatusCOLD,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatus, nil)
 
 	r := router.NewBuilder(
@@ -451,7 +451,7 @@ func TestMultiTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 		"luke": models.TenantActivityStatusHOT,
 	}
 	mockSchemaGetter.EXPECT().
-		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+		OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().
 		FilterOneShardReplicasWrite("TestClass", "luke", []string{"node1"}).
@@ -487,7 +487,7 @@ func TestMultiTenantRouter_GetReadReplicasLocation(t *testing.T) {
 		"luke": models.TenantActivityStatusHOT,
 	}
 	mockSchemaGetter.EXPECT().
-		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+		OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().
 		FilterOneShardReplicasRead("TestClass", "luke", []string{"node1"}).
@@ -526,13 +526,13 @@ func TestMultiTenantRouter_TenantStatusChangeDuringOperation(t *testing.T) {
 	}
 
 	mockSchemaGetter.EXPECT().
-		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+		OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatusFirst, nil).Once() // first tenant read replicas
 	mockSchemaGetter.EXPECT().
-		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+		OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatusFirst, nil).Once() // first tenant write replicas
 	mockSchemaGetter.EXPECT().
-		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+		OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatusSecond, nil).Once() // second tenant read replica (error)
 
 	mockReplicationFSM.EXPECT().
@@ -590,7 +590,7 @@ func TestMultiTenantRouter_VariousTenantStatuses(t *testing.T) {
 			tenantStatus := map[string]string{
 				"luke": test.status,
 			}
-			mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+			mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 				Return(tenantStatus, nil)
 
 			var expectedReplicas []types.Replica
@@ -673,7 +673,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 		"luke": models.TenantActivityStatusHOT,
 	}
 	mockSchemaGetter.EXPECT().
-		OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+		OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().
 		FilterOneShardReplicasRead("TestClass", "luke", []string{}).
@@ -702,7 +702,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_Success(t *testing.T) {
 	tenantStatus := map[string]string{
 		"luke": models.TenantActivityStatusHOT,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
 		Return(tenantStatus, nil)
 
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "luke", []string{"node1"}).
@@ -732,7 +732,7 @@ func TestMultiTenantRouter_BuildRoutingPlan_TenantNotFoundDuringBuild(t *testing
 	metadataReader := schema.NewMockSchemaReader(t)
 
 	tenantStatus := map[string]string{}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "nonexistent").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "nonexistent", mock.Anything).
 		Return(tenantStatus, nil)
 
 	r := router.NewBuilder(
@@ -843,7 +843,7 @@ func TestMultiTenantRouter_MultipleTenantsSameCollection(t *testing.T) {
 
 	for tenant, replicas := range tenants {
 		tenantStatus := map[string]string{tenant: models.TenantActivityStatusHOT}
-		mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", tenant).
+		mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", tenant, mock.Anything).
 			Return(tenantStatus, nil)
 		mockSchemaReader.EXPECT().ShardReplicas("TestClass", tenant).Return(replicas, nil)
 		mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", tenant, replicas).
@@ -892,7 +892,7 @@ func TestMultiTenantRouter_MixedTenantStates(t *testing.T) {
 
 	for tenantName, tenantsStatus := range tenants {
 		tenantStatus := map[string]string{tenantName: tenantsStatus.status}
-		mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", tenantName).
+		mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", tenantName, mock.Anything).
 			Return(tenantStatus, nil)
 
 		if tenantsStatus.shouldWork {
@@ -947,7 +947,7 @@ func TestMultiTenantRouter_SameTenantDifferentCollections(t *testing.T) {
 			}
 
 			tenantStatus := map[string]string{tenantName: models.TenantActivityStatusHOT}
-			mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, collection, tenantName).
+			mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, collection, tenantName, mock.Anything).
 				Return(tenantStatus, nil)
 			mockSchemaReader.EXPECT().ShardReplicas(collection, tenantName).Return(expectedReplicas, nil)
 			mockReplicationFSM.EXPECT().FilterOneShardReplicasRead(collection, tenantName, expectedReplicas).
@@ -1195,7 +1195,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_Success(t *testing.T) {
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "alice", []string{"node1", "node2"}).
 		Return([]string{"node1"})
@@ -1227,7 +1227,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoWriteReplicas(t *testing.T) {
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "alice", []string{}).
 		Return([]string{})
@@ -1274,7 +1274,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantNotActive(t *testing.T) {
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusCOLD,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice", mock.Anything).
 		Return(tenantStatus, nil)
 
 	r := router.NewBuilder(
@@ -1339,7 +1339,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_DefaultShard(t *testing.T) {
 	tenant := "luke"
 
 	mockSchemaGetter.EXPECT().
-		OptimisticTenantStatus(mock.Anything, "TestClass", tenant).
+		OptimisticTenantStatus(mock.Anything, "TestClass", tenant, mock.Anything).
 		Return(map[string]string{tenant: models.TenantActivityStatusHOT}, nil)
 
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", tenant).
@@ -1516,7 +1516,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "alice", []string{"node1"}).
 		Return([]string{}) // No write replicas
@@ -1552,7 +1552,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_ConsistencyLevelValidation(t *t
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "alice", []string{"node1", "node2"}).
 		Return([]string{"node1"})
@@ -1587,7 +1587,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_ReplicaOrdering(t *testing.T) {
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "alice", []string{"node1", "node2", "node3"}).
 		Return([]string{"node1", "node3"})
@@ -1620,7 +1620,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantNotFound(t *testing.T) {
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
 	tenantStatus := map[string]string{}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "nonexistent").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "nonexistent", mock.Anything).
 		Return(tenantStatus, errors.New("tenant not found: \"nonexistent\""))
 
 	r := router.NewBuilder(
@@ -1681,7 +1681,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *te
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "alice", []string{"node1", "node2"}).
 		Return([]string{"node1", "node2"})
@@ -1696,9 +1696,10 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *te
 	).Build()
 
 	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "alice",
-		Shard:            "",
-		ConsistencyLevel: "INVALID_LEVEL",
+		AllowTenantActivation: true,
+		Tenant:                "alice",
+		Shard:                 "",
+		ConsistencyLevel:      "INVALID_LEVEL",
 	}
 
 	plan, err := r.BuildReadRoutingPlan(opts)
@@ -1716,7 +1717,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicasError(t *testing.T) {
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "alice", []string{}).
 		Return([]string{}) // No read replicas
@@ -1731,9 +1732,10 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicasError(t *testing.T) {
 	).Build()
 
 	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "alice",
-		Shard:            "",
-		ConsistencyLevel: types.ConsistencyLevelOne,
+		AllowTenantActivation: true,
+		Tenant:                "alice",
+		Shard:                 "",
+		ConsistencyLevel:      types.ConsistencyLevelOne,
 	}
 
 	plan, err := r.BuildReadRoutingPlan(opts)
@@ -1825,7 +1827,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_ReplicaOrdering(t *testing.T) {
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
 	}
-	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice", mock.Anything).
 		Return(tenantStatus, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "alice", []string{"node1", "node2", "node3"}).
 		Return([]string{"node1", "node2", "node3"})
@@ -1840,10 +1842,11 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_ReplicaOrdering(t *testing.T) {
 	).Build()
 
 	opts := types.RoutingPlanBuildOptions{
-		Tenant:              "alice",
-		Shard:               "",
-		ConsistencyLevel:    types.ConsistencyLevelOne,
-		DirectCandidateNode: "node2",
+		AllowTenantActivation: true,
+		Tenant:                "alice",
+		Shard:                 "",
+		ConsistencyLevel:      types.ConsistencyLevelOne,
+		DirectCandidateNode:   "node2",
 	}
 
 	plan, err := r.BuildReadRoutingPlan(opts)
@@ -2054,4 +2057,107 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_AllShards(t *testing.T) {
 	}
 	require.True(t, shardNames["shard1"], "should have replica from shard1")
 	require.True(t, shardNames["shard2"], "should have replica from shard2")
+}
+
+// TestMultiTenantRouter_BuildReadRoutingPlan_TenantActivation pins who may activate a tenant
+// as a side effect of asking where its shard lives.
+//
+// Resolving replicas requires a tenant status check, which under auto tenant activation turns
+// a COLD tenant HOT via a RAFT write. Right for an external request, wrong for internal work:
+// async replication must not revive a tenant an operator deactivated. So the router must
+// forward the caller's AllowTenantActivation to the lookup, unchanged.
+func TestMultiTenantRouter_BuildReadRoutingPlan_TenantActivation(t *testing.T) {
+	const (
+		collection = "TestClass"
+		tenant     = "luke"
+	)
+
+	for _, tt := range []struct {
+		name string
+		// allowTenantActivation is what the caller declares: true for external request paths,
+		// false (the zero value) for internal ones such as async replication.
+		allowTenantActivation bool
+	}{
+		{
+			name:                  "external request may activate the tenant",
+			allowTenantActivation: true,
+		},
+		{
+			name:                  "internal caller must not activate the tenant",
+			allowTenantActivation: false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mockSchemaGetter := schema.NewMockSchemaGetter(t)
+			mockSchemaReader := schema.NewMockSchemaReader(t)
+			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+			mockNodeSelector := mocks.NewMockNodeSelector("node1")
+
+			// Expecting the exact bool is the assertion: forwarding the wrong one fails here.
+			status := map[string]string{tenant: models.TenantActivityStatusHOT}
+			mockSchemaGetter.EXPECT().
+				OptimisticTenantStatus(mock.Anything, collection, tenant, tt.allowTenantActivation).
+				Return(status, nil).Once()
+
+			mockSchemaReader.EXPECT().ShardReplicas(collection, tenant).Return([]string{"node1"}, nil)
+			mockReplicationFSM.EXPECT().
+				FilterOneShardReplicasRead(collection, tenant, []string{"node1"}).
+				Return([]string{"node1"})
+
+			r := router.NewBuilder(
+				collection,
+				true,
+				mockNodeSelector,
+				mockSchemaGetter,
+				mockSchemaReader,
+				mockReplicationFSM,
+			).Build()
+
+			plan, err := r.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+				Tenant:                tenant,
+				ConsistencyLevel:      types.ConsistencyLevelOne,
+				AllowTenantActivation: tt.allowTenantActivation,
+			})
+			require.NoError(t, err)
+			require.Equal(t, []types.Replica{
+				{NodeName: "node1", ShardName: tenant, HostAddr: "node1"},
+			}, plan.ReplicaSet.Replicas)
+		})
+	}
+}
+
+// TestMultiTenantRouter_RoutingPlanOptions_DoNotActivateByDefault pins the safe default:
+// AllowTenantActivation is opt-in, so a caller who says nothing does not activate. A forgotten
+// flag then merely fails to route an inactive tenant instead of silently reviving one.
+func TestMultiTenantRouter_RoutingPlanOptions_DoNotActivateByDefault(t *testing.T) {
+	const (
+		collection = "TestClass"
+		tenant     = "luke"
+	)
+
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockSchemaReader := schema.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := mocks.NewMockNodeSelector("node1")
+
+	// The lookup must be told not to activate; activating on options that never opted in fails.
+	mockSchemaGetter.EXPECT().
+		OptimisticTenantStatus(mock.Anything, collection, tenant, false).
+		Return(map[string]string{tenant: models.TenantActivityStatusHOT}, nil).Once()
+	mockSchemaReader.EXPECT().ShardReplicas(collection, tenant).Return([]string{"node1"}, nil)
+	mockReplicationFSM.EXPECT().
+		FilterOneShardReplicasRead(collection, tenant, []string{"node1"}).
+		Return([]string{"node1"})
+
+	r := router.NewBuilder(
+		collection, true, mockNodeSelector, mockSchemaGetter, mockSchemaReader, mockReplicationFSM,
+	).Build()
+
+	// Options built the way the async-replication paths build them: no opt-in.
+	options := r.BuildRoutingPlanOptions(tenant, tenant, types.ConsistencyLevelOne, "")
+	require.False(t, options.AllowTenantActivation,
+		"BuildRoutingPlanOptions must not opt into tenant activation on the caller's behalf")
+
+	_, err := r.BuildReadRoutingPlan(options)
+	require.NoError(t, err)
 }

@@ -3956,8 +3956,9 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 
 func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {
 	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Tenant:           tenantName,
-		ConsistencyLevel: cl,
+		Tenant:                tenantName,
+		ConsistencyLevel:      cl,
+		AllowTenantActivation: true,
 	}
 	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
 	if err != nil {

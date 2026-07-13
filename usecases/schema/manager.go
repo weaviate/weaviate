@@ -68,7 +68,10 @@ type SchemaGetter interface {
 
 	ShardOwner(class, shard string) (string, error)
 	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
-	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)
+	// OptimisticTenantStatus tries to query the local state first
+	// allowImplicitActivation may only be set by callers acting for an external user request;
+	// because it lets the lookup activate a COLD tenant under auto tenant activation and leader lookup.
+	OptimisticTenantStatus(ctx context.Context, class string, tenants string, allowImplicitActivation bool) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
 }
@@ -286,10 +289,9 @@ func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, te
 	return m.activateTenantIfInactive(ctx, class, status)
 }
 
-// OptimisticTenantStatus tries to query the local state first. It is
-// optimistic that the state has already propagated correctly. If the state is
-// unexpected, i.e. either the tenant is not found at all or the status is
-// COLD, it will double-check with the leader.
+// OptimisticTenantStatus tries to query the local state first
+// allowImplicitActivation may only be set by callers acting for an external user request;
+// because it lets the lookup activate a COLD tenant under auto tenant activation and leader lookup.
 //
 // This way we accept false positives (for HOT tenants), but guarantee that there will never be
 // false negatives (i.e. tenants labelled as COLD that the leader thinks should
@@ -310,7 +312,9 @@ func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, te
 // Overall, we keep the (very common) happy path, free from expensive
 // leader-lookups and only fall back to the leader if the local result implies
 // an unhappy path.
-func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string) (map[string]string, error) {
+func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string,
+	allowImplicitActivation bool,
+) (map[string]string, error) {
 	var foundTenant bool
 	var status string
 	err := m.schemaReader.Read(class, true, func(_ *models.Class, ss *sharding.State) error {
@@ -327,15 +331,20 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 		return nil, err
 	}
 
-	if !foundTenant || status != models.TenantActivityStatusHOT {
-		// either no state at all or state does not imply happy path -> delegate to
-		// leader
-		return m.TenantsShards(ctx, class, tenant)
+	if foundTenant && status == models.TenantActivityStatusHOT {
+		return map[string]string{tenant: status}, nil
 	}
 
-	return map[string]string{
-		tenant: status,
-	}, nil
+	// No state at all, or state does not imply the happy path.
+	if !allowImplicitActivation {
+		if !foundTenant {
+			// An empty map reads as "tenant not found" to the caller.
+			return map[string]string{}, nil
+		}
+		return map[string]string{tenant: status}, nil
+	}
+
+	return m.TenantsShards(ctx, class, tenant)
 }
 
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
