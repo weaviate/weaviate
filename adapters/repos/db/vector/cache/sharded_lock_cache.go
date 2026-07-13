@@ -13,6 +13,7 @@ package cache
 
 import (
 	"context"
+	"math/bits"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,7 +30,7 @@ import (
 )
 
 type shardedLockCache[T float32 | byte | uint64] struct {
-	shardedLocks           *common.ShardedRWLocks
+	shardedLocks           *common.LazyShardedRWLocks
 	cache                  [][]T
 	vectorForID            common.VectorForID[T]
 	multipleVectorForDocID common.VectorForID[[]float32]
@@ -53,7 +54,43 @@ const (
 	MinimumRelativeGrowthDelta = 20
 	indexGrowthRate            = 1.25
 	defaultCacheMaxSize        = 1e12
+
+	// initialShardedLocksCount is the stripe count of a small cache; growing
+	// scales it with the cache size at one stripe per slotsPerLockStripe
+	// slots, up to the full common.DefaultShardedLocksCount.
+	initialShardedLocksCount = 8
+	slotsPerLockStripe       = 64
 )
+
+// growTargetFor returns the backing-slice length needed to fit node. Small
+// caches grow relative to the requested id so that barely used caches stay
+// proportional to their tenant's size; large caches keep the fixed headroom.
+func growTargetFor(node uint64) uint64 {
+	relative := uint64(float64(node) * indexGrowthRate)
+	if minRelative := node + MinimumRelativeGrowthDelta; relative < minRelative {
+		relative = minRelative
+	}
+	if absolute := node + MinimumIndexGrowthDelta; absolute < relative {
+		return absolute
+	}
+	return relative + 1
+}
+
+// stripeCountFor returns the lock stripe count appropriate for a backing
+// slice of the given length, keeping the lock memory proportional to the
+// cache itself.
+func stripeCountFor(cacheLen uint64) uint64 {
+	stripes := cacheLen / slotsPerLockStripe
+	if stripes <= initialShardedLocksCount {
+		return initialShardedLocksCount
+	}
+	if stripes >= common.DefaultShardedLocksCount {
+		return common.DefaultShardedLocksCount
+	}
+	// quantize to powers of two so a growing cache re-stripes a bounded
+	// number of times (each upgrade drains the previous lock set)
+	return 1 << bits.Len64(stripes-1)
+}
 
 func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecForID common.VectorForID[[]float32], maxSize int, pageSize uint64,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
@@ -71,13 +108,12 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecFo
 			return vec, nil
 		},
 		multipleVectorForDocID: multiVecForID,
-		cache:                  make([][]float32, InitialSize),
 		normalizeOnRead:        normalizeOnRead,
 		count:                  0,
 		maxSize:                int64(maxSize),
 		cancel:                 make(chan bool),
 		logger:                 logger,
-		shardedLocks:           common.NewShardedRWLocksWithPageSize(pageSize),
+		shardedLocks:           common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
 		maintenanceLock:        sync.RWMutex{},
 		deletionInterval:       deletionInterval,
 		allocChecker:           allocChecker,
@@ -93,13 +129,12 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int, pag
 ) Cache[byte] {
 	vc := &shardedLockCache[byte]{
 		vectorForID:      vecForID,
-		cache:            make([][]byte, InitialSize),
 		normalizeOnRead:  false,
 		count:            0,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
+		shardedLocks:     common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
@@ -115,13 +150,12 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 ) Cache[uint64] {
 	vc := &shardedLockCache[uint64]{
 		vectorForID:      vecForID,
-		cache:            make([][]uint64, InitialSize),
 		normalizeOnRead:  false,
 		count:            0,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
+		shardedLocks:     common.NewLazyShardedRWLocks(initialShardedLocksCount, pageSize),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
@@ -206,11 +240,17 @@ func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T
 	var errs []error // Only allocate if we encounter an error
 
 	for i, id := range ids {
+		var vec []T
 		s.shardedLocks.RLock(id)
-		vec := s.cache[id]
+		if int(id) < len(s.cache) {
+			vec = s.cache[id]
+		}
 		s.shardedLocks.RUnlock(id)
 
 		if vec == nil {
+			// make sure the cache covers id before handleCacheMiss stores
+			// into it; a no-op once the cache is large enough
+			s.Grow(id)
 			vecFromDisk, err := s.handleCacheMiss(ctx, id)
 			if err != nil {
 				// Allocate errors slice only on first error
@@ -284,10 +324,19 @@ func (s *shardedLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
 	defer s.shardedLocks.RUnlock(id)
 
+	// the cache is allocated lazily, it may not cover id yet
+	if int(id) >= len(s.cache) {
+		return
+	}
+
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
 }
 
 func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
+	// make sure the cache covers id: preloaders (e.g. the HNSW insert path)
+	// don't grow the cache themselves; a no-op once the cache is large enough
+	s.Grow(id)
+
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
@@ -305,7 +354,7 @@ func (s *shardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
 	if size < uint64(len(s.cache)) {
 		return
 	}
-	newSize := size + MinimumIndexGrowthDelta
+	newSize := growTargetFor(size)
 	newCache := make([][]T, newSize)
 	copy(newCache, s.cache)
 	s.cache = newCache
@@ -328,10 +377,14 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 		return
 	}
 
+	newSize := growTargetFor(node)
+
+	// scale the stripe count with the cache size
+	s.shardedLocks.EnsureCount(stripeCountFor(newSize))
+
 	s.shardedLocks.LockAll()
 	defer s.shardedLocks.UnlockAll()
 
-	newSize := node + MinimumIndexGrowthDelta
 	newCache := make([][]T, newSize)
 	copy(newCache, s.cache)
 	s.cache = newCache
