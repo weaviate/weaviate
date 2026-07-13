@@ -247,10 +247,12 @@ func (l *LazyShardedRWLocks) Count() uint64 {
 }
 
 // EnsureCount grows the stripe count to at least count, allocating the
-// stripes if this is the first use. It never shrinks.
+// stripes if this is the first use. It never shrinks, and never allocates
+// fewer stripes than the constructor's initial count: the initial layout
+// must not depend on which operation touches the instance first.
 func (l *LazyShardedRWLocks) EnsureCount(count uint64) {
-	if count < 2 {
-		count = 2
+	if count < l.initialCount {
+		count = l.initialCount
 	}
 
 	// fast path: the count of an allocated set is immutable, so a single
