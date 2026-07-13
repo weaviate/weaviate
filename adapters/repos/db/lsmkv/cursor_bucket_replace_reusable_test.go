@@ -107,7 +107,7 @@ func drainSeek(c *CursorReplace, target []byte) []string {
 	return out
 }
 
-func newReusableTestBucket(t *testing.T, ctx context.Context, opts ...BucketOption) *Bucket {
+func newReusableTestBucket(t testing.TB, ctx context.Context, opts ...BucketOption) *Bucket {
 	t.Helper()
 	dir := t.TempDir()
 	o := append([]BucketOption{WithStrategy(StrategyReplace)}, opts...)

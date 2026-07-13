@@ -87,7 +87,7 @@ func digestCursorModes() []struct {
 }
 
 // seedDigestBucket writes multi-segment data with overlaps and tombstones; flushLast drains the last batch so nothing is served from the live memtable.
-func seedDigestBucket(t *testing.T, b *Bucket, flushLast bool) {
+func seedDigestBucket(t testing.TB, b *Bucket, flushLast bool) {
 	t.Helper()
 	val := func(tag string, i int) []byte {
 		return []byte(fmt.Sprintf("%s-value-%03d-paddingpadding", tag, i))
