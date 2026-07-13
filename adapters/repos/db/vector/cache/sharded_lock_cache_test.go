@@ -123,8 +123,8 @@ func TestCacheCleanup(t *testing.T) {
 }
 
 func countCached(c *shardedLockCache[float32]) int {
-	c.shardedLocks.LockAll()
-	defer c.shardedLocks.UnlockAll()
+	c.LockAll()
+	defer c.UnlockAll()
 
 	count := 0
 	for _, vec := range c.cache {
@@ -235,6 +235,10 @@ func TestGetAllInCurrentLock(t *testing.T) {
 
 		vectorCache := NewShardedFloat32LockCache(vecForID, nil, maxSize, pageSize, logger, false, 0, nil)
 		cache := vectorCache.(*shardedLockCache[float32])
+
+		// make the page part of the cache window; fetch-through only applies
+		// to pages within it
+		cache.Grow(pageSize - 1)
 
 		out := make([][]float32, pageSize)
 		errs := make([]error, pageSize)
