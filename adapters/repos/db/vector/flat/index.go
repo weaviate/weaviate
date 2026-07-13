@@ -63,6 +63,12 @@ type flat struct {
 	compressionType CompressionType
 	quantizer       Quantizer
 	cache           *Cache
+	// cacheComplete reports whether the cache is known to hold every vector
+	// of the index, which is what allows searches to iterate the cache
+	// instead of the store. It is set once the startup preload has run over
+	// an index whose data is fully visible to it (or trivially, for an index
+	// that starts empty: insert-time preloading keeps it complete).
+	cacheComplete atomic.Bool
 
 	pqResults *common.PqMaxPool
 	pool      *pools
@@ -484,10 +490,10 @@ func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32
 
 	vector = index.normalized(vector)
 
-	// the cached search iterates the cache window, which is complete only
-	// once the startup preload (or insert-time preloading) populated it; a
-	// cold cache (length 0, allocated lazily) must search the store instead
-	if index.Compressed() && index.Cached() && index.cache.Len() > 0 {
+	// the cached search iterates the cache window, which silently skips
+	// anything not cached; it is only correct once the cache is known to be
+	// complete, otherwise the store is the source of truth
+	if index.Compressed() && index.Cached() && index.cacheComplete.Load() {
 		if err := index.findTopVectorsQuantizedCached(heap, allow, rescore, vector); err != nil {
 			return nil, nil, err
 		}
@@ -909,7 +915,13 @@ func (index *flat) Preload(id uint64, vector []float32) {
 }
 
 func (index *flat) PostStartup(ctx context.Context) {
-	if !index.Cached() || index.quantizer == nil {
+	if !index.Cached() {
+		return
+	}
+	if index.quantizer == nil {
+		// no quantizer means nothing was restored from disk: the index
+		// starts empty and insert-time preloading keeps the cache complete
+		index.cacheComplete.Store(true)
 		return
 	}
 
@@ -1015,7 +1027,17 @@ func (index *flat) PostStartup(ctx context.Context) {
 	}
 
 	if count == 0 {
-		// nothing on disk: don't allocate the cache for an empty tenant
+		// nothing to preload: don't allocate the cache for an empty tenant.
+		// The parallel iterator only sees flushed segments, so distinguish a
+		// truly empty index (the cache is trivially complete and stays
+		// complete via insert-time preloading) from data that only lives in
+		// the memtable (the cache must not be trusted for searches).
+		c := bucket.Cursor()
+		k, _ := c.First()
+		c.Close()
+		if k == nil {
+			index.cacheComplete.Store(true)
+		}
 		return
 	}
 
@@ -1073,6 +1095,8 @@ func (index *flat) PostStartup(ctx context.Context) {
 			return
 		}
 	}
+
+	index.cacheComplete.Store(true)
 
 	took := time.Since(before)
 	index.logger.WithFields(logrus.Fields{
