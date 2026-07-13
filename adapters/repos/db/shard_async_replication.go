@@ -37,6 +37,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/entities/storobj"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -1851,7 +1852,8 @@ func (s *Shard) collectObjectsToPropagate(
 	localUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
 	remoteStaleUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
 
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+	// Digest mode: this scan reads only headers; full objects are fetched later.
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	scratch := newPropagationScratch(config.diffBatchSize)
