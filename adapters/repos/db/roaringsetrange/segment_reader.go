@@ -24,20 +24,12 @@ import (
 )
 
 type SegmentReader struct {
-	cursor      SegmentCursor
-	concurrency int
-}
-
-func NewSegmentReader(cursor *GaplessSegmentCursor) *SegmentReader {
-	return NewSegmentReaderConcurrent(cursor, 1)
+	cursor SegmentCursor
 }
 
 // TODO aliszka:roaringrange add buf pool?
-func NewSegmentReaderConcurrent(cursor *GaplessSegmentCursor, concurrency int) *SegmentReader {
-	return &SegmentReader{
-		cursor:      cursor,
-		concurrency: concurrency,
-	}
+func NewSegmentReader(cursor *GaplessSegmentCursor) *SegmentReader {
+	return &SegmentReader{cursor: cursor}
 }
 
 func (r *SegmentReader) Read(ctx context.Context, value uint64, operator filters.Operator,
@@ -47,7 +39,7 @@ func (r *SegmentReader) Read(ctx context.Context, value uint64, operator filters
 	}
 
 	// conc is the per-query merge budget, threaded through every read/merge helper below.
-	conc := concurrency.BudgetFromCtxCapped(ctx, r.concurrency)
+	conc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
 	switch operator {
 	case filters.OperatorEqual:

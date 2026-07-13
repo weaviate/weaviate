@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -152,13 +153,23 @@ func TestSegmentReader(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run("read", func(t *testing.T) {
-			bm, release, err := reader.Read(context.Background(), tc.value, tc.operator)
-			assert.NoError(t, err)
-			defer release()
-			assert.ElementsMatch(t, bm.Additions.ToArray(), tc.expectedAdd)
-			assert.ElementsMatch(t, bm.Deletions.ToArray(), tc.expectedDel)
-		})
+	// the merge budget comes from ctx since the constructor lost its
+	// concurrency param; results must not depend on it
+	ctxs := map[string]context.Context{
+		"no budget in ctx":     context.Background(),
+		"merge budget of 1":    concurrency.CtxWithBudget(context.Background(), 1),
+		"merge budget above 1": concurrency.CtxWithBudget(context.Background(), 4),
+	}
+
+	for ctxName, ctx := range ctxs {
+		for _, tc := range testCases {
+			t.Run("read with "+ctxName, func(t *testing.T) {
+				bm, release, err := reader.Read(ctx, tc.value, tc.operator)
+				assert.NoError(t, err)
+				defer release()
+				assert.ElementsMatch(t, bm.Additions.ToArray(), tc.expectedAdd)
+				assert.ElementsMatch(t, bm.Deletions.ToArray(), tc.expectedDel)
+			})
+		}
 	}
 }

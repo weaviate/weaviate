@@ -56,19 +56,32 @@ func AssertGoroutineCeiling(t *testing.T, numWorkers, maxPerWorker, noiseSlack i
 	time.Sleep(5 * time.Millisecond)
 	base := runtime.NumGoroutine()
 
-	firstErr := make(chan error, 1)
+	var (
+		mu       sync.Mutex
+		firstErr error
+	)
+	// abort lets the remaining workers stop early once one of them failed,
+	// instead of hammering do() until the deadline
+	abort := make(chan struct{})
 	var wg sync.WaitGroup
 	deadline := time.Now().Add(runFor)
-	for i := 0; i < numWorkers; i++ {
+	for range numWorkers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
+				select {
+				case <-abort:
+					return
+				default:
+				}
 				if err := do(); err != nil {
-					select {
-					case firstErr <- err:
-					default:
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+						close(abort)
 					}
+					mu.Unlock()
 					return
 				}
 			}
@@ -78,11 +91,7 @@ func AssertGoroutineCeiling(t *testing.T, numWorkers, maxPerWorker, noiseSlack i
 	close(stop)
 	<-samplerDone
 
-	select {
-	case err := <-firstErr:
-		require.NoError(t, err)
-	default:
-	}
+	require.NoError(t, firstErr)
 
 	ceiling := base + numWorkers*maxPerWorker + noiseSlack
 	assert.LessOrEqualf(t, maxSeen, ceiling,

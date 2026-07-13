@@ -34,17 +34,19 @@ type CombinedReader struct {
 	logger         logrus.FieldLogger
 	readers        []InnerReader
 	releaseReaders func()
-	concurrency    int
+	// segmentConcurrency caps how many inner readers run at once; the
+	// bitmap-merge budget is a separate per-query axis carried in ctx.
+	segmentConcurrency int
 }
 
-func NewCombinedReader(readers []InnerReader, releaseReaders func(), concurrency int,
+func NewCombinedReader(readers []InnerReader, releaseReaders func(), segmentConcurrency int,
 	logger logrus.FieldLogger,
 ) *CombinedReader {
 	return &CombinedReader{
-		logger:         logger,
-		readers:        readers,
-		releaseReaders: releaseReaders,
-		concurrency:    concurrency,
+		logger:             logger,
+		readers:            readers,
+		releaseReaders:     releaseReaders,
+		segmentConcurrency: segmentConcurrency,
 	}
 }
 
@@ -85,8 +87,10 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		return layer.Additions, release, nil
 	}
 
-	// conc is the per-query merge/fan-out budget shared by every reader below.
-	conc := concurrency.BudgetFromCtxCapped(ctx, r.concurrency)
+	// Two separate axes of parallelism: r.segmentConcurrency bounds how many
+	// readers run at once (SetLimit below), outerBudget bounds bitmap-merge
+	// parallelism per query.
+	outerBudget := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
 	lock := new(sync.Mutex)
 	addReadTime := func(d time.Duration) {
@@ -104,16 +108,20 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// fractional budget bounds the inner fan-out; skipped when the kill switch
-	// is set so BudgetFromCtx consumers below still see the caller's own budget.
+	// innerCtx carries each reader's share of the merge budget: the outer
+	// budget split across the readers running at once (up to
+	// r.segmentConcurrency in the error group plus the current goroutine).
+	// Skipped when the kill switch is set so readers below fall back to the
+	// fixed constant.
 	innerCtx := ctx
 	if !concurrency.BudgetCapDisabled() {
-		innerCtx = concurrency.ContextWithFractionalBudget(ctx, min(count-1, conc), r.concurrency)
+		conc := min(count, r.segmentConcurrency+1)
+		innerCtx = concurrency.CtxWithBudget(ctx, max(1, outerBudget/conc))
 	}
 
 	errors.GoWrapper(func() {
 		eg, gctx := errors.NewErrorGroupWithContextWrapper(r.logger, innerCtx)
-		eg.SetLimit(conc)
+		eg.SetLimit(r.segmentConcurrency)
 
 		for i := 1; i < count; i++ {
 			i := i
@@ -139,11 +147,11 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		ec.Add(response.err)
 
 		if ec.Len() == 0 {
-			// deliberate mild overshoot: outer merge uses the full budget while inner
-			// readers already resolved at their fractional slice (mirrors prop_value_pairs.go)
+			// full budget rather than the inner share: remaining readers are
+			// draining while this merge runs, so a mild overshoot is acceptable
 			t := time.Now()
-			layer.Additions.AndNotConc(response.layer.Deletions, conc)
-			layer.Additions.OrConc(response.layer.Additions, conc)
+			layer.Additions.AndNotConc(response.layer.Deletions, outerBudget)
+			layer.Additions.OrConc(response.layer.Additions, outerBudget)
 			mergingSum += time.Since(t)
 		}
 		response.release()

@@ -43,6 +43,12 @@ func TestBudget(t *testing.T) {
 }
 
 func TestBudgetFromCtxCapped(t *testing.T) {
+	// pin the enabled path so the clamp behavior is tested even when the
+	// environment sets the kill switch (mirrors TestBudgetCapDisabled_KillSwitch)
+	prev := budgetCapDisabled
+	budgetCapDisabled = false
+	defer func() { budgetCapDisabled = prev }()
+
 	const cap = 8
 
 	tests := []struct {

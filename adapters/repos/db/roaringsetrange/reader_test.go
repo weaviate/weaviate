@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -398,12 +399,15 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 
 	const numReaders = 8                   // several outer merges per Read
 	const readDelay = 2 * time.Millisecond // see cloningInnerReader.readDelay
+	// fixed segment parallelism keeps the goroutine ceiling machine-independent;
+	// the budget only governs merge fan-out since the two axes were split
+	const segmentParallelism = 2
 	newReader := func() *CombinedReader {
 		readers := make([]InnerReader, numReaders)
 		for i := range readers {
 			readers[i] = &cloningInnerReader{additions: roaringset.NewBitmap(values...), readDelay: readDelay}
 		}
-		return NewCombinedReader(readers, noopRelease, concurrency.SROAR_MERGE, logger)
+		return NewCombinedReader(readers, noopRelease, segmentParallelism, logger)
 	}
 
 	ctx := context.Background()
@@ -423,12 +427,13 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, values, arr1)
 	require.Equal(t, arrDefault, arr1)
 
-	// each in-flight Read holds <=3 goroutines: its own worker, the errgroup
-	// driver, and the one eg.Go worker budget=1 allows. Sharing one reader is
-	// safe since cloningInnerReader clones per Read. readDelay pins that peak
-	// so slack=8 still lets the kill-switch red control overshoot decisively.
+	// each in-flight Read holds <=4 goroutines: its own worker, the error
+	// group driver, and the segmentParallelism=2 eg.Go workers; budget=1 keeps
+	// sroar merges from adding any. Sharing one reader is safe since
+	// cloningInnerReader clones per Read. readDelay pins that peak so slack=8
+	// still lets the kill-switch red control overshoot decisively.
 	shared := newReader()
-	testinghelpers.AssertGoroutineCeiling(t, 16, 3, 8, 200*time.Millisecond, func() error {
+	testinghelpers.AssertGoroutineCeiling(t, 16, 4, 8, 200*time.Millisecond, func() error {
 		bm, release, err := shared.Read(budget1, 0, filters.OperatorGreaterThanEqual)
 		if err != nil {
 			return err
@@ -437,6 +442,162 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 		release()
 		return nil
 	})
+}
+
+// budgetRecordingReader records the merge budget its Read observed in ctx
+// (-1 when ctx carried none).
+type budgetRecordingReader struct {
+	seenBudget int
+}
+
+func (r *budgetRecordingReader) Read(ctx context.Context, value uint64, operator filters.Operator,
+) (roaringset.BitmapLayer, func(), error) {
+	r.seenBudget = concurrency.BudgetFromCtx(ctx, -1)
+	return roaringset.BitmapLayer{
+		Additions: sroar.NewBitmap(),
+		Deletions: sroar.NewBitmap(),
+	}, noopRelease, nil
+}
+
+// TestCombinedReader_SplitsBudgetAcrossReaders pins the inner budget
+// derivation: the per-query budget is divided by the number of readers that
+// can run at once (segment parallelism + the current goroutine, at most
+// count), floored at 1, and every reader sees the same share.
+func TestCombinedReader_SplitsBudgetAcrossReaders(t *testing.T) {
+	if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
+		t.Skip("budget cap disabled via kill switch")
+	}
+	logger, _ := test.NewNullLogger()
+
+	// expected share per reader; outer budget via the production helper, the
+	// split formula spelled out so a regression in reader.go fails here
+	expectedInner := func(numReaders, segmentParallelism, requestedBudget int) int {
+		ctx := concurrency.CtxWithBudget(context.Background(), requestedBudget)
+		outer := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+		return max(1, outer/min(numReaders, segmentParallelism+1))
+	}
+
+	tests := []struct {
+		name               string
+		numReaders         int
+		segmentParallelism int
+		requestedBudget    int
+		expected           int
+	}{
+		{
+			name:               "budget of 1 always yields share of 1",
+			numReaders:         3,
+			segmentParallelism: 4,
+			requestedBudget:    1,
+			expected:           1,
+		},
+		{
+			name:               "share is outer budget over effective concurrency",
+			numReaders:         3,
+			segmentParallelism: 2,
+			requestedBudget:    6,
+			expected:           expectedInner(3, 2, 6),
+		},
+		{
+			name:               "effective concurrency capped by reader count",
+			numReaders:         2,
+			segmentParallelism: 8,
+			requestedBudget:    6,
+			expected:           expectedInner(2, 8, 6),
+		},
+		{
+			name:               "share floored at 1 when readers outnumber budget",
+			numReaders:         8,
+			segmentParallelism: 8,
+			requestedBudget:    2,
+			expected:           1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			readers := make([]InnerReader, tt.numReaders)
+			recorders := make([]*budgetRecordingReader, tt.numReaders)
+			for i := range readers {
+				recorders[i] = &budgetRecordingReader{}
+				readers[i] = recorders[i]
+			}
+			reader := NewCombinedReader(readers, noopRelease, tt.segmentParallelism, logger)
+
+			ctx := concurrency.CtxWithBudget(context.Background(), tt.requestedBudget)
+			_, release, err := reader.Read(ctx, 0, filters.OperatorGreaterThanEqual)
+			require.NoError(t, err)
+			release()
+
+			for i, rec := range recorders {
+				assert.Equalf(t, tt.expected, rec.seenBudget, "reader %d saw wrong budget share", i)
+			}
+		})
+	}
+
+	t.Run("single reader keeps the caller's full budget", func(t *testing.T) {
+		rec := &budgetRecordingReader{}
+		reader := NewCombinedReader([]InnerReader{rec}, noopRelease, 2, logger)
+
+		ctx := concurrency.CtxWithBudget(context.Background(), 5)
+		_, release, err := reader.Read(ctx, 0, filters.OperatorGreaterThanEqual)
+		require.NoError(t, err)
+		release()
+
+		assert.Equal(t, 5, rec.seenBudget)
+	})
+}
+
+// concurrencyTrackingReader tracks how many Reads run at once across all
+// instances sharing the same counters.
+type concurrencyTrackingReader struct {
+	current *atomic.Int32
+	peak    *atomic.Int32
+}
+
+func (r *concurrencyTrackingReader) Read(ctx context.Context, value uint64, operator filters.Operator,
+) (roaringset.BitmapLayer, func(), error) {
+	cur := r.current.Add(1)
+	for {
+		peak := r.peak.Load()
+		if cur <= peak || r.peak.CompareAndSwap(peak, cur) {
+			break
+		}
+	}
+	// keep the read alive long enough for parallel reads to overlap
+	time.Sleep(20 * time.Millisecond)
+	r.current.Add(-1)
+	return roaringset.BitmapLayer{
+		Additions: sroar.NewBitmap(),
+		Deletions: sroar.NewBitmap(),
+	}, noopRelease, nil
+}
+
+// TestCombinedReader_SegmentFanoutBoundByConcurrency pins that segment-level
+// fan-out is bound by the constructor's concurrency (not by the merge budget):
+// at most segmentParallelism readers in the error group plus the current
+// goroutine run at once, even with a merge budget of 1.
+func TestCombinedReader_SegmentFanoutBoundByConcurrency(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	const numReaders = 8
+	const segmentParallelism = 2
+
+	var current, peak atomic.Int32
+	readers := make([]InnerReader, numReaders)
+	for i := range readers {
+		readers[i] = &concurrencyTrackingReader{current: &current, peak: &peak}
+	}
+	reader := NewCombinedReader(readers, noopRelease, segmentParallelism, logger)
+
+	ctx := concurrency.CtxWithBudget(context.Background(), 1)
+	_, release, err := reader.Read(ctx, 0, filters.OperatorGreaterThanEqual)
+	require.NoError(t, err)
+	release()
+
+	assert.LessOrEqual(t, peak.Load(), int32(segmentParallelism+1),
+		"segment fan-out must be bound by constructor concurrency + current goroutine")
+	assert.GreaterOrEqual(t, peak.Load(), int32(2),
+		"a merge budget of 1 must not serialize segment reads")
 }
 
 func createTestMemtables(logger logrus.FieldLogger) (*Memtable, *Memtable, *Memtable) {
