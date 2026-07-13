@@ -339,6 +339,13 @@ type ShardDifferenceReader struct {
 	RangeReader       hashtree.AggregatedHashTreeRangeReader
 }
 
+// localReadRoutingPlan resolves shardName's replicas from local schema only: no leader query, no implicit tenant activation. All async-replication resolution must use this.
+func (f *Finder) localReadRoutingPlan(shardName string) (types.ReadRoutingPlan, error) {
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	options.LocalOnly = true
+	return f.router.BuildReadRoutingPlan(options)
+}
+
 // CollectShardDifferences collects the differences between the local node and the target nodes.
 // It returns a ShardDifferenceReader that contains the differences and the target node name/address.
 // If no differences are found, it returns ErrNoDiffFound.
@@ -348,8 +355,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
-	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
-	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
@@ -495,8 +501,7 @@ func (f *Finder) CompareDigests(ctx context.Context,
 // targetHostAddrsForShard resolves a shard's remote replica host addresses
 // (excluding the local node), mirroring CollectShardDifferences.
 func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
-	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
-	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
@@ -699,8 +704,7 @@ type AsyncCheckpointShardStatus struct {
 }
 
 func (f *Finder) remoteReplicaHosts(shardName string) (names []string, addrs []string) {
-	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
-	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, nil
 	}
