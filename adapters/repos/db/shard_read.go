@@ -222,7 +222,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		return nil, fmt.Errorf("invalid final UUID %q: %w", finalUUID, err)
 	}
 
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+	// Digest mode: only the header is read below, so skip the full value copy.
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -278,7 +279,8 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	cursor := bucket.Cursor()
+	// Digest mode: only the header is read below (localTime), skip the full value.
+	cursor := bucket.CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	firstUUID, err := uuid.Parse(sourceDigests[0].ID)

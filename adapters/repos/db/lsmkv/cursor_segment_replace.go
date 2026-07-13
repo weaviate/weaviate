@@ -293,6 +293,9 @@ type segmentCursorReplaceReusable struct {
 	currOffset   uint64
 	reusableNode segmentReplaceNode
 	reusableBORW byteops.ReadWriter
+	// valuePrefixLen > 0 enables digest mode: retain only that many value bytes.
+	// 0 means full-value parsing.
+	valuePrefixLen int
 	// pread-path: pre-allocated reader chain reused across all node reads to
 	// avoid allocating a MeteredReader+SectionReader+nodeReader per iteration.
 	preadOffset *offsetReader
@@ -300,6 +303,16 @@ type segmentCursorReplaceReusable struct {
 }
 
 func (s *segment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
+	return s.newReplaceCursorReusableWithPrefix(0)
+}
+
+// newReplaceCursorDigestReusable returns a reusable cursor in digest mode
+// (retains only the first valuePrefixLen bytes of each value).
+func (s *segment) newReplaceCursorDigestReusable(valuePrefixLen int) *segmentCursorReplaceReusable {
+	return s.newReplaceCursorReusableWithPrefix(valuePrefixLen)
+}
+
+func (s *segment) newReplaceCursorReusableWithPrefix(valuePrefixLen int) *segmentCursorReplaceReusable {
 	c := &segmentCursorReplaceReusable{
 		segment:    s,
 		currOffset: s.dataStartPos,
@@ -307,7 +320,8 @@ func (s *segment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
 			secondaryIndexCount: s.secondaryIndexCount,
 			secondaryKeys:       make([][]byte, s.secondaryIndexCount),
 		},
-		reusableBORW: byteops.NewReadWriter(nil),
+		reusableBORW:   byteops.NewReadWriter(nil),
+		valuePrefixLen: valuePrefixLen,
 	}
 	if !s.readFromMemory && s.contentFile != nil {
 		or := &offsetReader{ra: s.contentFile}
@@ -356,13 +370,21 @@ func (s *segmentCursorReplaceReusable) parseInto() (*segmentReplaceNode, error) 
 			return nil, lsmkv.NotFound
 		}
 		s.reusableBORW.ResetBuffer(buf)
-		if err := ParseReplaceNodeIntoMMAP(&s.reusableBORW, s.segment.secondaryIndexCount, &s.reusableNode); err != nil {
+		if s.valuePrefixLen > 0 {
+			if err := ParseReplaceNodeDigestIntoMMAP(&s.reusableBORW, s.segment.secondaryIndexCount, s.valuePrefixLen, &s.reusableNode); err != nil {
+				return &s.reusableNode, err
+			}
+		} else if err := ParseReplaceNodeIntoMMAP(&s.reusableBORW, s.segment.secondaryIndexCount, &s.reusableNode); err != nil {
 			return &s.reusableNode, err
 		}
 	} else {
 		s.preadOffset.off = int64(s.currOffset)
 		s.preadReader.Reset(s.preadOffset)
-		if err := ParseReplaceNodeIntoPread(s.preadReader, s.segment.secondaryIndexCount, &s.reusableNode); err != nil {
+		if s.valuePrefixLen > 0 {
+			if err := ParseReplaceNodeDigestIntoPread(s.preadReader, s.segment.secondaryIndexCount, s.valuePrefixLen, &s.reusableNode); err != nil {
+				return &s.reusableNode, err
+			}
+		} else if err := ParseReplaceNodeIntoPread(s.preadReader, s.segment.secondaryIndexCount, &s.reusableNode); err != nil {
 			return &s.reusableNode, err
 		}
 	}
@@ -406,11 +428,25 @@ func (r *reusableInnerCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 // newReusableCursors mirrors newCursors but uses reusable per-segment cursors,
 // avoiding the per-node reader allocations of the default pread path.
 func (sg *SegmentGroup) newReusableCursors() ([]innerCursorReplace, func()) {
+	return sg.newReusableCursorsWithPrefix(0)
+}
+
+// newDigestReusableCursors mirrors newReusableCursors but builds digest-mode
+// per-segment cursors (see segmentCursorReplaceReusable.valuePrefixLen).
+func (sg *SegmentGroup) newDigestReusableCursors(valuePrefixLen int) ([]innerCursorReplace, func()) {
+	return sg.newReusableCursorsWithPrefix(valuePrefixLen)
+}
+
+func (sg *SegmentGroup) newReusableCursorsWithPrefix(valuePrefixLen int) ([]innerCursorReplace, func()) {
 	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]innerCursorReplace, len(segments))
 	for i, segment := range segments {
-		out[i] = &reusableInnerCursorReplace{c: segment.newReplaceCursorReusable()}
+		if valuePrefixLen > 0 {
+			out[i] = &reusableInnerCursorReplace{c: segment.newReplaceCursorDigestReusable(valuePrefixLen)}
+		} else {
+			out[i] = &reusableInnerCursorReplace{c: segment.newReplaceCursorReusable()}
+		}
 	}
 
 	return out, release
