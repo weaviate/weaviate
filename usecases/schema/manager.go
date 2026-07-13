@@ -313,11 +313,13 @@ func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, te
 // leader-lookups and only fall back to the leader if the local result implies
 // an unhappy path.
 //
-// allowImplicitActivation decides whether the leader fallback may also activate a COLD
-// tenant (a RAFT write) when the collection has auto tenant activation enabled. Only pass
-// true when acting for an external user request: activation encodes the user's intent to
-// use the tenant. Internal, cluster-driven callers pass false, so that background work
-// cannot revive a tenant an operator deactivated.
+// All of the above applies to external user requests, which is what allowImplicitActivation
+// selects: only they need the leader fallback, which is also what activates a COLD tenant
+// under auto tenant activation.
+//
+// Internal callers pass false and stay local. They must not revive a tenant an operator
+// deactivated, and they need no leader lookup either: async replication runs on a loop, so a
+// stale local read just skips the tenant this cycle and the next one picks it up.
 func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string,
 	allowImplicitActivation bool,
 ) (map[string]string, error) {
@@ -337,19 +339,20 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 		return nil, err
 	}
 
-	if !foundTenant || status != models.TenantActivityStatusHOT {
-		// either no state at all or state does not imply happy path -> delegate to
-		// leader
-		if !allowImplicitActivation {
-			// TenantsStatus asks the leader without the activation side effect.
-			return m.TenantsStatus(class, tenant)
-		}
-		return m.TenantsShards(ctx, class, tenant)
+	if foundTenant && status == models.TenantActivityStatusHOT {
+		return map[string]string{tenant: status}, nil
 	}
 
-	return map[string]string{
-		tenant: status,
-	}, nil
+	// No state at all, or state does not imply the happy path.
+	if !allowImplicitActivation {
+		if !foundTenant {
+			// An empty map reads as "tenant not found" to the caller.
+			return map[string]string{}, nil
+		}
+		return map[string]string{tenant: status}, nil
+	}
+
+	return m.TenantsShards(ctx, class, tenant)
 }
 
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,

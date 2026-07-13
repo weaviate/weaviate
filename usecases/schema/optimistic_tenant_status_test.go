@@ -53,9 +53,9 @@ func (a *activationSpySM) UpdateTenants(_ context.Context, _ string, _ *command.
 //
 // Auto tenant activation encodes a user's intent: a request arrived for this tenant, so make
 // it HOT. The leader fallback therefore activates a COLD tenant, which is right for external
-// requests — reads as well as writes. Internal work carries no such intent, and must not
-// revive a tenant an operator deactivated; with allowImplicitActivation=false it gets the same
-// leader-checked status (so still no false negatives) without the RAFT write.
+// requests — reads as well as writes. Internal work carries no such intent: with
+// allowImplicitActivation=false the lookup stays local, so it can neither revive a tenant an
+// operator deactivated nor pay for a leader query on every background cycle.
 func TestOptimisticTenantStatus_ImplicitActivation(t *testing.T) {
 	const (
 		className  = "TestClass"
@@ -111,24 +111,36 @@ func TestOptimisticTenantStatus_ImplicitActivation(t *testing.T) {
 		},
 		{
 			// The bug this prevents: a background async-replication cycle reaching a COLD
-			// tenant must NOT turn it back on, even with auto activation set.
+			// tenant must NOT turn it back on, even with auto activation set. It stays local:
+			// no leader query, and above all no activating RAFT write.
 			name:            "internal caller: COLD tenant is never activated",
 			localStatus:     models.TenantActivityStatusCOLD,
 			autoActivation:  true,
 			leaderStatus:    models.TenantActivityStatusCOLD,
 			wantStatus:      models.TenantActivityStatusCOLD,
-			wantLeaderQuery: true,
+			wantLeaderQuery: false,
 			wantActivation:  false,
 		},
 		{
-			// ...while still double-checking with the leader, so a tenant that is really HOT is
-			// never reported COLD off a stale local read (no false negatives).
-			name:            "internal caller: still consults the leader, no false negative",
+			// A stale local read is fine here even though the leader would say otherwise:
+			// internal work runs on a loop, so it just skips the tenant and the next cycle
+			// picks it up. Cheaper than a leader query per shard per cycle.
+			name:            "internal caller: stale local state is used as-is, no leader query",
 			localStatus:     models.TenantActivityStatusCOLD,
 			autoActivation:  true,
 			leaderStatus:    models.TenantActivityStatusHOT,
-			wantStatus:      models.TenantActivityStatusHOT,
-			wantLeaderQuery: true,
+			wantStatus:      models.TenantActivityStatusCOLD,
+			wantLeaderQuery: false,
+			wantActivation:  false,
+		},
+		{
+			// Tenant not in the local schema at all: reported as absent, still no leader query.
+			name:            "internal caller: unknown tenant is absent, no leader query",
+			localStatus:     "",
+			autoActivation:  true,
+			leaderStatus:    models.TenantActivityStatusHOT,
+			wantStatus:      "",
+			wantLeaderQuery: false,
 			wantActivation:  false,
 		},
 		{

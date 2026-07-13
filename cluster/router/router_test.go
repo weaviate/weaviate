@@ -2063,9 +2063,9 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_AllShards(t *testing.T) {
 // as a side effect of asking where its shard lives.
 //
 // Resolving replicas requires a tenant status check, which under auto tenant activation turns
-// a COLD tenant HOT via a RAFT write. That is right for an external request and wrong for
-// internal work: async replication must not revive a tenant an operator deactivated. The
-// router must forward the caller's AllowTenantActivation to the lookup, unchanged.
+// a COLD tenant HOT via a RAFT write. Right for an external request, wrong for internal work:
+// async replication must not revive a tenant an operator deactivated. So the router must
+// forward the caller's AllowTenantActivation to the lookup, unchanged.
 func TestMultiTenantRouter_BuildReadRoutingPlan_TenantActivation(t *testing.T) {
 	const (
 		collection = "TestClass"
@@ -2077,18 +2077,14 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_TenantActivation(t *testing.T) {
 		// allowTenantActivation is what the caller declares: true for external request paths,
 		// false (the zero value) for internal ones such as async replication.
 		allowTenantActivation bool
-		// wantActivatingLookup is the status lookup the router must use as a result.
-		wantActivatingLookup bool
 	}{
 		{
 			name:                  "external request may activate the tenant",
 			allowTenantActivation: true,
-			wantActivatingLookup:  true,
 		},
 		{
 			name:                  "internal caller must not activate the tenant",
 			allowTenantActivation: false,
-			wantActivatingLookup:  false,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2097,11 +2093,10 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_TenantActivation(t *testing.T) {
 			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
 			mockNodeSelector := mocks.NewMockNodeSelector("node1")
 
-			// The router must forward the caller.s intent verbatim: registering the expectation
-			// on the exact bool means the wrong one fails the test.
+			// Expecting the exact bool is the assertion: forwarding the wrong one fails here.
 			status := map[string]string{tenant: models.TenantActivityStatusHOT}
 			mockSchemaGetter.EXPECT().
-				OptimisticTenantStatus(mock.Anything, collection, tenant, tt.wantActivatingLookup).
+				OptimisticTenantStatus(mock.Anything, collection, tenant, tt.allowTenantActivation).
 				Return(status, nil).Once()
 
 			mockSchemaReader.EXPECT().ShardReplicas(collection, tenant).Return([]string{"node1"}, nil)
@@ -2145,8 +2140,7 @@ func TestMultiTenantRouter_RoutingPlanOptions_DoNotActivateByDefault(t *testing.
 	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
 	mockNodeSelector := mocks.NewMockNodeSelector("node1")
 
-	// Expect the lookup to be told NOT to activate. If the router activates on options that
-	// never opted in, the mock fails the test.
+	// The lookup must be told not to activate; activating on options that never opted in fails.
 	mockSchemaGetter.EXPECT().
 		OptimisticTenantStatus(mock.Anything, collection, tenant, false).
 		Return(map[string]string{tenant: models.TenantActivityStatusHOT}, nil).Once()
@@ -2159,7 +2153,7 @@ func TestMultiTenantRouter_RoutingPlanOptions_DoNotActivateByDefault(t *testing.
 		collection, true, mockNodeSelector, mockSchemaGetter, mockSchemaReader, mockReplicationFSM,
 	).Build()
 
-	// Options built the way the async-replication paths build them: no activation opt-in.
+	// Options built the way the async-replication paths build them: no opt-in.
 	options := r.BuildRoutingPlanOptions(tenant, tenant, types.ConsistencyLevelOne, "")
 	require.False(t, options.AllowTenantActivation,
 		"BuildRoutingPlanOptions must not opt into tenant activation on the caller's behalf")

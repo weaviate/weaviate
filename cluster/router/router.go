@@ -437,8 +437,7 @@ func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tena
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
 
-	// Combined read+write lookup, only used to serve an external request, so auto tenant
-	// activation applies.
+	// Serves an external request, so auto tenant activation applies.
 	readReplicas, err := r.getReadReplicasLocation(collection, tenant, shard, true)
 	if err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
@@ -477,9 +476,9 @@ func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant st
 
 // getReadReplicasLocation returns only read replicas for multi-tenant collections.
 //
-// allowTenantActivation lets the tenant status lookup activate a COLD tenant under auto
-// tenant activation. Only callers acting for an external request pass true; internal ones
-// must not revive a tenant just by asking where its shard lives.
+// allowTenantActivation lets the status lookup activate a COLD tenant under auto tenant
+// activation. Only callers acting for an external request pass true; internal ones must not
+// revive a tenant just by asking where its shard lives.
 func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, shard string, allowTenantActivation bool) (types.ReadReplicaSet, error) {
 	tenantStatus, err := r.schemaGetter.OptimisticTenantStatus(context.TODO(), collection, tenant, allowTenantActivation)
 	if err != nil {
@@ -503,9 +502,9 @@ func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, s
 
 // getWriteReplicasLocation returns only write replicas for multi-tenant collections.
 //
-// Writes only reach the router on the node serving an external request; replicated writes
-// from a peer land on the Incoming* path, which never consults the router. So auto tenant
-// activation always applies here.
+// Writes only reach the router on the node serving an external request — replicated writes
+// from a peer land on the Incoming* path, which never consults the router — so auto tenant
+// activation always applies.
 func (r *multiTenantRouter) getWriteReplicasLocation(collection string, tenant, shard string) (types.WriteReplicaSet, error) {
 	tenantStatus, err := r.schemaGetter.OptimisticTenantStatus(context.TODO(), collection, tenant, true)
 	if err != nil {
@@ -589,10 +588,6 @@ func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOp
 }
 
 // buildReadRoutingPlan constructs a read routing plan for multi-tenant collections.
-//
-// Whether an inactive tenant may be activated as a side effect is the caller's call, declared
-// via params.AllowTenantActivation. It defaults to false, so internal callers (async
-// replication) never activate unless they explicitly ask to.
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
 	readReplicas, err := r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard, params.AllowTenantActivation)
 	if err != nil {
