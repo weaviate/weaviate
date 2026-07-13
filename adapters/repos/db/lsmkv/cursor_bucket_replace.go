@@ -124,6 +124,37 @@ func (b *Bucket) CursorReplaceReusable() *CursorReplace {
 	}
 }
 
+// CursorReplaceDigestReusable behaves like CursorReplaceReusable but its disk
+// cursors run in digest mode, retaining only the first valuePrefixLen value
+// bytes (memtable entries are still served in full, being already in memory).
+func (b *Bucket) CursorReplaceDigestReusable(valuePrefixLen int) *CursorReplace {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
+	cursorOpenedAt := time.Now()
+	b.metrics.IncBucketOpenedCursorsByStrategy(b.strategy)
+	b.metrics.IncBucketOpenCursorsByStrategy(b.strategy)
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	innerCursors, unlockSegmentGroup := b.disk.newDigestReusableCursors(valuePrefixLen)
+
+	if b.flushing != nil {
+		innerCursors = append(innerCursors, b.flushing.newCursor())
+	}
+	innerCursors = append(innerCursors, b.active.newCursor())
+
+	return &CursorReplace{
+		innerCursors: innerCursors,
+		unlock: func() {
+			unlockSegmentGroup()
+
+			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
+		},
+	}
+}
+
 // CursorInMemWith returns a cursor which scan over the primary key of entries
 // not yet persisted on disk.
 // Segment creation and compaction will be blocked until the cursor is closed
@@ -169,6 +200,19 @@ func (b *Bucket) CursorOnDisk() *CursorReplace {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
 	innerCursors, unlockSegmentGroup := b.disk.newCursors()
+
+	return &CursorReplace{
+		innerCursors: innerCursors,
+		unlock:       unlockSegmentGroup,
+	}
+}
+
+// CursorOnDiskDigest behaves like CursorOnDisk but its disk cursors run in
+// digest mode (see CursorReplaceDigestReusable) over reusable per-segment cursors.
+func (b *Bucket) CursorOnDiskDigest(valuePrefixLen int) *CursorReplace {
+	MustBeExpectedStrategy(b.strategy, StrategyReplace)
+
+	innerCursors, unlockSegmentGroup := b.disk.newDigestReusableCursors(valuePrefixLen)
 
 	return &CursorReplace{
 		innerCursors: innerCursors,

@@ -269,6 +269,11 @@ func (s *lazySegment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
 	return s.segment.newReplaceCursorReusable()
 }
 
+func (s *lazySegment) newReplaceCursorDigestReusable(valuePrefixLen int) *segmentCursorReplaceReusable {
+	s.mustLoad()
+	return s.segment.newReplaceCursorDigestReusable(valuePrefixLen)
+}
+
 func (s *lazySegment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 	s.mustLoad()
 	return s.segment.newCursorWithSecondaryIndex(pos)

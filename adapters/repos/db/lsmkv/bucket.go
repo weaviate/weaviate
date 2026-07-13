@@ -516,7 +516,8 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 
 		// created under the in-mem cursor's flush lock, so it is consistent with the
 		// memtable view: no flush can run between the two snapshots.
-		onDiskCursor = b.CursorOnDisk()
+		// Digest mode: only the header is read below, so skip the full value copy.
+		onDiskCursor = b.CursorOnDiskDigest(storobj.MarshallerV1HeaderLen)
 
 		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {
 			select {
