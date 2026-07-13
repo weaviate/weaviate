@@ -64,6 +64,33 @@ func TestVectors(t *testing.T) {
 			},
 			expErr: true,
 		},
+		"dropped named vector target is rejected": {
+			// The receiving node must reject dropped targets itself: the
+			// shard-level reject runs on the owner, whose schema view can trail
+			// during finalize propagation.
+			class: &models.Class{
+				VectorConfig: map[string]models.VectorConfig{
+					"first":   {VectorIndexType: "hnsw"},
+					"dropped": {VectorIndexType: "none"},
+				},
+			},
+			obj: &models.Object{
+				Vectors: models.Vectors{"dropped": []float32{1, 2, 3}},
+			},
+			expErr: true,
+		},
+		"live sibling of a dropped vector is accepted": {
+			class: &models.Class{
+				VectorConfig: map[string]models.VectorConfig{
+					"first":   {VectorIndexType: "hnsw"},
+					"dropped": {VectorIndexType: "none"},
+				},
+			},
+			obj: &models.Object{
+				Vectors: models.Vectors{"first": []float32{1, 2, 3}},
+			},
+			expErr: false,
+		},
 		"non existent named vectors": {
 			class: &models.Class{
 				VectorConfig: map[string]models.VectorConfig{"first": {}, "second": {}},
