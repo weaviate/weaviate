@@ -16,11 +16,13 @@ import (
 	"errors"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -447,4 +449,318 @@ func countMultiCached(c *shardedMultipleLockCache[float32]) int {
 		}
 	}
 	return count
+}
+
+// countingFetcher returns a deterministic vector for any id ([]T{T(id)}) and
+// counts how often the cache had to fall back to it.
+func countingFetcher[T float32 | byte | uint64]() (common.VectorForID[T], *int64) {
+	var calls int64
+	return func(_ context.Context, id uint64) ([]T, error) {
+		atomic.AddInt64(&calls, 1)
+		return []T{T(id)}, nil
+	}, &calls
+}
+
+// stripeCountOf gives white-box access to the lock stripe count of a
+// shardedLockCache so tests can assert on lazy allocation and re-striping.
+// It is 0 until the stripes are allocated on first use.
+func stripeCountOf[T float32 | byte | uint64](t *testing.T, c Cache[T]) uint64 {
+	t.Helper()
+	s, ok := c.(*shardedLockCache[T])
+	require.True(t, ok, "expected *shardedLockCache")
+	return s.shardedLocks.Count()
+}
+
+func newLazyTestCache[T float32 | byte | uint64](t *testing.T, fetch common.VectorForID[T]) Cache[T] {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	switch any(*new(T)).(type) {
+	case float32:
+		f := any(fetch).(common.VectorForID[float32])
+		return any(NewShardedFloat32LockCache(f, nil, 1_000_000, 1, logger, false, 0, nil)).(Cache[T])
+	case byte:
+		f := any(fetch).(common.VectorForID[byte])
+		return any(NewShardedByteLockCache(f, 1_000_000, 1, logger, 0, nil)).(Cache[T])
+	case uint64:
+		f := any(fetch).(common.VectorForID[uint64])
+		return any(NewShardedUInt64LockCache(f, 1_000_000, 1, logger, 0, nil)).(Cache[T])
+	}
+	t.Fatal("unsupported type")
+	return nil
+}
+
+func testLazyAllocation[T float32 | byte | uint64](t *testing.T) {
+	fetch, calls := countingFetcher[T]()
+	c := newLazyTestCache[T](t, fetch)
+
+	// a fresh cache must not allocate its backing slice or its lock stripes
+	assert.EqualValues(t, 0, c.Len(), "fresh cache must have length 0")
+	assert.EqualValues(t, 0, c.CountVectors())
+	assert.Nil(t, c.All(), "fresh cache must not allocate the backing slice")
+	assert.EqualValues(t, 0, stripeCountOf(t, c), "fresh cache must not allocate lock stripes")
+
+	// first Get initializes on demand and serves the vector
+	vec, err := c.Get(context.Background(), 42)
+	require.NoError(t, err)
+	assert.Equal(t, []T{T(42)}, vec)
+	assert.EqualValues(t, 1, atomic.LoadInt64(calls))
+
+	// the cache grew relative to the requested id, not by a fixed 2000 jump
+	assert.Greater(t, c.Len(), int32(42))
+	assert.LessOrEqual(t, c.Len(), int32(100), "small first use must not allocate a large slice")
+
+	assert.EqualValues(t, 8, stripeCountOf(t, c), "small cache must use a small stripe count")
+
+	// second Get is served from cache
+	vec, err = c.Get(context.Background(), 42)
+	require.NoError(t, err)
+	assert.Equal(t, []T{T(42)}, vec)
+	assert.EqualValues(t, 1, atomic.LoadInt64(calls), "second Get must hit the cache")
+}
+
+func TestShardedLockCache_LazyAllocation(t *testing.T) {
+	t.Run("float32", testLazyAllocation[float32])
+	t.Run("byte", testLazyAllocation[byte])
+	t.Run("uint64", testLazyAllocation[uint64])
+}
+
+func TestShardedLockCache_GrowSizing(t *testing.T) {
+	fetch, _ := countingFetcher[float32]()
+	c := newLazyTestCache[float32](t, fetch)
+
+	c.Grow(10)
+	assert.Greater(t, c.Len(), int32(10))
+	assert.LessOrEqual(t, c.Len(), int32(50), "growing to a small id must stay small")
+	small := c.Len()
+
+	// mid-size caches get a stripe count proportional to their size:
+	// Grow(2000) yields ~2500 slots, one stripe per 64 slots → 64 stripes
+	c.Grow(2000)
+	assert.EqualValues(t, 64, stripeCountOf(t, c),
+		"mid-size cache must use a proportional stripe count")
+
+	// large caches keep the fixed growth headroom and the full stripe count
+	c.Grow(100_000)
+	assert.Greater(t, c.Len(), int32(100_000))
+	assert.LessOrEqual(t, c.Len(), int32(100_000+MinimumIndexGrowthDelta))
+	assert.EqualValues(t, common.DefaultShardedLocksCount, stripeCountOf(t, c),
+		"large cache must use the full stripe count")
+
+	// growing never shrinks
+	c.Grow(10)
+	assert.Greater(t, c.Len(), small)
+}
+
+func TestShardedLockCache_OpsOnFreshCache(t *testing.T) {
+	fetch, calls := countingFetcher[float32]()
+	c := newLazyTestCache[float32](t, fetch)
+
+	// none of these must panic on an untouched cache, and they must allocate
+	// at most the minimal stripe set (never the backing slice)
+	c.Delete(context.Background(), 7)
+	c.Prefetch(7)
+	assert.EqualValues(t, 0, c.CountVectors())
+	assert.EqualValues(t, 0, c.Len(), "read-only ops must not allocate the backing slice")
+	assert.LessOrEqual(t, stripeCountOf(t, c), uint64(initialShardedLocksCount),
+		"read-only ops must allocate at most the minimal stripe set")
+
+	// MultiGet on a fresh cache must fetch and cache the vectors
+	vecs, errs := c.MultiGet(context.Background(), []uint64{5, 10})
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	require.Len(t, vecs, 2)
+	assert.Equal(t, []float32{5}, vecs[0])
+	assert.Equal(t, []float32{10}, vecs[1])
+	assert.EqualValues(t, 2, atomic.LoadInt64(calls))
+
+	c.Drop()
+}
+
+func TestShardedLockCache_GetAllInCurrentLockOnFreshCache(t *testing.T) {
+	t.Run("default max size does not fetch through", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		fetch, calls := countingFetcher[uint64]()
+		c := NewShardedUInt64LockCache(fetch, int(defaultCacheMaxSize), 1, logger, 0, nil)
+
+		out := make([][]uint64, 1)
+		errs := make([]error, 1)
+		_, _, _, end := c.GetAllInCurrentLock(context.Background(), 3, out, errs)
+		assert.EqualValues(t, 0, end, "fresh cache has nothing in range")
+		assert.EqualValues(t, 0, atomic.LoadInt64(calls))
+	})
+
+	t.Run("altered max size does not fetch through either", func(t *testing.T) {
+		// fetch-through only applies to pages within the current window;
+		// iterating never grows the cache as a side effect
+		fetch, calls := countingFetcher[uint64]()
+		c := newLazyTestCache[uint64](t, fetch)
+
+		out := make([][]uint64, 1)
+		errs := make([]error, 1)
+		_, _, _, end := c.GetAllInCurrentLock(context.Background(), 3, out, errs)
+		assert.EqualValues(t, 0, end, "fresh cache has nothing in range")
+		assert.EqualValues(t, 0, atomic.LoadInt64(calls))
+	})
+}
+
+func TestShardedLockCache_PreloadGrowsCache(t *testing.T) {
+	fetch, calls := countingFetcher[float32]()
+	c := newLazyTestCache[float32](t, fetch)
+
+	// Preload without a prior Grow must work for any id: HNSW's insert path
+	// preloads freshly assigned node ids without growing the cache first.
+	c.Preload(500, []float32{500})
+	c.Preload(5000, []float32{5000})
+
+	vec, err := c.Get(context.Background(), 500)
+	require.NoError(t, err)
+	assert.Equal(t, []float32{500}, vec)
+	vec, err = c.Get(context.Background(), 5000)
+	require.NoError(t, err)
+	assert.Equal(t, []float32{5000}, vec)
+	assert.EqualValues(t, 0, atomic.LoadInt64(calls), "preloaded vectors must not hit the fetcher")
+	assert.EqualValues(t, 2, c.CountVectors())
+}
+
+func TestShardedLockCache_LockAllPreloadFlow(t *testing.T) {
+	// mirrors the flat index PostStartup preload sequence
+	fetch, calls := countingFetcher[uint64]()
+	c := newLazyTestCache[uint64](t, fetch)
+
+	const maxID = 300
+	c.Grow(maxID)
+	c.LockAll()
+	c.SetSizeAndGrowNoLock(maxID)
+	for i := uint64(0); i <= maxID; i++ {
+		c.PreloadNoLock(i, []uint64{i})
+	}
+	c.UnlockAll()
+
+	for _, id := range []uint64{0, 150, maxID} {
+		vec, err := c.Get(context.Background(), id)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{id}, vec)
+	}
+	assert.EqualValues(t, 0, atomic.LoadInt64(calls), "preloaded vectors must not hit the fetcher")
+}
+
+func TestShardedLockCache_LockAllOnFreshCache(t *testing.T) {
+	// LockAll on an untouched cache must initialize the locks so the
+	// LockAll/PreloadNoLock/UnlockAll contract holds even without a prior Grow
+	fetch, _ := countingFetcher[byte]()
+	c := newLazyTestCache[byte](t, fetch)
+
+	c.LockAll()
+	c.SetSizeAndGrowNoLock(50)
+	c.PreloadNoLock(50, []byte{50})
+	c.UnlockAll()
+
+	vec, err := c.Get(context.Background(), 50)
+	require.NoError(t, err)
+	assert.Equal(t, []byte{50}, vec)
+}
+
+func TestShardedLockCache_ConcurrentLazyInit(t *testing.T) {
+	// hammer a fresh cache from many goroutines so the nil→initialized
+	// transition and the stripe upgrade both happen under contention
+	fetch, _ := countingFetcher[float32]()
+	c := newLazyTestCache[float32](t, fetch)
+
+	const (
+		goroutines = 16
+		maxID      = 5000 // crosses the stripe upgrade threshold
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := 0; g < goroutines; g++ {
+		go func(seed uint64) {
+			defer wg.Done()
+			for i := uint64(0); i < 500; i++ {
+				id := (seed*131 + i*7) % maxID
+				switch i % 5 {
+				case 0:
+					c.Grow(id)
+				case 1:
+					c.Preload(id, []float32{float32(id)})
+				case 2:
+					vec, err := c.Get(context.Background(), id)
+					if err == nil && len(vec) == 1 && vec[0] != float32(id) {
+						t.Errorf("id %d: got %v", id, vec[0])
+					}
+				case 3:
+					c.Delete(context.Background(), id)
+				case 4:
+					c.Len()
+					c.CountVectors()
+				}
+			}
+		}(uint64(g))
+	}
+	wg.Wait()
+
+	// after the dust settles every id must resolve correctly
+	for _, id := range []uint64{0, 1, 2500, maxID - 1} {
+		vec, err := c.Get(context.Background(), id)
+		require.NoError(t, err)
+		assert.Equal(t, []float32{float32(id)}, vec)
+	}
+	// the cache grew to cover ids up to ~5000 (5000..6250 slots depending on
+	// interleaving), which at one stripe per 64 slots quantizes to 128
+	assert.EqualValues(t, 128, stripeCountOf(t, c),
+		"cache must have re-striped proportionally to its size")
+}
+
+func TestShardedLockCache_ReadersDuringReStripe(t *testing.T) {
+	// readers on low ids while a grower pushes the cache past the stripe
+	// upgrade threshold: reads must stay correct through the lock swap
+	fetch, _ := countingFetcher[float32]()
+	c := newLazyTestCache[float32](t, fetch)
+
+	for i := uint64(0); i < 100; i++ {
+		c.Preload(i, []float32{float32(i)})
+	}
+	require.EqualValues(t, 8, stripeCountOf(t, c))
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(seed uint64) {
+			defer wg.Done()
+			for i := uint64(0); ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				id := (seed + i) % 100
+				vec, err := c.Get(context.Background(), id)
+				if err != nil {
+					t.Errorf("get %d: %v", id, err)
+					return
+				}
+				if len(vec) != 1 || vec[0] != float32(id) {
+					t.Errorf("get %d: wrong vector %v", id, vec)
+					return
+				}
+			}
+		}(uint64(g))
+	}
+
+	// force re-striping while readers are active
+	for step := uint64(1000); step <= 20_000; step += 1000 {
+		c.Grow(step)
+	}
+	close(stop)
+	wg.Wait()
+
+	assert.EqualValues(t, common.DefaultShardedLocksCount, stripeCountOf(t, c))
+}
+
+func TestShardedLockCache_PageSizeOnFreshCache(t *testing.T) {
+	fetch, _ := countingFetcher[uint64]()
+	c := newLazyTestCache[uint64](t, fetch)
+	assert.EqualValues(t, 1, c.PageSize(), "PageSize must work before the locks are allocated")
 }
