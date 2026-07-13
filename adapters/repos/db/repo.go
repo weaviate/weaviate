@@ -466,12 +466,13 @@ type Config struct {
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 	ObjectsTTLConcurrencyFactor         *configRuntime.DynamicValue[float64]
 
-	HNSWMaxLogSize            int64
-	HNSWWaitForCachePrefill   bool
-	HNSWFlatSearchConcurrency int
-	HNSWAcornFilterRatio      float64
-	HNSWGeoIndexEF            int
-	VisitedListPoolMaxSize    int
+	HNSWMaxLogSize               int64
+	HNSWWaitForCachePrefill      bool
+	HNSWFlatSearchConcurrency    int
+	HNSWAcornFilterRatio         float64
+	HNSWGeoIndexEF               int
+	VisitedListPoolMaxSize       int
+	BM25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]
 
 	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
 	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]
