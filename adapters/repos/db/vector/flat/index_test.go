@@ -1948,6 +1948,11 @@ func Test_NoRace_Flat_SearchAfterPartialCacheWarmup(t *testing.T) {
 	require.Greater(t, window, int32(0), "the distancer call must have warmed the cache")
 	require.Less(t, window, int32(100), "vector 100 must lie beyond the warmed window")
 
+	// a valid id beyond the partially warmed window must be fetched from
+	// disk, not rejected by the cache window guard
+	_, err = qvd.DistanceToNode(100)
+	require.NoError(t, err, "valid ids beyond an incomplete cache window must fall back to disk")
+
 	// a search must not trust the partially warmed cache window: it must
 	// return the complete result set from the store
 	ids, _, err := index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
@@ -1962,4 +1967,48 @@ func Test_NoRace_Flat_SearchAfterPartialCacheWarmup(t *testing.T) {
 	ids, _, err = index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []uint64{0, 1, 2, 100}, ids)
+}
+
+func Test_NoRace_Flat_RQ1DistancerOnPartialCacheWarmup(t *testing.T) {
+	// same scenario as the BQ variant above, for the RQ-1 distancer branch
+	// which has its own cache window guard
+	dirName := t.TempDir()
+	ctx := context.Background()
+
+	store := loadTestStore(t, dirName)
+	index, err := New(Config{
+		ID:                "lazy-cache-rq1-test",
+		RootPath:          dirName,
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, flatent.UserConfig{
+		RQ: flatent.RQUserConfig{Enabled: true, Cache: true, RescoreLimit: 10},
+	}, store)
+	require.NoError(t, err)
+	require.NoError(t, index.Add(ctx, 2, []float32{0.5, 0.5, 0.5}))
+	require.NoError(t, index.Add(ctx, 100, []float32{1, 0.5, 0}))
+	require.NoError(t, index.Shutdown(ctx))
+	require.NoError(t, store.Shutdown(ctx))
+
+	store = loadTestStore(t, dirName)
+	defer store.Shutdown(ctx)
+	index, err = New(Config{
+		ID:                "lazy-cache-rq1-test",
+		RootPath:          dirName,
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, flatent.UserConfig{
+		RQ: flatent.RQUserConfig{Enabled: true, Cache: true, RescoreLimit: 10},
+	}, store)
+	require.NoError(t, err)
+	defer index.Shutdown(ctx)
+	require.EqualValues(t, 0, index.cache.Len())
+
+	// warm a partial window, then request a valid id beyond it
+	qvd := index.QueryVectorDistancer([]float32{1, 0, 0})
+	_, err = qvd.DistanceToNode(2)
+	require.NoError(t, err)
+	require.Less(t, index.cache.Len(), int32(100), "vector 100 must lie beyond the warmed window")
+	_, err = qvd.DistanceToNode(100)
+	require.NoError(t, err, "valid ids beyond an incomplete cache window must fall back to disk")
 }
