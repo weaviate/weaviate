@@ -663,6 +663,8 @@ func (m *Memtable) writeWAL() error {
 	return m.commitlog.flushBuffers()
 }
 
+// ReadOnlyTombstones returns a shared, immutable snapshot of the memtable's tombstones.
+// Returned bitmap must not be mutated: concurrent readers hold the same instance.
 func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	if err := m.checkStrategy(StrategyInverted); err != nil {
 		return nil, fmt.Errorf("Memtable::ReadOnlyTombstones(): %w", err)
