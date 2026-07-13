@@ -484,7 +484,10 @@ func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32
 
 	vector = index.normalized(vector)
 
-	if index.Compressed() && index.Cached() {
+	// the cached search iterates the cache window, which is complete only
+	// once the startup preload (or insert-time preloading) populated it; a
+	// cold cache (length 0, allocated lazily) must search the store instead
+	if index.Compressed() && index.Cached() && index.cache.Len() > 0 {
 		if err := index.findTopVectorsQuantizedCached(heap, allow, rescore, vector); err != nil {
 			return nil, nil, err
 		}
@@ -1011,7 +1014,15 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 	}
 
-	// Grow cache just once
+	if count == 0 {
+		// nothing on disk: don't allocate the cache for an empty tenant
+		return
+	}
+
+	// Grow cache just once. Growing before LockAll also sizes the cache's
+	// lock stripes to the actual tenant size; SetSizeAndGrowNoLock below then
+	// only records the count.
+	index.cache.Grow(maxID)
 	index.cache.LockAll()
 	defer index.cache.UnlockAll()
 
@@ -1223,8 +1234,10 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				// Create a distancer that uses 5-bit query quantization
 				distancer := index.quantizer.(*BinaryRotationalQuantizerWrapper).NewDistancer(queryVector)
 				distFunc = func(nodeID uint64) (float32, error) {
-					if int32(nodeID) > index.cache.Len() {
-						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
+					// a cache of size 0 hasn't been preloaded yet (it is
+					// allocated lazily); Get below falls back to disk then
+					if cacheLen := index.cache.Len(); cacheLen > 0 && int32(nodeID) > cacheLen {
+						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
 					if err != nil {
@@ -1244,8 +1257,10 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				}
 
 				distFunc = func(nodeID uint64) (float32, error) {
-					if int32(nodeID) > index.cache.Len() {
-						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.cache.Len())
+					// a cache of size 0 hasn't been preloaded yet (it is
+					// allocated lazily); Get below falls back to disk then
+					if cacheLen := index.cache.Len(); cacheLen > 0 && int32(nodeID) > cacheLen {
+						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					if index.quantizer.Type() == Uint64Quantizer {
 						vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
