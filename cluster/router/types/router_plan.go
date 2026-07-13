@@ -34,10 +34,8 @@ type RoutingPlanBuildOptions struct {
 	ConsistencyLevel    ConsistencyLevel
 	DirectCandidateNode string
 
-	// AllowTenantActivation states that this plan serves an external request, and so may
-	// activate a COLD tenant under auto tenant activation. Internal callers must leave it off:
-	// async replication would otherwise revive a tenant an operator deactivated. The zero value
-	// does not activate, so a caller who forgets it fails to route rather than reviving one.
+	//AllowTenantActivation if set to true, it will activate a COLD tenant under auto tenant activation.
+	// Rule of thumb: only set to true if the plan serves an external request.
 	AllowTenantActivation bool
 }
 

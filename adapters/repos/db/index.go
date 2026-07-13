@@ -3954,10 +3954,6 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 	return true, nil
 }
 
-// buildReadRoutingPlan builds the read plan for search, aggregate and findUUIDs. These serve
-// an external request, so auto tenant activation applies: querying a COLD tenant activates it.
-// Peer-to-peer reads never get here; they land on the Incoming* methods, which resolve the
-// shard directly without the router.
 func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {
 	planOptions := routerTypes.RoutingPlanBuildOptions{
 		Tenant:                tenantName,

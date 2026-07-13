@@ -68,8 +68,9 @@ type SchemaGetter interface {
 
 	ShardOwner(class, shard string) (string, error)
 	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
+	// OptimisticTenantStatus tries to query the local state first
 	// allowImplicitActivation may only be set by callers acting for an external user request;
-	// it lets the lookup activate a COLD tenant under auto tenant activation.
+	// because it lets the lookup activate a COLD tenant under auto tenant activation and leader lookup.
 	OptimisticTenantStatus(ctx context.Context, class string, tenants string, allowImplicitActivation bool) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
@@ -312,14 +313,6 @@ func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, te
 // Overall, we keep the (very common) happy path, free from expensive
 // leader-lookups and only fall back to the leader if the local result implies
 // an unhappy path.
-//
-// All of the above applies to external user requests, which is what allowImplicitActivation
-// selects: only they need the leader fallback, which is also what activates a COLD tenant
-// under auto tenant activation.
-//
-// Internal callers pass false and stay local. They must not revive a tenant an operator
-// deactivated, and they need no leader lookup either: async replication runs on a loop, so a
-// stale local read just skips the tenant this cycle and the next one picks it up.
 func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string,
 	allowImplicitActivation bool,
 ) (map[string]string, error) {
