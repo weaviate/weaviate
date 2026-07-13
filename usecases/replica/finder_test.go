@@ -18,15 +18,21 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
+	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 func genInputs(node, shard string, updateTime int64, ids []strfmt.UUID) ([]*storobj.Object, []types.RepairResponse) {
@@ -1119,5 +1125,43 @@ func TestFinderCheckConsistencyOne(t *testing.T) {
 			assert.Nil(t, err)
 			assert.Equal(t, want, xs)
 		})
+	}
+}
+
+// TestAsyncReplicationResolutionIsLocalOnly pins that every async-replication node-resolution site builds its read routing plan with LocalOnly set, so resolution never queries the leader or implicitly activates a tenant.
+func TestAsyncReplicationResolutionIsLocalOnly(t *testing.T) {
+	const (
+		class = "C"
+		local = "A"
+		shard = "s1"
+	)
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	metrics, err := replica.NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err)
+
+	mr := types.NewMockRouter(t)
+	mr.EXPECT().BuildRoutingPlanOptions(shard, shard, types.ConsistencyLevelOne, "").
+		Return(types.RoutingPlanBuildOptions{Shard: shard, Tenant: shard, ConsistencyLevel: types.ConsistencyLevelOne})
+	mr.EXPECT().
+		BuildReadRoutingPlan(mock.MatchedBy(func(o types.RoutingPlanBuildOptions) bool { return o.LocalOnly })).
+		Return(types.ReadRoutingPlan{}, nil)
+
+	finder := replica.NewFinder(class, mr, clusterMocks.NewMockNodeSelector(local), local,
+		replica.NewMockRClient(t), metrics, logger, func() string { return "" })
+
+	sites := map[string]func(){
+		"PrefilterShardRoots": func() {
+			finder.PrefilterShardRoots(ctx, map[string]hashtree.Digest{shard: {}})
+		},
+		"CollectShardDifferences": func() {
+			finder.CollectShardDifferences(ctx, shard, nil, time.Second, nil)
+		},
+		"BroadcastDeleteAsyncCheckpoint": func() {
+			finder.BroadcastDeleteAsyncCheckpoint(ctx, []string{shard})
+		},
+	}
+	for name, call := range sites {
+		t.Run(name, func(t *testing.T) { call() })
 	}
 }
