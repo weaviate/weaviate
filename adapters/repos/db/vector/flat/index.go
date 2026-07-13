@@ -1258,14 +1258,18 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				// Create a distancer that uses 5-bit query quantization
 				distancer := index.quantizer.(*BinaryRotationalQuantizerWrapper).NewDistancer(queryVector)
 				distFunc = func(nodeID uint64) (float32, error) {
-					// a cache of size 0 hasn't been preloaded yet (it is
-					// allocated lazily); Get below falls back to disk then
-					if cacheLen := index.cache.Len(); cacheLen > 0 && int32(nodeID) > cacheLen {
+					// the window guard only makes sense on a complete cache,
+					// where an id beyond it cannot exist; on an incomplete
+					// cache, Get below falls back to disk
+					if cacheLen := index.cache.Len(); index.cacheComplete.Load() && int32(nodeID) > cacheLen {
 						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
 					if err != nil {
 						return 0, err
+					}
+					if len(vec) == 0 {
+						return -1, fmt.Errorf("node %v not found", nodeID)
 					}
 					return distancer.Distance(vec)
 				}
@@ -1281,9 +1285,10 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				}
 
 				distFunc = func(nodeID uint64) (float32, error) {
-					// a cache of size 0 hasn't been preloaded yet (it is
-					// allocated lazily); Get below falls back to disk then
-					if cacheLen := index.cache.Len(); cacheLen > 0 && int32(nodeID) > cacheLen {
+					// the window guard only makes sense on a complete cache,
+					// where an id beyond it cannot exist; on an incomplete
+					// cache, Get below falls back to disk
+					if cacheLen := index.cache.Len(); index.cacheComplete.Load() && int32(nodeID) > cacheLen {
 						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					if index.quantizer.Type() == Uint64Quantizer {
@@ -1291,11 +1296,17 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 						if err != nil {
 							return 0, err
 						}
+						if len(vec) == 0 {
+							return -1, fmt.Errorf("node %v not found", nodeID)
+						}
 						return index.quantizer.DistanceBetweenUint64Vectors(vec, queryVecEncodeUint64)
 					} else if index.quantizer.Type() == ByteQuantizer {
 						vec, err := index.cache.byteCache.Get(context.Background(), nodeID)
 						if err != nil {
 							return 0, err
+						}
+						if len(vec) == 0 {
+							return -1, fmt.Errorf("node %v not found", nodeID)
 						}
 						return index.quantizer.DistanceBetweenByteVectors(vec, queryVecEncodeBytes)
 					}
