@@ -346,6 +346,23 @@ func (l *LazyLoadShard) hasActiveAsyncReplicationTargetOverrides() bool {
 	return l.shard.hasActiveAsyncReplicationTargetOverrides()
 }
 
+func (l *LazyLoadShard) removePersistedHashtree() error {
+	l.mutex.Lock()
+	loaded := l.loaded
+	l.mutex.Unlock()
+	if !loaded {
+		return nil // not loaded: a stale .ht is discarded on next load
+	}
+	return l.shard.removePersistedHashtree()
+}
+
+func (l *LazyLoadShard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
+}
+
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	if err := l.Load(ctx); err != nil {
 		return err
