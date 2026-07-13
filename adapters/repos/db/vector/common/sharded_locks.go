@@ -253,6 +253,12 @@ func (l *LazyShardedRWLocks) EnsureCount(count uint64) {
 		count = 2
 	}
 
+	// fast path: the count of an allocated set is immutable, so a single
+	// atomic load suffices to detect the common no-op case without the mutex
+	if locks := l.locks.Load(); locks != nil && count <= locks.Count() {
+		return
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
