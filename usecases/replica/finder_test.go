@@ -1128,7 +1128,6 @@ func TestFinderCheckConsistencyOne(t *testing.T) {
 	}
 }
 
-// TestAsyncReplicationResolutionIsLocalOnly pins that every async-replication node-resolution site builds its read routing plan with LocalOnly set, so resolution never queries the leader or implicitly activates a tenant.
 func TestAsyncReplicationResolutionIsLocalOnly(t *testing.T) {
 	const (
 		class = "C"
