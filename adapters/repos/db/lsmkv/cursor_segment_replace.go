@@ -14,10 +14,28 @@ package lsmkv
 import (
 	"bufio"
 	"errors"
+	"io"
+	"sync"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
+
+// segmentCursorReaderBufSize matches bufio.NewReader's default so pooled readers
+// behave byte-for-byte like the previous bufio.NewReader(or) call.
+const segmentCursorReaderBufSize = 4096
+
+// segmentCursorReaderPool recycles reusable-cursor read buffers (one per segment
+// per digest RPC), previously the largest allocation source in async-rep scans.
+var segmentCursorReaderPool = sync.Pool{
+	New: func() any { return bufio.NewReaderSize(nil, segmentCursorReaderBufSize) },
+}
+
+func acquireSegmentCursorReader(r io.Reader) *bufio.Reader {
+	br := segmentCursorReaderPool.Get().(*bufio.Reader)
+	br.Reset(r)
+	return br
+}
 
 // offsetReader adapts an io.ReaderAt into a sequential io.Reader by tracking
 // the current read position. Used by segmentCursorReplaceReusable to avoid
@@ -326,9 +344,21 @@ func (s *segment) newReplaceCursorReusableWithPrefix(valuePrefixLen int) *segmen
 	if !s.readFromMemory && s.contentFile != nil {
 		or := &offsetReader{ra: s.contentFile}
 		c.preadOffset = or
-		c.preadReader = bufio.NewReader(or)
+		c.preadReader = acquireSegmentCursorReader(or)
 	}
 	return c
+}
+
+// releaseReader pools the read buffer (no-op for mmap cursors, idempotent). Call
+// only once the cursor is done (at Close), never mid-scan — it's reused at once.
+func (s *segmentCursorReplaceReusable) releaseReader() {
+	if s.preadReader == nil {
+		return
+	}
+	s.preadReader.Reset(nil) // drop the segment reference before the buffer is reused
+	segmentCursorReaderPool.Put(s.preadReader)
+	s.preadReader = nil
+	s.preadOffset = nil
 }
 
 func (s *segmentCursorReplaceReusable) keyCount() int {
@@ -441,13 +471,22 @@ func (sg *SegmentGroup) newReusableCursorsWithPrefix(valuePrefixLen int) ([]inne
 	segments, release := sg.getConsistentViewOfSegments()
 
 	out := make([]innerCursorReplace, len(segments))
+	reusables := make([]*segmentCursorReplaceReusable, len(segments))
 	for i, segment := range segments {
+		var c *segmentCursorReplaceReusable
 		if valuePrefixLen > 0 {
-			out[i] = &reusableInnerCursorReplace{c: segment.newReplaceCursorDigestReusable(valuePrefixLen)}
+			c = segment.newReplaceCursorDigestReusable(valuePrefixLen)
 		} else {
-			out[i] = &reusableInnerCursorReplace{c: segment.newReplaceCursorReusable()}
+			c = segment.newReplaceCursorReusable()
 		}
+		out[i] = &reusableInnerCursorReplace{c: c}
+		reusables[i] = c
 	}
 
-	return out, release
+	return out, func() {
+		for _, c := range reusables {
+			c.releaseReader()
+		}
+		release()
+	}
 }

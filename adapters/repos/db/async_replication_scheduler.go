@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	defaultAsyncReplicationSchedulerWorkers        = 10
+	defaultAsyncReplicationSchedulerWorkers        = 1
 	defaultAsyncReplicationHashtreeInitConcurrency = 100
 	maxMaxWorkers                                  = 100
 
