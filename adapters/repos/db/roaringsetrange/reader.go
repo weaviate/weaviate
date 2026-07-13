@@ -87,9 +87,8 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		return layer.Additions, release, nil
 	}
 
-	// Two separate axes of parallelism: r.segmentConcurrency bounds how many
-	// readers run at once (SetLimit below), outerBudget bounds bitmap-merge
-	// parallelism per query.
+	// outerBudget bounds bitmap-merge parallelism; segmentConcurrency (below)
+	// bounds reader fan-out instead.
 	outerBudget := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
 	lock := new(sync.Mutex)
@@ -108,11 +107,8 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// innerCtx carries each reader's share of the merge budget: the outer
-	// budget split across the readers running at once (up to
-	// r.segmentConcurrency in the error group plus the current goroutine).
-	// Skipped when the kill switch is set so readers below fall back to the
-	// fixed constant.
+	// innerCtx splits outerBudget across the readers running at once; skipped
+	// when the kill switch is set so readers fall back to the fixed constant.
 	innerCtx := ctx
 	if !concurrency.BudgetCapDisabled() {
 		conc := min(count, r.segmentConcurrency+1)

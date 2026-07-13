@@ -77,8 +77,7 @@ func TestRoaringSetWritePathRefCount(t *testing.T) {
 }
 
 // TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError pins a
-// pooled-buffer leak when a flushing/active read fails after the disk layer's
-// buffer was already acquired.
+// disk-buffer leak on flushing/active read errors after acquisition.
 func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *testing.T) {
 	t.Parallel()
 

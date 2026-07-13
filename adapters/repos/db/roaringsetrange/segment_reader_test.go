@@ -153,8 +153,7 @@ func TestSegmentReader(t *testing.T) {
 		},
 	}
 
-	// the merge budget comes from ctx since the constructor lost its
-	// concurrency param; results must not depend on it
+	// results must not depend on the merge budget carried in ctx
 	ctxs := map[string]context.Context{
 		"no budget in ctx":     context.Background(),
 		"merge budget of 1":    concurrency.CtxWithBudget(context.Background(), 1),

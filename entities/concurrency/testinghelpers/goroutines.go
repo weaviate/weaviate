@@ -60,8 +60,7 @@ func AssertGoroutineCeiling(t *testing.T, numWorkers, maxPerWorker, noiseSlack i
 		mu       sync.Mutex
 		firstErr error
 	)
-	// abort lets the remaining workers stop early once one of them failed,
-	// instead of hammering do() until the deadline
+	// abort stops remaining workers early once one fails.
 	abort := make(chan struct{})
 	var wg sync.WaitGroup
 	deadline := time.Now().Add(runFor)

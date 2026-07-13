@@ -222,8 +222,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 }
 
 // TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError pins a
-// pooled-buffer leak when a later segment's merge fails after the first
-// layer's buffer was already acquired.
+// first-layer buffer leak on a later segment's merge error.
 func TestSegmentGroup_RoaringSet_ReleasesFirstLayerOnMergeError(t *testing.T) {
 	t.Parallel()
 

@@ -427,11 +427,10 @@ func TestCombinedReader_RespectsConcurrencyBudget(t *testing.T) {
 	require.Equal(t, values, arr1)
 	require.Equal(t, arrDefault, arr1)
 
-	// each in-flight Read holds <=4 goroutines: its own worker, the error
-	// group driver, and the segmentParallelism=2 eg.Go workers; budget=1 keeps
-	// sroar merges from adding any. Sharing one reader is safe since
-	// cloningInnerReader clones per Read. readDelay pins that peak so slack=8
-	// still lets the kill-switch red control overshoot decisively.
+	// each in-flight Read holds <=4 goroutines (own worker + error group driver
+	// + segmentParallelism=2 workers); budget=1 adds none. Reusing one reader
+	// is safe since cloningInnerReader clones per Read; slack=8 still lets the
+	// kill-switch red control overshoot decisively.
 	shared := newReader()
 	testinghelpers.AssertGoroutineCeiling(t, 16, 4, 8, 200*time.Millisecond, func() error {
 		bm, release, err := shared.Read(budget1, 0, filters.OperatorGreaterThanEqual)
@@ -459,10 +458,8 @@ func (r *budgetRecordingReader) Read(ctx context.Context, value uint64, operator
 	}, noopRelease, nil
 }
 
-// TestCombinedReader_SplitsBudgetAcrossReaders pins the inner budget
-// derivation: the per-query budget is divided by the number of readers that
-// can run at once (segment parallelism + the current goroutine, at most
-// count), floored at 1, and every reader sees the same share.
+// TestCombinedReader_SplitsBudgetAcrossReaders pins the inner budget share:
+// outer/min(count, segmentParallelism+1), floored at 1, same for every reader.
 func TestCombinedReader_SplitsBudgetAcrossReaders(t *testing.T) {
 	if entcfg.Enabled(os.Getenv("DISABLE_SROAR_MERGE_BUDGET")) {
 		t.Skip("budget cap disabled via kill switch")
@@ -572,10 +569,8 @@ func (r *concurrencyTrackingReader) Read(ctx context.Context, value uint64, oper
 	}, noopRelease, nil
 }
 
-// TestCombinedReader_SegmentFanoutBoundByConcurrency pins that segment-level
-// fan-out is bound by the constructor's concurrency (not by the merge budget):
-// at most segmentParallelism readers in the error group plus the current
-// goroutine run at once, even with a merge budget of 1.
+// TestCombinedReader_SegmentFanoutBoundByConcurrency pins segment fan-out to
+// segmentParallelism+1, independent of the merge budget (here, 1).
 func TestCombinedReader_SegmentFanoutBoundByConcurrency(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
