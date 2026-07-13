@@ -13,10 +13,12 @@ package shardusage
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -429,4 +431,46 @@ func TestCalculateNonLSMStorage_HFreshOneLevelDeep(t *testing.T) {
 	expectedCommitLogSize := uint64(1000 + 2000 + 3000)
 	assert.Equal(t, expectedCommitLogSize, vectorCommitLogsStorageSize, "nested commitlog/snapshot/queue.d should be counted")
 	assert.Equal(t, uint64(0), otherNonLSMFoldersStorageSize, "no other storage expected")
+}
+
+// TestCalculateUnloadedDimensionsUsage_Concurrent pins the "bucket already registered" error:
+// concurrent usage reports (overlapping periodic collections, /debug/usage) used to open the
+// same unloaded dimensions bucket at once, which lsmkv's GlobalBucketRegistry rejects.
+func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tenantName := "tenant"
+
+	dirName := t.TempDir()
+	bucketFolder := shardPathDimensionsLSM(dirName, tenantName)
+	b, err := lsmkv.NewBucketCreator().NewBucket(ctx, bucketFolder, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+	require.NoError(t, err)
+
+	key := make([]byte, 4+4)
+	copy(key, "text")
+	binary.LittleEndian.PutUint32(key[4:], 128)
+	require.NoError(t, b.RoaringSetAddOne(key, 1))
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Shutdown(ctx))
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 80)
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 10 {
+				if _, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, "text"); err != nil {
+					errs <- err
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
 }

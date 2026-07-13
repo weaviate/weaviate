@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
+	entsync "github.com/weaviate/weaviate/entities/sync"
 )
 
 func shardPathLSM(indexPath, shardName string) string {
@@ -98,6 +99,12 @@ func usageDisk(shardUsage *types.ShardUsage) *types.UsageDisk {
 	return &types.UsageDisk{Version: types.UsageDiskVersion, ShardUsage: shardUsage}
 }
 
+// unloadedDimensionsBucketLocks serializes access to the same unloaded dimensions bucket.
+// Concurrent usage reports (overlapping periodic collections, /debug/usage, both usage modules
+// enabled) and the node-wide metrics observer may otherwise open the same bucket at once,
+// which lsmkv's GlobalBucketRegistry rejects with "bucket already registered".
+var unloadedDimensionsBucketLocks = entsync.NewKeyLocker()
+
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
 func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
 	bucketPath := shardPathDimensionsLSM(path, tenantName)
@@ -105,6 +112,9 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	if err != nil {
 		return types.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
 	}
+
+	unloadedDimensionsBucketLocks.Lock(bucketPath)
+	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
 
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
 		bucketPath,
