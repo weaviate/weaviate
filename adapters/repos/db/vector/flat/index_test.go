@@ -1838,3 +1838,76 @@ func Test_NoRace_Flat_SearchAfterRestartWithUnflushedData(t *testing.T) {
 	assert.ElementsMatch(t, []uint64{0, 1, 2, 3}, ids,
 		"vectors recovered from the WAL must be visible to the cached search")
 }
+
+func bqCachedConfig() flatent.UserConfig {
+	return flatent.UserConfig{
+		BQ: flatent.CompressionUserConfig{
+			Enabled: true, Cache: true, RescoreLimit: 10,
+		},
+	}
+}
+
+func newBQCachedIndex(t *testing.T, dirName string, store *lsmkv.Store) *flat {
+	t.Helper()
+	index, err := New(Config{
+		ID:                "lazy-cache-test",
+		RootPath:          dirName,
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, bqCachedConfig(), store)
+	require.NoError(t, err)
+	return index
+}
+
+func Test_NoRace_Flat_EmptyTenantPostStartupAllocatesNothing(t *testing.T) {
+	dirName := t.TempDir()
+	store := loadTestStore(t, dirName)
+	defer store.Shutdown(context.Background())
+
+	index := newBQCachedIndex(t, dirName, store)
+	defer index.Shutdown(context.Background())
+
+	index.PostStartup(context.Background())
+
+	// an empty tenant must not pay for a cache it doesn't use
+	assert.EqualValues(t, 0, index.cache.Len(),
+		"PostStartup on an empty index must not allocate the vector cache")
+}
+
+func Test_NoRace_Flat_QueryVectorDistancerBeforePreload(t *testing.T) {
+	dirName := t.TempDir()
+	ctx := context.Background()
+
+	// populate an index, then shut it down so the data is only on disk
+	store := loadTestStore(t, dirName)
+	index := newBQCachedIndex(t, dirName, store)
+	vectors := [][]float32{{4, -1, 4}, {-2, 3, 1}, {0.5, 0.5, 0.5}}
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(ctx, uint64(i), vec))
+	}
+	require.NoError(t, index.Shutdown(ctx))
+	require.NoError(t, store.Shutdown(ctx))
+
+	// reopen without running PostStartup: the cache exists but is empty,
+	// exactly the state a lazily loaded shard is in before (or while) the
+	// startup preload runs
+	store = loadTestStore(t, dirName)
+	defer store.Shutdown(ctx)
+	index = newBQCachedIndex(t, dirName, store)
+	defer index.Shutdown(ctx)
+	require.EqualValues(t, 0, index.cache.Len())
+
+	// a search on the cold cache must fall back to the store and return
+	// complete results, not iterate an empty (or partial) cache window
+	ids, _, err := index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uint64{0, 1, 2}, ids)
+
+	distancer := index.QueryVectorDistancer([]float32{1, 0, 0})
+	// query the highest id first: on an empty cache the first Get grows the
+	// cache, which would mask the guard against ids beyond the cache window
+	for i := len(vectors) - 1; i >= 0; i-- {
+		_, err := distancer.DistanceToNode(uint64(i))
+		assert.NoError(t, err, "query on a not-yet-preloaded cache must fall back to disk, not error")
+	}
+}
