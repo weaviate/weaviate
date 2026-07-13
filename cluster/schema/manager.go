@@ -922,7 +922,7 @@ func (op applyOp) validate() error {
 	return nil
 }
 
-const slowApplyThreshold = 5 * time.Second
+const slowApplyThreshold = 10 * time.Second
 
 func humanizeDuration(d time.Duration) string {
 	switch {
