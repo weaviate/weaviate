@@ -930,10 +930,19 @@ func (s *Shard) mayStopAsyncReplication() {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		}
 	}
+	drainStart := time.Now()
 	workersDone := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		defer close(workersDone)
 		s.asyncRepWg.Wait()
+		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
+		if elapsed := time.Since(drainStart); elapsed > asyncReplicationWorkerDrainTimeout {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("async replication drain completed after deadline (took %s)", elapsed)
+		}
 	}, s.index.logger)
 	select {
 	case <-workersDone:
