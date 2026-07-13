@@ -711,6 +711,14 @@ func TestLazyShardedRWLocks_EnsureCount(t *testing.T) {
 		l.EnsureCount(16)
 		require.EqualValues(t, 64, l.Count(), "EnsureCount must never shrink")
 	})
+
+	t.Run("never allocates below the initial count", func(t *testing.T) {
+		// the initial layout must not depend on whether EnsureCount or a
+		// lock operation touches the instance first
+		l := NewLazyShardedRWLocks(8, 1)
+		l.EnsureCount(2)
+		require.EqualValues(t, 8, l.Count())
+	})
 }
 
 func TestLazyShardedRWLocks_MutualExclusionAcrossRestripe(t *testing.T) {
