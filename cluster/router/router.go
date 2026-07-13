@@ -490,6 +490,21 @@ func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, s
 		return types.ReadReplicaSet{}, err
 	}
 
+	return r.readReplicasFromLocalSchema(collection, shard)
+}
+
+// readReplicasForPlan resolves read replicas honoring LocalOnly: local schema only
+// (no leader query, no tenant activation) when set, else the tenant-status path.
+func (r *multiTenantRouter) readReplicasForPlan(params types.RoutingPlanBuildOptions) (types.ReadReplicaSet, error) {
+	if params.LocalOnly {
+		return r.readReplicasFromLocalSchema(r.collection, params.Shard)
+	}
+	return r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard)
+}
+
+// readReplicasFromLocalSchema resolves read replicas from local schema without any
+// tenant-status check; callers must not use it where activation semantics are required.
+func (r *multiTenantRouter) readReplicasFromLocalSchema(collection, shard string) (types.ReadReplicaSet, error) {
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
 	if err != nil {
 		return types.ReadReplicaSet{}, err
@@ -588,7 +603,7 @@ func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOp
 
 // buildReadRoutingPlan constructs a read routing plan for multi-tenant collections.
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	readReplicas, err := r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard)
+	readReplicas, err := r.readReplicasForPlan(params)
 	if err != nil {
 		return types.ReadRoutingPlan{}, err
 	}
