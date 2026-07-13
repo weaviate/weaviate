@@ -289,10 +289,9 @@ func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, te
 	return m.activateTenantIfInactive(ctx, class, status)
 }
 
-// OptimisticTenantStatus tries to query the local state first. It is
-// optimistic that the state has already propagated correctly. If the state is
-// unexpected, i.e. either the tenant is not found at all or the status is
-// COLD, it will double-check with the leader.
+// OptimisticTenantStatus tries to query the local state first
+// allowImplicitActivation may only be set by callers acting for an external user request;
+// because it lets the lookup activate a COLD tenant under auto tenant activation and leader lookup.
 //
 // This way we accept false positives (for HOT tenants), but guarantee that there will never be
 // false negatives (i.e. tenants labelled as COLD that the leader thinks should
