@@ -1911,3 +1911,55 @@ func Test_NoRace_Flat_QueryVectorDistancerBeforePreload(t *testing.T) {
 		assert.NoError(t, err, "query on a not-yet-preloaded cache must fall back to disk, not error")
 	}
 }
+
+func Test_NoRace_Flat_SearchAfterPartialCacheWarmup(t *testing.T) {
+	dirName := t.TempDir()
+	ctx := context.Background()
+
+	// populate an index, then shut it down so the data is only on disk; the
+	// gap between ids 2 and 100 matters: a partial cache warmup below creates
+	// a window covering the low ids only
+	store := loadTestStore(t, dirName)
+	index := newBQCachedIndex(t, dirName, store)
+	vectors := map[uint64][]float32{
+		0:   {4, -1, 4},
+		1:   {-2, 3, 1},
+		2:   {0.5, 0.5, 0.5},
+		100: {1, 0.5, 0},
+	}
+	for id, vec := range vectors {
+		require.NoError(t, index.Add(ctx, id, vec))
+	}
+	require.NoError(t, index.Shutdown(ctx))
+	require.NoError(t, store.Shutdown(ctx))
+
+	// reopen without running PostStartup, then warm a single cache entry via
+	// the distancer: the cache window is now non-empty but incomplete, and
+	// vector 100 lies beyond it
+	store = loadTestStore(t, dirName)
+	defer store.Shutdown(ctx)
+	index = newBQCachedIndex(t, dirName, store)
+	defer index.Shutdown(ctx)
+
+	qvd := index.QueryVectorDistancer([]float32{1, 0, 0})
+	_, err := qvd.DistanceToNode(2)
+	require.NoError(t, err)
+	window := index.cache.Len()
+	require.Greater(t, window, int32(0), "the distancer call must have warmed the cache")
+	require.Less(t, window, int32(100), "vector 100 must lie beyond the warmed window")
+
+	// a search must not trust the partially warmed cache window: it must
+	// return the complete result set from the store
+	ids, _, err := index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uint64{0, 1, 2, 100}, ids)
+
+	// searches stay complete after PostStartup as well. Note that in this
+	// test the data lives only in the memtable (never flushed to a segment),
+	// which the preload's parallel iterator cannot see: the index must keep
+	// serving searches from the store rather than trust the cache.
+	index.PostStartup(ctx)
+	ids, _, err = index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uint64{0, 1, 2, 100}, ids)
+}
