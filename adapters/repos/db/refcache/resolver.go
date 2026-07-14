@@ -55,12 +55,7 @@ func NewResolverWithGroup(cacher cacher, groupByProps search.SelectProperties) *
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 	properties search.SelectProperties, additional additional.Properties,
 ) ([]search.Result, error) {
-	cacherProps := properties
-	if !r.withGroup {
-		cacherProps = append(properties, r.groupByProps...)
-	}
-
-	if err := r.cacher.Build(ctx, objects, cacherProps, additional, r.groupByProps); err != nil {
+	if err := r.cacher.Build(ctx, objects, properties, additional, r.groupByProps); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
 
