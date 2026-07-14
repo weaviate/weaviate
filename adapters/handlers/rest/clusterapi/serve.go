@@ -88,36 +88,7 @@ func NewServer(appState *state.State) *Server {
 
 	grpcServer := grpc.NewServer(appState)
 
-	var handler http.Handler
-	// Multiplexing handler: Routes gRPC vs. REST (HTTP)
-	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), "application/grpc") {
-			grpcServer.ServeHTTP(w, r) // Route to gRPC
-			return
-		}
-		mux.ServeHTTP(w, r) // Route to REST mux (handles HTTP/1.1 or plain HTTP/2)
-	})
-
-	handler = addClusterHandlerMiddleware(handler, appState, auth)
-	if appState.ServerConfig.Config.Sentry.Enabled {
-		// Wrap the default mux with Sentry to capture panics, report errors and
-		// measure performance.
-		//
-		// Alternatively, you can also wrap individual handlers if you need to
-		// use different options for different parts of your app.
-		handler = sentryhttp.New(sentryhttp.Options{}).Handle(mux)
-	}
-
-	if appState.ServerConfig.Config.Monitoring.Enabled {
-		handler = monitoring.InstrumentHTTP(
-			handler,
-			staticRoute(mux),
-			appState.HTTPServerMetrics.InflightRequests,
-			appState.HTTPServerMetrics.RequestDuration,
-			appState.HTTPServerMetrics.RequestBodySize,
-			appState.HTTPServerMetrics.ResponseBodySize,
-		)
-	}
+	handler := composeClusterHandler(mux, grpcServer, appState, auth)
 
 	protocols := http.Protocols{}
 	protocols.SetHTTP1(true)
@@ -132,6 +103,52 @@ func NewServer(appState *state.State) *Server {
 		appState: appState,
 		grpc:     grpcServer,
 	}
+}
+
+// composeClusterHandler builds the internal cluster-API handler chain and
+// applies the optional observability wraps in order:
+//  1. a gRPC-vs-REST multiplexer (application/grpc HTTP/2 requests go to the
+//     internal gRPC server, everything else to the REST mux),
+//  2. the /v1/cluster/* RAFT join/remove middleware,
+//  3. an optional Sentry wrap, and
+//  4. an optional monitoring wrap.
+//
+// Each optional wrap must be applied to the fully composed `handler`, never to
+// the bare `mux`. Wrapping `mux` would silently drop the gRPC multiplexer and
+// the cluster middleware, breaking replica-movement file copies and raft
+// join/remove whenever that layer is enabled.
+func composeClusterHandler(mux *http.ServeMux, grpcServer http.Handler,
+	appState *state.State, auth auth,
+) http.Handler {
+	var handler http.Handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r) // Route to gRPC
+			return
+		}
+		mux.ServeHTTP(w, r) // Route to REST mux (handles HTTP/1.1 or plain HTTP/2)
+	})
+
+	handler = addClusterHandlerMiddleware(handler, appState, auth)
+
+	if appState.ServerConfig.Config.Sentry.Enabled {
+		// Wrap with Sentry to capture panics, report errors and measure
+		// performance.
+		handler = sentryhttp.New(sentryhttp.Options{}).Handle(handler)
+	}
+
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		handler = monitoring.InstrumentHTTP(
+			handler,
+			staticRoute(mux),
+			appState.HTTPServerMetrics.InflightRequests,
+			appState.HTTPServerMetrics.RequestDuration,
+			appState.HTTPServerMetrics.RequestBodySize,
+			appState.HTTPServerMetrics.ResponseBodySize,
+		)
+	}
+
+	return handler
 }
 
 // Serve starts the server and blocks until an error occurs
