@@ -27,8 +27,8 @@ import (
 // Reproduces the crash-during-flush state: two non-empty WALs on disk, an older
 // one (memtable being flushed) and a newer one (active memtable). Recovery must
 // keep the newest as the active memtable, else the older stale values shadow the
-// newer flushed data. The iteration loop defeats the random map order that the
-// pre-fix code depended on (which WAL is iterated last became the active memtable).
+// newer flushed data. The iteration loop defeats the random WAL-file map order,
+// so a recovery that keeps the wrong WAL active is caught deterministically.
 func TestReplaceStrategy_RecoverFromMultipleWALs_NewestWins(t *testing.T) {
 	key := []byte("key-1")
 
