@@ -59,4 +59,29 @@ func TestReadBody(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, payload[:4], out)
 	})
+
+	t.Run("spoofed huge content length does not preallocate", func(t *testing.T) {
+		// a lying peer claims 2 GiB but sends a few bytes: the returned
+		// buffer must be bounded by the actual data (grown from the cap),
+		// not by the claim
+		out, err := ReadBody(bytes.NewReader(payload), 2<<30)
+		require.NoError(t, err)
+		assert.Equal(t, payload, out)
+		assert.LessOrEqual(t, cap(out), MaxUpfrontBodyAlloc)
+	})
+
+	t.Run("body larger than upfront cap is read fully", func(t *testing.T) {
+		big := bytes.Repeat([]byte{0xAB}, MaxUpfrontBodyAlloc+512)
+		out, err := ReadBody(bytes.NewReader(big), int64(len(big)))
+		require.NoError(t, err)
+		assert.Equal(t, big, out)
+	})
+
+	t.Run("content length exactly at cap uses exact-size path", func(t *testing.T) {
+		big := bytes.Repeat([]byte{0xCD}, MaxUpfrontBodyAlloc)
+		out, err := ReadBody(bytes.NewReader(big), int64(len(big)))
+		require.NoError(t, err)
+		assert.Equal(t, big, out)
+		assert.Equal(t, MaxUpfrontBodyAlloc, cap(out))
+	})
 }
