@@ -537,6 +537,9 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 			enableChecksumValidation:     sg.enableChecksumValidation,
 			sequentialAccess:             sg.sequentialAccess,
 			MinMMapSize:                  sg.MinMMapSize,
+			pinSegmentIndexThreshold:     sg.pinSegmentIndexThreshold,
+			pinSegmentIndexTotalLimit:    sg.pinSegmentIndexTotalLimit,
+			pinBucketLabel:               sg.pinBucketLabel,
 			allocChecker:                 sg.allocChecker,
 			precomputedCountNetAdditions: &updatedCountNetAdditions,
 			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist

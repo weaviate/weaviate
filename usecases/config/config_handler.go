@@ -856,6 +856,9 @@ type Persistence struct {
 	LSMCycleManagerRoutinesFactor                int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	IndexRangeableInMemory                       bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 	MinMMapSize                                  int64  `json:"minMMapSize" yaml:"minMMapSize"`
+	LSMSegmentIndexPinThreshold                  int64  `json:"lsmSegmentIndexPinThreshold" yaml:"lsmSegmentIndexPinThreshold"`
+	LSMSegmentIndexPinTotalLimit                 int64  `json:"lsmSegmentIndexPinTotalLimit" yaml:"lsmSegmentIndexPinTotalLimit"`
+	LSMSegmentIndexPinScope                      string `json:"lsmSegmentIndexPinScope" yaml:"lsmSegmentIndexPinScope"`
 	LazySegmentsDisabled                         bool   `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
 	SegmentInfoIntoFileNameEnabled               bool   `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
 	WriteMetadataFilesEnabled                    bool   `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
@@ -922,8 +925,15 @@ const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibilit
 const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 
 const (
-	DefaultPersistenceMinMMapSize     = 8192 // 8kb by default
-	DefaultPersistenceMaxReuseWalSize = 4096 // 4kb by default
+	DefaultPersistenceMinMMapSize = 8192 // 8kb by default
+	// pinning itself stays off unless a threshold > 0 is configured
+	DefaultPersistenceLSMSegmentIndexPinScope = "objects"
+	// caps node-wide pinned bytes; excess pins fall back to serving from mmap
+	DefaultPersistenceLSMSegmentIndexPinTotalLimit = 2 << 30 // 2 GiB
+	// MaxPersistenceLSMSegmentIndexPinThreshold bounds the per-segment pin
+	// threshold; larger values (including "unlimited") are rejected.
+	MaxPersistenceLSMSegmentIndexPinThreshold = 1 << 30 // 1 GiB
+	DefaultPersistenceMaxReuseWalSize         = 4096    // 4kb by default
 )
 
 func (p Persistence) Validate() error {
