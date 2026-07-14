@@ -345,7 +345,7 @@ jobs:
           path: coverage-unit.txt
   Integration-Tests:
     name: integration tests (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     strategy:
       fail-fast: false
       matrix:
@@ -375,7 +375,7 @@ jobs:
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     strategy:
       fail-fast: false
       matrix:
@@ -632,7 +632,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     strategy:
       fail-fast: false
       matrix:
