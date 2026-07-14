@@ -96,10 +96,7 @@ func TestPreparedMarshalUnsupportedVersion(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported marshaller version")
 }
 
-// TestPreparedMarshalSurvivesSourceMutation pins the documented contract that
-// a PreparedMarshal is self-contained with respect to the source object's
-// *structure*: replacing the object's fields (maps, slices, props) after the
-// prepare pass must not change what MarshalTo writes.
+// PreparedMarshal must be unaffected by later mutation of the source Object.
 func TestPreparedMarshalSurvivesSourceMutation(t *testing.T) {
 	obj := preparedMarshalTestObject()
 	addProps := additional.Properties{Vector: true, IncludeAllTargetVectors: true}
@@ -110,7 +107,7 @@ func TestPreparedMarshalSurvivesSourceMutation(t *testing.T) {
 	pm, err := obj.PrepareMarshalOptional(addProps)
 	require.NoError(t, err)
 
-	// replace (not mutate in place) everything on the source object
+	// replace, don't mutate in place, so aliasing wouldn't mask this test
 	obj.Object.Properties = map[string]interface{}{"other": "value"}
 	obj.Vector = []float32{9, 9, 9, 9}
 	obj.Vectors = map[string][]float32{"different": {8}}

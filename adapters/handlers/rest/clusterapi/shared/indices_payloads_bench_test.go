@@ -11,13 +11,8 @@
 
 package shared
 
-// Baseline microbenchmarks for the internode fan-out marshal/unmarshal hot
-// paths (search results, object lists, and the per-object storobj codec).
-// These pin the allocs/op and B/op numbers on main so that each optimization
-// slice (buffer pooling / streaming decode, binary props encoding, gRPC
-// migration) has a before-number to compare against.
-//
-// Run with:
+// Baseline microbenchmarks for internode marshal/unmarshal hot paths, to
+// diff against later optimization slices.
 //
 //	go test -run '^$' -bench 'BenchmarkInternode' -benchmem \
 //	  ./adapters/handlers/rest/clusterapi/shared/
@@ -115,8 +110,7 @@ var benchAddPropsVariants = []struct {
 }
 
 // BenchmarkInternodeSearchResultsMarshal measures the server-side encode of a
-// shard search response (searchResultsPayload.MarshalWithAdditional), the top
-// allocation source in the 12-node load-test profile.
+// shard search response (searchResultsPayload.MarshalWithAdditional).
 func BenchmarkInternodeSearchResultsMarshal(b *testing.B) {
 	for _, size := range []int{10, 100} {
 		objs, dists := makeBenchObjects(size)
@@ -184,8 +178,7 @@ func BenchmarkInternodeObjectListMarshal(b *testing.B) {
 	}
 }
 
-// BenchmarkInternodeObjectListUnmarshal measures objectListPayload.Unmarshal
-// (MethodGet), the second-largest allocation source in the profile.
+// BenchmarkInternodeObjectListUnmarshal measures objectListPayload.Unmarshal (MethodGet).
 func BenchmarkInternodeObjectListUnmarshal(b *testing.B) {
 	for _, size := range []int{10, 100} {
 		objs, _ := makeBenchObjects(size)

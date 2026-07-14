@@ -11,18 +11,11 @@
 
 package shared
 
-// Wire-identity tests for the internode marshalling optimizations. The
-// legacy* functions below are a verbatim replica of the marshal
-// implementations as of commit 61a1c99276 (per-object intermediate buffers,
-// append-based framing). The tests assert that the optimized implementations
-// produce byte-identical output, i.e. that no wire-format change sneaks in.
-//
-// Objects with more than one entry in Vectors/MultiVectors are excluded from
-// the byte-identity assertions because the offsets header is a
-// msgpack-encoded map whose key order depends on Go map iteration order:
-// even two consecutive calls of the SAME implementation can produce
-// different (equivalent) bytes. Those cases are covered by the semantic
-// round-trip test instead.
+// Wire-identity tests: legacy* functions freeze the pre-optimization marshal
+// implementations so the optimized path can be asserted byte-identical to
+// them. Objects with >1 Vectors/MultiVectors entry are excluded from
+// byte-identity checks (msgpack map key order is nondeterministic) and
+// covered by the semantic round-trip test instead.
 
 import (
 	"encoding/binary"
@@ -43,7 +36,7 @@ import (
 )
 
 // legacyMarshalBinaryOptional replicates storobj.(*Object).marshalBinaryInternal
-// (skipClassName=false) as of commit 61a1c99276.
+// (skipClassName=false) pre-optimization.
 func legacyMarshalBinaryOptional(ko *storobj.Object, addProps additional.Properties) ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, fmt.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
@@ -254,8 +247,7 @@ func legacyMarshalBinaryOptional(ko *storobj.Object, addProps additional.Propert
 	return byteBuffer, nil
 }
 
-// legacyMarshalBinary replicates storobj.(*Object).MarshalBinary as of
-// commit 61a1c99276.
+// legacyMarshalBinary replicates storobj.(*Object).MarshalBinary pre-optimization.
 func legacyMarshalBinary(ko *storobj.Object) ([]byte, error) {
 	return legacyMarshalBinaryOptional(ko, additional.Properties{
 		Vector:                  true,
@@ -263,8 +255,7 @@ func legacyMarshalBinary(ko *storobj.Object) ([]byte, error) {
 	})
 }
 
-// legacyMarshallStorObj replicates the marshallStorObj PUT-path wrapper as of
-// commit 61a1c99276.
+// legacyMarshallStorObj replicates the marshallStorObj PUT-path wrapper pre-optimization.
 func legacyMarshallStorObj(in *storobj.Object) ([]byte, error) {
 	obj := storobj.Object{
 		MarshallerVersion: in.MarshallerVersion,
@@ -291,8 +282,7 @@ func legacyMarshallStorObj(in *storobj.Object) ([]byte, error) {
 	return legacyMarshalBinary(&obj)
 }
 
-// legacyObjectListMarshal replicates objectListPayload.Marshal as of commit
-// 61a1c99276.
+// legacyObjectListMarshal replicates objectListPayload.Marshal pre-optimization.
 func legacyObjectListMarshal(in []*storobj.Object, method string) ([]byte, error) {
 	out := make([]byte, 0, 1024*len(in))
 
@@ -325,7 +315,7 @@ func legacyObjectListMarshal(in []*storobj.Object, method string) ([]byte, error
 }
 
 // legacyObjectListMarshalWithAdditional replicates
-// objectListPayload.MarshalWithAdditional as of commit 61a1c99276.
+// objectListPayload.MarshalWithAdditional pre-optimization.
 func legacyObjectListMarshalWithAdditional(in []*storobj.Object, addProps additional.Properties) ([]byte, error) {
 	out := make([]byte, 0, 1024*len(in))
 
@@ -348,8 +338,7 @@ func legacyObjectListMarshalWithAdditional(in []*storobj.Object, addProps additi
 	return out, nil
 }
 
-// legacySearchResultsMarshal replicates searchResultsPayload.Marshal as of
-// commit 61a1c99276.
+// legacySearchResultsMarshal replicates searchResultsPayload.Marshal pre-optimization.
 func legacySearchResultsMarshal(objs []*storobj.Object, dists []float32) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
@@ -376,7 +365,7 @@ func legacySearchResultsMarshal(objs []*storobj.Object, dists []float32) ([]byte
 }
 
 // legacySearchResultsMarshalWithAdditional replicates
-// searchResultsPayload.MarshalWithAdditional as of commit 61a1c99276.
+// searchResultsPayload.MarshalWithAdditional pre-optimization.
 func legacySearchResultsMarshalWithAdditional(objs []*storobj.Object,
 	dists []float32, addProps additional.Properties, queryProfiles []helpers.ShardQueryProfile,
 ) ([]byte, error) {
@@ -637,11 +626,8 @@ func TestWireIdentitySearchResultsMarshal(t *testing.T) {
 	}
 }
 
-// TestWireIdentityMultiEntryVectorsRoundTrip covers objects with multiple
-// named vectors / multivectors, where byte-identity cannot be asserted
-// (msgpack map key order is nondeterministic in both implementations).
-// Instead it asserts that the optimized marshal round-trips to a
-// semantically identical object.
+// Multi-entry Vectors/MultiVectors can't be asserted byte-identical (map
+// iteration order); this checks semantic round-trip equality instead.
 func TestWireIdentityMultiEntryVectorsRoundTrip(t *testing.T) {
 	obj := wireIdentityObject("props_and_vector")
 	obj.Vectors = map[string][]float32{

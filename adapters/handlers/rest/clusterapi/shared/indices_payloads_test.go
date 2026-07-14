@@ -827,7 +827,7 @@ func TestObjectListUnmarshalFramingErrors(t *testing.T) {
 
 	t.Run("crafted overflow length", func(t *testing.T) {
 		crafted := make([]byte, 8)
-		binary.LittleEndian.PutUint64(crafted, ^uint64(0)) // max uint64
+		binary.LittleEndian.PutUint64(crafted, ^uint64(0))
 		_, err := IndicesPayloads.ObjectList.Unmarshal(crafted, MethodGet)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "exceeds remaining")
@@ -846,10 +846,7 @@ func TestObjectListUnmarshalFramingErrors(t *testing.T) {
 	})
 }
 
-// TestObjectListUnmarshalDoesNotAliasInput pins the lifetime contract that
-// makes the sub-slicing decode safe: the storobj decoder copies everything it
-// retains, so clobbering the input buffer after Unmarshal must not affect the
-// decoded objects.
+// Clobbering the input buffer after Unmarshal must not affect decoded objects.
 func TestObjectListUnmarshalDoesNotAliasInput(t *testing.T) {
 	obj := objectListFramingTestObject()
 	obj.Vectors = map[string][]float32{"named": {4, 5}}
@@ -864,7 +861,6 @@ func TestObjectListUnmarshalDoesNotAliasInput(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, decoded, 1)
 
-			// clobber the input buffer
 			for i := range payload {
 				payload[i] = 0xFF
 			}

@@ -962,27 +962,18 @@ func (ko *Object) marshalBinaryInternal(addProps additional.Properties, skipClas
 	return byteBuffer, nil
 }
 
-// emptySchemaJSON is the props payload sent when addProps.NoProps is set. An
-// empty object rather than nothing so that we don't break unmarshalling
-// during upgrades where some nodes don't have the empty check on the
-// unmarshal side yet. Shared and read-only: MarshalTo only ever copies it.
+// emptySchemaJSON keeps older nodes' pre-upgrade unmarshal path (which lacks
+// an empty-schema check) from breaking. Shared across objects; read-only.
 var emptySchemaJSON = []byte("{}")
 
-// PreparedMarshal is the output of the sizing pass of the two-pass binary
-// marshal. PrepareMarshalOptional computes the exact serialized size and all
-// variable-length parts (JSON-encoded props, msgpack offset headers, the
-// vector slices in their serialization order); MarshalTo then writes the
-// bytes into a caller-provided buffer of exactly Len() bytes.
+// PreparedMarshal is the sizing-pass output of the two-pass binary marshal
+// (see PrepareMarshalOptional, MarshalTo), letting callers that batch many
+// objects into one payload allocate a single exactly-sized buffer instead of
+// one per object.
 //
-// This lets callers that frame many objects into one payload (e.g. the
-// clusterapi object-list encoding) allocate a single exactly-sized output
-// buffer instead of one intermediate buffer per object.
-//
-// A PreparedMarshal is self-contained: mutating or discarding the source
-// Object after the prepare pass does not affect MarshalTo. It does, however,
-// alias the source object's vector slices (it does not deep-copy them), so
-// concurrent mutation of the vector *contents* is as unsafe as it is for
-// MarshalBinary itself.
+// It aliases rather than copies the source Object's vector slices, so
+// concurrent mutation of vector contents is as unsafe as for MarshalBinary;
+// otherwise it is self-contained once the source Object is discarded.
 type PreparedMarshal struct {
 	version      uint8
 	docID        uint64
@@ -1014,18 +1005,16 @@ func (pm *PreparedMarshal) Len() int {
 	return pm.size
 }
 
-// PrepareMarshalOptional runs the sizing pass of the two-pass binary marshal
-// with the same vector/props filtering semantics as MarshalBinaryOptional.
-// The result's MarshalTo produces bytes identical to MarshalBinaryOptional
-// with the same addProps.
+// PrepareMarshalOptional runs the sizing pass of the two-pass marshal with
+// the same addProps filtering as MarshalBinaryOptional; MarshalTo produces
+// identical bytes.
 func (ko *Object) PrepareMarshalOptional(addProps additional.Properties) (PreparedMarshal, error) {
 	return ko.prepareMarshal(addProps, false)
 }
 
-// prepareMarshal computes everything marshalBinaryInternal needs to write the
-// serialized form: the exact buffer size plus all variable-length parts. The
-// filtering semantics (addProps, skipClassName) match marshalBinaryInternal,
-// whose write phase now lives in PreparedMarshal.MarshalTo.
+// prepareMarshal is the sizing pass shared by marshalBinaryInternal and
+// PrepareMarshalOptional; filtering semantics (addProps, skipClassName)
+// match marshalBinaryInternal.
 func (ko *Object) prepareMarshal(addProps additional.Properties, skipClassName bool) (PreparedMarshal, error) {
 	var pm PreparedMarshal
 
@@ -1208,9 +1197,8 @@ func (ko *Object) prepareMarshal(addProps additional.Properties, skipClassName b
 }
 
 // MarshalTo writes the serialized object into buf, which must be exactly
-// Len() bytes long. The bytes written are identical to what
-// MarshalBinaryOptional returns for the addProps the PreparedMarshal was
-// prepared with.
+// Len() bytes long, producing the same bytes as MarshalBinaryOptional for
+// the addProps the PreparedMarshal was prepared with.
 func (pm *PreparedMarshal) MarshalTo(buf []byte) error {
 	if len(buf) != pm.size {
 		return errors.Errorf("prepared marshal requires a buffer of exactly %d bytes, got %d", pm.size, len(buf))

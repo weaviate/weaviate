@@ -61,9 +61,7 @@ func TestReadBody(t *testing.T) {
 	})
 
 	t.Run("spoofed huge content length does not preallocate", func(t *testing.T) {
-		// a lying peer claims 2 GiB but sends a few bytes: the returned
-		// buffer must be bounded by the actual data (grown from the cap),
-		// not by the claim
+		// buffer must be bounded by actual data, not by the peer's claim
 		out, err := ReadBody(bytes.NewReader(payload), 2<<30)
 		require.NoError(t, err)
 		assert.Equal(t, payload, out)

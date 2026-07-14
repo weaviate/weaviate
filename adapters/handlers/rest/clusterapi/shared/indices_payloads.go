@@ -362,12 +362,9 @@ var objectListAllProps = additional.Properties{
 	IncludeAllTargetVectors: true,
 }
 
-// prepare runs the storobj sizing pass for every non-nil object and returns
-// the prepared per-object marshals plus the total framed payload size
-// (8-byte length prefix per object + object bytes). marshalTo writes the
-// corresponding bytes; splitting the two passes lets callers that wrap the
-// object list in a larger payload (searchResultsPayload) allocate one
-// exactly-sized buffer for the whole thing.
+// prepare runs the storobj sizing pass per object, returning prepared
+// marshals plus total framed size (8-byte length prefix + object bytes) so
+// callers wrapping the list in a larger payload can allocate one exact buffer.
 func (p objectListPayload) prepare(in []*storobj.Object, method string, addProps additional.Properties) ([]storobj.PreparedMarshal, int, error) {
 	prepared := make([]storobj.PreparedMarshal, 0, len(in))
 	totalSize := 0
@@ -430,10 +427,8 @@ func (p objectListPayload) Marshal(in []*storobj.Object, method string) ([]byte,
 	return out, nil
 }
 
-// MarshalWithAdditional is like Marshal but uses the optional-marshal
-// semantics of storobj.MarshalBinaryOptional to conditionally include vectors
-// and properties based on the additional.Properties parameter. This reduces
-// network bandwidth by not transmitting vectors when they are not requested.
+// MarshalWithAdditional is like Marshal but conditionally includes vectors
+// and properties per addProps, reducing bandwidth when they aren't requested.
 func (p objectListPayload) MarshalWithAdditional(in []*storobj.Object, addProps additional.Properties) ([]byte, error) {
 	prepared, size, err := p.prepare(in, MethodGet, addProps)
 	if err != nil {
@@ -447,10 +442,8 @@ func (p objectListPayload) MarshalWithAdditional(in []*storobj.Object, addProps 
 	return out, nil
 }
 
-// Unmarshal decodes a framed object list. Each object is decoded from a
-// sub-slice of in rather than a per-object copy: the storobj decoder copies
-// everything it retains (vectors into fresh []float32, strings/props via
-// string conversion and json.Unmarshal), so no decoded object holds a
+// Unmarshal decodes a framed object list from sub-slices of in; the storobj
+// decoder copies everything it retains, so decoded objects hold no
 // reference into in once Unmarshal returns.
 func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Object, error) {
 	var out []*storobj.Object
@@ -911,7 +904,6 @@ func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
 		return nil, err
 	}
 
-	// Optional profile data appended after dists.
 	var profilesBytes []byte
 	if len(queryProfiles) > 0 {
 		profilesBytes, err = json.Marshal(queryProfiles)
