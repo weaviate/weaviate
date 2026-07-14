@@ -204,10 +204,38 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		jointSegmentsIDs := strings.Split(jointSegments, "_")
 
 		if len(jointSegmentsIDs) == 1 {
-			// cleanup leftover, to be removed
-			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
-				return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry, err)
+			// A single-ID .db.tmp has two possible producers:
+			//   - a memtable flush that never finished (its .wal still exists), or
+			//   - a segment cleanup rewrite whose on-disk switch was interrupted.
+			// During a cleanup switch the live segment is renamed to a ".deleteme"
+			// marker BEFORE the .tmp is promoted, so if the crash lands in that
+			// window the .tmp is the ONLY complete copy of the segment. Deleting it
+			// (and the ".deleteme" later) would silently lose data. Only delete the
+			// .tmp when the original is still recoverable: its live "segment-X*.db"
+			// is present, or a matching .wal exists (the flush case). Otherwise the
+			// .tmp is a fully-written, fsynced survivor and must be promoted.
+			liveSegmentFound, _ := segmentExistsWithID(jointSegments, files)
+			walFileName, _, _ := strings.Cut(entry, ".")
+			walFileName += ".wal"
+			_, walFound := files[walFileName]
+
+			if liveSegmentFound || walFound {
+				if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+					return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry, err)
+				}
+				continue
 			}
+
+			// Promote the surviving .tmp; it is initialized by the file loop below.
+			if err := os.Rename(filepath.Join(sg.dir, entry),
+				filepath.Join(sg.dir, potentialCompactedSegmentFileName)); err != nil {
+				return nil, fmt.Errorf("promote surviving cleaned segment %q: %w", entry, err)
+			}
+			logger.WithField("action", "lsm_segment_init").
+				WithField("path", filepath.Join(sg.dir, potentialCompactedSegmentFileName)).
+				Info("promoted surviving .db.tmp to segment after an interrupted cleanup switch")
+			files[potentialCompactedSegmentFileName] = files[entry]
+			delete(files, entry)
 			continue
 		}
 
