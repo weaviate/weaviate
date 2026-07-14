@@ -21,17 +21,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/file"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type BackupState struct {
@@ -111,12 +110,11 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				}
 				idx.dropIndex.RLock()
 				defer idx.dropIndex.RUnlock()
-				idx.closeLock.RLock()
-				defer idx.closeLock.RUnlock()
-				if idx.closed {
+				if err := idx.enterRead(); err != nil {
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
 				}
+				defer idx.exitRead()
 				var classBaseDescr []*backup.ClassDescriptor
 				for _, b := range baseDescrs {
 					classbaseDescrTmp := b.GetClassDescriptor(c)
@@ -160,9 +158,13 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 	}()
 
 	idx := db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		// a class deleted mid-backup is unpublished before its drop runs, and that
+		// drop parks on backupLock until this call releases it.
+		idx = db.droppingIndex(indexID(schema.ClassName(class)))
+	}
+
 	if idx != nil {
-		idx.closeLock.RLock()
-		defer idx.closeLock.RUnlock()
 		return idx.ReleaseBackup(ctx, bakID)
 	} else {
 		// index has been deleted in the meantime. Cleanup files that were kept to complete backup
@@ -656,6 +658,14 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	})
 
 	i.resetBackupState()
+
+	// Releasing backupLock above unblocks a waiting index.drop(), which shuts the
+	// shard stores down. Resuming their cycles now would be a use-after-drop.
+	if err := i.enterRead(); err != nil {
+		return nil
+	}
+	defer i.exitRead()
+
 	// resumeMaintenanceCycles is still called for safety, but is a no-op since
 	// CreateBackupSnapshot already resumed compaction. Handles edge cases where
 	// a snapshot creation failed mid-way.

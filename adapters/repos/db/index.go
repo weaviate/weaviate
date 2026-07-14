@@ -320,6 +320,10 @@ type Index struct {
 
 	closed bool
 
+	// inflight counts operations admitted by enterRead. beginClose drains it
+	// instead of holding closeLock across teardown.
+	inflight sync.WaitGroup
+
 	shardReindexer ShardReindexerV3
 
 	router         routerTypes.Router
@@ -1024,11 +1028,10 @@ func (db *DB) ReconcileAsyncReplication(ctx context.Context) error {
 		err := func() error {
 			idx.dropIndex.RLock()
 			defer idx.dropIndex.RUnlock()
-			idx.closeLock.RLock()
-			defer idx.closeLock.RUnlock()
-			if idx.closed {
+			if err := idx.enterRead(); err != nil {
 				return nil // index is shutting down; nothing to reconcile
 			}
+			defer idx.exitRead()
 			return idx.reconcileAsyncReplication(ctx)
 		}()
 		if err != nil {
@@ -2946,12 +2949,10 @@ func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitSh
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	// make sure same shard is not inited in parallel
 	i.shardCreateLocks.Lock(shardName)
@@ -2986,12 +2987,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 }
 
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
@@ -3036,12 +3035,10 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
 	shard ShardLike, release func(), err error,
 ) {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return nil, func() {}, errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return nil, func() {}, err
 	}
+	defer i.exitRead()
 
 	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
 	// the shard
@@ -3248,16 +3245,9 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
-	i.closeLock.Lock()
-	defer i.closeLock.Unlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.beginClose(); err != nil {
+		return err
 	}
-
-	i.closed = true
-
-	i.closingCancel()
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
@@ -3305,7 +3295,16 @@ func (i *Index) drop() error {
 
 	if keepFiles {
 		// backup framework expects the DeleteMarkerAdd-prefixed rename
-		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
+		marker := filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID()))
+		if err := os.Rename(i.path(), marker); err != nil {
+			return err
+		}
+		// drop blocks on backupLock until ReleaseBackup runs, so if that already
+		// finished it looked for the marker before this rename created it.
+		if i.lastBackup.Load() == nil {
+			return os.RemoveAll(marker)
+		}
+		return nil
 	}
 
 	// rename sync (must complete even if ctx is expired); RemoveAll async
@@ -3319,32 +3318,27 @@ func (i *Index) drop() error {
 	return nil
 }
 
-// withCloseRLockGuard runs fn under i.closeLock.RLock, returning
-// context.Canceled WITHOUT running fn if the index is closing/closed. fn
-// must be short and must not acquire i.closeLock for writing or any lock
-// drop() holds in an inverting order.
+// withCloseRLockGuard runs fn only if the index is not closing/closed,
+// returning context.Canceled without running it otherwise. fn must not acquire
+// i.closeLock for writing or any lock drop() holds in an inverting order.
 //
 // Covers whole-index drops only: dropShards never sets i.closed, so tenant
 // deletes are invisible to the guard. Tracked in
 // https://github.com/weaviate/0-weaviate-issues/issues/288.
 func (i *Index) withCloseRLockGuard(fn func() error) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
+	if err := i.enterRead(); err != nil {
 		return context.Canceled
 	}
+	defer i.exitRead()
 
 	return fn()
 }
 
 func (i *Index) dropShards(names []string) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	ec := errorcompounder.New()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -3383,12 +3377,10 @@ func (i *Index) dropShards(names []string) error {
 }
 
 func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	ec := errorcompounder.New()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -3415,16 +3407,9 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
-	i.closeLock.Lock()
-	defer i.closeLock.Unlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.beginClose(); err != nil {
+		return err
 	}
-
-	i.closed = true
-
-	i.closingCancel()
 
 	// TODO allow every resource cleanup to run, before returning early with error
 	if err := i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
@@ -3987,5 +3972,37 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 		}
 	}, i.logger)
 
+	return nil
+}
+
+// enterRead admits an operation onto a live index; pair it with exitRead. The
+// Add runs under closeLock.RLock, so it cannot land after beginClose's Wait.
+func (i *Index) enterRead() error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+	i.inflight.Add(1)
+	return nil
+}
+
+func (i *Index) exitRead() { i.inflight.Done() }
+
+// beginClose closes the index and drains in-flight readers. It returns holding
+// no lock: teardown must not exclude readers, or a peer's RPC handler blocks
+// behind it while this node waits on that peer.
+func (i *Index) beginClose() error {
+	i.closeLock.Lock()
+	if i.closed {
+		i.closeLock.Unlock()
+		return errAlreadyShutdown
+	}
+	i.closed = true
+	i.closingCancel()
+	i.closeLock.Unlock()
+
+	i.inflight.Wait()
 	return nil
 }
