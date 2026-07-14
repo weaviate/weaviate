@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -533,6 +534,58 @@ func TestSegmentIndexPin_CompactionSwitchoverErrorReleasesAccounting(t *testing.
 
 	assert.Equal(t, wantBudget, segmentIndexPinnedTotalBytes.Load(),
 		"budget must return to its pre-compaction value")
+	assert.Equal(t, wantTotal, pinnedTotal(), "pinned-total gauge must return to baseline")
+	assert.Equal(t, wantBytes, pinnedBytes(), "pinned-bytes gauge must return to baseline")
+}
+
+// Regression test: the cleanup path's replaceSegment is the twin of the
+// compaction switchover above — a failed switchOnDisk must release the pinned
+// (but never-published) rewritten segment's budget and gauges.
+func TestSegmentIndexPin_CleanupReplaceErrorReleasesAccounting(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "objects")
+	logger, _ := test.NewNullLogger()
+
+	metrics, pinnedTotal, pinnedBytes := pinTestGauges(t, "pin-cleanup-class", "pin-cleanup-shard")
+
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, metrics,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace),
+		WithAllocChecker(memwatch.NewDummyMonitor()),
+		WithSegmentsCleanupInterval(time.Second),
+		WithSegmentIndexPin(1<<30, 8<<30, SegmentIndexPinScopeObjects))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, b.Shutdown(ctx)) }()
+
+	for i := 0; i < 200; i++ {
+		require.NoError(t, b.Put(pinTestKey(i), pinTestValue(i)))
+	}
+	require.NoError(t, b.FlushMemtable())
+	for i := 200; i < 400; i++ {
+		require.NoError(t, b.Put(pinTestKey(i), pinTestValue(i)))
+	}
+	require.NoError(t, b.FlushMemtable())
+
+	segments := pinTestSegments(t, b)
+	require.Len(t, segments, 2)
+	for _, seg := range segments {
+		require.Positive(t, seg.pinnedIndexBytes, "precondition: both segments pinned")
+	}
+	wantBudget := segmentIndexPinnedTotalBytes.Load()
+	wantTotal, wantBytes := pinnedTotal(), pinnedBytes()
+
+	// the cleanup candidate is the oldest segment; removing its file doesn't
+	// fail until switchOnDisk (the rewrite reads through the already-mmap'd
+	// segment), so it sabotages only the switchover
+	require.NoError(t, os.Remove(segments[0].path))
+
+	cleaned, err := b.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.ErrorContains(t, err, "replace cleaned segment on disk",
+		"sabotage must fail exactly in the switchover")
+	require.False(t, cleaned)
+
+	assert.Equal(t, wantBudget, segmentIndexPinnedTotalBytes.Load(),
+		"budget must return to its pre-cleanup value")
 	assert.Equal(t, wantTotal, pinnedTotal(), "pinned-total gauge must return to baseline")
 	assert.Equal(t, wantBytes, pinnedBytes(), "pinned-bytes gauge must return to baseline")
 }
