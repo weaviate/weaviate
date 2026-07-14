@@ -345,7 +345,7 @@ jobs:
           path: coverage-unit.txt
   Integration-Tests:
     name: integration tests (${{ matrix.name }})
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     strategy:
       fail-fast: false
       matrix:
