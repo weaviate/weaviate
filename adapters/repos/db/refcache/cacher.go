@@ -54,6 +54,9 @@ type Cacher struct {
 	additional   additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
 	tenant       string
 	groupByProps search.SelectProperties
+	// groupByIdx is rebuilt alongside groupByProps on every Build call, so it
+	// cannot go stale
+	groupByIdx search.SelectPropertiesIndex
 }
 
 func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
@@ -80,6 +83,7 @@ func (c *Cacher) Build(ctx context.Context, objects []search.Result,
 ) error {
 	c.additional = additional
 	c.groupByProps = groupByProperties
+	c.groupByIdx = groupByProperties.Indexed()
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {
 		return fmt.Errorf("build request cache: %w", err)
@@ -101,9 +105,11 @@ func (c *Cacher) Build(ctx context.Context, objects []search.Result,
 // start the first lookup as well as recursively on the results of a lookup to
 // further look if a next-level call is required.
 func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search.SelectProperties) error {
-	for _, obj := range objects {
-		var err error
+	// on the root level the same properties apply to every object, so the
+	// lookup index can be built once for the entire result set
+	rootIdx := properties.Indexed()
 
+	for _, obj := range objects {
 		// we can only set SelectProperties on the rootlevel since this is the only
 		// place where we have a single root class. In nested lookups we need to
 		// first identify the correct path in the SelectProperties graph which
@@ -113,9 +119,13 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search
 		// subpath to use in this place.
 		// tl;dr: On root level (root=base) take props from the outside, on a
 		// nested level lookup the SelectProps matching the current base element
-		propertiesReplaced, err := c.ReplaceInitialPropertiesWithSpecific(obj, properties)
-		if err != nil {
-			return err
+		idx := rootIdx
+		if properties == nil {
+			propertiesReplaced, err := c.ReplaceInitialPropertiesWithSpecific(obj, properties)
+			if err != nil {
+				return err
+			}
+			idx = propertiesReplaced.Indexed()
 		}
 
 		if obj.Schema == nil {
@@ -127,7 +137,7 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search
 			return fmt.Errorf("object schema is present, but not a map: %T", obj)
 		}
 
-		if err := c.parseSchemaMap(schemaMap, propertiesReplaced); err != nil {
+		if err := c.parseSchemaMap(schemaMap, idx); err != nil {
 			return err
 		}
 
@@ -145,7 +155,7 @@ func (c *Cacher) parseAdditionalGroup(obj search.Result) error {
 	if obj.AdditionalProperties != nil && obj.AdditionalProperties["group"] != nil {
 		if group, ok := obj.AdditionalProperties["group"].(*additional.Group); ok {
 			for _, hitMap := range group.Hits {
-				if err := c.parseSchemaMap(hitMap, c.groupByProps); err != nil {
+				if err := c.parseSchemaMap(hitMap, c.groupByIdx); err != nil {
 					return err
 				}
 			}
@@ -154,9 +164,9 @@ func (c *Cacher) parseAdditionalGroup(obj search.Result) error {
 	return nil
 }
 
-func (c *Cacher) parseSchemaMap(schemaMap map[string]interface{}, propertiesReplaced search.SelectProperties) error {
+func (c *Cacher) parseSchemaMap(schemaMap map[string]interface{}, idx search.SelectPropertiesIndex) error {
 	for key, value := range schemaMap {
-		selectProp := propertiesReplaced.FindProperty(key)
+		selectProp := idx.Find(key)
 		skip, unresolved := c.skipProperty(key, value, selectProp)
 		if skip {
 			continue

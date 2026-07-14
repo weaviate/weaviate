@@ -42,22 +42,24 @@ type SelectClass struct {
 	AdditionalProperties additional.Properties `json:"additionalProperties"`
 }
 
-// FindSelectClass by specifying the exact class name
+// FindSelectClass by specifying the exact class name. The returned pointer
+// aliases the slice element and must be treated as read-only.
 func (sp SelectProperty) FindSelectClass(className schema.ClassName) *SelectClass {
-	for _, selectClass := range sp.Refs {
-		if selectClass.ClassName == string(className) {
-			return &selectClass
+	for i := range sp.Refs {
+		if sp.Refs[i].ClassName == string(className) {
+			return &sp.Refs[i]
 		}
 	}
 
 	return nil
 }
 
-// FindSelectObject by specifying the exact object name
+// FindSelectProperty by specifying the exact object name. The returned
+// pointer aliases the slice element and must be treated as read-only.
 func (sp SelectProperty) FindSelectProperty(name string) *SelectProperty {
-	for _, selectProp := range sp.Props {
-		if selectProp.Name == name {
-			return &selectProp
+	for i := range sp.Props {
+		if sp.Props[i].Name == name {
+			return &sp.Props[i]
 		}
 	}
 
@@ -133,14 +135,58 @@ func (sp SelectProperties) ShouldResolve(path []string) (bool, error) {
 	return false, nil
 }
 
+// FindProperty returns the first property with the given name, or nil if
+// none matches. The returned pointer aliases the slice element and must be
+// treated as read-only.
+//
+// The scan is O(n) but allocation-free, which is fine for one-off lookups.
+// Call sites that query the same instance repeatedly (e.g. once per result
+// object) should build a SelectPropertiesIndex via Indexed instead. The
+// index is deliberately not cached on SelectProperties itself: it is a named
+// slice type that is serialized across RPCs, copied by value, and appended
+// to after construction (e.g. extractGroupBy in the gRPC handler), so a
+// cached map could go stale.
 func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
-	for _, prop := range sp {
-		if prop.Name == propName {
-			return &prop
+	for i := range sp {
+		if sp[i].Name == propName {
+			return &sp[i]
 		}
 	}
 
 	return nil
+}
+
+// SelectPropertiesIndex is a name-based lookup index over a SelectProperties
+// slice. Build it once per scope in which the same instance is queried
+// repeatedly, then use Find for each lookup. It holds pointers into the
+// slice it was built from, so the slice must not be mutated while the index
+// is in use. The index itself is read-only after construction and therefore
+// safe for concurrent readers.
+type SelectPropertiesIndex map[string]*SelectProperty
+
+// Indexed builds a SelectPropertiesIndex over sp. Like FindProperty, the
+// first occurrence wins if a name appears more than once. An empty or nil
+// receiver yields a nil index, on which Find returns nil for every name.
+func (sp SelectProperties) Indexed() SelectPropertiesIndex {
+	if len(sp) == 0 {
+		return nil
+	}
+
+	idx := make(SelectPropertiesIndex, len(sp))
+	for i := range sp {
+		if _, ok := idx[sp[i].Name]; !ok {
+			idx[sp[i].Name] = &sp[i]
+		}
+	}
+
+	return idx
+}
+
+// Find returns the property with the given name, or nil if none matches. The
+// returned pointer aliases the element of the slice the index was built from
+// and must be treated as read-only.
+func (idx SelectPropertiesIndex) Find(propName string) *SelectProperty {
+	return idx[propName]
 }
 
 func (sp SelectProperties) GetPropertyNames() []string {
