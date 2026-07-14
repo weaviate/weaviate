@@ -29,6 +29,7 @@ import (
 //
 // swagger:model SearchResponse
 type SearchResponse struct {
+
 	// The matched objects, ordered by relevance.
 	Results []*SearchResultObject `json:"results"`
 
@@ -91,7 +92,9 @@ func (m *SearchResponse) ContextValidate(ctx context.Context, formats strfmt.Reg
 }
 
 func (m *SearchResponse) contextValidateResults(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.Results); i++ {
+
 		if m.Results[i] != nil {
 			if err := m.Results[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -102,6 +105,7 @@ func (m *SearchResponse) contextValidateResults(ctx context.Context, formats str
 				return err
 			}
 		}
+
 	}
 
 	return nil

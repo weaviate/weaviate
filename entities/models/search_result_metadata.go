@@ -27,6 +27,7 @@ import (
 //
 // swagger:model SearchResultMetadata
 type SearchResultMetadata struct {
+
 	// The normalized certainty of the hit. Only computable on cosine-distance vector indexes.
 	Certainty *float64 `json:"certainty,omitempty"`
 

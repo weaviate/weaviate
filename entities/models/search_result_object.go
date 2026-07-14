@@ -29,6 +29,7 @@ import (
 //
 // swagger:model SearchResultObject
 type SearchResultObject struct {
+
 	// The object's UUID. Always returned.
 	// Required: true
 	// Format: uuid
@@ -63,6 +64,7 @@ func (m *SearchResultObject) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SearchResultObject) validateID(formats strfmt.Registry) error {
+
 	if err := validate.Required("id", "body", m.ID); err != nil {
 		return err
 	}
@@ -108,6 +110,7 @@ func (m *SearchResultObject) ContextValidate(ctx context.Context, formats strfmt
 }
 
 func (m *SearchResultObject) contextValidateMetadata(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Metadata != nil {
 		if err := m.Metadata.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
