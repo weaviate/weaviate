@@ -39,6 +39,7 @@ const (
 	SWEEPING FilterStrategy = iota
 	ACORN
 	RRE
+	PATHSEER
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
@@ -273,6 +274,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	if allowList == nil {
 		strategy = SWEEPING
 	}
+	if strategy == PATHSEER && allowList == nil {
+		strategy = SWEEPING
+	}
 	if strategy == ACORN {
 		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(8 * h.maximumConnectionsLayerZero)
 		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
@@ -449,12 +453,59 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			}
 		}()
 
+		prunedConnsData := candidateNode.prunedConnections
 		candidateNode.Unlock()
 
-		for _, neighborID := range connectionsReusable {
+		// PathSeer: pre-filter prunedConnections (extended area)
+		extStart := len(connectionsReusable)
+		if strategy == PATHSEER && level == 0 && allowList != nil && prunedConnsData != nil {
+			prunedList := prunedConnsData.CopyLayer(nil, 0)
+			for _, extID := range prunedList {
+				if visited.Visited(extID) {
+					continue
+				}
+				if isMultivec {
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(extID)
+					} else {
+						docID, _ = h.cache.GetKeys(extID)
+					}
+					if !allowList.Contains(docID) {
+						continue
+					}
+				} else if !allowList.Contains(extID) {
+					continue
+				}
+				connectionsReusable = append(connectionsReusable, extID)
+			}
+		}
+
+		// PathSeer: sparse pre-filter when candidate fails filter AND results is full
+		candidatePasses := true
+		if strategy == PATHSEER && level == 0 && allowList != nil {
+			candidatePasses = allowList.Contains(candidate.ID)
+		}
+
+		for idx, neighborID := range connectionsReusable {
 			if visited.CheckAndVisit(neighborID) {
-				// skip if we've already visited this neighbor
 				continue
+			}
+
+			if strategy == PATHSEER && level == 0 && allowList != nil && !candidatePasses && idx < extStart && results.Len() >= ef {
+				if isMultivec {
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(neighborID)
+					} else {
+						docID, _ = h.cache.GetKeys(neighborID)
+					}
+					if !allowList.Contains(docID) {
+						continue
+					}
+				} else if !allowList.Contains(neighborID) {
+					continue
+				}
 			}
 
 			if strategy == RRE && level == 0 {
@@ -493,12 +544,15 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if strategy == SWEEPING && level == 0 && allowList != nil {
-					// we are on the lowest level containing the actual candidates and we
-					// have an allow list (i.e. the user has probably set some sort of a
-					// filter restricting this search further. As a result we have to
-					// ignore items not on the list
-					if isMultivec {
+				if (strategy == SWEEPING || strategy == PATHSEER) && level == 0 && allowList != nil {
+					// PathSeer extended area was already pre-filtered; skip
+					if strategy == PATHSEER && idx >= extStart {
+						// already filtered
+					} else if isMultivec {
+						// we are on the lowest level containing the actual candidates and we
+						// have an allow list (i.e. the user has probably set some sort of a
+						// filter restricting this search further. As a result we have to
+						// ignore items not on the list
 						var docID uint64
 						if h.compressed.Load() {
 							docID, _ = h.compressor.GetKeys(neighborID)
@@ -796,8 +850,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	entryPointNode := h.nodes[entryPointID]
 	h.shardedNodeLocks.RUnlock(entryPointID)
 	useAcorn := h.acornEnabled(allowList)
+	usePathseer := h.pathseerSearch.Load() && h.pathseerBuilt.Load()
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
-	if useAcorn {
+	if usePathseer {
+		strategy = PATHSEER
+	} else if useAcorn {
 		if entryPointNode == nil {
 			strategy = RRE
 		} else {

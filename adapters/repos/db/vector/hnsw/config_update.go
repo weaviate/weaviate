@@ -107,6 +107,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
 	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
+	h.pathseerSearch.Store(parsed.FilterStrategy == ent.FilterStrategyPathseer)
 
 	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled && !parsed.RQ.Enabled {
 		callback()

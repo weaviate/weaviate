@@ -146,3 +146,122 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 
 	return nil
 }
+
+// selectNeighborsHeuristicWithPruned is like selectNeighborsHeuristic but
+// returns pruned + un-participated candidates (closest-first) for PathSeer.
+func (h *hnsw) selectNeighborsHeuristicWithPruned(input *priorityqueue.Queue[any],
+	max int, denyList helpers.AllowList,
+) ([]uint64, error) {
+	if input.Len() < max {
+		return nil, nil
+	}
+
+	ids := make([]uint64, input.Len())
+	closestFirst := h.pools.pqHeuristic.GetMin(input.Len())
+	i := uint64(0)
+	for input.Len() > 0 {
+		elem := input.Pop()
+		closestFirst.InsertWithValue(elem.ID, elem.Dist, i)
+		ids[i] = elem.ID
+		i++
+	}
+
+	var returnList []priorityqueue.Item[uint64]
+	var prunedList []uint64
+
+	if h.compressed.Load() {
+		bag := h.compressor.NewBag()
+		for _, id := range ids {
+			if err := bag.Load(context.Background(), id); err != nil {
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					h.handleDeletedNode(e.DocID, "selectNeighborsHeuristicWithPruned")
+					continue
+				}
+				return nil, err
+			}
+		}
+		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.Item[uint64])
+		for closestFirst.Len() > 0 && len(returnList) < max {
+			curr := closestFirst.Pop()
+			if denyList != nil && denyList.Contains(curr.ID) {
+				continue
+			}
+			good := true
+			for _, item := range returnList {
+				peerDist, err := bag.Distance(curr.ID, item.ID)
+				if err != nil {
+					var e storobj.ErrNotFound
+					if errors.As(err, &e) {
+						continue
+					}
+					return nil, err
+				}
+				if peerDist < curr.Dist {
+					good = false
+					break
+				}
+			}
+			if good {
+				returnList = append(returnList, curr)
+			} else {
+				prunedList = append(prunedList, curr.ID)
+			}
+		}
+		for closestFirst.Len() > 0 {
+			curr := closestFirst.Pop()
+			if denyList != nil && denyList.Contains(curr.ID) {
+				continue
+			}
+			prunedList = append(prunedList, curr.ID)
+		}
+	} else {
+		vecs, errs := h.multiVectorForID(context.TODO(), ids)
+		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.Item[uint64])
+		for closestFirst.Len() > 0 && len(returnList) < max {
+			curr := closestFirst.Pop()
+			if denyList != nil && denyList.Contains(curr.ID) {
+				continue
+			}
+			currVec := vecs[curr.Value]
+			if errs != nil {
+				if err := errs[curr.Value]; err != nil {
+					var e storobj.ErrNotFound
+					if errors.As(err, &e) {
+						h.handleDeletedNode(e.DocID, "selectNeighborsHeuristicWithPruned")
+						continue
+					}
+					return nil, errors.Wrapf(err, "unrecoverable error for docID %d", curr.ID)
+				}
+			}
+			good := true
+			for _, item := range returnList {
+				peerDist, _ := h.distancerProvider.SingleDist(currVec, vecs[item.Value])
+				if peerDist < curr.Dist {
+					good = false
+					break
+				}
+			}
+			if good {
+				returnList = append(returnList, curr)
+			} else {
+				prunedList = append(prunedList, curr.ID)
+			}
+		}
+		for closestFirst.Len() > 0 {
+			curr := closestFirst.Pop()
+			if denyList != nil && denyList.Contains(curr.ID) {
+				continue
+			}
+			prunedList = append(prunedList, curr.ID)
+		}
+	}
+
+	h.pools.pqHeuristic.Put(closestFirst)
+	for _, retElem := range returnList {
+		input.Insert(retElem.ID, retElem.Dist)
+	}
+	returnList = returnList[:0]
+	h.pools.pqItemSlice.Put(returnList)
+	return prunedList, nil
+}

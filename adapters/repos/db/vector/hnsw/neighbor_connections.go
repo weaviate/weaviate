@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *vertex,
@@ -274,8 +275,17 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		before = time.Now()
 	}
 
-	if err := n.graph.selectNeighborsHeuristic(results, maxConnections-total, n.denyList); err != nil {
-		return errors.Wrap(err, "heuristic")
+	var prunedExt []uint64
+	if level == 0 && n.graph.pathseerSearch.Load() {
+		pruned, err := n.graph.selectNeighborsHeuristicWithPruned(results, maxConnections-total, n.denyList)
+		if err != nil {
+			return errors.Wrap(err, "heuristic with pruned")
+		}
+		prunedExt = pruned
+	} else {
+		if err := n.graph.selectNeighborsHeuristic(results, maxConnections-total, n.denyList); err != nil {
+			return errors.Wrap(err, "heuristic")
+		}
 	}
 
 	n.graph.insertMetrics.findAndConnectHeuristic(before)
@@ -291,11 +301,25 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		neighbors = append(neighbors, id)
 	}
 
+	// PathSeer: store extended connections
+	if level == 0 && n.graph.pathseerSearch.Load() && len(prunedExt) > 0 {
+		extCap := n.graph.maximumConnectionsLayerZeroExpanded
+		if len(prunedExt) > extCap {
+			prunedExt = prunedExt[:extCap]
+		}
+		n.node.Lock()
+		pc, _ := packedconn.NewWithMaxLayer(0)
+		pc.ReplaceLayer(0, prunedExt)
+		n.node.prunedConnections = pc
+		n.node.Unlock()
+		if err := n.graph.commitLog.ReplacePrunedLinks(n.node.id, pc.Data()); err != nil {
+			return errors.Wrap(err, "replace pruned links")
+		}
+	}
+
 	n.graph.pools.pqResults.Put(results)
 
 	neighborsCpy := neighbors
-	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
-	// if so, we need to create a copy
 	n.node.setConnectionsAtLevel(level, neighbors)
 
 	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighborsCpy); err != nil {
@@ -306,6 +330,15 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		for _, neighborID := range neighborsCpy {
 			if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
 				return errors.Wrapf(err, "connect neighbor %d", neighborID)
+			}
+		}
+		// PathSeer: bidirectional extended-area connections
+		if level == 0 && n.graph.pathseerSearch.Load() && n.node.prunedConnections != nil {
+			prunedConns := n.node.prunedConnections.CopyLayer(nil, 0)
+			for _, neighborID := range prunedConns {
+				if err := n.connectExtendedNeighborAtLevel(neighborID); err != nil {
+					return errors.Wrapf(err, "connect extended neighbor %d", neighborID)
+				}
 			}
 		}
 	}
@@ -405,6 +438,64 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		neighbor.appendConnectionsAtLevelNoLock(level, ids, maximumConnections)
 	}
 
+	return nil
+}
+
+// connectExtendedNeighborAtLevel inserts n.node into neighbor's prunedConnections
+// (extended area), maintained sorted by distance, closest first. Uses binary search.
+func (n *neighborFinderConnector) connectExtendedNeighborAtLevel(neighborID uint64) error {
+	neighbor := n.graph.nodeByID(neighborID)
+	if skip := n.skipNeighbor(neighbor); skip {
+		return nil
+	}
+	distAB, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+	if err != nil {
+		return err
+	}
+	neighbor.Lock()
+	defer neighbor.Unlock()
+	maxExtended := n.graph.maximumConnectionsLayerZeroExpanded
+	if neighbor.prunedConnections == nil {
+		pc, _ := packedconn.NewWithMaxLayer(0)
+		neighbor.prunedConnections = pc
+	}
+	n.connectionsBuf = neighbor.prunedConnections.CopyLayer(n.connectionsBuf[:0], 0)
+	list := n.connectionsBuf
+	pos := len(list)
+	if len(list) > 0 {
+		lo, hi := 0, len(list)
+		for lo < hi {
+			mid := lo + (hi-lo)/2
+			d, err := n.graph.distBetweenNodes(list[mid], neighborID)
+			if err != nil {
+				lo = mid + 1
+				continue
+			}
+			if d <= distAB {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		pos = lo
+	}
+	if pos >= maxExtended {
+		return nil
+	}
+	if len(list) < maxExtended {
+		list = append(list, 0)
+	}
+	copy(list[pos+1:], list[pos:])
+	list[pos] = n.node.id
+	if len(list) > maxExtended {
+		list = list[:maxExtended]
+	}
+	neighbor.prunedConnections.ReplaceLayer(0, list)
+	if err := n.graph.commitLog.ReplacePrunedLinks(neighbor.id, neighbor.prunedConnections.Data()); err != nil {
+		n.graph.logger.WithField("action", "connect_extended_neighbor").
+			WithField("node_id", neighbor.id).
+			Warnf("failed to write ReplacePrunedLinks for extended neighbor: %v", err)
+	}
 	return nil
 }
 

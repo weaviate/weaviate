@@ -32,6 +32,7 @@ const (
 	AddMuvera
 	AddRQ
 	AddBRQ
+	ReplacePrunedLinks
 )
 
 func (t HnswCommitType) String() string {
@@ -68,6 +69,8 @@ func (t HnswCommitType) String() string {
 		return "AddRotationalQuantizer"
 	case AddBRQ:
 		return "AddBRQCompression"
+	case ReplacePrunedLinks:
+		return "ReplacePrunedLinks"
 	}
 	return "unknown commit type"
 }

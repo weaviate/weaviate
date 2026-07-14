@@ -115,6 +115,16 @@ func (w *WALWriter) WriteClearLinks(id uint64) error {
 	return err
 }
 
+func (w *WALWriter) WriteReplacePrunedLinks(source uint64, data []byte) error {
+	toWrite := make([]byte, 11+len(data))
+	toWrite[0] = byte(ReplacePrunedLinks)
+	binary.LittleEndian.PutUint64(toWrite[1:9], source)
+	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(len(data)))
+	copy(toWrite[11:], data)
+	_, err := w.w.Write(toWrite)
+	return err
+}
+
 // WriteClearLinksAtLevel writes a ClearLinksAtLevel commit.
 func (w *WALWriter) WriteClearLinksAtLevel(id uint64, level uint16) error {
 	buf := make([]byte, 11)

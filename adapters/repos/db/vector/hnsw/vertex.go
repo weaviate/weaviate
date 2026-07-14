@@ -22,6 +22,7 @@ type vertex struct {
 	id uint64
 	sync.Mutex
 	connections *packedconn.Connections
+	prunedConnections *packedconn.Connections
 	level       int
 	maintenance bool
 }
@@ -94,6 +95,7 @@ func convertEntityNodes(entNodes []*ent.Vertex) []*vertex {
 				id:          en.ID,
 				level:       en.Level,
 				connections: en.Connections,
+				prunedConnections: en.PrunedConnections,
 			}
 		}
 	}
