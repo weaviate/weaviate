@@ -212,9 +212,7 @@ func testDropVectorIndex(compose *docker.DockerCompose, verifySchemaAfterDrop bo
 							cls := helper.GetClass(t, className)
 							cfg, ok := cls.VectorConfig[tc.name]
 							if !ok {
-								// The async cleanup finalizer already removed the
-								// entry: the terminal post-drop state, also valid.
-								return
+								return // finalizer already removed the entry; also valid
 							}
 							assert.Equal(collect, "none", cfg.VectorIndexType, "VectorIndexType should be 'none' for dropped index %q", tc.name)
 							assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil for dropped index %q", tc.name)
@@ -246,9 +244,6 @@ func testDropVectorIndex(compose *docker.DockerCompose, verifySchemaAfterDrop bo
 			})
 		}
 
-		// After dropping all 4, verify every entry reflects its drop: still
-		// present with the "none" marker, or already removed by the async
-		// cleanup finalizer (the terminal state). A live index type fails.
 		if verifySchemaAfterDrop {
 			t.Run("verify schema after all drops", func(t *testing.T) {
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {

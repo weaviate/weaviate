@@ -291,13 +291,13 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 		// Root backs up the same namespaced class and the backup reaches SUCCESS.
 		// The ID carries a unique suffix so reruns against the shared, persisted
 		// bucket don't collide.
+		// waitBackupCreated (not a bare create): parallel tests in this package
+		// also run real backups, and the coordinator 422s a create while another
+		// backup is in flight anywhere on the cluster.
 		backupID := fmt.Sprintf("cr-root-backup-%s-%d", ns1, time.Now().UnixNano())
-		ok, err := helper.CreateBackupWithAuthz(
-			t, helper.DefaultBackupConfig(), ownClass, s3Backend, backupID,
-			helper.CreateAuth(adminKey))
-		require.NoError(t, err)
-		require.NotNil(t, ok.Payload)
-		require.Contains(t, ok.Payload.Classes, ownClass)
+		okResp := waitBackupCreated(t, ownClass, backupID)
+		require.NotNil(t, okResp.Payload)
+		require.Contains(t, okResp.Payload.Classes, ownClass)
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))
 	})
 

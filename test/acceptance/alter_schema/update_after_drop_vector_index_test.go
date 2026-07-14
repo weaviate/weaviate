@@ -67,17 +67,13 @@ func testUpdateClassAfterDropVectorIndex() func(t *testing.T) {
 		})
 
 		t.Run("verify vector index dropped", func(t *testing.T) {
-			// Post-drop the entry is either still present with the "none" marker
-			// or already removed by the async cleanup finalizer — both valid. The
-			// update below exercises the original panic regression whenever the
-			// marker is still present; with the entry gone it degrades to a plain
-			// update, which is the best a black-box test can do against an async
-			// finalizer.
 			assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 				cls := helper.GetClass(t, className)
 				cfg, ok := cls.VectorConfig["my_vector"]
 				if !ok {
-					return // finalizer already removed the entry
+					// Finalizer already removed the entry; the update below then
+					// only exercises a plain update, not the panic regression.
+					return
 				}
 				assert.Equal(collect, "none", cfg.VectorIndexType, "VectorIndexType should be 'none'")
 				assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil")

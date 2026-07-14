@@ -247,9 +247,7 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
 
 	// classWithTwoVectors returns a class with two named vectors (vec1, vec2),
-	// both backed by HNSW. Dropping one first toggles its VectorIndexType to
-	// "none" (durably applied before the drop call returns); an async cleanup
-	// task then removes the entry from the schema entirely.
+	// both backed by HNSW. Dropping one toggles its VectorIndexType to "none".
 	classWithTwoVectors := func(name string) *models.Class {
 		return &models.Class{
 			Class: name,
@@ -275,19 +273,16 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 		return cfg.VectorIndexType
 	}
 
-	// requireVectorIndexDropped asserts that dropping `vec` on `qualified` took
-	// effect. Two valid post-drop observations exist: the entry still present
-	// with the "none" marker (set durably before the drop call returns), or the
-	// entry removed entirely (the async cleanup finalizer won the race; see
-	// RemoveDroppedVectorConfig). Only a still-live index type is a failure;
-	// polling absorbs follower read lag on the multi-node cluster.
+	// requireVectorIndexDropped accepts two valid post-drop states: the entry
+	// still present with the "none" marker, or already removed (the async
+	// cleanup finalizer won the race; see RemoveDroppedVectorConfig).
 	requireVectorIndexDropped := func(t *testing.T, qualified, vec string) {
 		t.Helper()
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			got := helper.GetClassAuth(t, qualified, adminKey)
 			cfg, ok := got.VectorConfig[vec]
 			if !ok {
-				return // cleanup finalizer already removed the entry: terminal state
+				return // finalizer already removed the entry
 			}
 			assert.Equal(c, "none", cfg.VectorIndexType, "vector %q on %q should be dropped", vec, qualified)
 		}, 15*time.Second, 100*time.Millisecond, "drop of vector %q on %q should take effect", vec, qualified)
@@ -301,8 +296,7 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 		require.NoError(t, deleteVectorIndexAuth(t, "Movies", "vec1", user1Key))
 
 		requireVectorIndexDropped(t, ns1+":Movies", "vec1")
-		// vec2 was never dropped, so its entry is never marked or removed by the
-		// cleanup finalizer: a plain read is deterministic here.
+		// vec2 was never dropped, so a plain read is deterministic.
 		assert.Equal(t, "hnsw", vectorIndexType(t, ns1+":Movies", "vec2"))
 	})
 

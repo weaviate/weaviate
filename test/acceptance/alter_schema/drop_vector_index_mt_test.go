@@ -179,9 +179,6 @@ func testDropVectorIndexMultiTenant(compose *docker.DockerCompose, verifySchemaA
 
 		if verifySchemaAfterDrop {
 			t.Run("verify schema after drops", func(t *testing.T) {
-				// Each dropped entry is either still present with the "none"
-				// marker or already removed by the async cleanup finalizer (the
-				// terminal state). Only a live index type fails.
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 					cls := helper.GetClass(t, className)
 					for _, name := range []string{"flat_bq", "hnsw_rq8"} {

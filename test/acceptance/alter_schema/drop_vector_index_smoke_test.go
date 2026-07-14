@@ -32,13 +32,12 @@ import (
 // (Phase 1) and the drop is immediately effective — writes targeting the dropped
 // vector are rejected exactly as for a never-existing vector.
 //
-// NOT covered here (left to the full acceptance suite): the background cleanup
-// that strips the dropped vector from already-stored objects, and the final
-// removal of the VectorConfig entry from the schema. Neither is observable in a
-// black-box acceptance test today — the segment cleanup driver only runs on a
-// cleanup interval that is whole-hours-granular (default off), compaction is not
-// API-triggerable, and the schema removal needs the FSM transition that permits
-// removing a dropped vector entry once cleanup has finished.
+// NOT asserted here: the background cleanup that strips the dropped vector from
+// already-stored objects, and the final removal of the VectorConfig entry from
+// the schema (RemoveDroppedVectorConfig). Their timing is not controllable from
+// a black-box test — the finalizer may or may not complete within the test
+// window — so the schema assertion below accepts both post-drop states rather
+// than pinning either.
 // errorResponseText flattens a go-swagger error into searchable text: Error()
 // prints payload pointers (&{Error:[0x...]}), so the payload messages must be
 // extracted through GetPayload.
@@ -109,9 +108,7 @@ func testDropVectorIndexSmoke() func(t *testing.T) {
 				got := helper.GetClass(t, className)
 				cfg, ok := got.VectorConfig[vec]
 				if !ok {
-					// The async cleanup finalizer already removed the entry: the
-					// terminal post-drop state, also valid.
-					return
+					return // finalizer already removed the entry; also valid
 				}
 				assert.Equal(collect, "none", cfg.VectorIndexType)
 			}, 15*time.Second, 200*time.Millisecond, "schema should reflect the dropped vector index")
