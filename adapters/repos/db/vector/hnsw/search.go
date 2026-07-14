@@ -454,12 +454,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		}()
 
 		prunedConnsData := candidateNode.prunedConnections
-		candidateNode.Unlock()
 
 		// PathSeer: pre-filter prunedConnections (extended area)
 		extStart := len(connectionsReusable)
 		if strategy == PATHSEER && level == 0 && allowList != nil && prunedConnsData != nil {
 			prunedList := prunedConnsData.CopyLayer(nil, 0)
+			candidateNode.Unlock()
 			for _, extID := range prunedList {
 				if visited.Visited(extID) {
 					continue
@@ -479,12 +479,24 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				}
 				connectionsReusable = append(connectionsReusable, extID)
 			}
+		} else {
+			candidateNode.Unlock()
 		}
 
 		// PathSeer: sparse pre-filter when candidate fails filter AND results is full
 		candidatePasses := true
 		if strategy == PATHSEER && level == 0 && allowList != nil {
-			candidatePasses = allowList.Contains(candidate.ID)
+ 			if isMultivec {
+ 				var docID uint64
+ 				if h.compressed.Load() {
+ 					docID, _ = h.compressor.GetKeys(candidate.ID)
+ 				} else {
+ 					docID, _ = h.cache.GetKeys(candidate.ID)
+ 				}
+ 				candidatePasses = allowList.Contains(docID)
+ 			} else {
+ 				candidatePasses = allowList.Contains(candidate.ID)
+ 			}
 		}
 
 		for idx, neighborID := range connectionsReusable {

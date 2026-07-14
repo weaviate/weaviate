@@ -157,15 +157,20 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 			out.SetEncoderMuvera(commit.Data)
 			out.SetMuveraEnabled(true)
 		case *ReplacePrunedLinksCommit:
-			if int(commit.Source) >= len(out.Nodes()) {
-				newNodes := make([]*ent.Vertex, commit.Source+1)
-				copy(newNodes, out.Nodes())
-				out.SetNodes(newNodes)
+			newNodes, changed, err := growIndexToAccommodateNode(out.Graph.Nodes, commit.Source, r.logger)
+			if errors.Is(err, errInvalidNodeID) {
+				continue
 			}
-			if out.Nodes()[commit.Source] == nil {
-				out.Nodes()[commit.Source] = &ent.Vertex{ID: commit.Source}
+			if err != nil {
+				return out, err
 			}
-			out.Nodes()[commit.Source].PrunedConnections = packedconn.NewWithData(commit.Data)
+			if changed {
+				out.Graph.Nodes = newNodes
+			}
+			if out.Graph.Nodes[commit.Source] == nil {
+				out.Graph.Nodes[commit.Source] = &ent.Vertex{ID: commit.Source}
+			}
+			out.Graph.Nodes[commit.Source].PrunedConnections = packedconn.NewWithData(commit.Data)
 		default:
 			err = errors.Errorf("unrecognized commit type %T", c)
 		}

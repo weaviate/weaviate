@@ -621,41 +621,86 @@ func (h *hnsw) reassignNeighbor(
 
 	neighborNode.Lock()
 	neighborLevel := neighborNode.level
-	if !connectionsPointTo(neighborNode.connections, deleteList) {
+	needsSparseReassign := connectionsPointTo(neighborNode.connections, deleteList)
+	needsPrunedCleanup := neighborNode.prunedConnections != nil && connectionsPointTo(neighborNode.prunedConnections, deleteList)
+	if !needsSparseReassign && !needsPrunedCleanup {
 		// nothing needs to be changed, skip
 		neighborNode.Unlock()
 		return true, nil
 	}
 	neighborNode.Unlock()
 
-	var neighborVec []float32
-	var compressorDistancer compressionhelpers.CompressorDistancer
-	if h.compressed.Load() {
-		compressorDistancer, err = h.compressor.NewDistancerFromID(neighbor)
-	} else {
-		neighborVec, err = h.cache.Get(context.Background(), neighbor)
-	}
-
-	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "reassignNeighbor")
-			return true, nil
+	if needsSparseReassign {
+		var neighborVec []float32
+		var compressorDistancer compressionhelpers.CompressorDistancer
+		if h.compressed.Load() {
+			compressorDistancer, err = h.compressor.NewDistancerFromID(neighbor)
 		} else {
-			// not a typed error, we can recover from, return with err
-			return false, errors.Wrap(err, "get neighbor vec")
+			neighborVec, err = h.cache.Get(context.Background(), neighbor)
+		}
+
+		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "reassignNeighbor")
+				return true, nil
+			} else {
+				// not a typed error, we can recover from, return with err
+				return false, errors.Wrap(err, "get neighbor vec")
+			}
+		}
+
+		// the new recursive implementation no longer needs an entrypoint, so we can
+		// just pass this dummy value to make the neighborFinderConnector happy
+		neighborNode.markAsMaintenance()
+		defer neighborNode.unmarkAsMaintenance()
+
+		dummyEntrypoint := uint64(0)
+		if err := h.reconnectNeighboursOf(ctx, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
+			neighborLevel, currentMaximumLayer, deleteList, processedIDs); err != nil {
+			return false, errors.Wrap(err, "find and connect neighbors")
 		}
 	}
 
-	// the new recursive implementation no longer needs an entrypoint, so we can
-	// just pass this dummy value to make the neighborFinderConnector happy
-	neighborNode.markAsMaintenance()
-	defer neighborNode.unmarkAsMaintenance()
+	if needsPrunedCleanup && !needsSparseReassign {
+		// Only pruned area has stale references; sparse area is fine.
+		// Load the node vector if we haven't already.
+		var prunedVec []float32
+		var prunedDistancer compressionhelpers.CompressorDistancer
+		if h.compressed.Load() {
+			prunedDistancer, err = h.compressor.NewDistancerFromID(neighbor)
+		} else {
+			prunedVec, err = h.cache.Get(context.Background(), neighbor)
+		}
+		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "reassignNeighbor")
+				return true, nil
+			}
+			return false, errors.Wrap(err, "get neighbor vec for pruned rebuild")
+		}
 
-	dummyEntrypoint := uint64(0)
-	if err := h.reconnectNeighboursOf(ctx, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
-		neighborLevel, currentMaximumLayer, deleteList, processedIDs); err != nil {
-		return false, errors.Wrap(err, "find and connect neighbors")
+		// Build sparseNeighbors set from current sparse connections.
+		neighborNode.Lock()
+		sparseSet := make(map[uint64]bool)
+		if neighborNode.connections != nil {
+			buf := make([]uint64, 0, 64)
+			for l := uint8(0); l < neighborNode.connections.Layers(); l++ {
+				buf = neighborNode.connections.CopyLayer(buf[:0], l)
+				for _, nid := range buf {
+					sparseSet[nid] = true
+				}
+			}
+		}
+		neighborNode.Unlock()
+
+		if err := h.rebuildPrunedConnections(
+			ctx, neighborNode, prunedVec, prunedDistancer,
+			deleteList, nil, sparseSet,
+		); err != nil {
+			return false, errors.Wrap(err, "rebuild pruned connections")
+		}
 	}
 
 	h.metrics.CleanedUp()

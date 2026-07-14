@@ -247,6 +247,8 @@ func extractNodeID(c Commit) (uint64, bool) {
 		return ct.ID, true
 	case *RemoveTombstoneCommit:
 		return ct.ID, true
+	case *ReplacePrunedLinksCommit:
+		return ct.Source, true
 	default:
 		return 0, false
 	}

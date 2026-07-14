@@ -797,7 +797,7 @@ func Test_UserConfig(t *testing.T) {
 				"filterStrategy": "chestnut",
 			},
 			expectErr:    true,
-			expectErrMsg: "invalid hnsw config: filterStrategy must be either 'sweeping' or 'acorn'",
+			expectErrMsg: "invalid hnsw config: filterStrategy must be either 'sweeping', 'acorn', or 'pathseer'",
 		},
 		{
 			name: "acorn enabled, all defaults",
@@ -838,6 +838,57 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: FilterStrategyAcorn,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
+			name: "pathseer enabled, all defaults",
+			input: map[string]interface{}{
+				"filterStrategy": "pathseer",
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				Skip:                   DefaultSkip,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           DefaultDynamicEFMin,
+				DynamicEFMax:           DefaultDynamicEFMax,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
+				FilterStrategy: FilterStrategyPathseer,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
 					Aggregation: DefaultMultivectorAggregation,

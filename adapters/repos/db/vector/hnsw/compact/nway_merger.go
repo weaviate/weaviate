@@ -273,6 +273,7 @@ type commitMerger struct {
 	removeTombstone    bool
 	seenReplaceAtLevel map[uint16]bool // true once a Replace or Clear has been seen at a level
 	seenClearLinks     bool            // true once ClearLinks has been seen from any iterator
+	prunedData         []byte          // highest-precedence PrunedLinks data (nil = none)
 }
 
 func newCommitMerger(nodeID uint64, logger logrus.FieldLogger) *commitMerger {
@@ -379,6 +380,11 @@ func (m *commitMerger) addCommit(c Commit) error {
 	case *RemoveTombstoneCommit:
 		m.removeTombstone = true
 
+	case *ReplacePrunedLinksCommit:
+		if m.prunedData == nil {
+			m.prunedData = ct.Data
+		}
+
 	default:
 		return errors.Errorf("unexpected commit type for node %d: %T", m.nodeID, c)
 	}
@@ -401,6 +407,13 @@ func (m *commitMerger) result() *NodeCommits {
 			commits = append(commits, &RemoveTombstoneCommit{ID: m.nodeID})
 		}
 		// If both add and remove, they cancel out (no-op)
+
+		if len(m.prunedData) > 0 {
+			commits = append(commits, &ReplacePrunedLinksCommit{
+				Source: m.nodeID,
+				Data:   m.prunedData,
+			})
+		}
 
 		return &NodeCommits{
 			NodeID:  m.nodeID,

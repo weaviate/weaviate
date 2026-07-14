@@ -109,6 +109,14 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
 	h.pathseerSearch.Store(parsed.FilterStrategy == ent.FilterStrategyPathseer)
 
+	// Prevent switching TO pathseer after the index was built without it.
+	// Once data is inserted without extended-area neighbors, pathseer search
+	// cannot be activated without a full rebuild.
+	if !h.pathseerBuilt.Load() && parsed.FilterStrategy == ent.FilterStrategyPathseer {
+		callback()
+		return errors.Errorf("cannot switch to pathseer filter strategy: index was built without it; rebuild required")
+	}
+
 	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled && !parsed.RQ.Enabled {
 		callback()
 		return nil

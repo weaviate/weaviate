@@ -202,6 +202,13 @@ func (s *SortedWriter) writeNodeCommits(res *ent.DeserializationResult) error {
 				}
 			}
 		}
+
+			// Write extended-area (pruned) connections if present
+			if node.PrunedConnections != nil && node.PrunedConnections.Layers() > 0 {
+				if err := s.writer.WriteReplacePrunedLinks(nodeID, node.PrunedConnections.Data()); err != nil {
+					return errors.Wrapf(err, "write replace pruned links for node %d", nodeID)
+				}
+			}
 	}
 
 	// Phase 2: Write tombstone operations for any node IDs beyond the nodes array
