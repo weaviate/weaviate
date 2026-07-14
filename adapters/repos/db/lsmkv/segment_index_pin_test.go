@@ -82,6 +82,22 @@ func pinTestValue(i int) []byte {
 	return []byte(fmt.Sprintf("value-%05d-%s", i, string(make([]byte, i%64))))
 }
 
+// pinTestGauges builds a fresh per-shard Metrics instance and returns readers
+// for the objects bucket's pinned-total and pinned-bytes gauges.
+func pinTestGauges(t *testing.T, className, shardName string) (*Metrics, func() float64, func() float64) {
+	t.Helper()
+	metrics, err := NewMetrics(monitoring.GetMetrics(), className, shardName)
+	require.NoError(t, err)
+
+	pinnedTotal := func() float64 {
+		return testutil.ToFloat64(metrics.segmentIndexPinnedTotal.WithLabelValues(StrategyReplace, "objects"))
+	}
+	pinnedBytes := func() float64 {
+		return testutil.ToFloat64(metrics.segmentIndexPinnedBytes.WithLabelValues(StrategyReplace, "objects"))
+	}
+	return metrics, pinnedTotal, pinnedBytes
+}
+
 // TestSegmentIndexPin_ByteIdenticalResults asserts Get/GetBySecondary return
 // identical results with pinning enabled vs disabled.
 func TestSegmentIndexPin_ByteIdenticalResults(t *testing.T) {
@@ -258,15 +274,7 @@ func TestSegmentIndexPin_CompactionLifecycle(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "objects")
 	logger, _ := test.NewNullLogger()
 
-	metrics, err := NewMetrics(monitoring.GetMetrics(), "pin-test-class", "pin-test-shard")
-	require.NoError(t, err)
-
-	pinnedTotal := func() float64 {
-		return testutil.ToFloat64(metrics.segmentIndexPinnedTotal.WithLabelValues(StrategyReplace, "objects"))
-	}
-	pinnedBytes := func() float64 {
-		return testutil.ToFloat64(metrics.segmentIndexPinnedBytes.WithLabelValues(StrategyReplace, "objects"))
-	}
+	metrics, pinnedTotal, pinnedBytes := pinTestGauges(t, "pin-test-class", "pin-test-shard")
 	baseTotal, baseBytes := pinnedTotal(), pinnedBytes()
 
 	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, metrics,
@@ -355,32 +363,28 @@ func TestSegmentIndexPin_SafetyFallbacks(t *testing.T) {
 		}
 	}
 
-	t.Run("memory pressure skips pin", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "objects")
-		b := newBucketRaw(t, dir,
-			WithAllocChecker(failingAllocChecker{}),
-			WithSegmentIndexPin(1<<30, 8<<30, SegmentIndexPinScopeObjects))
-		defer func() { require.NoError(t, b.Shutdown(ctx)) }()
+	// memory pressure (alloc denied) and a missing allocChecker must both
+	// skip pinning entirely without affecting reads
+	for _, tc := range []struct {
+		name string
+		opts []BucketOption
+	}{
+		{name: "memory pressure skips pin", opts: []BucketOption{WithAllocChecker(failingAllocChecker{})}},
+		{name: "nil allocChecker skips pin", opts: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "objects")
+			b := newBucketRaw(t, dir, append(tc.opts,
+				WithSegmentIndexPin(1<<30, 8<<30, SegmentIndexPinScopeObjects))...)
+			defer func() { require.NoError(t, b.Shutdown(ctx)) }()
 
-		seed(t, b)
-		for _, seg := range pinTestSegments(t, b) {
-			assert.Zero(t, seg.pinnedIndexBytes)
-		}
-		verifyReads(t, b)
-	})
-
-	t.Run("nil allocChecker skips pin", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "objects")
-		b := newBucketRaw(t, dir,
-			WithSegmentIndexPin(1<<30, 8<<30, SegmentIndexPinScopeObjects))
-		defer func() { require.NoError(t, b.Shutdown(ctx)) }()
-
-		seed(t, b)
-		for _, seg := range pinTestSegments(t, b) {
-			assert.Zero(t, seg.pinnedIndexBytes)
-		}
-		verifyReads(t, b)
-	})
+			seed(t, b)
+			for _, seg := range pinTestSegments(t, b) {
+				assert.Zero(t, seg.pinnedIndexBytes)
+			}
+			verifyReads(t, b)
+		})
+	}
 
 	t.Run("node-wide budget clamps pinning", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "objects")
@@ -491,15 +495,7 @@ func TestSegmentIndexPin_CompactionSwitchoverErrorReleasesAccounting(t *testing.
 	dir := filepath.Join(t.TempDir(), "objects")
 	logger, _ := test.NewNullLogger()
 
-	metrics, err := NewMetrics(monitoring.GetMetrics(), "pin-switchover-class", "pin-switchover-shard")
-	require.NoError(t, err)
-
-	pinnedTotal := func() float64 {
-		return testutil.ToFloat64(metrics.segmentIndexPinnedTotal.WithLabelValues(StrategyReplace, "objects"))
-	}
-	pinnedBytes := func() float64 {
-		return testutil.ToFloat64(metrics.segmentIndexPinnedBytes.WithLabelValues(StrategyReplace, "objects"))
-	}
+	metrics, pinnedTotal, pinnedBytes := pinTestGauges(t, "pin-switchover-class", "pin-switchover-shard")
 
 	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, metrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
