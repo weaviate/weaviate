@@ -63,12 +63,13 @@ type flat struct {
 	compressionType CompressionType
 	quantizer       Quantizer
 	cache           *Cache
-	// cacheComplete reports whether the cache is known to hold every vector
-	// of the index, which is what allows searches to iterate the cache
-	// instead of the store. It is set once the startup preload has run over
-	// an index whose data is fully visible to it (or trivially, for an index
-	// that starts empty: insert-time preloading keeps it complete).
-	cacheComplete atomic.Bool
+	// cachePrefilled reports whether the cache is known to hold every vector
+	// of the index, allowing searches to iterate the cache instead of the
+	// store. It is set when the startup prefill loaded the full index, and
+	// for an index that starts empty (insert-time preloading then keeps the
+	// cache complete). It stays false when the prefill could not see the
+	// data, e.g. vectors that only live in the memtable.
+	cachePrefilled atomic.Bool
 
 	pqResults *common.PqMaxPool
 	pool      *pools
@@ -493,7 +494,7 @@ func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32
 	// the cached search iterates the cache window, which silently skips
 	// anything not cached; it is only correct once the cache is known to be
 	// complete, otherwise the store is the source of truth
-	if index.Compressed() && index.Cached() && index.cacheComplete.Load() {
+	if index.Compressed() && index.Cached() && index.cachePrefilled.Load() {
 		if err := index.findTopVectorsQuantizedCached(heap, allow, rescore, vector); err != nil {
 			return nil, nil, err
 		}
@@ -921,7 +922,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 	if index.quantizer == nil {
 		// no quantizer means nothing was restored from disk: the index
 		// starts empty and insert-time preloading keeps the cache complete
-		index.cacheComplete.Store(true)
+		index.cachePrefilled.Store(true)
 		return
 	}
 
@@ -1036,7 +1037,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 		k, _ := c.First()
 		c.Close()
 		if k == nil {
-			index.cacheComplete.Store(true)
+			index.cachePrefilled.Store(true)
 		}
 		return
 	}
@@ -1096,7 +1097,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 		}
 	}
 
-	index.cacheComplete.Store(true)
+	index.cachePrefilled.Store(true)
 
 	took := time.Since(before)
 	index.logger.WithFields(logrus.Fields{
@@ -1261,7 +1262,7 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 					// the window guard only makes sense on a complete cache,
 					// where an id beyond it cannot exist; on an incomplete
 					// cache, Get below falls back to disk
-					if cacheLen := index.cache.Len(); index.cacheComplete.Load() && int32(nodeID) > cacheLen {
+					if cacheLen := index.cache.Len(); index.cachePrefilled.Load() && int32(nodeID) > cacheLen {
 						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					vec, err := index.cache.uint64Cache.Get(context.Background(), nodeID)
@@ -1288,7 +1289,7 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 					// the window guard only makes sense on a complete cache,
 					// where an id beyond it cannot exist; on an incomplete
 					// cache, Get below falls back to disk
-					if cacheLen := index.cache.Len(); index.cacheComplete.Load() && int32(nodeID) > cacheLen {
+					if cacheLen := index.cache.Len(); index.cachePrefilled.Load() && int32(nodeID) > cacheLen {
 						return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, cacheLen)
 					}
 					if index.quantizer.Type() == Uint64Quantizer {
