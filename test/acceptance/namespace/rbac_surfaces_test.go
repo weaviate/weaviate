@@ -14,6 +14,7 @@ package namespace
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,9 +39,10 @@ import (
 const s3Backend = "s3"
 
 // waitBackupCreated issues root's backup-create for a class, retrying only
-// while the coordinator's local precheck transiently 422s during cluster
-// bring-up (the 422 rejects before any staging, so the same ID is safe to
-// resend). Any other error fails the test immediately.
+// the coordinator's "already in progress" 422 — the transient rejection while
+// another backup (e.g. from a parallel test in this package) is in flight.
+// That precheck rejects before any staging, so the same ID is safe to resend.
+// Any other error, including any other 422, fails the test immediately.
 func waitBackupCreated(t *testing.T, className, backupID string) *backups.BackupsCreateOK {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -54,10 +56,29 @@ func waitBackupCreated(t *testing.T, className, backupID string) *backups.Backup
 		var unproc *backups.BackupsCreateUnprocessableEntity
 		require.Truef(t, errors.As(err, &unproc),
 			"root backup-create failed with non-transient error: %T: %v", err, err)
+		msg := backup422Messages(unproc)
+		require.Containsf(t, msg, "already in progress",
+			"root backup-create failed with non-transient 422: %s", msg)
 		require.Falsef(t, time.Now().After(deadline),
-			"root backup-create still 422 after 30s: %v", err)
+			"root backup-create still 422 after 30s: %s", msg)
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// backup422Messages flattens the 422 payload into its human-readable messages;
+// the generated Error() prints payload pointers, so the messages must be
+// pulled out of the payload items.
+func backup422Messages(unproc *backups.BackupsCreateUnprocessableEntity) string {
+	if unproc.Payload == nil {
+		return ""
+	}
+	msgs := make([]string, 0, len(unproc.Payload.Error))
+	for _, item := range unproc.Payload.Error {
+		if item != nil {
+			msgs = append(msgs, item.Message)
+		}
+	}
+	return strings.Join(msgs, "; ")
 }
 
 // TestNamespaces_RBACSurfaces locks the contract that a namespaced user holding
