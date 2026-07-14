@@ -196,7 +196,15 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		potentialCompactedSegmentFileName := strings.TrimSuffix(entry, ".tmp")
 
 		if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
-			// another kind of temporal file, ignore at this point but it may need to be deleted...
+			// A non-.db segment .tmp (e.g. a precomputed segment-X.bloom.tmp) is a
+			// leftover from a crash during a compaction/cleanup switch — no such
+			// work runs during init — so remove it. The derived files are
+			// recomputed on load.
+			if strings.HasPrefix(entry, "segment-") {
+				if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+					return nil, fmt.Errorf("delete leftover segment temp file %q: %w", entry, err)
+				}
+			}
 			continue
 		}
 
