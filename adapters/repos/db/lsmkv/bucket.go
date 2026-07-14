@@ -494,8 +494,11 @@ func (b *Bucket) resumeCompaction(ctx context.Context) error {
 	return nil
 }
 
-// ApplyToObjectDigests applies f to every object in the bucket (memtable and disk),
-// stopping on the first error. afterInMemCallback fires once the in-memory scan is done.
+// ApplyToObjectDigests applies f to every live object (memtable and disk) once per
+// UUID, stopping on the first error. Dedup is keyed by UUID, not docID (a
+// vector-changed update reuses the UUID under a new docID); memtable-only tombstones
+// suppress their stale on-disk value. afterInMemCallback fires once the in-memory
+// scan is done.
 //
 // The on-disk cursor is created while the in-mem cursor holds the flush lock, so both
 // snapshots are taken at a single consistent point with no flush in between. Compaction
@@ -505,13 +508,13 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 ) error {
 	var onDiskCursor *CursorReplace
 
-	inmemProcessedDocIDs := make(map[uint64]struct{})
+	inmemProcessedUUIDs := make(map[[16]byte]struct{})
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
 	err := func() error {
 		defer afterInMemCallback()
 
-		inMemCursor := b.CursorInMem()
+		inMemCursor := b.CursorInMemWithTombstones()
 		defer inMemCursor.Close()
 
 		// created under the in-mem cursor's flush lock, so it is consistent with the
@@ -524,15 +527,25 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				docID, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
-				if err != nil {
-					return fmt.Errorf("cannot unmarshal object: %w", err)
-				}
-				if err := f(k, updateTime); err != nil {
-					return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
-				}
+			}
 
-				inmemProcessedDocIDs[docID] = struct{}{}
+			if len(k) != 16 {
+				return fmt.Errorf("invalid object uuid '%x': expected 16 bytes, got %d", k, len(k))
+			}
+
+			// record every UUID (live or tombstone) so the disk pass skips its stale value
+			inmemProcessedUUIDs[[16]byte(k)] = struct{}{}
+
+			if v == nil {
+				continue // tombstone: recorded, not folded
+			}
+
+			_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal object '%x': %w", k, err)
+			}
+			if err := f(k, updateTime); err != nil {
+				return fmt.Errorf("callback on object '%x' failed: %w", k, err)
 			}
 		}
 
@@ -550,18 +563,22 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			docID, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
-			if err != nil {
-				return fmt.Errorf("cannot unmarshal object: %w", err)
-			}
+		}
 
-			if _, ok := inmemProcessedDocIDs[docID]; ok {
-				continue
-			}
+		if len(k) != 16 {
+			return fmt.Errorf("invalid object uuid '%x': expected 16 bytes, got %d", k, len(k))
+		}
 
-			if err := f(k, updateTime); err != nil {
-				return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
-			}
+		if _, ok := inmemProcessedUUIDs[[16]byte(k)]; ok {
+			continue
+		}
+
+		_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
+		if err != nil {
+			return fmt.Errorf("cannot unmarshal object '%x': %w", k, err)
+		}
+		if err := f(k, updateTime); err != nil {
+			return fmt.Errorf("callback on object '%x' failed: %w", k, err)
 		}
 	}
 
