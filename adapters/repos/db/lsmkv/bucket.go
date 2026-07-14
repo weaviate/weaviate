@@ -883,40 +883,16 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	memtables, count := viewMemtables(view)
 
 	var memtablesTook [2]time.Duration
-	for i := range count {
-		beforeMemtable := time.Now()
-		k, v, err := b.getBySecondaryFromMemtable(pos, seckey, memtables[i], memtableNames[i])
-		memtablesTook[i] = time.Since(beforeMemtable)
-		if err == nil {
-			if i == 1 {
-				// if the item is found in the flushing memtable,
-				// we need to check if it exists in the primary key of the active memtable,
-				// to avoid returning an item that was deleted and re-added with the same secondary key
-				// - exists(k) == nil: a newer version of the doc exists, return lsmkv.NotFound
-				// - exists(k) == lsmkv.Deleted: the doc was deleted and not re-added, return lsmkv.Deleted
-				// - exists(k) == any other error != lsmkv.NotFound: return the error, since we can't be sure about the state of the doc
-				// - "default" exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
-				err = memtables[0].exists(k)
-				if err == nil {
-					return nil, nil, lsmkv.NotFound
-				} else if errors.Is(err, lsmkv.Deleted) {
-					return nil, nil, err
-				} else if !errors.Is(err, lsmkv.NotFound) {
-					return nil, nil, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[0], err)
-				}
-			}
-			// item found and no error, return and stop searching, since the strategy
-			// is replace
-			return v, buffer, nil
-		}
-		if errors.Is(err, lsmkv.Deleted) {
-			// deleted in the mem-table (which is always the latest) means we don't
-			// have to check the disk segments, return nil now
+	v, resolved, err := b.resolveSecondaryFromMemtables(pos, seckey, memtables, count, &memtablesTook)
+	if resolved {
+		if err != nil {
+			// terminal memtable decision: lsmkv.Deleted, lsmkv.NotFound
+			// (flushing-hit-but-newer-active-version), or a real error.
 			return nil, nil, err
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, nil, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[i], err)
-		}
+		// item found and no error, return and stop searching, since the strategy
+		// is replace
+		return v, buffer, nil
 	}
 
 	beforeSegments := time.Now()
@@ -957,6 +933,91 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	})
 
 	return v, allocBuf, nil
+}
+
+// resolveSecondaryFromMemtables replicates the memtable phase of secondary-key
+// resolution over a view-pinned memtable set (active at index 0, then flushing at
+// index 1). It is the single home of the flushing-memtable deleted+re-added
+// three-way branch, shared by both getBySecondaryCore (single-key path) and the
+// batched resolver's phase 0, so that branch is never duplicated and cannot drift.
+//
+// Return contract:
+//   - (value, true, nil): a live value was found in a memtable; stop, do not
+//     consult disk segments.
+//   - (nil, true, lsmkv.Deleted): the key is tombstoned in a memtable.
+//   - (nil, true, lsmkv.NotFound): the key hit the flushing memtable but a newer
+//     version of its primary key exists in the active memtable (deleted+re-added
+//     under the same secondary key), so it must resolve to not-found.
+//   - (nil, true, <wrapped error>): a real error was encountered.
+//   - (nil, false, nil): not found in any memtable; the caller proceeds to the
+//     disk segment group.
+//
+// When took is non-nil, took[i] receives the per-memtable probe duration (for the
+// single-key slow-log's ActiveMemtable / FlushingMemtable fields). Pass nil when
+// the caller does its own aggregate timing (batch phase 0).
+func (b *Bucket) resolveSecondaryFromMemtables(pos int, seckey []byte, memtables [2]memtable, count int,
+	took *[2]time.Duration,
+) (v []byte, resolved bool, err error) {
+	for i := range count {
+		beforeMemtable := time.Now()
+		k, val, mErr := b.getBySecondaryFromMemtable(pos, seckey, memtables[i], memtableNames[i])
+		if took != nil {
+			took[i] = time.Since(beforeMemtable)
+		}
+		if mErr == nil {
+			if i == 1 {
+				// if the item is found in the flushing memtable,
+				// we need to check if it exists in the primary key of the active memtable,
+				// to avoid returning an item that was deleted and re-added with the same secondary key
+				// - exists(k) == nil: a newer version of the doc exists, return lsmkv.NotFound
+				// - exists(k) == lsmkv.Deleted: the doc was deleted and not re-added, return lsmkv.Deleted
+				// - exists(k) == any other error != lsmkv.NotFound: return the error, since we can't be sure about the state of the doc
+				// - "default" exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
+				existsErr := memtables[0].exists(k)
+				if existsErr == nil {
+					return nil, true, lsmkv.NotFound
+				} else if errors.Is(existsErr, lsmkv.Deleted) {
+					return nil, true, existsErr
+				} else if !errors.Is(existsErr, lsmkv.NotFound) {
+					return nil, true, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[0], existsErr)
+				}
+			}
+			// item found and no error; stop searching, since the strategy is replace
+			return val, true, nil
+		}
+		if errors.Is(mErr, lsmkv.Deleted) {
+			// deleted in the mem-table (which is always the latest) means we don't
+			// have to check the disk segments
+			return nil, true, mErr
+		}
+		if !errors.Is(mErr, lsmkv.NotFound) {
+			return nil, true, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[i], mErr)
+		}
+	}
+	return nil, false, nil
+}
+
+// secondaryPresentInMemtables is the memtable half of the batched phase-3 recheck:
+// it reports whether primaryKey is present (live OR tombstoned) in any memtable of
+// the view. A present result (either state) means a version newer than any disk
+// segment exists, so a segment-resolved secondary hit is superseded and must
+// resolve to nil. This mirrors the memtable loop of existsWithConsistentViewUpTo,
+// collapsed to the present/absent boolean the batch result needs (both nil and
+// lsmkv.Deleted map to a nil batch result; only NotFound keeps the value).
+func (b *Bucket) secondaryPresentInMemtables(primaryKey []byte, memtables [2]memtable, count int) (bool, error) {
+	for i := range count {
+		err := memtables[i].exists(primaryKey)
+		if err == nil {
+			return true, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			return true, nil
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return false, fmt.Errorf("Bucket::secondaryPresentInMemtables() %q: %w", memtableNames[i], err)
+		}
+	}
+	return false, nil
 }
 
 func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string) (v []byte, err error) {

@@ -184,6 +184,14 @@ func (f *fakeSegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte
 	panic("not implemented")
 }
 
+func (f *fakeSegment) getBySecondaryIndexNode(pos int, key []byte) (segmentindex.Node, error) {
+	panic("not implemented")
+}
+
+func (f *fakeSegment) readSecondaryValueAtNode(node segmentindex.Node, buffer []byte) ([]byte, []byte, []byte, error) {
+	panic("not implemented")
+}
+
 func (f *fakeSegment) getCollection(key []byte) ([]value, error) {
 	f.getCounter++
 

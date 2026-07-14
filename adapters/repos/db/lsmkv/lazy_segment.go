@@ -217,6 +217,16 @@ func (s *lazySegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte
 	return s.segment.getBySecondary(pos, key, buffer)
 }
 
+func (s *lazySegment) getBySecondaryIndexNode(pos int, key []byte) (segmentindex.Node, error) {
+	s.mustLoad()
+	return s.segment.getBySecondaryIndexNode(pos, key)
+}
+
+func (s *lazySegment) readSecondaryValueAtNode(node segmentindex.Node, buffer []byte) ([]byte, []byte, []byte, error) {
+	s.mustLoad()
+	return s.segment.readSecondaryValueAtNode(node, buffer)
+}
+
 func (s *lazySegment) getCollection(key []byte) ([]value, error) {
 	s.mustLoad()
 	return s.segment.getCollection(key)
