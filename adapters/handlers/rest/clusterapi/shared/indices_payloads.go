@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/byteops"

@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	errwrap "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -961,6 +962,12 @@ func (ko *Object) marshalBinaryInternal(addProps additional.Properties, skipClas
 	return byteBuffer, nil
 }
 
+// emptySchemaJSON is the props payload sent when addProps.NoProps is set. An
+// empty object rather than nothing so that we don't break unmarshalling
+// during upgrades where some nodes don't have the empty check on the
+// unmarshal side yet. Shared and read-only: MarshalTo only ever copies it.
+var emptySchemaJSON = []byte("{}")
+
 // PreparedMarshal is the output of the sizing pass of the two-pass binary
 // marshal. PrepareMarshalOptional computes the exact serialized size and all
 // variable-length parts (JSON-encoded props, msgpack offset headers, the
@@ -986,7 +993,7 @@ type PreparedMarshal struct {
 
 	vector []float32 // nil when the vector is excluded
 
-	className     []byte // nil when skipped (on-disk format without class name)
+	className     string // empty when skipped (on-disk format without class name)
 	schema        []byte
 	meta          []byte
 	vectorWeights []byte
@@ -1049,7 +1056,7 @@ func (ko *Object) prepareMarshal(addProps additional.Properties, skipClassName b
 		pm.vector = ko.Vector
 	}
 
-	className := []byte(ko.Class())
+	className := string(ko.Class())
 	if len(className) > maxClassNameLength {
 		return pm, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "className", len(className), maxClassNameLength)
 	}
@@ -1069,7 +1076,7 @@ func (ko *Object) prepareMarshal(addProps additional.Properties, skipClassName b
 	} else {
 		// send empty object so that we don't break unmarshalling during upgrades
 		// where some nodes don't have the empty check on the unmarshal side yet
-		pm.schema = []byte("{}")
+		pm.schema = emptySchemaJSON
 	}
 
 	pm.meta, err = json.Marshal(ko.AdditionalProperties())
@@ -1228,9 +1235,10 @@ func (pm *PreparedMarshal) MarshalTo(buf []byte) error {
 
 	rw.WriteUint16(uint16(len(pm.className)))
 	if len(pm.className) > 0 {
-		if err := rw.CopyBytesToBuffer(pm.className); err != nil {
-			return errors.Wrap(err, "Could not copy className")
-		}
+		// copy the string directly instead of going through a []byte
+		// conversion, which would allocate
+		copy(rw.Buffer[rw.Position:rw.Position+uint64(len(pm.className))], pm.className)
+		rw.MoveBufferPositionForward(uint64(len(pm.className)))
 	}
 
 	rw.WriteUint32(uint32(len(pm.schema)))
