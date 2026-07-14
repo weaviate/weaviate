@@ -518,9 +518,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 
 	if filterDocIds != nil {
+		mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 		for _, docIDs := range filteredDocIDsThread {
 			if docIDs != nil {
-				filteredDocIDs.OrConc(docIDs, concurrency.SROAR_MERGE)
+				filteredDocIDs.OrConc(docIDs, mergeConc)
 			}
 		}
 	}

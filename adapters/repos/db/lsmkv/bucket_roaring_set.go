@@ -12,9 +12,11 @@
 package lsmkv
 
 import (
+	"context"
 	"errors"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -62,7 +64,8 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return active.roaringSetAddBitmap(key, bm)
 }
 
-func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), err error) {
+// RoaringSetGet consults ctx only for the concurrency budget, not for cancellation.
+func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitmap, release func(), err error) {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return nil, noopRelease, err
 	}
@@ -70,26 +73,32 @@ func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), er
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	return b.roaringSetGetFromConsistentView(view, key)
+	return b.roaringSetGetFromConsistentView(ctx, view, key)
 }
 
 func (b *Bucket) roaringSetGetFromConsistentView(
-	view BucketConsistentView, key []byte,
+	ctx context.Context, view BucketConsistentView, key []byte,
 ) (bm *sroar.Bitmap, release func(), err error) {
-	layers, release, err := b.disk.roaringSetGet(key, view.Disk)
+	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+
+	layers, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
 	if err != nil {
 		return nil, noopRelease, err
 	}
+	// diskRelease (not the named return, which error paths overwrite with
+	// noopRelease) is what the defer frees, so a failed flushing/active
+	// read can't leak the disk layer's pooled buffer.
 	defer func() {
 		if err != nil {
-			release()
+			diskRelease()
 		}
 	}()
 
 	if view.Flushing != nil {
-		flushing, err := view.Flushing.roaringSetGet(key)
-		if err != nil {
-			if !errors.Is(err, lsmkv.NotFound) {
+		flushing, flushErr := view.Flushing.roaringSetGet(key)
+		if flushErr != nil {
+			if !errors.Is(flushErr, lsmkv.NotFound) {
+				err = flushErr
 				return nil, noopRelease, err
 			}
 		} else {
@@ -97,14 +106,15 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 		}
 	}
 
-	activeBM, err := view.Active.roaringSetGet(key)
-	if err != nil {
-		if !errors.Is(err, lsmkv.NotFound) {
+	activeBM, activeErr := view.Active.roaringSetGet(key)
+	if activeErr != nil {
+		if !errors.Is(activeErr, lsmkv.NotFound) {
+			err = activeErr
 			return nil, noopRelease, err
 		}
 	} else {
 		layers = append(layers, activeBM)
 	}
 
-	return layers.Flatten(false), release, nil
+	return layers.Flatten(false, maxConc), diskRelease, nil
 }
