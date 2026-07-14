@@ -576,3 +576,9 @@ func (c *FakeReplicationClient) CompareDigests(ctx context.Context, host, index,
 ) ([]types.RepairResponse, error) {
 	return nil, nil
 }
+
+func (c *FakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return nil, nil
+}

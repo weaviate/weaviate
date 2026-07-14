@@ -44,6 +44,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/automaxprocs/maxprocs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -185,47 +186,6 @@ type vectorRepo interface {
 	SetSchemaGetter(schema.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
-}
-
-func getCores() (int, error) {
-	cpuset, err := os.ReadFile("/sys/fs/cgroup/cpuset/cpuset.cpus")
-	if err != nil {
-		return 0, errors.Wrap(err, "read cpuset")
-	}
-	return calcCPUs(strings.TrimSpace(string(cpuset)))
-}
-
-func calcCPUs(cpuString string) (int, error) {
-	cores := 0
-	if cpuString == "" {
-		return 0, nil
-	}
-
-	// Split by comma to handle multiple ranges
-	ranges := strings.Split(cpuString, ",")
-	for _, r := range ranges {
-		// Check if it's a range (contains a hyphen)
-		if strings.Contains(r, "-") {
-			parts := strings.Split(r, "-")
-			if len(parts) != 2 {
-				return 0, fmt.Errorf("invalid CPU range format: %s", r)
-			}
-			start, err := strconv.Atoi(parts[0])
-			if err != nil {
-				return 0, fmt.Errorf("invalid start of CPU range: %s", parts[0])
-			}
-			end, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return 0, fmt.Errorf("invalid end of CPU range: %s", parts[1])
-			}
-			cores += end - start + 1
-		} else {
-			// Single CPU
-			cores++
-		}
-	}
-
-	return cores, nil
 }
 
 func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
@@ -501,6 +461,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
 		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
@@ -529,6 +490,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationConcurrency:    appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency,
 			AsyncReplicationPropagationBatchSize:      appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize,
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
+			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
 		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
@@ -541,6 +503,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		HNSWWaitForCachePrefill:                      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:                    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
 		HNSWAcornFilterRatio:                         appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		BM25FilterTombMergeGateRatio:                 appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
 		HNSWGeoIndexEF:                               appState.ServerConfig.Config.HNSWGeoIndexEF,
 		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		TenantActivityReadLogLevel:                   appState.ServerConfig.Config.TenantActivityReadLogLevel,
@@ -681,6 +644,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DrainSleep:                      appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:         appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 		UsageLimitsErrorMessage:         appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		DBLoadProgress:                  repo.StartupLoadingProgress,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -1167,8 +1131,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
-		// gracefully stop gRPC server
-		grpcServer.GracefulStop()
+		// stop the gRPC server gracefully, but cap the wait so a stuck
+		// request can't block shutdown.
+		grpcStopped := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			grpcServer.GracefulStop()
+			close(grpcStopped)
+		}, appState.Logger)
+		select {
+		case <-grpcStopped:
+		case <-time.After(20 * time.Second):
+			appState.Logger.Warn("grpc graceful stop timed out, forcing stop")
+			grpcServer.Stop()
+		}
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
@@ -2184,28 +2159,16 @@ func ParseVersionFromSwaggerSpec() string {
 
 func limitResources(appState *state.State) {
 	if os.Getenv("LIMIT_RESOURCES") == "true" {
-		appState.Logger.Info("Limiting resources:  memory: 80%, cores: all but one")
-		if os.Getenv("GOMAXPROCS") == "" {
-			// Fetch the number of cores from the cgroups cpuset
-			// and parse it into an int
-			cores, err := getCores()
-			if err == nil {
-				appState.Logger.WithField("cores", cores).
-					Warn("GOMAXPROCS not set, and unable to read from cgroups, setting to number of cores")
-				goruntime.GOMAXPROCS(cores)
-			} else {
-				cores = goruntime.NumCPU() - 1
-				if cores > 0 {
-					appState.Logger.WithField("cores", cores).
-						Warnf("Unable to read from cgroups: %v, setting to max cores to: %v", err, cores)
-					goruntime.GOMAXPROCS(cores)
-				}
-			}
+		appState.Logger.Info("Limiting resources: memory: 80%, cores: from cgroup CPU quota")
+		// Set GOMAXPROCS from the cgroup CPU quota. automaxprocs supports both
+		// cgroup v1 and v2 (unified hierarchy) and respects the GOMAXPROCS env var.
+		if _, err := maxprocs.Set(maxprocs.Logger(appState.Logger.Infof)); err != nil {
+			appState.Logger.Warnf("Unable to set GOMAXPROCS from cgroups: %v", err)
 		}
 
 		limit, err := memlimit.SetGoMemLimit(0.8)
 		if err != nil {
-			appState.Logger.WithError(err).Warnf("Unable to set memory limit from cgroups: %v", err)
+			appState.Logger.Warnf("Unable to set memory limit from cgroups: %v", err)
 			// Set memory limit to 90% of the available memory
 			limit := int64(float64(memory.TotalMemory()) * 0.8)
 			debug.SetMemoryLimit(limit)
@@ -2272,6 +2235,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
 		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
 		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
+		registered.AsyncReplicationRootPrefilterBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize
 		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
@@ -2282,6 +2246,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
+		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
@@ -2344,7 +2309,7 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 				registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 				// common config
 				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsageShardConcurrency = appState.ServerConfig.Config.Usage.ShardConcurrency
 				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 			})

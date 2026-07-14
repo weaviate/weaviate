@@ -210,6 +210,66 @@ func (_c *MockReplicator_CompareDigests_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// CompareHashTreeRoots provides a mock function with given fields: ctx, className, roots
+func (_m *MockReplicator) CompareHashTreeRoots(ctx context.Context, className string, roots map[string]hashtree.Digest) ([]string, error) {
+	ret := _m.Called(ctx, className, roots)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompareHashTreeRoots")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, map[string]hashtree.Digest) ([]string, error)); ok {
+		return rf(ctx, className, roots)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, map[string]hashtree.Digest) []string); ok {
+		r0 = rf(ctx, className, roots)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, map[string]hashtree.Digest) error); ok {
+		r1 = rf(ctx, className, roots)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicator_CompareHashTreeRoots_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompareHashTreeRoots'
+type MockReplicator_CompareHashTreeRoots_Call struct {
+	*mock.Call
+}
+
+// CompareHashTreeRoots is a helper method to define mock.On call
+//   - ctx context.Context
+//   - className string
+//   - roots map[string]hashtree.Digest
+func (_e *MockReplicator_Expecter) CompareHashTreeRoots(ctx interface{}, className interface{}, roots interface{}) *MockReplicator_CompareHashTreeRoots_Call {
+	return &MockReplicator_CompareHashTreeRoots_Call{Call: _e.mock.On("CompareHashTreeRoots", ctx, className, roots)}
+}
+
+func (_c *MockReplicator_CompareHashTreeRoots_Call) Run(run func(ctx context.Context, className string, roots map[string]hashtree.Digest)) *MockReplicator_CompareHashTreeRoots_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(map[string]hashtree.Digest))
+	})
+	return _c
+}
+
+func (_c *MockReplicator_CompareHashTreeRoots_Call) Return(divergingShards []string, err error) *MockReplicator_CompareHashTreeRoots_Call {
+	_c.Call.Return(divergingShards, err)
+	return _c
+}
+
+func (_c *MockReplicator_CompareHashTreeRoots_Call) RunAndReturn(run func(context.Context, string, map[string]hashtree.Digest) ([]string, error)) *MockReplicator_CompareHashTreeRoots_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CountObjects provides a mock function with given fields: ctx, indexName, shardName
 func (_m *MockReplicator) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
 	ret := _m.Called(ctx, indexName, shardName)

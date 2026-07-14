@@ -877,8 +877,6 @@ func TestReplicationOverwriteObjectsConcurrent(t *testing.T) {
 		{ID: UUID1.String(), UpdateTime: now.UnixMilli()},
 	}
 
-	// Each request handler decompresses the body independently to verify the
-	// pooled encoder produces correct output under concurrent use.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dec, err := zstd.NewReader(r.Body)
 		if err != nil {
@@ -895,8 +893,6 @@ func TestReplicationOverwriteObjectsConcurrent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// A single client is shared across all goroutines to exercise the encoder
-	// pool under concurrent use. Run with -race to detect data races.
 	c := newReplicationClient(t, server.Client())
 
 	const goroutines = 50

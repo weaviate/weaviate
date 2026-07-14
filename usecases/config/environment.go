@@ -40,10 +40,11 @@ const (
 	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
 	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
 	// on a single node cluster.
-	DefaultRaftBootstrapTimeout = 600
-	DefaultRaftBootstrapExpect  = 1
-	DefaultRaftDir              = "raft"
-	DefaultHNSWAcornFilterRatio = 0.4
+	DefaultRaftBootstrapTimeout         = 600
+	DefaultRaftBootstrapExpect          = 1
+	DefaultRaftDir                      = "raft"
+	DefaultHNSWAcornFilterRatio         = 0.4
+	DefaultBM25FilterTombMergeGateRatio = 1.0
 
 	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 
@@ -58,6 +59,7 @@ const (
 	DefaultMaxShardingCount = 512
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
+	DefaultHaltForTransferTimeout    = time.Hour
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 )
@@ -175,6 +177,15 @@ func FromEnv(config *Config) error {
 		config.TransferInactivityTimeout = timeout
 	} else {
 		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
+	}
+
+	err := parsePositiveDuration(
+		"HALT_FOR_TRANSFER_TIMEOUT",
+		func(val time.Duration) { config.HaltForTransferTimeout = val },
+		DefaultHaltForTransferTimeout,
+	)
+	if err != nil {
+		return err
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
@@ -621,6 +632,30 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// One validator for both the startup value and, via NewDynamicValueWithValidation,
+	// runtime config updates — SetValue rejects an invalid new value instead of
+	// silently applying it.
+	bm25GateValidate := func(val float64) error {
+		if math.IsNaN(val) || val < 0 {
+			return fmt.Errorf("BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO must be a non-negative float (0 always merges, +Inf disables the fold). Got: %v", val)
+		}
+		return nil
+	}
+	bm25GateRatio := DefaultBM25FilterTombMergeGateRatio
+	if err := parseFloatVerify(
+		"BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO",
+		DefaultBM25FilterTombMergeGateRatio,
+		func(val float64) { bm25GateRatio = val },
+		func(val float64, _ string) error { return bm25GateValidate(val) },
+	); err != nil {
+		return err
+	}
+	bm25GateDV, err := configRuntime.NewDynamicValueWithValidation(bm25GateRatio, bm25GateValidate)
+	if err != nil {
+		return err
+	}
+	config.BM25FilterTombMergeGateRatio = bm25GateDV
+
 	if err := parseInt(
 		"HNSW_GEO_INDEX_EF",
 		func(val int) { config.HNSWGeoIndexEF = val },
@@ -1034,6 +1069,18 @@ func FromEnv(config *Config) error {
 			config.Replication.AsyncReplicationHashtreeInitConcurrency = configRuntime.NewDynamicValue(val)
 		},
 		DefaultAsyncReplicationHashtreeInitConcurrency,
+	); err != nil {
+		return err
+	}
+
+	// Out-of-range values are clamped (and warned) by the scheduler on read, so
+	// only a non-numeric override fails here.
+	if err := parseInt(
+		"ASYNC_REPLICATION_ROOT_PREFILTER_BATCH_SIZE",
+		func(val int) {
+			config.Replication.AsyncReplicationRootPrefilterBatchSize = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationRootPrefilterBatchSize,
 	); err != nil {
 		return err
 	}
@@ -1830,12 +1877,16 @@ const (
 	// capping.
 	MaxAsyncReplicationSchedulerWorkers            = 100
 	DefaultAsyncReplicationHashtreeInitConcurrency = 10
-	DefaultMaximumAllowedCollectionsCount          = -1 // unlimited
-	DefaultMaximumAllowedObjectsCount              = -1 // unlimited
-	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
-	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
-	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
-	DefaultRestrictionsErrorMessage                = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	// Root pre-filter batch size: cluster-wide cap on same-collection hashtree roots
+	// compared per batched RPC. 1 disables it; <= 0 falls back to the default.
+	DefaultAsyncReplicationRootPrefilterBatchSize = 512
+	MaxAsyncReplicationRootPrefilterBatchSize     = 4096
+	DefaultMaximumAllowedCollectionsCount         = -1 // unlimited
+	DefaultMaximumAllowedObjectsCount             = -1 // unlimited
+	DefaultMaximumAllowedTenantsPerCollection     = -1 // unlimited
+	DefaultMaximumAllowedShardsPerCollection      = -1 // unlimited
+	DefaultUsageLimitsErrorMessage                = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
+	DefaultRestrictionsErrorMessage               = "" // empty → restrictions.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"

@@ -243,6 +243,10 @@ func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
 	return d.CompressionType
 }
 
+func (d *DistributedBackupDescriptor) GetStartedAt() time.Time {
+	return d.StartedAt
+}
+
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
 	Name                  string                 `json:"name"`
@@ -521,6 +525,10 @@ func (d *BackupDescriptor) List() []string {
 
 func (d *BackupDescriptor) GetBaseBackupID() string {
 	return d.BaseBackupID
+}
+
+func (d *BackupDescriptor) GetStartedAt() time.Time {
+	return d.StartedAt
 }
 
 // AllExist checks if all classes exist in d.

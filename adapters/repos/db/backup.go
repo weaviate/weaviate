@@ -46,13 +46,7 @@ var errShardNoLocalData = errors.New("shard has no local data")
 const (
 	lsmDir        = "lsm"
 	migrationsDir = ".migrations"
-	dbExt         = ".db"
-	bloomExt      = ".bloom"
 	tmpExt        = ".tmp"
-	cnaExt        = ".cna"
-	metadataExt   = ".metadata"
-	condensedExt  = ".condensed"
-	snapshotExt   = ".snapshot"
 )
 
 // Backupable returns whether all given class can be backed up.
@@ -410,7 +404,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if isImmutableFile(relPath) {
+		if backup.IsImmutableFile(relPath) {
 			if err := os.Link(src, dst); err != nil {
 				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
 			}
@@ -427,35 +421,6 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 	}
 
 	return nil
-}
-
-// isImmutableFile reports whether a backup file (relative path) is guaranteed
-// never to be modified in place after a COLD/INACTIVE shard is activated.
-// Only these files are safe to hard-link during backup; all other files are
-// copied to avoid post-snapshot corruption from in-place writes.
-func isImmutableFile(relPath string) bool {
-	base := filepath.Base(relPath)
-	ext := filepath.Ext(base)
-
-	// LSM segment data files — written once during flush/compaction, never modified.
-	// Excludes meta*.db (flat index BoltDB, mmap writes) and index.db (dynamic index BoltDB).
-	if ext == dbExt && !strings.HasPrefix(base, "meta") && base != "index.db" {
-		return true
-	}
-	// LSM segment companion files — written once during segment init, never modified.
-	// .bloom = bloom filter, .cna = count net additions, .metadata = combined metadata.
-	if ext == bloomExt || ext == cnaExt || ext == metadataExt {
-		return true
-	}
-	// Condensed HNSW commitlogs — produced by compaction, never reopened for writes.
-	if ext == condensedExt {
-		return true
-	}
-	// HNSW snapshots — point-in-time captures, never modified after creation.
-	if ext == snapshotExt {
-		return true
-	}
-	return false
 }
 
 // copyFile creates an independent copy of src at dst, fsyncing the destination.

@@ -63,6 +63,35 @@ func TestIncludeClasses(t *testing.T) {
 	}
 }
 
+// GetClassDescriptor drives per-class incremental dedup: a class found in the
+// base is deduplicated against it, a class absent from the base (added since)
+// returns nil and is uploaded in full.
+func TestGetClassDescriptor(t *testing.T) {
+	base := BackupDescriptor{Classes: []ClassDescriptor{{Name: "A"}, {Name: "B"}}}
+	tests := []struct {
+		name      string
+		in        BackupDescriptor
+		query     string
+		wantClass string // "" means expect nil (full upload)
+	}{
+		{name: "ExistingClassDedups", in: base, query: "A", wantClass: "A"},
+		{name: "OtherExistingClassDedups", in: base, query: "B", wantClass: "B"},
+		{name: "NewClassNotInBase", in: base, query: "C", wantClass: ""},
+		{name: "EmptyBase", in: BackupDescriptor{}, query: "A", wantClass: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.in.GetClassDescriptor(tc.query)
+			if tc.wantClass == "" {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.Equal(t, tc.wantClass, got.Name)
+		})
+	}
+}
+
 func TestAllExist(t *testing.T) {
 	x := BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}
 	if y := x.AllExist(nil); y != "" {
