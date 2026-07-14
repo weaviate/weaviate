@@ -114,12 +114,11 @@ func (h *hnsw) restoreFromDisk() error {
 	// index was built with the PathSeer strategy.  Update the immutable
 	// build-time flag so that search can use PATHSEER regardless of config
 	// changes across restarts.
-	if !h.pathseerBuilt.Load() {
-		for _, node := range loadResult.State.Nodes() {
-			if node != nil && node.PrunedConnections != nil && node.PrunedConnections.Layers() > 0 {
-				h.pathseerBuilt.Store(true)
-				break
-			}
+h.pathseerBuilt.Store(false)
+	for _, node := range loadResult.State.Nodes() {
+		if node != nil && node.PrunedConnections != nil && node.PrunedConnections.Layers() > 0 {
+			h.pathseerBuilt.Store(true)
+			break
 		}
 	}
 
