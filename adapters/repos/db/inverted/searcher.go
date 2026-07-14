@@ -155,6 +155,11 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	out := make([]*storobj.Object, outlen)
 	docIDBytes := make([]byte, 8)
 
+	// Reused across iterations and grown to fit the largest object seen. Safe to
+	// reuse because FromBinary*Disk copies every value out of the returned bytes
+	// before the next lookup overwrites the buffer.
+	var objBuf []byte
+
 	propertyPaths := make([][]string, len(properties))
 	for j := range properties {
 		propertyPaths[j] = []string{properties[j]}
@@ -190,10 +195,11 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		loop++
 
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		res, err := bucket.GetBySecondary(ctx, 0, docIDBytes)
+		res, newBuf, err := bucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, objBuf)
 		if err != nil {
 			return nil, err
 		}
+		objBuf = newBuf
 
 		if res == nil {
 			handleDeletedId(docID)
