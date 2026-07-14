@@ -935,10 +935,18 @@ func (sg *SegmentGroup) getBySecondaryBatchIndexHits(ctx context.Context, pos in
 
 // readSecondaryBatchValuesConcurrent runs phase 2 of the batched secondary
 // resolver: it sorts the phase-1 hits by (segIdx, node.Start) for value-offset
-// locality, then issues the copyNode value reads CONCURRENTLY under an errgroup
-// bounded by limit (the per-batch semaphore; default 16). This is where the cold
-// wall-time win lives: the device's idle queue depth is used instead of one serial
-// pread at a time.
+// locality, then issues the copyNode value reads CONCURRENTLY across a fixed pool of
+// min(limit, len(hits)) worker goroutines (the per-batch concurrency bound; default
+// limit 16). This is where the cold wall-time win lives: the device's idle queue depth
+// is used instead of one serial pread at a time.
+//
+// The pool pulls hits from a shared atomic cursor rather than spawning one goroutine
+// per hit. Both give exactly limit-wide value issue, but the pool dispatches only
+// `limit` goroutines per batch instead of len(hits). On warm/fast storage each value
+// read is a ~1us page-cache pread, and per-hit goroutine dispatch (semaphore park/wake,
+// scheduler work-stealing) cost ~30-35% CPU on top of the read (the gh#309 warm
+// regression); the fixed pool removes that overhead with the concurrency width and
+// every returned byte unchanged.
 //
 // Every value is read into ONE per-batch arena sized sum(node.End-node.Start).
 // Each read goroutine writes a DISJOINT arena sub-slice (three-index sliced so its
@@ -985,49 +993,75 @@ func (sg *SegmentGroup) readSecondaryBatchValuesConcurrent(ctx context.Context,
 		limit = 1
 	}
 
-	// results[i] is written only by goroutine i (disjoint index) -> race-free; the
-	// live/tombstone filter runs after Wait.
+	// results[i] is written only by whichever worker claims index i (disjoint index)
+	// -> race-free; the live/tombstone filter runs after Wait.
 	type phase2Result struct {
 		live secondaryBatchLiveHit
 		ok   bool
 	}
 	results := make([]phase2Result, len(hits))
 
-	eg, egctx := enterrors.NewErrorGroupWithContextWrapper(sg.logger, ctx)
-	eg.SetLimit(limit)
-	for i := range hits {
-		i := i
-		eg.Go(func() error {
-			if err := egctx.Err(); err != nil {
-				return err
-			}
-			h := hits[i]
-			size := int(h.node.End - h.node.Start)
-			// disjoint sub-slice with cap==size: this goroutine can only write its
-			// own [offset, offset+size) range of the shared arena backing array.
-			dst := arena[offsets[i] : offsets[i]+size : offsets[i]+size]
+	// readOne resolves a single hit into results[i]. It is the read body shared by
+	// every worker; each i is claimed by exactly one worker so the results[i] and the
+	// disjoint arena sub-slice writes are race-free.
+	readOne := func(i int) error {
+		h := hits[i]
+		size := int(h.node.End - h.node.Start)
+		// disjoint sub-slice with cap==size: this worker can only write its own
+		// [offset, offset+size) range of the shared arena backing array.
+		dst := arena[offsets[i] : offsets[i]+size : offsets[i]+size]
 
-			if hook != nil && hook.onReadStart != nil {
-				hook.onReadStart()
+		if hook != nil && hook.onReadStart != nil {
+			hook.onReadStart()
+		}
+		priKey, value, _, err := segments[h.segIdx].readSecondaryValueAtNode(h.node, dst)
+		if hook != nil && hook.onReadDone != nil {
+			hook.onReadDone()
+		}
+		if err != nil {
+			if errors.Is(err, lsmkv.Deleted) {
+				// tombstone: newest version is a delete -> result nil, not an error
+				return nil
 			}
-			priKey, value, _, err := segments[h.segIdx].readSecondaryValueAtNode(h.node, dst)
-			if hook != nil && hook.onReadDone != nil {
-				hook.onReadDone()
-			}
-			if err != nil {
-				if errors.Is(err, lsmkv.Deleted) {
-					// tombstone: newest version is a delete -> result nil, not an error
+			return fmt.Errorf("SegmentGroup::readSecondaryBatchValuesConcurrent() %q: %w",
+				segments[h.segIdx].getPath(), err)
+		}
+		// priKey/value alias the arena sub-slice; no clone (the arena is the copy-out).
+		results[i] = phase2Result{
+			live: secondaryBatchLiveHit{origIdx: h.origIdx, priKey: priKey, value: value, segIdx: h.segIdx},
+			ok:   true,
+		}
+		return nil
+	}
+
+	// Fixed worker pool: spawn min(limit, len(hits)) workers, each pulling the next
+	// unclaimed hit from a shared atomic cursor and reading it in a tight loop. This
+	// keeps value issue exactly limit-wide concurrent (the cold-storage win: the
+	// device's idle queue depth is used), but dispatches only `limit` goroutines total
+	// instead of one per hit. On warm/fast storage where each read is a ~1us page-cache
+	// pread, per-hit goroutine dispatch (park/wake on the semaphore, work-stealing) cost
+	// ~30-35% CPU on top of the read itself (gh#309 warm regression); a fixed pool
+	// removes it while leaving the concurrency width and every result byte-identical.
+	workers := limit
+	if workers > len(hits) {
+		workers = len(hits)
+	}
+	var cursor atomic.Int64
+	eg, egctx := enterrors.NewErrorGroupWithContextWrapper(sg.logger, ctx)
+	for w := 0; w < workers; w++ {
+		eg.Go(func() error {
+			for {
+				if err := egctx.Err(); err != nil {
+					return err
+				}
+				i := int(cursor.Add(1)) - 1
+				if i >= len(hits) {
 					return nil
 				}
-				return fmt.Errorf("SegmentGroup::readSecondaryBatchValuesConcurrent() %q: %w",
-					segments[h.segIdx].getPath(), err)
+				if err := readOne(i); err != nil {
+					return err
+				}
 			}
-			// priKey/value alias the arena sub-slice; no clone (the arena is the copy-out).
-			results[i] = phase2Result{
-				live: secondaryBatchLiveHit{origIdx: h.origIdx, priKey: priKey, value: value, segIdx: h.segIdx},
-				ok:   true,
-			}
-			return nil
 		})
 	}
 	if err := eg.Wait(); err != nil {
@@ -1081,6 +1115,14 @@ func (sg *SegmentGroup) recheckSecondaryBatchInSegments(ctx context.Context,
 		})
 		seg := segments[sj]
 		for _, k := range scratch {
+			// seg.exists is cheap only while a bloom filter fronts each newer segment:
+			// a bloom miss (the common case, since a primary key rarely reappears in a
+			// newer segment) answers "absent" without touching the tree. With bloom
+			// filters disabled, every one of these probes falls through to a real
+			// primary-index tree descent per key per newer segment, so this recheck
+			// loop's cost scales with (live hits x newer segments) instead of staying
+			// near-free. Keep bloom filters enabled on the objects bucket for this path
+			// to stay cheap.
 			err := seg.exists(lives[k].priKey)
 			if err == nil || errors.Is(err, lsmkv.Deleted) {
 				// present (live or tombstone) in a newer segment -> superseded
