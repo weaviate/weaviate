@@ -13,6 +13,7 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -84,6 +85,9 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "1. obj 1. batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "2. obj 1. batch"}},
 		}, skip: []bool{false, false, true}},
+		// The first batch waits 400ms, longer than the 200ms deadline, so the call is
+		// abandoned before any object resolves: every non-skipped object gets an error
+		// wrapping context.DeadlineExceeded and no vectors are returned.
 		{name: "deadline", deadline: 200 * time.Millisecond, objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 40"}}, // set limit so next two items are in a batch
 			{Class: "Car", Properties: map[string]interface{}{"test": "wait 400"}},
@@ -91,7 +95,13 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "next batch, will be aborted due to context deadline"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
-		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded"), 5: fmt.Errorf("context deadline exceeded")}},
+		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{
+			0: context.DeadlineExceeded,
+			1: context.DeadlineExceeded,
+			2: context.DeadlineExceeded,
+			3: context.DeadlineExceeded,
+			5: context.DeadlineExceeded,
+		}},
 		{name: "request error", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "ReqError something"}},
 		}, skip: []bool{false}, wantErrors: map[int]error{0: fmt.Errorf("something")}},
@@ -117,12 +127,16 @@ func TestBatch(t *testing.T) {
 			require.Len(t, vecs, len(tt.objects))
 
 			for i := range tt.objects {
-				if tt.wantErrors[i] != nil {
-					require.Equal(t, tt.wantErrors[i], errs[i])
-				} else if tt.skip[i] {
+				want := tt.wantErrors[i]
+				switch {
+				case want == nil && tt.skip[i]:
 					require.Nil(t, vecs[i])
-				} else {
+				case want == nil:
 					require.NotNil(t, vecs[i])
+				case errors.Is(want, context.DeadlineExceeded) || errors.Is(want, context.Canceled):
+					require.ErrorIs(t, errs[i], want)
+				default:
+					require.Equal(t, want, errs[i])
 				}
 			}
 			cancl()
@@ -165,12 +179,16 @@ func TestBatchNoRLreturn(t *testing.T) {
 			require.Len(t, vecs, len(tt.objects))
 
 			for i := range tt.objects {
-				if tt.wantErrors[i] != nil {
-					require.Equal(t, tt.wantErrors[i], errs[i])
-				} else if tt.skip[i] {
+				want := tt.wantErrors[i]
+				switch {
+				case want == nil && tt.skip[i]:
 					require.Nil(t, vecs[i])
-				} else {
+				case want == nil:
 					require.NotNil(t, vecs[i])
+				case errors.Is(want, context.DeadlineExceeded) || errors.Is(want, context.Canceled):
+					require.ErrorIs(t, errs[i], want)
+				default:
+					require.Equal(t, want, errs[i])
 				}
 			}
 			cancl()
@@ -359,6 +377,303 @@ func TestBatchRequestMissingRLValues(t *testing.T) {
 	require.Len(t, errs, 0)
 	// refresh rate is 1s. If the missing values would have any effect the batch algo would wait for the refresh to happen
 	require.Less(t, time.Since(start), time.Millisecond*900)
+}
+
+// A batch that needs more vectorizer sub-requests than the rate-limit channel can
+// buffer must not deadlock: the worker is blocked inside sendBatch and cannot drain
+// the channel, so the send has to be non-blocking.
+func TestMakeRequestDoesNotBlockWhenRateLimitChannelFull(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	b := &Batch[[]float32]{
+		client:            &fakeBatchClientWithRL[[]float32]{},
+		rateLimitChannel:  make(chan rateLimitJob, BatchChannelSize),
+		endOfBatchChannel: make(chan endOfBatchJob, BatchChannelSize),
+		logger:            logger,
+		settings:          Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true},
+		Label:             "test",
+	}
+
+	// fill the channel to capacity so a blocking send would hang forever
+	for i := 0; i < BatchChannelSize; i++ {
+		b.rateLimitChannel <- rateLimitJob{}
+	}
+
+	job := BatchJob[[]float32]{ctx: context.Background(), cfg: cfg, errs: map[int]error{}, vecs: make([][]float32, 1)}
+
+	done := make(chan struct{})
+	go func() {
+		b.makeRequest(job, []string{"text"}, cfg, []int{0}, &modulecomponents.RateLimits{}, 4)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("makeRequest blocked on a full rateLimitChannel")
+	}
+}
+
+// fakeShortVectorClient returns a fixed number of vectors regardless of how many
+// texts it was given, mimicking a provider that responds with a truncated result.
+type fakeShortVectorClient struct {
+	vectorsToReturn int
+}
+
+func (c *fakeShortVectorClient) Vectorize(ctx context.Context, text []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	vectors := make([][]float32, c.vectorsToReturn)
+	for i := range vectors {
+		vectors[i] = []float32{0, 1, 2, 3}
+	}
+	return &modulecomponents.VectorizationResult[[]float32]{
+		Vector: vectors,
+		Errors: make([]error, len(text)),
+	}, nil, 0, nil
+}
+
+func (c *fakeShortVectorClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{}
+}
+
+func (c *fakeShortVectorClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
+}
+
+// A provider returning fewer vectors than inputs must produce an error for the
+// missing objects instead of panicking on an out-of-range index. The objects that
+// did come back must still keep their vectors.
+func TestMakeRequestFewerVectorsThanTexts(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
+
+	cases := []struct {
+		name            string
+		vectorsToReturn int
+		wantErr         []bool // per object: expect an error rather than a vector
+	}{
+		{name: "none of two", vectorsToReturn: 0, wantErr: []bool{true, true}},
+		{name: "one of two", vectorsToReturn: 1, wantErr: []bool{false, true}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &Batch[[]float32]{
+				client:            &fakeShortVectorClient{vectorsToReturn: tt.vectorsToReturn},
+				rateLimitChannel:  make(chan rateLimitJob, BatchChannelSize),
+				endOfBatchChannel: make(chan endOfBatchJob, BatchChannelSize),
+				logger:            logger,
+				Label:             "test",
+			}
+			job := BatchJob[[]float32]{ctx: context.Background(), cfg: cfg, errs: map[int]error{}, vecs: make([][]float32, 2)}
+
+			require.NotPanics(t, func() {
+				b.makeRequest(job, []string{"a", "b"}, cfg, []int{0, 1}, &modulecomponents.RateLimits{}, 2)
+			})
+			for i, wantErr := range tt.wantErr {
+				if wantErr {
+					require.Error(t, job.errs[i])
+				} else {
+					require.NoError(t, job.errs[i])
+					require.NotNil(t, job.vecs[i])
+				}
+			}
+		})
+	}
+}
+
+// fakePanicClient panics for the text "panic" and vectorizes everything else. Its
+// rate limit selects which scheduling path the panic happens on.
+type fakePanicClient struct {
+	rateLimit *modulecomponents.RateLimits
+}
+
+func (c *fakePanicClient) Vectorize(ctx context.Context, text []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	for i := range text {
+		if text[i] == "panic" {
+			panic("boom from vectorizer")
+		}
+	}
+	vectors := make([][]float32, len(text))
+	for i := range vectors {
+		vectors[i] = []float32{0, 1, 2, 3}
+	}
+	return &modulecomponents.VectorizationResult[[]float32]{Vector: vectors, Errors: make([]error, len(text))}, nil, 0, nil
+}
+
+func (c *fakePanicClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	return c.rateLimit
+}
+
+func (c *fakePanicClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
+}
+
+func submitWithTimeout(t *testing.T, v *Batch[[]float32], cfg moduletools.ClassConfig, skip []bool, tokens []int, texts []string) ([][]float32, map[int]error) {
+	t.Helper()
+	type result struct {
+		vecs [][]float32
+		errs map[int]error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		vecs, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokens, texts)
+		ch <- result{vecs, errs}
+	}()
+	select {
+	case r := <-ch:
+		return r.vecs, r.errs
+	case <-time.After(5 * time.Second):
+		t.Fatal("SubmitBatchAndWait did not return in time")
+		return nil, nil
+	}
+}
+
+// A panic while vectorizing one batch must not kill the worker: the panicking batch
+// must return an error for its objects (not a silent nil vector), and subsequent
+// batches must still be processed instead of blocking forever in SubmitBatchAndWait.
+func TestBatchWorkerSurvivesPanic(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
+
+	cases := []struct {
+		name      string
+		rateLimit *modulecomponents.RateLimits
+	}{
+		{
+			// RemainingRequests != 0 skips the probe path; a request limit of 1 keeps
+			// every batch above CanSendFullBatch's threshold, forcing the sequential
+			// path where a panic runs inside the worker goroutine.
+			name: "sequential path",
+			rateLimit: &modulecomponents.RateLimits{
+				RemainingRequests: 100, RemainingTokens: 100,
+				LimitRequests: 1, LimitTokens: 1000,
+				ResetRequests: time.Now().Add(time.Minute), ResetTokens: time.Now().Add(time.Minute),
+			},
+		},
+		{
+			// zero remaining requests/tokens make the rate limit look uninitialized, so
+			// the worker takes the probe path and panics there, outside sendBatch.
+			name:      "probe path",
+			rateLimit: &modulecomponents.RateLimits{},
+		},
+		{
+			// ample headroom lets CanSendFullBatch pass, so the batch is sent
+			// concurrently and panics inside the GoWrapper goroutine.
+			name: "concurrent path",
+			rateLimit: &modulecomponents.RateLimits{
+				RemainingRequests: 1000, RemainingTokens: 1000,
+				LimitRequests: 1000, LimitTokens: 1000,
+				ResetRequests: time.Now().Add(time.Minute), ResetTokens: time.Now().Add(time.Minute),
+			},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			v := NewBatchVectorizer[[]float32](&fakePanicClient{rateLimit: tt.rateLimit}, 200*time.Millisecond,
+				Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10}, logger, "test")
+
+			texts, tokenCounts := generateTokens([]*models.Object{{Class: "Car", Properties: map[string]interface{}{"test": "panic"}}})
+			_, errs := submitWithTimeout(t, v, cfg, []bool{false}, tokenCounts, texts)
+			require.Error(t, errs[0])
+
+			// the worker must have survived, so a normal batch still gets vectorized
+			texts, tokenCounts = generateTokens([]*models.Object{{Class: "Car", Properties: map[string]interface{}{"test": "normal"}}})
+			vecs, errs := submitWithTimeout(t, v, cfg, []bool{false}, tokenCounts, texts)
+			require.Len(t, errs, 0)
+			require.NotNil(t, vecs[0])
+		})
+	}
+}
+
+// failUnresolved must error only the objects still missing a vector: a vectorized
+// object keeps its vector, a skipped object stays untouched, and an object that
+// already carries an error is not overwritten.
+func TestFailUnresolved(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	b := &Batch[[]float32]{logger: logger, Label: "test"}
+
+	preExisting := fmt.Errorf("provider rejected object")
+	job := BatchJob[[]float32]{
+		texts:      []string{"vectorized", "skipped", "missing", "already errored"},
+		skipObject: []bool{false, true, false, false},
+		vecs:       [][]float32{{0, 1, 2, 3}, nil, nil, nil},
+		errs:       map[int]error{3: preExisting},
+	}
+
+	b.failUnresolved(job)
+
+	require.NotNil(t, job.vecs[0])
+	require.NoError(t, job.errs[0])
+	require.NoError(t, job.errs[1]) // skipped object untouched
+	require.Error(t, job.errs[2])   // only the missing object gets a fresh error
+	require.Equal(t, preExisting, job.errs[3])
+}
+
+// SubmitBatchAndWait must not hang forever when a job never signals completion:
+// once the request context is cancelled it returns, giving only unresolved
+// (non-skipped) objects the context error and no vectors.
+func TestSubmitBatchAndWaitRespectsContext(t *testing.T) {
+	cases := []struct {
+		name    string
+		newCtx  func() (context.Context, context.CancelFunc)
+		wantErr error
+	}{
+		{
+			name: "cancel",
+			newCtx: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel() // already cancelled so the escape must fire on ctx.Done
+				return ctx, cancel
+			},
+			wantErr: context.Canceled,
+		},
+		{
+			name: "deadline",
+			newCtx: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), 50*time.Millisecond)
+			},
+			wantErr: context.DeadlineExceeded,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			cfg := &fakeClassConfig{classConfig: map[string]interface{}{"vectorizeClassName": false}}
+			// No worker drains jobQueueCh, so the enqueued job never completes and
+			// wg.Done never fires - only the context escape can unblock the call.
+			b := &Batch[[]float32]{
+				client:            &fakeBatchClientWithRL[[]float32]{},
+				jobQueueCh:        make(chan BatchJob[[]float32], BatchChannelSize),
+				rateLimitChannel:  make(chan rateLimitJob, BatchChannelSize),
+				endOfBatchChannel: make(chan endOfBatchJob, BatchChannelSize),
+				logger:            logger,
+				Label:             "test",
+			}
+
+			ctx, cancel := tt.newCtx()
+			defer cancel()
+
+			done := make(chan struct{})
+			var vecs [][]float32
+			var errs map[int]error
+			go func() {
+				vecs, errs = b.SubmitBatchAndWait(ctx, cfg, []bool{false, true}, []int{1, 1}, []string{"a", "b"})
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("SubmitBatchAndWait did not return after context cancellation")
+			}
+			require.Len(t, vecs, 2)
+			require.Nil(t, vecs[0])
+			require.ErrorIs(t, errs[0], tt.wantErr)
+			_, skipped := errs[1]
+			require.False(t, skipped, "skipped object must not get an error")
+		})
+	}
 }
 
 func TestEncoderCache(t *testing.T) {
