@@ -398,6 +398,13 @@ type secondaryLookup = func(ctx context.Context, pos int, seckey, buffer []byte)
 type bucket interface {
 	GetBySecondary(context.Context, int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(context.Context, int, []byte, []byte) ([]byte, []byte, error)
+	// GetBySecondaryBatch resolves many secondary keys in one call, returning
+	// values positionally aligned to keys (nil = missing or deleted). It resolves
+	// under one consistent view per slab and enforces the view-hold cap by
+	// chunking large inputs internally, so the caller hands over the whole key set
+	// and never manages views or the cap itself. Every returned value is copied out
+	// of the segment/memtable, so results stay valid after the call returns.
+	GetBySecondaryBatch(context.Context, int, [][]byte) ([][]byte, error)
 	// ClassName returns the canonical class name attached to the bucket. The
 	// storobj helpers (ObjectsByDocID*) use it to stamp Object.Class on every
 	// decoded payload via FromBinaryOptionalDisk. Implementations must return
@@ -449,12 +456,121 @@ func objectsByDocID(bucket bucket, ids []uint64,
 	if len(ids) == 0 { // avoid acquiring a consistent view for an empty batch
 		return []*Object{}, nil
 	}
-	return withBatchLookup(bucket, func(lookup secondaryLookup) ([]*Object, error) {
-		if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-			return objectsByDocIDSequentialInner(bucket, lookup, ids, additional, properties, includeEmpty)
+	if bucket == nil {
+		return nil, fmt.Errorf("objects bucket not found")
+	}
+	return objectsByDocIDBatch(bucket, ids, additional, properties, logger, includeEmpty)
+}
+
+// propertyExtractionFromNames builds the PropertyExtraction passed to the decoder.
+// A nil names slice means "no explicit list" and decodes with all properties (the
+// nil PropertyExtraction fallback the decoder already understands).
+func propertyExtractionFromNames(properties []string) *PropertyExtraction {
+	if properties == nil {
+		return nil
+	}
+	propertyPaths := make([][]string, len(properties))
+	for j := range properties {
+		propertyPaths[j] = []string{properties[j]}
+	}
+	return &PropertyExtraction{PropertyPaths: propertyPaths}
+}
+
+// objectsByDocIDBatch resolves ids against the bucket with a single batched
+// secondary-key call (collapsing the former per-worker serial pread fan-out into
+// one consistent-view batch that issues its value reads concurrently inside the
+// bucket) and then decodes the returned payloads in parallel. The I/O fan-out is
+// gone; only the CPU-bound decode keeps the 2xGOMAXPROCS worker pool.
+//
+// The bucket owns positional restore and the 500-key view-hold cap (it slab-chunks
+// larger inputs internally), so values[i] corresponds to ids[i] regardless of batch
+// size. Decode reads only the returned payload bytes (FromBinaryOptionalDisk is a
+// pure in-memory byteops decode; it issues no disk reads), so decode never
+// re-creates the multiplicative read shape the collapse removes.
+func objectsByDocIDBatch(bucket bucket, ids []uint64,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+	includeEmpty bool,
+) ([]*Object, error) {
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	n := len(ids)
+
+	// One backing allocation for all little-endian doc-id keys; keys[i] is a fixed
+	// 8-byte window into it, matching the objects secondary-key encoding.
+	keys := make([][]byte, n)
+	keyBacking := make([]byte, n*8)
+	for i, id := range ids {
+		k := keyBacking[i*8 : i*8+8 : i*8+8]
+		binary.LittleEndian.PutUint64(k, id)
+		keys[i] = k
+	}
+
+	values, err := bucket.GetBySecondaryBatch(context.TODO(), 0, keys) // TODO: thread ctx once ObjectsByDocID takes one
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*Object, n)
+	// PropertyExtraction is read-only during decode, so one instance is shared
+	// safely across the decode workers.
+	props := propertyExtractionFromNames(properties)
+
+	decode := func(start, end int) error {
+		for i := start; i < end; i++ {
+			res := values[i]
+			if res == nil {
+				// Missing/deleted: leave out[i] nil. (WAL-recovery skew where the
+				// inverted index references an object absent from the objects bucket
+				// lands here too; see objectsByDocIDSequentialInner for the rationale
+				// on not logging.)
+				continue
+			}
+			unmarshalled, err := FromBinaryOptionalDisk(res, className, additional, props)
+			if err != nil {
+				return errors.Wrapf(err, "unmarshal data object at position %d", i)
+			}
+			out[i] = unmarshalled
 		}
-		return objectsByDocIDParallelInner(bucket, lookup, ids, additional, properties, logger, includeEmpty)
-	})
+		return nil
+	}
+
+	parallel := 2 * runtime.GOMAXPROCS(0)
+	if n <= 1 || parallel <= 1 {
+		if err := decode(0, n); err != nil {
+			return nil, err
+		}
+	} else {
+		chunkSize := max(int(math.Ceil(float64(n)/float64(parallel))), 1)
+		eg := errwrap.NewErrorGroupWrapper(logger)
+		eg.SetLimit(parallel)
+		for start := 0; start < n; start += chunkSize {
+			end := min(start+chunkSize, n)
+			eg.Go(func() error {
+				return decode(start, end)
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return nil, err
+		}
+	}
+
+	if includeEmpty {
+		// Positions are meaningful: nils indicate missing objects; do not compact.
+		return out, nil
+	}
+
+	// fix gaps in the output array, preserving caller order
+	j := 0
+	for i := range out {
+		if out[i] != nil {
+			out[j] = out[i]
+			j++
+		}
+	}
+	return out[:j], nil
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
@@ -591,18 +707,8 @@ func objectsByDocIDSequentialInner(bucket bucket, lookup secondaryLookup, ids []
 		bufPool.Put(lsmBuf)
 	}()
 
-	var props *PropertyExtraction = nil
 	// not all code paths forward the list of properties that should be extracted - if nil is passed fall back
-	if properties != nil {
-		propertyPaths := make([][]string, len(properties))
-		for j := range properties {
-			propertyPaths[j] = []string{properties[j]}
-		}
-
-		props = &PropertyExtraction{
-			PropertyPaths: propertyPaths,
-		}
-	}
+	props := propertyExtractionFromNames(properties)
 
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)

@@ -65,6 +65,21 @@ func (b *fakeObjectsBucket) SecondaryViewLookup() (secondaryLookup, func()) {
 	return b.lookup, func() {}
 }
 
+// GetBySecondaryBatch resolves each key positionally, decoding the little-endian
+// doc-id key exactly as the production path encodes it. Results align to keys; a
+// missing doc id yields nil (the WithEmpty "not found" case).
+func (b *fakeObjectsBucket) GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte) ([][]byte, error) {
+	out := make([][]byte, len(keys))
+	for i, key := range keys {
+		v, _, err := b.lookup(ctx, pos, key, nil)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
 // marshalObjectForDocID builds a valid marshalled object carrying docID, so that
 // after resolution out[i].DocID equals the requested id (the DocID is stored in
 // the payload, not derived from the lookup key).
