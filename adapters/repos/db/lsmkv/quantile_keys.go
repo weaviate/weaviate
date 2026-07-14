@@ -46,7 +46,11 @@ func (b *Bucket) QuantileKeys(q int) [][]byte {
 }
 
 func (sg *SegmentGroup) quantileKeys(q int) [][]byte {
-	segments, release := sg.getConsistentViewOfSegments()
+	// keys are only seeds for parallel iteration; none is a valid degradation
+	segments, release, err := sg.getConsistentViewOfSegments()
+	if err != nil {
+		return nil
+	}
 	defer release()
 
 	var keys [][]byte

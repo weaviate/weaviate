@@ -525,9 +525,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	s.bucketsByName[bucketName] = replacementBucket
 	delete(s.bucketsByName, replacementBucketName)
 
-	var currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir string
-	var err error
-	currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err = s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
+	_, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, err := s.replaceBucket(ctx, replacementBucket, replacementBucketName, bucket, bucketName)
 	if err != nil {
 		return errors.Wrapf(err, "failed renaming bucket '%s' to '%s'", bucketName, replacementBucketName)
 	}
@@ -547,8 +545,11 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 	replacementBucket.active = mt
 
-	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
-	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
+	// no updateBucketDir on the displaced bucket: its shutdown nil'd the
+	// segment list, so the path rewrite is a no-op that would now be refused
+	if err := s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir); err != nil {
+		return err
+	}
 
 	if err := os.RemoveAll(newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed removing dir '%s'", newBucketDir)
@@ -606,21 +607,27 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}
 
-	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)
+	if err := s.updateBucketDir(currBucket, currBucketDir, newBucketDir); err != nil {
+		return err
+	}
 
 	return nil
 }
 
-func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) {
+func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) error {
 	updatePath := func(src string) string {
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
 
-	segments, release := bucket.disk.getConsistentViewOfSegments()
+	segments, release, err := bucket.disk.getConsistentViewOfSegments()
+	if err != nil {
+		return fmt.Errorf("update bucket dir %q: %w", newBucketDir, err)
+	}
 	defer release()
 
 	bucket.disk.dir = newBucketDir
 	for _, segment := range segments {
 		segment.setPath(updatePath(segment.getPath()))
 	}
+	return nil
 }

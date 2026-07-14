@@ -60,6 +60,10 @@ type SegmentGroup struct {
 	maintenanceLock sync.RWMutex
 	dir             string
 
+	// guarded by maintenanceLock; blocks new consistent views so segment
+	// refcounts can only decrease during shutdown's wait
+	shutdownRequested bool
+
 	strategy string
 
 	compactionCallbackCtrl cyclemanager.CycleCallbackCtrl
@@ -581,8 +585,18 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
-func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
+// ErrShuttingDown refuses new consistent views once shutdown has begun; this
+// is what keeps shutdown's refcount wait race-free.
+var ErrShuttingDown = errors.New("lsmkv bucket is shutting down: cannot create new consistent view")
+
+func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func(), err error) {
 	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	if sg.shutdownRequested {
+		return nil, func() {}, ErrShuttingDown
+	}
+
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
@@ -591,7 +605,6 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 		seg.incRef()
 	}
 	sg.segmentRefCounterLock.Unlock()
-	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
 		sg.segmentRefCounterLock.Lock()
@@ -599,7 +612,7 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 			seg.decRef()
 		}
 		sg.segmentRefCounterLock.Unlock()
-	}
+	}, nil
 }
 
 func (sg *SegmentGroup) addInitializedSegment(segment Segment) (err error) {
@@ -843,7 +856,11 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roari
 }
 
 func (sg *SegmentGroup) count() int {
-	segments, release := sg.getConsistentViewOfSegments()
+	// observability-only; during shutdown 0 matches the closed-group state
+	segments, release, err := sg.getConsistentViewOfSegments()
+	if err != nil {
+		return 0
+	}
 	defer release()
 
 	return sg.countWithSegmentList(segments)
@@ -858,7 +875,11 @@ func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 	return count
 }
 
-func (sg *SegmentGroup) shutdown(ctx context.Context) error {
+// afterRefWait is a test seam (nil in production): it runs between the
+// refcount wait and segment close, the window in which a newly-acquired
+// consistent view must already be refused. Threaded as a parameter rather
+// than stored on SegmentGroup to keep the test knob off the production struct.
+func (sg *SegmentGroup) shutdown(ctx context.Context, afterRefWait func()) error {
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}
@@ -866,18 +887,29 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 		return err
 	}
 
-	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
-	sg.maintenanceLock.RLock()
-	ln1 := len(sg.segmentsAwaitingDrop)
-	ln2 := len(sg.segments)
-	segmentsWithRefs := make([]Segment, ln1+ln2)
-	copy(segmentsWithRefs[ln1:], sg.segments)
-	for i := range ln1 {
-		segmentsWithRefs[i] = sg.segmentsAwaitingDrop[i].seg
-	}
-	sg.maintenanceLock.RUnlock()
+	// Flag before the refcount wait: no new view can incRef afterwards, so a
+	// zero observed by the wait stays zero and close() cannot munmap under a
+	// live reader. The write lock is safe: the compaction cycle stopped above.
+	segmentsWithRefs := func() []Segment {
+		sg.maintenanceLock.Lock()
+		defer sg.maintenanceLock.Unlock()
+
+		sg.shutdownRequested = true
+		ln1 := len(sg.segmentsAwaitingDrop)
+		out := make([]Segment, ln1+len(sg.segments))
+		copy(out[ln1:], sg.segments)
+		for i := range ln1 {
+			out[i] = sg.segmentsAwaitingDrop[i].seg
+		}
+		return out
+	}()
 
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
+
+	if afterRefWait != nil {
+		afterRefWait()
+	}
+
 	sg.dropSegmentsAwaiting()
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
@@ -1026,7 +1058,11 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 }
 
 func (sg *SegmentGroup) Len() int {
-	segments, release := sg.getConsistentViewOfSegments()
+	// metrics-only; during shutdown 0 matches the closed-group state
+	segments, release, err := sg.getConsistentViewOfSegments()
+	if err != nil {
+		return 0
+	}
 	defer release()
 
 	return len(segments)

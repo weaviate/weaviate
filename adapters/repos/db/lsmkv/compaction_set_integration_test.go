@@ -290,17 +290,7 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c := bucket.SetCursor()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:    k,
-				values: v,
-			})
-		}
+		retrieved := collectSetKVs(t, bucket, func(k []byte, v [][]byte) kv { return kv{key: k, values: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
@@ -322,17 +312,7 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	})
 
 	t.Run("verify control after compaction", func(t *testing.T) {
-		var retrieved []kv
-
-		c := bucket.SetCursor()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:    k,
-				values: v,
-			})
-		}
+		retrieved := collectSetKVs(t, bucket, func(k []byte, v [][]byte) kv { return kv{key: k, values: v} })
 
 		assert.Equal(t, expected, retrieved)
 		assertSingleSegmentOfSize(t, bucket, expectedMinSize, expectedMaxSize)
@@ -393,15 +373,7 @@ func compactionSetStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 			},
 		}
 
-		c := bucket.SetCursor()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:    k,
-				values: v,
-			})
-		}
+		retrieved = collectSetKVs(t, bucket, func(k []byte, v [][]byte) kv { return kv{key: k, values: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})
@@ -422,15 +394,7 @@ func compactionSetStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 			},
 		}
 
-		c := bucket.SetCursor()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:    k,
-				values: v,
-			})
-		}
+		retrieved = collectSetKVs(t, bucket, func(k []byte, v [][]byte) kv { return kv{key: k, values: v} })
 
 		assert.Equal(t, expected, retrieved)
 	})

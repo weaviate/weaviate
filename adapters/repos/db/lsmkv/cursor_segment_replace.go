@@ -106,19 +106,25 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 	}
 }
 
-func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
-	segments, release := sg.getConsistentViewOfSegments()
+func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func(), error) {
+	segments, release, err := sg.getConsistentViewOfSegments()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	out := make([]innerCursorReplace, len(segments))
 	for i, segment := range segments {
 		out[i] = segment.newCursor()
 	}
 
-	return out, release
+	return out, release, nil
 }
 
-func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorReplace, func()) {
-	segments, release := sg.getConsistentViewOfSegments()
+func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorReplace, func(), error) {
+	segments, release, err := sg.getConsistentViewOfSegments()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	out := make([]innerCursorReplace, 0, len(segments))
 	for _, segment := range segments {
@@ -127,7 +133,7 @@ func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorRepl
 		}
 	}
 
-	return out, release
+	return out, release, nil
 }
 
 func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {

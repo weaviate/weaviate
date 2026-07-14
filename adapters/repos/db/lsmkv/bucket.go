@@ -367,7 +367,10 @@ func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 }
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
-	cursor := b.Cursor()
+	cursor, err := b.Cursor()
+	if err != nil {
+		return err
+	}
 	defer cursor.Close()
 
 	i := 0
@@ -427,7 +430,10 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	}()
 
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
-	onDiskCursor := b.CursorOnDisk()
+	onDiskCursor, err := b.CursorOnDisk()
+	if err != nil {
+		return err
+	}
 	defer onDiskCursor.Close()
 
 	inmemProcessedDocIDs := make(map[uint64]struct{})
@@ -513,10 +519,19 @@ type BucketConsistentView struct {
 	Disk     []Segment
 	release  func()
 	Bucket   *Bucket
+
+	// non-nil when the view was refused (shutdown); reads must return it
+	// instead of partial memtable-only data
+	err error
 }
 
 func (cv BucketConsistentView) ReleaseView() {
 	cv.release()
+}
+
+// Err reports why the view was refused; nil for a usable view.
+func (cv BucketConsistentView) Err() error {
+	return cv.err
 }
 
 // GetConsistentView returns a consistent view of the bucket that can be used
@@ -534,7 +549,10 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 		}).Debug("Waited more than 100ms to obtain a flush lock during get")
 	}
 
-	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
+	diskSegments, releaseDiskSegments, err := b.disk.getConsistentViewOfSegments()
+	if err != nil {
+		return BucketConsistentView{Bucket: b, release: func() {}, err: err}
+	}
 	return BucketConsistentView{
 		Active:   b.active,
 		Flushing: b.flushing,
@@ -581,6 +599,9 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 }
 
 func (b *Bucket) getWithConsistentView(key []byte, view BucketConsistentView) ([]byte, error) {
+	if view.err != nil {
+		return nil, view.err
+	}
 	memtables, count := viewMemtables(view)
 
 	for i := range count {
@@ -614,6 +635,9 @@ func (b *Bucket) existsWithConsistentView(key []byte, view BucketConsistentView)
 // Returns nil if the key exists, lsmkv.NotFound if not found, or lsmkv.Deleted if tombstoned.
 // This is more efficient than getWithConsistentView() when only existence check is needed.
 func (b *Bucket) existsWithConsistentViewUpTo(key []byte, segIdx int, view BucketConsistentView) error {
+	if view.err != nil {
+		return view.err
+	}
 	memtables, count := viewMemtables(view)
 
 	for i := range count {
@@ -712,6 +736,9 @@ func (b *Bucket) getBySecondaryWithView(ctx context.Context, pos int, seckey []b
 }
 
 func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView, viewTiming time.Duration, logKey string) ([]byte, []byte, error) {
+	if view.err != nil {
+		return nil, nil, view.err
+	}
 	if pos >= int(b.secondaryIndices) {
 		return nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
 	}
@@ -902,6 +929,9 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 }
 
 func (b *Bucket) setListFromConsistentView(view BucketConsistentView, key []byte) ([][]byte, error) {
+	if view.err != nil {
+		return nil, view.err
+	}
 	var out []value
 
 	v, err := b.disk.getCollection(key, view.Disk)
@@ -1097,6 +1127,9 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsistentView,
 	key []byte, cfgs ...MapListOption,
 ) ([]MapPair, error) {
+	if view.err != nil {
+		return nil, view.err
+	}
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
 		cfg(&c)
@@ -1209,6 +1242,9 @@ func (b *Bucket) mapListFromConsistentView(ctx context.Context, view BucketConsi
 }
 
 func (b *Bucket) loadAllTombstones(view BucketConsistentView) ([]*sroar.Bitmap, error) {
+	if view.err != nil {
+		return nil, view.err
+	}
 	hasTombstones := false
 	allTombstones := make([]*sroar.Bitmap, len(view.Disk)+2)
 	for i, segment := range view.Disk {
@@ -1391,6 +1427,9 @@ func (b *Bucket) Count(ctx context.Context) (int, error) {
 }
 
 func (b *Bucket) countFromCV(ctx context.Context, view BucketConsistentView) (int, error) {
+	if view.err != nil {
+		return 0, view.err
+	}
 	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
 		return 0, fmt.Errorf("Bucket::Count(): %w", err)
 	}
@@ -1501,7 +1540,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
 	}()
 
-	if err := b.disk.shutdown(ctx); err != nil {
+	if err := b.disk.shutdown(ctx, nil); err != nil {
 		return err
 	}
 
@@ -1779,7 +1818,14 @@ func (b *Bucket) FlushAndSwitch() error {
 				// point. #9104 simply changes from a maintenance RLock to a segment
 				// view which does not alter the behavior, but does help reduce lock
 				// contention.
-				segments, release := b.disk.getConsistentViewOfSegments()
+				segments, release, err := b.disk.getConsistentViewOfSegments()
+				if errors.Is(err, ErrShuttingDown) {
+					// same non-critical divergence as the post-close nil segment
+					// list (see above); repaired on restart
+					return nil
+				} else if err != nil {
+					return err
+				}
 				defer release()
 
 				// add flushing memtable tombstones to all segments
@@ -1937,6 +1983,9 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 func (b *Bucket) docPointerWithScoreListFromConsistentView(ctx context.Context, view BucketConsistentView,
 	key []byte, propBoost float32, cfgs ...MapListOption,
 ) ([]terms.DocPointerWithScore, error) {
+	if view.err != nil {
+		return nil, view.err
+	}
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
 		cfg(&c)
@@ -2045,6 +2094,9 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 			}
 		}
 	}()
+	if view.err != nil {
+		return nil, nil, nil, view.err
+	}
 	var err error
 
 	averagePropLength, _ := b.GetAveragePropertyLength()

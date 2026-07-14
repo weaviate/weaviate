@@ -247,7 +247,11 @@ func (index *flat) calculateDimensions() int32 {
 	if bucket == nil {
 		return 0
 	}
-	cursor := bucket.Cursor()
+	cursor, err := bucket.Cursor()
+	if err != nil {
+		index.logger.WithError(err).Warn("flat index calculate dimensions: open cursor")
+		return 0
+	}
 	defer cursor.Close()
 
 	var key []byte

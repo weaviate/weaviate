@@ -26,8 +26,11 @@ func (s *segment) newCollectionCursor() innerCursorCollection {
 	}
 }
 
-func (sg *SegmentGroup) newCollectionCursors() ([]innerCursorCollection, func()) {
-	segments, release := sg.getConsistentViewOfSegments()
+func (sg *SegmentGroup) newCollectionCursors() ([]innerCursorCollection, func(), error) {
+	segments, release, err := sg.getConsistentViewOfSegments()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	out := make([]innerCursorCollection, len(segments))
 
@@ -35,7 +38,7 @@ func (sg *SegmentGroup) newCollectionCursors() ([]innerCursorCollection, func())
 		out[i] = segment.newCollectionCursor()
 	}
 
-	return out, release
+	return out, release, nil
 }
 
 func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {

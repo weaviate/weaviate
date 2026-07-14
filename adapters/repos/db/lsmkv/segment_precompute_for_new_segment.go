@@ -11,13 +11,31 @@
 
 package lsmkv
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, error) {
 	// It is now safe to hold the RLock on the maintenanceLock because we know
 	// that the compaction routine will not try to obtain the Lock() until we
 	// have released the flushVsCompactLock.
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release, err := sg.getConsistentViewOfSegments()
+	deferCountNetAdditions := false
+	if errors.Is(err, ErrShuttingDown) {
+		// A flush racing shutdown can no longer obtain a consistent view of the
+		// lower segments (the refusal is what keeps shutdown's refcount wait
+		// race-free). We still complete the flush against an empty baseline so the
+		// switched-out memtable is cleared from b.flushing and Bucket.Shutdown does
+		// not hang waiting for it — but that empty baseline makes the derived
+		// count-net-additions overstated (every overwrite looks net-new), so we
+		// must not persist it. deferCountNetAdditions skips writing the CNA; it is
+		// recomputed against the real segment neighbors on the next open.
+		segments, release = nil, func() {}
+		deferCountNetAdditions = true
+	} else if err != nil {
+		return nil, err
+	}
 	defer release()
 
 	segment, err := newSegment(path, sg.logger,
@@ -32,6 +50,7 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
 			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
+			deferCountNetAdditions:   deferCountNetAdditions,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("init and pre-compute new segment %s: %w", path, err)

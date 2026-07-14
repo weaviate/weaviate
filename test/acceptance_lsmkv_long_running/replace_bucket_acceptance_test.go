@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -315,7 +316,8 @@ func cursorWorker(ctx context.Context, t *testing.T, wg *sync.WaitGroup, workerI
 				cursorCtx, cancel := context.WithTimeout(ctx, maxDuration)
 				defer cancel()
 
-				c := bucket.Cursor()
+				c, err := bucket.Cursor()
+				require.NoError(t, err)
 				keys := 0
 				bytesRead := 0
 				for k, v := c.First(); k != nil; k, v = c.Next() {

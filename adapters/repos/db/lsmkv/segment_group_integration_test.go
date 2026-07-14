@@ -314,7 +314,8 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 			require.Len(t, dbFiles, segments)
 		})
 
-		cur_1_2_3_4 := bucket.Cursor()
+		cur_1_2_3_4, err := bucket.Cursor()
+		require.NoError(t, err)
 
 		t.Run("deleteme files are not dropped due to active cursor", func(t *testing.T) {
 			compacted, err := bucket.disk.compactOnce(context.Background())
@@ -337,7 +338,8 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 			require.Len(t, deletemeFiles, 2*expectedDeleteMePerSegment)
 		})
 
-		cur_12_3_4 := bucket.Cursor()
+		cur_12_3_4, err := bucket.Cursor()
+		require.NoError(t, err)
 
 		t.Run("deleteme files are not dropped due to active cursor", func(t *testing.T) {
 			compacted, err := bucket.disk.compactOnce(context.Background())
@@ -361,7 +363,8 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 			require.Len(t, deletemeFiles, 4*expectedDeleteMePerSegment)
 		})
 
-		cur_12_34 := bucket.Cursor()
+		cur_12_34, err := bucket.Cursor()
+		require.NoError(t, err)
 		cur_1_2_3_4.Close()
 
 		t.Run("deleteme files are not dropped due to active cursor", func(t *testing.T) {

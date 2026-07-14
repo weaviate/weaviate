@@ -40,9 +40,18 @@ func (s *segment) countNetPath() string {
 	return s.buildPath("%s.cna")
 }
 
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64, deferToReload bool) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
+		return nil
+	}
+
+	if deferToReload {
+		// A flush racing shutdown computed this segment against an empty baseline
+		// (no consistent view of the lower segments was available), so any
+		// net-count-additions derived here would be overstated. Skip persisting
+		// the .cna entirely; it is recomputed against the real segment neighbors on
+		// the next open. See segmentConfig.deferCountNetAdditions.
 		return nil
 	}
 

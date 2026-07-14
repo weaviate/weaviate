@@ -590,7 +590,7 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 // populates given heap with smallest distances and corresponding ids calculated by
 // distanceCalc
 func (index *flat) findTopVectors(heap *priorityqueue.Queue[any],
-	allow helpers.AllowList, limit int, cursorFn func() *lsmkv.CursorReplace,
+	allow helpers.AllowList, limit int, cursorFn func() (*lsmkv.CursorReplace, error),
 	distanceCalc distanceCalc,
 ) error {
 	var key []byte
@@ -598,7 +598,10 @@ func (index *flat) findTopVectors(heap *priorityqueue.Queue[any],
 	var id uint64
 	allowMax := uint64(0)
 
-	cursor := cursorFn()
+	cursor, err := cursorFn()
+	if err != nil {
+		return err
+	}
 	defer cursor.Close()
 
 	if allow != nil {
@@ -1108,7 +1111,11 @@ func (index *flat) Iterate(fn func(docID uint64) bool) {
 	}
 
 	bucket := index.store.Bucket(bucketName)
-	cursor := bucket.Cursor()
+	cursor, err := bucket.Cursor()
+	if err != nil {
+		index.logger.WithError(err).Warn("flat index iterate: open cursor")
+		return
+	}
 	defer cursor.Close()
 
 	for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {

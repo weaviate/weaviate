@@ -34,8 +34,18 @@ func (s *segment) metadataPath() string {
 	return s.buildPath("%s.metadata")
 }
 
-func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOnLowerSegmentsFn, precomputedCNAValue *int, existingFilesList map[string]int64, writeMetadata bool) (bool, error) {
+func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOnLowerSegmentsFn, precomputedCNAValue *int, existingFilesList map[string]int64, writeMetadata bool, deferCountNetAdditions bool) (bool, error) {
 	if !s.useBloomFilter && !s.calcCountNetAdditions {
+		return false, nil
+	}
+	if deferCountNetAdditions {
+		// A flush racing shutdown computed this segment against an empty baseline,
+		// so the count-net-additions is unreliable and must not be persisted. The
+		// consolidated .metadata file bundles the CNA together with the bloom
+		// filters, so we can't selectively omit it here — fall through to the
+		// separate-file path instead, where the (baseline-independent) bloom filter
+		// is written and initCountNetAdditions skips the .cna. The CNA is then
+		// recomputed against the real segment neighbors on the next open.
 		return false, nil
 	}
 	path := s.metadataPath()

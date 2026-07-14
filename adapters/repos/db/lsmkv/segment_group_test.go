@@ -44,7 +44,7 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentAddition(t *testing.T) 
 	}
 
 	// control before segment changes
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 	v, err := sg.getWithSegmentList([]byte("key1"), segments)
 	require.NoError(t, err)
@@ -62,7 +62,7 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentAddition(t *testing.T) 
 	require.Equal(t, []byte("value1"), v, "k==v on changed state")
 
 	// prove that new readers will see the most recent view
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 	v, err = sg.getWithSegmentList([]byte("key1"), segments)
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	}
 
 	// control before segment changes
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 
 	validateView := func(t *testing.T, segments []Segment) {
@@ -117,7 +117,7 @@ func TestSegmentGroup_Replace_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	require.Equal(t, 0, segAB.getCounter, "new segment should not have received call")
 
 	// prove that a new view also works
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 	validateView(t, segments)
 	require.Greater(t, segAB.getCounter, 0, "new segment should have received call")
@@ -135,7 +135,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	}
 
 	// control before segment changes
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 	v, _, err := sg.roaringSetGet([]byte("key1"), segments)
 	require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentAddition(t *testing.
 	require.Equal(t, expected, v.Flatten(true).ToArray(), "k==v after segment addition on old view")
 
 	// prove that new readers will see the most recent view
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 	v, _, err = sg.roaringSetGet([]byte("key1"), segments)
 	require.NoError(t, err)
@@ -180,7 +180,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 	}
 
 	// control: take a consistent view before any switch
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 
 	// On the original view, key1 should be {1} (from segA), key2 should be {2} (from segB)
@@ -212,7 +212,7 @@ func TestSegmentGroup_RoaringSet_ConsistentViewAcrossSegmentSwitch(t *testing.T)
 	require.Equal(t, segAB.getCounter, 0, "new segment should not have received calls")
 
 	// prove that a new consistent view sees the (compacted) latest state
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 
 	validateView(t, segments)
@@ -234,7 +234,7 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentAddition(t *tes
 	}
 
 	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
-		segments, release := sg.getConsistentViewOfSegments()
+		segments, release := mustSegmentView(t, sg)
 		readers := make([]roaringsetrange.InnerReader, len(segments))
 		for i := range segments {
 			readers[i] = segments[i].newRoaringSetRangeReader()
@@ -292,7 +292,7 @@ func TestSegmentGroup_RoaringSetRange_ConsistentViewAcrossSegmentSwitch(t *testi
 	}
 
 	createReaderFromConsistentViewOfSegments := func() ReaderRoaringSetRange {
-		segments, release := sg.getConsistentViewOfSegments()
+		segments, release := mustSegmentView(t, sg)
 		readers := make([]roaringsetrange.InnerReader, len(segments))
 		for i := range segments {
 			readers[i] = segments[i].newRoaringSetRangeReader()
@@ -358,7 +358,7 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	}
 
 	// control before segment changes
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 
 	raw, err := sg.getCollection([]byte("key1"), segments)
@@ -379,7 +379,7 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	require.ElementsMatch(t, [][]byte{[]byte("v1")}, got, "old view unchanged after segment addition")
 
 	// new readers see union from both segments
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 
 	raw, err = sg.getCollection([]byte("key1"), segments)
@@ -407,7 +407,7 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	}
 
 	// take a consistent view before switch
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 
 	// old view should read from segA/segB as expected
@@ -439,7 +439,7 @@ func TestSegmentGroup_Set_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	require.Equal(t, 0, segAB.getCounter, "new segment should not have received calls on old view")
 
 	// new consistent view should hit segAB
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 
 	validateView(t, segments)
@@ -458,7 +458,7 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	}
 
 	// control before segment changes
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 
 	raw, err := sg.getCollection([]byte("key1"), segments)
@@ -488,7 +488,7 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentAddition(t *testing.T) {
 	require.ElementsMatch(t, expected, got, "old view unchanged after segment addition")
 
 	// new readers see union from both segments
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 
 	raw, err = sg.getCollection([]byte("key1"), segments)
@@ -523,7 +523,7 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	}
 
 	// take a consistent view before switch
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 
 	validateView := func(t *testing.T, segments []Segment) {
@@ -559,7 +559,7 @@ func TestSegmentGroup_Map_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	require.Equal(t, 0, segAB.getCounter, "new segment should not have received calls on old view")
 
 	// new consistent view should hit segAB
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 
 	validateView(t, segments)
@@ -579,7 +579,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 	}
 
 	// control before segment changes
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 
 	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSingleSegment(ctx, segments[0], []kv{
@@ -598,7 +598,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentAddition(t *testing.T)
 	}))
 
 	// new readers see union from both segments
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 
 	require.NoError(t, validateMapPairListVsBlockMaxSearchFromSegments(ctx, segments, []kv{
@@ -629,7 +629,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	}
 
 	// take a consistent view before switch
-	segments, release := sg.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, sg)
 	defer release()
 
 	validateView := func(t *testing.T, segments []Segment) {
@@ -657,7 +657,7 @@ func TestSegmentGroup_Inverted_ConsistentViewAcrossSegmentSwitch(t *testing.T) {
 	require.Equal(t, 0, segAB.getCounter, "new segment should not have received calls on old view")
 
 	// new consistent view should hit segAB
-	segments, release = sg.getConsistentViewOfSegments()
+	segments, release = mustSegmentView(t, sg)
 	defer release()
 
 	validateView(t, segments)
@@ -674,7 +674,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			segments: []Segment{newFakeReplaceSegment(segmentData)},
 		}
 
-		segments, release := sg.getConsistentViewOfSegments()
+		segments, release := mustSegmentView(t, sg)
 		defer release()
 
 		err := sg.existsWithSegmentList([]byte("key1"), segments)
@@ -690,7 +690,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			segments: []Segment{newFakeReplaceSegment(segmentData)},
 		}
 
-		segments, release := sg.getConsistentViewOfSegments()
+		segments, release := mustSegmentView(t, sg)
 		defer release()
 
 		err := sg.existsWithSegmentList([]byte("nonexistent"), segments)
@@ -711,7 +711,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			segments: []Segment{seg1, seg2}, // seg2 is newer (higher index)
 		}
 
-		segments, release := sg.getConsistentViewOfSegments()
+		segments, release := mustSegmentView(t, sg)
 		defer release()
 
 		err := sg.existsWithSegmentList([]byte("key1"), segments)
@@ -727,7 +727,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			segments: []Segment{newFakeReplaceSegment(segmentData)},
 		}
 
-		segments, release := sg.getConsistentViewOfSegments()
+		segments, release := mustSegmentView(t, sg)
 		defer release()
 
 		// For existing key
@@ -755,7 +755,7 @@ func TestSegmentGroup_ExistsWithSegmentList(t *testing.T) {
 			segments: []Segment{seg1, seg2},
 		}
 
-		segments, release := sg.getConsistentViewOfSegments()
+		segments, release := mustSegmentView(t, sg)
 		defer release()
 
 		// Both keys should exist

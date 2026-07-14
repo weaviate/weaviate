@@ -59,7 +59,7 @@ type cursorStateReplace struct {
 // There are no references to memtables, as their entire content is copied
 // during init time. This is also a potential limitation of a curors, the
 // initialization can be quite costly if memtables are large.
-func (b *Bucket) Cursor() *CursorReplace {
+func (b *Bucket) Cursor() (*CursorReplace, error) {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
 	cursorOpenedAt := time.Now()
@@ -69,7 +69,11 @@ func (b *Bucket) Cursor() *CursorReplace {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newCursors()
+	if err != nil {
+		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+		return nil, err
+	}
 
 	// we hold a flush-lock during initialzation, but we release it before
 	// returning to the caller. However, `*memtable.newCursor` creates a deep
@@ -90,7 +94,7 @@ func (b *Bucket) Cursor() *CursorReplace {
 			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
 			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
-	}
+	}, nil
 }
 
 // CursorInMemWith returns a cursor which scan over the primary key of entries
@@ -134,20 +138,23 @@ func (b *Bucket) CursorInMem() *CursorReplace {
 // already persisted on disk.
 // New segments can still be created but compaction will be prevented
 // while any cursor remains active
-func (b *Bucket) CursorOnDisk() *CursorReplace {
+func (b *Bucket) CursorOnDisk() (*CursorReplace, error) {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursors()
+	innerCursors, unlockSegmentGroup, err := b.disk.newCursors()
+	if err != nil {
+		return nil, err
+	}
 
 	return &CursorReplace{
 		innerCursors: innerCursors,
 		unlock:       unlockSegmentGroup,
-	}
+	}, nil
 }
 
 // CursorWithSecondaryIndex holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
-func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
+func (b *Bucket) CursorWithSecondaryIndex(pos int) (*CursorReplace, error) {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
 	if uint16(pos) >= b.secondaryIndices {
@@ -161,7 +168,11 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithSecondaryIndex(pos)
+	innerCursors, unlockSegmentGroup, err := b.disk.newCursorsWithSecondaryIndex(pos)
+	if err != nil {
+		b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
+		return nil, err
+	}
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
@@ -181,7 +192,7 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 			b.metrics.DecBucketOpenCursorsByStrategy(b.strategy)
 			b.metrics.ObserveBucketCursorDurationByStrategy(b.strategy, time.Since(cursorOpenedAt))
 		},
-	}
+	}, nil
 }
 
 func (c *CursorReplace) Close() {

@@ -59,7 +59,6 @@ func TestMetadataNoWrites(t *testing.T) {
 				WithSecondaryIndices(uint16(secondaryIndexCount)),
 				WithStrategy(StrategyReplace))
 			require.NoError(t, err)
-			require.NoError(t, b.Shutdown(ctx))
 
 			require.NoError(t, b.Put([]byte("key"), []byte("value"), WithSecondaryKey(0, []byte("seckey0")), WithSecondaryKey(1, []byte("seckey1"))))
 			require.NoError(t, b.FlushMemtable())
@@ -72,6 +71,12 @@ func TestMetadataNoWrites(t *testing.T) {
 					require.Equal(t, fileTypes[expectedFile], 1)
 				}
 			}
+			// Shut down only after the flush + assertions. A flush that races/follows
+			// shutdown intentionally does not persist the count-net-additions (its
+			// segment baseline is unreliable and the CNA is recomputed on reload) —
+			// that path is covered by TestFlushDuringShutdown. This test asserts the
+			// normal-flush metadata layout, so the flush must run on a live bucket.
+			require.NoError(t, b.Shutdown(ctx))
 
 			// read again
 			_, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,

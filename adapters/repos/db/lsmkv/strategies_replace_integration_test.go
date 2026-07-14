@@ -908,57 +908,11 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-016"),
-				[]byte("key-017"),
-				[]byte("key-018"),
-				[]byte("key-019"),
-			}
-			expectedValues := [][]byte{
-				[]byte("value-016"),
-				[]byte("value-017"),
-				[]byte("value-018"),
-				[]byte("value-019"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, []byte("key-016"), 0, []string{"key-016", "key-017", "key-018", "key-019"}, []string{"value-016", "value-017", "value-018", "value-019"})
 		})
 
 		t.Run("start from the beginning", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-000"),
-				[]byte("key-001"),
-				[]byte("key-002"),
-			}
-			expectedValues := [][]byte{
-				[]byte("value-000"),
-				[]byte("value-001"),
-				[]byte("value-002"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, nil, 3, []string{"key-000", "key-001", "key-002"}, []string{"value-000", "value-001", "value-002"})
 		})
 
 		t.Run("replace a key", func(t *testing.T) {
@@ -968,28 +922,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			err = b.Put(key, value)
 			require.Nil(t, err)
 
-			expectedKeys := [][]byte{
-				[]byte("key-001"),
-				[]byte("key-002"),
-			}
-			expectedValues := [][]byte{
-				[]byte("value-001"),
-				[]byte("value-002-updated"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, []byte("key-001"), 2, []string{"key-001", "key-002"}, []string{"value-001", "value-002-updated"})
 		})
 
 		t.Run("delete a key", func(t *testing.T) {
@@ -999,54 +932,11 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			require.Nil(t, err)
 
 			t.Run("seek to a specific key", func(t *testing.T) {
-				expectedKeys := [][]byte{
-					[]byte("key-001"),
-					[]byte("key-003"),
-				}
-				expectedValues := [][]byte{
-					[]byte("value-001"),
-					[]byte("value-003"),
-				}
-				var retrievedKeys [][]byte
-				var retrievedValues [][]byte
-				c := b.Cursor()
-				defer c.Close()
-				retrieved := 0
-				for k, v := c.Seek([]byte("key-001")); k != nil && retrieved < 2; k, v = c.Next() {
-					retrieved++
-					retrievedKeys = copyAndAppend(retrievedKeys, k)
-					retrievedValues = copyAndAppend(retrievedValues, v)
-				}
-
-				assert.Equal(t, expectedKeys, retrievedKeys)
-				assert.Equal(t, expectedValues, retrievedValues)
+				assertCursorReplace(t, b, []byte("key-001"), 2, []string{"key-001", "key-003"}, []string{"value-001", "value-003"})
 			})
 
 			t.Run("seek to first key", func(t *testing.T) {
-				expectedKeys := [][]byte{
-					[]byte("key-000"),
-					[]byte("key-001"),
-					[]byte("key-003"),
-				}
-				expectedValues := [][]byte{
-					[]byte("value-000"),
-					[]byte("value-001"),
-					[]byte("value-003"),
-				}
-
-				var retrievedKeys [][]byte
-				var retrievedValues [][]byte
-				c := b.Cursor()
-				defer c.Close()
-				retrieved := 0
-				for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
-					retrieved++
-					retrievedKeys = copyAndAppend(retrievedKeys, k)
-					retrievedValues = copyAndAppend(retrievedValues, v)
-				}
-
-				assert.Equal(t, expectedKeys, retrievedKeys)
-				assert.Equal(t, expectedValues, retrievedValues)
+				assertCursorReplace(t, b, nil, 3, []string{"key-000", "key-001", "key-003"}, []string{"value-000", "value-001", "value-003"})
 			})
 		})
 
@@ -1057,52 +947,11 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			require.Nil(t, err)
 
 			t.Run("seek to a specific key", func(t *testing.T) {
-				expectedKeys := [][]byte{
-					[]byte("key-001"),
-					[]byte("key-003"),
-				}
-				expectedValues := [][]byte{
-					[]byte("value-001"),
-					[]byte("value-003"),
-				}
-				var retrievedKeys [][]byte
-				var retrievedValues [][]byte
-				c := b.Cursor()
-				defer c.Close()
-				retrieved := 0
-				for k, v := c.Seek([]byte("key-000")); k != nil && retrieved < 2; k, v = c.Next() {
-					retrieved++
-					retrievedKeys = copyAndAppend(retrievedKeys, k)
-					retrievedValues = copyAndAppend(retrievedValues, v)
-				}
-
-				assert.Equal(t, expectedKeys, retrievedKeys)
-				assert.Equal(t, expectedValues, retrievedValues)
+				assertCursorReplace(t, b, []byte("key-000"), 2, []string{"key-001", "key-003"}, []string{"value-001", "value-003"})
 			})
 
 			t.Run("seek to first key", func(t *testing.T) {
-				expectedKeys := [][]byte{
-					[]byte("key-001"),
-					[]byte("key-003"),
-				}
-				expectedValues := [][]byte{
-					[]byte("value-001"),
-					[]byte("value-003"),
-				}
-
-				var retrievedKeys [][]byte
-				var retrievedValues [][]byte
-				c := b.Cursor()
-				defer c.Close()
-				retrieved := 0
-				for k, v := c.First(); k != nil && retrieved < 2; k, v = c.Next() {
-					retrieved++
-					retrievedKeys = copyAndAppend(retrievedKeys, k)
-					retrievedValues = copyAndAppend(retrievedValues, v)
-				}
-
-				assert.Equal(t, expectedKeys, retrievedKeys)
-				assert.Equal(t, expectedValues, retrievedValues)
+				assertCursorReplace(t, b, nil, 2, []string{"key-001", "key-003"}, []string{"value-001", "value-003"})
 			})
 		})
 	})
@@ -1147,57 +996,11 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-016"),
-				[]byte("key-017"),
-				[]byte("key-018"),
-				[]byte("key-019"),
-			}
-			expectedValues := [][]byte{
-				[]byte("value-016"),
-				[]byte("value-017"),
-				[]byte("value-018"),
-				[]byte("value-019"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, []byte("key-016"), 0, []string{"key-016", "key-017", "key-018", "key-019"}, []string{"value-016", "value-017", "value-018", "value-019"})
 		})
 
 		t.Run("start from the beginning", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-000"),
-				[]byte("key-001"),
-				[]byte("key-002"),
-			}
-			expectedValues := [][]byte{
-				[]byte("value-000"),
-				[]byte("value-001"),
-				[]byte("value-002"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, nil, 3, []string{"key-000", "key-001", "key-002"}, []string{"value-000", "value-001", "value-002"})
 		})
 	})
 
@@ -1309,59 +1112,13 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-016"),
-				[]byte("key-017"),
-				// key-018 deleted
-				[]byte("key-019"),
-			}
-			expectedValues := [][]byte{
-				[]byte("value-016"),
-				[]byte("value-017"),
-				[]byte("once-updated-value-019"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			// key-018 deleted
+			assertCursorReplace(t, b, []byte("key-016"), 0, []string{"key-016", "key-017", "key-019"}, []string{"value-016", "value-017", "once-updated-value-019"})
 		})
 
 		t.Run("start from the beginning", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-000"),
-				[]byte("key-001"),
-				[]byte("key-002"),
-				// key-003 was deleted
-				[]byte("key-004"),
-			}
-			expectedValues := [][]byte{
-				[]byte("twice-updated-value-000"),
-				[]byte("once-updated-value-001"),
-				[]byte("value-002"),
-				[]byte("value-004"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			// key-003 was deleted
+			assertCursorReplace(t, b, nil, 4, []string{"key-000", "key-001", "key-002", "key-004"}, []string{"twice-updated-value-000", "once-updated-value-001", "value-002", "value-004"})
 		})
 
 		t.Run("re-add the deleted keys", func(t *testing.T) {
@@ -1371,59 +1128,11 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-016"),
-				[]byte("key-017"),
-				[]byte("key-018"),
-				[]byte("key-019"),
-			}
-			expectedValues := [][]byte{
-				[]byte("value-016"),
-				[]byte("value-017"),
-				[]byte("readded-018"),
-				[]byte("once-updated-value-019"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, []byte("key-016"), 0, []string{"key-016", "key-017", "key-018", "key-019"}, []string{"value-016", "value-017", "readded-018", "once-updated-value-019"})
 		})
 
 		t.Run("start from the beginning", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-000"),
-				[]byte("key-001"),
-				[]byte("key-002"),
-				[]byte("key-003"),
-			}
-			expectedValues := [][]byte{
-				[]byte("twice-updated-value-000"),
-				[]byte("once-updated-value-001"),
-				[]byte("value-002"),
-				[]byte("readded-003"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, nil, 4, []string{"key-000", "key-001", "key-002", "key-003"}, []string{"twice-updated-value-000", "once-updated-value-001", "value-002", "readded-003"})
 		})
 
 		t.Run("perform a final flush to disk", func(t *testing.T) {
@@ -1431,59 +1140,11 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("seek from somewhere in the middle", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-016"),
-				[]byte("key-017"),
-				[]byte("key-018"),
-				[]byte("key-019"),
-			}
-			expectedValues := [][]byte{
-				[]byte("value-016"),
-				[]byte("value-017"),
-				[]byte("readded-018"),
-				[]byte("once-updated-value-019"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			for k, v := c.Seek([]byte("key-016")); k != nil; k, v = c.Next() {
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, []byte("key-016"), 0, []string{"key-016", "key-017", "key-018", "key-019"}, []string{"value-016", "value-017", "readded-018", "once-updated-value-019"})
 		})
 
 		t.Run("start from the beginning", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-000"),
-				[]byte("key-001"),
-				[]byte("key-002"),
-				[]byte("key-003"),
-			}
-			expectedValues := [][]byte{
-				[]byte("twice-updated-value-000"),
-				[]byte("once-updated-value-001"),
-				[]byte("value-002"),
-				[]byte("readded-003"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, nil, 4, []string{"key-000", "key-001", "key-002", "key-003"}, []string{"twice-updated-value-000", "once-updated-value-001", "value-002", "readded-003"})
 		})
 	})
 
@@ -1529,26 +1190,7 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("verify", func(t *testing.T) {
-			expectedKeys := [][]byte{
-				[]byte("key-1"),
-			}
-			expectedValues := [][]byte{
-				[]byte("value-1"),
-			}
-
-			var retrievedKeys [][]byte
-			var retrievedValues [][]byte
-			c := b.Cursor()
-			defer c.Close()
-			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 4; k, v = c.Next() {
-				retrieved++
-				retrievedKeys = copyAndAppend(retrievedKeys, k)
-				retrievedValues = copyAndAppend(retrievedValues, v)
-			}
-
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assertCursorReplace(t, b, nil, 4, []string{"key-1"}, []string{"value-1"})
 		})
 	})
 }

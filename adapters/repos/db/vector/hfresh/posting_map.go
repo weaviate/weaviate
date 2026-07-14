@@ -487,7 +487,10 @@ func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
 }
 
 func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostingMetadata) error) error {
-	c := p.bucket.Cursor()
+	c, err := p.bucket.Cursor()
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	var i int

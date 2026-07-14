@@ -49,7 +49,8 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 	}
 
 	// Open the cursor that should see key1..key3 only and stay stable
-	cur := b.CursorRoaringSet()
+	cur, err := b.CursorRoaringSet()
+	require.NoError(t, err)
 	validateOriginalCursorView := func(t *testing.T, c CursorRoaringSet) {
 		expected := map[string][]uint64{
 			"key1": {1},
@@ -112,7 +113,8 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 	cur.Close()
 
 	// 6) A new cursor now sees the latest state: key1..key4 (key4 is in active)
-	cur2 := b.CursorRoaringSet()
+	cur2, err := b.CursorRoaringSet()
+	require.NoError(t, err)
 	defer cur2.Close()
 
 	expected := map[string][]uint64{

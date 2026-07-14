@@ -173,6 +173,18 @@ type segmentConfig struct {
 	precomputedCountNetAdditions *int
 	writeMetadata                bool
 	deleteMarkerCounter          int64
+
+	// deferCountNetAdditions is set when the existsLower baseline handed to this
+	// segment is known to be unreliable — specifically a memtable flush that
+	// races bucket shutdown, which can no longer obtain a consistent view of the
+	// lower segments and proceeds against a nil baseline. With no lower segments,
+	// makeExistsOn(nil) reports every key as previously-unseen, so an overwrite is
+	// miscounted as a net-new insert and the derived count-net-additions is
+	// overstated. Persisting that value (in the standalone .cna or the
+	// consolidated .metadata) would carry the wrong Bucket.Count() across restart.
+	// When set, we neither compute nor persist the count-net-additions; it is
+	// recomputed against the real segment neighbors on the next open.
+	deferCountNetAdditions bool
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -376,7 +388,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
-	metadataRead, err := seg.initMetadata(metrics, cfg.overwriteDerived, existsLower, cfg.precomputedCountNetAdditions, cfg.fileList, cfg.writeMetadata)
+	metadataRead, err := seg.initMetadata(metrics, cfg.overwriteDerived, existsLower, cfg.precomputedCountNetAdditions, cfg.fileList, cfg.writeMetadata, cfg.deferCountNetAdditions)
 	if err != nil {
 		return nil, fmt.Errorf("init metadata: %w", err)
 	}
@@ -388,7 +400,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			}
 		}
 		if seg.calcCountNetAdditions {
-			if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions, cfg.fileList); err != nil {
+			if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions, cfg.fileList, cfg.deferCountNetAdditions); err != nil {
 				return nil, err
 			}
 		}

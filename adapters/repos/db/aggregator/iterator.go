@@ -100,7 +100,7 @@ func (c RoaringCursor) Close() {
 	c.cursor.Close()
 }
 
-func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func() Cursor, aggregateFunc func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error, logger logrus.FieldLogger) error {
+func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func() (Cursor, error), aggregateFunc func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error, logger logrus.FieldLogger) error {
 	// we're looking at the whole object, so this is neither a Set, nor a Map, but
 	// a Replace strategy
 
@@ -108,7 +108,10 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 	seeds := b.QuantileKeys(seedCount)
 	// in case all keys are in memory
 	if len(seeds) == 0 {
-		c := newCursor()
+		c, err := newCursor()
+		if err != nil {
+			return err
+		}
 		defer c.Close()
 		for k, v, vv, bi := c.First(); k != nil; k, v, vv, bi = c.Next() {
 			err := aggregateFunc(k, v, vv, bi)
@@ -127,7 +130,10 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 
 	// S1: Read from beginning to first checkpoint:
 	eg.Go(func() error {
-		c := newCursor()
+		c, err := newCursor()
+		if err != nil {
+			return err
+		}
 		defer c.Close()
 
 		count := 0
@@ -150,7 +156,10 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 		end := seeds[i+1]
 
 		eg.Go(func() error {
-			c := newCursor()
+			c, err := newCursor()
+			if err != nil {
+				return err
+			}
 			defer c.Close()
 
 			count := 0
@@ -170,7 +179,10 @@ func iteratorConcurrently(ctx context.Context, b *lsmkv.Bucket, newCursor func()
 
 	// S3: Read from last checkpoint to end:
 	eg.Go(func() error {
-		c := newCursor()
+		c, err := newCursor()
+		if err != nil {
+			return err
+		}
 		defer c.Close()
 
 		count := 0

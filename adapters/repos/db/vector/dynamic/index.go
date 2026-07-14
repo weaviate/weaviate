@@ -683,7 +683,10 @@ func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
 		ids = ids[:0]
 		vectors = vectors[:0]
 
-		cursor := bucket.Cursor()
+		cursor, err := bucket.Cursor()
+		if err != nil {
+			return err
+		}
 
 		if len(k) == 0 {
 			k, v = cursor.First()
@@ -712,7 +715,7 @@ func (dynamic *dynamic) copyToVectorIndex(index VectorIndex) error {
 
 		cursor.Close()
 
-		err := index.AddBatch(dynamic.ctx, ids, vectors)
+		err = index.AddBatch(dynamic.ctx, ids, vectors)
 		if err != nil {
 			dynamic.logger.WithError(err).Error("failed to add vectors")
 		}

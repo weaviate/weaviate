@@ -44,7 +44,13 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 			return ua.parseAndAddBoolRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return RoaringCursor{b.CursorRoaringSet()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+			c, err := b.CursorRoaringSet()
+			if err != nil {
+				return nil, err
+			}
+			return RoaringCursor{c}, nil
+		}, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
@@ -52,7 +58,13 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 			return ua.parseAndAddBoolRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+			c, err := b.SetCursor()
+			if err != nil {
+				return nil, err
+			}
+			return SetCursor{c}, nil
+		}, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -80,7 +92,13 @@ func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
 		return ua.parseAndAddBoolArrayRow(agg, v, prop.Name)
 	}
 
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
+	err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+		c, err := b.Cursor()
+		if err != nil {
+			return nil, err
+		}
+		return ReplaceCursor{c}, nil
+	}, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +178,13 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 			return ua.parseAndAddFloatRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return RoaringCursor{b.CursorRoaringSet()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+			c, err := b.CursorRoaringSet()
+			if err != nil {
+				return nil, err
+			}
+			return RoaringCursor{c}, nil
+		}, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
@@ -168,7 +192,13 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 			return ua.parseAndAddFloatRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+			c, err := b.SetCursor()
+			if err != nil {
+				return nil, err
+			}
+			return SetCursor{c}, nil
+		}, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -199,7 +229,13 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 			return ua.parseAndAddIntRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return RoaringCursor{b.CursorRoaringSet()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+			c, err := b.CursorRoaringSet()
+			if err != nil {
+				return nil, err
+			}
+			return RoaringCursor{c}, nil
+		}, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
@@ -207,7 +243,13 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 			return ua.parseAndAddIntRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+			c, err := b.SetCursor()
+			if err != nil {
+				return nil, err
+			}
+			return SetCursor{c}, nil
+		}, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -238,7 +280,13 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 			return ua.parseAndAddDateRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return RoaringCursor{b.CursorRoaringSet()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+			c, err := b.CursorRoaringSet()
+			if err != nil {
+				return nil, err
+			}
+			return RoaringCursor{c}, nil
+		}, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
@@ -246,7 +294,13 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 			return ua.parseAndAddDateRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrently(ctx, b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+			c, err := b.SetCursor()
+			if err != nil {
+				return nil, err
+			}
+			return SetCursor{c}, nil
+		}, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -307,7 +361,13 @@ func (ua unfilteredAggregator) dateArrayProperty(ctx context.Context,
 		return ua.parseAndAddDateArrayRow(agg, v, prop.Name)
 	}
 
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
+	err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+		c, err := b.Cursor()
+		if err != nil {
+			return nil, err
+		}
+		return ReplaceCursor{c}, nil
+	}, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +511,13 @@ func (ua unfilteredAggregator) textProperty(ctx context.Context,
 		return ua.parseAndAddTextRow(agg, v, prop.Name)
 	}
 
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
+	err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+		c, err := b.Cursor()
+		if err != nil {
+			return nil, err
+		}
+		return ReplaceCursor{c}, nil
+	}, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +546,13 @@ func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
 		return ua.parseAndAddNumberArrayRow(agg, v, prop.Name)
 	}
 
-	err := iteratorConcurrently(ctx, b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
+	err := iteratorConcurrently(ctx, b, func() (Cursor, error) {
+		c, err := b.Cursor()
+		if err != nil {
+			return nil, err
+		}
+		return ReplaceCursor{c}, nil
+	}, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}

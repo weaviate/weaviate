@@ -200,7 +200,7 @@ func isSizeWithinTolerance(t *testing.T, detectedSize uint64, threshold uint64, 
 func assertSegmentCount(t *testing.T, bucket *Bucket, expectedFn func(t *testing.T, count int)) {
 	t.Helper()
 
-	segments, release := bucket.disk.getConsistentViewOfSegments()
+	segments, release := mustSegmentView(t, bucket.disk)
 	defer release()
 
 	expectedFn(t, len(segments))
