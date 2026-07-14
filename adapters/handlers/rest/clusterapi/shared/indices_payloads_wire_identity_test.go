@@ -338,14 +338,14 @@ func legacyObjectListMarshalWithAdditional(in []*storobj.Object, addProps additi
 	return out, nil
 }
 
-// legacySearchResultsMarshal replicates searchResultsPayload.Marshal pre-optimization.
-func legacySearchResultsMarshal(objs []*storobj.Object, dists []float32) ([]byte, error) {
+// legacyAppendObjsAndDists appends the length-prefixed object-list bytes
+// followed by the length-prefixed distances block. The pre-optimization
+// searchResultsPayload.Marshal and MarshalWithAdditional both contained this
+// framing verbatim; it is consolidated to a single copy here. The byte-identity
+// assertions against the current implementation pin its output.
+func legacyAppendObjsAndDists(objsBytes []byte, dists []float32) []byte {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
-	objsBytes, err := legacyObjectListMarshal(objs, MethodGet)
-	if err != nil {
-		return nil, err
-	}
 
 	objsLength := uint64(len(objsBytes))
 	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
@@ -361,7 +361,16 @@ func legacySearchResultsMarshal(objs []*storobj.Object, dists []float32) ([]byte
 	byteops.CopySliceToBytes(distsBuf, dists)
 	out = append(out, distsBuf...)
 
-	return out, nil
+	return out
+}
+
+// legacySearchResultsMarshal replicates searchResultsPayload.Marshal pre-optimization.
+func legacySearchResultsMarshal(objs []*storobj.Object, dists []float32) ([]byte, error) {
+	objsBytes, err := legacyObjectListMarshal(objs, MethodGet)
+	if err != nil {
+		return nil, err
+	}
+	return legacyAppendObjsAndDists(objsBytes, dists), nil
 }
 
 // legacySearchResultsMarshalWithAdditional replicates
@@ -369,26 +378,11 @@ func legacySearchResultsMarshal(objs []*storobj.Object, dists []float32) ([]byte
 func legacySearchResultsMarshalWithAdditional(objs []*storobj.Object,
 	dists []float32, addProps additional.Properties, queryProfiles []helpers.ShardQueryProfile,
 ) ([]byte, error) {
-	reusableLengthBuf := make([]byte, 8)
-	var out []byte
 	objsBytes, err := legacyObjectListMarshalWithAdditional(objs, addProps)
 	if err != nil {
 		return nil, err
 	}
-
-	objsLength := uint64(len(objsBytes))
-	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
-
-	out = append(out, reusableLengthBuf...)
-	out = append(out, objsBytes...)
-
-	distsLength := uint64(len(dists))
-	binary.LittleEndian.PutUint64(reusableLengthBuf, distsLength)
-	out = append(out, reusableLengthBuf...)
-
-	distsBuf := make([]byte, distsLength*4)
-	byteops.CopySliceToBytes(distsBuf, dists)
-	out = append(out, distsBuf...)
+	out := legacyAppendObjsAndDists(objsBytes, dists)
 
 	var profilesBytes []byte
 	if len(queryProfiles) > 0 {
@@ -397,8 +391,9 @@ func legacySearchResultsMarshalWithAdditional(objs []*storobj.Object,
 			return nil, err
 		}
 	}
-	binary.LittleEndian.PutUint64(reusableLengthBuf, uint64(len(profilesBytes)))
-	out = append(out, reusableLengthBuf...)
+	lengthBuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(lengthBuf, uint64(len(profilesBytes)))
+	out = append(out, lengthBuf...)
 	out = append(out, profilesBytes...)
 
 	return out, nil
