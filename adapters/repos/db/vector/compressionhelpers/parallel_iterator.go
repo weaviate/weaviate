@@ -75,8 +75,6 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 		return cpi.iterateAllNoConcurrency(ctx)
 	}
 
-	stopTracking := cpi.startTracking()
-
 	// We need one fewer seed than our desired parallel factor, that is because
 	// we will add one routine that starts with cursor.First() and reads to the
 	// first checkpoint, therefore we will have len(checkpoints) + 1 routines in
@@ -89,9 +87,12 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 		// still hold entries in the memtable (e.g. recovered from the WAL
 		// after a restart). Fall back to a single sequential cursor, which
 		// also covers the memtable.
-		stopTracking()
 		return cpi.iterateAllNoConcurrency(ctx)
 	}
+
+	// only start tracking once we know this path does the iteration itself
+	// (the fallbacks above track their own progress)
+	stopTracking := cpi.startTracking()
 
 	wg := sync.WaitGroup{}
 	abort := &atomic.Bool{}

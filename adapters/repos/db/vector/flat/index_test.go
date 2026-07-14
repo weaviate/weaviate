@@ -1820,9 +1820,17 @@ func Test_NoRace_Flat_SearchAfterRestartWithUnflushedData(t *testing.T) {
 	// reopen: the data comes back via WAL recovery into the memtable, no
 	// segments exist. PostStartup must still preload the cache from it.
 	store = loadTestStore(t, dirName)
-	defer store.Shutdown(ctx)
+	defer func() { require.NoError(t, store.Shutdown(ctx)) }()
 	index = newIndex(store)
-	defer index.Shutdown(ctx)
+	defer func() { require.NoError(t, index.Shutdown(ctx)) }()
+
+	// precondition: the data must be memtable-only. If this ever fails (e.g.
+	// because lsmkv starts flushing this bucket on shutdown), the scenario
+	// below no longer exercises the no-seeds fallback and needs a new setup.
+	bucket := store.Bucket(index.getCompressedBucketName())
+	require.NotNil(t, bucket)
+	require.Empty(t, bucket.QuantileKeys(16), "expected no segments, data must live in the memtable only")
+
 	index.PostStartup(ctx)
 
 	ids, _, err := index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
