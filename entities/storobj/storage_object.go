@@ -17,7 +17,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/bits"
 	"runtime"
+	"sort"
 
 	"github.com/buger/jsonparser"
 	"github.com/go-openapi/strfmt"
@@ -463,15 +465,45 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 	})
 }
 
+// secondaryKeyLess reports whether doc ID a sorts before b in the objects
+// bucket's on-disk secondary-key order. The secondary key is the doc ID encoded
+// little-endian, and segmentindex.DiskTree.Get orders keys with bytes.Compare,
+// so lexicographic order of the little-endian bytes equals numeric order of the
+// byte-reversed integer. This is NOT the numeric order of the doc IDs.
+func secondaryKeyLess(a, b uint64) bool {
+	return bits.ReverseBytes64(a) < bits.ReverseBytes64(b)
+}
+
 func objectsByDocIDParallelInner(bucket bucket, lookup secondaryLookup, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
 	includeEmpty bool,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
 
-	out := make([]*Object, len(ids))
+	n := len(ids)
+	out := make([]*Object, n)
 
-	chunkSize := max(int(math.Ceil(float64(len(ids))/float64(parallel))), 1)
+	// Resolve the doc IDs in on-disk secondary-key order so each worker owns an
+	// index-adjacent key range and the upper segmentindex.DiskTree nodes for that
+	// range stay cache-hot across its descents. The objects secondary key is the
+	// doc ID encoded little-endian (PutUint64 in objectsByDocIDSequentialInner)
+	// and DiskTree.Get compares keys with bytes.Compare, so on-disk key order is
+	// the numeric order of bits.ReverseBytes64(id), not of id (secondaryKeyLess).
+	// perm records each key's caller position; results are written straight back
+	// to their caller slot, restoring the caller's order.
+	perm := make([]int, n)
+	for i := range perm {
+		perm[i] = i
+	}
+	sort.Slice(perm, func(a, b int) bool {
+		return secondaryKeyLess(ids[perm[a]], ids[perm[b]])
+	})
+	sortedIDs := make([]uint64, n)
+	for i, p := range perm {
+		sortedIDs[i] = ids[p]
+	}
+
+	chunkSize := max(int(math.Ceil(float64(n)/float64(parallel))), 1)
 
 	eg := errwrap.NewErrorGroupWrapper(logger)
 
@@ -482,20 +514,26 @@ func objectsByDocIDParallelInner(bucket bucket, lookup secondaryLookup, ids []ui
 	for chunk := 0; chunk < parallel; chunk++ {
 		start := chunk * chunkSize
 		end := start + chunkSize
-		if end > len(ids) {
-			end = len(ids)
+		if end > n {
+			end = n
 		}
 
-		if start >= len(ids) {
+		if start >= n {
 			break
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequentialInner(bucket, lookup, ids[start:end], addProp, properties, includeEmpty)
+			// Resolve with includeEmpty=true so objs stays positionally aligned to
+			// sortedIDs[start:end]; each result is written to its caller slot. The
+			// perm[start:end] slots are disjoint across chunks, so no two workers
+			// write the same out index.
+			objs, err := objectsByDocIDSequentialInner(bucket, lookup, sortedIDs[start:end], addProp, properties, true)
 			if err != nil {
 				return err
 			}
-			copy(out[start:start+len(objs)], objs)
+			for j, obj := range objs {
+				out[perm[start+j]] = obj
+			}
 			return nil
 		})
 	}
