@@ -659,7 +659,7 @@ func (s *Shard) filePutter(ctx context.Context,
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	s, release, err := idx.getOrInitShard(ctx, shard)
+	s, release, err := idx.GetShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}

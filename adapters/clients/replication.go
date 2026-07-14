@@ -549,9 +549,23 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 		req.Header.Set("X-Request-Encoding", "binary")
 	}
 
+	// No per-RPC retry: the async replication scheduler retries the full cycle on the next tick (matches CompareDigests/DigestObjectsInRange and the gRPC client).
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+	}
+
 	var resp []types.RepairResponse
-	err = c.doRetry(req, bodyCompressed, &resp, MAX_RETRIES)
-	return resp, err
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return resp, nil
 }
 
 func (c *replicationClient) FetchObjects(ctx context.Context, host,
