@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -295,6 +296,61 @@ func TestEnvironmentLazyLoadShardCountThreshold(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnvironmentBM25FilterTombMergeGateRatio(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    float64
+		expectError bool
+	}{
+		{"default when unset", "", DefaultBM25FilterTombMergeGateRatio, false},
+		{"explicit 1", "1", 1, false},
+		{"zero always merges", "0", 0, false},
+		{"custom ratio", "2.5", 2.5, false},
+		{"plus inf disables the fold", "+Inf", math.Inf(1), false},
+		{"inf lowercase", "inf", math.Inf(1), false},
+		{"negative rejected", "-1", 0, true},
+		{"NaN rejected", "NaN", 0, true},
+		{"unparseable rejected", "abc", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO", tt.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.BM25FilterTombMergeGateRatio.Get())
+			}
+		})
+	}
+}
+
+func TestBM25GateRatioRuntimeValidation(t *testing.T) {
+	// The env value is validated at startup; NewDynamicValueWithValidation carries
+	// the same validator, so runtime config updates via SetValue are rejected too.
+	conf := Config{}
+	require.NoError(t, FromEnv(&conf))
+	dv := conf.BM25FilterTombMergeGateRatio
+	require.NotNil(t, dv)
+	require.Equal(t, DefaultBM25FilterTombMergeGateRatio, dv.Get())
+
+	// valid runtime updates apply
+	require.NoError(t, dv.SetValue(2.5))
+	assert.Equal(t, 2.5, dv.Get())
+	require.NoError(t, dv.SetValue(math.Inf(1)))
+
+	// invalid runtime updates are rejected; the last valid value is retained
+	require.Error(t, dv.SetValue(-1))
+	require.Error(t, dv.SetValue(math.NaN()))
+	assert.Equal(t, math.Inf(1), dv.Get())
 }
 
 func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {

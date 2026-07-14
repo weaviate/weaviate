@@ -117,6 +117,19 @@ func (c *fixedDigestsClient) CompareDigests(
 	return out, nil
 }
 
+// countingDigestsClient wraps fixedDigestsClient and counts CompareDigests calls, letting tests assert RPC round-trip counts.
+type countingDigestsClient struct {
+	*fixedDigestsClient
+	compareCalls atomic.Int64
+}
+
+func (c *countingDigestsClient) CompareDigests(
+	ctx context.Context, index, shard, host string, source []routerTypes.RepairResponse,
+) ([]routerTypes.RepairResponse, error) {
+	c.compareCalls.Add(1)
+	return c.fixedDigestsClient.CompareDigests(ctx, index, shard, host, source)
+}
+
 // withReplicationClient returns an indexOpt that replaces the index's
 // replicator with a new one backed by the given client. This allows tests to
 // control what CompareDigests returns without modifying production code.
@@ -294,6 +307,37 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(objs), limit,
 			"number of queued propagations must not exceed the limit")
+		_ = idx
+	})
+
+	// FetchBatchDecoupledFromBudget guards the perf fix: a small propagation
+	// limit must not shrink the scan/compare batch. With three in-sync objects
+	// and limit=1, the whole leaf must be scanned in a single CompareDigests RPC
+	// (diffBatchSize=100), not one round-trip per object.
+	t.Run("FetchBatchDecoupledFromBudget", func(t *testing.T) {
+		remoteDigests := []routerTypes.RepairResponse{
+			{ID: string(uuidLow), UpdateTime: tsFarPast},
+			{ID: string(uuidMid), UpdateTime: tsFarPast},
+			{ID: string(uuidHigh), UpdateTime: tsFarPast},
+		}
+		client := &countingDigestsClient{fixedDigestsClient: &fixedDigestsClient{digests: remoteDigests}}
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, client))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidMid, tsFarPast)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
+
+		s := concreteShard(t, sl)
+		require.NoError(t, s.store.FlushMemtables(ctx))
+		cfg := fullRangeConfig(100)
+
+		local, objs, err := s.propagateWithinRangeForTest(
+			t, ctx, cfg, "http://fake", "node2", 0, 1, 1, nil,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, 3, local, "all three in-sync objects must be scanned despite limit=1")
+		assert.Empty(t, objs, "in-sync objects produce no propagations")
+		assert.Equal(t, int64(1), client.compareCalls.Load(),
+			"leaf must be scanned in one CompareDigests RPC, not one per object")
 		_ = idx
 	})
 

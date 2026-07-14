@@ -19,7 +19,6 @@ import (
 	"math/rand"
 	"os"
 	"runtime/debug"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -30,6 +29,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // TestBlockMaxWandMergeFilterConcurrent runs many filtered queries folding
@@ -38,14 +38,17 @@ import (
 // reverted for mutating the shared filter. Under -race it asserts the shared
 // filter is never mutated (cardinality and full membership fixed), every result
 // stays within the filter, and nothing panics.
+//
+// Setup: seed alpha/beta/gamma posting lists over nDocs, then tombstone a subset
+// of alpha docs — one batch flushed into a segment, another left in the active
+// memtable — so every query folds both tombstone sources. The filter admits
+// every other doc. Then, concurrently: query workers run the folded search and
+// assert every returned id is in the filter; writer goroutines keep tombstoning
+// random alpha docs; a watcher asserts the shared filter bitmap never changes.
 func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	// Surface a merge panic instead of letting createDiskTermFromCV's recover
 	// swallow it.
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "true")
-
-	prevRatio := bm25MergeGateRatio
-	bm25MergeGateRatio = 0 // force the merge on for every query
-	t.Cleanup(func() { bm25MergeGateRatio = prevRatio })
 
 	if os.Getenv("BMW_SKIPLIST") != "" {
 		prevSkipList := useSkipListMemtable
@@ -58,7 +61,8 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	logger.SetLevel(logrus.PanicLevel)
 	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyInverted))
+		WithStrategy(StrategyInverted),
+		WithBM25FilterTombMergeGateRatio(configRuntime.NewDynamicValue(0.0))) // force the merge on for every query
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
 
@@ -84,8 +88,9 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	// concurrent phase: concurrent FlushAndSwitch races the query's memtable read
 	// on a pre-existing, merge-unrelated path, and the fold only needs tombstones
 	// present, not flushes in flight.
-	// fresh key per delete: MapDeleteKey retains it by reference, so reusing one
-	// buffer would collapse all tombstones onto the last key via keep-last dedup.
+	// Fresh key per delete: MapDeleteKey retains the key in the memtable's map,
+	// and the first batch is flushed below, so a reused buffer would persist stale
+	// keys into the segment.
 	for i := 0; i < nDocs; i += 5 {
 		delKey := make([]byte, 8)
 		binary.BigEndian.PutUint64(delKey, docID(i))
@@ -109,11 +114,6 @@ func TestBlockMaxWandMergeFilterConcurrent(t *testing.T) {
 	inFilter := func(id uint64) bool { return id%(1<<16) < nDocs && (id%(1<<16))%2 == 0 }
 
 	dur := 2 * time.Second
-	if v := os.Getenv("BMW_CONCURRENT_SECONDS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			dur = time.Duration(n) * time.Second
-		}
-	}
 
 	var stop atomic.Bool
 	var wg sync.WaitGroup

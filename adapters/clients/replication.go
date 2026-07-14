@@ -331,7 +331,11 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 func (c *replicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
 	roots map[string]hashtree.Digest,
 ) ([]string, error) {
-	body, err := json.Marshal(replica.CompareHashTreeRootsReq{Roots: roots})
+	wireRoots := make(map[string][2]uint64, len(roots))
+	for shard, root := range roots {
+		wireRoots[shard] = [2]uint64(root)
+	}
+	body, err := json.Marshal(replica.CompareHashTreeRootsReq{Roots: wireRoots})
 	if err != nil {
 		return nil, fmt.Errorf("marshal compare hashtree roots request: %w", err)
 	}
