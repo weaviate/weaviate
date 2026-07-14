@@ -41,13 +41,13 @@ import (
 
 type fakeSearcher struct {
 	lastParams dto.GetParams
-	res        []interface{}
+	res        []any
 	err        error
 }
 
 func (f *fakeSearcher) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
-) ([]interface{}, error) {
+) ([]any, error) {
 	f.lastParams = params
 	if f.err != nil {
 		return nil, f.err
@@ -189,8 +189,8 @@ func TestIsSearchRoute(t *testing.T) {
 // delegates only the dto.GetParams construction.
 func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.searcher.res = []interface{}{
-		map[string]interface{}{
+	deps.searcher.res = []any{
+		map[string]any{
 			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			"title": "Dune",
 		},
@@ -198,7 +198,7 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 
 	var gotClass string
 	build := func(class *models.Class, className string,
-		getClass func(string) (*models.Class, error),
+		getClass classGetterFunc,
 	) (dto.GetParams, *APIError) {
 		gotClass = className
 		return dto.GetParams{
@@ -213,7 +213,7 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 	require.Nil(t, apiErr)
 	assert.Equal(t, "Movie", gotClass)
 	require.Len(t, payload.Results, 1)
-	assert.Equal(t, "Dune", payload.Results[0].(map[string]interface{})["title"])
+	assert.Equal(t, "Dune", payload.Results[0].Properties["title"])
 
 	// execute honors the disabled flag and the reserved-field gate, before
 	// ever calling the builder
@@ -234,12 +234,12 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 
 func TestHandlerHappyPath(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.searcher.res = []interface{}{
-		map[string]interface{}{
+	deps.searcher.res = []any{
+		map[string]any{
 			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			"title": "Dune",
 			"year":  float64(2021),
-			"_additional": map[string]interface{}{
+			"_additional": map[string]any{
 				"distance": float32(0.12),
 			},
 		},
@@ -250,13 +250,14 @@ func TestHandlerHappyPath(t *testing.T) {
 	require.Nil(t, apiErr)
 
 	require.Len(t, payload.Results, 1)
-	obj, ok := payload.Results[0].(map[string]interface{})
-	require.True(t, ok)
-	assert.Equal(t, "Dune", obj["title"])
-	assert.Equal(t, float64(2021), obj["year"])
-	metadata := obj[metadataKey].(map[string]interface{})
-	assert.Equal(t, "73f2eb5f-5abf-447a-81ca-74b1dd168247", metadata["id"])
-	assert.Equal(t, float32(0.12), metadata["distance"])
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	assert.Equal(t, float64(2021), obj.Properties["year"])
+	require.NotNil(t, obj.ID)
+	assert.Equal(t, "73f2eb5f-5abf-447a-81ca-74b1dd168247", obj.ID.String())
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Distance)
+	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
 	assert.GreaterOrEqual(t, payload.TookMs, int64(0))
 
 	// the traverser was called with the parsed params
@@ -266,20 +267,33 @@ func TestHandlerHappyPath(t *testing.T) {
 	require.Contains(t, params.ModuleParams, "nearText")
 }
 
-func TestHandlerMetadataIDByDefault(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.searcher.res = []interface{}{
-		map[string]interface{}{
-			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			"title": "Dune",
-		},
-	}
+// TestHandlerIDAlwaysReturned: every hit carries its id on the envelope,
+// with or without return_metadata; an explicit "id" entry is a no-op and
+// alone never produces a metadata block.
+func TestHandlerIDAlwaysReturned(t *testing.T) {
+	for name, body := range map[string]string{
+		"return_metadata omitted":  `{"query":["space"]}`,
+		"return_metadata empty":    `{"query":["space"],"return_metadata":[]}`,
+		"return_metadata id no-op": `{"query":["space"],"return_metadata":["id"]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			deps := newTestHandler(t)
+			deps.searcher.res = []any{
+				map[string]any{
+					"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+					"title": "Dune",
+				},
+			}
 
-	payload, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.Nil(t, apiErr)
-	require.Len(t, payload.Results, 1)
-	metadata := payload.Results[0].(map[string]interface{})[metadataKey].(map[string]interface{})
-	assert.Equal(t, "73f2eb5f-5abf-447a-81ca-74b1dd168247", metadata["id"])
+			payload, apiErr := doNearText(t, deps, nil, "Movie", body)
+			require.Nil(t, apiErr)
+			require.Len(t, payload.Results, 1)
+			obj := payload.Results[0]
+			require.NotNil(t, obj.ID)
+			assert.Equal(t, "73f2eb5f-5abf-447a-81ca-74b1dd168247", obj.ID.String())
+			assert.Nil(t, obj.Metadata)
+		})
+	}
 }
 
 func TestHandlerDisabled(t *testing.T) {
@@ -310,16 +324,6 @@ func TestQueryStringFormRejectedAtDecode(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal([]byte(`{"query":["space"]}`), &req))
 	assert.Equal(t, []string{"space"}, req.Query)
-}
-
-func TestHandlerNilBody(t *testing.T) {
-	deps := newTestHandler(t)
-
-	// swagger's required-body validation should catch this first; the
-	// handler's defensive fallback returns 400
-	_, apiErr := deps.handler.NearText(context.Background(), nil, "Movie", nil)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 }
 
 func TestHandlerEmptyQuery(t *testing.T) {

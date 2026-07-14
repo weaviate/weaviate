@@ -37,7 +37,7 @@ func namedVectorsClass(vectors ...string) *models.Class {
 	}
 	for _, name := range vectors {
 		class.VectorConfig[name] = models.VectorConfig{
-			Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			Vectorizer:        map[string]any{"text2vec-contextionary": map[string]any{}},
 			VectorIndexConfig: hnsw.UserConfig{Distance: "cosine"},
 		}
 	}
@@ -327,7 +327,7 @@ func TestNoVectorizerIsA422(t *testing.T) {
 	t.Run("named vector with vectorizer none", func(t *testing.T) {
 		class := namedVectorsClass("title_vec")
 		class.VectorConfig["title_vec"] = models.VectorConfig{
-			Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+			Vectorizer:        map[string]any{"none": map[string]any{}},
 			VectorIndexConfig: hnsw.UserConfig{Distance: "cosine"},
 		}
 		_, apiErr := buildParams(t, class, `{"query":["space"]}`)
@@ -337,8 +337,24 @@ func TestNoVectorizerIsA422(t *testing.T) {
 }
 
 func TestParseReturnMetadata(t *testing.T) {
-	t.Run("omitted means id", func(t *testing.T) {
+	t.Run("omitted still requests the id", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"]}`)
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.True(t, addl.ID)
+		assert.False(t, addl.Distance)
+	})
+
+	t.Run("empty list still requests the id", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_metadata":[]}`)
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.True(t, addl.ID)
+		assert.False(t, addl.Distance)
+	})
+
+	t.Run("explicit id entry is an accepted no-op", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_metadata":["id"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.True(t, addl.ID)
@@ -406,12 +422,6 @@ func TestParseReturnProperties(t *testing.T) {
 
 	t.Run("unknown property is a 400", func(t *testing.T) {
 		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_properties":["nope"]}`)
-		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
-	})
-
-	t.Run("_additional is reserved", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_properties":["_additional"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})

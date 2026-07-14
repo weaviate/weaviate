@@ -107,7 +107,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	if nearObject != nil {
 		vector, _, err := v.vectorFromNearObjectParams(ctx, className, nearObject, tenant, targetVector)
 		if err != nil {
-			return nil, errors.Wrapf(err, "nearObject params")
+			return nil, fmt.Errorf("nearObject params: %w", err)
 		}
 
 		return vector, nil
@@ -188,7 +188,7 @@ func (v *nearParamsVector) targetFromModules(className string, paramValue interf
 	if v.modulesProvider != nil {
 		targetVector, err := v.modulesProvider.TargetsFromSearchParam(className, paramValue)
 		if err != nil {
-			return nil, errors.Wrapf(enterrors.NewErrQueryVectorization(err), "vectorize params")
+			return nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 		}
 		return targetVector, nil
 	}
@@ -209,7 +209,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 				className, targetVector, tenant, paramName, paramValue, v.findMultiVector,
 			)
 			if err != nil {
-				return nil, errors.Wrapf(enterrors.NewErrQueryVectorization(err), "vectorize params")
+				return nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 			}
 			return vector, nil
 		} else {
@@ -217,7 +217,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 				className, targetVector, tenant, paramName, paramValue, v.findVector,
 			)
 			if err != nil {
-				return nil, errors.Wrapf(enterrors.NewErrQueryVectorization(err), "vectorize params")
+				return nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 			}
 			return vector, nil
 		}

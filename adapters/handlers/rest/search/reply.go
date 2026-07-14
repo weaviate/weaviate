@@ -24,39 +24,48 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 )
 
-// metadataKey carries retrieval metadata on each result. "_additional" is a
-// forbidden property name, so it cannot collide with user data.
-const metadataKey = "_additional"
-
-// buildResponse converts the traverser's raw results into the flat
-// models.SearchResponse: flat objects with properties at the root and
-// requested retrieval metadata under metadataKey, plus took_ms. Vectors are
-// never returned; there is no count field.
-func buildResponse(res []interface{}, params dto.GetParams, took time.Duration) (*models.SearchResponse, error) {
-	results := make([]models.SearchResultObject, len(res))
+// buildResponse converts the traverser's raw results into the
+// models.SearchResponse envelope: per hit the always-present object id, the
+// selected non-reference properties under "properties", reference selections
+// under "references" and the requested retrieval metadata under "metadata",
+// plus took_ms. Vectors are never returned; there is no count field.
+func buildResponse(res []any, params dto.GetParams, took time.Duration) (*models.SearchResponse, error) {
+	results := make([]*models.SearchResultObject, len(res))
 	for i, raw := range res {
-		asMap, ok := raw.(map[string]interface{})
+		asMap, ok := raw.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("could not parse result %v", raw)
 		}
 
-		obj := make(map[string]interface{}, len(params.Properties)+1)
+		// the id is requested on every search, so it must be present
+		id, ok := asMap["id"].(strfmt.UUID)
+		if !ok {
+			return nil, errors.New("could not read object id from search result")
+		}
+
+		obj := &models.SearchResultObject{
+			ID:         &id,
+			Properties: make(map[string]models.JSONObject, len(params.Properties)),
+			Metadata:   buildMetadata(asMap, params.AdditionalProperties),
+		}
+
 		for _, prop := range params.Properties {
 			value, ok := asMap[prop.Name]
 			if !ok || value == nil {
 				continue
 			}
-			if propValue := buildPropertyValue(value, prop); propValue != nil {
-				obj[prop.Name] = propValue
+			if len(prop.Refs) > 0 {
+				if refs := buildRefProperty(value, prop); refs != nil {
+					if obj.References == nil {
+						obj.References = map[string][]models.JSONObject{}
+					}
+					obj.References[prop.Name] = refs
+				}
+				continue
 			}
-		}
-
-		metadata, err := buildMetadata(asMap, params.AdditionalProperties)
-		if err != nil {
-			return nil, err
-		}
-		if len(metadata) > 0 {
-			obj[metadataKey] = metadata
+			if propValue := buildPropertyValue(value, prop); propValue != nil {
+				obj.Properties[prop.Name] = propValue
+			}
 		}
 
 		results[i] = obj
@@ -65,20 +74,16 @@ func buildResponse(res []interface{}, params dto.GetParams, took time.Duration) 
 	return &models.SearchResponse{Results: results, TookMs: took.Milliseconds()}, nil
 }
 
-// buildPropertyValue renders one selected property. Primitive values pass
-// through, object/object[] values are pruned to the selected nested
-// properties, references become nested arrays. Returns nil when the value
-// has an unexpected shape — omitting is safer than leaking unselected
-// (possibly blob) fields.
-func buildPropertyValue(value interface{}, prop search.SelectProperty) interface{} {
+// buildPropertyValue renders one selected non-reference property. Primitive
+// values pass through, object/object[] values are pruned to the selected
+// nested properties. Returns nil when the value has an unexpected shape —
+// omitting is safer than leaking unselected (possibly blob) fields.
+func buildPropertyValue(value any, prop search.SelectProperty) any {
 	if prop.IsPrimitive {
 		return value
 	}
 	if prop.IsObject {
 		return buildObjectProperty(value, prop.Props)
-	}
-	if refs := buildRefProperty(value, prop); refs != nil {
-		return refs
 	}
 	return nil
 }
@@ -87,14 +92,14 @@ func buildPropertyValue(value interface{}, prop search.SelectProperty) interface
 // selected nested properties, recursing into deeper objects. The storage
 // layer returns ALL nested fields, so pruning here is what keeps unselected
 // (possibly blob) fields from leaking.
-func buildObjectProperty(value interface{}, props []search.SelectProperty) interface{} {
+func buildObjectProperty(value any, props []search.SelectProperty) any {
 	switch v := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		return pruneObjectFields(v, props)
-	case []interface{}:
-		out := make([]interface{}, 0, len(v))
+	case []any:
+		out := make([]any, 0, len(v))
 		for _, item := range v {
-			if fields, ok := item.(map[string]interface{}); ok {
+			if fields, ok := item.(map[string]any); ok {
 				out = append(out, pruneObjectFields(fields, props))
 			}
 		}
@@ -104,8 +109,8 @@ func buildObjectProperty(value interface{}, props []search.SelectProperty) inter
 	}
 }
 
-func pruneObjectFields(fields map[string]interface{}, props []search.SelectProperty) map[string]interface{} {
-	out := make(map[string]interface{}, len(props))
+func pruneObjectFields(fields map[string]any, props []search.SelectProperty) map[string]any {
+	out := make(map[string]any, len(props))
 	for _, prop := range props {
 		value, ok := fields[prop.Name]
 		if !ok || value == nil {
@@ -122,21 +127,21 @@ func pruneObjectFields(fields map[string]interface{}, props []search.SelectPrope
 	return out
 }
 
-// buildRefProperty renders a cross-reference as a nested array of objects,
-// e.g. "hasAuthor": [{"name": "..."}].
-func buildRefProperty(value interface{}, prop search.SelectProperty) []map[string]interface{} {
-	refsRaw, ok := value.([]interface{})
+// buildRefProperty renders a cross-reference as an array of objects carrying
+// the selected one-hop properties, e.g. [{"name": "..."}].
+func buildRefProperty(value any, prop search.SelectProperty) []models.JSONObject {
+	refsRaw, ok := value.([]any)
 	if !ok || len(prop.Refs) == 0 {
 		return nil
 	}
 
-	refs := make([]map[string]interface{}, 0, len(refsRaw))
+	refs := make([]models.JSONObject, 0, len(refsRaw))
 	for _, refRaw := range refsRaw {
 		localRef, ok := refRaw.(search.LocalRef)
 		if !ok {
 			continue
 		}
-		fields := make(map[string]interface{}, len(prop.Refs[0].RefProperties))
+		fields := make(map[string]any, len(prop.Refs[0].RefProperties))
 		for _, refProp := range prop.Refs[0].RefProperties {
 			refValue, ok := localRef.Fields[refProp.Name]
 			if !ok || refValue == nil {
@@ -157,61 +162,58 @@ func buildRefProperty(value interface{}, prop search.SelectProperty) []map[strin
 	return refs
 }
 
-// buildMetadata picks the requested metadata out of a result. The traverser
-// reports the object id at the top level and everything else under
-// "_additional". A requested id that is missing or mistyped is an error; the
-// remaining fields are best-effort as they are only present for certain
-// searches/configs.
-func buildMetadata(asMap map[string]interface{}, addl additional.Properties) (map[string]interface{}, error) {
-	metadata := make(map[string]interface{}, 2)
-
-	if addl.ID {
-		id, ok := asMap["id"].(strfmt.UUID)
-		if !ok {
-			return nil, errors.New("could not read object id from search result")
-		}
-		metadata["id"] = id.String()
+// buildMetadata picks the requested retrieval metadata out of the
+// traverser's internal "_additional" map. Each field is best-effort — it is
+// only present for certain searches/configs. Returns nil when nothing beyond
+// the id was requested (or present); the id lives on the envelope itself.
+func buildMetadata(asMap map[string]any, addl additional.Properties) *models.SearchResultMetadata {
+	additionalMap, ok := asMap["_additional"].(map[string]any)
+	if !ok {
+		return nil
 	}
 
-	additionalRaw, ok := asMap["_additional"]
-	if !ok {
-		return metadata, nil
-	}
-	additionalMap, ok := additionalRaw.(map[string]interface{})
-	if !ok {
-		return metadata, nil
-	}
+	metadata := &models.SearchResultMetadata{}
+	populated := false
 
 	if addl.Distance {
 		if distance, ok := additionalMap["distance"].(float32); ok {
-			metadata["distance"] = distance
+			metadata.Distance = &distance
+			populated = true
 		}
 	}
 	if addl.Certainty {
 		if certainty, ok := additionalMap["certainty"].(float64); ok {
-			metadata["certainty"] = certainty
+			metadata.Certainty = &certainty
+			populated = true
 		}
 	}
 	if addl.Score {
 		if score, ok := additionalMap["score"].(float32); ok {
-			metadata["score"] = score
+			metadata.Score = &score
+			populated = true
 		}
 	}
 	if addl.ExplainScore {
 		if explainScore, ok := additionalMap["explainScore"].(string); ok {
-			metadata["explain_score"] = explainScore
+			metadata.ExplainScore = &explainScore
+			populated = true
 		}
 	}
 	if addl.CreationTimeUnix {
 		if creationTime, ok := additionalMap["creationTimeUnix"].(int64); ok {
-			metadata["creation_time"] = creationTime
+			metadata.CreationTime = &creationTime
+			populated = true
 		}
 	}
 	if addl.LastUpdateTimeUnix {
 		if lastUpdateTime, ok := additionalMap["lastUpdateTimeUnix"].(int64); ok {
-			metadata["last_update_time"] = lastUpdateTime
+			metadata.LastUpdateTime = &lastUpdateTime
+			populated = true
 		}
 	}
 
-	return metadata, nil
+	if !populated {
+		return nil
+	}
+	return metadata
 }

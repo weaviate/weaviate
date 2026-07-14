@@ -49,7 +49,7 @@ type ClientService interface {
 /*
 SearchNearText searches a collection with near text
 
-Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved `_additional` key.
+Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
 */
 func (a *Client) SearchNearText(params *SearchNearTextParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchNearTextOK, error) {
 	// TODO: Validate the params before sending

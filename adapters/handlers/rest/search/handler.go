@@ -47,7 +47,7 @@ func IsSearchRoute(path string) bool {
 // classSearcher is the subset of traverser.Traverser used by the handler.
 type classSearcher interface {
 	GetClass(ctx context.Context, principal *models.Principal,
-		params dto.GetParams) ([]interface{}, error)
+		params dto.GetParams) ([]any, error)
 }
 
 // schemaReader is the subset of schema.Manager used by the handler.
@@ -101,7 +101,7 @@ type APIError struct {
 	Err    error
 }
 
-func newAPIError(status int, format string, args ...interface{}) *APIError {
+func newAPIError(status int, format string, args ...any) *APIError {
 	return &APIError{Status: status, Err: fmt.Errorf(format, args...)}
 }
 
@@ -109,12 +109,16 @@ func (e *APIError) Error() string {
 	return e.Err.Error()
 }
 
+// classGetterFunc authorizes access to a collection and returns its class,
+// erroring when the caller is not authorized or the collection is unknown.
+type classGetterFunc func(string) (*models.Class, error)
+
 // buildParamsFunc turns the resolved collection into the dto.GetParams for a
 // specific search type. It is called after authorization, with the
 // authorized class and a getClass that authorizes (and caches) any further
 // collections a filter or reference selection touches.
 type buildParamsFunc func(class *models.Class, className string,
-	getClass func(string) (*models.Class, error)) (dto.GetParams, *APIError)
+	getClass classGetterFunc) (dto.GetParams, *APIError)
 
 // execute is the orchestrator shared by every REST search endpoint; only
 // the search-type-specific dto.GetParams construction is delegated to
@@ -187,17 +191,10 @@ func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 func (h *Handler) NearText(ctx context.Context, principal *models.Principal,
 	collection string, body *models.SearchNearTextRequest,
 ) (*models.SearchResponse, *APIError) {
-	if body == nil {
-		// defensive: swagger's required-body validation normally catches this
-		return nil, newAPIError(http.StatusBadRequest, "request body is required")
+	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
+		return h.buildNearTextParams(class, className, body, getClass, principal)
 	}
-
-	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon,
-		func(class *models.Class, className string,
-			getClass func(string) (*models.Class, error),
-		) (dto.GetParams, *APIError) {
-			return h.buildNearTextParams(class, className, body, getClass, principal)
-		})
+	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
 // dataResources is the authorization resource set for a collection's (or
@@ -213,7 +210,7 @@ func dataResources(collection, tenant string) []string {
 // collection's (or tenant's) data before reading its schema. READ on data is
 // sufficient for querying: the schema exposes nothing a data reader cannot
 // already obtain.
-func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Principal, tenant string) func(string) (*models.Class, error) {
+func (h *Handler) classGetterWithAuthz(ctx context.Context, principal *models.Principal, tenant string) classGetterFunc {
 	authorizedCollections := map[string]*models.Class{}
 
 	return func(name string) (*models.Class, error) {
