@@ -442,6 +442,11 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 		return objs, nil
 	}
 
+	if !props.HasRefs() && (groupBy == nil || !groupBy.Properties.HasRefs()) {
+		// No ref select-properties anywhere: nothing for the resolver to do.
+		return objs, nil
+	}
+
 	if groupBy != nil {
 		res, err := refcache.NewResolverWithGroup(refcache.NewCacher(db, db.logger, tenant), groupBy.Properties).
 			Do(ctx, objs, props, addl)
