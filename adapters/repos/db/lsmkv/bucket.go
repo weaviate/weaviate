@@ -529,12 +529,12 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 			default:
 			}
 
-			// record every UUID (live or tombstone) so the disk pass skips its stale value
-			if len(k) == 16 {
-				var uuid [16]byte
-				copy(uuid[:], k)
-				inmemProcessedUUIDs[uuid] = struct{}{}
+			if len(k) != 16 {
+				return fmt.Errorf("invalid object uuid '%x': expected 16 bytes, got %d", k, len(k))
 			}
+
+			// record every UUID (live or tombstone) so the disk pass skips its stale value
+			inmemProcessedUUIDs[[16]byte(k)] = struct{}{}
 
 			if v == nil {
 				continue // tombstone: recorded, not folded
@@ -542,10 +542,10 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 
 			_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
 			if err != nil {
-				return fmt.Errorf("cannot unmarshal object: %w", err)
+				return fmt.Errorf("cannot unmarshal object '%x': %w", k, err)
 			}
 			if err := f(k, updateTime); err != nil {
-				return fmt.Errorf("callback on object failed: %w", err)
+				return fmt.Errorf("callback on object '%x' failed: %w", k, err)
 			}
 		}
 
@@ -565,20 +565,20 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 		default:
 		}
 
-		if len(k) == 16 {
-			var uuid [16]byte
-			copy(uuid[:], k)
-			if _, ok := inmemProcessedUUIDs[uuid]; ok {
-				continue
-			}
+		if len(k) != 16 {
+			return fmt.Errorf("invalid object uuid '%x': expected 16 bytes, got %d", k, len(k))
+		}
+
+		if _, ok := inmemProcessedUUIDs[[16]byte(k)]; ok {
+			continue
 		}
 
 		_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
 		if err != nil {
-			return fmt.Errorf("cannot unmarshal object: %w", err)
+			return fmt.Errorf("cannot unmarshal object '%x': %w", k, err)
 		}
 		if err := f(k, updateTime); err != nil {
-			return fmt.Errorf("callback on object failed: %w", err)
+			return fmt.Errorf("callback on object '%x' failed: %w", k, err)
 		}
 	}
 

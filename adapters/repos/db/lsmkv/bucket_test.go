@@ -3010,3 +3010,30 @@ func TestPutRequiresSecondaryKeys(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func TestApplyToObjectDigestsRejectsNonUUIDKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{name: "shorterThanUUID", key: "not-a-uuid"},
+		{name: "longerThanUUID", key: "0123456789abcdef0"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			active := newTestMemtableReplace(map[string][]byte{test.key: []byte("value")})
+			b := Bucket{active: active, disk: &SegmentGroup{}, strategy: StrategyReplace}
+
+			folded := 0
+			err := b.ApplyToObjectDigests(context.Background(), func() {}, func([]byte, int64) error {
+				folded++
+				return nil
+			})
+			require.ErrorContains(t, err, "invalid object uuid")
+			require.Zero(t, folded)
+		})
+	}
+}
