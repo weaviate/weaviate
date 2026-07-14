@@ -137,6 +137,11 @@ type Memtable struct {
 	writesSinceLastSync bool
 
 	tombstones *sroar.Bitmap
+	// tombstonesSnapshot is an immutable copy of tombstones shared by all readers.
+	// ReadOnlyTombstones rebuilds it lazily when tombstonesDirty; it is never mutated
+	// in place, so a delete-heavy write load no longer clones the bitmap per query.
+	tombstonesSnapshot *sroar.Bitmap
+	tombstonesDirty    bool
 
 	enableChecksumValidation bool
 
@@ -658,19 +663,33 @@ func (m *Memtable) writeWAL() error {
 	return m.commitlog.flushBuffers()
 }
 
+// ReadOnlyTombstones returns a shared, immutable snapshot of the memtable's tombstones.
+// Returned bitmap must not be mutated: concurrent readers hold the same instance.
 func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	if err := m.checkStrategy(StrategyInverted); err != nil {
 		return nil, fmt.Errorf("Memtable::ReadOnlyTombstones(): %w", err)
 	}
+	// checkStrategy passing implies the inverted constructor ran, which sets
+	// m.tombstones to a non-nil bitmap, so the Clone below never nil-derefs.
 
 	m.RLock()
-	defer m.RUnlock()
-
-	if m.tombstones != nil {
-		return m.tombstones.Clone(), nil
+	if !m.tombstonesDirty && m.tombstonesSnapshot != nil {
+		snap := m.tombstonesSnapshot
+		m.RUnlock()
+		return snap, nil
 	}
+	m.RUnlock()
 
-	return nil, lsmkv.NotFound
+	// A writer (SetTombstone) holds the exclusive lock while flipping tombstonesDirty,
+	// so observing !dirty under RLock guarantees the snapshot already reflects every
+	// tombstone visible to this reader — same freshness as cloning, without the copy.
+	m.Lock()
+	defer m.Unlock()
+	if m.tombstonesDirty || m.tombstonesSnapshot == nil {
+		m.tombstonesSnapshot = m.tombstones.Clone()
+		m.tombstonesDirty = false
+	}
+	return m.tombstonesSnapshot, nil
 }
 
 func (m *Memtable) SetTombstone(docId uint64) error {
@@ -682,6 +701,7 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	defer m.Unlock()
 
 	m.tombstones.Set(docId)
+	m.tombstonesDirty = true
 	m.propLengthExists.Remove(docId)
 
 	return nil
