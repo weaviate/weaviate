@@ -164,7 +164,7 @@ func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
 	// estimation is therefore to take the changed entries and multiply them by
 	// 2.
 	m.size += uint64(entriesChanged * 2)
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 }
 
