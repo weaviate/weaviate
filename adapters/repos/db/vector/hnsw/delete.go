@@ -199,6 +199,7 @@ func (h *hnsw) resetUnlocked() error {
 	h.initialInsertOnce = &sync.Once{}
 	h.nodes = make([]*vertex, cache.InitialSize)
 	h.tombstones = make(map[uint64]struct{})
+	h.metrics.SetTombstone(0)
 
 	return h.commitLog.Reset()
 }
