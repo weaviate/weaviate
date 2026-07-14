@@ -159,12 +159,10 @@ func TestResolveReferencesSkipsWithoutRefSelectProps(t *testing.T) {
 				refLessResults(), tt.props, tt.groupBy, additional.Properties{}, "")
 			require.NoError(t, err)
 
-			// no cacher log activity: early exit must skip construction entirely
 			assert.Equal(t, 0, countLogAction(hook, actionFetchSkip),
 				"cacher ran despite ref-less select props")
 			assert.Equal(t, 0, countLogAction(hook, actionDedupStart))
 
-			// baseline: full resolver path, for comparison against gated above
 			var ungated search.Results
 			if tt.groupBy != nil {
 				ungated, err = refcache.NewResolverWithGroup(
