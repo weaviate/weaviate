@@ -628,11 +628,13 @@ function run_aof_group() {
       if [[ "$pkg" == "test/acceptance/stress_tests" ]]; then
         if ! go test -count 1 "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
+          dump_container_logs
           testFailed=1
         fi
       else
         if ! go test -count 1 -timeout=20m -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
+          dump_container_logs
           testFailed=1
         fi
       fi
@@ -1125,6 +1127,7 @@ function run_acceptance_replica_replication_fast_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/fast'); do
     if ! go test -timeout=30m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1134,6 +1137,7 @@ function run_acceptance_replica_replication_slow_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/slow'); do
     if ! go test -timeout=45m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1143,6 +1147,7 @@ function run_acceptance_replication_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/read_repair'); do
     if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1156,6 +1161,7 @@ function run_acceptance_async_replication_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/async_replication'); do
     if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
+      dump_container_logs
       return 1
     fi
   done
@@ -1230,6 +1236,31 @@ function run_module_tests() {
   if $run_module_except_offload_tests; then
     run_module_except_offload_tests "$@"
   fi
+}
+
+# dump_container_logs prints the tail of every docker container's logs
+# (running AND exited) after a failed test invocation, so a node that died
+# mid-test (panic, OOM kill) is diagnosable straight from the CI log instead
+# of requiring a local reproduction. Output is bounded per container so a
+# chatty node can't blow up the CI log. Best-effort: containers already
+# reaped by testcontainers won't show up, and docker errors are non-fatal.
+function dump_container_logs() {
+  local tail_lines=2000
+  echo_red "Dumping docker container logs (last $tail_lines lines per container)..."
+  docker ps -a || true
+  local ids
+  ids=$(docker ps -aq) || true
+  if [[ -z "$ids" ]]; then
+    echo "dump_container_logs: no containers left (already cleaned up?)"
+    return 0
+  fi
+  local id header
+  for id in $ids; do
+    header=$(docker inspect --format '{{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom-killed={{.State.OOMKilled}}' "$id" 2>/dev/null || echo "$id")
+    echo "===== BEGIN container logs: $header ====="
+    docker logs --tail "$tail_lines" "$id" 2>&1 || true
+    echo "===== END container logs: $header ====="
+  done
 }
 
 suppress_on_success() {
