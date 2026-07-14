@@ -836,6 +836,22 @@ func TestInitScanHashtreeConsistency(t *testing.T) {
 		require.Equal(t, emptyRoot, got, "deleted object must not be resurrected by the init scan")
 	})
 
+	t.Run("diskOnlyTombstoneWithLiveSibling", func(t *testing.T) {
+		got := buildInitScanRoot(t, ctx, "InitScanDiskTombstone", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDiskTombstone", uuidMid, tsFarPast)))
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDiskTombstone", uuidHigh, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+			require.NoError(t, sl.DeleteObject(ctx, uuidMid, time.Now()))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		})
+		want := buildInitScanRoot(t, ctx, "InitScanDiskTombstoneRef", func(sl ShardLike, s *Shard) {
+			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanDiskTombstoneRef", uuidHigh, tsFarPast)))
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		})
+		require.Equal(t, want, got, "flushed tombstone must not resurrect the deleted object")
+		require.NotEqual(t, emptyRoot, got, "the live sibling must still be folded")
+	})
+
 	t.Run("multiUpdateChainAcrossLayers", func(t *testing.T) {
 		got := buildInitScanRoot(t, ctx, "InitScanChain", func(sl ShardLike, s *Shard) {
 			require.NoError(t, sl.PutObject(ctx, testObjWithTime("InitScanChain", uuidMid, tsFarPast)))

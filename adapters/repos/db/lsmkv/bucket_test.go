@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -21,9 +22,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -36,7 +40,9 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type bucketTest struct {
@@ -3036,4 +3042,82 @@ func TestApplyToObjectDigestsRejectsNonUUIDKey(t *testing.T) {
 			require.Zero(t, folded)
 		})
 	}
+}
+
+func TestApplyToObjectDigestsWithFlushingMemtable(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	const updateTime = int64(1700000000000)
+
+	key := func(b byte) []byte { return bytes.Repeat([]byte{b}, 16) }
+	keyA, keyB, keyC, keyD := key(0x0a), key(0x0b), key(0x0c), key(0x0d)
+
+	objValue := func(t *testing.T, k []byte, docID uint64, updateTime int64) []byte {
+		t.Helper()
+		obj := storobj.FromObject(&models.Object{
+			Class:              "Digest",
+			ID:                 strfmt.UUID(uuid.UUID(k).String()),
+			LastUpdateTimeUnix: updateTime,
+		}, nil, nil, nil)
+		obj.DocID = docID
+		v, err := obj.MarshalBinary()
+		require.NoError(t, err)
+		return v
+	}
+
+	scan := func(t *testing.T, b *Bucket) map[string]int64 {
+		t.Helper()
+		folds := map[string]int64{}
+		folded := 0
+		require.NoError(t, b.ApplyToObjectDigests(ctx, func() {}, func(uuidBytes []byte, updateTime int64) error {
+			folds[fmt.Sprintf("%x", uuidBytes)] = updateTime
+			folded++
+			return nil
+		}))
+		require.Len(t, folds, folded, "every live UUID must be folded exactly once")
+		return folds
+	}
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+	require.NoError(t, b.Put(keyA, objValue(t, keyA, 1, updateTime)))
+	require.NoError(t, b.Put(keyB, objValue(t, keyB, 2, updateTime)))
+	require.NoError(t, b.FlushAndSwitch())
+
+	require.NoError(t, b.Put(keyA, objValue(t, keyA, 3, updateTime+1)))
+	require.NoError(t, b.Put(keyC, objValue(t, keyC, 4, updateTime)))
+
+	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+	require.NoError(t, err)
+	require.True(t, switched)
+	require.NotNil(t, b.flushing, "the scan must run against a live flushing memtable")
+
+	// Shutdown blocks until b.flushing clears, so land it even if an assertion below fails.
+	landFlushing := sync.OnceFunc(func() {
+		segmentPath, err := b.flushing.flush()
+		require.NoError(t, err)
+		segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
+		require.NoError(t, err)
+		require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(segment))
+	})
+	t.Cleanup(landFlushing)
+
+	require.NoError(t, b.Delete(keyB))
+	require.NoError(t, b.Put(keyD, objValue(t, keyD, 5, updateTime)))
+
+	want := map[string]int64{
+		fmt.Sprintf("%x", keyA): updateTime + 1,
+		fmt.Sprintf("%x", keyC): updateTime,
+		fmt.Sprintf("%x", keyD): updateTime,
+	}
+	require.Equal(t, want, scan(t, b))
+
+	landFlushing()
+
+	require.Equal(t, want, scan(t, b), "root must not depend on whether the flushing memtable had landed")
 }
