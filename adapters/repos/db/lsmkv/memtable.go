@@ -669,12 +669,10 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	if err := m.checkStrategy(StrategyInverted); err != nil {
 		return nil, fmt.Errorf("Memtable::ReadOnlyTombstones(): %w", err)
 	}
+	// checkStrategy passing implies the inverted constructor ran, which sets
+	// m.tombstones to a non-nil bitmap, so the Clone below never nil-derefs.
 
 	m.RLock()
-	if m.tombstones == nil {
-		m.RUnlock()
-		return nil, lsmkv.NotFound
-	}
 	if !m.tombstonesDirty && m.tombstonesSnapshot != nil {
 		snap := m.tombstonesSnapshot
 		m.RUnlock()
@@ -687,9 +685,6 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	// tombstone visible to this reader — same freshness as cloning, without the copy.
 	m.Lock()
 	defer m.Unlock()
-	if m.tombstones == nil {
-		return nil, lsmkv.NotFound
-	}
 	if m.tombstonesDirty || m.tombstonesSnapshot == nil {
 		m.tombstonesSnapshot = m.tombstones.Clone()
 		m.tombstonesDirty = false
