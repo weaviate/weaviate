@@ -3,14 +3,17 @@
 `POST /v1/search/{collection}/near-text` — semantic (near-text) search over
 REST, with server-side embedding of the query text. First endpoint of the
 REST Search API family proposed in the RFC *"REST Search API over
-QUERY/POST"* (Ivan Despot, 2026-07-06); hybrid, bm25 and near-object will
-follow the same `/v1/search/{collection}/…` shape, and aggregate the
+QUERY/POST"* (Ivan Despot, 2026-07-06).
+
+`POST /v1/search/{collection}/bm25` — keyword (BM25F) search, the second
+endpoint of the family (2026-07-14). hybrid and near-object will follow the
+same `/v1/search/{collection}/…` shape, and aggregate the
 `/v1/aggregate/{collection}` shape, when built.
 
 > **Status:** draft, POST-only, part of the swagger surface
-> (`openapi-specs/schema.json`, operation `search.nearText`). Experimental
-> and **off by default**; enable it per node with
-> `EXPERIMENTAL_REST_SEARCH_ENABLED=true`.
+> (`openapi-specs/schema.json`, operations `search.nearText` and
+> `search.bm25`). Experimental and **off by default**; enable it per node
+> with `EXPERIMENTAL_REST_SEARCH_ENABLED=true` (gates every search endpoint).
 
 ---
 
@@ -311,16 +314,80 @@ feature is on. The config is a `runtime.DynamicValue[bool]`
 (`ExperimentalRESTSearchEnabled`, runtime-override key `rest_search_enabled`), so it can
 be toggled without a restart.
 
+### 2026-07-14 — second endpoint: bm25 (keyword search)
+
+`POST /v1/search/{collection}/bm25` — BM25F keyword search, built exactly as
+the 2026-07-09 refactor intended: a new `SearchBm25Request =
+allOf[SearchCommon, {query (required), query_properties}]` definition +
+regen, a small `buildBm25Params` that fills `dto.GetParams.KeywordRanking`
+(the shared `SearchCommon` parsers reused as-is), and a thin `Handler.Bm25`
+wrapper over the generic `execute()`. Everything in the shared contract —
+envelope response, one-shape `ErrorResponse` errors, authz-before-schema,
+reserved-field 422s, `EXPERIMENTAL_REST_SEARCH_ENABLED`, op-mode read
+classification —
+comes from the shared machinery and is pinned for bm25 by tests, not
+re-implemented.
+
+bm25-specific fields (both live in the bm25 `allOf` extension, not
+`SearchCommon`):
+
+- `query` — **required, a plain string** (unlike near-text's array-only
+  `query`: bm25 has a single query string on every other API surface, and a
+  one-element array would be gratuitous friction). Maps to
+  `KeywordRanking.Query`. Absent or `null` → 422 (swagger required, nil
+  pointer); an explicit `""` passes bind (non-nil pointer) and is the
+  handler's 400 — the same absent-vs-empty split near-text has.
+- `query_properties` — optional array of property names to keyword-search.
+  Omitted or `[]` searches every searchable text property. Maps to
+  `KeywordRanking.Properties`. A property without a searchable index (e.g.
+  an `int` property, or `indexSearchable: false`) is rejected by the
+  searcher's typed `MissingIndexError` → 422.
+
+Since bm25 runs no vector search: collections without any vectorizer module
+are fully searchable (no near-text-style 422), and the near-text-only fields
+(`certainty`/`distance`/`target_vector`) are simply unknown fields for this
+endpoint — silently ignored under the option-2 contract. The spec declares
+no 502 for bm25 (no embedding provider is ever called).
+
+Decision log for the three settled points:
+
+1. **`search_operator` (`and`/`or` + `minimum_or_tokens_match`): DEFERRED.**
+   gRPC bm25 has it (`parse_search_request.go` parses `SearchOperator`); the
+   RFC lists it as out of scope for the REST draft, so the REST endpoint
+   ships without it. This is a **known, deliberate gRPC-parity gap**.
+   Deferred because the asymmetry rule (b6ef0eed) makes it safe: *adding* a
+   field later is a non-breaking widening, while shipping it now would
+   freeze a shape we haven't validated. Until then bm25 uses the server
+   default (`or`).
+2. **`query_properties` boost syntax (`"title^2"`): PASS THROUGH.** The REST
+   parser does not interpret `^` — property strings flow to the searcher
+   verbatim (after the same `LowercaseFirstLetterOfStrings` normalization
+   the gRPC parser applies), and `bm25_searcher.go` parses the boost. This
+   matches GraphQL and gRPC exactly (behavior-sync rule); documented in the
+   spec's `query_properties` description.
+3. **`return_metadata` `distance`/`certainty` on bm25: SILENT DROP.** Both
+   live in the shared `SearchCommon` enum but cannot be computed for a
+   keyword search. The request succeeds and the response omits them,
+   matching the existing gRPC-parity precedent (certainty on non-cosine is
+   silently dropped, see 2026-07-08 near-text notes). Mechanism, mirrored
+   from gRPC: the certainty flag is cleared in `buildBm25Params` (gRPC
+   clears it for every non-vector search), while distance needs no clearing
+   — the explorer only emits `distance` for vector searches. The meaningful
+   bm25 metadata keys are `score` and `explain_score`; `explain_score` also
+   switches on `KeywordRanking.AdditionalExplanations` (gRPC parity).
+
 ---
 
 ## 2. Implementation
 
 ### Files
 
-- `openapi-specs/schema.json` — path `/search/{collection}/near-text`
-  (POST, tag `search`, operationId `search.nearText`, per-op
+- `openapi-specs/schema.json` — paths `/search/{collection}/near-text` and
+  `/search/{collection}/bm25` (POST, tag `search`, operationIds
+  `search.nearText` / `search.bm25`, per-op
   `consumes: [application/json]`), definitions `SearchCommon` (shared base),
   `SearchNearTextRequest` (= `allOf[SearchCommon, near-text-specific]`),
+  `SearchBm25Request` (= `allOf[SearchCommon, {query, query_properties}]`),
   `SearchResponse`, `SearchResultObject` (the typed
   `{id, properties, references, metadata}` envelope; `properties`/
   `references` are free-form maps) and `SearchResultMetadata` (all-optional
@@ -336,12 +403,13 @@ be toggled without a restart.
 - generated (never hand-edited; `tools/gen-code-from-swagger.sh`, pinned
   go-swagger v0.30.4): `adapters/handlers/rest/operations/search/*`,
   `entities/models/search_common.go`, `search_near_text_request.go`,
-  `search_response.go`, `search_result_object.go`,
+  `search_bm25_request.go`, `search_response.go`, `search_result_object.go`,
   `search_result_metadata.go`, `client/search/*`,
   `adapters/handlers/rest/embedded_spec.go`.
 - `adapters/handlers/rest/handlers_search.go` — wires the generated
-  operation to the handler; maps `APIError` statuses onto the generated
-  responders (unlisted statuses, e.g. 429, use `middleware.Error`).
+  operations to the handler; maps `APIError` statuses onto the generated
+  responders per operation (unlisted statuses, e.g. 429 pre-declaration or
+  a hypothetical 502 on bm25, use `middleware.Error`).
 - `adapters/handlers/rest/search/handler.go` — the generic `execute`
   orchestrator (search-type-agnostic): disabled-check, `checkReservedFields`
   (typed nil-pointer 422 scan on `SearchCommon`, before authz), alias/
@@ -350,20 +418,25 @@ be toggled without a restart.
   gRPC handler's classGetter pattern), `traverser.GetClass`, error→status
   mapping, namespace stripping (`namespacing.StripErrForPrincipal`). It
   delegates the `dto.GetParams` build to a per-type `buildParamsFunc`.
-  `NearText` is a thin wrapper passing `&body.SearchCommon` +
-  `buildNearTextParams`. `IsSearchRoute` classifies any
+  `NearText` and `Bm25` are thin wrappers passing `&body.SearchCommon` +
+  their params builder. `IsSearchRoute` classifies any
   `/v1/search/{collection}/{type}` as a read.
 - `adapters/handlers/rest/search/request.go` — the shared parsers
   (`checkReservedFields`/`parsePagination` on `*SearchCommon`, plus
   `parseConsistencyLevel`/`parseWhere`/`parseReturnMetadata`/
-  `parseReturnProperties`/`resolveTargetVectors`) and the near-text-specific
-  `buildNearTextParams` (+ `parseNearText`/`parseQuery`) that assemble
-  `dto.GetParams`: nearText module params (gRPC `extractNearText` shape),
+  `parseReturnProperties`/`resolveTargetVectors`) and the per-type builders
+  that assemble `dto.GetParams`: `buildNearTextParams`
+  (+ `parseNearText`/`parseQuery`) — nearText module params (gRPC
+  `extractNearText` shape), target-vector resolution (gRPC
+  `extractTargetVectors` parity), deterministic no-vectorizer 422 pre-check —
+  and `buildBm25Params` (+ `parseBm25`) — `KeywordRanking` params in
+  behavior-sync with the gRPC parser's bm25 handling (property-name
+  lowercasing, `^boost` pass-through, `AdditionalExplanations` from
+  `explain_score`, certainty cleared on non-vector search). Both reuse:
   where via `filterext.Parse` + `filters.ValidateFilters` (same parser as
   GraphQL/batch-delete), pagination (`auto_limit` → autocut, `*int64` →
-  `int`), target-vector resolution (gRPC `extractTargetVectors` parity),
-  deterministic no-vectorizer 422 pre-check, `return_metadata` →
-  `additional.Properties`, `return_properties` incl. one-hop dot-path refs.
+  `int`), `return_metadata` → `additional.Properties`, `return_properties`
+  incl. one-hop dot-path refs.
 - `adapters/handlers/rest/search/reply.go` — traverser output →
   `models.SearchResponse` (shared): per hit the `{id, properties,
   references, metadata}` envelope — `id` always present, the selected
@@ -377,8 +450,12 @@ be toggled without a restart.
 - `usecases/config/config_handler.go` + `environment.go` —
   `ExperimentalRESTSearchEnabled` / `EXPERIMENTAL_REST_SEARCH_ENABLED`.
 
-(An end-to-end smoke harness, `rest_search_neartext_smoke.sh`, is used for
-local development but is not committed to the repository — see section 4.)
+(Two end-to-end smoke harnesses, `rest_search_neartext_smoke.sh` and
+`rest_search_bm25_smoke.sh` under `tools/dev/`, are used for local
+development. They are deliberately **untracked** local helpers — kept out of
+version control by convention, not by `.gitignore`, so a blanket `git add
+-A` would stage them: don't. See section 4. The committed end-to-end
+coverage lives in `test/acceptance/rest_search/`.)
 
 ### The typed body model (spec decision — option 2)
 
@@ -582,12 +659,20 @@ curl -s -X POST -H 'Content-Type: application/json' \
        "return_properties":["title"],"return_metadata":["distance"]}' \
   http://127.0.0.1:8091/v1/search/Movie/near-text
 # -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"distance":0.12}}],"took_ms":8}
+
+# bm25 needs no vectorizer module at all (a plain string query):
+curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"query":"spaceship galaxy","limit":3,"query_properties":["title^2","description"],
+       "return_properties":["title"],"return_metadata":["score","explain_score"]}' \
+  http://127.0.0.1:8091/v1/search/Movie/bm25
+# -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"score":1.5,"explain_score":"..."}}],"took_ms":3}
 ```
 
-If you have the local harness, run it against the running instance
-(`WEAVIATE_URL=http://127.0.0.1:8091 rest_search_neartext_smoke.sh`) for the
-full assertion suite; otherwise the `curl` above plus the error cases from the
-status table exercise the endpoint.
+If you have the local harnesses, run them against the running instance
+(`WEAVIATE_URL=http://127.0.0.1:8091 rest_search_neartext_smoke.sh`, and the
+sibling `rest_search_bm25_smoke.sh` — bm25 also runs against a module-free
+server) for the full assertion suites; otherwise the `curl`s above plus the
+error cases from the status table exercise the endpoints.
 
 To check the two gated modes, restart the server with the relevant env var and
 re-issue the same request:
@@ -606,14 +691,18 @@ re-issue the same request:
   `search.Handler` (the 2026-07-06 draft on tag
   `rest-search-querypost-snapshot` is the reference implementation:
   middleware placement, CORS/415/405 handling, op-mode carve-outs).
-- **hybrid / bm25 / near-object** endpoints per the RFC. After the
-  2026-07-09 refactor each one is: a new request definition
+- **hybrid / near-object** endpoints per the RFC. After the 2026-07-09
+  refactor each one is: a new request definition
   (`allOf[SearchCommon, {type-specific fields}]`) in `schema.json` + regen, a
   small `buildXParams` (the shared parsers on `SearchCommon` are already
   reusable), and a thin `Handler.X` wrapper over the generic `execute()` that
   returns the shared `SearchResponse` — no copy-paste of the auth/resolve/
-  reply flow. Aggregate follows the same shape under `/v1/aggregate/
+  reply flow (bm25, 2026-07-14, is the proof: spec + `buildBm25Params` +
+  `Handler.Bm25`). Aggregate follows the same shape under `/v1/aggregate/
   {collection}`.
+- **bm25 `search_operator`** (`and`/`or` + `minimum_or_tokens_match`) — the
+  deferred gRPC-parity gap from the 2026-07-14 decision log; adding it later
+  is a non-breaking widening.
 - **RAG params** (`single_prompt`/`grouped_task`): currently 422; needs
   `Cache-Control: no-store` (or equivalent) when implemented, since
   generation re-invokes paid LLM calls.

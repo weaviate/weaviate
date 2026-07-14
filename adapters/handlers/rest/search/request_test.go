@@ -55,6 +55,17 @@ func decodeModel(body string) (*models.SearchNearTextRequest, *APIError) {
 	return &req, nil
 }
 
+// fixtureGetClass resolves collections from the fixture schema with the same
+// not-found sentinel the real classGetterWithAuthz produces.
+func fixtureGetClass(deps *testDeps) classGetterFunc {
+	return func(name string) (*models.Class, error) {
+		if c, ok := deps.schemaReader.classes[name]; ok {
+			return c, nil
+		}
+		return nil, fmt.Errorf("%w %s in schema", errCollectionNotFound, name)
+	}
+}
+
 // buildParams runs the full body -> dto.GetParams conversion against the
 // Movie/Author fixture schema, including the reserved-field 422 check that
 // the handler runs before buildNearTextParams.
@@ -71,15 +82,43 @@ func buildParams(t *testing.T, class *models.Class, body string) (*fakeSearcher,
 		return nil, apiErr
 	}
 
-	getClass := func(name string) (*models.Class, error) {
-		if c, ok := deps.schemaReader.classes[name]; ok {
-			return c, nil
-		}
-		// same sentinel the real classGetterWithAuthz produces
-		return nil, fmt.Errorf("%w %s in schema", errCollectionNotFound, name)
+	params, apiErr := deps.handler.buildNearTextParams(class, class.Class, parsed, fixtureGetClass(deps), nil)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	deps.searcher.lastParams = params
+	return deps.searcher, nil
+}
+
+// decodeBm25Model unmarshals a JSON body into the typed bm25 request model,
+// the way the swagger JSON consumer does (unknown fields ignored, type
+// mismatches fail). A decode failure maps to the 400 the consumer returns
+// live.
+func decodeBm25Model(body string) (*models.SearchBm25Request, *APIError) {
+	var req models.SearchBm25Request
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		return nil, newAPIError(http.StatusBadRequest, "invalid request body: %v", err)
+	}
+	return &req, nil
+}
+
+// buildBm25 runs the full bm25 body -> dto.GetParams conversion against the
+// fixture schema, including the reserved-field 422 check that the handler
+// runs before buildBm25Params.
+func buildBm25(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
+	t.Helper()
+	deps := newTestHandler(t)
+	deps.schemaReader.classes[class.Class] = class
+
+	parsed, apiErr := decodeBm25Model(body)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if apiErr := checkReservedFields(&parsed.SearchCommon); apiErr != nil {
+		return nil, apiErr
 	}
 
-	params, apiErr := deps.handler.buildNearTextParams(class, class.Class, parsed, getClass, nil)
+	params, apiErr := deps.handler.buildBm25Params(class, class.Class, parsed, fixtureGetClass(deps), nil)
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -522,6 +561,190 @@ func TestParseWhere(t *testing.T) {
 			`{"query":["space"],"where":{"operator":"Equal","path":["nope"],"valueText":"x"}}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	})
+}
+
+func TestBm25KeywordRanking(t *testing.T) {
+	t.Run("query maps to KeywordRanking, not module params", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"space opera"}`)
+		require.Nil(t, apiErr)
+		kw := searcher.lastParams.KeywordRanking
+		require.NotNil(t, kw)
+		assert.Equal(t, "bm25", kw.Type)
+		assert.Equal(t, "space opera", kw.Query)
+		assert.Empty(t, kw.Properties)
+		assert.False(t, kw.AdditionalExplanations)
+		// a keyword search must not carry any vector-search params
+		assert.Empty(t, searcher.lastParams.ModuleParams)
+	})
+
+	// swagger's required validation rejects an absent or null query with 422
+	// before the handler; the handler's own 400 covers the explicit empty
+	// string (which passes bind) and the direct-call path
+	for name, body := range map[string]string{
+		"empty string": `{"query":""}`,
+		"missing":      `{}`,
+		"null":         `{"query":null}`,
+	} {
+		t.Run(name+" query is a 400", func(t *testing.T) {
+			_, apiErr := buildBm25(t, movieClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "query")
+		})
+	}
+
+	t.Run("query is string-only: the array form fails decode", func(t *testing.T) {
+		_, apiErr := buildBm25(t, movieClass(), `{"query":["space"]}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	})
+}
+
+// TestBm25QueryProperties pins the gRPC-parity property handling: names pass
+// through with their first letter lowercased, and a "^boost" suffix is not
+// interpreted here — the searcher parses it.
+func TestBm25QueryProperties(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"pass through", `{"query":"space","query_properties":["title"]}`, []string{"title"}},
+		{"boost suffix passes through", `{"query":"space","query_properties":["title^2"]}`, []string{"title^2"}},
+		{
+			"first letter lowercased (gRPC parity)",
+			`{"query":"space","query_properties":["Title^2","Year"]}`,
+			[]string{"title^2", "year"},
+		},
+		{
+			// only the FIRST letter is lowercased (schema.LowercaseFirstLetterOfStrings),
+			// interior caps are preserved — a whole-string strings.ToLower would
+			// yield "camelcaseprop" and fail this case.
+			"first letter only, interior caps preserved",
+			`{"query":"space","query_properties":["CamelCaseProp"]}`,
+			[]string{"camelCaseProp"},
+		},
+		{"omitted searches all searchable properties", `{"query":"space"}`, nil},
+		{"empty searches all searchable properties", `{"query":"space","query_properties":[]}`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			searcher, apiErr := buildBm25(t, movieClass(), tt.body)
+			require.Nil(t, apiErr)
+			kw := searcher.lastParams.KeywordRanking
+			require.NotNil(t, kw)
+			if tt.want == nil {
+				assert.Empty(t, kw.Properties)
+			} else {
+				assert.Equal(t, tt.want, kw.Properties)
+			}
+		})
+	}
+}
+
+func TestBm25ReturnMetadata(t *testing.T) {
+	t.Run("score and explain_score", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(),
+			`{"query":"space","return_metadata":["score","explain_score"]}`)
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.True(t, addl.ID)
+		assert.True(t, addl.Score)
+		assert.True(t, addl.ExplainScore)
+		// explain_score also switches on the ranker's explanations (gRPC
+		// parity: AdditionalExplanations follows ExplainScore)
+		assert.True(t, searcher.lastParams.KeywordRanking.AdditionalExplanations)
+	})
+
+	t.Run("explain_score omitted leaves explanations off", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"space","return_metadata":["score"]}`)
+		require.Nil(t, apiErr)
+		assert.False(t, searcher.lastParams.KeywordRanking.AdditionalExplanations)
+	})
+
+	t.Run("certainty is inapplicable and silently dropped", func(t *testing.T) {
+		// gRPC parity: a non-vector search clears the certainty flag. The
+		// distance flag stays set but is inert — the explorer emits distance
+		// only for vector searches, so the response omits it either way
+		// (silent drop; covered end to end in the reply tests).
+		searcher, apiErr := buildBm25(t, movieClass(),
+			`{"query":"space","return_metadata":["distance","certainty","score"]}`)
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.False(t, addl.Certainty)
+		assert.True(t, addl.Distance)
+		assert.True(t, addl.Score)
+	})
+
+	t.Run("creation and update times", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(),
+			`{"query":"space","return_metadata":["creation_time","last_update_time"]}`)
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.True(t, addl.CreationTimeUnix)
+		assert.True(t, addl.LastUpdateTimeUnix)
+	})
+}
+
+// TestBm25NeedsNoVectorizer: bm25 is a pure keyword search — collections
+// without any vectorizer module are fully searchable (unlike near-text,
+// which 422s on them).
+func TestBm25NeedsNoVectorizer(t *testing.T) {
+	t.Run("legacy vectorizer none", func(t *testing.T) {
+		class := movieClass()
+		class.Vectorizer = "none"
+		_, apiErr := buildBm25(t, class, `{"query":"space"}`)
+		assert.Nil(t, apiErr)
+	})
+
+	t.Run("named vector with vectorizer none", func(t *testing.T) {
+		class := namedVectorsClass("title_vec")
+		class.VectorConfig["title_vec"] = models.VectorConfig{
+			Vectorizer:        map[string]any{"none": map[string]any{}},
+			VectorIndexConfig: hnsw.UserConfig{Distance: "cosine"},
+		}
+		_, apiErr := buildBm25(t, class, `{"query":"space"}`)
+		assert.Nil(t, apiErr)
+	})
+}
+
+// TestBm25SharedFields smoke-tests that the SearchCommon fields flow through
+// the shared parsers for bm25 exactly as they do for near-text.
+func TestBm25SharedFields(t *testing.T) {
+	t.Run("pagination and consistency", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(),
+			`{"query":"space","limit":3,"offset":6,"auto_limit":2,"consistency_level":"QUORUM"}`)
+		require.Nil(t, apiErr)
+		pagination := searcher.lastParams.Pagination
+		assert.Equal(t, 3, pagination.Limit)
+		assert.Equal(t, 6, pagination.Offset)
+		assert.Equal(t, 2, pagination.Autocut)
+		require.NotNil(t, searcher.lastParams.ReplicationProperties)
+		assert.Equal(t, "QUORUM", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
+	})
+
+	t.Run("where filter", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(),
+			`{"query":"space","where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980}}`)
+		require.Nil(t, apiErr)
+		require.NotNil(t, searcher.lastParams.Filters)
+	})
+
+	t.Run("return_properties subset", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"space","return_properties":["title"]}`)
+		require.Nil(t, apiErr)
+		require.Len(t, searcher.lastParams.Properties, 1)
+		assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
+	})
+
+	t.Run("near-text-only fields are unknown fields and ignored", func(t *testing.T) {
+		// option-2 contract: fields outside the bm25 schema (target_vector,
+		// certainty, distance live in the near-text extension) drop at decode
+		searcher, apiErr := buildBm25(t, movieClass(),
+			`{"query":"space","target_vector":"nope","certainty":0.9,"distance":0.1,"not_a_field":1}`)
+		require.Nil(t, apiErr)
+		require.NotNil(t, searcher.lastParams.KeywordRanking)
 	})
 }
 

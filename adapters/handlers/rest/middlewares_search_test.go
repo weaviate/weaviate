@@ -68,6 +68,13 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 		assert.True(t, next.called, "POST search must pass in READ_ONLY")
 	})
 
+	t.Run("READ_ONLY lets bm25 search through", func(t *testing.T) {
+		// the classification is per-namespace, not per-search-type: every
+		// /v1/search/{collection}/{type} route is a read
+		next, _ := run(t, searchTestAppState(true, config.READ_ONLY), http.MethodPost, "/v1/search/Movie/bm25")
+		assert.True(t, next.called, "POST bm25 search must pass in READ_ONLY")
+	})
+
 	t.Run("READ_ONLY still blocks real writes", func(t *testing.T) {
 		next, rec := run(t, searchTestAppState(true, config.READ_ONLY), http.MethodPost, "/v1/objects")
 		assert.False(t, next.called)
@@ -85,12 +92,23 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 		assert.True(t, next.called)
 	})
 
+	t.Run("SCALE_OUT lets bm25 search through", func(t *testing.T) {
+		next, _ := run(t, searchTestAppState(true, config.SCALE_OUT), http.MethodPost, "/v1/search/Movie/bm25")
+		assert.True(t, next.called, "POST bm25 search must pass in SCALE_OUT")
+	})
+
 	t.Run("WRITE_ONLY blocks search", func(t *testing.T) {
 		// POST is an HTTP "write" so the method-based check alone would
 		// let a search — semantically a read — through write-only mode;
 		// the explicit isSearch block closes that
 		next, rec := run(t, searchTestAppState(true, config.WRITE_ONLY), http.MethodPost, "/v1/search/Movie/near-text")
 		assert.False(t, next.called, "POST search must be blocked in WRITE_ONLY")
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	})
+
+	t.Run("WRITE_ONLY blocks bm25 search", func(t *testing.T) {
+		next, rec := run(t, searchTestAppState(true, config.WRITE_ONLY), http.MethodPost, "/v1/search/Movie/bm25")
+		assert.False(t, next.called, "POST bm25 search must be blocked in WRITE_ONLY")
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	})
 

@@ -41,9 +41,52 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	SearchBm25(params *SearchBm25Params, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchBm25OK, error)
+
 	SearchNearText(params *SearchNearTextParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchNearTextOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+SearchBm25 searches a collection with bm25
+
+Performs a keyword (BM25F) search over the objects of a collection. Objects are scored against the query with the BM25F ranking function over the searchable text properties (all of them, or the `query_properties` subset) and the best-scoring objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
+*/
+func (a *Client) SearchBm25(params *SearchBm25Params, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchBm25OK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSearchBm25Params()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "search.bm25",
+		Method:             "POST",
+		PathPattern:        "/search/{collection}/bm25",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SearchBm25Reader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SearchBm25OK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for search.bm25: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*

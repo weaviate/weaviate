@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
@@ -108,6 +109,84 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 	out.Filters = filter
 
 	return out, nil
+}
+
+// buildBm25Params converts the bm25 request into the dto.GetParams consumed
+// by traverser.GetClass. Behavior must stay in sync with the gRPC parser's
+// bm25 handling (adapters/handlers/grpc/v1/parse_search_request.go). Shared
+// fields are read from the embedded SearchCommon, bm25 fields off the body.
+func (h *Handler) buildBm25Params(class *models.Class, className string, body *models.SearchBm25Request,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
+
+	replProps, apiErr := parseConsistencyLevel(common.ConsistencyLevel)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.ReplicationProperties = replProps
+
+	pagination, apiErr := h.parsePagination(common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.Pagination = pagination
+
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, nil)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	// certainty cannot be computed for a keyword search; drop it silently
+	// (gRPC parity: extractAdditionalPropsFromMetadata clears certainty on
+	// every non-vector search). distance is likewise inapplicable but needs
+	// no clearing — the explorer emits it only for vector searches, so the
+	// response omits it either way.
+	addProps.Certainty = false
+	out.AdditionalProperties = addProps
+
+	keywordRanking, apiErr := parseBm25(body, addProps.ExplainScore)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.KeywordRanking = keywordRanking
+
+	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.Properties = props
+	if len(out.Properties) == 0 {
+		out.AdditionalProperties.NoProps = true
+	}
+
+	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.Filters = filter
+
+	return out, nil
+}
+
+// parseBm25 builds the keyword-ranking params for a bm25 search, mirroring
+// the gRPC parser: the first letter of each property name is lowercased and
+// a "^boost" suffix (e.g. "title^2") passes through untouched — the searcher
+// parses it. Property existence/searchability is not validated here; the
+// searcher rejects a property without a searchable index (a typed
+// MissingIndexError, mapped to 422).
+func parseBm25(body *models.SearchBm25Request, explainScore bool) (*searchparams.KeywordRanking, *APIError) {
+	// an absent (or null) query is already rejected upstream by swagger's
+	// required validation; an explicit empty string reaches the handler
+	if body.Query == nil || *body.Query == "" {
+		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+	}
+	return &searchparams.KeywordRanking{
+		Type:                   "bm25",
+		Query:                  *body.Query,
+		Properties:             schema.LowercaseFirstLetterOfStrings(body.QueryProperties),
+		AdditionalExplanations: explainScore,
+	}, nil
 }
 
 func parseConsistencyLevel(level string) (*additional.ReplicationProperties, *APIError) {

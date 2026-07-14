@@ -389,6 +389,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsVectorsDeleteHandler: schema.SchemaObjectsVectorsDeleteHandlerFunc(func(params schema.SchemaObjectsVectorsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsVectorsDelete has not yet been implemented")
 		}),
+		SearchSearchBm25Handler: search.SearchBm25HandlerFunc(func(params search.SearchBm25Params, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchBm25 has not yet been implemented")
+		}),
 		SearchSearchNearTextHandler: search.SearchNearTextHandlerFunc(func(params search.SearchNearTextParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation search.SearchNearText has not yet been implemented")
 		}),
@@ -686,6 +689,8 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
 	// SchemaSchemaObjectsVectorsDeleteHandler sets the operation handler for the schema objects vectors delete operation
 	SchemaSchemaObjectsVectorsDeleteHandler schema.SchemaObjectsVectorsDeleteHandler
+	// SearchSearchBm25Handler sets the operation handler for the search bm25 operation
+	SearchSearchBm25Handler search.SearchBm25Handler
 	// SearchSearchNearTextHandler sets the operation handler for the search near text operation
 	SearchSearchNearTextHandler search.SearchNearTextHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
@@ -1106,6 +1111,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaSchemaObjectsVectorsDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsVectorsDeleteHandler")
 	}
+	if o.SearchSearchBm25Handler == nil {
+		unregistered = append(unregistered, "search.SearchBm25Handler")
+	}
 	if o.SearchSearchNearTextHandler == nil {
 		unregistered = append(unregistered, "search.SearchNearTextHandler")
 	}
@@ -1164,7 +1172,6 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
-
 		}
 	}
 	return result
@@ -1656,6 +1663,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/{className}/vectors/{vectorIndexName}/index"] = schema.NewSchemaObjectsVectorsDelete(o.context, o.SchemaSchemaObjectsVectorsDeleteHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/bm25"] = search.NewSearchBm25(o.context, o.SearchSearchBm25Handler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
