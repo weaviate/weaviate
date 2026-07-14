@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -401,14 +403,16 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 		var err error
 		if b.lazySegmentLoading {
-			segment, err = newLazySegment(filepath.Join(sg.dir, entry), logger,
+			segment, err = newLazySegment(
+				filepath.Join(sg.dir, entry), logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("init lazy segment %s: %w", filepath.Join(sg.dir, entry), err)
 			}
 		} else {
-			segment, err = newSegment(filepath.Join(sg.dir, entry), logger,
+			segment, err = newSegment(
+				filepath.Join(sg.dir, entry), logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
 			if err != nil {
@@ -854,6 +858,173 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 		}
 	}
 	return nil, nil, nil, -1, lsmkv.NotFound
+}
+
+// secondaryBatchKey is an unresolved key awaiting segment resolution in the
+// batched secondary resolver, tagged with its original position in the caller's
+// key slice so results restore positionally (INV-LSMKV-BATCH-1).
+type secondaryBatchKey struct {
+	origIdx int
+	key     []byte
+}
+
+// secondaryBatchIndexHit is a confirmed secondary-index hit from phase 1: key was
+// found in segments[segIdx] (the newest segment to contain it). node delimits the
+// value byte range; the value bytes are read later in phase 2.
+type secondaryBatchIndexHit struct {
+	origIdx int
+	key     []byte
+	segIdx  int
+	node    segmentindex.Node
+}
+
+// secondaryBatchLiveHit is a phase-2 result whose value was not a tombstone.
+// priKey and value are already copied out of the segment (safe after view
+// release). superseded is set by the phase-3 recheck when a newer version exists.
+type secondaryBatchLiveHit struct {
+	origIdx    int
+	priKey     []byte
+	value      []byte
+	segIdx     int
+	superseded bool
+}
+
+// getBySecondaryBatchIndexHits runs phase 1 of the batched secondary resolver:
+// per segment newest-to-oldest, bloom-test then a confirmed DiskTree.Get per
+// still-unresolved key. A CONFIRMED index hit (never a bloom pass alone) removes
+// the key from the unresolved set BEFORE older segments are descended, preserving
+// Replace newest-wins (INV-LSMKV-REPLACE-NEWEST-WINS): the newest segment to
+// confirm a key is authoritative whether its value turns out live or a tombstone
+// (tombstone status is only knowable after the phase-2 value read). No value bytes
+// are read here. Keys never confirmed in any segment do not appear in the returned
+// hits (they resolve to nil). pending is expected pre-sorted by key for descent
+// cache locality; ctx is checked once per segment. pending's backing array is
+// consumed (used as in-place filter scratch); the caller must not reuse it.
+func (sg *SegmentGroup) getBySecondaryBatchIndexHits(ctx context.Context, pos int,
+	pending []secondaryBatchKey, segments []Segment,
+) ([]secondaryBatchIndexHit, error) {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		return nil, fmt.Errorf("SegmentGroup::getBySecondaryBatchIndexHits(): %w", err)
+	}
+
+	hits := make([]secondaryBatchIndexHit, 0, len(pending))
+	remaining := pending
+	// newest -> oldest: view.Disk has the newest segment at the highest index.
+	for i := len(segments) - 1; i >= 0 && len(remaining) > 0; i-- {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		seg := segments[i]
+		stillUnresolved := remaining[:0] // in-place filter; writes never overtake reads
+		for _, pk := range remaining {
+			node, err := seg.getBySecondaryIndexNode(pos, pk.key)
+			if err != nil {
+				if errors.Is(err, lsmkv.NotFound) {
+					stillUnresolved = append(stillUnresolved, pk)
+					continue
+				}
+				return nil, fmt.Errorf("SegmentGroup::getBySecondaryBatchIndexHits() %q: %w", seg.getPath(), err)
+			}
+			// confirmed index hit: authoritative newest version for this key
+			hits = append(hits, secondaryBatchIndexHit{origIdx: pk.origIdx, key: pk.key, segIdx: i, node: node})
+		}
+		remaining = stillUnresolved
+	}
+	return hits, nil
+}
+
+// readSecondaryBatchValuesSerial runs phase 2 of the batched secondary resolver
+// SERIALLY (child 3a; child 3b swaps this for bounded-concurrent offset-sorted
+// reads). It sorts the phase-1 hits by (segIdx, node.Start) for value-offset
+// locality, reads+parses each value, and returns the live (non-tombstone) hits
+// with priKey and value COPIED OUT (safe both after view release and against the
+// reused read buffer). Tombstone hits are dropped (they resolve to nil). ctx is
+// checked per read.
+func (sg *SegmentGroup) readSecondaryBatchValuesSerial(ctx context.Context,
+	hits []secondaryBatchIndexHit, segments []Segment,
+) ([]secondaryBatchLiveHit, error) {
+	sort.Slice(hits, func(a, b int) bool {
+		if hits[a].segIdx != hits[b].segIdx {
+			return hits[a].segIdx < hits[b].segIdx
+		}
+		return hits[a].node.Start < hits[b].node.Start
+	})
+
+	lives := make([]secondaryBatchLiveHit, 0, len(hits))
+	var readBuf []byte // reused copyNode destination; values cloned out before reuse
+	for _, h := range hits {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		seg := segments[h.segIdx]
+		priKey, value, allocBuf, err := seg.readSecondaryValueAtNode(h.node, readBuf)
+		if err != nil {
+			if errors.Is(err, lsmkv.Deleted) {
+				// tombstone: the newest version is a delete -> result nil
+				continue
+			}
+			return nil, fmt.Errorf("SegmentGroup::readSecondaryBatchValuesSerial() %q: %w", seg.getPath(), err)
+		}
+		readBuf = allocBuf // reuse the (possibly grown) buffer for the next read
+		lives = append(lives, secondaryBatchLiveHit{
+			origIdx: h.origIdx,
+			priKey:  bytes.Clone(priKey),
+			value:   bytes.Clone(value),
+			segIdx:  h.segIdx,
+		})
+	}
+	return lives, nil
+}
+
+// recheckSecondaryBatchInSegments runs the segment half of phase 3: for each live
+// hit, is a newer version of its primary key present (live OR tombstone) in any
+// segment newer than the segment where its secondary key was found? If so the hit
+// is superseded (result nil). This is the batched, loop-inverted form of
+// existsWithConsistentViewUpTo(priKey, segIdx+1): per-segment-outer /
+// sorted-priKey-inner, so each newer segment's primary index is descended once
+// over the sorted set of primary keys that must check it. Iterating segments
+// newest-to-oldest and dropping on the first present match makes each hit stop at
+// its newest superseding segment, exactly as the serial recheck does. Sets
+// hit.superseded in place. The memtable half runs first at the bucket layer
+// (memtables are newer than all segments).
+func (sg *SegmentGroup) recheckSecondaryBatchInSegments(ctx context.Context,
+	lives []secondaryBatchLiveHit, segments []Segment,
+) error {
+	if len(lives) == 0 {
+		return nil
+	}
+	scratch := make([]int, 0, len(lives))
+	remaining := len(lives)
+	// newest -> oldest; a hit at segIdx i must check segments with index > i.
+	for sj := len(segments) - 1; sj >= 1 && remaining > 0; sj-- {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		scratch = scratch[:0]
+		for k := range lives {
+			if !lives[k].superseded && lives[k].segIdx < sj {
+				scratch = append(scratch, k)
+			}
+		}
+		if len(scratch) == 0 {
+			continue
+		}
+		sort.Slice(scratch, func(a, b int) bool {
+			return bytes.Compare(lives[scratch[a]].priKey, lives[scratch[b]].priKey) < 0
+		})
+		seg := segments[sj]
+		for _, k := range scratch {
+			err := seg.exists(lives[k].priKey)
+			if err == nil || errors.Is(err, lsmkv.Deleted) {
+				// present (live or tombstone) in a newer segment -> superseded
+				lives[k].superseded = true
+				remaining--
+			} else if !errors.Is(err, lsmkv.NotFound) {
+				return fmt.Errorf("SegmentGroup::recheckSecondaryBatchInSegments() %q: %w", seg.getPath(), err)
+			}
+		}
+	}
+	return nil
 }
 
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {
