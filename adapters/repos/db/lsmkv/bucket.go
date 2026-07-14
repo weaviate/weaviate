@@ -191,6 +191,13 @@ type Bucket struct {
 	// (see WithBM25FilterTombMergeGateRatio). Runtime-tunable via Get().
 	bm25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]
 
+	// secondaryBatchReadConcurrency bounds the per-batch phase-2 value-read
+	// semaphore for GetBySecondaryBatch (design § Option B phase 2). Runtime-tunable
+	// via Get(); nil or a non-positive value falls back to the default 16. Raise on a
+	// fat volume, lower on a throttled one, without redeploy. See
+	// secondaryBatchReadConcurrencyValue.
+	secondaryBatchReadConcurrency *configRuntime.DynamicValue[int]
+
 	// Canonical class name carried by the bucket. Required for any bucket
 	// whose readers go through the storobj decoders (the objects bucket); set
 	// via WithClassName at creation time so the decoders can stamp the

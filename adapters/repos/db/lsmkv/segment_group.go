@@ -933,16 +933,38 @@ func (sg *SegmentGroup) getBySecondaryBatchIndexHits(ctx context.Context, pos in
 	return hits, nil
 }
 
-// readSecondaryBatchValuesSerial runs phase 2 of the batched secondary resolver
-// SERIALLY (child 3a; child 3b swaps this for bounded-concurrent offset-sorted
-// reads). It sorts the phase-1 hits by (segIdx, node.Start) for value-offset
-// locality, reads+parses each value, and returns the live (non-tombstone) hits
-// with priKey and value COPIED OUT (safe both after view release and against the
-// reused read buffer). Tombstone hits are dropped (they resolve to nil). ctx is
-// checked per read.
-func (sg *SegmentGroup) readSecondaryBatchValuesSerial(ctx context.Context,
-	hits []secondaryBatchIndexHit, segments []Segment,
-) ([]secondaryBatchLiveHit, error) {
+// readSecondaryBatchValuesConcurrent runs phase 2 of the batched secondary
+// resolver: it sorts the phase-1 hits by (segIdx, node.Start) for value-offset
+// locality, then issues the copyNode value reads CONCURRENTLY under an errgroup
+// bounded by limit (the per-batch semaphore; design default 16). This is where the
+// cold wall-time win lives (design claim #0): the device's idle queue depth is used
+// instead of one serial pread at a time.
+//
+// Every value is read into ONE per-batch arena sized sum(node.End-node.Start).
+// Each read goroutine writes a DISJOINT arena sub-slice (three-index sliced so its
+// cap == its own size; it cannot overrun into a sibling's range), so the writes are
+// race-free and errgroup.Wait happens-before the caller reads any result. The
+// parsed priKey/value ALIAS their arena sub-slice: the arena is the copy-out
+// (copyNode has already copied the bytes off the possibly-mmap'd segment, so the
+// slices stay valid after the consistent view is released, #1837), and it stays
+// UNPOOLED so GC keeps it rooted while any decoded object references it. LOAD-BEARING
+// INVARIANT: if the arena is ever pooled, decode MUST copy fields out before the
+// arena is released, or the #1837 aliasing class returns one indirection removed.
+//
+// Tombstone hits resolve to nil (dropped). limit floors at 1 (limit==1 is a genuine
+// serial execution, used by the close-blocking wall-time gate as the serial oracle).
+// hook is nil in production; the close-blocking concurrency gate injects it to count
+// peak in-flight reads and inject per-read latency. arenaBytes (== len(arena)) is
+// returned for the memory-observability AC (peak resident arena bytes). ctx
+// cancellation drains cleanly: the group cancels egctx on the first error and each
+// goroutine checks egctx before its read.
+func (sg *SegmentGroup) readSecondaryBatchValuesConcurrent(ctx context.Context,
+	hits []secondaryBatchIndexHit, segments []Segment, limit int,
+	hook *secondaryBatchReadHook,
+) ([]secondaryBatchLiveHit, int, error) {
+	if len(hits) == 0 {
+		return nil, 0, nil
+	}
 	sort.Slice(hits, func(a, b int) bool {
 		if hits[a].segIdx != hits[b].segIdx {
 			return hits[a].segIdx < hits[b].segIdx
@@ -950,30 +972,75 @@ func (sg *SegmentGroup) readSecondaryBatchValuesSerial(ctx context.Context,
 		return hits[a].node.Start < hits[b].node.Start
 	})
 
-	lives := make([]secondaryBatchLiveHit, 0, len(hits))
-	var readBuf []byte // reused copyNode destination; values cloned out before reuse
-	for _, h := range hits {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		seg := segments[h.segIdx]
-		priKey, value, allocBuf, err := seg.readSecondaryValueAtNode(h.node, readBuf)
-		if err != nil {
-			if errors.Is(err, lsmkv.Deleted) {
-				// tombstone: the newest version is a delete -> result nil
-				continue
+	// exact per-hit offsets into one arena; sizes are known from the phase-1 nodes.
+	offsets := make([]int, len(hits))
+	arenaBytes := 0
+	for i, h := range hits {
+		offsets[i] = arenaBytes
+		arenaBytes += int(h.node.End - h.node.Start)
+	}
+	arena := make([]byte, arenaBytes)
+
+	if limit < 1 {
+		limit = 1
+	}
+
+	// results[i] is written only by goroutine i (disjoint index) -> race-free; the
+	// live/tombstone filter runs after Wait.
+	type phase2Result struct {
+		live secondaryBatchLiveHit
+		ok   bool
+	}
+	results := make([]phase2Result, len(hits))
+
+	eg, egctx := enterrors.NewErrorGroupWithContextWrapper(sg.logger, ctx)
+	eg.SetLimit(limit)
+	for i := range hits {
+		i := i
+		eg.Go(func() error {
+			if err := egctx.Err(); err != nil {
+				return err
 			}
-			return nil, fmt.Errorf("SegmentGroup::readSecondaryBatchValuesSerial() %q: %w", seg.getPath(), err)
-		}
-		readBuf = allocBuf // reuse the (possibly grown) buffer for the next read
-		lives = append(lives, secondaryBatchLiveHit{
-			origIdx: h.origIdx,
-			priKey:  bytes.Clone(priKey),
-			value:   bytes.Clone(value),
-			segIdx:  h.segIdx,
+			h := hits[i]
+			size := int(h.node.End - h.node.Start)
+			// disjoint sub-slice with cap==size: this goroutine can only write its
+			// own [offset, offset+size) range of the shared arena backing array.
+			dst := arena[offsets[i] : offsets[i]+size : offsets[i]+size]
+
+			if hook != nil && hook.onReadStart != nil {
+				hook.onReadStart()
+			}
+			priKey, value, _, err := segments[h.segIdx].readSecondaryValueAtNode(h.node, dst)
+			if hook != nil && hook.onReadDone != nil {
+				hook.onReadDone()
+			}
+			if err != nil {
+				if errors.Is(err, lsmkv.Deleted) {
+					// tombstone: newest version is a delete -> result nil, not an error
+					return nil
+				}
+				return fmt.Errorf("SegmentGroup::readSecondaryBatchValuesConcurrent() %q: %w",
+					segments[h.segIdx].getPath(), err)
+			}
+			// priKey/value alias the arena sub-slice; no clone (the arena is the copy-out).
+			results[i] = phase2Result{
+				live: secondaryBatchLiveHit{origIdx: h.origIdx, priKey: priKey, value: value, segIdx: h.segIdx},
+				ok:   true,
+			}
+			return nil
 		})
 	}
-	return lives, nil
+	if err := eg.Wait(); err != nil {
+		return nil, arenaBytes, err
+	}
+
+	lives := make([]secondaryBatchLiveHit, 0, len(hits))
+	for i := range results {
+		if results[i].ok {
+			lives = append(lives, results[i].live)
+		}
+	}
+	return lives, arenaBytes, nil
 }
 
 // recheckSecondaryBatchInSegments runs the segment half of phase 3: for each live

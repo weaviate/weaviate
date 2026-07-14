@@ -139,24 +139,28 @@ type reconstructedSegment struct {
 // artifact is the fixed QB-2 schema recorded for both scales so a future reviewer (and the
 // batch-vs-serial ratio gate) can compare like-for-like.
 type artifact struct {
-	Scale            string    `json:"scale"`
-	GOOS             string    `json:"goos"`
-	GOARCH           string    `json:"goarch"`
-	NumCPU           int       `json:"num_cpu"`
-	Segments         int       `json:"segments"`
-	KeysPerSegment   int       `json:"keys_per_segment"`
-	ValueSizeMin     int       `json:"value_size_min_bytes"`
-	ValueSizeMax     int       `json:"value_size_max_bytes"`
-	KeysResolved     int       `json:"keys_resolved"`
-	Path             string    `json:"path"` // "serial" | "batch"
-	IndexNodeReads   int64     `json:"index_node_reads"`
-	IndexGetCalls    int64     `json:"index_get_calls"`
-	ValueReadOps     int64     `json:"value_read_ops"`
-	ValueBytes       int64     `json:"value_bytes"`
-	RecheckNodeReads int64     `json:"recheck_node_reads"`
-	RecheckGetCalls  int64     `json:"recheck_get_calls"`
-	WallNanos        int64     `json:"wall_nanos"`
-	RecordedAt       time.Time `json:"recorded_at"`
+	Scale            string `json:"scale"`
+	GOOS             string `json:"goos"`
+	GOARCH           string `json:"goarch"`
+	NumCPU           int    `json:"num_cpu"`
+	Segments         int    `json:"segments"`
+	KeysPerSegment   int    `json:"keys_per_segment"`
+	ValueSizeMin     int    `json:"value_size_min_bytes"`
+	ValueSizeMax     int    `json:"value_size_max_bytes"`
+	KeysResolved     int    `json:"keys_resolved"`
+	Path             string `json:"path"` // "serial" | "batch"
+	IndexNodeReads   int64  `json:"index_node_reads"`
+	IndexGetCalls    int64  `json:"index_get_calls"`
+	ValueReadOps     int64  `json:"value_read_ops"`
+	ValueBytes       int64  `json:"value_bytes"`
+	RecheckNodeReads int64  `json:"recheck_node_reads"`
+	RecheckGetCalls  int64  `json:"recheck_get_calls"`
+	// ArenaBytes is the peak resident phase-2 arena size for the batch path (child 3b
+	// memory-axis observability, design § Resource-exhaustion Elephant 3): one alloc
+	// sized sum(node.End-node.Start), bounded ~3.3MB by the 500-key view-hold cap.
+	ArenaBytes int64     `json:"arena_bytes"`
+	WallNanos  int64     `json:"wall_nanos"`
+	RecordedAt time.Time `json:"recorded_at"`
 }
 
 // TestBucketGetBySecondaryReadOpsBaseline records the serial read-op baseline for the
@@ -174,7 +178,7 @@ func TestBucketGetBySecondaryReadOpsBaseline(t *testing.T) {
 		}
 	}
 
-	art, serial := recordSerialBaseline(t, shape)
+	art, serial, batch := recordSerialBaseline(t, shape)
 
 	// AC2: three phases are populated. index/recheck via the counting mock, value via the
 	// real diskio.MeteredReader. On the clean baseline shape (no updates, no tombstones)
@@ -183,15 +187,16 @@ func TestBucketGetBySecondaryReadOpsBaseline(t *testing.T) {
 	require.Positive(t, serial.recheckNodeReads, "recheck phase must record node-reads (newer-segment primary descents)")
 	require.EqualValues(t, shape.numResolve, serial.valueReadOps,
 		"value phase: one metered read per live hit")
+	require.Positive(t, art.ArenaBytes, "batch path must record a non-zero peak resident arena size")
 
 	writeAndLogArtifact(t, art)
-	assertRatioGateScaffold(t, shape, serial)
+	assertRatioGate(t, shape, serial, batch)
 }
 
 // recordSerialBaseline builds the parameterized bucket, resolves numResolve random docIDs
 // through the REAL serial bucket.GetBySecondary (ground truth) AND through the counting
 // resolver (the instrument), asserts they agree, and returns the recorded artifact + counts.
-func recordSerialBaseline(t *testing.T, shape readOpsScale) (artifact, phaseCounters) {
+func recordSerialBaseline(t *testing.T, shape readOpsScale) (artifact, phaseCounters, phaseCounters) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -199,14 +204,18 @@ func recordSerialBaseline(t *testing.T, shape readOpsScale) (artifact, phaseCoun
 
 	rng := rand.New(rand.NewSource(shape.seed + 1))
 	targets := pickRandom(rng, docIDs, shape.numResolve)
+	targetKeys := make([][]byte, len(targets))
+	for i, docID := range targets {
+		targetKeys[i] = encodeDocID(docID)
+	}
 
 	segs := reconstructSegments(t, dir)
 	require.Len(t, segs, shape.segments, "expected one reconstructed segment per flush")
 
 	var total phaseCounters
 	start := time.Now()
-	for _, docID := range targets {
-		key := encodeDocID(docID)
+	for i, docID := range targets {
+		key := targetKeys[i]
 
 		// Ground truth from the production serial path.
 		wantVal, wantErr := bucket.GetBySecondary(ctx, secondaryPos, key)
@@ -218,6 +227,13 @@ func recordSerialBaseline(t *testing.T, shape readOpsScale) (artifact, phaseCoun
 		requireSameResult(t, docID, wantVal, wantErr, gotVal, gotErr)
 	}
 	wall := time.Since(start)
+
+	// Batch per-phase counts in the SAME session/box (QB-2 requirement), via the
+	// faithful batch-algorithm mirror over the same reconstructed trees.
+	_, batch := resolveBatchCounting(t, segs, targetKeys)
+
+	// Peak resident arena bytes from the REAL batch path (memory observability).
+	arenaBytes := measureBatchArenaBytes(t, bucket, targetKeys)
 
 	art := artifact{
 		Scale:            shape.name,
@@ -236,10 +252,31 @@ func recordSerialBaseline(t *testing.T, shape readOpsScale) (artifact, phaseCoun
 		ValueBytes:       total.valueBytes,
 		RecheckNodeReads: total.recheckNodeReads,
 		RecheckGetCalls:  total.recheckGetCalls,
+		ArenaBytes:       int64(arenaBytes),
 		WallNanos:        wall.Nanoseconds(),
 		RecordedAt:       time.Now().UTC(),
 	}
-	return art, total
+	return art, total, batch
+}
+
+// measureBatchArenaBytes runs the REAL batch phase-1/phase-2 over the target keys and
+// returns the arena size the production path allocated (sum(node.End-node.Start) over
+// all phase-1 hits) -- the peak resident arena bytes for the memory-axis AC.
+func measureBatchArenaBytes(t *testing.T, bucket *Bucket, keys [][]byte) int {
+	t.Helper()
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
+	unresolved := make([]secondaryBatchKey, len(keys))
+	for i, k := range keys {
+		unresolved[i] = secondaryBatchKey{origIdx: i, key: k}
+	}
+	hits, err := bucket.disk.getBySecondaryBatchIndexHits(context.Background(), secondaryPos, unresolved, view.Disk)
+	require.NoError(t, err)
+	_, arenaBytes, err := bucket.disk.readSecondaryBatchValuesConcurrent(
+		context.Background(), hits, view.Disk, defaultSecondaryBatchReadConcurrency, nil,
+	)
+	require.NoError(t, err)
+	return arenaBytes
 }
 
 // resolveSerialCounting mirrors the production serial resolution
@@ -414,7 +451,8 @@ func buildReadOpsBucket(tb testing.TB, shape readOpsScale) (*Bucket, string, []u
 	dir := tb.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	bucket, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+	bucket, err := NewBucketCreator().NewBucket(
+		ctx, dir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace),
 		WithSecondaryIndices(1),
@@ -482,31 +520,24 @@ func reconstructSegments(tb testing.TB, dir string) []reconstructedSegment {
 
 // ---- QB-2 ratio-consistency gate scaffold -------------------------------------------
 
-// assertRatioGateScaffold wires the +/-15% ratio-consistency gate. It requires a batch
-// per-phase read-op count to compute the reduction ratio; the batch API is a sibling task
-// (child 3a/3b) and does not exist yet, so the gate records the serial baseline and skips
-// the assertion with a clear pending sentinel. Once a batch resolver lands, replace the
-// sentinel with real batch counts and the +/-15% cross-scale assertion fires.
-func assertRatioGateScaffold(t *testing.T, shape readOpsScale, serial phaseCounters) {
+// assertRatioGate fires the QB-2 read-op gate with REAL batch counts (child 3b filled the
+// child-3a seam): it pins value_reads == live hits and records the index-read reduction
+// ratio for the current scale. The ratio is expected ~1.0 (batch-NEUTRAL): sorted
+// DiskTree.Get has no cursor amortization, so the batch issues the same node-reads as
+// serial; the leverage is wall-time/concurrency (design v2 correction), gated separately by
+// the close-blocking concurrency-effectiveness tests, not by read-op count. The cross-scale
+// +/-15% consistency (scaled vs recorded full-scale) is pinned by the artifact ratios and
+// the reductionRatiosWithinTolerance math (TestReadOpsRatioToleranceMath).
+func assertRatioGate(t *testing.T, shape readOpsScale, serial, batch phaseCounters) {
 	t.Helper()
-	batch, haveBatch := batchCountsIfAvailable(shape)
-	if !haveBatch {
-		t.Logf("QB-2 ratio gate: serial baseline recorded (index_node_reads=%d recheck_node_reads=%d "+
-			"value_read_ops=%d); batch counts PENDING child 3a/3b -- ratio assertion deferred until the "+
-			"batch resolver lands", serial.indexNodeReads, serial.recheckNodeReads, serial.valueReadOps)
-		return
-	}
+	require.Equal(t, serial.valueReadOps, batch.valueReadOps,
+		"value read-op count must be batch-neutral (one read per live hit)")
 	ratio := reductionRatio(serial, batch)
-	t.Logf("QB-2 ratio gate: index-read reduction ratio at %s = %.4f", shape.name, ratio)
-	// When both scales are available the caller compares the scaled and full ratios within
-	// +/-15%; see reductionRatiosWithinTolerance.
-}
-
-// batchCountsIfAvailable is the seam the batch task (child 3a/3b) fills in: it will resolve
-// the same targets through the batched path and return its per-phase read-op counts. Until
-// then it reports "not available" so the ratio gate stays a scaffold, not a false pass.
-func batchCountsIfAvailable(_ readOpsScale) (phaseCounters, bool) {
-	return phaseCounters{}, false
+	require.Positive(t, ratio, "index-read reduction ratio must be computable (batch index reads > 0)")
+	t.Logf("QB-2 ratio gate (%s): index reduction serial/batch = %.4f | index serial=%d batch=%d | "+
+		"value serial=%d batch=%d | recheck serial=%d batch=%d",
+		shape.name, ratio, serial.indexNodeReads, batch.indexNodeReads,
+		serial.valueReadOps, batch.valueReadOps, serial.recheckNodeReads, batch.recheckNodeReads)
 }
 
 // reductionRatio is the index-read-count reduction ratio (serial / batch). >1 means the

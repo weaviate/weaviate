@@ -21,10 +21,14 @@ package lsmkv
 // layer; a read-op-neutrality test records the before/after counts.
 
 import (
+	"bytes"
 	"context"
 	"math/rand"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -669,4 +673,322 @@ func resolveBatchCounting(t testing.TB, segs []reconstructedSegment, keys [][]by
 		}
 	}
 	return out, c
+}
+
+// ---- child 3b: phase-2 concurrency, arena, compaction-stress -----------------------
+//
+// The close-blocking concurrency-effectiveness gate (design Gap 1). Read-op count is
+// orthogonal to whether phase 2 runs 16-wide or accidentally serial, so the headline
+// win (concurrent value issue) needs its OWN gate. Both tests drive the REAL production
+// phase-2 function readSecondaryBatchValuesConcurrent through a nil-in-production
+// instrumentation hook, so an accidentally-serial phase 2 (B=1, SetLimit bug, or a
+// serializing lock) FAILS them.
+
+// buildAllHitSecondaryBucket writes numKeys distinct live docIDs spread across `segments`
+// flushed segments, each key written exactly once (no updates, no tombstones), so every
+// key resolves to a live value in exactly one segment: a clean all-hit batch.
+func buildAllHitSecondaryBucket(t testing.TB, numKeys, segments int) (*Bucket, [][]byte) {
+	t.Helper()
+	b := newSecondaryBatchTestBucket(t, false)
+	keys := make([][]byte, numKeys)
+	perSeg := (numKeys + segments - 1) / segments
+	written := 0
+	for s := 0; s < segments && written < numKeys; s++ {
+		for i := 0; i < perSeg && written < numKeys; i++ {
+			d := uint64(written)
+			val := make([]byte, 48)
+			val[0], val[1] = byte(d), byte(d>>8) // observably distinct per key
+			require.NoError(t, b.Put(encodePrimaryKey(d), val,
+				WithSecondaryKey(secondaryPos, encodeDocID(d))))
+			keys[written] = encodeDocID(d)
+			written++
+		}
+		require.NoError(t, b.FlushAndSwitch())
+	}
+	return b, keys
+}
+
+// indexHitsForKeys runs the real phase-1 index descent over keys under view, returning the
+// confirmed hits phase 2 consumes. Lets the concurrency gate exercise the real phase-2 fn.
+func indexHitsForKeys(t testing.TB, b *Bucket, view BucketConsistentView, keys [][]byte) []secondaryBatchIndexHit {
+	t.Helper()
+	unresolved := make([]secondaryBatchKey, len(keys))
+	for i, k := range keys {
+		unresolved[i] = secondaryBatchKey{origIdx: i, key: k}
+	}
+	hits, err := b.disk.getBySecondaryBatchIndexHits(context.Background(), secondaryPos, unresolved, view.Disk)
+	require.NoError(t, err)
+	return hits
+}
+
+// concurrencyProbe is a deterministic, bounded peak-in-flight counter for the close-blocking
+// gate. onReadStart increments in-flight, records the peak, and blocks on a gate that opens
+// when in-flight reaches target OR a bounded grace deadline fires (armed on the first read).
+// A genuinely-concurrent phase 2 reaches target quickly (gate opens, peak >= target); an
+// accidentally-serial one never exceeds in-flight=1, so the gate opens only at the grace
+// deadline and peak stays 1 -> the assertion fails fast instead of hanging.
+type concurrencyProbe struct {
+	mu       sync.Mutex
+	inflight int
+	peak     int
+	target   int
+	grace    time.Duration
+	gate     chan struct{}
+	closeOne sync.Once
+	armOne   sync.Once
+}
+
+func newConcurrencyProbe(target int, grace time.Duration) *concurrencyProbe {
+	return &concurrencyProbe{target: target, grace: grace, gate: make(chan struct{})}
+}
+
+func (p *concurrencyProbe) openGate() { p.closeOne.Do(func() { close(p.gate) }) }
+
+func (p *concurrencyProbe) onReadStart() {
+	p.armOne.Do(func() { time.AfterFunc(p.grace, p.openGate) })
+	// critical section is not the whole body (the gate wait must be lock-free, or
+	// onReadDone would deadlock), so scope it in an IIFE with a deferred unlock.
+	reached := func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.inflight++
+		if p.inflight > p.peak {
+			p.peak = p.inflight
+		}
+		return p.inflight >= p.target
+	}()
+	if reached {
+		p.openGate()
+	}
+	<-p.gate
+}
+
+func (p *concurrencyProbe) onReadDone() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.inflight--
+}
+
+func (p *concurrencyProbe) peakInflight() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.peak
+}
+
+// TestBucketGetBySecondaryBatchPhase2ConcurrencyPeakInflight is close-blocking gate (i):
+// at B=16 over a 500-key all-hit batch, phase 2 must run >= 8 value reads concurrently.
+func TestBucketGetBySecondaryBatchPhase2ConcurrencyPeakInflight(t *testing.T) {
+	ctx := context.Background()
+	b, keys := buildAllHitSecondaryBucket(t, 500, 6)
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	hits := indexHitsForKeys(t, b, view, keys)
+	require.Len(t, hits, len(keys), "all-hit fixture must confirm every key in phase 1")
+
+	const batchConcurrency = 16
+	probe := newConcurrencyProbe(8, 2*time.Second)
+	hook := &secondaryBatchReadHook{onReadStart: probe.onReadStart, onReadDone: probe.onReadDone}
+
+	lives, arenaBytes, err := b.disk.readSecondaryBatchValuesConcurrent(ctx, hits, view.Disk, batchConcurrency, hook)
+	require.NoError(t, err)
+	require.Len(t, lives, len(keys), "every all-hit key must yield a live value")
+	require.Positive(t, arenaBytes, "phase 2 must allocate a non-zero arena")
+
+	require.GreaterOrEqualf(t, probe.peakInflight(), 8,
+		"phase 2 peaked at %d in-flight reads at B=16; < 8 means it serialized "+
+			"(B=1 misconfig, SetLimit bug, or a serializing lock)", probe.peakInflight())
+}
+
+// TestBucketGetBySecondaryBatchPhase2WallTimeRatio is close-blocking gate (ii): under a
+// fixed injected per-read latency, the concurrent batch (B=16) must complete in <= 0.5x the
+// serial (B=1) wall time on the same hits. A serialized phase 2 would be ~1x and fail.
+func TestBucketGetBySecondaryBatchPhase2WallTimeRatio(t *testing.T) {
+	ctx := context.Background()
+	b, keys := buildAllHitSecondaryBucket(t, 500, 6)
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	const perRead = 1 * time.Millisecond
+	latency := &secondaryBatchReadHook{onReadStart: func() { time.Sleep(perRead) }}
+
+	hitsSerial := indexHitsForKeys(t, b, view, keys)
+	startSerial := time.Now()
+	livesSerial, _, err := b.disk.readSecondaryBatchValuesConcurrent(ctx, hitsSerial, view.Disk, 1, latency)
+	serialWall := time.Since(startSerial)
+	require.NoError(t, err)
+	require.Len(t, livesSerial, len(keys))
+
+	hitsConc := indexHitsForKeys(t, b, view, keys)
+	startConc := time.Now()
+	livesConc, _, err := b.disk.readSecondaryBatchValuesConcurrent(ctx, hitsConc, view.Disk, 16, latency)
+	concWall := time.Since(startConc)
+	require.NoError(t, err)
+	require.Len(t, livesConc, len(keys))
+
+	require.Lessf(t, concWall, serialWall/2,
+		"concurrent phase 2 (B=16) must be <= 0.5x serial (B=1) under injected %s/read latency; "+
+			"serial=%s concurrent=%s (a serialized phase 2 would be ~1x)", perRead, serialWall, concWall)
+}
+
+// TestBucketGetBySecondaryBatchArenaNonAliasing pins the disjoint-sub-slice invariant: each
+// result owns its own arena range, so mutating one result never perturbs another, and the
+// results stay valid after the view is released (GetBySecondaryBatch releases its own view).
+func TestBucketGetBySecondaryBatchArenaNonAliasing(t *testing.T) {
+	ctx := context.Background()
+	b, keys := buildAllHitSecondaryBucket(t, 128, 4)
+
+	got, err := b.GetBySecondaryBatch(ctx, secondaryPos, keys) // view already released on return
+	require.NoError(t, err)
+	require.Len(t, got, len(keys))
+
+	snapshot := make([][]byte, len(got))
+	for i := range got {
+		require.NotNilf(t, got[i], "all-hit key %d must resolve", i)
+		snapshot[i] = bytes.Clone(got[i])
+	}
+
+	// Mutate result[0] in place; every other result must be byte-identical to its snapshot
+	// (disjoint arena sub-slices -> no aliasing across results).
+	for j := range got[0] {
+		got[0][j] ^= 0xFF
+	}
+	for j := 1; j < len(got); j++ {
+		require.Equalf(t, snapshot[j], got[j],
+			"mutating result[0] perturbed result[%d]: arena sub-slices are not disjoint", j)
+	}
+}
+
+// TestBucketGetBySecondaryBatchCtxCancelMidPhase2 confirms AC1's clean drain: cancelling ctx
+// mid-phase-2 surfaces context.Canceled (the errgroup cancels egctx on the first error and
+// pending reads observe it) rather than hanging or leaking goroutines (the -race run would
+// flag a leak/deadlock).
+func TestBucketGetBySecondaryBatchCtxCancelMidPhase2(t *testing.T) {
+	b, keys := buildAllHitSecondaryBucket(t, 500, 6)
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	hits := indexHitsForKeys(t, b, view, keys)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var once sync.Once
+	hook := &secondaryBatchReadHook{onReadStart: func() { once.Do(cancel) }}
+
+	_, _, err := b.disk.readSecondaryBatchValuesConcurrent(ctx, hits, view.Disk, 16, hook)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// newCompactableSecondaryBucket is like newSecondaryBatchTestBucket but leaves compaction
+// enabled so compactOnce can merge segments while a batch reads them.
+func newCompactableSecondaryBucket(t testing.TB) *Bucket {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	b, err := NewBucketCreator().NewBucket(
+		ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace),
+		WithSecondaryIndices(1),
+		WithPread(true),
+		WithMinMMapSize(0),
+		WithUseBloomFilter(false),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+	return b
+}
+
+// buildCompactableSecondaryBucket writes several overlapping segments (updates + tombstones,
+// so newest-wins across segments is exercised) with all data in segments (no leftover
+// active/flushing memtable), returning the docID universe. Compaction is result-preserving
+// for a Replace bucket, so a ground-truth resolution taken before compaction stays valid.
+func buildCompactableSecondaryBucket(t testing.TB, seed int64) (*Bucket, []uint64) {
+	t.Helper()
+	b := newCompactableSecondaryBucket(t)
+	rng := rand.New(rand.NewSource(seed))
+
+	const universeSize = 300
+	universe := make([]uint64, universeSize)
+	for i := range universe {
+		universe[i] = uint64(i)
+	}
+	putVersion := func(d uint64, version int) {
+		val := make([]byte, 24)
+		rng.Read(val)
+		val[0] = byte(version)
+		require.NoError(t, b.Put(encodePrimaryKey(d), val, WithSecondaryKey(secondaryPos, encodeDocID(d))))
+	}
+
+	const segments = 5
+	for s := 0; s < segments; s++ {
+		for _, d := range universe {
+			switch r := rng.Intn(100); {
+			case r < 55:
+				putVersion(d, s)
+			case r < 65:
+				require.NoError(t, b.Delete(encodePrimaryKey(d), WithSecondaryKey(secondaryPos, encodeDocID(d))))
+			default:
+			}
+		}
+		require.NoError(t, b.FlushAndSwitch())
+	}
+	return b, universe
+}
+
+// TestBucketGetBySecondaryBatchCompactionStressRace runs GetBySecondaryBatch concurrently
+// with active compaction under the race detector, asserting equality to a pre-compaction
+// ground truth AND no crash. Compaction swaps/drops segments under an in-flight batch, so
+// this doubles as the #1837 copy-under-refcount race probe: every returned value must have
+// been copied out of the segment into the arena before the view released. Run with -race.
+func TestBucketGetBySecondaryBatchCompactionStressRace(t *testing.T) {
+	ctx := context.Background()
+	b, universe := buildCompactableSecondaryBucket(t, 20260714)
+	keys := make([][]byte, len(universe))
+	for i, d := range universe {
+		keys[i] = encodeDocID(d)
+	}
+
+	// Ground truth via the per-key loop; compaction is result-preserving so it stays valid.
+	want := resolveViaLoop(t, b, secondaryPos, keys)
+
+	var compactionDone atomic.Bool
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer compactionDone.Store(true)
+		for {
+			compacted, err := b.disk.compactOnce(ctx)
+			if err != nil {
+				t.Errorf("compactOnce under stress: %v", err)
+				return
+			}
+			if !compacted {
+				return
+			}
+		}
+	}()
+
+	const resolvers = 4
+	for g := 0; g < resolvers; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for iter := 0; !compactionDone.Load() || iter == 0; iter++ {
+				got, err := b.GetBySecondaryBatch(ctx, secondaryPos, keys)
+				if err != nil {
+					t.Errorf("batch under compaction: %v", err)
+					return
+				}
+				for i := range keys {
+					if !bytes.Equal(got[i], want[i]) {
+						t.Errorf("compaction-stress divergence at position %d (key %x)", i, keys[i])
+						return
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
