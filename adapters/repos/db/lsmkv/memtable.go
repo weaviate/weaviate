@@ -138,11 +138,11 @@ type Memtable struct {
 
 	tombstones *sroar.Bitmap
 	// tombstonesSnapshot is an immutable copy of tombstones published for lock-free
-	// reads. ReadOnlyTombstones rebuilds it lazily when tombstonesDirty is set; it is
-	// never mutated in place, so readers share it without cloning or locking. Both are
-	// atomic so the read fast path touches neither the memtable RWMutex nor a copy.
+	// reads. SetTombstone clears it to nil to mark it stale; ReadOnlyTombstones
+	// rebuilds it lazily when it loads nil. It is never mutated in place, so readers
+	// share it without cloning or locking, and the read fast path is a single atomic
+	// load that touches neither the memtable RWMutex nor a copy.
 	tombstonesSnapshot atomic.Pointer[sroar.Bitmap]
-	tombstonesDirty    atomic.Bool
 	// invMu guards the inverted-strategy delete/prop-length state (tombstones,
 	// propLengthExists, currPropLength*) independently of the tree RWMutex, so
 	// SetTombstone does not take the exclusive lock that getMap readers wait on.
@@ -683,26 +683,26 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	// checkStrategy passing implies the inverted constructor ran, which sets
 	// m.tombstones to a non-nil bitmap, so the Clone below never nil-derefs.
 
-	// Lock-free fast path: a clean, already-published snapshot is served without
-	// touching the memtable RWMutex. A tombstone set concurrently with this load may
-	// not yet be visible, which is within consistent-view semantics — the query fixes
-	// its tombstone view at setup, and a delete racing the query may order either way.
-	if !m.tombstonesDirty.Load() {
-		if snap := m.tombstonesSnapshot.Load(); snap != nil {
-			return snap, nil
-		}
+	// Lock-free fast path: an already-published snapshot is served without touching
+	// the memtable RWMutex. SetTombstone clears the snapshot to nil only after mutating
+	// the bitmap, so a non-nil snapshot always reflects every tombstone set before it
+	// was published. A tombstone set concurrently with this load may not yet be visible,
+	// which is within consistent-view semantics — the query fixes its tombstone view at
+	// setup, and a delete racing the query may order either way.
+	if snap := m.tombstonesSnapshot.Load(); snap != nil {
+		return snap, nil
 	}
 
-	// Rebuild under invMu (the same lock SetTombstone takes). The snapshot is stored
-	// before the dirty flag is cleared, so a reader that observes !dirty is guaranteed
-	// to load that snapshot.
+	// Rebuild under invMu (the same lock SetTombstone takes), re-checking after locking
+	// in case another reader already republished the snapshot.
 	m.invMu.Lock()
 	defer m.invMu.Unlock()
-	if m.tombstonesDirty.Load() || m.tombstonesSnapshot.Load() == nil {
-		m.tombstonesSnapshot.Store(m.tombstones.Clone())
-		m.tombstonesDirty.Store(false)
+	if snap := m.tombstonesSnapshot.Load(); snap != nil {
+		return snap, nil
 	}
-	return m.tombstonesSnapshot.Load(), nil
+	snap := m.tombstones.Clone()
+	m.tombstonesSnapshot.Store(snap)
+	return snap, nil
 }
 
 func (m *Memtable) SetTombstone(docId uint64) error {
@@ -714,7 +714,7 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	defer m.invMu.Unlock()
 
 	m.tombstones.Set(docId)
-	m.tombstonesDirty.Store(true)
+	m.tombstonesSnapshot.Store(nil)
 	m.propLengthExists.Remove(docId)
 
 	return nil
