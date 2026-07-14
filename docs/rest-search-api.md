@@ -235,7 +235,7 @@ Each hit in `results` is a **gRPC-proto-like envelope**, the typed
 `SearchResultObject`:
 
 - `id` — the object UUID, **always returned** (the handler always requests
-  it; listing `id` in `return_metadata` is an accepted no-op).
+  it internally).
 - `properties` — the selected non-reference properties (nested objects
   pruned to the selected nested fields). Always present, `{}` when the
   request selects no properties.
@@ -277,6 +277,18 @@ Also from the same review round:
   (`explorer.go`, `near_params_vector.go`) now use stdlib
   `fmt.Errorf("…: %w", err)` — messages byte-identical, chain preserved;
   the `ErrQueryVectorization` attachments are unchanged.
+
+### 2026-07-14 — `return_metadata` accepts metadata keys only (Ivan)
+
+`return_metadata` selects only metadata keys: `distance`, `certainty`,
+`score`, `explain_score`, `creation_time`, `last_update_time`. The object
+`id` is not a metadata key — it is always returned as each result's
+top-level `id` field, whatever `return_metadata` contains. Any value
+outside the enum (including `id`) is rejected by swagger validation at
+bind time → 422; the handler's own parser keeps a matching 400 fallback
+for the direct-call path. Strict-now-widen-later: accepting `id` again
+would be a safe widening, so rejecting it pre-ship is the reversible
+choice.
 
 ---
 
@@ -368,7 +380,7 @@ enforced by the generated model at bind time; the rest are the handler's.
 | `limit` / `offset` | `*int64` (ptr) | negative → 400; `limit` 0/omitted → `QUERY_DEFAULTS_LIMIT`; each and their sum capped at `QUERY_MAXIMUM_RESULTS` (else 400, checked pre-db so int overflow cannot reach the negative special limit flags) |
 | `auto_limit` | `*int64` (ptr) | maps to autocut |
 | `return_properties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; unknown name → 400 |
-| `return_metadata` | `[]string` (enum) | `id`, `distance`, `certainty`, `score`, `explain_score`, `creation_time`, `last_update_time`; the object `id` is **always returned** on the envelope — `id` here is an accepted no-op; omitted or `[]` → no `metadata` block; unknown value → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
+| `return_metadata` | `[]string` (enum) | `distance`, `certainty`, `score`, `explain_score`, `creation_time`, `last_update_time` — metadata keys only; the object `id` is **always returned** as the envelope's `id` field and is not a valid entry; omitted or `[]` → no `metadata` block; value outside the enum (incl. `id`) → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
 | `tenant` | `string` | tenant-scoped authz (`ShardsData`) |
 | `consistency_level` | `string` (enum) | ONE / QUORUM / ALL; other value → 422 (swagger enum) |
 | reserved | `*string` / `*int64` (ptr) | `single_prompt`, `grouped_task` (RAG, deferred), `group_by`, `number_of_groups`, `objects_per_group`, `rerank_property`, `rerank_query` — declared but return 422 "not yet supported" when present (non-nil).
@@ -529,7 +541,7 @@ Create a collection with the vectorizer, insert a few objects (via
 ```bash
 curl -s -X POST -H 'Content-Type: application/json' \
   -d '{"query":["spaceship galaxy"],"limit":3,
-       "return_properties":["title"],"return_metadata":["id","distance"]}' \
+       "return_properties":["title"],"return_metadata":["distance"]}' \
   http://127.0.0.1:8091/v1/search/Movie/near-text
 # -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"distance":0.12}}],"took_ms":8}
 ```

@@ -289,15 +289,13 @@ func checkVectorizer(class *models.Class, targetVectors []string) *APIError {
 }
 
 // parseReturnMetadata converts return_metadata into additional.Properties.
-// The object id is always requested — every result carries it — so an
-// explicit "id" entry is an accepted no-op and an empty (or omitted) list
-// still returns the id, just no metadata block.
+// return_metadata selects metadata keys only; the object id is not one of
+// them — it is always requested internally (additional.Properties{ID: true})
+// and returned as each result's id field, whatever the list contains.
 func parseReturnMetadata(class *models.Class, returnMetadata []string, targetVectors []string) (additional.Properties, *APIError) {
 	props := additional.Properties{ID: true}
 	for _, entry := range returnMetadata {
 		switch entry {
-		case "id":
-			// accepted no-op: the id is always returned
 		case "distance":
 			props.Distance = true
 		case "certainty":
@@ -312,7 +310,7 @@ func parseReturnMetadata(class *models.Class, returnMetadata []string, targetVec
 			props.LastUpdateTimeUnix = true
 		default:
 			return additional.Properties{}, newAPIError(http.StatusBadRequest,
-				"unknown return_metadata entry %q, expected one of id, distance, certainty, score, explain_score, creation_time, last_update_time", entry)
+				"unknown return_metadata entry %q, expected one of distance, certainty, score, explain_score, creation_time, last_update_time", entry)
 		}
 	}
 

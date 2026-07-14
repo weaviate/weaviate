@@ -10395,12 +10395,11 @@ func init() {
           "x-nullable": true
         },
         "return_metadata": {
-          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field; listing ` + "`" + `id` + "`" + ` here is an accepted no-op. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
           "type": "array",
           "items": {
             "type": "string",
             "enum": [
-              "id",
               "distance",
               "certainty",
               "score",
@@ -22171,12 +22170,11 @@ func init() {
           "x-nullable": true
         },
         "return_metadata": {
-          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field; listing ` + "`" + `id` + "`" + ` here is an accepted no-op. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
           "type": "array",
           "items": {
             "type": "string",
             "enum": [
-              "id",
               "distance",
               "certainty",
               "score",

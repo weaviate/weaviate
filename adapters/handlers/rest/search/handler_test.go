@@ -246,7 +246,7 @@ func TestHandlerHappyPath(t *testing.T) {
 	}
 
 	payload, apiErr := doNearText(t, deps, nil, "Movie",
-		`{"query":["space opera"],"limit":5,"return_properties":["title","year"],"return_metadata":["id","distance"]}`)
+		`{"query":["space opera"],"limit":5,"return_properties":["title","year"],"return_metadata":["distance"]}`)
 	require.Nil(t, apiErr)
 
 	require.Len(t, payload.Results, 1)
@@ -268,13 +268,12 @@ func TestHandlerHappyPath(t *testing.T) {
 }
 
 // TestHandlerIDAlwaysReturned: every hit carries its id on the envelope,
-// with or without return_metadata; an explicit "id" entry is a no-op and
-// alone never produces a metadata block.
+// with or without return_metadata, and an id-only request produces no
+// metadata block.
 func TestHandlerIDAlwaysReturned(t *testing.T) {
 	for name, body := range map[string]string{
-		"return_metadata omitted":  `{"query":["space"]}`,
-		"return_metadata empty":    `{"query":["space"],"return_metadata":[]}`,
-		"return_metadata id no-op": `{"query":["space"],"return_metadata":["id"]}`,
+		"return_metadata omitted": `{"query":["space"]}`,
+		"return_metadata empty":   `{"query":["space"],"return_metadata":[]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := newTestHandler(t)

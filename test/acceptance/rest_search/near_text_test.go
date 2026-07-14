@@ -255,7 +255,7 @@ func TestRESTSearchNearText(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
 			"query":             []string{"spaceship galaxy"},
 			"return_properties": []string{"title"},
-			"return_metadata":   []string{"id", "distance"},
+			"return_metadata":   []string{"distance"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
@@ -295,6 +295,19 @@ func TestRESTSearchNearText(t *testing.T) {
 		assert.Equal(t, movie1ID.String(), idOf(t, first))
 		// no non-id metadata was requested: the metadata block is omitted
 		assert.NotContains(t, first, "metadata")
+	})
+
+	t.Run("id is not a return_metadata value", func(t *testing.T) {
+		// return_metadata selects metadata keys only; "id" is outside the
+		// swagger enum and is rejected at bind time with the standard
+		// ErrorResponse body
+		status, out := postNearText(t, "Movie", map[string]interface{}{
+			"query":           []string{"spaceship galaxy"},
+			"return_metadata": []string{"id"},
+		})
+		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "return_metadata")
+		assert.Contains(t, out, "error", "bind errors must be ErrorResponse-shaped: %v", out)
 	})
 
 	t.Run("a property named metadata is ordinary user data under properties", func(t *testing.T) {

@@ -63,7 +63,7 @@ type SearchCommon struct {
 	// Reserved for reranking. Returns 422 (not yet supported).
 	RerankQuery *string `json:"rerank_query,omitempty"`
 
-	// The retrieval metadata to return under each result's `metadata` key. The object `id` is always returned as each result's `id` field; listing `id` here is an accepted no-op. Omitted or empty returns no `metadata` block.
+	// The retrieval metadata to return under each result's `metadata` key. The object `id` is always returned as each result's `id` field. Omitted or empty returns no `metadata` block.
 	ReturnMetadata []string `json:"return_metadata"`
 
 	// The properties to return. A dot-path selects one hop across a reference (e.g. `hasAuthor.name`). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.
@@ -150,7 +150,7 @@ var searchCommonReturnMetadataItemsEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["id","distance","certainty","score","explain_score","creation_time","last_update_time"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["distance","certainty","score","explain_score","creation_time","last_update_time"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

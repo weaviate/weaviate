@@ -353,17 +353,20 @@ func TestParseReturnMetadata(t *testing.T) {
 		assert.False(t, addl.Distance)
 	})
 
-	t.Run("explicit id entry is an accepted no-op", func(t *testing.T) {
-		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_metadata":["id"]}`)
-		require.Nil(t, apiErr)
-		addl := searcher.lastParams.AdditionalProperties
-		assert.True(t, addl.ID)
-		assert.False(t, addl.Distance)
+	t.Run("id is not a metadata key", func(t *testing.T) {
+		// return_metadata selects metadata keys only; the id is a top-level
+		// result field. Live, the swagger enum rejects "id" at bind (422);
+		// the parser's own 400 covers the direct-call path.
+		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_metadata":["id"]}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Error(),
+			"expected one of distance, certainty, score, explain_score, creation_time, last_update_time")
 	})
 
 	t.Run("all supported values", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"return_metadata":["id","distance","certainty","score","explain_score","creation_time","last_update_time"]}`)
+			`{"query":["space"],"return_metadata":["distance","certainty","score","explain_score","creation_time","last_update_time"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.True(t, addl.ID)
