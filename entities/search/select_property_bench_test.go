@@ -62,9 +62,8 @@ func BenchmarkFindProperty(b *testing.B) {
 	}
 }
 
-// BenchmarkResolvePattern simulates the refcache read path: for every result
-// object, every schema key is looked up in the same SelectProperties
-// instance.
+// BenchmarkResolvePattern simulates the refcache read path: every schema key
+// looked up per object against the same SelectProperties instance.
 func BenchmarkResolvePattern(b *testing.B) {
 	const objects = 100
 	for _, size := range []int{5, 20, 50} {

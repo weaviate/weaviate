@@ -135,17 +135,12 @@ func (sp SelectProperties) ShouldResolve(path []string) (bool, error) {
 	return false, nil
 }
 
-// FindProperty returns the first property with the given name, or nil if
-// none matches. The returned pointer aliases the slice element and must be
-// treated as read-only.
+// FindProperty returns the first property named propName, or nil. The
+// pointer aliases the slice element; treat it as read-only.
 //
-// The scan is O(n) but allocation-free, which is fine for one-off lookups.
-// Call sites that query the same instance repeatedly (e.g. once per result
-// object) should build a SelectPropertiesIndex via Indexed instead. The
-// index is deliberately not cached on SelectProperties itself: it is a named
-// slice type that is serialized across RPCs, copied by value, and appended
-// to after construction (e.g. extractGroupBy in the gRPC handler), so a
-// cached map could go stale.
+// Prefer Indexed for repeated lookups on the same instance. The index isn't
+// cached here because SelectProperties is copied by value and mutated after
+// construction (e.g. extractGroupBy), so a cached map could go stale.
 func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 	for i := range sp {
 		if sp[i].Name == propName {
@@ -157,16 +152,13 @@ func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 }
 
 // SelectPropertiesIndex is a name-based lookup index over a SelectProperties
-// slice. Build it once per scope in which the same instance is queried
-// repeatedly, then use Find for each lookup. It holds pointers into the
-// slice it was built from, so the slice must not be mutated while the index
-// is in use. The index itself is read-only after construction and therefore
-// safe for concurrent readers.
+// slice; build via Indexed and reuse for repeated lookups. It holds pointers
+// into the source slice, so don't mutate the slice while the index is in
+// use; it is otherwise read-only and safe for concurrent readers.
 type SelectPropertiesIndex map[string]*SelectProperty
 
-// Indexed builds a SelectPropertiesIndex over sp. Like FindProperty, the
-// first occurrence wins if a name appears more than once. An empty or nil
-// receiver yields a nil index, on which Find returns nil for every name.
+// Indexed builds a SelectPropertiesIndex over sp, keeping the first
+// occurrence of duplicate names. A nil or empty sp yields a nil index.
 func (sp SelectProperties) Indexed() SelectPropertiesIndex {
 	if len(sp) == 0 {
 		return nil
@@ -182,9 +174,7 @@ func (sp SelectProperties) Indexed() SelectPropertiesIndex {
 	return idx
 }
 
-// Find returns the property with the given name, or nil if none matches. The
-// returned pointer aliases the element of the slice the index was built from
-// and must be treated as read-only.
+// Find returns the property named propName, or nil if none matches.
 func (idx SelectPropertiesIndex) Find(propName string) *SelectProperty {
 	return idx[propName]
 }
