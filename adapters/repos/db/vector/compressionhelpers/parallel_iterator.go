@@ -84,13 +84,13 @@ func (cpi *parallelIterator[T]) IterateAll(ctx context.Context) (out chan []VecA
 	seedCount := cpi.parallel - 1
 	seeds := cpi.bucket.QuantileKeys(seedCount)
 	if len(seeds) == 0 {
-		// no seeds likely means an empty index. If we exit early, we also need to
-		// stop the progress tracking.
+		// quantile keys are derived from flushed segments only, so an absence
+		// of seeds means no segments — not necessarily no data: the bucket may
+		// still hold entries in the memtable (e.g. recovered from the WAL
+		// after a restart). Fall back to a single sequential cursor, which
+		// also covers the memtable.
 		stopTracking()
-		aborted <- false
-		close(aborted)
-		close(out)
-		return out, aborted
+		return cpi.iterateAllNoConcurrency(ctx)
 	}
 
 	wg := sync.WaitGroup{}
