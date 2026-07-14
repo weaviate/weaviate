@@ -26,11 +26,12 @@ import (
 )
 
 // The inverted reusable cursor reuses its key/value buffers across nodes. When
-// CursorMap wraps it, a caller that holds returned keys and values across
-// iterations must still see each node's own data — that's what the CursorMap
-// deferred-advance and returned-key copy guarantee. Without them the merger
-// would see buffers clobbered by an early advance and every key would collapse
-// onto the last node.
+// CursorMap wraps it, a caller may hold the returned keys across iterations (the
+// key is copied) but must read each node's values during its own iteration (they
+// alias the reused buffer, valid only until the next call). This exercises both
+// guarantees: without the returned-key copy the held keys collapse onto the last
+// node, and without the deferred inner-cursor advance an early advance feeds the
+// merger clobbered buffers.
 func TestCursorMapInvertedReusable_HoldAcrossIterations(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

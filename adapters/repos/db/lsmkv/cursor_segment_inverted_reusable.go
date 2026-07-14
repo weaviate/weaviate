@@ -25,8 +25,9 @@ type segmentCursorInvertedReusable struct {
 	nextOffset uint64
 	nodeBuf    binarySearchNodeMap
 
-	// Reusable decode buffers, so iterating a segment allocates per-node nothing
-	// beyond growth. NOTE: nodeBuf.key/values alias keyBuf/mapPairBuf, which the
+	// Reusable decode buffers: they remove the per-docID MapPair and key/value
+	// allocations (multi-block nodes still allocate the block-entry/data slices in
+	// decodeBlocks). NOTE: nodeBuf.key/values alias keyBuf/mapPairBuf, which the
 	// next parse overwrites — a caller keeping a node across seek/next/first must
 	// copy it first (CursorMap defers its inner-cursor advances for exactly this).
 	readBuf    []byte    // disk-path node read buffer
