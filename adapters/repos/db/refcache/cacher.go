@@ -129,7 +129,9 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search
 		}
 
 		if obj.Schema == nil {
-			return nil
+			// nothing to look up for this object, but sibling objects may still
+			// contain refs
+			continue
 		}
 
 		schemaMap, ok := obj.Schema.(map[string]interface{})

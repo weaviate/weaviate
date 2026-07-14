@@ -153,6 +153,69 @@ func TestCacher(t *testing.T) {
 		assert.Equal(t, 1, repo.counter, "required the expected amount of lookups")
 	})
 
+	t.Run("with a nil-schema object preceding an object with refs", func(t *testing.T) {
+		// a nil-schema object must only be skipped itself, it must not abort
+		// job discovery for its sibling objects in the same result set
+		repo := newFakeRepo()
+		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
+			ClassName: "SomeClass",
+			ID:        strfmt.UUID(id1),
+			Schema: map[string]interface{}{
+				"bar": "some string",
+			},
+		}
+		logger, _ := test.NewNullLogger()
+		cr := NewCacher(repo, logger, "")
+		input := []search.Result{
+			{
+				ID:        "nilSchema",
+				ClassName: "BestClass",
+			},
+			{
+				ID:        "foo",
+				ClassName: "BestClass",
+				Schema: map[string]interface{}{
+					"refProp": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
+						},
+					},
+				},
+			},
+		}
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
+				Name: "refProp",
+				Refs: []search.SelectClass{
+					{
+						ClassName: "SomeClass",
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
+								Name:        "bar",
+								IsPrimitive: true,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		expected := search.Result{
+			ID:        strfmt.UUID(id1),
+			ClassName: "SomeClass",
+			Schema: map[string]interface{}{
+				"bar": "some string",
+			},
+		}
+
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
+		require.Nil(t, err)
+		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
+		require.True(t, ok, "ref of the sibling object must be resolved despite "+
+			"the preceding nil-schema object")
+		assert.Equal(t, expected, res)
+	})
+
 	t.Run("with a nested lookup, partially resolved", func(t *testing.T) {
 		repo := newFakeRepo()
 		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
