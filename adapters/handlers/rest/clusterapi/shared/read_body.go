@@ -12,33 +12,27 @@
 package shared
 
 import (
-	"bytes"
+	"errors"
 	"io"
 )
 
-const (
-	// MaxOnArrivalBodyAlloc caps how many bytes ReadBody allocates based on
-	// the peer-supplied Content-Length once the peer has proven itself by
-	// delivering UnverifiedBodyAlloc real bytes; claims beyond the cap grow
-	// incrementally (io.ReadAll semantics) as data arrives.
-	MaxOnArrivalBodyAlloc = 64 << 20 // 64 MiB
+// UnverifiedBodyAlloc is the only allocation ReadBody makes on an
+// unverified Content-Length claim. Keeping it small bounds the memory a
+// peer can pin with stalled connections (clusterapi auth can be a noop,
+// so claims alone must stay cheap) while still giving the common small
+// internode body a single exact-size allocation.
+const UnverifiedBodyAlloc = 1 << 20 // 1 MiB
 
-	// UnverifiedBodyAlloc is the only allocation ReadBody makes on an
-	// unverified Content-Length claim. Keeping it small bounds the memory a
-	// peer can pin with stalled connections (clusterapi auth can be a noop,
-	// so claims alone must stay cheap) while still giving the common small
-	// internode body a single exact-size allocation.
-	UnverifiedBodyAlloc = 1 << 20 // 1 MiB
-)
-
-// ReadBody reads a body to EOF with allocations proportional to trust: at
-// most UnverifiedBodyAlloc is allocated on the Content-Length claim alone;
-// only after those bytes actually arrive does the claim buy an exact-size
-// buffer (up to MaxOnArrivalBodyAlloc), so forcing a multi-MiB allocation
-// costs the peer real bandwidth. Bodies within UnverifiedBodyAlloc get a
-// single exact-size allocation. A non-positive contentLength falls back to
-// io.ReadAll. net/http caps reads at the declared Content-Length, so bodies
-// shorter than declared surface as io.ErrUnexpectedEOF instead of hanging.
+// ReadBody reads a body to EOF with allocations proportional to the bytes
+// actually delivered, not to the peer-supplied Content-Length. Bodies within
+// UnverifiedBodyAlloc get a single exact-size allocation. Larger claims buy
+// only an UnverifiedBodyAlloc head; from there the buffer doubles (capped at
+// the claim) as bytes arrive, so live memory never exceeds 2x what the peer
+// has actually sent. Honest large bodies pay O(log n) grow-and-copy steps
+// and still end in an exact-size buffer. A non-positive contentLength falls
+// back to io.ReadAll. net/http caps reads at the declared Content-Length, so
+// bodies shorter than declared surface as io.ErrUnexpectedEOF instead of
+// hanging.
 func ReadBody(r io.Reader, contentLength int64) ([]byte, error) {
 	if contentLength <= 0 {
 		return io.ReadAll(r)
@@ -52,27 +46,24 @@ func ReadBody(r io.Reader, contentLength int64) ([]byte, error) {
 		return buf, nil
 	}
 
-	// the claim exceeds what we allocate on trust: require the first
-	// UnverifiedBodyAlloc bytes to arrive before allocating any further
-	head := make([]byte, UnverifiedBodyAlloc)
-	if _, err := io.ReadFull(r, head); err != nil {
+	// the claim exceeds what we allocate on trust: start with an
+	// UnverifiedBodyAlloc head and grow only as bytes actually arrive
+	buf := make([]byte, UnverifiedBodyAlloc)
+	if _, err := io.ReadFull(r, buf); err != nil {
 		return nil, err
 	}
-
-	if contentLength <= MaxOnArrivalBodyAlloc {
-		buf := make([]byte, contentLength)
-		copy(buf, head)
-		if _, err := io.ReadFull(r, buf[len(head):]); err != nil {
+	for int64(len(buf)) < contentLength {
+		grown := make([]byte, min(2*int64(len(buf)), contentLength))
+		filled := copy(grown, buf)
+		buf = grown // drop the old buffer before blocking on the next read
+		if _, err := io.ReadFull(r, buf[filled:]); err != nil {
+			if errors.Is(err, io.EOF) {
+				// ReadFull reports a bare EOF when zero bytes arrive, but
+				// mid-body (the head already arrived) that is a truncation
+				err = io.ErrUnexpectedEOF
+			}
 			return nil, err
 		}
-		return buf, nil
 	}
-
-	// don't trust the declared length past the cap; grow incrementally instead
-	buf := bytes.NewBuffer(make([]byte, 0, MaxOnArrivalBodyAlloc))
-	buf.Write(head)
-	if _, err := buf.ReadFrom(r); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return buf, nil
 }

@@ -96,6 +96,25 @@ func TestReadBody(t *testing.T) {
 		assert.True(t, errors.Is(err, io.ErrUnexpectedEOF), "got %v", err)
 	})
 
+	t.Run("huge claim with partial delivery allocates proportional to delivered bytes", func(t *testing.T) {
+		// 2GiB claim, 3MiB delivered: the buffer doubles from the 1MiB head
+		// only as bytes arrive, so live memory stays within 2x delivered and
+		// cumulative allocation within 4x delivered (geometric series), no
+		// matter what the peer declares
+		partial := bytes.Repeat([]byte{0xEE}, 3*UnverifiedBodyAlloc)
+		runtime.GC()
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		out, err := ReadBody(bytes.NewReader(partial), 2<<30)
+		runtime.ReadMemStats(&after)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, io.ErrUnexpectedEOF), "got %v", err)
+		assert.Nil(t, out)
+		allocated := after.TotalAlloc - before.TotalAlloc
+		assert.Less(t, allocated, uint64(4*len(partial)),
+			"claim of 2GiB with %d bytes delivered must allocate proportional to delivery, got %d bytes", len(partial), allocated)
+	})
+
 	t.Run("content length above unverified budget with full body is read exactly", func(t *testing.T) {
 		body := bytes.Repeat([]byte{0x42}, 2*UnverifiedBodyAlloc+512)
 		out, err := ReadBody(bytes.NewReader(body), int64(len(body)))
@@ -104,19 +123,22 @@ func TestReadBody(t *testing.T) {
 		assert.Equal(t, len(body), cap(out))
 	})
 
-	t.Run("body larger than on-arrival cap is read fully", func(t *testing.T) {
-		big := bytes.Repeat([]byte{0xAB}, MaxOnArrivalBodyAlloc+512)
+	t.Run("large body needing several doublings is read fully into an exact buffer", func(t *testing.T) {
+		// 9MiB+3 forces four grow steps past the 1MiB head (2, 4, 8, 9MiB+3);
+		// the final grow caps at the claim, so honest bodies end exact-size
+		big := bytes.Repeat([]byte{0xAB}, 9*UnverifiedBodyAlloc+3)
 		out, err := ReadBody(bytes.NewReader(big), int64(len(big)))
 		require.NoError(t, err)
 		assert.Equal(t, big, out)
+		assert.Equal(t, len(big), cap(out))
 	})
 
-	t.Run("content length exactly at cap uses exact-size path", func(t *testing.T) {
-		big := bytes.Repeat([]byte{0xCD}, MaxOnArrivalBodyAlloc)
-		out, err := ReadBody(bytes.NewReader(big), int64(len(big)))
+	t.Run("content length one past unverified budget grows once to exact size", func(t *testing.T) {
+		body := bytes.Repeat([]byte{0xCD}, UnverifiedBodyAlloc+1)
+		out, err := ReadBody(bytes.NewReader(body), int64(len(body)))
 		require.NoError(t, err)
-		assert.Equal(t, big, out)
-		assert.Equal(t, MaxOnArrivalBodyAlloc, cap(out))
+		assert.Equal(t, body, out)
+		assert.Equal(t, len(body), cap(out))
 	})
 
 	t.Run("content length exactly at unverified budget uses exact-size path", func(t *testing.T) {
