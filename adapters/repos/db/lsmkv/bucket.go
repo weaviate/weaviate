@@ -336,8 +336,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			enableChecksumValidation:     b.enableChecksumValidation,
 			keepSegmentsInMemory:         b.keepSegmentsInMemory,
 			MinMMapSize:                  b.minMMapSize,
-			pinSegmentIndexThreshold:     pinThreshold,
-			pinSegmentIndexTotalLimit:    b.segmentIndexPinTotalLimit,
+			segmentIndexPinThreshold:     pinThreshold,
+			segmentIndexPinTotalLimit:    b.segmentIndexPinTotalLimit,
 			pinBucketLabel:               pinBucketLabel,
 			bm25config:                   b.bm25Config,
 			lazyPropertyLengths:          b.lazyPropertyLengths,
@@ -379,9 +379,8 @@ func (b *Bucket) GetDir() string {
 	return b.dir
 }
 
-// resolveSegmentIndexPin turns the bucket-level pin config (see
-// WithSegmentIndexPin) into this bucket's threshold/label, or 0/"" if out of
-// scope or disabled.
+// resolveSegmentIndexPin resolves this bucket's pin threshold/label from the
+// config set via WithSegmentIndexPin; 0/"" means disabled or out of scope.
 func (b *Bucket) resolveSegmentIndexPin() (threshold int64, bucketLabel string) {
 	if b.segmentIndexPinThreshold <= 0 {
 		return 0, ""

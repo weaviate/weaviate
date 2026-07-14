@@ -511,6 +511,10 @@ func FromEnv(config *Config) error {
 		if err != nil {
 			return fmt.Errorf("parse PERSISTENCE_LSM_SEGMENT_INDEX_PIN_TOTAL_LIMIT: %w", err)
 		}
+		// an unlimited node-wide budget defeats its purpose; require a finite size
+		if parsed == math.MaxInt64 {
+			return fmt.Errorf("parse PERSISTENCE_LSM_SEGMENT_INDEX_PIN_TOTAL_LIMIT: %q not supported, provide a finite size (e.g. \"4GiB\")", v)
+		}
 		config.Persistence.LSMSegmentIndexPinTotalLimit = parsed
 	} else {
 		config.Persistence.LSMSegmentIndexPinTotalLimit = DefaultPersistenceLSMSegmentIndexPinTotalLimit

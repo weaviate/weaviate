@@ -1482,6 +1482,8 @@ func TestEnvironmentPersistenceLSMSegmentIndexPinTotalLimit(t *testing.T) {
 		{"Valid IEC unit", []string{"4GiB"}, 4 << 30, false},
 		{"not given defaults to 2GiB", []string{}, DefaultPersistenceLSMSegmentIndexPinTotalLimit, false},
 		{"not parsable", []string{"I'm not a number"}, -1, true},
+		{"unlimited rejected", []string{"unlimited"}, -1, true},
+		{"nolimit rejected", []string{"nolimit"}, -1, true},
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {

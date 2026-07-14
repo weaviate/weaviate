@@ -88,9 +88,9 @@ type SegmentGroup struct {
 	MinMMapSize              int64
 	keepLevelCompaction      bool // see bucket for more details
 
-	// see segmentConfig.pinSegmentIndexThreshold / pinBucketLabel
-	pinSegmentIndexThreshold  int64
-	pinSegmentIndexTotalLimit int64
+	// see segmentConfig.segmentIndexPinThreshold / pinBucketLabel
+	segmentIndexPinThreshold  int64
+	segmentIndexPinTotalLimit int64
 	pinBucketLabel            string
 
 	allocChecker   memwatch.AllocChecker
@@ -133,8 +133,8 @@ type sgConfig struct {
 	enableChecksumValidation     bool
 	keepSegmentsInMemory         bool
 	MinMMapSize                  int64
-	pinSegmentIndexThreshold     int64
-	pinSegmentIndexTotalLimit    int64
+	segmentIndexPinThreshold     int64
+	segmentIndexPinTotalLimit    int64
 	pinBucketLabel               string
 	bm25config                   *models.BM25Config
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
@@ -171,8 +171,8 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		lastCompactionCall:           now,
 		lastCleanupCall:              now,
 		MinMMapSize:                  cfg.MinMMapSize,
-		pinSegmentIndexThreshold:     cfg.pinSegmentIndexThreshold,
-		pinSegmentIndexTotalLimit:    cfg.pinSegmentIndexTotalLimit,
+		segmentIndexPinThreshold:     cfg.segmentIndexPinThreshold,
+		segmentIndexPinTotalLimit:    cfg.segmentIndexPinTotalLimit,
 		pinBucketLabel:               cfg.pinBucketLabel,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
@@ -271,8 +271,8 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					enableChecksumValidation:  sg.enableChecksumValidation,
 					sequentialAccess:          sg.sequentialAccess,
 					MinMMapSize:               sg.MinMMapSize,
-					pinSegmentIndexThreshold:  sg.pinSegmentIndexThreshold,
-					pinSegmentIndexTotalLimit: sg.pinSegmentIndexTotalLimit,
+					segmentIndexPinThreshold:  sg.segmentIndexPinThreshold,
+					segmentIndexPinTotalLimit: sg.segmentIndexPinTotalLimit,
 					pinBucketLabel:            sg.pinBucketLabel,
 					allocChecker:              sg.allocChecker,
 					fileList:                  make(map[string]int64), // empty to not check if bloom/cna files already exist
@@ -399,8 +399,8 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			enableChecksumValidation:  sg.enableChecksumValidation,
 			sequentialAccess:          sg.sequentialAccess,
 			MinMMapSize:               sg.MinMMapSize,
-			pinSegmentIndexThreshold:  sg.pinSegmentIndexThreshold,
-			pinSegmentIndexTotalLimit: sg.pinSegmentIndexTotalLimit,
+			segmentIndexPinThreshold:  sg.segmentIndexPinThreshold,
+			segmentIndexPinTotalLimit: sg.segmentIndexPinTotalLimit,
 			pinBucketLabel:            sg.pinBucketLabel,
 			allocChecker:              sg.allocChecker,
 			fileList:                  files,
@@ -594,8 +594,8 @@ func (sg *SegmentGroup) add(path string) error {
 			enableChecksumValidation:  sg.enableChecksumValidation,
 			sequentialAccess:          sg.sequentialAccess,
 			MinMMapSize:               sg.MinMMapSize,
-			pinSegmentIndexThreshold:  sg.pinSegmentIndexThreshold,
-			pinSegmentIndexTotalLimit: sg.pinSegmentIndexTotalLimit,
+			segmentIndexPinThreshold:  sg.segmentIndexPinThreshold,
+			segmentIndexPinTotalLimit: sg.segmentIndexPinTotalLimit,
 			pinBucketLabel:            sg.pinBucketLabel,
 			allocChecker:              sg.allocChecker,
 			writeMetadata:             sg.writeMetadata,

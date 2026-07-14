@@ -138,8 +138,8 @@ type segment struct {
 
 	deleteMarkerSuffix string
 
-	// pinnedIndexBytes > 0: index is heap-pinned, not mmap'd; the buffer is
-	// freed by GC, close() only retires the metric.
+	// pinnedIndexBytes > 0: index is a heap copy, not mmap'd; close() must
+	// retire the gauge and release the budget reservation.
 	pinnedIndexBytes int64
 	// pinnedBucketLabel is the metric label recorded at pin time.
 	pinnedBucketLabel string
@@ -189,8 +189,8 @@ type segmentConfig struct {
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 
 	// see WithSegmentIndexPin; threshold 0 (default) disables pinning
-	pinSegmentIndexThreshold  int64
-	pinSegmentIndexTotalLimit int64
+	segmentIndexPinThreshold  int64
+	segmentIndexPinTotalLimit int64
 	// pinBucketLabel is the metric label used when pinning is enabled.
 	pinBucketLabel string
 }
@@ -214,12 +214,6 @@ func releaseSegmentIndexPin(n int64) {
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
-//
-// This function is partially copied by a function called preComputeSegmentMeta.
-// Any changes made here should likely be made in preComputeSegmentMeta as well,
-// and vice versa. This is absolutely not ideal, but in the short time I was able
-// to consider this, I wasn't able to find a way to unify the two -- there are
-// subtle differences.
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
 ) (_ *segment, rerr error) {
@@ -243,11 +237,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		_ = fadviseSequential(file)
 	}
 
-	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
-	// invariant: We close **only** if any error happened after successfully opening the file. To avoid leaking open file descriptor.
-	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
+	// constructed flags successful construction. The cleanup defers below
+	// check it instead of rerr: they run before recover() sets rerr on a
+	// panic (defers run LIFO), so an rerr check would skip cleanup there.
+	constructed := false
+
+	// file's lifetime exceeds this constructor (kept open for contentFile);
+	// close it here if the segment is abandoned to avoid leaking the fd.
 	defer func() {
-		if rerr != nil {
+		if !constructed {
 			file.Close()
 		}
 	}()
@@ -308,6 +306,18 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		readFromMemory = true
 		useBloomFilter = false
 	}
+
+	// an abandoned segment (error or panic below) is never close()d, so unmap
+	// here to avoid leaking the mapping
+	defer func() {
+		if !constructed && unMapContents {
+			m := mmap.MMap(contents)
+			if err := m.Unmap(); err != nil {
+				logger.WithField("path", path).Errorf("unmap abandoned segment: %v", err)
+			}
+		}
+	}()
+
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
@@ -333,15 +343,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	// under memory pressure), or a heap copy when pinning applies below.
 	indexRegion := contents[header.IndexStart:]
 	var pinnedIndexBytes int64
-	// error paths below abandon the segment without close(), so release the
-	// budget reservation here too.
+	// an abandoned segment (error or panic below) is never close()d, so
+	// release the budget reservation here
 	defer func() {
-		if rerr != nil && pinnedIndexBytes > 0 {
+		if !constructed && pinnedIndexBytes > 0 {
 			releaseSegmentIndexPin(pinnedIndexBytes)
 		}
 	}()
-	if cfg.pinSegmentIndexThreshold > 0 && unMapContents {
-		if regionSize := size - int64(header.IndexStart); regionSize > 0 && regionSize <= cfg.pinSegmentIndexThreshold {
+	if cfg.segmentIndexPinThreshold > 0 && unMapContents {
+		if regionSize := size - int64(header.IndexStart); regionSize > 0 && regionSize <= cfg.segmentIndexPinThreshold {
 			// require an allocChecker, matching the conservative small-file
 			// read path above: without memory feedback, don't pin
 			var allocErr error
@@ -353,8 +363,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			switch {
 			case allocErr != nil:
 				logger.WithField("path", path).Debugf("memory pressure: not pinning segment index: %v", allocErr)
-			case !reserveSegmentIndexPin(regionSize, cfg.pinSegmentIndexTotalLimit):
-				logger.WithField("path", path).Debugf("node-wide segment index pin limit of %d bytes reached, serving index from mmap", cfg.pinSegmentIndexTotalLimit)
+			case !reserveSegmentIndexPin(regionSize, cfg.segmentIndexPinTotalLimit):
+				logger.WithField("path", path).Debugf("node-wide segment index pin limit of %d bytes reached, serving index from mmap", cfg.segmentIndexPinTotalLimit)
 			default:
 				buf := make([]byte, regionSize)
 				meteredF := diskio.NewMeteredReader(file, diskio.MeteredReaderCallback(metrics.ReadObserver("readSegmentIndexPin")))
@@ -504,6 +514,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		metrics.IncSegmentIndexPinned(stratLabel, seg.pinnedBucketLabel, seg.pinnedIndexBytes)
 	}
 
+	constructed = true
 	return seg, nil
 }
 

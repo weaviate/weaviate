@@ -87,7 +87,7 @@ type Metrics struct {
 	segmentTotalByStrategy *prometheus.GaugeVec
 	segmentSizeByStrategy  *prometheus.HistogramVec
 
-	// heap-pinned segment index metrics, see segmentConfig.pinSegmentIndexThreshold
+	// heap-pinned segment index metrics, see segmentConfig.segmentIndexPinThreshold
 	segmentIndexPinnedTotal *prometheus.GaugeVec
 	segmentIndexPinnedBytes *prometheus.GaugeVec
 

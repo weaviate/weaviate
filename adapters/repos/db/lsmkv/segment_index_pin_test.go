@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -384,7 +385,6 @@ func TestSegmentIndexPin_SafetyFallbacks(t *testing.T) {
 	t.Run("node-wide budget clamps pinning", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "objects")
 
-		// measure one segment's index-region size first
 		b := newBucketRaw(t, dir)
 		seed(t, b)
 		segments := pinTestSegments(t, b)
@@ -392,8 +392,7 @@ func TestSegmentIndexPin_SafetyFallbacks(t *testing.T) {
 		regionSize := segments[0].size - int64(segments[0].segmentStartPos)
 		require.NoError(t, b.Shutdown(ctx))
 
-		// budget fits exactly one segment; write a second segment: only one
-		// of the two can be pinned
+		// budget fits exactly one segment: only one of the two can be pinned
 		b = newBucketRaw(t, dir,
 			WithAllocChecker(memwatch.NewDummyMonitor()),
 			WithSegmentIndexPin(1<<30, regionSize, SegmentIndexPinScopeObjects))
@@ -431,6 +430,115 @@ func TestSegmentIndexPin_SafetyFallbacks(t *testing.T) {
 		}
 		assert.Equal(t, 1, pinned)
 	})
+}
+
+// Regression test: a panic in newSegment after the pin reservation must not
+// leak the pin budget.
+func TestSegmentIndexPin_PanicAfterPinReleasesBudget(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "objects")
+
+	b := newPinTestBucket(t, dir)
+	for i := 0; i < 100; i++ {
+		require.NoError(t, b.Put(pinTestKey(i), pinTestValue(i)))
+	}
+	require.NoError(t, b.FlushMemtable())
+	segments := pinTestSegments(t, b)
+	require.Len(t, segments, 1)
+	segPath := segments[0].path
+	require.NoError(t, b.Shutdown(ctx))
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := NewMetrics(monitoring.GetMetrics(), "pin-panic-class", "pin-panic-shard")
+	require.NoError(t, err)
+
+	cfg := segmentConfig{
+		useBloomFilter:            true,
+		calcCountNetAdditions:     true,
+		overwriteDerived:          true,
+		allocChecker:              memwatch.NewDummyMonitor(),
+		segmentIndexPinThreshold:  1 << 30,
+		segmentIndexPinTotalLimit: 8 << 30,
+		pinBucketLabel:            "objects",
+	}
+
+	baseBudget := segmentIndexPinnedTotalBytes.Load()
+
+	// non-vacuity control: the same config pins the segment when nothing panics
+	benign := func([]byte) (bool, error) { return false, nil }
+	seg, err := newSegment(segPath, logger, metrics, benign, cfg)
+	require.NoError(t, err)
+	require.Positive(t, seg.pinnedIndexBytes, "precondition: config must pin this segment")
+	require.Equal(t, baseBudget+seg.pinnedIndexBytes, segmentIndexPinnedTotalBytes.Load())
+	require.NoError(t, seg.close())
+	require.Equal(t, baseBudget, segmentIndexPinnedTotalBytes.Load())
+
+	// panic injected after the pin point: existsLower runs during
+	// initCountNetAdditions, well after the budget reservation
+	panicking := func([]byte) (bool, error) { panic("injected panic after pin reservation") }
+	seg, err = newSegment(segPath, logger, metrics, panicking, cfg)
+	require.Error(t, err)
+	require.Nil(t, seg)
+	require.ErrorContains(t, err, "unexpected error loading segment")
+	assert.Equal(t, baseBudget, segmentIndexPinnedTotalBytes.Load(),
+		"pin budget must be released when newSegment panics after the reservation")
+}
+
+// Regression test: a failed compaction switchover must release the pinned
+// (but never-published) new segment's budget and gauges.
+func TestSegmentIndexPin_CompactionSwitchoverErrorReleasesAccounting(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "objects")
+	logger, _ := test.NewNullLogger()
+
+	metrics, err := NewMetrics(monitoring.GetMetrics(), "pin-switchover-class", "pin-switchover-shard")
+	require.NoError(t, err)
+
+	pinnedTotal := func() float64 {
+		return testutil.ToFloat64(metrics.segmentIndexPinnedTotal.WithLabelValues(StrategyReplace, "objects"))
+	}
+	pinnedBytes := func() float64 {
+		return testutil.ToFloat64(metrics.segmentIndexPinnedBytes.WithLabelValues(StrategyReplace, "objects"))
+	}
+
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, metrics,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace),
+		WithAllocChecker(memwatch.NewDummyMonitor()),
+		WithSegmentIndexPin(1<<30, 8<<30, SegmentIndexPinScopeObjects))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, b.Shutdown(ctx)) }()
+
+	for i := 0; i < 200; i++ {
+		require.NoError(t, b.Put(pinTestKey(i), pinTestValue(i)))
+	}
+	require.NoError(t, b.FlushMemtable())
+	for i := 200; i < 400; i++ {
+		require.NoError(t, b.Put(pinTestKey(i), pinTestValue(i)))
+	}
+	require.NoError(t, b.FlushMemtable())
+
+	segments := pinTestSegments(t, b)
+	require.Len(t, segments, 2)
+	for _, seg := range segments {
+		require.Positive(t, seg.pinnedIndexBytes, "precondition: both compaction inputs pinned")
+	}
+	wantBudget := segmentIndexPinnedTotalBytes.Load()
+	wantTotal, wantBytes := pinnedTotal(), pinnedBytes()
+
+	// removing the file doesn't fail until switchOnDisk (compaction reads
+	// through the already-mmap'd segment), so it sabotages only the switchover
+	require.NoError(t, os.Remove(segments[0].path))
+
+	compacted, err := b.disk.compactOnce(ctx)
+	require.ErrorContains(t, err, "replace compacted segments on disk",
+		"sabotage must fail exactly in the switchover")
+	require.False(t, compacted)
+
+	assert.Equal(t, wantBudget, segmentIndexPinnedTotalBytes.Load(),
+		"budget must return to its pre-compaction value")
+	assert.Equal(t, wantTotal, pinnedTotal(), "pinned-total gauge must return to baseline")
+	assert.Equal(t, wantBytes, pinnedBytes(), "pinned-bytes gauge must return to baseline")
 }
 
 // BenchmarkSegmentIndexPin_GetBySecondary compares pinned vs mmap'd reads;
