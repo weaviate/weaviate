@@ -154,8 +154,7 @@ func TestCacher(t *testing.T) {
 	})
 
 	t.Run("with a nil-schema object preceding an object with refs", func(t *testing.T) {
-		// a nil-schema object must only be skipped itself, it must not abort
-		// job discovery for its sibling objects in the same result set
+		// nil-schema object must not abort ref discovery for sibling objects
 		repo := newFakeRepo()
 		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",

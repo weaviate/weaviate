@@ -65,8 +65,7 @@ func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 func (r *Resolver) parseObjects(objects []search.Result, properties search.SelectProperties,
 	additional additional.Properties,
 ) ([]search.Result, error) {
-	// the same properties are looked up once per schema key per object, so
-	// index them once for the entire result set
+	// same properties apply to every object; index once here
 	idx := properties.Indexed()
 	for i, obj := range objects {
 		parsed, err := r.parseObject(obj, idx, additional)
@@ -160,7 +159,7 @@ func (r *Resolver) parseRefs(input models.MultipleRef, prop string,
 ) ([]interface{}, error) {
 	var refs []interface{}
 	for _, selectPropRef := range selectProp.Refs {
-		// indexed once here, then reused for every single ref of this property
+		// built once, reused for every ref of this property
 		innerIdx := selectPropRef.RefProperties.Indexed()
 		additionalProperties := selectPropRef.AdditionalProperties
 		perClass, err := r.resolveRefs(input, selectPropRef.ClassName, innerIdx, additionalProperties)

@@ -105,8 +105,7 @@ func (c *Cacher) Build(ctx context.Context, objects []search.Result,
 // start the first lookup as well as recursively on the results of a lookup to
 // further look if a next-level call is required.
 func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search.SelectProperties) error {
-	// on the root level the same properties apply to every object, so the
-	// lookup index can be built once for the entire result set
+	// root-level properties are shared by every object; index once here
 	rootIdx := properties.Indexed()
 
 	for _, obj := range objects {
@@ -129,8 +128,7 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search
 		}
 
 		if obj.Schema == nil {
-			// nothing to look up for this object, but sibling objects may still
-			// contain refs
+			// only this object has nothing to look up; siblings may still have refs
 			continue
 		}
 
