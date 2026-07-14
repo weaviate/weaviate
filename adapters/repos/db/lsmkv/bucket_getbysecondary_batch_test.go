@@ -390,11 +390,12 @@ func TestBucketGetBySecondaryBatchFlushingMemtableReAdd(t *testing.T) {
 	}
 }
 
-// TestBucketGetBySecondaryBatchForcedBloomFP proves the confirmed-hit-only
-// elimination rule: a bloom false positive on the NEWEST segment (bloom passes,
-// index Get misses) must NOT remove the key from the unresolved set; the older
-// segment's live value must still resolve. A "remove on bloom pass" bug would
-// silently resolve the key to nil.
+// TestBucketGetBySecondaryBatchPhase1BloomFPNoEvict proves the phase-1
+// confirmed-hit-only elimination rule: a bloom false positive on the NEWEST segment
+// (bloom passes, index Get misses) must NOT remove the key from the phase-1 unresolved
+// set; the older segment's live value must still resolve. A "remove on bloom pass" bug
+// would silently resolve the key to nil. This exercises the phase-1 index descent
+// (getBySecondaryBatchIndexHits), NOT the phase-3 recheck bloom-positive path.
 //
 // This is the finding-1 mutation proof: it uses a co-resident second key so n>=2 and
 // the batch phase-1 descent runs (the single-key form short-circuits to the serial
@@ -402,7 +403,7 @@ func TestBucketGetBySecondaryBatchFlushingMemtableReAdd(t *testing.T) {
 // elimination bug (dropping a key on a NotFound instead of keeping it) is invisible
 // to it). With that bug injected into getBySecondaryBatchIndexHits, this test goes RED;
 // the single-key form stays GREEN, which is exactly the coverage hole being closed.
-func TestBucketGetBySecondaryBatchForcedBloomFP(t *testing.T) {
+func TestBucketGetBySecondaryBatchPhase1BloomFPNoEvict(t *testing.T) {
 	ctx := context.Background()
 	b := newSecondaryBatchTestBucket(t, true) // bloom ON
 
