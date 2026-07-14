@@ -337,3 +337,79 @@ func TestInvertedCompactionPropertyLengthsSparsePairs(t *testing.T) {
 		require.Equal(t, l, plView.get(id), "view docID %d", id)
 	}
 }
+
+// TestInvertedCompactionReclaimsDeletedPropertyLengths verifies that a delete
+// drops its per-doc property length at compaction, not just its posting. The
+// control (live postings and consumed tombstones) rules out a false pass from a
+// compaction that never ran.
+func TestInvertedCompactionReclaimsDeletedPropertyLengths(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyInverted))
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9) // never auto-flush mid-segment
+
+	const (
+		total   = 100
+		deleted = 60 // docIDs [0,deleted) are tombstoned; [deleted,total) survive
+	)
+	term := []byte("shared")
+
+	// segment 1 (older, c1): every doc under one shared term, each with a propLen
+	for id := 0; id < total; id++ {
+		require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, float32(id+1), false)))
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// segment 2 (newer, c2): tombstone the first `deleted` docs
+	for id := 0; id < deleted; id++ {
+		pair := NewMapPairFromDocIdAndTf(uint64(id), 1, 1, true)
+		require.NoError(t, bucket.MapDeleteKey(term, pair.Key))
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// force the root compaction that physically drops the tombstoned docs
+	for {
+		compacted, err := bucket.disk.compactOnce(ctx)
+		require.NoError(t, err)
+		if !compacted {
+			break
+		}
+	}
+
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
+	require.Len(t, view.Disk, 1, "expected a single segment after compaction")
+	seg := view.Disk[0]
+
+	// control: postings and tombstones prove a real cleanup compaction ran, so a
+	// retained property length can only be the leak, not "hasn't compacted yet"
+	live, err := bucket.MapList(ctx, term)
+	require.NoError(t, err)
+	liveCount := 0
+	for _, mp := range live {
+		if !mp.Tombstone {
+			liveCount++
+		}
+	}
+	require.Equal(t, total-deleted, liveCount, "postings physically reclaimed the deleted docs")
+
+	tomb, err := seg.ReadOnlyTombstones()
+	require.NoError(t, err)
+	require.True(t, tomb == nil || tomb.IsEmpty(), "root compaction consumed the tombstones")
+
+	// property lengths track the live set, not every doc ever ingested
+	pls, err := seg.getPropertyLengths()
+	require.NoError(t, err)
+	assert.Len(t, pls, total-deleted, "deleted docs' property lengths must be reclaimed")
+	for id := 0; id < deleted; id++ {
+		_, ok := pls[uint64(id)]
+		assert.False(t, ok, "tombstoned docID %d still carries a property length", id)
+	}
+	for id := deleted; id < total; id++ {
+		assert.Equal(t, uint32(id+1), pls[uint64(id)], "surviving docID %d property length", id)
+	}
+}

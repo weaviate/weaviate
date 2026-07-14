@@ -364,23 +364,28 @@ func (s *segment) getPropertyLengthsPairs() ([]uint64, []uint32, error) {
 }
 
 // mergePropLenPairs merges two docID-sorted pair arrays into one, deduping
-// docIDs. On a tie the second array wins (c2 is the newer segment) — the
-// precedence the compactor's prior map overwrite relied on.
-func mergePropLenPairs(ids1 []uint64, lens1 []uint32, ids2 []uint64, lens2 []uint32) ([]uint64, []uint32) {
+// docIDs (newer array wins on a tie). docIDs in deletedFromOlder are dropped
+// only from the first (older) array — the newer array is never filtered, since
+// a tombstone suppresses only older segments and a docID re-inserted in the
+// newer segment stays live. deletedFromOlder may be nil.
+func mergePropLenPairs(ids1 []uint64, lens1 []uint32, ids2 []uint64, lens2 []uint32, deletedFromOlder *sroar.Bitmap) ([]uint64, []uint32) {
 	outIDs := make([]uint64, 0, len(ids1)+len(ids2))
 	outLens := make([]uint32, 0, len(ids1)+len(ids2))
+	keepOlder := func(id uint64) bool { return deletedFromOlder == nil || !deletedFromOlder.Contains(id) }
 	i, j := 0, 0
 	for i < len(ids1) && j < len(ids2) {
 		switch {
 		case ids1[i] < ids2[j]:
-			outIDs = append(outIDs, ids1[i])
-			outLens = append(outLens, lens1[i])
+			if keepOlder(ids1[i]) {
+				outIDs = append(outIDs, ids1[i])
+				outLens = append(outLens, lens1[i])
+			}
 			i++
 		case ids1[i] > ids2[j]:
 			outIDs = append(outIDs, ids2[j])
 			outLens = append(outLens, lens2[j])
 			j++
-		default: // equal docID: second (newer) wins
+		default: // equal docID: newer wins
 			outIDs = append(outIDs, ids2[j])
 			outLens = append(outLens, lens2[j])
 			i++
@@ -388,8 +393,10 @@ func mergePropLenPairs(ids1 []uint64, lens1 []uint32, ids2 []uint64, lens2 []uin
 		}
 	}
 	for ; i < len(ids1); i++ {
-		outIDs = append(outIDs, ids1[i])
-		outLens = append(outLens, lens1[i])
+		if keepOlder(ids1[i]) {
+			outIDs = append(outIDs, ids1[i])
+			outLens = append(outLens, lens1[i])
+		}
 	}
 	for ; j < len(ids2); j++ {
 		outIDs = append(outIDs, ids2[j])
