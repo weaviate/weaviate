@@ -33,6 +33,7 @@ SearchBm25OK Search performed successfully.
 swagger:response searchBm25OK
 */
 type SearchBm25OK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type SearchBm25OK struct {
 
 // NewSearchBm25OK creates SearchBm25OK with default headers values
 func NewSearchBm25OK() *SearchBm25OK {
+
 	return &SearchBm25OK{}
 }
 
@@ -57,6 +59,7 @@ func (o *SearchBm25OK) SetPayload(payload *models.SearchResponse) {
 
 // WriteResponse to the client
 func (o *SearchBm25OK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -75,6 +78,7 @@ SearchBm25BadRequest An invalid parameter value (e.g. empty query, negative pagi
 swagger:response searchBm25BadRequest
 */
 type SearchBm25BadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -83,6 +87,7 @@ type SearchBm25BadRequest struct {
 
 // NewSearchBm25BadRequest creates SearchBm25BadRequest with default headers values
 func NewSearchBm25BadRequest() *SearchBm25BadRequest {
+
 	return &SearchBm25BadRequest{}
 }
 
@@ -99,6 +104,7 @@ func (o *SearchBm25BadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SearchBm25BadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -117,6 +123,7 @@ SearchBm25Unauthorized Unauthorized or invalid credentials.
 swagger:response searchBm25Unauthorized
 */
 type SearchBm25Unauthorized struct {
+
 	/*
 	  In: Body
 	*/
@@ -125,6 +132,7 @@ type SearchBm25Unauthorized struct {
 
 // NewSearchBm25Unauthorized creates SearchBm25Unauthorized with default headers values
 func NewSearchBm25Unauthorized() *SearchBm25Unauthorized {
+
 	return &SearchBm25Unauthorized{}
 }
 
@@ -141,6 +149,7 @@ func (o *SearchBm25Unauthorized) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SearchBm25Unauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(401)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -159,6 +168,7 @@ SearchBm25Forbidden Forbidden
 swagger:response searchBm25Forbidden
 */
 type SearchBm25Forbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -167,6 +177,7 @@ type SearchBm25Forbidden struct {
 
 // NewSearchBm25Forbidden creates SearchBm25Forbidden with default headers values
 func NewSearchBm25Forbidden() *SearchBm25Forbidden {
+
 	return &SearchBm25Forbidden{}
 }
 
@@ -183,6 +194,7 @@ func (o *SearchBm25Forbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SearchBm25Forbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -201,6 +213,7 @@ SearchBm25NotFound Unknown collection or tenant.
 swagger:response searchBm25NotFound
 */
 type SearchBm25NotFound struct {
+
 	/*
 	  In: Body
 	*/
@@ -209,6 +222,7 @@ type SearchBm25NotFound struct {
 
 // NewSearchBm25NotFound creates SearchBm25NotFound with default headers values
 func NewSearchBm25NotFound() *SearchBm25NotFound {
+
 	return &SearchBm25NotFound{}
 }
 
@@ -225,6 +239,7 @@ func (o *SearchBm25NotFound) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SearchBm25NotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -238,11 +253,12 @@ func (o *SearchBm25NotFound) WriteResponse(rw http.ResponseWriter, producer runt
 const SearchBm25UnprocessableEntityCode int = 422
 
 /*
-SearchBm25UnprocessableEntity Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.
+SearchBm25UnprocessableEntity Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
 
 swagger:response searchBm25UnprocessableEntity
 */
 type SearchBm25UnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -251,6 +267,7 @@ type SearchBm25UnprocessableEntity struct {
 
 // NewSearchBm25UnprocessableEntity creates SearchBm25UnprocessableEntity with default headers values
 func NewSearchBm25UnprocessableEntity() *SearchBm25UnprocessableEntity {
+
 	return &SearchBm25UnprocessableEntity{}
 }
 
@@ -267,6 +284,7 @@ func (o *SearchBm25UnprocessableEntity) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *SearchBm25UnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -285,6 +303,7 @@ SearchBm25TooManyRequests The server's query rate limit was reached; retry later
 swagger:response searchBm25TooManyRequests
 */
 type SearchBm25TooManyRequests struct {
+
 	/*
 	  In: Body
 	*/
@@ -293,6 +312,7 @@ type SearchBm25TooManyRequests struct {
 
 // NewSearchBm25TooManyRequests creates SearchBm25TooManyRequests with default headers values
 func NewSearchBm25TooManyRequests() *SearchBm25TooManyRequests {
+
 	return &SearchBm25TooManyRequests{}
 }
 
@@ -309,6 +329,7 @@ func (o *SearchBm25TooManyRequests) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SearchBm25TooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -327,6 +348,7 @@ SearchBm25InternalServerError An error has occurred while trying to fulfill the 
 swagger:response searchBm25InternalServerError
 */
 type SearchBm25InternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -335,6 +357,7 @@ type SearchBm25InternalServerError struct {
 
 // NewSearchBm25InternalServerError creates SearchBm25InternalServerError with default headers values
 func NewSearchBm25InternalServerError() *SearchBm25InternalServerError {
+
 	return &SearchBm25InternalServerError{}
 }
 
@@ -351,7 +374,53 @@ func (o *SearchBm25InternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *SearchBm25InternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// SearchBm25ServiceUnavailableCode is the HTTP code returned for type SearchBm25ServiceUnavailable
+const SearchBm25ServiceUnavailableCode int = 503
+
+/*
+SearchBm25ServiceUnavailable The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.
+
+swagger:response searchBm25ServiceUnavailable
+*/
+type SearchBm25ServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSearchBm25ServiceUnavailable creates SearchBm25ServiceUnavailable with default headers values
+func NewSearchBm25ServiceUnavailable() *SearchBm25ServiceUnavailable {
+
+	return &SearchBm25ServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the search bm25 service unavailable response
+func (o *SearchBm25ServiceUnavailable) WithPayload(payload *models.ErrorResponse) *SearchBm25ServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the search bm25 service unavailable response
+func (o *SearchBm25ServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SearchBm25ServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

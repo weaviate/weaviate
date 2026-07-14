@@ -33,6 +33,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewSearchBm25Params() SearchBm25Params {
+
 	return SearchBm25Params{}
 }
 
@@ -41,6 +42,7 @@ func NewSearchBm25Params() SearchBm25Params {
 //
 // swagger:parameters search.bm25
 type SearchBm25Params struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

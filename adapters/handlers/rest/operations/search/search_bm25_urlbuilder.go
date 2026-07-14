@@ -51,7 +51,7 @@ func (o *SearchBm25URL) SetBasePath(bp string) {
 func (o *SearchBm25URL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/search/{collection}/bm25"
+	var _path = "/search/{collection}/bm25"
 
 	collection := o.Collection
 	if collection != "" {

@@ -82,6 +82,12 @@ func (o *SearchBm25Reader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewSearchBm25ServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -144,6 +150,7 @@ func (o *SearchBm25OK) GetPayload() *models.SearchResponse {
 }
 
 func (o *SearchBm25OK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.SearchResponse)
 
 	// response payload
@@ -211,6 +218,7 @@ func (o *SearchBm25BadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchBm25BadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -278,6 +286,7 @@ func (o *SearchBm25Unauthorized) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchBm25Unauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -345,6 +354,7 @@ func (o *SearchBm25Forbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchBm25Forbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -412,6 +422,7 @@ func (o *SearchBm25NotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchBm25NotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -430,7 +441,7 @@ func NewSearchBm25UnprocessableEntity() *SearchBm25UnprocessableEntity {
 /*
 SearchBm25UnprocessableEntity describes a response with status code 422, with default header values.
 
-Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the REST Search API is disabled.
+Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
 */
 type SearchBm25UnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -479,6 +490,7 @@ func (o *SearchBm25UnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchBm25UnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -546,6 +558,7 @@ func (o *SearchBm25TooManyRequests) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchBm25TooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -613,6 +626,75 @@ func (o *SearchBm25InternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchBm25InternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewSearchBm25ServiceUnavailable creates a SearchBm25ServiceUnavailable with default headers values
+func NewSearchBm25ServiceUnavailable() *SearchBm25ServiceUnavailable {
+	return &SearchBm25ServiceUnavailable{}
+}
+
+/*
+SearchBm25ServiceUnavailable describes a response with status code 503, with default header values.
+
+The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.
+*/
+type SearchBm25ServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this search bm25 service unavailable response has a 2xx status code
+func (o *SearchBm25ServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this search bm25 service unavailable response has a 3xx status code
+func (o *SearchBm25ServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this search bm25 service unavailable response has a 4xx status code
+func (o *SearchBm25ServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this search bm25 service unavailable response has a 5xx status code
+func (o *SearchBm25ServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this search bm25 service unavailable response a status code equal to that given
+func (o *SearchBm25ServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the search bm25 service unavailable response
+func (o *SearchBm25ServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *SearchBm25ServiceUnavailable) Error() string {
+	return fmt.Sprintf("[POST /search/{collection}/bm25][%d] searchBm25ServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *SearchBm25ServiceUnavailable) String() string {
+	return fmt.Sprintf("[POST /search/{collection}/bm25][%d] searchBm25ServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *SearchBm25ServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SearchBm25ServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

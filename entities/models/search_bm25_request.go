@@ -112,6 +112,7 @@ func (m *SearchBm25Request) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SearchBm25Request) validateQuery(formats strfmt.Registry) error {
+
 	if err := validate.Required("query", "body", m.Query); err != nil {
 		return err
 	}
