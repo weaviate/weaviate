@@ -312,33 +312,6 @@ func Test_policy(t *testing.T) {
 			tests: objectsDataTests,
 		},
 		{
-			name: "an object in all collections ST (object ignored)",
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Object: baz,
-				},
-			},
-			policy: &authorization.Policy{
-				Resource: CasbinData("*", "*"),
-				Domain:   authorization.DataDomain,
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name: "an object in a collection ST (object ignored)",
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: foo,
-					Object:     baz,
-				},
-			},
-			policy: &authorization.Policy{
-				Resource: CasbinData("Foo", "*"),
-				Domain:   authorization.DataDomain,
-			},
-			tests: objectsDataTests,
-		},
-		{
 			name: "all objects in all tenants in a collection MT",
 			permission: &models.Permission{
 				Data: &models.PermissionData{
@@ -370,62 +343,6 @@ func Test_policy(t *testing.T) {
 				Data: &models.PermissionData{
 					Collection: foo,
 					Tenant:     bar,
-				},
-			},
-			policy: &authorization.Policy{
-				Resource: CasbinData("Foo", "bar"),
-				Domain:   authorization.DataDomain,
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name: "an object in all tenants in all collections MT (object ignored)",
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Object: baz,
-				},
-			},
-			policy: &authorization.Policy{
-				Resource: CasbinData("*", "*"),
-				Domain:   authorization.DataDomain,
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name: "an object in all tenants in a collection MT (object ignored)",
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: foo,
-					Object:     baz,
-				},
-			},
-			policy: &authorization.Policy{
-				Resource: CasbinData("Foo", "*"),
-				Domain:   authorization.DataDomain,
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name: "an object in a tenant in all collections MT (object ignored)",
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Tenant: bar,
-					Object: baz,
-				},
-			},
-			policy: &authorization.Policy{
-				Resource: CasbinData("*", "bar"),
-				Domain:   authorization.DataDomain,
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name: "an object in a tenant in a collection MT (object ignored)",
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: foo,
-					Tenant:     bar,
-					Object:     baz,
 				},
 			},
 			policy: &authorization.Policy{
@@ -508,6 +425,45 @@ func Test_policy(t *testing.T) {
 				policy, err := policy(tt.permission)
 				require.Nil(t, err)
 				require.Equal(t, tt.policy, policy)
+			})
+		}
+	}
+}
+
+// Test_policy_dataObjectIgnored verifies that the Object field of a data
+// permission does not influence the resulting policy: object-level
+// permissions were removed, so a permission carrying a concrete object
+// resolves to the same policy as one without it.
+func Test_policy_dataObjectIgnored(t *testing.T) {
+	deref := func(s *string) string {
+		if s == nil {
+			return ""
+		}
+		return *s
+	}
+	combos := []struct{ collection, tenant *string }{
+		{nil, nil},
+		{foo, nil},
+		{nil, bar},
+		{foo, bar},
+	}
+	for _, c := range combos {
+		for _, it := range objectsDataTests {
+			t.Run(fmt.Sprintf("%s collection=%q tenant=%q", it.testDescription, deref(c.collection), deref(c.tenant)), func(t *testing.T) {
+				action := authorization.String(it.permissionAction)
+				withObject := &models.Permission{
+					Action: action,
+					Data:   &models.PermissionData{Collection: c.collection, Tenant: c.tenant, Object: baz},
+				}
+				withoutObject := &models.Permission{
+					Action: action,
+					Data:   &models.PermissionData{Collection: c.collection, Tenant: c.tenant},
+				}
+				got, err := policy(withObject)
+				require.Nil(t, err)
+				want, err := policy(withoutObject)
+				require.Nil(t, err)
+				require.Equal(t, want, got)
 			})
 		}
 	}
@@ -719,30 +675,6 @@ func Test_permission(t *testing.T) {
 			tests: objectsDataTests,
 		},
 		{
-			name:   "an object in all collections ST (object always wildcard)",
-			policy: []string{"p", "/collections/*/shards/*/objects/baz", "", authorization.DataDomain},
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: authorization.All,
-					Tenant:     authorization.All,
-					Object:     authorization.All,
-				},
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name:   "an object in a collection ST (object always wildcard)",
-			policy: []string{"p", "/collections/Foo/shards/*/objects/baz", "", authorization.DataDomain},
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: foo,
-					Tenant:     authorization.All,
-					Object:     authorization.All,
-				},
-			},
-			tests: objectsDataTests,
-		},
-		{
 			name:   "all objects in all tenants in all collections MT",
 			policy: []string{"p", "/collections/*/shards/*/objects/*", "", authorization.DataDomain},
 			permission: &models.Permission{
@@ -777,54 +709,6 @@ func Test_permission(t *testing.T) {
 		{
 			name:   "all objects in a tenant in a collection MT",
 			policy: []string{"p", "/collections/Foo/shards/bar/objects/*", "", authorization.DataDomain},
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: foo,
-					Tenant:     bar,
-					Object:     authorization.All,
-				},
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name:   "an object in all tenants in all collections MT (object always wildcard)",
-			policy: []string{"p", "/collections/*/shards/*/objects/baz", "", authorization.DataDomain},
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: authorization.All,
-					Tenant:     authorization.All,
-					Object:     authorization.All,
-				},
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name:   "an object in all tenants in a collection MT (object always wildcard)",
-			policy: []string{"p", "/collections/Foo/shards/*/objects/baz", "", authorization.DataDomain},
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: foo,
-					Tenant:     authorization.All,
-					Object:     authorization.All,
-				},
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name:   "an object in a tenant in all collections MT (object always wildcard)",
-			policy: []string{"p", "/collections/*/shards/bar/objects/baz", "", authorization.DataDomain},
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: authorization.All,
-					Tenant:     bar,
-					Object:     authorization.All,
-				},
-			},
-			tests: objectsDataTests,
-		},
-		{
-			name:   "an object in a tenant in a collection MT (object always wildcard)",
-			policy: []string{"p", "/collections/Foo/shards/bar/objects/baz", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Collection: foo,
@@ -893,6 +777,33 @@ func Test_permission(t *testing.T) {
 				permission, err := permission(policyForTest, true)
 				require.Nil(t, err)
 				require.Equal(t, tt.permission, permission)
+			})
+		}
+	}
+}
+
+// Test_permission_dataObjectSegmentIgnored verifies that a stored data policy
+// with a concrete object segment (as written by older versions that supported
+// object-level permissions) converts to the same permission as one with a
+// wildcard object segment: the object segment is ignored and the resulting
+// permission always carries a wildcard object.
+func Test_permission_dataObjectSegmentIgnored(t *testing.T) {
+	paths := []struct{ concrete, wildcard string }{
+		{"/collections/*/shards/*/objects/baz", "/collections/*/shards/*/objects/*"},
+		{"/collections/Foo/shards/*/objects/baz", "/collections/Foo/shards/*/objects/*"},
+		{"/collections/*/shards/bar/objects/baz", "/collections/*/shards/bar/objects/*"},
+		{"/collections/Foo/shards/bar/objects/baz", "/collections/Foo/shards/bar/objects/*"},
+	}
+	for _, tt := range paths {
+		for _, it := range objectsDataTests {
+			t.Run(fmt.Sprintf("%s %s", it.testDescription, tt.concrete), func(t *testing.T) {
+				fromConcrete, err := permission([]string{"p", authorization.DataDomain + tt.concrete, it.policyVerb, authorization.DataDomain}, true)
+				require.Nil(t, err)
+				fromWildcard, err := permission([]string{"p", authorization.DataDomain + tt.wildcard, it.policyVerb, authorization.DataDomain}, true)
+				require.Nil(t, err)
+				require.Equal(t, fromWildcard, fromConcrete)
+				//nolint:staticcheck // asserting the deprecated field is exactly what this test is about
+				require.Equal(t, authorization.All, fromConcrete.Data.Object)
 			})
 		}
 	}
