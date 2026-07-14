@@ -1763,6 +1763,44 @@ func TestObjectsByDocIDSharedViewReleasedOnError(t *testing.T) {
 	}
 }
 
+// TestObjectsByDocIDBatchSlabViewCap pins the 500-key view-hold cap at the storobj
+// boundary: a batch larger than the cap is split into ceil(n/cap) slabs, each under
+// its own consistent view, and results stay positionally aligned to ids across the
+// slab boundary. This is the caller-side proof that storobj hands the whole key set
+// to the batch API (delegating the cap) rather than holding one unbounded view.
+func TestObjectsByDocIDBatchSlabViewCap(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	const n = 2*secondaryBatchViewHoldCapForTest + 100 // 1100 -> 3 slabs
+	bucket := genFakeBucket(t, uint64(n))
+
+	ids := make([]uint64, n)
+	for i := range ids {
+		ids[i] = uint64(i)
+	}
+	// drop a handful so interior nils must stay in place under WithEmpty
+	delete(bucket.objects, 3)
+	delete(bucket.objects, secondaryBatchViewHoldCapForTest+7)
+	delete(bucket.objects, 2*secondaryBatchViewHoldCapForTest+42)
+
+	out, err := ObjectsByDocIDWithEmpty(bucket, ids, additional.Properties{}, nil, logger)
+	require.NoError(t, err)
+	require.Len(t, out, n)
+
+	wantViews := (n + secondaryBatchViewHoldCapForTest - 1) / secondaryBatchViewHoldCapForTest
+	assert.Equal(t, wantViews, bucket.views, "one view per <=cap slab")
+	assert.Equal(t, wantViews, bucket.released, "each slab view released exactly once")
+
+	for i, id := range ids {
+		if _, present := bucket.objects[id]; !present {
+			assert.Nil(t, out[i], "missing id at position %d must stay nil", i)
+			continue
+		}
+		require.NotNil(t, out[i], "position %d", i)
+		assert.Equal(t, id, out[i].DocID, "position %d: DocID misaligned across slabs", i)
+	}
+}
+
 func TestObjectsByDocIDEmptyBatch(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	bucket := genFakeBucket(t, 1000)
@@ -1923,6 +1961,34 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 	}
 }
 
+// BenchmarkObjectsByDocIDPublic compares the production ObjectsByDocID entry point
+// (batched I/O + parallel decode, "batch") against the pre-wiring parallel path
+// (the retained objectsByDocIDParallel wrapper, "old-parallel") on the same fake +
+// ids, so allocations/op deltas isolate the storobj-layer change of the collapse
+// (the concurrent value reads and arena live in the bucket, not here; the fake
+// resolves in memory). Uses t.N correctly (the sibling BenchmarkObjectsByDocID has
+// a b.N-vs-t.N bug that reports garbage; do not use it as a baseline).
+func BenchmarkObjectsByDocIDPublic(b *testing.B) {
+	bucket := genFakeBucket(b, 10000)
+	logger, _ := test.NewNullLogger()
+	ids := pickRandomIDsBetween(0, 10000, 100)
+
+	for _, amount := range []int{1, 2, 10, 100} {
+		b.Run(fmt.Sprintf("batch/amount:%v", amount), func(t *testing.B) {
+			for i := 0; i < t.N; i++ {
+				_, err := ObjectsByDocID(bucket, ids[:amount], additional.Properties{}, nil, logger)
+				require.Nil(t, err)
+			}
+		})
+		b.Run(fmt.Sprintf("old-parallel/amount:%v", amount), func(t *testing.B) {
+			for i := 0; i < t.N; i++ {
+				_, err := objectsByDocIDParallel(bucket, ids[:amount], additional.Properties{}, nil, logger)
+				require.Nil(t, err)
+			}
+		})
+	}
+}
+
 func intsToBytes(ints ...uint64) []byte {
 	byteOps := byteops.NewReadWriter(make([]byte, len(ints)*8))
 	for _, i := range ints {
@@ -1970,6 +2036,12 @@ func FuzzObjectGet(f *testing.F) {
 	})
 }
 
+// secondaryBatchViewHoldCapForTest mirrors lsmkv.secondaryBatchViewHoldCap (500):
+// the number of keys resolved under one consistent view before the batch API splits
+// into another slab. Kept in sync by the TestObjectsByDocIDBatchSlabViewCap
+// expectations below.
+const secondaryBatchViewHoldCapForTest = 500
+
 type fakeBucket struct {
 	objects map[uint64][]byte
 	// views and released count how often a consistent view is acquired and
@@ -1989,6 +2061,35 @@ func (f *fakeBucket) SecondaryViewLookup() (secondaryLookup, func()) {
 func (f *fakeBucket) GetBySecondary(ctx context.Context, indexID int, docIDBytes []byte) ([]byte, error) {
 	res, _, err := f.GetBySecondaryWithBuffer(ctx, indexID, docIDBytes, []byte{})
 	return res, err
+}
+
+// GetBySecondaryBatch mirrors *lsmkv.Bucket: one consistent view per slab of
+// secondaryBatchViewHoldCapForTest keys, results positionally aligned to keys, the
+// view acquired and released exactly once per slab (even when a lookup fails
+// mid-slab). This keeps the storobj-layer view-count assertions meaningful.
+func (f *fakeBucket) GetBySecondaryBatch(ctx context.Context, indexID int, keys [][]byte) ([][]byte, error) {
+	out := make([][]byte, len(keys))
+	for start := 0; start < len(keys); start += secondaryBatchViewHoldCapForTest {
+		end := start + secondaryBatchViewHoldCapForTest
+		if end > len(keys) {
+			end = len(keys)
+		}
+		f.views++
+		var slabErr error
+		for i := start; i < end; i++ {
+			v, _, err := f.GetBySecondaryWithBuffer(ctx, indexID, keys[i], nil)
+			if err != nil {
+				slabErr = err
+				break
+			}
+			out[i] = v
+		}
+		f.released++
+		if slabErr != nil {
+			return nil, slabErr
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
