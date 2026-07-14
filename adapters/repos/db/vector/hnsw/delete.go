@@ -147,12 +147,15 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 
 		return h.isEmptyUnlocked()
 	}()
-	// It can happen that between calls of isEmptyUnlocked and resetUnlocked
-	// values of h.nodes will change (due to locks being RUnlocked and Locked again)
-	// This is acceptable in order to avoid long Locking of all striped locks
 	if empty {
 		h.shardedNodeLocks.LockAll()
 		defer h.shardedNodeLocks.UnlockAll()
+
+		// never wipe live nodes over a dangling entrypoint — the next search
+		// or insert repairs it reactively
+		if h.hasLiveNodesUnlocked() {
+			return false, nil
+		}
 
 		return true, h.resetUnlocked()
 	}
@@ -633,11 +636,10 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	}
 
 	node.Lock()
-	level := node.level
 	id := node.id
 	node.Unlock()
 
-	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, level, id)
+	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, id)
 	if !ok {
 		return nil
 	}
@@ -653,8 +655,36 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	return nil
 }
 
+var errNoUsableEntrypoint = errors.New("no valid entrypoint available")
+
+// repairGlobalEntrypoint replaces an unusable global entrypoint with a usable
+// node, skipping nodes in denyList (which must already contain oldEntrypoint).
+// If a concurrent operation changed the entrypoint first, that entrypoint is
+// returned instead. Returns errNoUsableEntrypoint if no candidate remains.
+func (h *hnsw) repairGlobalEntrypoint(oldEntrypoint uint64, denyList helpers.AllowList) (uint64, error) {
+	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, oldEntrypoint)
+	if !ok {
+		if currentEp := h.getEntrypoint(); currentEp != oldEntrypoint {
+			return currentEp, nil
+		}
+		return 0, errNoUsableEntrypoint
+	}
+
+	h.Lock()
+	defer h.Unlock()
+	if h.entryPointID != oldEntrypoint {
+		return h.entryPointID, nil
+	}
+	h.entryPointID = newEntrypoint
+	h.currentMaximumLayer = level
+	if err := h.commitLog.SetEntryPointWithMaxLayer(newEntrypoint, level); err != nil {
+		return 0, fmt.Errorf("persist entrypoint: %w", err)
+	}
+	return newEntrypoint, nil
+}
+
 // returns entryPointID, level and whether a change occurred
-func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel int,
+func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList,
 	oldEntrypoint uint64,
 ) (uint64, int, bool) {
 	if h.getEntrypoint() != oldEntrypoint {
@@ -665,9 +695,9 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 
 	h.metrics.TombstoneFindGlobalEntrypoint()
 
-	// First pass: find the node with the highest level that is not in the denyList.
-	// This handles cases where nodes may have higher levels than both targetLevel
-	// and currentMaximumLayer (e.g., due to corrupt commit log replay or
+	// Find the node with the highest level that is not in the denyList. This
+	// handles cases where nodes may have higher levels than
+	// currentMaximumLayer (e.g., due to corrupt commit log replay or
 	// deserialization bugs).
 	h.RLock()
 	maxNodes := len(h.nodes)
@@ -700,7 +730,10 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		candidateLevel := candidate.level
 		candidate.Unlock()
 
-		if candidateLevel > bestLevel {
+		// skip tombstoned and under-maintenance nodes: they would immediately
+		// be found broken again
+		if candidateLevel > bestLevel && !candidate.isUnderMaintenance() &&
+			!h.hasTombstone(uint64(i)) {
 			bestCandidate = uint64(i)
 			bestLevel = candidateLevel
 			foundCandidate = true
@@ -711,20 +744,7 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		return bestCandidate, bestLevel, true
 	}
 
-	if h.isEmpty() {
-		return 0, 0, false
-	}
-
-	if h.isOnlyNode(&vertex{id: oldEntrypoint}, denyList) {
-		return 0, 0, false
-	}
-
-	// we made it through the entire graph and didn't find a new entrypoint all
-	// the way down to level 0. This can only mean the graph is empty, which is
-	// unexpected. This situation should have been prevented by the deleteLock.
-	panic(fmt.Sprintf(
-		"class %s: shard %s: findNewEntrypoint called on an empty hnsw graph",
-		h.className, h.shardName))
+	return 0, 0, false
 }
 
 // returns entryPointID, level and whether a change occurred

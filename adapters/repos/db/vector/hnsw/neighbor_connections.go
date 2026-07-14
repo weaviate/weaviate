@@ -447,34 +447,25 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 
 	candidate := n.entryPointID
 
-	// for our search we will need a copy of the current deny list, however, the
-	// cost of that copy can be significant. Let's first verify if the global
-	// entrypoint candidate is usable. If yes, we can return early and skip the
-	// copy.
 	success, err := n.tryEpCandidate(candidate)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if !errors.As(err, &e) {
-			return err
-		}
-
-		// node was deleted in the meantime
-		// ignore the error and move to the logic below which will try more candidates
+		return err
 	}
-
 	if success {
-		// the global ep candidate is usable, let's skip the following logic (and
-		// therefore avoid the copy)
 		return nil
 	}
 
-	// The global candidate is not usable, we need to find a new one.
+	// the global candidate is unusable: repair the global entrypoint, then keep
+	// trying candidates locally, denying every node already found unusable
 	localDeny := n.denyList.WrapOnWrite()
+	localDeny.Insert(candidate)
 
-	// make sure the loop cannot block forever. In most cases, results should be
-	// found within micro to milliseconds, this is just a last resort to handle
-	// the unknown somewhat gracefully, for example if there is a bug in the
-	// underlying object store and we cannot retrieve the vector in time, etc.
+	candidate, err = n.graph.repairGlobalEntrypoint(candidate, localDeny)
+	if err != nil {
+		return fmt.Errorf("global entrypoint repair: %w", err)
+	}
+
+	// the 60s timeout is a last-resort safety net, not an expected path
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	n.graph.logger.WithFields(logrus.Fields{
@@ -489,27 +480,19 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 
 		success, err := n.tryEpCandidate(candidate)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if !errors.As(err, &e) {
-				return err
-			}
-
-			// node was deleted in the meantime
-			// ignore the error and try the next candidate
+			return err
 		}
-
 		if success {
 			return nil
 		}
-
-		// no success so far, we need to keep going and find a better candidate
-		// make sure we never visit this candidate again
 		localDeny.Insert(candidate)
-		// now find a new one
 
 		alternative, err := n.graph.findNewLocalEntrypoint(localDeny, candidate)
 		if err != nil {
 			return err
+		}
+		if localDeny.Contains(alternative) {
+			return fmt.Errorf("no usable entrypoint: local fallback exhausted")
 		}
 		candidate = alternative
 	}

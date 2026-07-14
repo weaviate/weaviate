@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
@@ -449,6 +450,13 @@ func (h *hnsw) multiVectorForNodeID(ctx context.Context, nodeID uint64) ([]float
 	docID, relativeID := h.compressor.GetKeys(nodeID)
 	vecs, err := h.MultiVectorForIDThunk(ctx, docID)
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			// key not-found errors by the requested node id, not the internal
+			// docID fetch
+			return nil, storobj.NewErrNotFoundf(nodeID,
+				"multi-vector recovery (docID %d): %v", docID, err)
+		}
 		return nil, errors.Wrapf(err, "multi-vector recovery for nodeID %d (docID %d)", nodeID, docID)
 	}
 	if int(relativeID) >= len(vecs) {
