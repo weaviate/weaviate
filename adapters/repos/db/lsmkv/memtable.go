@@ -146,8 +146,9 @@ type Memtable struct {
 	// invMu guards the inverted-strategy delete/prop-length state (tombstones,
 	// propLengthExists, currPropLength*) independently of the tree RWMutex, so
 	// SetTombstone does not take the exclusive lock that getMap readers wait on.
+	// GetPropLengths only reads, so it takes the read lock.
 	// Lock order when both are held: the tree lock first, then invMu (appendMapSorted).
-	invMu sync.Mutex
+	invMu sync.RWMutex
 
 	enableChecksumValidation bool
 
@@ -719,6 +720,9 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 }
 
 func (m *Memtable) GetPropLengths() (uint64, uint64) {
+	m.invMu.RLock()
+	defer m.invMu.RUnlock()
+
 	return m.currPropLengthSum, m.currPropLengthCount
 }
 
