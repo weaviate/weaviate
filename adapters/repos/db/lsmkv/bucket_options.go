@@ -125,9 +125,9 @@ func WithBM25FilterTombMergeGateRatio(ratio *configRuntime.DynamicValue[float64]
 }
 
 // WithSecondaryBatchReadConcurrency sets the per-batch phase-2 value-read semaphore
-// for GetBySecondaryBatch (design § Option B phase 2). Read live per batch, so
-// runtime config retunes it without a restart; when left unset or non-positive the
-// read falls back to the default 16.
+// for GetBySecondaryBatch (the bound on how many value reads a single batch issues
+// concurrently). Read live per batch, so runtime config retunes it without a
+// restart; when left unset or non-positive the read falls back to the default 16.
 func WithSecondaryBatchReadConcurrency(concurrency *configRuntime.DynamicValue[int]) BucketOption {
 	return func(b *Bucket) error {
 		b.secondaryBatchReadConcurrency = concurrency

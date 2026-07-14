@@ -59,6 +59,7 @@ type WeaviateRuntimeConfig struct {
 	InvertedSorterDisabled                    *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 	LazyPropertyLengthsEnabled                *runtime.DynamicValue[bool]          `json:"lazy_property_lengths_enabled" yaml:"lazy_property_lengths_enabled"`
 	BM25FilterTombMergeGateRatio              *runtime.DynamicValue[float64]       `json:"bm25_filter_tombstone_merge_gate_ratio" yaml:"bm25_filter_tombstone_merge_gate_ratio"`
+	SecondaryBatchReadConcurrency             *runtime.DynamicValue[int]           `json:"secondary_batch_read_concurrency" yaml:"secondary_batch_read_concurrency"`
 	UsageGCSBucket                            *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
 	UsageGCSPrefix                            *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
 	UsageS3Bucket                             *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`

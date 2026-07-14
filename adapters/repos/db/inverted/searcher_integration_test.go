@@ -959,8 +959,8 @@ func TestFilterASCIIFold(t *testing.T) {
 }
 
 // TestObjectsByDocID_BatchDifferential is the searcher-level differential test for
-// child 5: the batched objectsByDocID (slabbed GetBySecondaryBatch) must return
-// results byte-identical to the pre-change serial per-key GetBySecondary loop, for
+// the filter-path wiring: the batched objectsByDocID (slabbed GetBySecondaryBatch)
+// must return results byte-identical to the serial per-key GetBySecondary loop, for
 // randomized docID sequences that mix found / deleted / non-existent / duplicate
 // ids across many limits. The reference (objectsByDocIDSerialReference) replicates
 // the exact pre-change loop; the production path is Searcher.objectsByDocID.
@@ -1083,7 +1083,7 @@ func TestObjectsByDocID_BatchDifferential(t *testing.T) {
 	}
 }
 
-// objectsByDocIDSerialReference replicates the pre-child-5 serial resolution loop
+// objectsByDocIDSerialReference replicates the original serial resolution loop
 // (one bucket.GetBySecondary per iterated docID, deleted/missing ids skipped, limit
 // counting resolved objects) so the batched production path can be diffed against it.
 func objectsByDocIDSerialReference(t *testing.T, store *lsmkv.Store, it docIDsIterator,

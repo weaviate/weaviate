@@ -22,21 +22,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBucketGetBySecondaryOptionASortDelta records the Option-A benchmark delta
-// against the child-1 serial baseline (AC4). It resolves the same 500 doc IDs in
-// two orders (caller order = baseline, and on-disk secondary-key order = Option
-// A: sort by bits.ReverseBytes64) and reports per-phase read-op counts and wall
-// time for both.
+// TestBucketGetBySecondaryOptionASortDelta records the sort-order (Option A)
+// benchmark delta against the serial read-op baseline. It resolves the same 500 doc
+// IDs in two orders (caller order = baseline, and on-disk secondary-key order: sort
+// by bits.ReverseBytes64) and reports per-phase read-op counts and wall time for both.
 //
 // Finding it pins: the read-op COUNT is order-INDEPENDENT. segmentindex.DiskTree.Get
 // restarts from the root on every call, so k sorted Gets touch exactly the same
-// nodes as k unsorted Gets (child-1 dev-correction #2 / design claim #4). Option A
-// therefore changes neither index-descent nor value read counts; its win is CPU/
-// page-cache temporal locality (upper tree nodes stay hot across a worker's
-// index-adjacent range), a wall-time effect this counting harness is explicitly
-// designed NOT to measure and which in-heap reconstructed trees cannot reproduce
-// (no cold mmap page cache). The real wall-time win is measured at cold-disk /
-// LTK scale, tracked as the design's load-test follow-up.
+// nodes as k unsorted Gets. Sorting therefore changes neither index-descent nor value
+// read counts; its win is CPU/page-cache temporal locality (upper tree nodes stay hot
+// across a worker's index-adjacent range), a wall-time effect this counting harness is
+// explicitly designed NOT to measure and which in-heap reconstructed trees cannot
+// reproduce (no cold mmap page cache). The real wall-time win is measured at cold-disk
+// scale, tracked as a load-test follow-up.
 func TestBucketGetBySecondaryOptionASortDelta(t *testing.T) {
 	shape := scaledShape()
 	_, dir, universe := buildReadOpsBucket(t, shape)
@@ -63,7 +61,7 @@ func TestBucketGetBySecondaryOptionASortDelta(t *testing.T) {
 		optionA.valueReadOps-baseline.valueReadOps,
 		optionA.recheckNodeReads-baseline.recheckNodeReads)
 
-	// AC4 core assertion: sorting does not change the read-op count at any phase.
+	// core assertion: sorting does not change the read-op count at any phase.
 	assert.Equal(t, baseline.indexNodeReads, optionA.indexNodeReads,
 		"index-descent read-op count must be unchanged by sort order")
 	assert.Equal(t, baseline.valueReadOps, optionA.valueReadOps,
@@ -77,7 +75,7 @@ func TestBucketGetBySecondaryOptionASortDelta(t *testing.T) {
 }
 
 // resolveAllCounting resolves every key against segs (newest->oldest) via the
-// child-1 counting resolver, accumulating per-phase read-ops and total wall time.
+// read-op-counting resolver, accumulating per-phase read-ops and total wall time.
 func resolveAllCounting(t *testing.T, segs []reconstructedSegment, ids []uint64) (phaseCounters, time.Duration) {
 	t.Helper()
 	var total phaseCounters

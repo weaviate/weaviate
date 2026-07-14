@@ -215,7 +215,7 @@ func TestObjectsByDocIDDuplicateIDsPositional(t *testing.T) {
 	}
 }
 
-// TestSecondaryKeyLessMatchesDiskTreeOrder is the comparator gate (AC3): the sort
+// TestSecondaryKeyLessMatchesDiskTreeOrder is the comparator gate: the sort
 // order induced by secondaryKeyLess must equal the order segmentindex.DiskTree.Get
 // actually traverses, which is bytes.Compare over the little-endian 8-byte
 // encoding of the doc id (disk_tree.go:78 keyEqual := bytes.Compare(key, ...)).

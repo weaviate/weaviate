@@ -12,11 +12,10 @@
 package lsmkv
 
 // Read-op-count microbenchmark harness for secondary-key (docID) resolution on a
-// Replace bucket. Child 1 of the gh#309 sorted/batched GetBySecondary design. It is
-// the MEASUREMENT INSTRUMENT built before any behavior change: it records the SERIAL
-// baseline read-op count per phase (index / value / recheck) for resolving 500 random
-// docIDs, and is wired to record the batched path the same way once it lands (siblings
-// child 3a/3b) so the QB-2 read-op reduction ratio can be compared across scales.
+// Replace bucket (gh#309). It is the MEASUREMENT INSTRUMENT built before any behavior
+// change: it records the SERIAL baseline read-op count per phase (index / value /
+// recheck) for resolving 500 random docIDs, and records the batched path the same way
+// so the read-op reduction ratio can be compared across scales.
 //
 // Why a counting mock and not only diskio.MeteredReader:
 // On current main, secondary/primary index descents (segmentindex.DiskTree.Get) are
@@ -136,7 +135,7 @@ type reconstructedSegment struct {
 	priData   []byte // raw primary index bytes (for the counting traversal)
 }
 
-// artifact is the fixed QB-2 schema recorded for both scales so a future reviewer (and the
+// artifact is the fixed schema recorded for both scales so a future reviewer (and the
 // batch-vs-serial ratio gate) can compare like-for-like.
 type artifact struct {
 	Scale            string `json:"scale"`
@@ -155,9 +154,9 @@ type artifact struct {
 	ValueBytes       int64  `json:"value_bytes"`
 	RecheckNodeReads int64  `json:"recheck_node_reads"`
 	RecheckGetCalls  int64  `json:"recheck_get_calls"`
-	// ArenaBytes is the peak resident phase-2 arena size for the batch path (child 3b
-	// memory-axis observability, design § Resource-exhaustion Elephant 3): one alloc
-	// sized sum(node.End-node.Start), bounded ~3.3MB by the 500-key view-hold cap.
+	// ArenaBytes is the peak resident phase-2 arena size for the batch path (memory-axis
+	// observability): one alloc sized sum(node.End-node.Start), bounded ~3.3MB by the
+	// 500-key view-hold cap.
 	ArenaBytes int64     `json:"arena_bytes"`
 	WallNanos  int64     `json:"wall_nanos"`
 	RecordedAt time.Time `json:"recorded_at"`
@@ -165,8 +164,8 @@ type artifact struct {
 
 // TestBucketGetBySecondaryReadOpsBaseline records the serial read-op baseline for the
 // current shape (scaled by default; full via -lsmkv.readops.scale=full), validates the
-// counting mock against the real serial path, and scaffolds the QB-2 ratio gate.
-// Named with the TestBucket prefix so it is included in the AC5 gate:
+// counting mock against the real serial path, and scaffolds the ratio gate. Named with
+// the TestBucket prefix so it is included in the run-TestBucket gate:
 //
 //	go test -count=1 -run TestBucket ./adapters/repos/db/lsmkv/
 func TestBucketGetBySecondaryReadOpsBaseline(t *testing.T) {
@@ -180,7 +179,7 @@ func TestBucketGetBySecondaryReadOpsBaseline(t *testing.T) {
 
 	art, serial, batch := recordSerialBaseline(t, shape)
 
-	// AC2: three phases are populated. index/recheck via the counting mock, value via the
+	// three phases are populated: index/recheck via the counting mock, value via the
 	// real diskio.MeteredReader. On the clean baseline shape (no updates, no tombstones)
 	// every resolved key is a live hit, so value read-ops == keys resolved exactly.
 	require.Positive(t, serial.indexNodeReads, "index phase must record node-reads")
@@ -228,8 +227,8 @@ func recordSerialBaseline(t *testing.T, shape readOpsScale) (artifact, phaseCoun
 	}
 	wall := time.Since(start)
 
-	// Batch per-phase counts in the SAME session/box (QB-2 requirement), via the
-	// faithful batch-algorithm mirror over the same reconstructed trees.
+	// Batch per-phase counts in the SAME session/box (so the ratio is like-for-like),
+	// via the faithful batch-algorithm mirror over the same reconstructed trees.
 	_, batch := resolveBatchCounting(t, segs, targetKeys)
 
 	// Peak resident arena bytes from the REAL batch path (memory observability).
@@ -518,23 +517,23 @@ func reconstructSegments(tb testing.TB, dir string) []reconstructedSegment {
 	return segs
 }
 
-// ---- QB-2 ratio-consistency gate scaffold -------------------------------------------
+// ---- read-op ratio-consistency gate scaffold ----------------------------------------
 
-// assertRatioGate fires the QB-2 read-op gate with REAL batch counts (child 3b filled the
-// child-3a seam): it pins value_reads == live hits and records the index-read reduction
-// ratio for the current scale. The ratio is expected ~1.0 (batch-NEUTRAL): sorted
-// DiskTree.Get has no cursor amortization, so the batch issues the same node-reads as
-// serial; the leverage is wall-time/concurrency (design v2 correction), gated separately by
-// the close-blocking concurrency-effectiveness tests, not by read-op count. The cross-scale
-// +/-15% consistency (scaled vs recorded full-scale) is pinned by the artifact ratios and
-// the reductionRatiosWithinTolerance math (TestReadOpsRatioToleranceMath).
+// assertRatioGate fires the read-op ratio gate with REAL batch counts: it pins
+// value_reads == live hits and records the index-read reduction ratio for the current
+// scale. The ratio is expected ~1.0 (batch-NEUTRAL): sorted DiskTree.Get has no cursor
+// amortization, so the batch issues the same node-reads as serial; the leverage is
+// wall-time/concurrency, gated separately by the phase-2 concurrency-effectiveness
+// tests, not by read-op count. The cross-scale +/-15% consistency (scaled vs recorded
+// full-scale) is pinned by the artifact ratios and the reductionRatiosWithinTolerance
+// math (TestReadOpsRatioToleranceMath).
 func assertRatioGate(t *testing.T, shape readOpsScale, serial, batch phaseCounters) {
 	t.Helper()
 	require.Equal(t, serial.valueReadOps, batch.valueReadOps,
 		"value read-op count must be batch-neutral (one read per live hit)")
 	ratio := reductionRatio(serial, batch)
 	require.Positive(t, ratio, "index-read reduction ratio must be computable (batch index reads > 0)")
-	t.Logf("QB-2 ratio gate (%s): index reduction serial/batch = %.4f | index serial=%d batch=%d | "+
+	t.Logf("read-op ratio gate (%s): index reduction serial/batch = %.4f | index serial=%d batch=%d | "+
 		"value serial=%d batch=%d | recheck serial=%d batch=%d",
 		shape.name, ratio, serial.indexNodeReads, batch.indexNodeReads,
 		serial.valueReadOps, batch.valueReadOps, serial.recheckNodeReads, batch.recheckNodeReads)
@@ -549,9 +548,10 @@ func reductionRatio(serial, batch phaseCounters) float64 {
 	return float64(serial.indexNodeReads) / float64(batch.indexNodeReads)
 }
 
-// reductionRatiosWithinTolerance implements the QB-2 assertion: the full-scale reduction
-// ratio must match the scaled-CI ratio within +/-15%. It is used by the cross-scale gate
-// once both scales carry batch counts. Exposed as a pure function so it is unit-checkable.
+// reductionRatiosWithinTolerance implements the scale-consistency assertion: the
+// full-scale reduction ratio must match the scaled-CI ratio within +/-15%. It is used by
+// the cross-scale gate once both scales carry batch counts. Exposed as a pure function so
+// it is unit-checkable.
 func reductionRatiosWithinTolerance(scaledRatio, fullRatio, tol float64) bool {
 	if scaledRatio == 0 {
 		return false
@@ -563,7 +563,7 @@ func reductionRatiosWithinTolerance(scaledRatio, fullRatio, tol float64) bool {
 	return rel <= tol
 }
 
-// TestReadOpsRatioToleranceMath pins the +/-15% band math so the QB-2 gate behaves as
+// TestReadOpsRatioToleranceMath pins the +/-15% band math so the ratio gate behaves as
 // specified when batch counts arrive.
 func TestReadOpsRatioToleranceMath(t *testing.T) {
 	require.True(t, reductionRatiosWithinTolerance(10.0, 11.0, 0.15))  // +10%
@@ -620,7 +620,7 @@ func BenchmarkGetBySecondaryReadOps(b *testing.B) {
 // ---- small helpers -----------------------------------------------------------------
 
 func encodeDocID(docID uint64) []byte {
-	// docID secondary key is little-endian (design § Problem: shard_write_put.go LittleEndian).
+	// docID secondary key is little-endian (matches upsertObjectDataLSM in shard_write_put.go).
 	var b [8]byte
 	binary.LittleEndian.PutUint64(b[:], docID)
 	return b[:]
