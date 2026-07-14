@@ -260,6 +260,28 @@ type Bucket struct {
 	// sequentialAccess hints the kernel (via fadvise) that segment files will
 	// be read sequentially. Set via WithSequentialAccess for snapshot buckets.
 	sequentialAccess bool
+
+	// secondaryRecheckHook is a nil-in-production instrumentation seam fired inside
+	// getBySecondaryCore AFTER the disk resolve and BEFORE the memtable/segment
+	// recheck. Tests set it to land a concurrent same-docID Put into the active
+	// memtable at exactly the resolve->recheck window, deterministically reproducing
+	// the gh#313 false-nil without relying on a timing race. Always nil in production.
+	secondaryRecheckHook func()
+
+	// secondaryBatchRecheckHook is the batch-path analogue of secondaryRecheckHook,
+	// fired inside GetBySecondaryBatchWithView after phase-1 index resolution and
+	// before the phase-3 recheck, so a test can land a concurrent same-docID Put in
+	// the phase-1->phase-3 window. Always nil in production.
+	secondaryBatchRecheckHook func()
+
+	// secondaryResolveFlushingHook is a nil-in-production seam fired inside
+	// resolveSecondaryFromMemtables after the active-memtable probe (i==0) missed and
+	// the flushing-memtable probe (i==1) hit, immediately before the active-memtable
+	// re-check. Tests set it to land a same-secondary-key Put in the active memtable at
+	// exactly that window, deterministically reproducing the gh#313 false-nil in the
+	// flushing-memtable branch (the active memtable is read twice). Always nil in
+	// production. Shared by the serial and batch (phase-0) resolvers.
+	secondaryResolveFlushingHook func()
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -912,6 +934,10 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	// additional validation to ensure the primary key has not been marked as deleted
 	beforeReCheck := time.Now()
 
+	if b.secondaryRecheckHook != nil {
+		b.secondaryRecheckHook()
+	}
+
 	// Check if a later version of the document is accesible by primary key.
 	// Only check up to, not including, the segment (secSegIndex+1) where the item was found,
 	// to avoid disk access for items that were deleted and re-added with the same secondary key in a later segment
@@ -920,6 +946,30 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	// if it exists on a later segment for priKey (err == nil), it means it was updated
 	// thus, we return lsmkv.NotFound to avoid returning stale data.
 	if err == nil {
+		// The recheck found priKey in a newer position. This is either a genuine
+		// supersede (a newer segment holds priKey) or a false positive: the view
+		// captures the active memtable BY POINTER, so a concurrent same-secondary-key
+		// Put landing between the disk resolve above and this recheck makes the resolve
+		// miss seckey in the memtable (resolving from an older segment) while the
+		// recheck finds priKey live in the memtable, yielding a false nil for a live
+		// object (gh#313). Segments are immutable and refcount-pinned within a view, so
+		// the ONLY thing that can change mid-read is the memtable. Re-resolve seckey
+		// against the (now-current) memtables: present there means the memtable holds
+		// the authoritative newest version (newest-wins); still absent means the
+		// supersede is genuine and we honor NotFound.
+		v2, resolved2, err2 := b.resolveSecondaryFromMemtables(pos, seckey, memtables, count, nil)
+		if resolved2 {
+			if err2 != nil {
+				// memtable tombstone / newer-version-under-different-docID / real error
+				return nil, nil, err2
+			}
+			if b.logger != nil {
+				b.logger.WithFields(logrus.Fields{
+					"action": "lsm_get_by_secondary_recheck_recovered",
+				}).Debug("recheck supersede overridden by memtable re-resolve (gh#313 window)")
+			}
+			return v2, buffer, nil
+		}
 		return nil, nil, lsmkv.NotFound
 	}
 
@@ -952,9 +1002,12 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 //   - (value, true, nil): a live value was found in a memtable; stop, do not
 //     consult disk segments.
 //   - (nil, true, lsmkv.Deleted): the key is tombstoned in a memtable.
-//   - (nil, true, lsmkv.NotFound): the key hit the flushing memtable but a newer
-//     version of its primary key exists in the active memtable (deleted+re-added
-//     under the same secondary key), so it must resolve to not-found.
+//   - (nil, true, lsmkv.NotFound): the key hit the flushing memtable, its primary key
+//     is live in the active memtable, and the active memtable does NOT map this
+//     secondary key (the primary was re-added under a DIFFERENT secondary key), so it
+//     must resolve to not-found. When the active memtable DOES still map this secondary
+//     key (a same-secondary-key re-put), the active value is returned instead
+//     (newest-wins); see resolveSecondaryActiveOnly.
 //   - (nil, true, <wrapped error>): a real error was encountered.
 //   - (nil, false, nil): not found in any memtable; the caller proceeds to the
 //     disk segment group.
@@ -973,15 +1026,32 @@ func (b *Bucket) resolveSecondaryFromMemtables(pos int, seckey []byte, memtables
 		}
 		if mErr == nil {
 			if i == 1 {
-				// if the item is found in the flushing memtable,
-				// we need to check if it exists in the primary key of the active memtable,
-				// to avoid returning an item that was deleted and re-added with the same secondary key
-				// - exists(k) == nil: a newer version of the doc exists, return lsmkv.NotFound
-				// - exists(k) == lsmkv.Deleted: the doc was deleted and not re-added, return lsmkv.Deleted
-				// - exists(k) == any other error != lsmkv.NotFound: return the error, since we can't be sure about the state of the doc
-				// - "default" exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
+				// The secondary key was found in the flushing memtable. Check whether a
+				// newer version of its primary key exists in the (newer) active memtable,
+				// which would mean the flushing hit is stale.
+				// - exists(k) == lsmkv.NotFound: no newer primary version; return the
+				//   flushing value.
+				// - exists(k) == lsmkv.Deleted: the doc was deleted and not re-added;
+				//   return lsmkv.Deleted.
+				// - exists(k) == any other error != NotFound: return the error.
+				// - exists(k) == nil: a newer primary version is live in the active
+				//   memtable. This is NOT necessarily a re-key: the active memtable is
+				//   read twice here (once by the i==0 getBySecondary probe above, once by
+				//   this exists check), so a concurrent same-secondary-key Put landing
+				//   after the i==0 probe missed makes the active hold both priKey and
+				//   seckey while this loop still routes through the flushing hit (gh#313).
+				//   Re-probe the active memtable for THIS secondary key: present -> it is
+				//   the authoritative newest version (return it); absent -> the primary
+				//   really was re-added under a different secondary key -> NotFound.
+				if b.secondaryResolveFlushingHook != nil {
+					b.secondaryResolveFlushingHook()
+				}
 				existsErr := memtables[0].exists(k)
 				if existsErr == nil {
+					aVal, aResolved, aErr := b.resolveSecondaryActiveOnly(pos, seckey, memtables[0])
+					if aResolved {
+						return aVal, true, aErr
+					}
 					return nil, true, lsmkv.NotFound
 				} else if errors.Is(existsErr, lsmkv.Deleted) {
 					return nil, true, existsErr
@@ -1002,6 +1072,31 @@ func (b *Bucket) resolveSecondaryFromMemtables(pos int, seckey []byte, memtables
 		}
 	}
 	return nil, false, nil
+}
+
+// resolveSecondaryActiveOnly probes ONLY the active memtable for a secondary key. It
+// is the tie-breaker for the flushing-memtable branch of resolveSecondaryFromMemtables:
+// when the active memtable's primary key exists but we reached the flushing hit anyway
+// (the active is read twice and a concurrent same-secondary-key Put may have landed in
+// between, gh#313), this asks the authoritative question "does the active memtable map
+// THIS secondary key?" as a single atomic read. Returns:
+//   - (value, true, nil): active maps the secondary key to a live value (newest-wins).
+//   - (nil, true, lsmkv.Deleted): active tombstones the secondary key's primary.
+//   - (nil, true, <wrapped error>): a real error.
+//   - (nil, false, nil): the active memtable does not map the secondary key (the primary
+//     was genuinely re-added under a different secondary key).
+func (b *Bucket) resolveSecondaryActiveOnly(pos int, seckey []byte, active memtable) ([]byte, bool, error) {
+	_, val, err := b.getBySecondaryFromMemtable(pos, seckey, active, memtableNames[0])
+	if err == nil {
+		return val, true, nil
+	}
+	if errors.Is(err, lsmkv.Deleted) {
+		return nil, true, err
+	}
+	if errors.Is(err, lsmkv.NotFound) {
+		return nil, false, nil
+	}
+	return nil, true, fmt.Errorf("Bucket::resolveSecondaryActiveOnly() %q: %w", memtableNames[0], err)
 }
 
 // secondaryPresentInMemtables is the memtable half of the batched phase-3 recheck:

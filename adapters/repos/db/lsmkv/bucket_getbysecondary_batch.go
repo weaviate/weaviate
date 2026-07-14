@@ -220,6 +220,10 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 		return out, nil
 	}
 
+	if b.secondaryBatchRecheckHook != nil {
+		b.secondaryBatchRecheckHook()
+	}
+
 	// Phase 3 - recheck: drop any live hit superseded by a newer version of its
 	// primary key. Memtables first (newer than every segment), then newer segments.
 	beforeRecheck := time.Now()
@@ -234,7 +238,29 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 		}
 		if !present {
 			kept = append(kept, lh)
+			continue
 		}
+		// priKey present in a memtable: either a genuine supersede or the gh#313 false
+		// positive, where a concurrent same-secondary-key Put landed in the memtable in
+		// the phase-1->phase-3 window (the view captures memtables by pointer). Phase 0
+		// missed lh.key in the memtable; re-resolve it against the now-current memtables.
+		// Present -> the memtable holds the authoritative newest version (recover it,
+		// cloned so it survives view release, and exempt it from the segment half since a
+		// memtable is newer than every segment). Absent -> genuine supersede, drop to nil.
+		v, resolved, rerr := b.resolveSecondaryFromMemtables(pos, lh.key, memtables, count, nil)
+		if rerr != nil && !lsmkv.IsDeletedOrNotFound(rerr) {
+			return nil, rerr
+		}
+		if resolved && rerr == nil {
+			lh.value = bytes.Clone(v)
+			lh.fromMemtable = true
+			kept = append(kept, lh)
+			if b.logger != nil {
+				b.logger.WithField("action", "lsm_get_by_secondary_batch_recheck_recovered").
+					Debug("batch recheck supersede overridden by memtable re-resolve (gh#313 window)")
+			}
+		}
+		// resolved with Deleted/NotFound, or absent from memtables -> superseded, drop.
 	}
 	lives = kept
 	if err := b.disk.recheckSecondaryBatchInSegments(ctx, lives, segments); err != nil {
