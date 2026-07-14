@@ -231,7 +231,7 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 		}
 	}
 
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 
 	if m.strategy == StrategyInverted {
 		m.tombstones = sroar.NewBitmap()
@@ -323,7 +323,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	m.size += uint64(netAdditions)
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 	m.writesSinceLastSync = true
 
@@ -365,7 +365,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 	m.writesSinceLastSync = true
 
@@ -408,7 +408,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 	m.writesSinceLastSync = true
 
@@ -567,7 +567,7 @@ func (m *Memtable) append(key []byte, values []value) error {
 	for _, value := range values {
 		m.size += uint64(len(value.value))
 	}
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 
 	return nil
@@ -606,7 +606,7 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 
 	m.indexOverhead += uint64(m.keyMap.insert(key, pair))
 	m.size += uint64(len(key) + len(valuesForCommitLog))
-	m.metrics.observeSize(m.size)
+	m.metrics.observeSize(m.sizeLocked())
 	m.updateDirtyAt()
 
 	if m.strategy == StrategyInverted && !pair.Tombstone {
@@ -629,8 +629,15 @@ func (m *Memtable) Size() uint64 {
 	m.RLock()
 	defer m.RUnlock()
 
-	// include the skip-list value-log backing so the flush trigger budgets real
-	// memory, not just logical bytes (indexOverhead is 0 for the red-black tree).
+	return m.sizeLocked()
+}
+
+// sizeLocked is the flush-accounting size: logical payload (size) plus the
+// skip-list value-log backing (indexOverhead, 0 for the red-black tree), so the
+// trigger budgets real memory, not just logical bytes. The flush threshold, the
+// size gauge, and Size() all read this one value so they can never disagree.
+// Caller must hold m's lock.
+func (m *Memtable) sizeLocked() uint64 {
 	return m.size + m.indexOverhead
 }
 
