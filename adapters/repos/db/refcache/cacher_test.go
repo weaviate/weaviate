@@ -97,27 +97,22 @@ func TestCacher(t *testing.T) {
 	})
 
 	t.Run("with a single ref, and a matching select prop", func(t *testing.T) {
-		repo := newFakeRepo()
-		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
-			ClassName: "SomeClass",
-			ID:        strfmt.UUID(id1),
+		refObj := search.Result{
+			ID:        "foo",
+			ClassName: "BestClass",
 			Schema: map[string]interface{}{
-				"bar": "some string",
-			},
-		}
-		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger, "")
-		input := []search.Result{
-			{
-				ID:        "foo",
-				ClassName: "BestClass",
-				Schema: map[string]interface{}{
-					"refProp": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
-						},
+				"refProp": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
 					},
 				},
+			},
+		}
+		expected := search.Result{
+			ID:        strfmt.UUID(id1),
+			ClassName: "SomeClass",
+			Schema: map[string]interface{}{
+				"bar": "some string",
 			},
 		}
 		selectProps := search.SelectProperties{
@@ -137,82 +132,38 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		expected := search.Result{
-			ID:        strfmt.UUID(id1),
-			ClassName: "SomeClass",
-			Schema: map[string]interface{}{
-				"bar": "some string",
-			},
-		}
-
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
-		require.Nil(t, err)
-		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
-		require.True(t, ok)
-		assert.Equal(t, expected, res)
-		assert.Equal(t, 1, repo.counter, "required the expected amount of lookups")
-	})
-
-	t.Run("with a nil-schema object preceding an object with refs", func(t *testing.T) {
-		// nil-schema object must not abort ref discovery for sibling objects
-		repo := newFakeRepo()
-		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
-			ClassName: "SomeClass",
-			ID:        strfmt.UUID(id1),
-			Schema: map[string]interface{}{
-				"bar": "some string",
-			},
-		}
-		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger, "")
-		input := []search.Result{
+		tests := []struct {
+			name  string
+			input []search.Result
+		}{
 			{
-				ID:        "nilSchema",
-				ClassName: "BestClass",
+				name:  "ref object alone",
+				input: []search.Result{refObj},
 			},
 			{
-				ID:        "foo",
-				ClassName: "BestClass",
-				Schema: map[string]interface{}{
-					"refProp": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
-						},
-					},
+				// nil-schema object must not abort ref discovery for
+				// sibling objects
+				name: "nil-schema object precedes the ref object",
+				input: []search.Result{
+					{ID: "nilSchema", ClassName: "BestClass"},
+					refObj,
 				},
 			},
 		}
-		selectProps := search.SelectProperties{
-			search.SelectProperty{
-				Name: "refProp",
-				Refs: []search.SelectClass{
-					{
-						ClassName: "SomeClass",
-						RefProperties: search.SelectProperties{
-							search.SelectProperty{
-								Name:        "bar",
-								IsPrimitive: true,
-							},
-						},
-					},
-				},
-			},
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				repo := newFakeRepo()
+				repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = expected
+				logger, _ := test.NewNullLogger()
+				cr := NewCacher(repo, logger, "")
+				err := cr.Build(context.Background(), tt.input, selectProps, additional.Properties{}, nil)
+				require.Nil(t, err)
+				res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
+				require.True(t, ok, "the ref object's ref must be resolved")
+				assert.Equal(t, expected, res)
+				assert.Equal(t, 1, repo.counter, "required the expected amount of lookups")
+			})
 		}
-
-		expected := search.Result{
-			ID:        strfmt.UUID(id1),
-			ClassName: "SomeClass",
-			Schema: map[string]interface{}{
-				"bar": "some string",
-			},
-		}
-
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
-		require.Nil(t, err)
-		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
-		require.True(t, ok, "ref of the sibling object must be resolved despite "+
-			"the preceding nil-schema object")
-		assert.Equal(t, expected, res)
 	})
 
 	t.Run("with a nested lookup, partially resolved", func(t *testing.T) {
