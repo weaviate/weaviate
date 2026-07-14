@@ -125,6 +125,10 @@ func (c *CursorMap) seekAll(target []byte) {
 		}
 
 		state[i].key = key
+		// capture the value even in keyOnly mode: serveCurrentStateAndAdvance
+		// merges the per-segment values to decide which keys survive, so dropping
+		// them here makes every key look empty. keyOnly only omits them from the
+		// returned tuple (see firstAll/advanceInner for the same reason).
 		state[i].value = value
 	}
 
