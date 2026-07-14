@@ -33,7 +33,9 @@ type VarEncEncoder[T any] interface {
 	// appends the encoded bytes to arena. It returns the encoded sub-slice and
 	// the updated arena, avoiding a per-call allocation when several blocks whose
 	// data must coexist are encoded into one arena. A later append that grows the
-	// arena invalidates earlier sub-slices, so pre-size the arena to keep them.
+	// arena reallocates it: earlier sub-slices keep their bytes (they retain the
+	// old backing array) but are no longer contiguous with the returned arena, so
+	// pre-size the arena when all sub-slices must share one backing array.
 	EncodeAppend(values []T, arena []byte) (encoded []byte, updatedArena []byte)
 	Decode(data []byte) []T
 	EncodeReusable(values []T, buf []byte)

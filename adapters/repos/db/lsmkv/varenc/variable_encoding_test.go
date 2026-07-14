@@ -177,9 +177,10 @@ func TestEncodeAppend(t *testing.T) {
 		for _, enc := range newEncoders() {
 			enc.Init(valueCount)
 
-			// pre-size the arena so no append reallocates and invalidates an
-			// earlier sub-slice
-			arena := make([]byte, 0, blocks*(8+8*valueCount))
+			// pre-size the arena past any encoder's worst case (a uint64 varint is
+			// at most 10 bytes/value) so no append reallocates and moves an
+			// earlier sub-slice off the shared backing array
+			arena := make([]byte, 0, blocks*(16+16*valueCount))
 			subs := make([][]byte, blocks)
 			want := make([][]uint64, blocks)
 			for b := 0; b < blocks; b++ {
