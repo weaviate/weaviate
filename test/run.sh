@@ -1238,12 +1238,8 @@ function run_module_tests() {
   fi
 }
 
-# dump_container_logs prints the tail of every docker container's logs
-# (running AND exited) after a failed test invocation, so a node that died
-# mid-test (panic, OOM kill) is diagnosable straight from the CI log instead
-# of requiring a local reproduction. Output is bounded per container so a
-# chatty node can't blow up the CI log. Best-effort: containers already
-# reaped by testcontainers won't show up, and docker errors are non-fatal.
+# Dumps every container's log tail (including exited ones) after a test
+# failure, so a crash is diagnosable from CI output without a local repro.
 function dump_container_logs() {
   local tail_lines=2000
   echo_red "Dumping docker container logs (last $tail_lines lines per container)..."
