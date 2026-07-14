@@ -90,11 +90,25 @@ func hit(t *testing.T, out map[string]interface{}, i int) map[string]interface{}
 	return h
 }
 
-func additionalOf(t *testing.T, h map[string]interface{}) map[string]interface{} {
+func metadataOf(t *testing.T, h map[string]interface{}) map[string]interface{} {
 	t.Helper()
-	addl, ok := h["_additional"].(map[string]interface{})
-	require.True(t, ok, "hit has no _additional key: %v", h)
-	return addl
+	metadata, ok := h["metadata"].(map[string]interface{})
+	require.True(t, ok, "hit has no metadata key: %v", h)
+	return metadata
+}
+
+func propertiesOf(t *testing.T, h map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	props, ok := h["properties"].(map[string]interface{})
+	require.True(t, ok, "hit has no properties key: %v", h)
+	return props
+}
+
+func idOf(t *testing.T, h map[string]interface{}) string {
+	t.Helper()
+	id, ok := h["id"].(string)
+	require.True(t, ok, "hit has no id: %v", h)
+	return id
 }
 
 func movieClass() *models.Class {
@@ -109,7 +123,8 @@ func movieClass() *models.Class {
 				Name: "rating", DataType: schema.DataTypeInt.PropString(),
 				IndexFilterable: func() *bool { b := false; return &b }(),
 			},
-			// must behave as ordinary user data next to "_additional"
+			// must behave as ordinary user data under "properties", despite
+			// sharing its name with the envelope's metadata field
 			{Name: "metadata", DataType: schema.DataTypeText.PropString()},
 			{
 				Name: "details", DataType: schema.DataTypeObject.PropString(),
@@ -236,7 +251,7 @@ func TestRESTSearchNearText(t *testing.T) {
 		},
 	})
 
-	t.Run("happy path: flat objects, _additional metadata, took_ms", func(t *testing.T) {
+	t.Run("happy path: envelope with id, properties, metadata, took_ms", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
 			"query":             []string{"spaceship galaxy"},
 			"return_properties": []string{"title"},
@@ -250,33 +265,52 @@ func TestRESTSearchNearText(t *testing.T) {
 		assert.True(t, ok, "took_ms missing or not a number: %v", out)
 
 		first := hit(t, out, 0)
-		assert.Equal(t, "spaceship galaxy adventure", first["title"])
-		assert.NotContains(t, first, "year", "unselected property must not be returned")
+		props := propertiesOf(t, first)
+		assert.Equal(t, "spaceship galaxy adventure", props["title"])
+		assert.NotContains(t, props, "year", "unselected property must not be returned")
 
 		var prev float64
 		for i := range res {
-			addl := additionalOf(t, hit(t, out, i))
-			id, ok := addl["id"].(string)
-			require.True(t, ok, "id missing in _additional: %v", addl)
+			h := hit(t, out, i)
+			id := idOf(t, h)
 			require.True(t, strfmt.IsUUID(id), "id is not a UUID: %q", id)
-			distance, ok := addl["distance"].(float64)
-			require.True(t, ok, "distance missing in _additional: %v", addl)
+			metadata := metadataOf(t, h)
+			assert.NotContains(t, metadata, "id", "the id lives on the envelope, not in metadata")
+			distance, ok := metadata["distance"].(float64)
+			require.True(t, ok, "distance missing in metadata: %v", metadata)
 			assert.GreaterOrEqual(t, distance, prev, "distances must ascend")
 			prev = distance
 		}
-		assert.Equal(t, movie1ID.String(), additionalOf(t, first)["id"])
+		assert.Equal(t, movie1ID.String(), idOf(t, first))
 	})
 
-	t.Run("a property named metadata is ordinary user data next to _additional", func(t *testing.T) {
+	t.Run("the id is always returned, even without return_metadata", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
-			"query": []string{"spaceship galaxy"},
+			"query":             []string{"spaceship galaxy"},
+			"return_properties": []string{"title"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
 		first := hit(t, out, 0)
-		assert.Equal(t, "user data", first["metadata"])
-		addl := additionalOf(t, first)
-		assert.Equal(t, movie1ID.String(), addl["id"])
+		assert.Equal(t, movie1ID.String(), idOf(t, first))
+		// no non-id metadata was requested: the metadata block is omitted
+		assert.NotContains(t, first, "metadata")
+	})
+
+	t.Run("a property named metadata is ordinary user data under properties", func(t *testing.T) {
+		status, out := postNearText(t, "Movie", map[string]interface{}{
+			"query":           []string{"spaceship galaxy"},
+			"return_metadata": []string{"distance"},
+		})
+		require.Equal(t, http.StatusOK, status, "%v", out)
+
+		first := hit(t, out, 0)
+		// the user property and the envelope's metadata coexist: no shadowing
+		assert.Equal(t, "user data", propertiesOf(t, first)["metadata"])
+		metadata := metadataOf(t, first)
+		_, ok := metadata["distance"].(float64)
+		assert.True(t, ok, "distance missing in metadata: %v", metadata)
+		assert.Equal(t, movie1ID.String(), idOf(t, first))
 	})
 
 	t.Run("where filter narrows results", func(t *testing.T) {
@@ -292,7 +326,7 @@ func TestRESTSearchNearText(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		res := results(t, out)
 		require.Len(t, res, 1)
-		assert.Equal(t, "cooking dinner recipes", hit(t, out, 0)["title"])
+		assert.Equal(t, "cooking dinner recipes", propertiesOf(t, hit(t, out, 0))["title"])
 	})
 
 	t.Run("filter on a property without an inverted index is a 422", func(t *testing.T) {
@@ -309,7 +343,7 @@ func TestRESTSearchNearText(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "indexFilterable")
 	})
 
-	t.Run("references come back as nested arrays", func(t *testing.T) {
+	t.Run("references come back under references as arrays", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
 			"query":             []string{"spaceship galaxy"},
 			"return_properties": []string{"title", "hasAuthor.name"},
@@ -317,12 +351,25 @@ func TestRESTSearchNearText(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
 		first := hit(t, out, 0)
-		refs, ok := first["hasAuthor"].([]interface{})
-		require.True(t, ok, "hasAuthor missing or not an array: %v", first)
+		assert.NotContains(t, propertiesOf(t, first), "hasAuthor",
+			"reference selections must not appear under properties")
+		references, ok := first["references"].(map[string]interface{})
+		require.True(t, ok, "hit has no references key: %v", first)
+		refs, ok := references["hasAuthor"].([]interface{})
+		require.True(t, ok, "hasAuthor missing or not an array: %v", references)
 		require.Len(t, refs, 1)
 		ref, ok := refs[0].(map[string]interface{})
 		require.True(t, ok)
 		assert.Equal(t, "famous writer", ref["name"])
+	})
+
+	t.Run("references omitted when nothing selects across a reference", func(t *testing.T) {
+		status, out := postNearText(t, "Movie", map[string]interface{}{
+			"query":             []string{"spaceship galaxy"},
+			"return_properties": []string{"title"},
+		})
+		require.Equal(t, http.StatusOK, status, "%v", out)
+		assert.NotContains(t, hit(t, out, 0), "references")
 	})
 
 	t.Run("nested object properties are returned as nested maps", func(t *testing.T) {
@@ -333,7 +380,7 @@ func TestRESTSearchNearText(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
 		first := hit(t, out, 0)
-		details, ok := first["details"].(map[string]interface{})
+		details, ok := propertiesOf(t, first)["details"].(map[string]interface{})
 		require.True(t, ok, "details missing or not an object: %v", first)
 		assert.Equal(t, "a journey through space", details["summary"])
 		assert.Equal(t, float64(120), details["duration"])
@@ -390,13 +437,13 @@ func TestRESTSearchNearText(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "certainty")
 	})
 
-	t.Run("_additional in return_properties is a 400", func(t *testing.T) {
+	t.Run("unknown property in return_properties is a 400", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
 			"query":             []string{"spaceship"},
-			"return_properties": []string{"_additional"},
+			"return_properties": []string{"nonexistent"},
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
-		assert.Contains(t, errMessage(t, out), "reserved")
+		assert.Contains(t, errMessage(t, out), "no such prop")
 	})
 
 	t.Run("absent query is rejected at bind time", func(t *testing.T) {

@@ -206,21 +206,6 @@ observable change — same wire shapes, status codes and live smoke
 - **`IsSearchRoute` generalized** to any `/v1/search/{collection}/{type}`, so
   the op-mode read classification already covers hybrid/bm25/near-object.
 
-Also on 2026-07-09 (Ivan): the reserved response metadata key was renamed
-from `_metadata` to `metadata` (the wire key, and the reserved name rejected
-in `return_properties`).
-
-On 2026-07-10 (review): the reserved response metadata key was renamed again,
-from `metadata` to `_additional`. `metadata` is a legal — and common —
-property name, so a collection property named `metadata` was silently
-shadowed by the retrieval metadata in every response (and unreachable via
-`return_properties`, which rejected the name). `_additional` is already a
-forbidden property name (`entities/schema/validation.go`
-`reservedPropertyNames`), so the collision is impossible by construction —
-and it matches the GraphQL API's key for the same data. A property named
-`metadata` is now an ordinary property (regression tests in
-`request_test.go` / `reply_test.go`).
-
 Also on 2026-07-10 (Copilot review, two rounds): a denied request against
 an alias no longer names the alias target in the 403 (deny on the
 caller-supplied name); certainty outside [0,1] → 400; `limit`/`offset` and
@@ -244,6 +229,55 @@ the producing packages (`usecases/modules`, `usecases/traverser`,
 `entities/schema/configvalidation`): if a producer stops attaching its type
 or a wrap goes back to `%v`, a test fails next to the code that broke it.
 
+### 2026-07-13 — review (tsmith023): response envelope `{id, properties, references, metadata}`
+
+Each hit in `results` is a **gRPC-proto-like envelope**, the typed
+`SearchResultObject`:
+
+- `id` — the object UUID, **always returned** (the handler always requests
+  it; listing `id` in `return_metadata` is an accepted no-op).
+- `properties` — the selected non-reference properties (nested objects
+  pruned to the selected nested fields). Always present, `{}` when the
+  request selects no properties.
+- `references` — the selected cross-references (reference name → array of
+  objects with the selected one-hop properties). Omitted when the request
+  selects no references.
+- `metadata` — a typed `SearchResultMetadata` (`distance`, `certainty`,
+  `score`, `explain_score`, `creation_time`, `last_update_time`; all
+  optional pointer fields, so absent ≠ zero). Omitted unless non-id
+  metadata was requested and is present.
+
+Properties of this contract:
+
+- **The `metadata` name is collision-safe by construction** — user
+  properties live under `properties`, so a collection property named
+  `metadata` sits at `properties.metadata`, disjoint from the envelope's
+  `metadata` (regression tests in `reply_test.go` and the acceptance
+  suite). `return_properties` has no reserved names: any name that is not
+  a schema property is the generic unknown-property 400.
+- **`id` is always returned**; `return_metadata: []` (or omitted) means
+  "no metadata block", but every hit carries its `id` anyway.
+
+Also from the same review round:
+
+- `buildParamsFunc`/`classGetterWithAuthz` now use a named
+  `classGetterFunc` type, and `NearText` hoists its params-builder closure
+  into a named variable; the unreachable nil-body check in `NearText` was
+  deleted (the generated `BindRequest` 422s a missing body before the
+  handler runs).
+- `interface{}` → `any` in the PR's handwritten files
+  (`adapters/handlers/rest/search/`, `handlers_search.go`).
+- The duplicated "all non-ref non-blob properties" selection helpers (REST
+  `request.go` vs gRPC `parse_search_request.go`) were extracted into one
+  canonical implementation: `entities/search/select_properties.go`
+  (`search.AllNonRefNonBlobProperties` +
+  `search.AllNonRefNonBlobNestedProperties`); the gRPC side keeps a thin
+  wrapper that does its `authorizedGetClass` call and delegates.
+- The PR-introduced pkg/errors `Wrapf` sites in `usecases/traverser`
+  (`explorer.go`, `near_params_vector.go`) now use stdlib
+  `fmt.Errorf("…: %w", err)` — messages byte-identical, chain preserved;
+  the `ErrQueryVectorization` attachments are unchanged.
+
 ---
 
 ## 2. Implementation
@@ -254,13 +288,16 @@ or a wrap goes back to `%v`, a test fails next to the code that broke it.
   (POST, tag `search`, operationId `search.nearText`, per-op
   `consumes: [application/json]`), definitions `SearchCommon` (shared base),
   `SearchNearTextRequest` (= `allOf[SearchCommon, near-text-specific]`),
-  `SearchResponse` and `SearchResultObject` (both free-form: each hit is
-  variable-shaped). `SearchResponse`/`SearchResultObject` are shared by all
-  search endpoints.
+  `SearchResponse`, `SearchResultObject` (the typed
+  `{id, properties, references, metadata}` envelope; `properties`/
+  `references` are free-form maps) and `SearchResultMetadata` (all-optional
+  typed metadata). `SearchResponse`/`SearchResultObject`/
+  `SearchResultMetadata` are shared by all search endpoints.
 - generated (never hand-edited; `tools/gen-code-from-swagger.sh`, pinned
   go-swagger v0.30.4): `adapters/handlers/rest/operations/search/*`,
   `entities/models/search_common.go`, `search_near_text_request.go`,
-  `search_response.go`, `search_result_object.go`, `client/search/*`,
+  `search_response.go`, `search_result_object.go`,
+  `search_result_metadata.go`, `client/search/*`,
   `adapters/handlers/rest/embedded_spec.go`.
 - `adapters/handlers/rest/handlers_search.go` — wires the generated
   operation to the handler; maps `APIError` statuses onto the generated
@@ -288,11 +325,13 @@ or a wrap goes back to `%v`, a test fails next to the code that broke it.
   deterministic no-vectorizer 422 pre-check, `return_metadata` →
   `additional.Properties`, `return_properties` incl. one-hop dot-path refs.
 - `adapters/handlers/rest/search/reply.go` — traverser output →
-  `models.SearchResponse` (shared): flat objects, retrieval metadata under
-  the reserved `_additional` key (a forbidden property name, so it cannot
-  collide with user data), nested-object pruning to the selected nested properties
-  (blobs never leak), references as nested arrays, vectors never returned,
-  no `count` field, `took_ms` in integer milliseconds.
+  `models.SearchResponse` (shared): per hit the `{id, properties,
+  references, metadata}` envelope — `id` always present, the selected
+  non-reference properties under `properties` with nested-object pruning to
+  the selected nested properties (blobs never leak), reference selections
+  under `references` as arrays of objects, typed retrieval metadata under
+  `metadata` (omitted when only the id was requested), vectors never
+  returned, no `count` field, `took_ms` in integer milliseconds.
 - `adapters/handlers/rest/middlewares.go` — operational-mode
   classification only (see below); no custom mount remains.
 - `usecases/config/config_handler.go` + `environment.go` —
@@ -328,8 +367,8 @@ enforced by the generated model at bind time; the rest are the handler's.
 | `where` | `*models.WhereFilter` | reuses the existing definition; schema violation (bad operator enum / value type) → 422 (swagger); schema-valid but unknown property → 400 (handler `filterext.Parse`) |
 | `limit` / `offset` | `*int64` (ptr) | negative → 400; `limit` 0/omitted → `QUERY_DEFAULTS_LIMIT`; each and their sum capped at `QUERY_MAXIMUM_RESULTS` (else 400, checked pre-db so int overflow cannot reach the negative special limit flags) |
 | `auto_limit` | `*int64` (ptr) | maps to autocut |
-| `return_properties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; `_additional` → 400 (reserved) |
-| `return_metadata` | `[]string` (enum) | `id`, `distance`, `certainty`, `score`, `explain_score`, `creation_time`, `last_update_time`; omitted → `id`; unknown value → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
+| `return_properties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; unknown name → 400 |
+| `return_metadata` | `[]string` (enum) | `id`, `distance`, `certainty`, `score`, `explain_score`, `creation_time`, `last_update_time`; the object `id` is **always returned** on the envelope — `id` here is an accepted no-op; omitted or `[]` → no `metadata` block; unknown value → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
 | `tenant` | `string` | tenant-scoped authz (`ShardsData`) |
 | `consistency_level` | `string` (enum) | ONE / QUORUM / ALL; other value → 422 (swagger enum) |
 | reserved | `*string` / `*int64` (ptr) | `single_prompt`, `grouped_task` (RAG, deferred), `group_by`, `number_of_groups`, `objects_per_group`, `rerank_property`, `rerank_query` — declared but return 422 "not yet supported" when present (non-nil).
@@ -339,7 +378,7 @@ enforced by the generated model at bind time; the rest are the handler's.
 |---|---|---|
 | malformed JSON body; `query` string form (array-only); wrong field type | 400 | `ErrorResponse` |
 | missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; schema-invalid `where` (bad operator/type) | 422 | `ErrorResponse` |
-| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; both certainty+distance; semantically-invalid `where` (unknown property); `_additional` in `return_properties` | 400 | `ErrorResponse` |
+| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; both certainty+distance; semantically-invalid `where` (unknown property); unknown property in `return_properties` | 400 | `ErrorResponse` |
 | missing or invalid credentials | 401 | `ErrorResponse` |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
 | unknown collection; unknown tenant | 404 | `ErrorResponse` |
@@ -422,8 +461,10 @@ Items the RFC should settle, discovered while building all three variants.
    should say "identical modulo `took_ms`" or move timing to a header
    before QUERY returns.
 2. **`[]` vs omitted** for `return_properties`/`return_metadata` is
-   unspecified. As built: omitted → all props / `id`; explicit `[]` → no
-   properties / no metadata.
+   unspecified. As built: `return_properties` omitted → all non-ref props,
+   `[]` → no properties; `return_metadata` omitted or `[]` → no `metadata`
+   block — but the object `id` is **always returned** on the envelope
+   either way (2026-07-13).
 3. **Unknown `target_vector`** is absent from the error table. As built:
    400 (bad value); only the *missing*-on-multi-vector case is the
    RFC-specified 422.
@@ -490,7 +531,7 @@ curl -s -X POST -H 'Content-Type: application/json' \
   -d '{"query":["spaceship galaxy"],"limit":3,
        "return_properties":["title"],"return_metadata":["id","distance"]}' \
   http://127.0.0.1:8091/v1/search/Movie/near-text
-# -> {"results":[{"title":"...","_additional":{"id":"...","distance":0.12}}],"took_ms":8}
+# -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"distance":0.12}}],"took_ms":8}
 ```
 
 If you have the local harness, run it against the running instance

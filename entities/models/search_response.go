@@ -18,18 +18,19 @@ package models
 
 import (
 	"context"
+	"strconv"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
-// SearchResponse The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved `_additional` key. Shared by all REST search endpoints.
+// SearchResponse The result of a REST search: the matched objects as `{id, properties, references, metadata}` envelopes, plus the server-side processing time. Shared by all REST search endpoints.
 //
 // swagger:model SearchResponse
 type SearchResponse struct {
-
 	// The matched objects, ordered by relevance.
-	Results []SearchResultObject `json:"results"`
+	Results []*SearchResultObject `json:"results"`
 
 	// Server-side processing time in milliseconds.
 	TookMs int64 `json:"took_ms"`
@@ -37,11 +38,72 @@ type SearchResponse struct {
 
 // Validate validates this search response
 func (m *SearchResponse) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateResults(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this search response based on context it is used
+func (m *SearchResponse) validateResults(formats strfmt.Registry) error {
+	if swag.IsZero(m.Results) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Results); i++ {
+		if swag.IsZero(m.Results[i]) { // not required
+			continue
+		}
+
+		if m.Results[i] != nil {
+			if err := m.Results[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("results" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("results" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this search response based on the context it is used
 func (m *SearchResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateResults(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *SearchResponse) contextValidateResults(ctx context.Context, formats strfmt.Registry) error {
+	for i := 0; i < len(m.Results); i++ {
+		if m.Results[i] != nil {
+			if err := m.Results[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("results" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("results" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 

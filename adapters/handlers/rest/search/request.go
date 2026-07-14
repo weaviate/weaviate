@@ -58,7 +58,7 @@ func checkReservedFields(common *models.SearchCommon) *APIError {
 // parser (adapters/handlers/grpc/v1/parse_search_request.go). Shared fields
 // are read from the embedded SearchCommon, near-text fields off the body.
 func (h *Handler) buildNearTextParams(class *models.Class, className string, body *models.SearchNearTextRequest,
-	getClass func(string) (*models.Class, error), principal *models.Principal,
+	getClass classGetterFunc, principal *models.Principal,
 ) (dto.GetParams, *APIError) {
 	common := &body.SearchCommon
 	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
@@ -84,7 +84,7 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
-	out.ModuleParams = map[string]interface{}{"nearText": nearTextParams}
+	out.ModuleParams = map[string]any{"nearText": nearTextParams}
 
 	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
 	if apiErr != nil {
@@ -274,7 +274,7 @@ func checkVectorizer(class *models.Class, targetVectors []string) *APIError {
 		}
 		// after a JSON/RAFT round-trip the vectorizer config is a
 		// map[moduleName]interface{}; "none" means no vectorizer
-		if vectorizer, ok := cfg.Vectorizer.(map[string]interface{}); ok {
+		if vectorizer, ok := cfg.Vectorizer.(map[string]any); ok {
 			if _, none := vectorizer["none"]; none {
 				return noVectorizer(target)
 			}
@@ -288,17 +288,16 @@ func checkVectorizer(class *models.Class, targetVectors []string) *APIError {
 	return nil
 }
 
+// parseReturnMetadata converts return_metadata into additional.Properties.
+// The object id is always requested — every result carries it — so an
+// explicit "id" entry is an accepted no-op and an empty (or omitted) list
+// still returns the id, just no metadata block.
 func parseReturnMetadata(class *models.Class, returnMetadata []string, targetVectors []string) (additional.Properties, *APIError) {
-	if returnMetadata == nil {
-		// omitted: id only
-		return additional.Properties{ID: true}, nil
-	}
-
-	props := additional.Properties{}
+	props := additional.Properties{ID: true}
 	for _, entry := range returnMetadata {
 		switch entry {
 		case "id":
-			props.ID = true
+			// accepted no-op: the id is always returned
 		case "distance":
 			props.Distance = true
 		case "certainty":
@@ -330,10 +329,10 @@ func parseReturnMetadata(class *models.Class, returnMetadata []string, targetVec
 // across a reference; a bare reference name selects all non-ref properties
 // of the referenced collection.
 func parseReturnProperties(class *models.Class, returnProperties []string,
-	getClass func(string) (*models.Class, error),
+	getClass classGetterFunc,
 ) (search.SelectProperties, *APIError) {
 	if returnProperties == nil {
-		props, err := allNonRefNonBlobProperties(class)
+		props, err := search.AllNonRefNonBlobProperties(class)
 		if err != nil {
 			return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 		}
@@ -346,10 +345,6 @@ func parseReturnProperties(class *models.Class, returnProperties []string,
 	for _, entry := range returnProperties {
 		if entry == "" {
 			return nil, newAPIError(http.StatusBadRequest, "return_properties entries must not be empty")
-		}
-		if entry == "_additional" {
-			return nil, newAPIError(http.StatusBadRequest,
-				"_additional is a reserved name, request metadata via return_metadata")
 		}
 
 		root, sub, isDotPath := strings.Cut(entry, ".")
@@ -394,7 +389,7 @@ func parseReturnProperties(class *models.Class, returnProperties []string,
 
 func nonRefSelectProperty(schemaProp *models.Property, name string) (*search.SelectProperty, *APIError) {
 	if isNestedDataType(schemaProp.DataType) {
-		nestedProps, err := allNonRefNonBlobNestedProperties(&property{schemaProp})
+		nestedProps, err := search.AllNonRefNonBlobNestedProperties(&property{schemaProp})
 		if err != nil {
 			return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 		}
@@ -414,7 +409,7 @@ func nonRefSelectProperty(schemaProp *models.Property, name string) (*search.Sel
 // nil, nil return means "already emitted". Deeper hops are deferred.
 func refSelectProperty(schemaProp *models.Property, name, sub string, isDotPath bool,
 	refSelections map[string]*search.SelectProperty,
-	getClass func(string) (*models.Class, error),
+	getClass classGetterFunc,
 ) (*search.SelectProperty, *APIError) {
 	if isDotPath && strings.Contains(sub, ".") {
 		return nil, newAPIError(http.StatusUnprocessableEntity,
@@ -443,7 +438,7 @@ func refSelectProperty(schemaProp *models.Property, name, sub string, isDotPath 
 
 	if !isDotPath {
 		// bare reference name: all non-ref properties of the target
-		refProps, err := allNonRefNonBlobProperties(linkedClass)
+		refProps, err := search.AllNonRefNonBlobProperties(linkedClass)
 		if err != nil {
 			return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 		}
@@ -472,7 +467,7 @@ func refSelectProperty(schemaProp *models.Property, name, sub string, isDotPath 
 }
 
 func parseWhere(where *models.WhereFilter, className string, namespacesEnabled bool,
-	principal *models.Principal, getClass func(string) (*models.Class, error),
+	principal *models.Principal, getClass classGetterFunc,
 ) (*filters.LocalFilter, *APIError) {
 	if where == nil {
 		return nil, nil
@@ -494,7 +489,8 @@ func parseWhere(where *models.WhereFilter, className string, namespacesEnabled b
 	return filter, nil
 }
 
-// property / nestedProperty adapt models types to schema.PropertyInterface.
+// property adapts *models.Property to schema.PropertyInterface for the
+// shared nested-property selection.
 type property struct {
 	*models.Property
 }
@@ -507,72 +503,6 @@ func (p *property) GetNestedProperties() []*models.NestedProperty {
 	return p.NestedProperties
 }
 
-type nestedProperty struct {
-	*models.NestedProperty
-}
-
-func (p *nestedProperty) GetName() string {
-	return p.Name
-}
-
-func (p *nestedProperty) GetNestedProperties() []*models.NestedProperty {
-	return p.NestedProperties
-}
-
 func isNestedDataType(dataType []string) bool {
 	return len(dataType) == 1 && schema.IsNested(schema.DataType(dataType[0]))
-}
-
-func allNonRefNonBlobProperties(class *models.Class) (search.SelectProperties, error) {
-	props := make(search.SelectProperties, 0, len(class.Properties))
-	for _, prop := range class.Properties {
-		dt, err := schema.GetPropertyDataType(class, prop.Name)
-		if err != nil {
-			return nil, fmt.Errorf("get property data type: %w", err)
-		}
-		switch *dt {
-		case schema.DataTypeCRef, schema.DataTypeBlob, schema.DataTypeBlobHash:
-			continue
-		case schema.DataTypeObject, schema.DataTypeObjectArray:
-			nestedProps, err := allNonRefNonBlobNestedProperties(&property{prop})
-			if err != nil {
-				return nil, err
-			}
-			props = append(props, search.SelectProperty{
-				Name:     prop.Name,
-				IsObject: true,
-				Props:    nestedProps,
-			})
-		default:
-			props = append(props, search.SelectProperty{Name: prop.Name, IsPrimitive: true})
-		}
-	}
-	return props, nil
-}
-
-func allNonRefNonBlobNestedProperties[P schema.PropertyInterface](prop P) ([]search.SelectProperty, error) {
-	var props []search.SelectProperty
-	for _, nested := range prop.GetNestedProperties() {
-		dt, err := schema.GetNestedPropertyDataType(prop, nested.Name)
-		if err != nil {
-			return nil, fmt.Errorf("get nested property data type: %w", err)
-		}
-		switch *dt {
-		case schema.DataTypeCRef, schema.DataTypeBlob, schema.DataTypeBlobHash:
-			continue
-		case schema.DataTypeObject, schema.DataTypeObjectArray:
-			nestedProps, err := allNonRefNonBlobNestedProperties(&nestedProperty{nested})
-			if err != nil {
-				return nil, err
-			}
-			props = append(props, search.SelectProperty{
-				Name:     nested.Name,
-				IsObject: true,
-				Props:    nestedProps,
-			})
-		default:
-			props = append(props, search.SelectProperty{Name: nested.Name, IsPrimitive: true})
-		}
-	}
-	return props, nil
 }

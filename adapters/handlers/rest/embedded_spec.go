@@ -6496,7 +6496,7 @@ func init() {
     },
     "/search/{collection}/near-text": {
       "post": {
-        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key.",
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
         "consumes": [
           "application/json"
         ],
@@ -10395,7 +10395,7 @@ func init() {
           "x-nullable": true
         },
         "return_metadata": {
-          "description": "The retrieval metadata to return under the ` + "`" + `_additional` + "`" + ` key of each result. Omitted returns ` + "`" + `id` + "`" + `.",
+          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field; listing ` + "`" + `id` + "`" + ` here is an accepted no-op. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
           "type": "array",
           "items": {
             "type": "string",
@@ -10472,7 +10472,7 @@ func init() {
       ]
     },
     "SearchResponse": {
-      "description": "The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key. Shared by all REST search endpoints.",
+      "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
       "type": "object",
       "properties": {
         "results": {
@@ -10491,9 +10491,82 @@ func init() {
         }
       }
     },
+    "SearchResultMetadata": {
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `return_metadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "type": "object",
+      "properties": {
+        "certainty": {
+          "description": "The normalized certainty of the hit. Only computable on cosine-distance vector indexes.",
+          "type": "number",
+          "format": "double",
+          "x-nullable": true
+        },
+        "creation_time": {
+          "description": "The object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "distance": {
+          "description": "The vector distance between the hit and the query.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "explain_score": {
+          "description": "An explanation of how the score was computed.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "last_update_time": {
+          "description": "The object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "score": {
+          "description": "The relevance score of the hit.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        }
+      }
+    },
     "SearchResultObject": {
-      "description": "A single search hit: the object's selected properties at the root and retrieval metadata under ` + "`" + `_additional` + "`" + ` (only the requested keys among ` + "`" + `id` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `score` + "`" + `, ` + "`" + `explain_score` + "`" + `, ` + "`" + `creation_time` + "`" + `, ` + "`" + `last_update_time` + "`" + ` are present).",
-      "type": "object"
+      "description": "A single search hit: the object's ` + "`" + `id` + "`" + ` (always returned), the selected non-reference properties under ` + "`" + `properties` + "`" + `, the selected cross-references under ` + "`" + `references` + "`" + `, and the requested retrieval metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "description": "The object's UUID. Always returned.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the request selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/JsonObject"
+            }
+          }
+        }
+      }
     },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
@@ -11215,7 +11288,7 @@ func init() {
       "name": "graphql"
     },
     {
-      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; results are flat JSON objects with retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key.",
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
       "name": "search"
     },
     {
@@ -17824,7 +17897,7 @@ func init() {
     },
     "/search/{collection}/near-text": {
       "post": {
-        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key.",
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
         "consumes": [
           "application/json"
         ],
@@ -22098,7 +22171,7 @@ func init() {
           "x-nullable": true
         },
         "return_metadata": {
-          "description": "The retrieval metadata to return under the ` + "`" + `_additional` + "`" + ` key of each result. Omitted returns ` + "`" + `id` + "`" + `.",
+          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field; listing ` + "`" + `id` + "`" + ` here is an accepted no-op. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
           "type": "array",
           "items": {
             "type": "string",
@@ -22175,7 +22248,7 @@ func init() {
       ]
     },
     "SearchResponse": {
-      "description": "The result of a REST search: flat objects with the selected properties at the object root and retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key. Shared by all REST search endpoints.",
+      "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
       "type": "object",
       "properties": {
         "results": {
@@ -22194,9 +22267,82 @@ func init() {
         }
       }
     },
+    "SearchResultMetadata": {
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `return_metadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "type": "object",
+      "properties": {
+        "certainty": {
+          "description": "The normalized certainty of the hit. Only computable on cosine-distance vector indexes.",
+          "type": "number",
+          "format": "double",
+          "x-nullable": true
+        },
+        "creation_time": {
+          "description": "The object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "distance": {
+          "description": "The vector distance between the hit and the query.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "explain_score": {
+          "description": "An explanation of how the score was computed.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "last_update_time": {
+          "description": "The object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "score": {
+          "description": "The relevance score of the hit.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        }
+      }
+    },
     "SearchResultObject": {
-      "description": "A single search hit: the object's selected properties at the root and retrieval metadata under ` + "`" + `_additional` + "`" + ` (only the requested keys among ` + "`" + `id` + "`" + `, ` + "`" + `distance` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `score` + "`" + `, ` + "`" + `explain_score` + "`" + `, ` + "`" + `creation_time` + "`" + `, ` + "`" + `last_update_time` + "`" + ` are present).",
-      "type": "object"
+      "description": "A single search hit: the object's ` + "`" + `id` + "`" + ` (always returned), the selected non-reference properties under ` + "`" + `properties` + "`" + `, the selected cross-references under ` + "`" + `references` + "`" + `, and the requested retrieval metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "description": "The object's UUID. Always returned.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the request selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/JsonObject"
+            }
+          }
+        }
+      }
     },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
@@ -22930,7 +23076,7 @@ func init() {
       "name": "graphql"
     },
     {
-      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; results are flat JSON objects with retrieval metadata under the reserved ` + "`" + `_additional` + "`" + ` key.",
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
       "name": "search"
     },
     {

@@ -47,7 +47,7 @@ func NewSearchNearText(ctx *middleware.Context, handler SearchNearTextHandler) *
 
 # Search a collection with near-text
 
-Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned as flat JSON objects with retrieval metadata under the reserved `_additional` key.
+Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
 */
 type SearchNearText struct {
 	Context *middleware.Context
@@ -59,7 +59,7 @@ func (o *SearchNearText) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewSearchNearTextParams()
+	Params := NewSearchNearTextParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -80,5 +80,4 @@ func (o *SearchNearText) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
