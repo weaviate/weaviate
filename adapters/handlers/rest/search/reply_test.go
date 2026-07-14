@@ -51,7 +51,8 @@ func TestBuildResponseEnvelope(t *testing.T) {
 	reply, err := buildResponse(res, params, 8*time.Millisecond)
 	require.NoError(t, err)
 
-	assert.Equal(t, int64(8), reply.TookMs)
+	require.NotNil(t, reply.TookMs)
+	assert.Equal(t, int64(8), *reply.TookMs)
 	require.Len(t, reply.Results, 1)
 	obj := reply.Results[0]
 	require.NotNil(t, obj.ID)
@@ -389,11 +390,34 @@ func TestBuildResponseErrorsOnMissingID(t *testing.T) {
 	})
 }
 
+// TestBuildResponseEmptyResults: results and took_ms are required in the
+// spec, so they must be non-nil even for zero hits.
 func TestBuildResponseEmptyResults(t *testing.T) {
 	reply, err := buildResponse(nil, dto.GetParams{}, time.Millisecond)
 	require.NoError(t, err)
 	assert.NotNil(t, reply.Results)
 	assert.Empty(t, reply.Results)
+	assert.NotNil(t, reply.TookMs)
+}
+
+// TestBuildResponsePropertiesAlwaysPresent: properties is required in the
+// spec, so every hit carries a non-nil map — {} when the request selects no
+// properties (the NoProps path).
+func TestBuildResponsePropertiesAlwaysPresent(t *testing.T) {
+	res := []any{
+		map[string]any{
+			"id": strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+		},
+	}
+	params := dto.GetParams{
+		AdditionalProperties: additional.Properties{ID: true, NoProps: true},
+	}
+
+	reply, err := buildResponse(res, params, time.Millisecond)
+	require.NoError(t, err)
+	require.Len(t, reply.Results, 1)
+	assert.NotNil(t, reply.Results[0].Properties)
+	assert.Empty(t, reply.Results[0].Properties)
 }
 
 func TestBuildResponseRejectsUnexpectedShape(t *testing.T) {

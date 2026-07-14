@@ -258,7 +258,8 @@ func TestHandlerHappyPath(t *testing.T) {
 	require.NotNil(t, obj.Metadata)
 	require.NotNil(t, obj.Metadata.Distance)
 	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
-	assert.GreaterOrEqual(t, payload.TookMs, int64(0))
+	require.NotNil(t, payload.TookMs)
+	assert.GreaterOrEqual(t, *payload.TookMs, int64(0))
 
 	// the traverser was called with the parsed params
 	params := deps.searcher.lastParams

@@ -123,6 +123,11 @@ SearchNearTextUnauthorized Unauthorized or invalid credentials.
 swagger:response searchNearTextUnauthorized
 */
 type SearchNearTextUnauthorized struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewSearchNearTextUnauthorized creates SearchNearTextUnauthorized with default headers values
@@ -131,12 +136,27 @@ func NewSearchNearTextUnauthorized() *SearchNearTextUnauthorized {
 	return &SearchNearTextUnauthorized{}
 }
 
+// WithPayload adds the payload to the search near text unauthorized response
+func (o *SearchNearTextUnauthorized) WithPayload(payload *models.ErrorResponse) *SearchNearTextUnauthorized {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the search near text unauthorized response
+func (o *SearchNearTextUnauthorized) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *SearchNearTextUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(401)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // SearchNearTextForbiddenCode is the HTTP code returned for type SearchNearTextForbidden

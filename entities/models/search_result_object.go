@@ -39,6 +39,7 @@ type SearchResultObject struct {
 	Metadata *SearchResultMetadata `json:"metadata,omitempty"`
 
 	// The selected non-reference properties of the object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — `{}` when the request selects no properties.
+	// Required: true
 	Properties map[string]JSONObject `json:"properties"`
 
 	// The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.
@@ -54,6 +55,10 @@ func (m *SearchResultObject) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateMetadata(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateProperties(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -90,6 +95,23 @@ func (m *SearchResultObject) validateMetadata(formats strfmt.Registry) error {
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *SearchResultObject) validateProperties(formats strfmt.Registry) error {
+
+	if err := validate.Required("properties", "body", m.Properties); err != nil {
+		return err
+	}
+
+	for k := range m.Properties {
+
+		if err := validate.Required("properties"+"."+k, "body", m.Properties[k]); err != nil {
+			return err
+		}
+
 	}
 
 	return nil

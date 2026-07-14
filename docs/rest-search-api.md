@@ -303,7 +303,12 @@ choice.
   `SearchResponse`, `SearchResultObject` (the typed
   `{id, properties, references, metadata}` envelope; `properties`/
   `references` are free-form maps) and `SearchResultMetadata` (all-optional
-  typed metadata). `SearchResponse`/`SearchResultObject`/
+  typed metadata). The spec declares the always-present parts required:
+  `results` + `took_ms` on `SearchResponse`, `id` + `properties` on
+  `SearchResultObject` (`properties` may be `{}`). Every declared error
+  status, including 401, carries the `ErrorResponse` schema — matching the
+  search-scoped `ServeError` wrapper, so generated clients decode the
+  message on every status. `SearchResponse`/`SearchResultObject`/
   `SearchResultMetadata` are shared by all search endpoints.
 - generated (never hand-edited; `tools/gen-code-from-swagger.sh`, pinned
   go-swagger v0.30.4): `adapters/handlers/rest/operations/search/*`,

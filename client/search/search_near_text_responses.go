@@ -240,6 +240,7 @@ SearchNearTextUnauthorized describes a response with status code 401, with defau
 Unauthorized or invalid credentials.
 */
 type SearchNearTextUnauthorized struct {
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this search near text unauthorized response has a 2xx status code
@@ -273,14 +274,25 @@ func (o *SearchNearTextUnauthorized) Code() int {
 }
 
 func (o *SearchNearTextUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextUnauthorized ", 401)
+	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextUnauthorized  %+v", 401, o.Payload)
 }
 
 func (o *SearchNearTextUnauthorized) String() string {
-	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextUnauthorized ", 401)
+	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextUnauthorized  %+v", 401, o.Payload)
+}
+
+func (o *SearchNearTextUnauthorized) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SearchNearTextUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

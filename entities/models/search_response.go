@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // SearchResponse The result of a REST search: the matched objects as `{id, properties, references, metadata}` envelopes, plus the server-side processing time. Shared by all REST search endpoints.
@@ -31,10 +32,12 @@ import (
 type SearchResponse struct {
 
 	// The matched objects, ordered by relevance.
+	// Required: true
 	Results []*SearchResultObject `json:"results"`
 
 	// Server-side processing time in milliseconds.
-	TookMs int64 `json:"took_ms"`
+	// Required: true
+	TookMs *int64 `json:"took_ms"`
 }
 
 // Validate validates this search response
@@ -45,6 +48,10 @@ func (m *SearchResponse) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateTookMs(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -52,8 +59,9 @@ func (m *SearchResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SearchResponse) validateResults(formats strfmt.Registry) error {
-	if swag.IsZero(m.Results) { // not required
-		return nil
+
+	if err := validate.Required("results", "body", m.Results); err != nil {
+		return err
 	}
 
 	for i := 0; i < len(m.Results); i++ {
@@ -72,6 +80,15 @@ func (m *SearchResponse) validateResults(formats strfmt.Registry) error {
 			}
 		}
 
+	}
+
+	return nil
+}
+
+func (m *SearchResponse) validateTookMs(formats strfmt.Registry) error {
+
+	if err := validate.Required("took_ms", "body", m.TookMs); err != nil {
+		return err
 	}
 
 	return nil

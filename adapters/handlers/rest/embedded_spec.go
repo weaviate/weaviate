@@ -6537,7 +6537,10 @@ func init() {
             }
           },
           "401": {
-            "description": "Unauthorized or invalid credentials."
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "403": {
             "description": "Forbidden",
@@ -10473,6 +10476,10 @@ func init() {
     "SearchResponse": {
       "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
       "type": "object",
+      "required": [
+        "results",
+        "took_ms"
+      ],
       "properties": {
         "results": {
           "description": "The matched objects, ordered by relevance.",
@@ -10535,7 +10542,8 @@ func init() {
       "description": "A single search hit: the object's ` + "`" + `id` + "`" + ` (always returned), the selected non-reference properties under ` + "`" + `properties` + "`" + `, the selected cross-references under ` + "`" + `references` + "`" + `, and the requested retrieval metadata under ` + "`" + `metadata` + "`" + `.",
       "type": "object",
       "required": [
-        "id"
+        "id",
+        "properties"
       ],
       "properties": {
         "id": {
@@ -17937,7 +17945,10 @@ func init() {
             }
           },
           "401": {
-            "description": "Unauthorized or invalid credentials."
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "403": {
             "description": "Forbidden",
@@ -22248,6 +22259,10 @@ func init() {
     "SearchResponse": {
       "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
       "type": "object",
+      "required": [
+        "results",
+        "took_ms"
+      ],
       "properties": {
         "results": {
           "description": "The matched objects, ordered by relevance.",
@@ -22310,7 +22325,8 @@ func init() {
       "description": "A single search hit: the object's ` + "`" + `id` + "`" + ` (always returned), the selected non-reference properties under ` + "`" + `properties` + "`" + `, the selected cross-references under ` + "`" + `references` + "`" + `, and the requested retrieval metadata under ` + "`" + `metadata` + "`" + `.",
       "type": "object",
       "required": [
-        "id"
+        "id",
+        "properties"
       ],
       "properties": {
         "id": {

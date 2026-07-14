@@ -71,7 +71,8 @@ func buildResponse(res []any, params dto.GetParams, took time.Duration) (*models
 		results[i] = obj
 	}
 
-	return &models.SearchResponse{Results: results, TookMs: took.Milliseconds()}, nil
+	tookMs := took.Milliseconds()
+	return &models.SearchResponse{Results: results, TookMs: &tookMs}, nil
 }
 
 // buildPropertyValue renders one selected non-reference property. Primitive
