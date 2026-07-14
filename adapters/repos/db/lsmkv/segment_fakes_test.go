@@ -269,6 +269,10 @@ func (f *fakeSegment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
 	panic("not implemented")
 }
 
+func (f *fakeSegment) newReplaceCursorDigestReusable(valuePrefixLen int) *segmentCursorReplaceReusable {
+	panic("not implemented")
+}
+
 func (f *fakeSegment) newCursor() innerCursorReplaceAllKeys {
 	return newFakeSegmentCursorReplace(f.replaceStore)
 }

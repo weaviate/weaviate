@@ -223,7 +223,7 @@ func (s *Shard) propagateWithinRangeForTest(t *testing.T, ctx context.Context,
 // TestObjectsToPropagateWithinRange covers the scanning and filtering logic
 // inside objectsToPropagateWithinRange. Tests use well-known UUIDs so that
 // batch ordering is deterministic. Flushing is not required for visibility:
-// ObjectDigestsInRange uses bucket.Cursor(), which includes memtables.
+// ObjectDigestsInRange uses a merged bucket cursor, which includes memtables.
 func TestObjectsToPropagateWithinRange(t *testing.T) {
 	ctx := context.Background()
 	const class = "PropagateRangeTest"

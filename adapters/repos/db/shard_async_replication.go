@@ -37,6 +37,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/entities/storobj"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -929,10 +930,19 @@ func (s *Shard) mayStopAsyncReplication() {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		}
 	}
+	drainStart := time.Now()
 	workersDone := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		defer close(workersDone)
 		s.asyncRepWg.Wait()
+		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
+		if elapsed := time.Since(drainStart); elapsed > asyncReplicationWorkerDrainTimeout {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("async replication drain completed after deadline (took %s)", elapsed)
+		}
 	}, s.index.logger)
 	select {
 	case <-workersDone:
@@ -1851,7 +1861,8 @@ func (s *Shard) collectObjectsToPropagate(
 	localUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
 	remoteStaleUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
 
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+	// Digest mode: this scan reads only headers; full objects are fetched later.
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	scratch := newPropagationScratch(config.diffBatchSize)

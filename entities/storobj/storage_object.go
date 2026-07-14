@@ -918,6 +918,10 @@ const (
 	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8     // 34
 )
 
+// MarshallerV1HeaderLen bounds the value prefix a digest-only scan must retain:
+// DocIDAndTimeFromBinary reads no further than this.
+const MarshallerV1HeaderLen = marshallerV1HeaderLen
+
 const (
 	maxVectorLength               int = math.MaxUint16
 	maxClassNameLength            int = math.MaxUint16

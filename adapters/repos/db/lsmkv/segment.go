@@ -73,6 +73,7 @@ type Segment interface {
 	newCollectionCursorReusable() *segmentCursorCollectionReusable
 	newCursor() innerCursorReplaceAllKeys
 	newReplaceCursorReusable() *segmentCursorReplaceReusable
+	newReplaceCursorDigestReusable(valuePrefixLen int) *segmentCursorReplaceReusable
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
