@@ -371,7 +371,9 @@ func (s *segment) getPropertyLengthsPairs() ([]uint64, []uint32, error) {
 func mergePropLenPairs(ids1 []uint64, lens1 []uint32, ids2 []uint64, lens2 []uint32, deletedFromOlder *sroar.Bitmap) ([]uint64, []uint32) {
 	outIDs := make([]uint64, 0, len(ids1)+len(ids2))
 	outLens := make([]uint32, 0, len(ids1)+len(ids2))
-	keepOlder := func(id uint64) bool { return deletedFromOlder == nil || !deletedFromOlder.Contains(id) }
+	// skip the per-docID bitmap lookup entirely when there is nothing to drop
+	hasDeleted := deletedFromOlder != nil && !deletedFromOlder.IsEmpty()
+	keepOlder := func(id uint64) bool { return !hasDeleted || !deletedFromOlder.Contains(id) }
 	i, j := 0, 0
 	for i < len(ids1) && j < len(ids2) {
 		switch {

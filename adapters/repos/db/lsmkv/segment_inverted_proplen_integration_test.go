@@ -16,6 +16,7 @@ package lsmkv
 
 import (
 	"context"
+	"encoding/binary"
 	"math"
 	"testing"
 
@@ -412,4 +413,62 @@ func TestInvertedCompactionReclaimsDeletedPropertyLengths(t *testing.T) {
 	for id := deleted; id < total; id++ {
 		assert.Equal(t, uint32(id+1), pls[uint64(id)], "surviving docID %d property length", id)
 	}
+}
+
+// TestInvertedCompactionReinsertKeepsPropertyLength guards the delete-then-
+// reinsert case raised in review: a docID deleted and re-added with a new
+// length in a newer segment must keep its NEW property length through
+// compaction, not be reclaimed as a delete. The reclaim only drops the older
+// segment's entries, so the newer (live) length always survives.
+func TestInvertedCompactionReinsertKeepsPropertyLength(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyInverted))
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+	bucket.SetMemtableThreshold(1e9) // never auto-flush mid-segment
+
+	term := []byte("shared")
+	const docID = uint64(7)
+
+	// older segment: docID with an initial property length
+	require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(docID, 1, 10, false)))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// newer segment: delete then re-add the same docID with a new property length
+	del := NewMapPairFromDocIdAndTf(docID, 1, 1, true)
+	require.NoError(t, bucket.MapDeleteKey(term, del.Key))
+	require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(docID, 2, 20, false)))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	for {
+		compacted, err := bucket.disk.compactOnce(ctx)
+		require.NoError(t, err)
+		if !compacted {
+			break
+		}
+	}
+
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
+	require.Len(t, view.Disk, 1)
+	seg := view.Disk[0]
+
+	// the reinserted doc stays live...
+	live, err := bucket.MapList(ctx, term)
+	require.NoError(t, err)
+	liveIDs := map[uint64]bool{}
+	for _, mp := range live {
+		if !mp.Tombstone {
+			liveIDs[binary.BigEndian.Uint64(mp.Key)] = true
+		}
+	}
+	require.True(t, liveIDs[docID], "reinserted docID must survive compaction")
+
+	// ...with its NEW property length, not dropped or zeroed
+	pls, err := seg.getPropertyLengths()
+	require.NoError(t, err)
+	assert.Equal(t, uint32(20), pls[docID], "reinserted doc keeps its new property length")
 }
