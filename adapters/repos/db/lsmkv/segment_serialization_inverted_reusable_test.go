@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -19,6 +20,22 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 )
+
+// buildInvertedNodes returns count postings (ascending docIDs) plus a matching
+// propLengthsView, so the compaction encoders and their non-reusable
+// counterparts read the same property lengths.
+func buildInvertedNodes(count, base int) ([]MapPair, *propLengthsView) {
+	nodes := make([]MapPair, count)
+	ids := make([]uint64, count)
+	lens := make([]uint32, count)
+	for i := 0; i < count; i++ {
+		docID := uint64(base + i*3 + 1)
+		nodes[i] = NewMapPairFromDocIdAndTf(docID, float32(i%7+1), float32(i%5+1), false)
+		ids[i] = docID
+		lens[i] = uint32(i%5 + 1)
+	}
+	return nodes, &propLengthsView{ids: ids, lens: lens}
+}
 
 func encodeInvertedNode(t *testing.T, count, base int) []byte {
 	t.Helper()
@@ -97,6 +114,57 @@ func TestReusableDecodeAcceptsZeroLenPresizedBuffers(t *testing.T) {
 				make([]MapPair, 0, count), make([]byte, 0, count*16),
 				&varenc.VarIntDeltaEncoder{}, &varenc.VarIntEncoder{})
 			assert.Equal(t, want, got)
+		})
+	}
+}
+
+// The reusable compaction encoders must produce byte-identical output to the
+// allocating createAndEncodeBlocks, across the full-bytes, single-block, and
+// multi-block paths.
+func TestCreateAndEncodeBlocksCompaction(t *testing.T) {
+	for _, count := range []int{1, 5, 200} {
+		t.Run(fmt.Sprintf("count=%d", count), func(t *testing.T) {
+			nodes, lookupA := buildInvertedNodes(count, 0)
+			_, lookupB := buildInvertedNodes(count, 0)
+
+			want, _ := createAndEncodeBlocks(copyMapPairs(nodes), lookupA,
+				&varenc.VarIntDeltaEncoder{}, &varenc.VarIntEncoder{}, 1.2, 0.75, 1.0)
+
+			bufs := newCompactorInvertedBuffers()
+			got := createAndEncodeBlocksCompaction(copyMapPairs(nodes), lookupB, &bufs,
+				&varenc.VarIntDeltaEncoder{}, &varenc.VarIntEncoder{}, 1.2, 0.75, 1.0)
+
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
+// KeyIndexAndWriteToCompaction must write the same bytes as KeyIndexAndWriteTo
+// and report the same end offset (as a KeyRedux).
+func TestKeyIndexAndWriteToCompaction(t *testing.T) {
+	for _, count := range []int{1, 5, 200} {
+		t.Run(fmt.Sprintf("count=%d", count), func(t *testing.T) {
+			nodes, lookupA := buildInvertedNodes(count, 0)
+			_, lookupB := buildInvertedNodes(count, 0)
+			key := []byte("some-primary-key")
+
+			var wantBuf bytes.Buffer
+			wantKey, err := segmentInvertedNode{
+				values: copyMapPairs(nodes), primaryKey: key, offset: 100, propLengths: lookupA,
+			}.KeyIndexAndWriteTo(&wantBuf, &varenc.VarIntDeltaEncoder{}, &varenc.VarIntEncoder{}, 1.2, 0.75, 1.0)
+			require.NoError(t, err)
+
+			var gotBuf bytes.Buffer
+			bufs := newCompactorInvertedBuffers()
+			redux, err := segmentInvertedNode{
+				values: copyMapPairs(nodes), primaryKey: key, offset: 100, propLengths: lookupB,
+			}.KeyIndexAndWriteToCompaction(&gotBuf, make([]byte, 8), &bufs,
+				&varenc.VarIntDeltaEncoder{}, &varenc.VarIntEncoder{}, 1.2, 0.75, 1.0)
+			require.NoError(t, err)
+
+			assert.Equal(t, wantBuf.Bytes(), gotBuf.Bytes(), "written bytes")
+			assert.Equal(t, wantKey.ValueEnd, redux.ValueEnd, "ValueEnd")
+			assert.Equal(t, wantKey.Key, redux.Key, "Key")
 		})
 	}
 }
