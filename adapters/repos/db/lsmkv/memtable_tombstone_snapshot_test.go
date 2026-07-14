@@ -13,6 +13,8 @@ package lsmkv
 
 import (
 	"path"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -63,6 +65,76 @@ func TestReadOnlyTombstonesSnapshotFreshnessAndSharing(t *testing.T) {
 	require.False(t, a.Contains(5000))
 }
 
+// Because ReadOnlyTombstones now hands every reader the same shared bitmap, the
+// invariant guarding correctness is that no one mutates it in place. Run under
+// -race: concurrent SetTombstone writers flip tombstonesDirty (driving readers
+// through the exclusive-lock rebuild) while readers assert the snapshot they
+// hold never changes underneath them.
+func TestReadOnlyTombstonesConcurrentReadWrite(t *testing.T) {
+	const (
+		base           = 2000
+		writes         = 8000
+		readers        = 4
+		readsPerReader = 2000
+		firstWritten   = uint64(1_000_000)
+	)
+	m := buildInvertedMemtableWithTombstones(t, base)
+
+	var wg sync.WaitGroup
+
+	// require.* calls FailNow, which is illegal off the test goroutine, so the
+	// workers report via t.Errorf (goroutine-safe) and return.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < writes; i++ {
+			if err := m.SetTombstone(firstWritten + uint64(i)); err != nil {
+				t.Errorf("SetTombstone: %v", err)
+				return
+			}
+		}
+	}()
+
+	for r := 0; r < readers; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < readsPerReader; i++ {
+				snap, err := m.ReadOnlyTombstones()
+				if err != nil {
+					t.Errorf("ReadOnlyTombstones: %v", err)
+					return
+				}
+				// base tombstones predate every writer, so they are always present
+				if !snap.Contains(base / 2) {
+					t.Errorf("snapshot missing base tombstone %d", base/2)
+					return
+				}
+				// a concurrent SetTombstone must not grow the snapshot this reader
+				// already holds; it rebuilds a fresh clone instead
+				card := snap.GetCardinality()
+				for _, id := range []uint64{0, base / 2, base - 1, firstWritten} {
+					_ = snap.Contains(id)
+				}
+				if got := snap.GetCardinality(); got != card {
+					t.Errorf("shared snapshot mutated under reader: %d -> %d", card, got)
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Freshness end-to-end: once the writer is joined, the next read reflects
+	// every tombstone it wrote.
+	final, err := m.ReadOnlyTombstones()
+	require.NoError(t, err)
+	for i := 0; i < writes; i++ {
+		require.True(t, final.Contains(firstWritten+uint64(i)))
+	}
+}
+
 func BenchmarkReadOnlyTombstonesSnapshot(b *testing.B) {
 	m := buildInvertedMemtableWithTombstones(b, 500_000)
 
@@ -98,5 +170,42 @@ func BenchmarkReadOnlyTombstonesSnapshot(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
+	})
+
+	// b.Error (not b.Fatal) inside RunParallel: FailNow is illegal off the
+	// benchmark goroutine.
+
+	// Concurrent read-only path: every reader hits the RLock snapshot fast path,
+	// so throughput should scale with -cpu at ~0 alloc/op.
+	b.Run("cached_reads_parallel", func(b *testing.B) {
+		b.ReportAllocs()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if _, err := m.ReadOnlyTombstones(); err != nil {
+					b.Error(err)
+					return
+				}
+			}
+		})
+	})
+
+	// The contended write-heavy case the single-threaded read_after_delete cannot
+	// show: a delete before every read flips tombstonesDirty, so concurrent
+	// readers serialize on the exclusive Lock to rebuild the snapshot.
+	b.Run("read_after_delete_parallel", func(b *testing.B) {
+		b.ReportAllocs()
+		id := uint64(2_000_000)
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if err := m.SetTombstone(atomic.AddUint64(&id, 1)); err != nil {
+					b.Error(err)
+					return
+				}
+				if _, err := m.ReadOnlyTombstones(); err != nil {
+					b.Error(err)
+					return
+				}
+			}
+		})
 	})
 }

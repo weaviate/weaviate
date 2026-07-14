@@ -37,11 +37,6 @@ var collectBlockMetrics = false
 // a multi-x regression on update-heavy (high-tombstone) segments. Bit-identical either way.
 var deferTombstoneToScore = false
 
-// bm25MergeGateRatio gates the merged filter in createDiskTermFromCV: merge only
-// when summed query doc frequency >= this * filter cardinality. A var, not a
-// const, so identity tests can force merge on (0) or off (+Inf); production is 1.
-var bm25MergeGateRatio = 1.0
-
 // decodeFuncsFromCodecs resolves the stateless doc-id and tf decode functions for
 // a segment's codecs once, so per-term iterators carry func values instead of
 // allocating decoder instances.
@@ -190,17 +185,15 @@ type SegmentBlockMax struct {
 	memTombstones *sroar.Bitmap
 	filterDocIds  helpers.AllowList
 
-	// Probed at this term's monotonically advancing idPointer, the access
-	// pattern ContainsCursor is built for. Primed lazily on first probe.
-	tombCur      sroar.ContainsCursor
-	memTombCur   sroar.ContainsCursor
-	tombCurReady bool
+	// Probed at this term's monotonically advancing idPointer — the access
+	// pattern ContainsCursor is built for.
+	tombCur    sroar.ContainsCursor
+	memTombCur sroar.ContainsCursor
 
-	// filterBm is the AllowList's bitmap when it is a *BitmapAllowList, else nil
-	// — a non-bitmap AllowList keeps the interface probe.
+	// filterCursored is true when filterDocIds is a *BitmapAllowList probed via
+	// filterCur; other AllowList kinds fall back to the interface.
 	filterCur      sroar.ContainsCursor
-	filterBm       *sroar.Bitmap
-	filterCurReady bool
+	filterCursored bool
 
 	// stateless reusable-decode functions, resolved once from the segment's
 	// codecs (doc ids and term frequencies). Func values, not an encoder
@@ -286,6 +279,7 @@ func newSegmentBlockMaxFromNode(s *segment, node segmentindex.Node, queryTermInd
 		memTombstones: memTombstones,
 		sectionReader: sectionReader,
 	}
+	output.primeCursors()
 
 	if err := output.reset(); err != nil {
 		return nil
@@ -332,6 +326,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []terms.BlockEntry, bl
 
 	output.decodeBlock()
 
+	output.primeCursors()
 	output.advanceOnTombstoneOrFilter()
 
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
@@ -361,6 +356,7 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 		freqDecoded:       true,
 		exhausted:         true,
 	}
+	output.primeCursors()
 
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
 	output.Metrics.DocCountTotal += output.docCount
@@ -406,39 +402,37 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 	}
 }
 
+// primeCursors binds the cursors to their bitmaps; every construction path calls
+// it once before the first probe. Reset(nil) is an always-false cursor, so an
+// absent bitmap is a no-op.
+func (s *SegmentBlockMax) primeCursors() {
+	s.tombCur.Reset(s.tombstones)
+	s.memTombCur.Reset(s.memTombstones)
+	if bl, ok := s.filterDocIds.(*helpers.BitmapAllowList); ok {
+		s.filterCur.Reset(bl.Bm)
+		s.filterCursored = true
+	}
+}
+
 // tombstoned reports whether docID is deleted in this iterator's view. All terms
 // in a segment share the same tombstone bitmaps, so any one of them can report
 // tombstone status for a pivot they all align on.
 func (s *SegmentBlockMax) tombstoned(docID uint64) bool {
-	if !s.tombCurReady {
-		// Reset(nil) yields an always-false cursor, so an absent bitmap is a no-op.
-		s.tombCur.Reset(s.tombstones)
-		s.memTombCur.Reset(s.memTombstones)
-		s.tombCurReady = true
-	}
 	return s.tombCur.Contains(docID) || s.memTombCur.Contains(docID)
 }
 
-// setTombstones rebinds the bitmap and clears the cursor latch so the next
-// tombstoned() re-primes on it — the flushing term assigns its tombstones
-// after construction, when tombCur could otherwise stay bound to the old one.
+// setTombstones rebinds tombCur along with the bitmap: the flushing term sets its
+// tombstones after construction, past the primeCursors that bound the cursor to
+// the nil bitmap. memTombCur is untouched — memTombstones never changes.
 func (s *SegmentBlockMax) setTombstones(tombstones *sroar.Bitmap) {
 	s.tombstones = tombstones
-	s.tombCurReady = false
+	s.tombCur.Reset(tombstones)
 }
 
 // filterContains reports whether docID passes the filter; the caller guarantees
-// s.filterDocIds != nil. A *BitmapAllowList is cursored, other kinds probe the
-// interface.
+// s.filterDocIds != nil.
 func (s *SegmentBlockMax) filterContains(docID uint64) bool {
-	if !s.filterCurReady {
-		if bl, ok := s.filterDocIds.(*helpers.BitmapAllowList); ok {
-			s.filterBm = bl.Bm
-			s.filterCur.Reset(bl.Bm)
-		}
-		s.filterCurReady = true
-	}
-	if s.filterBm != nil {
+	if s.filterCursored {
 		return s.filterCur.Contains(docID)
 	}
 	return s.filterDocIds.Contains(docID)

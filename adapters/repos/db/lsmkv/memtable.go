@@ -674,10 +674,14 @@ func (m *Memtable) writeWAL() error {
 	return m.commitlog.flushBuffers()
 }
 
+// ReadOnlyTombstones returns a shared, immutable snapshot of the memtable's tombstones.
+// Returned bitmap must not be mutated: concurrent readers hold the same instance.
 func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	if err := m.checkStrategy(StrategyInverted); err != nil {
 		return nil, fmt.Errorf("Memtable::ReadOnlyTombstones(): %w", err)
 	}
+	// checkStrategy passing implies the inverted constructor ran, which sets
+	// m.tombstones to a non-nil bitmap, so the Clone below never nil-derefs.
 
 	// Lock-free fast path: a clean, already-published snapshot is served without
 	// touching the memtable RWMutex. A tombstone set concurrently with this load may
@@ -694,9 +698,6 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	// to load that snapshot.
 	m.invMu.Lock()
 	defer m.invMu.Unlock()
-	if m.tombstones == nil {
-		return nil, lsmkv.NotFound
-	}
 	if m.tombstonesDirty.Load() || m.tombstonesSnapshot.Load() == nil {
 		m.tombstonesSnapshot.Store(m.tombstones.Clone())
 		m.tombstonesDirty.Store(false)
