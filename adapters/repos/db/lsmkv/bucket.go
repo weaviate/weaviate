@@ -191,10 +191,10 @@ type Bucket struct {
 	// (see WithBM25FilterTombMergeGateRatio). Runtime-tunable via Get().
 	bm25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]
 
-	// secondaryBatchReadConcurrency bounds the per-batch phase-2 value-read
-	// semaphore for GetBySecondaryBatch (design § Option B phase 2). Runtime-tunable
-	// via Get(); nil or a non-positive value falls back to the default 16. Raise on a
-	// fat volume, lower on a throttled one, without redeploy. See
+	// secondaryBatchReadConcurrency bounds how many phase-2 value reads a single
+	// GetBySecondaryBatch issues concurrently. Runtime-tunable via Get(); nil or a
+	// non-positive value falls back to the default 16. Raise on a device with spare
+	// IOPS headroom, lower on a throttled one, without redeploy. See
 	// secondaryBatchReadConcurrencyValue.
 	secondaryBatchReadConcurrency *configRuntime.DynamicValue[int]
 

@@ -936,9 +936,9 @@ func (sg *SegmentGroup) getBySecondaryBatchIndexHits(ctx context.Context, pos in
 // readSecondaryBatchValuesConcurrent runs phase 2 of the batched secondary
 // resolver: it sorts the phase-1 hits by (segIdx, node.Start) for value-offset
 // locality, then issues the copyNode value reads CONCURRENTLY under an errgroup
-// bounded by limit (the per-batch semaphore; design default 16). This is where the
-// cold wall-time win lives (design claim #0): the device's idle queue depth is used
-// instead of one serial pread at a time.
+// bounded by limit (the per-batch semaphore; default 16). This is where the cold
+// wall-time win lives: the device's idle queue depth is used instead of one serial
+// pread at a time.
 //
 // Every value is read into ONE per-batch arena sized sum(node.End-node.Start).
 // Each read goroutine writes a DISJOINT arena sub-slice (three-index sliced so its
@@ -946,18 +946,18 @@ func (sg *SegmentGroup) getBySecondaryBatchIndexHits(ctx context.Context, pos in
 // race-free and errgroup.Wait happens-before the caller reads any result. The
 // parsed priKey/value ALIAS their arena sub-slice: the arena is the copy-out
 // (copyNode has already copied the bytes off the possibly-mmap'd segment, so the
-// slices stay valid after the consistent view is released, #1837), and it stays
-// UNPOOLED so GC keeps it rooted while any decoded object references it. LOAD-BEARING
-// INVARIANT: if the arena is ever pooled, decode MUST copy fields out before the
-// arena is released, or the #1837 aliasing class returns one indirection removed.
+// slices stay valid after the consistent view is released, issue #1837), and it
+// stays UNPOOLED so GC keeps it rooted while any decoded object references it.
+// LOAD-BEARING INVARIANT: if the arena is ever pooled, decode MUST copy fields out
+// before the arena is released, or the issue #1837 aliasing class returns one
+// indirection removed.
 //
 // Tombstone hits resolve to nil (dropped). limit floors at 1 (limit==1 is a genuine
-// serial execution, used by the close-blocking wall-time gate as the serial oracle).
-// hook is nil in production; the close-blocking concurrency gate injects it to count
-// peak in-flight reads and inject per-read latency. arenaBytes (== len(arena)) is
-// returned for the memory-observability AC (peak resident arena bytes). ctx
-// cancellation drains cleanly: the group cancels egctx on the first error and each
-// goroutine checks egctx before its read.
+// serial execution). hook is nil in production; tests inject it to count peak
+// in-flight reads and to inject a per-read latency. arenaBytes (== len(arena)) is
+// returned so the batch's phase-2 memory cost is observable. ctx cancellation drains
+// cleanly: the group cancels egctx on the first error and each goroutine checks
+// egctx before its read.
 func (sg *SegmentGroup) readSecondaryBatchValuesConcurrent(ctx context.Context,
 	hits []secondaryBatchIndexHit, segments []Segment, limit int,
 	hook *secondaryBatchReadHook,

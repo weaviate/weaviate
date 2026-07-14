@@ -39,6 +39,10 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 			s.index.Config.MemtablesMaxActiveSeconds,
 		),
 		lsmkv.WithLazySegmentLoading(s.lazySegmentLoadingEnabled),
+		// Only consumed by GetBySecondaryBatch on the objects (Replace + secondary
+		// index) bucket; inert on other buckets. Passed as a default so the runtime
+		// value reaches the objects bucket wherever it is created.
+		lsmkv.WithSecondaryBatchReadConcurrency(s.index.Config.SecondaryBatchReadConcurrency),
 	}
 
 	switch strategy {

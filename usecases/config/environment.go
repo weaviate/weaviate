@@ -45,6 +45,10 @@ const (
 	DefaultRaftDir                      = "raft"
 	DefaultHNSWAcornFilterRatio         = 0.4
 	DefaultBM25FilterTombMergeGateRatio = 1.0
+	// DefaultSecondaryBatchReadConcurrency is the per-batch phase-2 value-read
+	// concurrency for GetBySecondaryBatch when QUERY_DEFAULTS_SECONDARY_BATCH_READ_CONCURRENCY
+	// is unset. Tuned to a device with meaningful IOPS headroom; runtime-tunable.
+	DefaultSecondaryBatchReadConcurrency = 16
 
 	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
 
@@ -663,6 +667,16 @@ func FromEnv(config *Config) error {
 		return err
 	}
 	config.BM25FilterTombMergeGateRatio = bm25GateDV
+
+	secondaryBatchReadConcurrency := DefaultSecondaryBatchReadConcurrency
+	if err := parsePositiveInt(
+		"QUERY_DEFAULTS_SECONDARY_BATCH_READ_CONCURRENCY",
+		func(val int) { secondaryBatchReadConcurrency = val },
+		DefaultSecondaryBatchReadConcurrency,
+	); err != nil {
+		return err
+	}
+	config.SecondaryBatchReadConcurrency = configRuntime.NewDynamicValue(secondaryBatchReadConcurrency)
 
 	if err := parseInt(
 		"HNSW_GEO_INDEX_EF",

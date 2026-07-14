@@ -31,12 +31,19 @@ type BucketSlowLogEntry struct {
 	// dominant -> cold index pages; value_reads dominant -> the device/semaphore.
 	IndexDescents time.Duration // phase 1: per-segment sorted index descents
 	ValueReads    time.Duration // phase 2: bounded-concurrent offset-sorted value reads
-	// ConcurrentBatchCount is the number of secondary batches concurrently in
-	// their I/O phases on this node at the moment this batch entered phase 1. It
-	// is the leading indicator for the store-level-semaphore revisit trigger
-	// (design § Resource-exhaustion Elephant 1): sustained values above the
-	// modeled Q band are the signal to bound Q before r_await blows up.
+	// ConcurrentBatchCount is the number of secondary batches concurrently
+	// resolving on this node at the moment this batch was counted. It is the
+	// leading indicator for adding a node-wide read-concurrency cap: the batch
+	// resolver removes the serial-chain slowness that today throttles how many
+	// cold queries a node accepts at once, so sustained concurrency climbs as the
+	// speedup lands. Sustained values well above the modeled range are the signal
+	// to bound node-wide concurrency before device queue latency rises.
 	ConcurrentBatchCount int64
+	// ArenaBytes is the size in bytes of the single per-batch value-read arena
+	// (phase 2): the sum of the value sizes of every live hit read in this batch.
+	// Surfaced so the memory cost of a batch is visible in the slow log rather
+	// than only in benchmarks; a per-500-key batch is bounded to roughly a few MB.
+	ArenaBytes int64
 }
 
 type BucketSlowLogEntries []BucketSlowLogEntry
@@ -49,7 +56,7 @@ func (b BucketSlowLogEntries) Reduce() BucketSlowLogEntryStats {
 	var totalDurations, viewDurations, activeMemtableDurations,
 		flushingMemtableDurations, segmentsDurations, recheckDurations,
 		indexDescentsDurations, valueReadsDurations []time.Duration
-	var concurrentBatchCountMax int64
+	var concurrentBatchCountMax, arenaBytesMax int64
 
 	for _, entry := range b {
 		totalDurations = append(totalDurations, entry.Total)
@@ -63,6 +70,9 @@ func (b BucketSlowLogEntries) Reduce() BucketSlowLogEntryStats {
 		if entry.ConcurrentBatchCount > concurrentBatchCountMax {
 			concurrentBatchCountMax = entry.ConcurrentBatchCount
 		}
+		if entry.ArenaBytes > arenaBytesMax {
+			arenaBytesMax = entry.ArenaBytes
+		}
 	}
 
 	return BucketSlowLogEntryStats{
@@ -75,6 +85,7 @@ func (b BucketSlowLogEntries) Reduce() BucketSlowLogEntryStats {
 		IndexDescents:           reduceDurationStats(indexDescentsDurations),
 		ValueReads:              reduceDurationStats(valueReadsDurations),
 		ConcurrentBatchCountMax: concurrentBatchCountMax,
+		ArenaBytesMax:           arenaBytesMax,
 	}
 }
 
@@ -88,6 +99,7 @@ type BucketSlowLogEntryStats struct {
 	IndexDescents           DurationStats `json:"indexDescents"`
 	ValueReads              DurationStats `json:"valueReads"`
 	ConcurrentBatchCountMax int64         `json:"concurrentBatchCountMax"`
+	ArenaBytesMax           int64         `json:"arenaBytesMax"`
 }
 
 type DurationStats struct {

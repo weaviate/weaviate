@@ -11,15 +11,16 @@
 
 package lsmkv
 
-// Batched secondary-key resolution on the Replace-strategy objects bucket (child
-// 3a of the gh#309 sorted/batched GetBySecondary design). This is the
-// correct-but-SERIAL skeleton: it resolves many secondary keys under ONE
-// consistent view with four phases (memtable pass, per-segment newest-wins index
-// descents, offset-sorted value reads, batched recheck), but the value reads are
-// single-threaded. Child 3b swaps phase 2 for bounded-concurrent offset-sorted
-// reads plus an arena; nothing here holds or re-enters a bucket lock across phase
-// I/O (view refcounts only, #11486/#11678), and every returned value is copied out
-// of the segment/memtable before the view is released (copy-under-refcount, #1837).
+// Batched secondary-key resolution on the Replace-strategy objects bucket
+// (gh#309). It resolves many secondary keys under ONE consistent view in four
+// phases: (0) a memtable pass, (1) per-segment newest-to-oldest index descents
+// with newest-wins elimination, (2) offset-sorted bounded-concurrent value reads
+// into one per-batch arena, and (3) a batched recheck that drops any hit
+// superseded by a newer version of its primary key. Nothing here holds or
+// re-enters a bucket lock across phase I/O (view refcounts only; see issues
+// #11486 and #11678), and every returned value is copied out of the
+// segment/memtable before the view is released so results stay valid afterwards
+// (copy-under-refcount, issue #1837).
 
 import (
 	"bytes"
@@ -33,21 +34,23 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// concurrentSecondaryBatches counts the secondary batches currently in their I/O
-// phases (1-3) across this process (== this node). It is the leading indicator for
-// the store-level-semaphore revisit trigger (design § Resource-exhaustion Elephant
-// 1): the fix removes the serial-chain slowness that today throttles node Q, so
-// sustained post-fix Q climbs precisely because the fix worked. Surfaced per batch
-// in the slow log (BucketSlowLogEntry.ConcurrentBatchCount); sustained values above
-// the modeled Q band are the signal to add a store-level semaphore BEFORE r_await
-// blows up in a load test.
+// concurrentSecondaryBatches counts the secondary batches currently resolving
+// across this process (== this node), single-key delegates included. It is the
+// leading indicator for adding a node-wide read-concurrency cap: the batch
+// resolver removes the serial-chain slowness that today limits how many cold
+// queries a node accepts at once, so node-wide concurrency climbs as the speedup
+// lands. Surfaced per batch in the slow log
+// (BucketSlowLogEntry.ConcurrentBatchCount); sustained values well above the
+// modeled range are the signal to bound node-wide concurrency before device queue
+// latency rises.
 var concurrentSecondaryBatches atomic.Int64
 
 // secondaryBatchReadHook is a nil-in-production instrumentation seam around each
-// phase-2 value read. The close-blocking concurrency-effectiveness gate (design
-// Gap 1) injects it to (i) count peak in-flight reads and (ii) inject a fixed
-// per-read latency for the wall-time ratio assertion. onReadStart runs immediately
-// before, and onReadDone immediately after, each read, inside the read goroutine.
+// phase-2 value read. Tests inject it to (i) count peak in-flight reads (proving
+// phase 2 actually runs concurrently, not accidentally serial) and (ii) inject a
+// fixed per-read latency for a wall-time ratio assertion. onReadStart runs
+// immediately before, and onReadDone immediately after, each read, inside the read
+// goroutine.
 type secondaryBatchReadHook struct {
 	onReadStart func()
 	onReadDone  func()
@@ -55,15 +58,16 @@ type secondaryBatchReadHook struct {
 
 // secondaryBatchViewHoldCap bounds the number of keys resolved under a single
 // consistent view. GetBySecondaryBatch chunks larger inputs into slabs of this
-// size, each slab acquiring and releasing its own view, so the compaction
-// ref-hold window (waitForReferenceCountToReachZero) stays bounded regardless of
-// caller batch size. 500 = the BM25/filter `limit` ceiling.
+// size, each slab acquiring and releasing its own view, so the window during which
+// compaction must wait for outstanding readers (waitForReferenceCountToReachZero)
+// stays bounded regardless of caller batch size. 500 = the BM25/filter `limit`
+// ceiling.
 const secondaryBatchViewHoldCap = 500
 
-// defaultSecondaryBatchReadConcurrency is the phase-2 value-read semaphore default
-// (design § Resource-exhaustion: tuned to LTK's ~16k-IOPS device; DynamicValue-tunable
-// per deployment). Composed with the caller's outer decode fan-out, NOT multiplied
-// (the storobj I/O fan-out collapses into one batch; child 4).
+// defaultSecondaryBatchReadConcurrency is the phase-2 value-read semaphore default,
+// used when no runtime value is configured. It is deliberately per-batch (not
+// node-wide) and runtime-tunable (see WithSecondaryBatchReadConcurrency): raise it
+// on a device with spare IOPS headroom, lower it on a throttled one.
 const defaultSecondaryBatchReadConcurrency = 16
 
 // secondaryBatchReadConcurrencyValue returns the effective phase-2 semaphore bound:
@@ -127,6 +131,12 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 		return [][]byte{}, nil
 	}
 
+	// Count this batch in the node-wide concurrent-resolution gauge for its whole
+	// lifetime, single-key delegates included, so the leading indicator does not
+	// undercount. Released when the batch returns.
+	concurrentBatches := concurrentSecondaryBatches.Add(1)
+	defer concurrentSecondaryBatches.Add(-1)
+
 	out := make([][]byte, n)
 	if n == 1 {
 		// delegate to the single-key path; copy the result so it survives view release
@@ -179,11 +189,6 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 		return out, nil
 	}
 
-	// The batch now enters its I/O phases (1-3): record node-wide batch concurrency
-	// for the slow-log leading indicator and release the slot when the batch returns.
-	concurrentBatches := concurrentSecondaryBatches.Add(1)
-	defer concurrentSecondaryBatches.Add(-1)
-
 	// Phase 1 - per-segment sorted index descents, newest-to-oldest, unresolved-set
 	// elimination on CONFIRMED index hits only (never a bloom pass). No value read.
 	beforeIndex := time.Now()
@@ -193,21 +198,22 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 	}
 	indexTook := time.Since(beforeIndex)
 	if len(hits) == 0 {
-		b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, 0, 0, concurrentBatches)
+		b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, 0, 0, concurrentBatches, 0)
 		return out, nil
 	}
 
-	// Phase 2 - offset-sorted bounded-CONCURRENT value reads (child 3b). Live hits
-	// carry priKey/value aliasing a single per-batch arena; tombstone hits drop to nil.
+	// Phase 2 - offset-sorted bounded-concurrent value reads. Live hits carry
+	// priKey/value aliasing a single per-batch arena; tombstone hits drop to nil.
+	// arenaBytes is the arena size, surfaced in the slow log for memory visibility.
 	beforeValues := time.Now()
-	lives, _, err := b.disk.readSecondaryBatchValuesConcurrent(
+	lives, arenaBytes, err := b.disk.readSecondaryBatchValuesConcurrent(
 		ctx, hits, segments, b.secondaryBatchReadConcurrencyValue(), nil)
 	if err != nil {
 		return nil, err
 	}
 	valuesTook := time.Since(beforeValues)
 	if len(lives) == 0 {
-		b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, valuesTook, 0, concurrentBatches)
+		b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, valuesTook, 0, concurrentBatches, int64(arenaBytes))
 		return out, nil
 	}
 
@@ -238,17 +244,17 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 			out[lives[i].origIdx] = lives[i].value
 		}
 	}
-	b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, valuesTook, recheckTook, concurrentBatches)
+	b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, valuesTook, recheckTook, concurrentBatches, int64(arenaBytes))
 	return out, nil
 }
 
 // annotateSecondaryBatchSlowLog appends a per-phase timing entry for a batched
 // secondary resolution under the lsm_get_by_secondary_batch log key, so an engineer
 // reading the slow log sees WHERE the cold cost sits (index_descents vs value_reads
-// vs recheck) plus the per-node concurrent-batch count (the store-level-semaphore
-// revisit leading indicator, design § Resource-exhaustion Elephant 1).
+// vs recheck), the node-wide concurrent-batch count, and the phase-2 arena size.
 func (b *Bucket) annotateSecondaryBatchSlowLog(ctx context.Context,
-	memtables, indexDescents, valueReads, recheck time.Duration, concurrentBatches int64,
+	memtables, indexDescents, valueReads, recheck time.Duration,
+	concurrentBatches, arenaBytes int64,
 ) {
 	helpers.AnnotateSlowQueryLogAppend(ctx, "lsm_get_by_secondary_batch", BucketSlowLogEntry{
 		Total:                memtables + indexDescents + valueReads + recheck,
@@ -258,5 +264,6 @@ func (b *Bucket) annotateSecondaryBatchSlowLog(ctx context.Context,
 		ValueReads:           valueReads,
 		Recheck:              recheck,
 		ConcurrentBatchCount: concurrentBatches,
+		ArenaBytes:           arenaBytes,
 	})
 }
