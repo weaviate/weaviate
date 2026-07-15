@@ -20,6 +20,9 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 )
 
@@ -60,6 +63,12 @@ func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.
 		return nil, fmt.Errorf("shard %q: open changelog for op %q: %w", s.ID(), opID, err)
 	}
 	changelog.Register(&s.changeLogs, opID, log)
+	s.index.logger.WithFields(logrus.Fields{
+		"action": "change_capture_log",
+		"op_id":  opID,
+		"shard":  s.ID(),
+		"path":   path,
+	}).Debug("change-capture log activated")
 	return log, nil
 }
 
@@ -77,6 +86,7 @@ func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, err
 	if log == nil {
 		return 0, errNoSuchChangeLog
 	}
+	start := time.Now()
 	pending := s.replicationMap.keys()
 
 	ticker := time.NewTicker(5 * time.Millisecond)
@@ -93,7 +103,18 @@ func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, err
 			}
 		}
 		if !draining {
-			return log.Finalize()
+			finalLSN, err := log.Finalize()
+			if err != nil {
+				return 0, err
+			}
+			s.index.logger.WithFields(logrus.Fields{
+				"action":     "change_capture_log",
+				"op_id":      opID,
+				"shard":      s.ID(),
+				"final_lsn":  finalLSN,
+				"drain_took": time.Since(start),
+			}).Debug("change-capture log sealed")
+			return finalLSN, nil
 		}
 		select {
 		case <-ctx.Done():
@@ -111,7 +132,14 @@ func (s *Shard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, 
 	if log == nil {
 		return 0, errNoSuchChangeLog
 	}
-	return log.LSN(), nil
+	lsn := log.LSN()
+	s.index.logger.WithFields(logrus.Fields{
+		"action": "change_capture_log",
+		"op_id":  opID,
+		"shard":  s.ID(),
+		"lsn":    lsn,
+	}).Debug("change-capture log LSN snapshotted")
+	return lsn, nil
 }
 
 func (s *Shard) StopChangeCapture(ctx context.Context, opID string) error {
@@ -120,7 +148,17 @@ func (s *Shard) StopChangeCapture(ctx context.Context, opID string) error {
 		return nil
 	}
 	changelog.Unregister(&s.changeLogs, opID)
-	return log.Deactivate()
+	lastLSN := log.LSN()
+	if err := log.Deactivate(); err != nil {
+		return err
+	}
+	s.index.logger.WithFields(logrus.Fields{
+		"action":   "change_capture_log",
+		"op_id":    opID,
+		"shard":    s.ID(),
+		"last_lsn": lastLSN,
+	}).Debug("change-capture log deactivated")
+	return nil
 }
 
 func (s *Shard) GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool) {
@@ -147,9 +185,10 @@ func (s *Shard) AppendChangeLogPut(idBytes []byte, updateTimeMillis int64, objBi
 	copy(uuidArr[:], idBytes)
 
 	set.ForEach(func(opID string, log *changelog.ChangeLog) {
-		_, appendErr := s.appendWithRetry(func() (uint64, error) {
+		lsn, appendErr := s.appendWithRetry(func() (uint64, error) {
 			return log.AppendPut(uuidArr, updateTimeMillis, objBinary)
 		})
+		s.logChangeLogAppend(opID, "put", uuidArr, updateTimeMillis, lsn, appendErr)
 		s.dispatchAppendResult(opID, log, appendErr)
 	})
 }
@@ -164,11 +203,37 @@ func (s *Shard) AppendChangeLogDelete(idBytes []byte, updateTimeMillis int64) {
 	copy(uuidArr[:], idBytes)
 
 	set.ForEach(func(opID string, log *changelog.ChangeLog) {
-		_, appendErr := s.appendWithRetry(func() (uint64, error) {
+		lsn, appendErr := s.appendWithRetry(func() (uint64, error) {
 			return log.AppendDelete(uuidArr, updateTimeMillis)
 		})
+		s.logChangeLogAppend(opID, "delete", uuidArr, updateTimeMillis, lsn, appendErr)
 		s.dispatchAppendResult(opID, log, appendErr)
 	})
+}
+
+func (s *Shard) logChangeLogAppend(opID, kind string, uuidArr [16]byte, updateTimeMillis int64, lsn uint64, appendErr error) {
+	if appendErr == nil {
+		s.index.logger.WithFields(logrus.Fields{
+			"action":         "change_capture_log",
+			"op_id":          opID,
+			"shard":          s.ID(),
+			"kind":           kind,
+			"uuid":           uuid.UUID(uuidArr),
+			"update_time_ms": updateTimeMillis,
+			"lsn":            lsn,
+		}).Debug("change-capture log entry appended")
+		return
+	}
+	if errors.Is(appendErr, changelog.ErrLogFinalized) || errors.Is(appendErr, changelog.ErrLogDeactivated) {
+		s.index.logger.WithFields(logrus.Fields{
+			"action":         "change_capture_log",
+			"op_id":          opID,
+			"shard":          s.ID(),
+			"kind":           kind,
+			"uuid":           uuid.UUID(uuidArr),
+			"update_time_ms": updateTimeMillis,
+		}).Debugf("change-capture log append dropped: %v", appendErr)
+	}
 }
 
 // appendWithRetry short-circuits ErrLogFinalized/ErrLogDeactivated (retry
