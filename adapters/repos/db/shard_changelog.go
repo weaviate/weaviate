@@ -148,10 +148,10 @@ func (s *Shard) StopChangeCapture(ctx context.Context, opID string) error {
 		return nil
 	}
 	changelog.Unregister(&s.changeLogs, opID)
-	lastLSN := log.LSN()
 	if err := log.Deactivate(); err != nil {
 		return err
 	}
+	lastLSN := log.LSN()
 	s.index.logger.WithFields(logrus.Fields{
 		"action":   "change_capture_log",
 		"op_id":    opID,
@@ -212,6 +212,9 @@ func (s *Shard) AppendChangeLogDelete(idBytes []byte, updateTimeMillis int64) {
 }
 
 func (s *Shard) logChangeLogAppend(opID, kind string, uuidArr [16]byte, updateTimeMillis int64, lsn uint64, appendErr error) {
+	if !s.index.debugLoggingEnabled() {
+		return
+	}
 	if appendErr == nil {
 		s.index.logger.WithFields(logrus.Fields{
 			"action":         "change_capture_log",

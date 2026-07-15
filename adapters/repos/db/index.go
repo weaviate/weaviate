@@ -351,6 +351,13 @@ func (i *Index) snapshotsPath() string {
 	return path.Join(i.path(), lsmkv.SnapshotsRootDir)
 }
 
+func (i *Index) debugLoggingEnabled() bool {
+	if logger, ok := i.logger.(*logrus.Logger); ok && logger.IsLevelEnabled(logrus.DebugLevel) {
+		return true
+	}
+	return false
+}
+
 // NewIndex creates an index with the specified amount of shards, using only
 // the shards that are local to a node
 func NewIndex(

@@ -853,6 +853,7 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 	if len(updates) == 0 {
 		return nil
 	}
+	debugEnabled := idx.debugLoggingEnabled()
 
 	s, release, err := idx.getOrInitShard(ctx, shard)
 	if err != nil {
@@ -885,8 +886,10 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 				return fmt.Errorf("replay put batch: %w", e)
 			}
 		}
-		for _, o := range objs {
-			appliedPuts = append(appliedPuts, o.ID())
+		if debugEnabled {
+			for _, o := range objs {
+				appliedPuts = append(appliedPuts, o.ID())
+			}
 		}
 		clear(pending)
 		return nil
@@ -914,7 +917,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		}
 
 		if currUpdateTime > u.LastUpdateTimeUnixMilli {
-			skippedStale = append(skippedStale, u.ID)
+			if debugEnabled {
+				skippedStale = append(skippedStale, u.ID)
+			}
 			continue
 		}
 
@@ -925,7 +930,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 			if err := s.DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli)); err != nil {
 				return fmt.Errorf("replay delete for %s: %w", u.ID, err)
 			}
-			appliedDeletes = append(appliedDeletes, u.ID)
+			if debugEnabled {
+				appliedDeletes = append(appliedDeletes, u.ID)
+			}
 			continue
 		}
 
