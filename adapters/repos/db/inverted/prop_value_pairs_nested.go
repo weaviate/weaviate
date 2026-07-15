@@ -408,6 +408,7 @@ func (pv *propValuePair) restrictByNestedIdx(ctx context.Context, s *Searcher, p
 	if metaBucket == nil {
 		return nil, fmt.Errorf("nested [N] filter: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	var keyBuf [invnested.IdxKeySize]byte
 	for _, ai := range pv.nested.arrayIndices {
 		positionsIdx, release, err := metaBucket.RoaringSetGet(ctx, invnested.IdxKeyToBuf(ai.RelPath, ai.Index, keyBuf[:]))
@@ -415,8 +416,7 @@ func (pv *propValuePair) restrictByNestedIdx(ctx context.Context, s *Searcher, p
 			return nil, fmt.Errorf("nested [N] filter: read idx key for %q[%d]: %w", ai.RelPath, ai.Index, err)
 		}
 		dbmIdx := &docBitmap{docIDs: positionsIdx, release: release}
-		// TODO: which value for the maxDoc should be set here
-		positions = mergeBitmapsAndOrWithDenyList(positions, dbmIdx, filters.OperatorAnd, 0)
+		positions = mergeBitmapsAndOrWithDenyList(positions, dbmIdx, filters.OperatorAnd, mergeConc)
 	}
 	succeeded = true
 	return positions, nil
@@ -515,13 +515,13 @@ func (pv *propValuePair) resolveMultiGroupDocIDLevelAnd(ctx context.Context, s *
 			dbm.release()
 		}
 	}()
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	for _, group := range groups[1:] {
 		groupDbm, err := pv.resolveNestedSubtreeGroup(ctx, s, group)
 		if err != nil {
 			return nil, err
 		}
-		// TODO: which value for the maxDoc should be set here
-		dbm = mergeBitmapsAndOrWithDenyList(dbm, groupDbm, filters.OperatorAnd, 0)
+		dbm = mergeBitmapsAndOrWithDenyList(dbm, groupDbm, filters.OperatorAnd, mergeConc)
 	}
 	succeeded = true
 	return dbm, nil
