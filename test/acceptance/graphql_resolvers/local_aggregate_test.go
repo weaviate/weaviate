@@ -1278,7 +1278,7 @@ func localMetaWithObjectLimit(t *testing.T) {
 		count := meta.(map[string]interface{})["count"]
 		countInt, err := count.(json.Number).Int64()
 		require.Nil(t, err)
-		// Without a vector filter the count comes from the object store, not ANN traversal, so it is exact.
+		// No vector filter: count is exact, from the object store rather than ANN.
 		assert.Equal(t, int64(500), countInt)
 	})
 
