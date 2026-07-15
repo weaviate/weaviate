@@ -53,6 +53,13 @@ type tenantTTLLoop struct {
 	processBatch          func(ctx context.Context, uuids []strfmt.UUID) error
 }
 
+// shardIsLazyUnloaded reports whether the named shard is a lazy shard not yet materialized.
+// Only HOT tenants are lazy shards, so this never hides a COLD tenant from auto-activation.
+func (i *Index) shardIsLazyUnloaded(shardName string) bool {
+	lazy, ok := i.shards.Load(shardName).(*LazyLoadShard)
+	return ok && !lazy.isLoaded()
+}
+
 func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
 ) {
@@ -98,6 +105,10 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 		autoActivationEnabled := schema.AutoTenantActivationEnabled(class)
 
 		for _, tenant := range tenants {
+			// Don't force-load an idle tenant on every sweep; it's cleaned once it materializes.
+			if i.shardIsLazyUnloaded(tenant) {
+				continue
+			}
 			eg.Go(func() error {
 				// processedBatches is intentionally shared between the findUUIDs and processBatch
 				// closures below — both run within this single goroutine, so there is no race.
