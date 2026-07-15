@@ -841,6 +841,19 @@ type ChangeLogReplayEntry struct {
 	Payload []byte
 }
 
+type changeLogReplayCtxKey struct{}
+
+// withChangeLogReplay marks a write as change-log replay so putObjectLSM/DeleteObject
+// drop it when the local object is newer (atomic under the docIdLock).
+func withChangeLogReplay(ctx context.Context) context.Context {
+	return context.WithValue(ctx, changeLogReplayCtxKey{}, true)
+}
+
+func fromChangeLogReplay(ctx context.Context) bool {
+	v, _ := ctx.Value(changeLogReplayCtxKey{}).(bool)
+	return v
+}
+
 // OverwriteObjectsFromChangeLog replays entries under pure LWW by
 // LastUpdateTimeUnixMilli — no StaleUpdateTime conflicts and no
 // DeletionStrategy, unlike OverwriteObjects. Entries MUST be in LSN order;
@@ -852,6 +865,8 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 	if len(updates) == 0 {
 		return nil
 	}
+
+	ctx = withChangeLogReplay(ctx)
 
 	s, release, err := idx.getOrInitShard(ctx, shard)
 	if err != nil {
@@ -891,25 +906,6 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 			return err
 		}
 		u := &updates[i]
-
-		var currUpdateTime int64
-		localObj, err := s.ObjectDigestErrDeleted(ctx, u.ID)
-		switch {
-		case err == nil:
-			currUpdateTime = localObj.UpdateTime
-		case errors.Is(err, lsmkv.Deleted):
-			var errDeleted lsmkv.ErrDeleted
-			if errors.As(err, &errDeleted) {
-				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
-			}
-		case errors.Is(err, lsmkv.NotFound):
-		default:
-			return fmt.Errorf("read local digest for %s: %w", u.ID, err)
-		}
-
-		if currUpdateTime > u.LastUpdateTimeUnixMilli {
-			continue
-		}
 
 		if u.IsDelete {
 			if err := flushPending(); err != nil {
