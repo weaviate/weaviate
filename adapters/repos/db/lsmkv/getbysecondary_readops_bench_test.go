@@ -269,7 +269,7 @@ func measureBatchArenaBytes(t *testing.T, bucket *Bucket, keys [][]byte) int {
 	for i, k := range keys {
 		unresolved[i] = secondaryBatchKey{origIdx: i, key: k}
 	}
-	hits, err := bucket.disk.getBySecondaryBatchIndexHits(context.Background(), secondaryPos, unresolved, view.Disk)
+	hits, err := bucket.disk.getBySecondaryBatchIndexHits(context.Background(), secondaryPos, unresolved, view.Disk, defaultSecondaryBatchReadConcurrency, nil)
 	require.NoError(t, err)
 	_, arenaBytes, err := bucket.disk.readSecondaryBatchValuesConcurrent(
 		context.Background(), hits, view.Disk, defaultSecondaryBatchReadConcurrency, nil,
