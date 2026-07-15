@@ -234,9 +234,9 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime, deletionEvent
 	// tombstone may not be available
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
-	// Fold ≤cutoff deletions out of the active checkpoint; a post-cutoff delete keeps the pre-cutoff object.
-	// The clone shares the live tree's leaf layout (any height-changing rebuild clears the checkpoint first).
-	if cpht := s.asyncCheckpointHashtree; cpht != nil && deletionEventMs <= s.asyncCheckpointCutoff {
+	// Fold a ≤cutoff delete out of the checkpoint. Require BOTH the event and the stored version
+	// ≤cutoff: erasing a >cutoff version the clone never held would inject a phantom term.
+	if cpht := s.asyncCheckpointHashtree; cpht != nil && deletionEventMs <= s.asyncCheckpointCutoff && updateTime <= s.asyncCheckpointCutoff {
 		if err := cpht.AggregateLeafWith(leaf, objectDigest[:]); err != nil {
 			return err
 		}

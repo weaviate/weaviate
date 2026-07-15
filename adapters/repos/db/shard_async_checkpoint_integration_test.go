@@ -30,11 +30,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-const (
-	ckCutoff = 1_000_000
-	ckSeedTS = 800_000
-	ckPreTS  = 900_000
-	ckPostTS = 1_100_000
+// Shifted into the future so the cutoff-in-past guard passes; seed<pre<cutoff<post is what matters.
+var (
+	ckIntgBase = time.Now().Add(time.Hour).UnixMilli()
+	ckCutoff   = ckIntgBase + 1_000_000
+	ckSeedTS   = ckIntgBase + 800_000
+	ckPreTS    = ckIntgBase + 900_000
+	ckPostTS   = ckIntgBase + 1_100_000
 )
 
 func ckID(n int) strfmt.UUID {
