@@ -881,12 +881,19 @@ type secondaryBatchIndexHit struct {
 // secondaryBatchLiveHit is a phase-2 result whose value was not a tombstone.
 // priKey and value are already copied out of the segment (safe after view
 // release). superseded is set by the phase-3 recheck when a newer version exists.
+// key is the original secondary key, retained so the phase-3 memtable half can
+// re-resolve it against the current memtables to distinguish a genuine supersede
+// from the gh#313 false positive. fromMemtable marks a hit whose value was recovered
+// from a memtable re-resolve (newest-wins); such a hit must NOT be re-checked against
+// segments, since a memtable is newer than every segment.
 type secondaryBatchLiveHit struct {
-	origIdx    int
-	priKey     []byte
-	value      []byte
-	segIdx     int
-	superseded bool
+	origIdx      int
+	key          []byte
+	priKey       []byte
+	value        []byte
+	segIdx       int
+	superseded   bool
+	fromMemtable bool
 }
 
 // getBySecondaryBatchIndexHits runs phase 1 of the batched secondary resolver:
@@ -1042,7 +1049,7 @@ func (sg *SegmentGroup) readSecondaryBatchValuesConcurrent(ctx context.Context,
 		}
 		// priKey/value alias the arena sub-slice; no clone (the arena is the copy-out).
 		results[i] = phase2Result{
-			live: secondaryBatchLiveHit{origIdx: h.origIdx, priKey: priKey, value: value, segIdx: h.segIdx},
+			live: secondaryBatchLiveHit{origIdx: h.origIdx, key: h.key, priKey: priKey, value: value, segIdx: h.segIdx},
 			ok:   true,
 		}
 		return nil
@@ -1117,7 +1124,9 @@ func (sg *SegmentGroup) recheckSecondaryBatchInSegments(ctx context.Context,
 		}
 		scratch = scratch[:0]
 		for k := range lives {
-			if !lives[k].superseded && lives[k].segIdx < sj {
+			// fromMemtable hits carry a value recovered from a memtable re-resolve,
+			// which is newer than every segment; no segment can supersede them.
+			if !lives[k].superseded && !lives[k].fromMemtable && lives[k].segIdx < sj {
 				scratch = append(scratch, k)
 			}
 		}
