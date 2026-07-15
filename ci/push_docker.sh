@@ -74,7 +74,9 @@ function release() {
     pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g' | cut -c1-80 | sed 's/-$//g')"
     if [ "$pr_title" == "" ]; then
       git_branch="$GITHUB_REF_NAME"
-      branch_name="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g')"
+      # Same 80-char cap as pr_title above: this empty-title (non-PR) branch
+      # builds the preview tag from branch_name, so a long ref would overflow 128.
+      branch_name="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g' | cut -c1-80 | sed 's/-$//g')"
       tag_preview="${DOCKER_REPO}:${branch_name}-${git_revision}"
       weaviate_version="${branch_name}-${git_revision}"
       git_branch="$GITHUB_HEAD_REF"
