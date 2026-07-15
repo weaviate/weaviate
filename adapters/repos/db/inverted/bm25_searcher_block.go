@@ -253,7 +253,7 @@ func (b *BM25Searcher) wandBlock(
 	start = time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_bmw_time", blockSearchTime)
 
-	objects, scores, err := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
+	objects, scores, err := b.combineResults(ctx, allIds, allScores, allExplanation, termCounts, additional, limit)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -265,7 +265,7 @@ func (b *BM25Searcher) wandBlock(
 	return objects, scores, false, nil
 }
 
-func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) combineResults(ctx context.Context, allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
 	// Preallocate by the real upper bound (total result rows across
 	// properties/segments), not limit*len(allIds): for unlimited (limit==0)
 	// queries the caller inflates limit to the sum of all term counts, which
@@ -304,7 +304,7 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
 
-	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
+	combinedObjects, combinedScores, err := b.getObjectsAndScores(ctx, combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -370,7 +370,7 @@ func (b *BM25Searcher) sortResultsByExternalId(objects []*storobj.Object, scores
 	return sorter.objects, sorter.scores
 }
 
-func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) getObjectsAndScores(ctx context.Context, ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
 	// reverse arrays to start with the highest score
 	slices.Reverse(ids)
 	slices.Reverse(scores)
@@ -389,7 +389,7 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 	// try to get docs up to the limit
 	// if there are not enough docs, get limit more docs until we've exhausted the list of ids
 	for len(objs) < limit && startAt < len(ids) {
-		objsBatch, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
+		objsBatch, err := storobj.ObjectsByDocIDWithEmpty(ctx, objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
 		if err != nil {
 			return objs, nil, errors.Errorf("objects loading")
 		}

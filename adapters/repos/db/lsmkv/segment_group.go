@@ -898,35 +898,112 @@ type secondaryBatchLiveHit struct {
 // (tombstone status is only knowable after the phase-2 value read). No value bytes
 // are read here. Keys never confirmed in any segment do not appear in the returned
 // hits (they resolve to nil). pending is expected pre-sorted by key for descent
-// cache locality; ctx is checked once per segment. pending's backing array is
-// consumed (used as in-place filter scratch); the caller must not reuse it.
+// cache locality; ctx is checked at the top of every worker's cursor loop.
+// pending's backing array is consumed (reused as compaction scratch after each
+// segment's join); the caller must not reuse it.
+//
+// WITHIN each segment the per-key descents are issued CONCURRENTLY across a fixed
+// pool of min(limit, len(remaining)) workers pulling a shared atomic cursor (the
+// same primitive as phase-2 readSecondaryBatchValuesConcurrent), because the cold
+// DiskTree.Get mmap descents are the cold-dominant work (gh#309 pass-3b: ~4390 tree
+// pages vs 1011 payload) and serializing them 1-wide was the residual cold bm25
+// regression. getBySecondaryIndexNode reads the mmap index in place and holds no
+// shared mutable scratch (an immutable bloom bitset + a bytes.Clone of the matched
+// key), so concurrent descents into a shared segment are race-free (BASE's
+// 8-12-wide interleaved descents are the empirical proof the corpus tolerates it.
+// Segment ITERATION stays serial newest->oldest behind a per-segment JOIN BARRIER:
+// under Replace each key is unique per segment, so a segment's unresolved descents
+// are mutually independent and may complete in any order, but segment i must be
+// fully eliminated (all confirmed hits compacted out) before i-1 is descended.
+// Workers write DISJOINT result slots (found[j]/nodes[j] indexed by position in the
+// segment's unresolved set); no in-place filter under concurrency (that is a
+// write-write race); the confirmed-hit compaction runs SERIALLY after the join.
+// Peak in-flight descents per batch <= limit; phase-1 and phase-2 are barrier-
+// separated so the node's peak I/O-goroutine budget stays max(phase1,phase2), not
+// the sum (INV semaphore composition). hook is nil in production; tests inject it to
+// count peak in-flight descents and to inject a per-descent latency.
 func (sg *SegmentGroup) getBySecondaryBatchIndexHits(ctx context.Context, pos int,
-	pending []secondaryBatchKey, segments []Segment,
+	pending []secondaryBatchKey, segments []Segment, limit int,
+	hook *secondaryBatchReadHook,
 ) ([]secondaryBatchIndexHit, error) {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
 		return nil, fmt.Errorf("SegmentGroup::getBySecondaryBatchIndexHits(): %w", err)
 	}
+	if limit < 1 {
+		limit = 1
+	}
 
 	hits := make([]secondaryBatchIndexHit, 0, len(pending))
 	remaining := pending
+	// Per-key descent-result slots, allocated once at max width and resliced to the
+	// current unresolved count each segment (avoids a per-segment allocation on the
+	// cold path). found[j]/nodes[j] are written by exactly one worker (disjoint index).
+	foundBuf := make([]bool, len(pending))
+	nodeBuf := make([]segmentindex.Node, len(pending))
+
 	// newest -> oldest: view.Disk has the newest segment at the highest index.
 	for i := len(segments) - 1; i >= 0 && len(remaining) > 0; i-- {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		seg := segments[i]
-		stillUnresolved := remaining[:0] // in-place filter; writes never overtake reads
-		for _, pk := range remaining {
-			node, err := seg.getBySecondaryIndexNode(pos, pk.key)
-			if err != nil {
-				if errors.Is(err, lsmkv.NotFound) {
-					stillUnresolved = append(stillUnresolved, pk)
-					continue
+
+		found := foundBuf[:len(remaining)]
+		nodes := nodeBuf[:len(remaining)]
+		for k := range found {
+			found[k] = false
+		}
+
+		workers := limit
+		if workers > len(remaining) {
+			workers = len(remaining)
+		}
+		var cursor atomic.Int64
+		eg, egctx := enterrors.NewErrorGroupWithContextWrapper(sg.logger, ctx)
+		for w := 0; w < workers; w++ {
+			eg.Go(func() error {
+				for {
+					if err := egctx.Err(); err != nil {
+						return err
+					}
+					j := int(cursor.Add(1)) - 1
+					if j >= len(remaining) {
+						return nil
+					}
+					if hook != nil && hook.onDescentStart != nil {
+						hook.onDescentStart()
+					}
+					node, err := seg.getBySecondaryIndexNode(pos, remaining[j].key)
+					if hook != nil && hook.onDescentDone != nil {
+						hook.onDescentDone()
+					}
+					if err != nil {
+						if errors.Is(err, lsmkv.NotFound) {
+							continue // stays unresolved; found[j] left false
+						}
+						return fmt.Errorf("SegmentGroup::getBySecondaryBatchIndexHits() %q: %w", seg.getPath(), err)
+					}
+					nodes[j] = node
+					found[j] = true
 				}
-				return nil, fmt.Errorf("SegmentGroup::getBySecondaryBatchIndexHits() %q: %w", seg.getPath(), err)
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return nil, err
+		}
+
+		// Serial post-join compaction (the elimination barrier): confirmed hits are
+		// authoritative for this newest segment; unconfirmed keys advance to i-1.
+		// Reusing remaining's backing is safe now that all descent reads have joined;
+		// the write index never overtakes the read index (standard in-place filter).
+		stillUnresolved := remaining[:0]
+		for j := range found {
+			pk := remaining[j]
+			if found[j] {
+				hits = append(hits, secondaryBatchIndexHit{origIdx: pk.origIdx, key: pk.key, segIdx: i, node: nodes[j]})
+			} else {
+				stillUnresolved = append(stillUnresolved, pk)
 			}
-			// confirmed index hit: authoritative newest version for this key
-			hits = append(hits, secondaryBatchIndexHit{origIdx: pk.origIdx, key: pk.key, segIdx: i, node: node})
 		}
 		remaining = stillUnresolved
 	}

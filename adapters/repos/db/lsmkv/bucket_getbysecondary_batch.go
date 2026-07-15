@@ -46,14 +46,17 @@ import (
 var concurrentSecondaryBatches atomic.Int64
 
 // secondaryBatchReadHook is a nil-in-production instrumentation seam around each
-// phase-2 value read. Tests inject it to (i) count peak in-flight reads (proving
-// phase 2 actually runs concurrently, not accidentally serial) and (ii) inject a
-// fixed per-read latency for a wall-time ratio assertion. onReadStart runs
-// immediately before, and onReadDone immediately after, each read, inside the read
-// goroutine.
+// phase-1 index descent AND each phase-2 value read. Tests inject it to (i) count
+// peak in-flight operations (proving the phase actually runs concurrently, not
+// accidentally serial) and (ii) inject a fixed per-op latency for a wall-time ratio
+// assertion. onReadStart/onReadDone wrap each phase-2 value read; onDescentStart/
+// onDescentDone wrap each phase-1 index descent. Each pair runs immediately before
+// and after its op, inside the worker goroutine.
 type secondaryBatchReadHook struct {
-	onReadStart func()
-	onReadDone  func()
+	onReadStart    func()
+	onReadDone     func()
+	onDescentStart func()
+	onDescentDone  func()
 }
 
 // secondaryBatchViewHoldCap bounds the number of keys resolved under a single
@@ -192,7 +195,8 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 	// Phase 1 - per-segment sorted index descents, newest-to-oldest, unresolved-set
 	// elimination on CONFIRMED index hits only (never a bloom pass). No value read.
 	beforeIndex := time.Now()
-	hits, err := b.disk.getBySecondaryBatchIndexHits(ctx, pos, unresolved, segments)
+	hits, err := b.disk.getBySecondaryBatchIndexHits(
+		ctx, pos, unresolved, segments, b.secondaryBatchReadConcurrencyValue(), nil)
 	if err != nil {
 		return nil, err
 	}

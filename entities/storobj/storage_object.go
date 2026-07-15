@@ -433,23 +433,23 @@ func withBatchLookup(bucket bucket, fn func(secondaryLookup) ([]*Object, error))
 // Object.Class on each decoded object is stamped from bucket.ClassName(); the
 // bucket must have been opened with lsmkv.WithClassName, otherwise
 // bucket.ClassName() returns an error and the call fails.
-func ObjectsByDocID(bucket bucket, ids []uint64,
+func ObjectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	return objectsByDocID(bucket, ids, additional, properties, logger, false)
+	return objectsByDocID(ctx, bucket, ids, additional, properties, logger, false)
 }
 
 // ObjectsByDocIDWithEmpty is like ObjectsByDocID but preserves nil entries at
 // positions where a doc ID has no payload, so the returned slice always has
 // the same length as ids. Object.Class is stamped from bucket.ClassName() —
 // see ObjectsByDocID for the bucket-resolution contract.
-func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
+func ObjectsByDocIDWithEmpty(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	return objectsByDocID(bucket, ids, additional, properties, logger, true)
+	return objectsByDocID(ctx, bucket, ids, additional, properties, logger, true)
 }
 
-func objectsByDocID(bucket bucket, ids []uint64,
+func objectsByDocID(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 	includeEmpty bool,
 ) ([]*Object, error) {
@@ -459,7 +459,7 @@ func objectsByDocID(bucket bucket, ids []uint64,
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
 	}
-	return objectsByDocIDBatch(bucket, ids, additional, properties, logger, includeEmpty)
+	return objectsByDocIDBatch(ctx, bucket, ids, additional, properties, logger, includeEmpty)
 }
 
 // propertyExtractionFromNames builds the PropertyExtraction passed to the decoder.
@@ -487,7 +487,7 @@ func propertyExtractionFromNames(properties []string) *PropertyExtraction {
 // size. Decode reads only the returned payload bytes (FromBinaryOptionalDisk is a
 // pure in-memory byteops decode; it issues no disk reads), so decode never
 // re-creates the multiplicative read shape the collapse removes.
-func objectsByDocIDBatch(bucket bucket, ids []uint64,
+func objectsByDocIDBatch(ctx context.Context, bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 	includeEmpty bool,
 ) ([]*Object, error) {
@@ -508,7 +508,7 @@ func objectsByDocIDBatch(bucket bucket, ids []uint64,
 		keys[i] = k
 	}
 
-	values, err := bucket.GetBySecondaryBatch(context.TODO(), 0, keys) // TODO: thread ctx once ObjectsByDocID takes one
+	values, err := bucket.GetBySecondaryBatch(ctx, 0, keys)
 	if err != nil {
 		return nil, err
 	}
