@@ -28,6 +28,40 @@ const (
 	hashTreeHeaderLength int = 4 + 1 + 4 + DigestLength + DigestLength
 )
 
+// headerChecksum computes the murmur3-128 checksum of the header bytes
+// preceding the checksum field.
+func headerChecksum(hdr []byte) [DigestLength]byte {
+	h1, h2 := murmur3.Sum128(hdr)
+	var cs [DigestLength]byte
+	binary.BigEndian.PutUint64(cs[:8], h1)
+	binary.BigEndian.PutUint64(cs[8:], h2)
+	return cs
+}
+
+// legacyHeaderChecksum reproduces the value historically stored in the
+// checksum field: hash.Sum(hdr) appends the hash of the (empty) hasher state
+// to hdr, so the DigestLength-sized copy took the header's own leading bytes,
+// zero-padded when the header is shorter (murmur3-128 of empty input is all
+// zeros). Accepted on read so pre-fix files remain loadable; the root-digest
+// recompute still guards their content.
+func legacyHeaderChecksum(hdr []byte) [DigestLength]byte {
+	var legacy [DigestLength]byte
+	copy(legacy[:], hdr)
+	return legacy
+}
+
+// validHeaderChecksum reports whether the stored checksum field matches
+// either the real murmur3-128 of the preceding header bytes or the legacy
+// pre-fix value.
+func validHeaderChecksum(stored, hdr []byte) bool {
+	expected := headerChecksum(hdr)
+	if bytes.Equal(stored, expected[:]) {
+		return true
+	}
+	legacy := legacyHeaderChecksum(hdr)
+	return bytes.Equal(stored, legacy[:])
+}
+
 func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
@@ -53,8 +87,8 @@ func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	copy(hdr[hdrOff:hdrOff+DigestLength], rootBs)
 	hdrOff += DigestLength
 
-	checksum := murmur3.New128().Sum(hdr[:hdrOff])
-	copy(hdr[hdrOff:hdrOff+DigestLength], checksum)
+	checksum := headerChecksum(hdr[:hdrOff])
+	copy(hdr[hdrOff:hdrOff+DigestLength], checksum[:])
 
 	n1, err := w.Write(hdr[:])
 	if err != nil {
@@ -109,8 +143,9 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	root.UnmarshalBinary(hdr[hdrOff : hdrOff+DigestLength])
 	hdrOff += DigestLength
 
-	checksum := murmur3.New128().Sum(hdr[:hdrOff])
-	if bytes.Equal(hdr[:hdrOff], checksum) {
+	// Validated before NewHashTree so a corrupted height cannot drive a huge
+	// allocation.
+	if !validHeaderChecksum(hdr[hdrOff:hdrOff+DigestLength], hdr[:hdrOff]) {
 		return nil, fmt.Errorf("header checksum mismatch")
 	}
 

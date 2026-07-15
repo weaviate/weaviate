@@ -47,3 +47,54 @@ func TestHashTreeSerialization(t *testing.T) {
 		require.Equal(t, ht.Root(), ht1.Root())
 	}
 }
+
+// TestHashTreeDeserializationHeaderValidation pins the header checksum: real murmur and the legacy pre-fix echo are accepted, any header corruption is rejected before the tree is allocated.
+func TestHashTreeDeserializationHeaderValidation(t *testing.T) {
+	const height = 4
+
+	ht, err := NewHashTree(height)
+	require.NoError(t, err)
+	for i := 0; i < LeavesCount(height); i++ {
+		require.NoError(t, ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("somevalue%d", i))))
+	}
+
+	var buf bytes.Buffer
+	_, err = ht.Serialize(&buf)
+	require.NoError(t, err)
+	valid := buf.Bytes()
+
+	tests := []struct {
+		name    string
+		mutate  func(b []byte)
+		wantErr string
+	}{
+		{name: "valid roundtrip", mutate: func(b []byte) {}},
+		{name: "legacy echo checksum", mutate: func(b []byte) { copy(b[25:41], b[0:16]) }},
+		{name: "corrupt magic", mutate: func(b []byte) { b[0] ^= 0xff }, wantErr: "magic number mismatch"},
+		{name: "corrupt version", mutate: func(b []byte) { b[4] ^= 0xff }, wantErr: "unsupported version"},
+		{name: "corrupt height", mutate: func(b []byte) { b[5] ^= 0xff }, wantErr: "header checksum mismatch"},
+		{name: "corrupt root", mutate: func(b []byte) { b[9] ^= 0xff }, wantErr: "header checksum mismatch"},
+		{name: "corrupt checksum", mutate: func(b []byte) { b[25] ^= 0xff }, wantErr: "header checksum mismatch"},
+		{name: "corrupt leaf", mutate: func(b []byte) { b[41] ^= 0xff }, wantErr: "root digest mismatch"},
+		{name: "truncated header", mutate: nil, wantErr: "unexpected EOF"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := bytes.Clone(valid)
+			if tc.mutate == nil {
+				b = b[:hashTreeHeaderLength-1]
+			} else {
+				tc.mutate(b)
+			}
+
+			ht1, err := DeserializeHashTree(bytes.NewBuffer(b))
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, ht.Root(), ht1.Root())
+		})
+	}
+}

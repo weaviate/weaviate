@@ -51,3 +51,50 @@ func TestCompactHashTreeSerialization(t *testing.T) {
 		require.Equal(t, ht.Root(), ht1.Root())
 	}
 }
+
+// TestCompactHashTreeDeserializationHeaderValidation pins the compact header checksum: real murmur and the legacy pre-fix echo (header bytes zero-padded) are accepted, corruption is rejected.
+func TestCompactHashTreeDeserializationHeaderValidation(t *testing.T) {
+	const height = 4
+
+	ht, err := NewCompactHashTree(uint64(math.MaxUint64), height)
+	require.NoError(t, err)
+	for i := 0; i < LeavesCount(height); i++ {
+		require.NoError(t, ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("somevalue%d", i))))
+	}
+
+	var buf bytes.Buffer
+	_, err = ht.Serialize(&buf)
+	require.NoError(t, err)
+	valid := buf.Bytes()
+
+	legacyChecksum := make([]byte, DigestLength)
+	copy(legacyChecksum, valid[0:13])
+
+	tests := []struct {
+		name    string
+		mutate  func(b []byte)
+		wantErr string
+	}{
+		{name: "valid roundtrip", mutate: func(b []byte) {}},
+		{name: "legacy echo checksum", mutate: func(b []byte) { copy(b[13:29], legacyChecksum) }},
+		{name: "corrupt magic", mutate: func(b []byte) { b[0] ^= 0xff }, wantErr: "magic number mismatch"},
+		{name: "corrupt version", mutate: func(b []byte) { b[4] ^= 0xff }, wantErr: "unsupported version"},
+		{name: "corrupt capacity", mutate: func(b []byte) { b[5] ^= 0xff }, wantErr: "header checksum mismatch"},
+		{name: "corrupt checksum", mutate: func(b []byte) { b[13] ^= 0xff }, wantErr: "header checksum mismatch"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := bytes.Clone(valid)
+			tc.mutate(b)
+
+			ht1, err := DeserializeCompactHashTree(bytes.NewBuffer(b))
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, ht.Root(), ht1.Root())
+		})
+	}
+}
