@@ -34,16 +34,20 @@ import (
 
 const metricClassPrefix = "MetricsClassPrefix"
 
-func metricsCount(t *testing.T) {
+// metricsCount asserts that the number of metrics lines does not grow with the
+// number of classes. metricsEndpoint is the host:port of the Prometheus
+// metrics listener of the instance under test: the host-mapped port of the
+// container (testcontainers setup) or localhost:2112 (legacy setup).
+func metricsCount(t *testing.T, metricsEndpoint string) {
 	defer cleanupMetricsClasses(t, 0, 20)
 	createImportQueryMetricsClasses(t, 0, 10)
 	backupID := startBackup(t, 0, 10)
 	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
-	metricsLinesBefore, linesBefore := countMetricsLines(t)
+	metricsLinesBefore, linesBefore := countMetricsLines(t, metricsEndpoint)
 	createImportQueryMetricsClasses(t, 10, 20)
 	backupID = startBackup(t, 0, 20)
 	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
-	metricsLinesAfter, linesAfter := countMetricsLines(t)
+	metricsLinesAfter, linesAfter := countMetricsLines(t, metricsEndpoint)
 	if metricsLinesAfter != metricsLinesBefore {
 		t.Logf("metric lines before:\n%s\n", strings.Join(linesBefore, "\n"))
 		t.Logf("metric lines after:\n%s\n", strings.Join(linesAfter, "\n"))
@@ -174,12 +178,13 @@ func randomVector(dims int) []float32 {
 	return out
 }
 
-func countMetricsLines(t *testing.T) (int, []string) {
+func countMetricsLines(t *testing.T, metricsEndpoint string) (int, []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
+	require.NotEmpty(t, metricsEndpoint, "no metrics endpoint configured for the instance under test")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"http://localhost:2112/metrics", nil)
+		fmt.Sprintf("http://%s/metrics", metricsEndpoint), nil)
 	require.Nil(t, err)
 
 	c := &http.Client{}

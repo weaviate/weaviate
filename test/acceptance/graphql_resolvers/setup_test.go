@@ -43,20 +43,27 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms").
 		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "100ms").
 		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
+		// match the legacy docker-compose-test.yml monitoring setup, so that
+		// the metrics stability test scrapes this container instead of
+		// whatever else might listen on the host's port 2112
+		WithWeaviateEnv("PROMETHEUS_MONITORING_ENABLED", "true").
+		WithWeaviateEnv("PROMETHEUS_MONITORING_GROUP_CLASSES", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 
-	testGraphQL(t, compose.GetWeaviate().URI())
+	testGraphQL(t, compose.GetWeaviate().URI(), compose.GetWeaviate().MetricsURI())
 }
 
 func TestGraphQL_SyncIndexing(t *testing.T) {
-	testGraphQL(t, "localhost:8080")
+	// legacy setup: docker-compose-test.yml maps the metrics port to
+	// localhost:2112
+	testGraphQL(t, "localhost:8080", "localhost:2112")
 }
 
-func testGraphQL(t *testing.T, host string) {
+func testGraphQL(t *testing.T, host, metricsEndpoint string) {
 	helper.SetupClient(host)
 	// tests with classes that have objects with same uuids
 	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
@@ -123,7 +130,9 @@ func testGraphQL(t *testing.T, host string) {
 
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
-	t.Run("metrics count is stable when more classes are added", metricsCount)
+	t.Run("metrics count is stable when more classes are added", func(t *testing.T) {
+		metricsCount(t, metricsEndpoint)
+	})
 
 	// tear down
 	deleteObjectClass(t, "Person")

@@ -23,6 +23,8 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
 )
 
 const (
@@ -134,6 +136,19 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "6060/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
 	}
+	// Expose the Prometheus metrics port when monitoring is enabled, so tests
+	// can scrape /metrics through the host-mapped port instead of assuming a
+	// fixed localhost:2112 mapping (which only exists in the legacy
+	// docker-compose setup).
+	metricsPort := nat.Port("2112/tcp")
+	exposeMetricsPort := entcfg.Enabled(env["PROMETHEUS_MONITORING_ENABLED"])
+	if exposeMetricsPort {
+		if p := env["PROMETHEUS_MONITORING_PORT"]; p != "" {
+			metricsPort = nat.Port(fmt.Sprintf("%s/tcp", p))
+		}
+		exposedPorts = append(exposedPorts, string(metricsPort))
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(metricsPort))
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -207,6 +222,13 @@ func startWeaviate(ctx context.Context,
 			return nil, err
 		}
 		endpoints[DEBUG] = endpoint{debugPort, debugUri}
+	}
+	if exposeMetricsPort {
+		metricsUri, err := c.PortEndpoint(ctx, metricsPort, "")
+		if err != nil {
+			return nil, err
+		}
+		endpoints[METRICS] = endpoint{metricsPort, metricsUri}
 	}
 	return &DockerContainer{
 		name:        containerName,
