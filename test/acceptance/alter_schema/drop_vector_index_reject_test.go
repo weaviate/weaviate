@@ -136,12 +136,10 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 				helper.AssertRequestOk(t, resp, err, nil)
 			})
 
-			// Insert an object before the drop so the drop op's pending set is
-			// non-empty at arm time: RegisterEditOp flushes the memtable into a
-			// segment before snapshotting pending, so this object is captured
-			// with no wait. That defers the finalizer to its first 30s poll tick
-			// (DropVectorIndexProvider.pollUntilEmpty), keeping the "none" marker
-			// present for the re-creation-rejection step below.
+			// RegisterEditOp flushes the memtable before snapshotting pending
+			// segments, so inserting here (no wait needed) lands this object in
+			// the drop's pending set — deferring the finalizer to its first 30s
+			// poll tick and keeping the "none" marker present for the check below.
 			t.Run("insert object with the vector", func(t *testing.T) {
 				obj := &models.Object{
 					ID:         strfmt.UUID("00000000-0000-0000-0000-000000000101"),
