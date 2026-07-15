@@ -1238,6 +1238,66 @@ func TestMapTracker_TrackThenGet_NoUndercount(t *testing.T) {
 	}
 }
 
+// TestMapTracker_TrackThenGetAndReset_NoUndercount is the GetAndReset sibling of
+// TestMapTracker_TrackThenGet_NoUndercount: it independently pins the resetChan
+// drain, so removing only that drain call (leaving the getChan one intact) is
+// caught here rather than relying on the shared helper for symmetry
+// (weaviate/weaviate#12201). GetAndReset clears the counts after returning them,
+// so each single-Track iteration starts from zero and the returned snapshot must
+// report exactly 1; an undrained buffered Track shows up as 0.
+func TestMapTracker_TrackThenGetAndReset_NoUndercount(t *testing.T) {
+	// GOMAXPROCS=1 never triggers the race; pin to 2 for a stable repro
+	// regardless of the host's core count.
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(2))
+
+	const iterations = 100000
+
+	tests := []struct {
+		name  string
+		build func() (track func(), count func() int64, stop func())
+	}{
+		{
+			name: "IntegrationTracker",
+			build: func() (func(), func() int64, func()) {
+				logger, _ := test.NewNullLogger()
+				tracker := NewIntegrationTracker(logger)
+				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+				req.Header.Set(integrationHeaderKey, testMyIntegration)
+				return func() { tracker.Track(req) },
+					func() int64 { return tracker.GetAndReset()[testMyIntegration]["unknown"] },
+					tracker.Stop
+			},
+		},
+		{
+			name: "ClientTracker",
+			build: func() (func(), func() int64, func()) {
+				logger, _ := test.NewNullLogger()
+				tracker := NewClientTracker(logger)
+				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+				req.Header.Set("X-Weaviate-Client", "weaviate-client-python/4.10.0")
+				return func() { tracker.Track(req) },
+					func() int64 { return tracker.GetAndReset()[ClientTypePython]["4.10.0"] },
+					tracker.Stop
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			track, count, stop := tc.build()
+			defer stop()
+
+			for i := 1; i <= iterations; i++ {
+				track()
+				require.Equalf(t, int64(1), count(),
+					"GetAndReset undercounted at iteration %d: a Track event queued "+
+						"before the GetAndReset was still buffered when the counts "+
+						"were copied", i)
+			}
+		})
+	}
+}
+
 // testMapTrackerStopBehavior verifies that get and getAndReset return nil
 // after the tracker has been stopped. Uses the inner mapTracker directly
 // since this test file is in the same package.
