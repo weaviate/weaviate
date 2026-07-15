@@ -2688,6 +2688,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
 		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
 		registered.SecondaryBatchReadConcurrency = appState.ServerConfig.Config.SecondaryBatchReadConcurrency
+		registered.SecondaryBatchPipelineEnabled = appState.ServerConfig.Config.SecondaryBatchPipelineEnabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount

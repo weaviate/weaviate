@@ -678,6 +678,11 @@ func FromEnv(config *Config) error {
 	}
 	config.SecondaryBatchReadConcurrency = configRuntime.NewDynamicValue(secondaryBatchReadConcurrency)
 
+	// QUERY_DEFAULTS_SECONDARY_BATCH_PIPELINE toggles the gh#309 Addendum-2 chunked-pipeline
+	// resolver for GetBySecondaryBatch (prototype A/B toggle); default off (= the 4-phase path).
+	config.SecondaryBatchPipelineEnabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("QUERY_DEFAULTS_SECONDARY_BATCH_PIPELINE")))
+
 	if err := parseInt(
 		"HNSW_GEO_INDEX_EF",
 		func(val int) { config.HNSWGeoIndexEF = val },

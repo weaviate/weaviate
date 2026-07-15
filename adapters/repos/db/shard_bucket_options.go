@@ -43,6 +43,8 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 		// index) bucket; inert on other buckets. Passed as a default so the runtime
 		// value reaches the objects bucket wherever it is created.
 		lsmkv.WithSecondaryBatchReadConcurrency(s.index.Config.SecondaryBatchReadConcurrency),
+		// gh#309 Addendum-2 chunked-pipeline A/B toggle; same default-plumbing shape.
+		lsmkv.WithSecondaryBatchPipeline(s.index.Config.SecondaryBatchPipelineEnabled),
 	}
 
 	switch strategy {

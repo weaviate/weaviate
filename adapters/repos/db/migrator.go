@@ -220,6 +220,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			HNSWAcornFilterRatio:          m.db.config.HNSWAcornFilterRatio,
 			BM25FilterTombMergeGateRatio:  m.db.config.BM25FilterTombMergeGateRatio,
 			SecondaryBatchReadConcurrency: m.db.config.SecondaryBatchReadConcurrency,
+			SecondaryBatchPipelineEnabled: m.db.config.SecondaryBatchPipelineEnabled,
 			VisitedListPoolMaxSize:        m.db.config.VisitedListPoolMaxSize,
 			QuerySlowLogEnabled:           m.db.config.QuerySlowLogEnabled,
 			QuerySlowLogThreshold:         m.db.config.QuerySlowLogThreshold,

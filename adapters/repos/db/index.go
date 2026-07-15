@@ -1115,6 +1115,7 @@ type IndexConfig struct {
 	VisitedListPoolMaxSize        int
 	BM25FilterTombMergeGateRatio  *configRuntime.DynamicValue[float64]
 	SecondaryBatchReadConcurrency *configRuntime.DynamicValue[int]
+	SecondaryBatchPipelineEnabled *configRuntime.DynamicValue[bool]
 
 	QuerySlowLogEnabled        *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold      *configRuntime.DynamicValue[time.Duration]

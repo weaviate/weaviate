@@ -222,6 +222,7 @@ type Config struct {
 	HNSWAcornFilterRatio                float64                        `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
 	BM25FilterTombMergeGateRatio        *runtime.DynamicValue[float64] `json:"bm25_filter_tombstone_merge_gate_ratio" yaml:"bm25_filter_tombstone_merge_gate_ratio"`
 	SecondaryBatchReadConcurrency       *runtime.DynamicValue[int]     `json:"secondary_batch_read_concurrency" yaml:"secondary_batch_read_concurrency"`
+	SecondaryBatchPipelineEnabled       *runtime.DynamicValue[bool]    `json:"secondary_batch_pipeline_enabled" yaml:"secondary_batch_pipeline_enabled"`
 	HNSWGeoIndexEF                      int                            `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
 	AsyncIndexingEnabled                bool                           `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
 	Sentry                              *entsentry.ConfigOpts          `json:"sentry" yaml:"sentry"`

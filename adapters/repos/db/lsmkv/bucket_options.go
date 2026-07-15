@@ -135,6 +135,16 @@ func WithSecondaryBatchReadConcurrency(concurrency *configRuntime.DynamicValue[i
 	}
 }
 
+// WithSecondaryBatchPipeline toggles the Addendum-2 chunked-pipeline path (gh#309) for
+// GetBySecondaryBatch. Read live per batch, so runtime config flips it without a restart;
+// nil or false selects the 4-phase path (= pr2). Prototype A/B toggle.
+func WithSecondaryBatchPipeline(enabled *configRuntime.DynamicValue[bool]) BucketOption {
+	return func(b *Bucket) error {
+		b.secondaryBatchPipeline = enabled
+		return nil
+	}
+}
+
 func WithDirtyThreshold(threshold time.Duration) BucketOption {
 	return func(b *Bucket) error {
 		b.flushDirtyAfter = threshold

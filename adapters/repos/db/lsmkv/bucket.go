@@ -198,6 +198,12 @@ type Bucket struct {
 	// secondaryBatchReadConcurrencyValue.
 	secondaryBatchReadConcurrency *configRuntime.DynamicValue[int]
 
+	// secondaryBatchPipeline toggles the Addendum-2 chunked-pipeline path (gh#309) for
+	// GetBySecondaryBatch: on -> per-key concurrent chunked driver over the single-key
+	// primitive; off/nil (default) -> the 4-phase cross-key algorithm (= pr2). Prototype
+	// A/B toggle, runtime-flippable via Get(). See secondaryBatchPipelineEnabled.
+	secondaryBatchPipeline *configRuntime.DynamicValue[bool]
+
 	// Canonical class name carried by the bucket. Required for any bucket
 	// whose readers go through the storobj decoders (the objects bucket); set
 	// via WithClassName at creation time so the decoders can stamp the

@@ -477,6 +477,7 @@ type Config struct {
 	VisitedListPoolMaxSize        int
 	BM25FilterTombMergeGateRatio  *configRuntime.DynamicValue[float64]
 	SecondaryBatchReadConcurrency *configRuntime.DynamicValue[int]
+	SecondaryBatchPipelineEnabled *configRuntime.DynamicValue[bool]
 
 	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
 	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]
