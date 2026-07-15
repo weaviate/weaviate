@@ -66,8 +66,8 @@ func testUpdateClassAfterDropVectorIndex() func(t *testing.T) {
 		})
 
 		t.Run("verify vector index dropped", func(t *testing.T) {
-			// A finalizer-removed entry is fine here too: the update below then
-			// exercises a plain update rather than the panic regression.
+			// If the finalizer already removed the entry, this is still fine: the
+			// update below just exercises a plain update, not the panic regression.
 			helper.AssertVectorIndexDropped(t, className, "my_vector")
 		})
 

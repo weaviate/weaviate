@@ -20,24 +20,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// AssertVectorIndexDropped polls the schema until every named vector on className
-// has reached a valid post-drop terminal state, failing the test otherwise.
-//
-// Dropping a named vector is asynchronous: the handler first replaces the entry
-// with the "none" marker (VectorIndexType "none", nil VectorIndexConfig; see
-// Handler.dropVectorIndex) and a cleanup finalizer later removes the entry
-// outright (see cluster/schema removedDroppedVectorConfigs). Both are valid
-// terminal states, so either is accepted:
-//
-//   - the entry is present carrying the "none" marker and nil config, or
-//   - the entry is already absent (the finalizer won the race).
-//
-// A stuck original index type (e.g. "hnsw" still present) fails the assertion,
-// so the check is non-vacuous. Pass more than one vectorName to assert several
-// dropped vectors within a single polling window.
-//
-// Use AssertVectorIndexDroppedAuth for classes that must be read with an auth
-// key (e.g. namespaced, qualified class names).
+// AssertVectorIndexDropped polls until each named vector is either absent or
+// present with VectorIndexType "none" and nil VectorIndexConfig — both are
+// valid terminal states of the async drop finalizer race.
 func AssertVectorIndexDropped(t *testing.T, className string, vectorNames ...string) {
 	t.Helper()
 	assertVectorIndexDropped(t, func() *models.Class { return GetClass(t, className) }, vectorNames...)
@@ -57,7 +42,7 @@ func assertVectorIndexDropped(t *testing.T, getClass func() *models.Class, vecto
 		for _, name := range vectorNames {
 			cfg, ok := cls.VectorConfig[name]
 			if !ok {
-				continue // finalizer already removed the entry; also a valid terminal state
+				continue // finalizer already removed it; still valid
 			}
 			assert.Equalf(collect, "none", cfg.VectorIndexType,
 				"VectorIndexType should be 'none' for dropped vector %q", name)
