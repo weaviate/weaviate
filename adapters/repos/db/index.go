@@ -3369,8 +3369,9 @@ func (i *Index) dropShards(names []string) error {
 				// This ensures that we also delete inactive shards/tenants
 				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
 					ec.Add(err)
-					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+					i.logger.WithField("action", "drop_shard").WithField("shard", name).Error(err)
 				}
+				lsmkv.GlobalBucketRegistry.RemoveByPrefix(shardPathLSM(i.path(), name))
 			} else {
 				// If shard is loaded use the native primitive to drop it
 				if err := shard.drop(false); err != nil {

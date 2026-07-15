@@ -1,0 +1,106 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package lsmkv
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestGlobalBucketRegistry_RemoveByPrefix(t *testing.T) {
+	// Absolute, separator-correct paths so the boundary check is exercised the
+	// same way it is in production (registry keys are absolute bucket paths).
+	base := filepath.Join(string(filepath.Separator)+"var", "lib", "weaviate", "MyClass")
+	t1lsm := filepath.Join(base, "t1", "lsm")
+	t10lsm := filepath.Join(base, "t10", "lsm")
+
+	tests := []struct {
+		name    string
+		seed    []string
+		prefix  string
+		wantOut []string // must remain registered after RemoveByPrefix
+		wantIn  []string // must be purged (redundant with seed\wantOut, kept explicit for clarity)
+	}{
+		{
+			name: "purges the dir itself and everything below it",
+			seed: []string{
+				t1lsm,
+				filepath.Join(t1lsm, "property__id"),
+				filepath.Join(t1lsm, "property_title"),
+			},
+			prefix:  t1lsm,
+			wantOut: nil,
+			wantIn:  []string{t1lsm, filepath.Join(t1lsm, "property__id"), filepath.Join(t1lsm, "property_title")},
+		},
+		{
+			name: "separator boundary: t1 must not purge t10",
+			seed: []string{
+				filepath.Join(t1lsm, "property__id"),
+				filepath.Join(t10lsm, "property__id"),
+				t10lsm,
+			},
+			prefix:  t1lsm,
+			wantOut: []string{filepath.Join(t10lsm, "property__id"), t10lsm},
+			wantIn:  []string{filepath.Join(t1lsm, "property__id")},
+		},
+		{
+			name: "does not purge a string-prefix sibling that is not a path child",
+			// "<t1lsm>_bak" shares the textual prefix t1lsm but is a different
+			// path (no separator boundary), so it must survive.
+			seed: []string{
+				filepath.Join(t1lsm, "property__id"),
+				t1lsm + "_bak",
+			},
+			prefix:  t1lsm,
+			wantOut: []string{t1lsm + "_bak"},
+			wantIn:  []string{filepath.Join(t1lsm, "property__id")},
+		},
+		{
+			name:    "unknown prefix is a no-op",
+			seed:    []string{filepath.Join(t10lsm, "property__id")},
+			prefix:  t1lsm,
+			wantOut: []string{filepath.Join(t10lsm, "property__id")},
+			wantIn:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Balance every seed on all paths so this test cannot pollute the
+			// process-global registry that sibling tests share.
+			for _, p := range tt.seed {
+				require.NoError(t, GlobalBucketRegistry.TryAdd(p))
+			}
+			t.Cleanup(func() {
+				for _, p := range tt.seed {
+					GlobalBucketRegistry.Remove(p)
+				}
+			})
+
+			GlobalBucketRegistry.RemoveByPrefix(tt.prefix)
+
+			// A purged key is re-addable (TryAdd succeeds); a surviving key is
+			// still claimed (TryAdd fails). TryAdd of a purged key re-registers
+			// it, but the Cleanup above removes every seeded key regardless.
+			for _, p := range tt.wantIn {
+				require.NoError(t, GlobalBucketRegistry.TryAdd(p),
+					"%s should have been purged by RemoveByPrefix(%s)", p, tt.prefix)
+			}
+			for _, p := range tt.wantOut {
+				require.ErrorIs(t, GlobalBucketRegistry.TryAdd(p), ErrBucketAlreadyRegistered,
+					"%s must survive RemoveByPrefix(%s) (over-match)", p, tt.prefix)
+			}
+		})
+	}
+}

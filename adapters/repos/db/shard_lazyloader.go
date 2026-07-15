@@ -493,6 +493,7 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 			if deleted != "" {
 				spawnAsyncDelete(deleted, idx.logger)
 			}
+			lsmkv.GlobalBucketRegistry.RemoveByPrefix(shardPathLSM(idx.path(), shardName))
 		}
 
 		// decrement unloaded shard count since this shard is being deleted

@@ -14,6 +14,8 @@ package lsmkv
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -53,4 +55,23 @@ func (r *globalBucketRegistry) Remove(absoluteBucketPath string) {
 	defer r.mu.Unlock()
 
 	delete(r.buckets, absoluteBucketPath)
+}
+
+// RemoveByPrefix deletes every registered path under dir: dir itself and any
+// path that begins with dir + separator.
+//
+// The separator boundary is exact: RemoveByPrefix(".../t1/lsm") purges
+// ".../t1/lsm" and ".../t1/lsm/property__id" but never a sibling like
+// ".../t10/lsm", whose registration belongs to a different, possibly live shard.
+func (r *globalBucketRegistry) RemoveByPrefix(dir string) {
+	prefix := dir + string(filepath.Separator)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for key := range r.buckets {
+		if key == dir || strings.HasPrefix(key, prefix) {
+			delete(r.buckets, key)
+		}
+	}
 }

@@ -82,12 +82,13 @@ type BucketCreator interface {
 }
 
 type Bucket struct {
-	dir      string
-	rootDir  string
-	active   memtable
-	flushing memtable
-	disk     *SegmentGroup
-	logger   logrus.FieldLogger
+	dir            string
+	registeredPath string
+	rootDir        string
+	active         memtable
+	flushing       memtable
+	disk           *SegmentGroup
+	logger         logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -386,6 +387,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		// prevent accidentally trying to register the same bucket twice
 		return nil, err
 	}
+	b.registeredPath = dir
 
 	return b, nil
 }
@@ -1662,7 +1664,7 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
-	defer GlobalBucketRegistry.Remove(b.GetDir())
+	defer GlobalBucketRegistry.Remove(b.registeredPath)
 
 	start := time.Now()
 
