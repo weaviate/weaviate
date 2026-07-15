@@ -1505,9 +1505,10 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 		return
 	}
 
-	// disableAsyncReplication is fsync-free (it never persists the live tree on
-	// the runtime path), so it is safe to hold across the shutdownLock.RLock
-	// region below.
+	// disableAsyncReplication never persists the live tree, but it does scrub
+	// leftover .ht files (ReadDir always; Remove + dir-fsync only when a stray
+	// file exists — none does on a live shard in steady state), so holding it
+	// across the shutdownLock.RLock region below costs one ReadDir.
 	if err := s.disableAsyncReplication(sched.ctx); err != nil {
 		if sched.logger != nil {
 			sched.logger.
@@ -1558,8 +1559,9 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	// If Close() fired during enableAsyncReplication, or performShutdown set
 	// s.shut between the entry-time check and now, the enable touched a store
 	// being torn down or registered against a cancelled scheduler. Disable to
-	// clean up; disableAsyncReplication does no disk I/O so this is bounded
-	// by the Deregister round-trip.
+	// clean up; beyond the Deregister round-trip this costs one ReadDir (its
+	// .ht scrub removes/fsyncs only when a stray file exists — none does on
+	// this path).
 	if sched.ctx.Err() != nil || s.shut.Load() {
 		if err := s.disableAsyncReplication(sched.ctx); err != nil {
 			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)

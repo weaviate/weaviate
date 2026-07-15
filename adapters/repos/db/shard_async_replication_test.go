@@ -1993,6 +1993,154 @@ func TestLoadHashtreeRejectsCorruptNewestFile(t *testing.T) {
 	require.Empty(t, htFilesInDir(t, dir), "both files must be consumed")
 }
 
+// TestLoadHashtreeRemoveFailureIsFatal: a file the load cannot remove must fail the load rather than linger and be trusted as "newest" later.
+func TestLoadHashtreeRemoveFailureIsFatal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires non-root to make the hashtree directory read-only")
+	}
+
+	tests := []struct {
+		name  string
+		class string
+		plant string
+	}{
+		{name: "sweep of a stray tmp", class: "LoadHashtreeRemoveFatalTmpTest", plant: "hashtree-0000000000000001.ht.tmp"},
+		{name: "removal of a corrupt newest", class: "LoadHashtreeRemoveFatalCorruptTest", plant: "hashtree-0000000000000001.ht"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			sl, _ := testShard(t, ctx, tc.class, withAsyncScheduler(t))
+			s := concreteShard(t, sl)
+			t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+			dir := s.pathHashTree()
+			require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tc.plant), []byte("not a valid hashtree payload"), 0o600))
+
+			require.NoError(t, os.Chmod(dir, 0o555))
+			t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+			_, err := s.tryLoadHashtreeFromDisk(16)
+			require.Error(t, err, "an unremovable %s must fail the load", tc.plant)
+		})
+	}
+}
+
+// TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes pins a pre-existing residual: a conflict-delete draining past the hashtree capture reaches the store but not the captured tree, so the dumped .ht over-represents.
+func TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes(t *testing.T) {
+	t.Skip("pinned: drain-window conflict-delete stales the shutdown .ht — fix (drain-before-capture) tracked as follow-up")
+
+	ctx := context.Background()
+	const class = "DrainWindowDeleteDumpTest"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+	}
+	flushShard(t, ctx, sl)
+
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+
+	gate := make(chan struct{})
+	workerDone := make(chan struct{})
+	var delErr error
+	s.asyncRepWg.Add(1)
+	go func() {
+		defer close(workerDone)
+		defer s.asyncRepWg.Done()
+		<-gate
+		_, delErr = s.deleteObject(ctx, uuidMid, time.Now(), true)
+	}()
+
+	stopDone := make(chan struct{})
+	go func() {
+		s.mayStopAsyncReplication(true)
+		close(stopDone)
+	}()
+
+	require.Eventually(t, func() bool {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+		return s.hashtree == nil
+	}, 5*time.Second, 5*time.Millisecond)
+	close(gate)
+	<-workerDone
+	<-stopDone
+	require.NoError(t, delErr)
+
+	htPath := s.pathHashTree()
+	htFiles := htFilesInDir(t, htPath)
+	require.Len(t, htFiles, 1, "shutdown must have dumped a .ht")
+	f, err := os.Open(filepath.Join(htPath, htFiles[0].Name()))
+	require.NoError(t, err)
+	dumped, deserErr := hashtree.DeserializeHashTree(bufio.NewReader(f))
+	require.NoError(t, f.Close())
+	require.NoError(t, deserErr)
+
+	require.NoError(t, s.removePersistedHashtree())
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+	s.asyncReplicationRWMux.RLock()
+	storeRoot := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+	require.NoError(t, s.disableAsyncReplication(ctx))
+
+	require.Equal(t, storeRoot, dumped.Root(),
+		"shutdown .ht must reflect deletes applied during the worker drain window")
+}
+
+// TestUnfreezeMustNotTrustDownloadedHashtree pins a pre-existing upgrade-window residual: an offload artifact produced by a pre-fix version carries a .ht that can be stale relative to the artifact's store, and activation trust-loads it.
+func TestUnfreezeMustNotTrustDownloadedHashtree(t *testing.T) {
+	t.Skip("pinned: activation over downloaded artifact files trust-loads a possibly-stale .ht — scrub belongs in the offload download path, tracked as follow-up")
+
+	ctx := context.Background()
+	const class = "UnfreezeDownloadedHashtreeTest"
+
+	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+	}
+	flushShard(t, ctx, sl)
+
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+	s.mayStopAsyncReplication(true)
+	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
+		"pre-condition: a .ht snapshot of {low,mid} exists, as in a pre-fix offload artifact")
+
+	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
+	flushShard(t, ctx, sl)
+
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+	s.asyncReplicationRWMux.RLock()
+	activationRoot := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+
+	require.NoError(t, s.disableAsyncReplication(ctx))
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+	s.asyncReplicationRWMux.RLock()
+	rescanRoot := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+	require.NoError(t, s.disableAsyncReplication(ctx))
+
+	require.Equal(t, rescanRoot, activationRoot,
+		"activation over artifact files must rescan the store, not trust the artifact's .ht")
+}
+
 // TestDisableAsyncReplicationScrubsPersistedHashtree: runtime disable removes any stray .ht.
 func TestDisableAsyncReplicationScrubsPersistedHashtree(t *testing.T) {
 	ctx := context.Background()
