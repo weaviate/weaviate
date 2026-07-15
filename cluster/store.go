@@ -513,6 +513,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// However, we believe that 1 day should be more than sufficient.
 	f := func() { st.onLeaderFound(time.Hour * 24) }
 	enterrors.GoWrapper(f, st.log)
+	st.schemaManager.SetSlowApplyLogGate(st.slowApplyLogGate)
 	return nil
 }
 
@@ -965,6 +966,12 @@ func (st *Store) reloadDBFromSchema() {
 
 func (st *Store) FSMHasCaughtUp() bool {
 	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
+}
+
+// slowApplyLogGate reports whether slow RAFT apply diagnostics should be
+// emitted: current leader, store ready, and past startup FSM catch-up.
+func (st *Store) slowApplyLogGate() bool {
+	return st.IsLeader() && st.Ready() && st.FSMHasCaughtUp()
 }
 
 type Response struct {
