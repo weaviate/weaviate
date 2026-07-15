@@ -285,3 +285,17 @@ func TestAddProperty_ColdShardLoadFailureDoesNotPanic(t *testing.T) {
 		require.False(t, shard.isLoaded(), "cold shard %q must remain unloaded", name)
 	}
 }
+
+// Resuming maintenance cycles after a backup must not force-load cold shards:
+// an unloaded shard has no running cycles to resume.
+func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "ResumeMaintenance", multiShardState())
+	cold := f.coldShards(t)
+
+	require.NoError(t, f.index.resumeMaintenanceCycles(ctx))
+
+	for name, shard := range cold {
+		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
+	}
+}
