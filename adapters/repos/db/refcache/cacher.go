@@ -53,7 +53,6 @@ type Cacher struct {
 	store      map[multi.Identifier]search.Result
 	additional additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
 	tenant     string
-	// groupByIdx is reassigned on every Build call, so it cannot go stale
 	groupByIdx search.SelectPropertiesIndex
 }
 

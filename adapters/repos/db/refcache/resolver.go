@@ -26,9 +26,7 @@ import (
 type Resolver struct {
 	cacher cacher
 	// for groupBy feature
-	withGroup bool
-	// groupByIdx is built at construction and never mutated afterwards, so
-	// the index cannot go stale
+	withGroup  bool
 	groupByIdx search.SelectPropertiesIndex
 }
 
