@@ -383,11 +383,9 @@ func TestHybrid_ResponseHasNoOwnNamespaceLeak(t *testing.T) {
 		"namespaced response must not echo the caller's own \"<ns>:\" anywhere: %s", string(blob))
 }
 
-// hybridToolInputSchema builds the real weaviate-query-hybrid tool and returns
-// its decoded input JSON schema. Building the tool also exercises the schema
-// construction path: if the hand-authored filter schema ever recursed (it must
-// not, because mark3labs reflects with DoNotReference=true), this would hang or
-// overflow instead of returning.
+// hybridToolInputSchema builds the real tool and returns its decoded input
+// schema. Building it also guards the recursion regression: a self-referential
+// filter schema would overflow the stack here instead of returning.
 func hybridToolInputSchema(t *testing.T) map[string]any {
 	t.Helper()
 	s, _ := newSearcher(t, &models.Principal{}, false, nil)
@@ -400,9 +398,8 @@ func hybridToolInputSchema(t *testing.T) map[string]any {
 	return schema
 }
 
-// TestHybrid_FilterSchemaExposed pins that the `filters` argument is advertised
-// in tools/list with the structured, REST-faithful WhereFilter shape (it used
-// to be hidden via jsonschema:"-").
+// TestHybrid_FilterSchemaExposed: `filters` is advertised with the structured
+// WhereFilter shape (it used to be hidden).
 func TestHybrid_FilterSchemaExposed(t *testing.T) {
 	schema := hybridToolInputSchema(t)
 	props, ok := schema["properties"].(map[string]any)
@@ -414,8 +411,7 @@ func TestHybrid_FilterSchemaExposed(t *testing.T) {
 
 	fprops, ok := filterSchema["properties"].(map[string]any)
 	require.True(t, ok, "filters must expose structured sub-properties")
-	// structural keys only; value-field completeness is guarded against the
-	// model in TestHybrid_FilterSchemaValueFields.
+	// value-field completeness is covered by TestHybrid_FilterSchemaValueFields
 	for _, key := range []string{"operator", "path", "valueText", "operands"} {
 		assert.Contains(t, fprops, key, "filters schema should expose %q", key)
 	}
@@ -425,12 +421,9 @@ func TestHybrid_FilterSchemaExposed(t *testing.T) {
 	assert.Equal(t, "array", operands["type"], "operands carries nested filters")
 }
 
-// TestHybrid_FilterSchemaValueFields guards the advertised value* fields against
-// drifting from models.WhereFilter: every non-deprecated value* field on the
-// model must appear in the schema, so a new value type can't be silently omitted
-// (as valueNumberArray/valueBooleanArray/valueDateArray once were). The
-// deprecated valueString/valueStringArray aliases are intentionally not
-// advertised — valueText/valueTextArray cover the same capability.
+// TestHybrid_FilterSchemaValueFields: every non-deprecated value* field on
+// models.WhereFilter must be advertised (the deprecated valueString /
+// valueStringArray aliases are intentionally omitted).
 func TestHybrid_FilterSchemaValueFields(t *testing.T) {
 	deprecated := map[string]bool{"valueString": true, "valueStringArray": true}
 	var want []string
@@ -451,10 +444,8 @@ func TestHybrid_FilterSchemaValueFields(t *testing.T) {
 	}
 }
 
-// TestHybrid_FilterSchemaAlwaysInjected pins that withHybridFilterSchema always
-// sets the `filters` property, whatever state the reflected schema is in — it
-// must never silently skip and leave the hybrid tool without a filter schema.
-// Reflected properties that are already present are preserved.
+// TestHybrid_FilterSchemaAlwaysInjected: `filters` is injected whatever the
+// reflected schema's shape, and existing properties are preserved.
 func TestHybrid_FilterSchemaAlwaysInjected(t *testing.T) {
 	cases := map[string]json.RawMessage{
 		"nil raw schema":   nil,
@@ -480,10 +471,8 @@ func TestHybrid_FilterSchemaAlwaysInjected(t *testing.T) {
 	}
 }
 
-// TestHybrid_FilterSchemaOperatorEnum guards the advertised operator enum
-// against the WhereFilter model's own enum. The canonical set is read from the
-// model rather than hand-copied, so adding (or removing) a model operator
-// fails this test until whereFilterOperators is updated to match.
+// TestHybrid_FilterSchemaOperatorEnum: the advertised operator enum matches the
+// WhereFilter model's own enum (read from the model, not hand-copied).
 func TestHybrid_FilterSchemaOperatorEnum(t *testing.T) {
 	canonical := modelOperatorEnum(t)
 
@@ -501,12 +490,9 @@ func TestHybrid_FilterSchemaOperatorEnum(t *testing.T) {
 	assert.ElementsMatch(t, canonical, got, "advertised operator enum must match the model's enum")
 }
 
-// modelOperatorEnum returns the operator values the WhereFilter model accepts,
-// derived from the model itself: an unknown operator fails validation with a
-// go-swagger enum error that lists the allowed values (e.g. "... should be one
-// of [And Or ... Not]"). This is an independent source of truth — constants
-// aren't reflectable, so this is what keeps the guard from silently agreeing
-// with a stale hand-copy.
+// modelOperatorEnum reads the operators the model accepts out of its own
+// enum-validation error — an independent source of truth, since the operator
+// constants aren't reflectable.
 func modelOperatorEnum(t *testing.T) []string {
 	t.Helper()
 	err := (&models.WhereFilter{Operator: "__not_a_real_operator__"}).Validate(strfmt.Default)
