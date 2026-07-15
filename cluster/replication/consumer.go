@@ -755,10 +755,6 @@ func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardRepli
 	if err != nil {
 		if isCCLAlreadyGone(err) {
 			logger.Info("change log already sealed, integration already complete")
-			if err := c.sync(ctx, op); err != nil {
-				logger.WithError(err).Error("failure while syncing replica shard in integrating state")
-				return api.ShardReplicationState(""), err
-			}
 			return nextStateAfterIntegrating(op.Op.TransferType), nil
 		}
 		logger.WithError(err).Error("failure while snapshotting change log LSN")
@@ -781,10 +777,6 @@ func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardRepli
 		return api.ShardReplicationState(""), err
 	}
 
-	if err := c.sync(ctx, op); err != nil {
-		logger.WithError(err).Error("failure while syncing replica shard in integrating state")
-		return api.ShardReplicationState(""), err
-	}
 	return nextStateAfterIntegrating(op.Op.TransferType), nil
 }
 
@@ -832,10 +824,6 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		}
 	}
 
-	if err := c.sync(ctx, op); err != nil {
-		logger.WithError(err).Error("failure while syncing replica shard in dehydrating state")
-		return api.ShardReplicationState(""), err
-	}
 	return api.READY, nil
 }
 
