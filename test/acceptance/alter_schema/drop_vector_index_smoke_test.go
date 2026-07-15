@@ -42,18 +42,10 @@ func errorResponseText(err error) string {
 	return text
 }
 
-// testDropVectorIndexSmoke is an end-to-end smoke test of the public drop path
-// through the real server: dropping a named vector sets the "none" marker
-// (Phase 1) and the drop is immediately effective — writes targeting the dropped
-// vector are rejected exactly as for a never-existing vector.
-//
-// NOT asserted here: the background cleanup that strips the dropped vector from
-// already-stored objects, and the final removal of the VectorConfig entry from
-// the schema (RemoveDroppedVectorConfig). Their timing is not controllable from
-// a black-box test — the finalizer may or may not complete within the test
-// window — so the schema assertion below accepts both post-drop states rather
-// than pinning either. The full lifecycle — cleanup drain, schema-entry removal,
-// name reuse — is covered by the lifecycle acceptance tests.
+// testDropVectorIndexSmoke checks the drop path end-to-end; the "none" marker
+// and write rejection take effect immediately. Finalizer timing isn't
+// controllable here, so the check below accepts either post-drop state (see
+// the lifecycle tests for full coverage).
 func testDropVectorIndexSmoke() func(t *testing.T) {
 	return func(t *testing.T) {
 		className := "DropVectorIndexSmoke"
