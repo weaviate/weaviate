@@ -352,10 +352,14 @@ func (i *Index) snapshotsPath() string {
 }
 
 func (i *Index) debugLoggingEnabled() bool {
-	if logger, ok := i.logger.(*logrus.Logger); ok && logger.IsLevelEnabled(logrus.DebugLevel) {
-		return true
+	switch logger := i.logger.(type) {
+	case *logrus.Logger:
+		return logger.IsLevelEnabled(logrus.DebugLevel)
+	case *logrus.Entry:
+		return logger.Logger.IsLevelEnabled(logrus.DebugLevel)
+	default:
+		return false
 	}
-	return false
 }
 
 // NewIndex creates an index with the specified amount of shards, using only
