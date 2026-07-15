@@ -517,6 +517,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		HNSWAcornFilterRatio:          appState.ServerConfig.Config.HNSWAcornFilterRatio,
 		BM25FilterTombMergeGateRatio:  appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
 		SecondaryBatchReadConcurrency: appState.ServerConfig.Config.SecondaryBatchReadConcurrency,
+		SecondaryBatchPipelineEnabled: appState.ServerConfig.Config.SecondaryBatchPipelineEnabled,
 		HNSWGeoIndexEF:                appState.ServerConfig.Config.HNSWGeoIndexEF,
 		VisitedListPoolMaxSize:        appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		TenantActivityReadLogLevel:    appState.ServerConfig.Config.TenantActivityReadLogLevel,
