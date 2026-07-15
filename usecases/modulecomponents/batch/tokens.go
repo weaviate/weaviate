@@ -24,6 +24,11 @@ func GetTokensCount(model string, input string, tke *tiktoken.Tiktoken) int {
 	}
 
 	tokensCount := tokensPerMessage
+	if tke == nil {
+		// tiktoken vocabulary unavailable (e.g. its download was blocked);
+		// estimate ~4 chars per token so batching only degrades instead of panicking.
+		return tokensCount + (len(input)+3)/4
+	}
 	tokensCount += len(tke.Encode(input, nil, nil))
 	return tokensCount
 }
