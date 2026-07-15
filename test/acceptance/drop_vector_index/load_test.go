@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
@@ -114,14 +113,7 @@ func testSustainedLoad(compose *docker.DockerCompose) func(t *testing.T) {
 			defer helper.SetupClient(compose.GetWeaviate().URI())
 			for _, uri := range weaviateNodeURIs(compose) {
 				helper.SetupClient(uri)
-				require.EventuallyWithT(t, func(collect *assert.CollectT) {
-					got := helper.GetClass(t, className)
-					cfg, ok := got.VectorConfig[dropped]
-					if !ok {
-						return // finalizer already removed the entry; also valid
-					}
-					assert.Equal(collect, "none", cfg.VectorIndexType)
-				}, 15*time.Second, 200*time.Millisecond, "marker on %s", uri)
+				helper.AssertVectorIndexDropped(t, className, dropped)
 			}
 		})
 

@@ -13,7 +13,6 @@ package alterschema
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,17 +66,9 @@ func testUpdateClassAfterDropVectorIndex() func(t *testing.T) {
 		})
 
 		t.Run("verify vector index dropped", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-				cls := helper.GetClass(t, className)
-				cfg, ok := cls.VectorConfig["my_vector"]
-				if !ok {
-					// Finalizer already removed the entry; the update below then
-					// only exercises a plain update, not the panic regression.
-					return
-				}
-				assert.Equal(collect, "none", cfg.VectorIndexType, "VectorIndexType should be 'none'")
-				assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil")
-			}, 15*time.Second, 200*time.Millisecond)
+			// A finalizer-removed entry is fine here too: the update below then
+			// exercises a plain update rather than the panic regression.
+			helper.AssertVectorIndexDropped(t, className, "my_vector")
 		})
 
 		t.Run("update class description after drop should not panic", func(t *testing.T) {

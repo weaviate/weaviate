@@ -97,14 +97,7 @@ func testDropVectorIndexSmoke() func(t *testing.T) {
 		})
 
 		t.Run("schema marks the vector dropped", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-				got := helper.GetClass(t, className)
-				cfg, ok := got.VectorConfig[vec]
-				if !ok {
-					return // finalizer already removed the entry; also valid
-				}
-				assert.Equal(collect, "none", cfg.VectorIndexType)
-			}, 15*time.Second, 200*time.Millisecond, "schema should reflect the dropped vector index")
+			helper.AssertVectorIndexDropped(t, className, vec)
 		})
 
 		t.Run("writes targeting the dropped vector are rejected", func(t *testing.T) {

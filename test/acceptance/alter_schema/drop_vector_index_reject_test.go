@@ -166,15 +166,7 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 			})
 
 			t.Run("verify vector index is dropped", func(t *testing.T) {
-				// The finalizer may already have reclaimed the entry; either state is valid.
-				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					cls := helper.GetClass(t, className)
-					cfg, ok := cls.VectorConfig["my_vector"]
-					if !ok {
-						return // finalizer already removed the entry; also valid
-					}
-					assert.Equal(collect, "none", cfg.VectorIndexType)
-				}, 15*time.Second, 200*time.Millisecond)
+				helper.AssertVectorIndexDropped(t, className, "my_vector")
 			})
 
 			t.Run("attempt to re-create dropped vector via update is rejected", func(t *testing.T) {

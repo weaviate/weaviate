@@ -273,21 +273,6 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 		return cfg.VectorIndexType
 	}
 
-	// requireVectorIndexDropped accepts two valid post-drop states: the entry
-	// still present with the "none" marker, or already removed (the async
-	// cleanup finalizer won the race; see RemoveDroppedVectorConfig).
-	requireVectorIndexDropped := func(t *testing.T, qualified, vec string) {
-		t.Helper()
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			got := helper.GetClassAuth(t, qualified, adminKey)
-			cfg, ok := got.VectorConfig[vec]
-			if !ok {
-				return // finalizer already removed the entry
-			}
-			assert.Equal(c, "none", cfg.VectorIndexType, "vector %q on %q should be dropped", vec, qualified)
-		}, 15*time.Second, 100*time.Millisecond, "drop of vector %q on %q should take effect", vec, qualified)
-	}
-
 	t.Run("namespaced user drops named vector by short name", func(t *testing.T) {
 		helper.CreateClassAuth(t, classWithTwoVectors("Movies"), user1Key)
 		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
@@ -295,7 +280,7 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 
 		require.NoError(t, deleteVectorIndexAuth(t, "Movies", "vec1", user1Key))
 
-		requireVectorIndexDropped(t, ns1+":Movies", "vec1")
+		helper.AssertVectorIndexDroppedAuth(t, ns1+":Movies", adminKey, "vec1")
 		// vec2 was never dropped, so a plain read is deterministic.
 		assert.Equal(t, "hnsw", vectorIndexType(t, ns1+":Movies", "vec2"))
 	})
@@ -307,7 +292,7 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 
 		require.NoError(t, deleteVectorIndexAuth(t, ns1+":Shows", "vec1", adminKey))
 
-		requireVectorIndexDropped(t, ns1+":Shows", "vec1")
+		helper.AssertVectorIndexDroppedAuth(t, ns1+":Shows", adminKey, "vec1")
 	})
 
 	t.Run("alias is not a backdoor: DeleteClassVectorIndex by alias name fails and underlying class unchanged", func(t *testing.T) {

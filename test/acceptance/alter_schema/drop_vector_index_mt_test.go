@@ -14,7 +14,6 @@ package alterschema
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -179,17 +178,7 @@ func testDropVectorIndexMultiTenant(compose *docker.DockerCompose, verifySchemaA
 
 		if verifySchemaAfterDrop {
 			t.Run("verify schema after drops", func(t *testing.T) {
-				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					cls := helper.GetClass(t, className)
-					for _, name := range []string{"flat_bq", "hnsw_rq8"} {
-						cfg, ok := cls.VectorConfig[name]
-						if !ok {
-							continue // finalizer already removed this entry
-						}
-						assert.Equal(collect, "none", cfg.VectorIndexType, "VectorIndexType should be 'none' for %q", name)
-						assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil for %q", name)
-					}
-				}, 15*time.Second, 200*time.Millisecond, "schema should reflect dropped vector indexes")
+				helper.AssertVectorIndexDropped(t, className, "flat_bq", "hnsw_rq8")
 			})
 		}
 
