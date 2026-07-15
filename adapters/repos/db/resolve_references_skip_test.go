@@ -29,9 +29,9 @@ import (
 
 const (
 	// logged only when the resolver machinery actually ran
-	actionDedupStart = "request_cacher_dedup_joblist_start"
+	actionDedupStart = refcache.ActionDedupJoblistStart
 	// logged when Build ran but found no jobs; never fires if skipped entirely
-	actionFetchSkip = "request_cacher_fetch_jobs_skip"
+	actionFetchSkip = refcache.ActionFetchJobsSkip
 )
 
 // refLessResults returns a fresh copy each call, so tests can compare two
