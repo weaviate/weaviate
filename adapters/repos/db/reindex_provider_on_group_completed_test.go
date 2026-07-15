@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func TestOnGroupCompleted_TerminalStatusShortCircuit(t *testing.T) {
 			// returns a non-nil error. That's how we observe whether
 			// the short-circuit fired.
 
-			err := p.OnGroupCompleted(task, "", []string{"unit-1"})
+			err := p.OnGroupCompleted(context.Background(), task, "", []string{"unit-1"})
 
 			if tc.shortCircuit {
 				require.NoError(t, err,

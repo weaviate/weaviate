@@ -312,7 +312,7 @@ func TestShardNoopProvider_OnGroupCompleted(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 	task := f.newTask(nil)
 
-	f.provider.OnGroupCompleted(task, "", []string{"u-1", "u-2"})
+	f.provider.OnGroupCompleted(context.Background(), task, "", []string{"u-1", "u-2"})
 
 	finalized := f.provider.GetFinalizedUnits(task.TaskDescriptor)
 	assert.ElementsMatch(t, []string{"u-1", "u-2"}, finalized)
@@ -322,8 +322,8 @@ func TestShardNoopProvider_OnGroupCompleted_MultipleGroups(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 	task := f.newTask(nil)
 
-	f.provider.OnGroupCompleted(task, "groupA", []string{"u-1"})
-	f.provider.OnGroupCompleted(task, "groupB", []string{"u-2", "u-3"})
+	f.provider.OnGroupCompleted(context.Background(), task, "groupA", []string{"u-1"})
+	f.provider.OnGroupCompleted(context.Background(), task, "groupB", []string{"u-2", "u-3"})
 
 	groups := f.provider.GetFinalizedGroups(task.TaskDescriptor)
 	assert.ElementsMatch(t, []string{"u-1"}, groups["groupA"])
@@ -339,7 +339,7 @@ func TestShardNoopProvider_OnTaskCompleted(t *testing.T) {
 	task := f.newTask(nil)
 
 	assert.False(t, f.provider.IsTaskCompleted(task.TaskDescriptor))
-	f.provider.OnTaskCompleted(task)
+	f.provider.OnTaskCompleted(context.Background(), task)
 	assert.True(t, f.provider.IsTaskCompleted(task.TaskDescriptor))
 }
 

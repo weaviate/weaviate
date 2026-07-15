@@ -96,7 +96,7 @@ func newRecordingUnitAwareProvider(t *testing.T) *recordingUnitAwareProvider {
 	}
 }
 
-func (p *recordingUnitAwareProvider) OnGroupCompleted(task *Task, _ string, _ []string) error {
+func (p *recordingUnitAwareProvider) OnGroupCompleted(_ context.Context, task *Task, _ string, _ []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.groupCalls = append(p.groupCalls, task.ID)
@@ -106,7 +106,7 @@ func (p *recordingUnitAwareProvider) OnGroupCompleted(task *Task, _ string, _ []
 	return nil
 }
 
-func (p *recordingUnitAwareProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
+func (p *recordingUnitAwareProvider) OnSwapRequested(_ context.Context, _ *Task, _ string, _ []string) error {
 	// Recording provider exercises the NeedsPreparationBarrier=false path;
 	// scheduler never fires this for these tasks. Stub for interface
 	// compliance.
@@ -122,7 +122,7 @@ func (p *recordingUnitAwareProvider) SetGroupCompletedError(err error) {
 	p.groupCompletedErr = err
 }
 
-func (p *recordingUnitAwareProvider) OnTaskCompleted(task *Task) {
+func (p *recordingUnitAwareProvider) OnTaskCompleted(_ context.Context, task *Task) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.taskCalls = append(p.taskCalls, task.ID)
