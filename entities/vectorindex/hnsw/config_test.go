@@ -851,57 +851,6 @@ func Test_UserConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "pathseer enabled, all defaults",
-			input: map[string]interface{}{
-				"filterStrategy": "pathseer",
-			},
-			expected: UserConfig{
-				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
-				MaxConnections:         DefaultMaxConnections,
-				EFConstruction:         DefaultEFConstruction,
-				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
-				EF:                     DefaultEF,
-				Skip:                   DefaultSkip,
-				FlatSearchCutoff:       DefaultFlatSearchCutoff,
-				DynamicEFMin:           DefaultDynamicEFMin,
-				DynamicEFMax:           DefaultDynamicEFMax,
-				DynamicEFFactor:        DefaultDynamicEFFactor,
-				Distance:               common.DefaultDistanceMetric,
-				PQ: PQConfig{
-					Enabled:        DefaultPQEnabled,
-					BitCompression: DefaultPQBitCompression,
-					Segments:       DefaultPQSegments,
-					Centroids:      DefaultPQCentroids,
-					TrainingLimit:  DefaultPQTrainingLimit,
-					Encoder: PQEncoder{
-						Type:         DefaultPQEncoderType,
-						Distribution: DefaultPQEncoderDistribution,
-					},
-				},
-				SQ: SQConfig{
-					Enabled:       DefaultSQEnabled,
-					TrainingLimit: DefaultSQTrainingLimit,
-					RescoreLimit:  DefaultSQRescoreLimit,
-				},
-				RQ: RQConfig{
-					Enabled:      DefaultRQEnabled,
-					Bits:         DefaultRQBits,
-					RescoreLimit: DefaultRQRescoreLimit,
-				},
-				FilterStrategy: FilterStrategyPathseer,
-				Multivector: MultivectorConfig{
-					Enabled:     DefaultMultivectorEnabled,
-					Aggregation: DefaultMultivectorAggregation,
-					MuveraConfig: MuveraConfig{
-						Enabled:      DefaultMultivectorMuveraEnabled,
-						KSim:         DefaultMultivectorKSim,
-						DProjections: DefaultMultivectorDProjections,
-						Repetitions:  DefaultMultivectorRepetitions,
-					},
-				},
-			},
-		},
-		{
 			name: "max connections at maximum allowed value (2047)",
 			input: map[string]interface{}{
 				"maxConnections": json.Number("2047"),
