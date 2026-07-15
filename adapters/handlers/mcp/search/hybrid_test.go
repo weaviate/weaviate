@@ -15,8 +15,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -411,11 +414,9 @@ func TestHybrid_FilterSchemaExposed(t *testing.T) {
 
 	fprops, ok := filterSchema["properties"].(map[string]any)
 	require.True(t, ok, "filters must expose structured sub-properties")
-	for _, key := range []string{
-		"operator", "path", "valueText", "valueInt", "valueNumber",
-		"valueBoolean", "valueDate", "valueTextArray", "valueIntArray",
-		"valueGeoRange", "operands",
-	} {
+	// structural keys only; value-field completeness is guarded against the
+	// model in TestHybrid_FilterSchemaValueFields.
+	for _, key := range []string{"operator", "path", "valueText", "operands"} {
 		assert.Contains(t, fprops, key, "filters schema should expose %q", key)
 	}
 
@@ -424,22 +425,70 @@ func TestHybrid_FilterSchemaExposed(t *testing.T) {
 	assert.Equal(t, "array", operands["type"], "operands carries nested filters")
 }
 
-// TestHybrid_FilterSchemaOperatorEnum guards against the advertised operator
-// enum drifting from what filterext.Parse accepts. If a new
-// WhereFilterOperator* constant is added, whereFilterOperators (and this list)
-// must be updated.
-func TestHybrid_FilterSchemaOperatorEnum(t *testing.T) {
-	canonical := []string{
-		models.WhereFilterOperatorAnd, models.WhereFilterOperatorOr, models.WhereFilterOperatorNot,
-		models.WhereFilterOperatorEqual, models.WhereFilterOperatorNotEqual, models.WhereFilterOperatorLike,
-		models.WhereFilterOperatorGreaterThan, models.WhereFilterOperatorGreaterThanEqual,
-		models.WhereFilterOperatorLessThan, models.WhereFilterOperatorLessThanEqual,
-		models.WhereFilterOperatorContainsAny, models.WhereFilterOperatorContainsAll,
-		models.WhereFilterOperatorContainsNone, models.WhereFilterOperatorWithinGeoRange,
-		models.WhereFilterOperatorIsNull,
+// TestHybrid_FilterSchemaValueFields guards the advertised value* fields against
+// drifting from models.WhereFilter: every non-deprecated value* field on the
+// model must appear in the schema, so a new value type can't be silently omitted
+// (as valueNumberArray/valueBooleanArray/valueDateArray once were). The
+// deprecated valueString/valueStringArray aliases are intentionally not
+// advertised — valueText/valueTextArray cover the same capability.
+func TestHybrid_FilterSchemaValueFields(t *testing.T) {
+	deprecated := map[string]bool{"valueString": true, "valueStringArray": true}
+	var want []string
+	tp := reflect.TypeOf(models.WhereFilter{})
+	for i := 0; i < tp.NumField(); i++ {
+		name := strings.Split(tp.Field(i).Tag.Get("json"), ",")[0]
+		if strings.HasPrefix(name, "value") && !deprecated[name] {
+			want = append(want, name)
+		}
 	}
+	require.NotEmpty(t, want, "model must expose value* fields")
+
+	schema := hybridToolInputSchema(t)
+	fprops := schema["properties"].(map[string]any)["filters"].(map[string]any)["properties"].(map[string]any)
+	for _, name := range want {
+		assert.Contains(t, fprops, name,
+			"filters schema must advertise the model's %q value field", name)
+	}
+}
+
+// TestHybrid_FilterSchemaAlwaysInjected pins that withHybridFilterSchema always
+// sets the `filters` property, whatever state the reflected schema is in — it
+// must never silently skip and leave the hybrid tool without a filter schema.
+// Reflected properties that are already present are preserved.
+func TestHybrid_FilterSchemaAlwaysInjected(t *testing.T) {
+	cases := map[string]json.RawMessage{
+		"nil raw schema":   nil,
+		"empty object":     json.RawMessage(`{}`),
+		"no properties":    json.RawMessage(`{"type":"object"}`),
+		"unparseable":      json.RawMessage(`not json`),
+		"with other props": json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			tool := &mcp.Tool{RawInputSchema: raw}
+			withHybridFilterSchema()(tool)
+
+			var schema map[string]any
+			require.NoError(t, json.Unmarshal(tool.RawInputSchema, &schema))
+			props, ok := schema["properties"].(map[string]any)
+			require.True(t, ok, "properties must exist after injection")
+			assert.Contains(t, props, "filters", "filters must always be injected")
+			if name == "with other props" {
+				assert.Contains(t, props, "query", "existing reflected properties must be preserved")
+			}
+		})
+	}
+}
+
+// TestHybrid_FilterSchemaOperatorEnum guards the advertised operator enum
+// against the WhereFilter model's own enum. The canonical set is read from the
+// model rather than hand-copied, so adding (or removing) a model operator
+// fails this test until whereFilterOperators is updated to match.
+func TestHybrid_FilterSchemaOperatorEnum(t *testing.T) {
+	canonical := modelOperatorEnum(t)
+
 	assert.ElementsMatch(t, canonical, whereFilterOperators,
-		"whereFilterOperators must cover exactly the models.WhereFilterOperator* constants")
+		"whereFilterOperators must cover exactly the WhereFilter model's operator enum")
 
 	schema := hybridToolInputSchema(t)
 	fprops := schema["properties"].(map[string]any)["filters"].(map[string]any)["properties"].(map[string]any)
@@ -449,7 +498,25 @@ func TestHybrid_FilterSchemaOperatorEnum(t *testing.T) {
 	for i, v := range enumAny {
 		got[i] = v.(string)
 	}
-	assert.ElementsMatch(t, canonical, got, "advertised operator enum must match the canonical set")
+	assert.ElementsMatch(t, canonical, got, "advertised operator enum must match the model's enum")
+}
+
+// modelOperatorEnum returns the operator values the WhereFilter model accepts,
+// derived from the model itself: an unknown operator fails validation with a
+// go-swagger enum error that lists the allowed values (e.g. "... should be one
+// of [And Or ... Not]"). This is an independent source of truth — constants
+// aren't reflectable, so this is what keeps the guard from silently agreeing
+// with a stale hand-copy.
+func modelOperatorEnum(t *testing.T) []string {
+	t.Helper()
+	err := (&models.WhereFilter{Operator: "__not_a_real_operator__"}).Validate(strfmt.Default)
+	require.Error(t, err, "the model must reject an unknown operator")
+	msg := err.Error()
+	i, j := strings.Index(msg, "["), strings.LastIndex(msg, "]")
+	require.True(t, i >= 0 && j > i, "enum error should list the allowed operators: %s", msg)
+	ops := strings.Fields(msg[i+1 : j])
+	require.NotEmpty(t, ops)
+	return ops
 }
 
 // TestHybrid_StructuredFilterFlowsThrough verifies a REST-shaped filter is

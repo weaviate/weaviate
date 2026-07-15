@@ -87,6 +87,21 @@ func hybridFilterSchema() map[string]any {
 				"items":       map[string]any{"type": "integer"},
 				"description": "Values for ContainsAny/ContainsAll/ContainsNone on int properties.",
 			},
+			"valueNumberArray": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "number"},
+				"description": "Values for ContainsAny/ContainsAll/ContainsNone on number properties.",
+			},
+			"valueBooleanArray": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "boolean"},
+				"description": "Values for ContainsAny/ContainsAll/ContainsNone on boolean properties.",
+			},
+			"valueDateArray": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"description": "Values for ContainsAny/ContainsAll/ContainsNone on date properties, each RFC3339.",
+			},
 			"valueGeoRange": map[string]any{
 				"type":        "object",
 				"description": "Value for WithinGeoRange: a center coordinate plus a max distance in meters.",
@@ -116,27 +131,31 @@ func hybridFilterSchema() map[string]any {
 }
 
 // withHybridFilterSchema injects hybridFilterSchema() as the `filters` property
-// of the tool's already-reflected input schema. It must be applied AFTER
-// mcp.WithInputSchema so that it runs on the generated RawInputSchema. The
-// approach mirrors internal.overridePropertyDescriptions, which likewise
-// mutates the raw schema rather than relying on struct reflection.
+// of the tool's input schema. It must be applied AFTER mcp.WithInputSchema so it
+// runs on the generated RawInputSchema. The approach mirrors
+// internal.overridePropertyDescriptions, which likewise mutates the raw schema
+// rather than relying on struct reflection.
+//
+// The injection is unconditional: whatever shape the reflected schema is in,
+// `filters` always ends up present — the reflected schema is reused when it
+// parses, and a minimal object schema is synthesized otherwise — so the hybrid
+// tool can never be advertised without its filter schema.
 func withHybridFilterSchema() mcp.ToolOption {
 	return func(t *mcp.Tool) {
-		if t.RawInputSchema == nil {
-			return
-		}
-		var schema map[string]any
-		if err := json.Unmarshal(t.RawInputSchema, &schema); err != nil {
-			return
+		schema := map[string]any{"type": "object"}
+		var reflected map[string]any
+		if len(t.RawInputSchema) > 0 && json.Unmarshal(t.RawInputSchema, &reflected) == nil {
+			schema = reflected
 		}
 		props, ok := schema["properties"].(map[string]any)
 		if !ok {
-			return
+			props = map[string]any{}
+			schema["properties"] = props
 		}
 		props["filters"] = hybridFilterSchema()
 		raw, err := json.Marshal(schema)
 		if err != nil {
-			return
+			return // unreachable: schema holds only JSON-serializable maps/strings/slices
 		}
 		t.RawInputSchema = raw
 	}
