@@ -45,7 +45,7 @@ type SearchCommon struct {
 	// Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).
 	GroupedTask *string `json:"grouped_task,omitempty"`
 
-	// The maximum number of objects to return.
+	// The maximum number of objects to return. Omitted or `0` falls back to the server default (`QUERY_DEFAULTS_LIMIT`); a value above `QUERY_MAXIMUM_RESULTS` is rejected.
 	Limit *int64 `json:"limit,omitempty"`
 
 	// Reserved for grouped search. Returns 422 (not yet supported).

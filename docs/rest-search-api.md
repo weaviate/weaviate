@@ -116,13 +116,15 @@ time before the handler runs:
 - **Missing `query` → 422** (swagger `required` validation), where the
   free-form version returned the handler's 400. An explicit empty array
   `{"query":[]}` still reaches the handler → 400.
-- **`where` is now the typed `WhereFilter` model**, so a *schema* violation
-  (bad `operator` enum, wrong value type) is caught by swagger validation →
-  **422** at bind time. A schema-valid but semantically-invalid filter (e.g.
-  an unknown property path) still reaches the handler's `filterext.Parse` /
-  `ValidateFilters` → **400**. Similarly, bad `consistency_level` /
-  `return_metadata` enum values → 422 at bind (the handler keeps its own
-  tolerant checks as a defensive fallback for the direct-call path).
+- **`where` is now the typed `WhereFilter` model**. A bad `operator` enum
+  value is caught by swagger's enum validation → **422** at bind time, but a
+  wrong *value type* (e.g. a string for `valueInt`, or `path` sent as a string
+  instead of an array) fails the JSON decode → **400**, not 422. A
+  schema-valid but semantically-invalid filter (e.g. an unknown property path)
+  reaches the handler's `filterext.Parse` / `ValidateFilters` → **400**.
+  Similarly, bad `consistency_level` / `return_metadata` enum values → 422 at
+  bind (the handler keeps its own tolerant checks as a defensive fallback for
+  the direct-call path).
 
 **Migration note:** restoring string-or-array `query` later is a **safe
 widening**. But turning on `additionalProperties: false` (strict unknown-
@@ -212,9 +214,13 @@ caller-supplied name); certainty outside [0,1] → 400; `limit`/`offset` and
 their sum are capped at `QUERY_MAXIMUM_RESULTS` pre-db (400; also closes an
 int-overflow path into the negative special limit flags); 429 declared in
 the spec with a typed responder; and swagger-layer errors on search routes
-(bind validation, 405, 415, 401) are re-shaped into the standard
-`ErrorResponse` body by a search-scoped `api.ServeError` wrapper, so the
-error contract has one body shape.
+(bind validation, 405, 415, and the swagger security layer's 401) are
+re-shaped into the standard `ErrorResponse` body by a search-scoped
+`api.ServeError` wrapper, so the error contract has one body shape. The one
+exception is a request with **no/malformed credentials**: the anonymous-access
+middleware answers that 401 above the swagger layer (before `api.ServeError`
+runs), so it keeps the legacy `{"code","message"}` body — the same shape every
+existing endpoint returns for that case.
 
 Also on 2026-07-10 (review): error classification moved from message
 substrings to typed errors. The blocker was that the explorer wrapped
@@ -306,9 +312,11 @@ choice.
   typed metadata). The spec declares the always-present parts required:
   `results` + `took_ms` on `SearchResponse`, `id` + `properties` on
   `SearchResultObject` (`properties` may be `{}`). Every declared error
-  status, including 401, carries the `ErrorResponse` schema — matching the
-  search-scoped `ServeError` wrapper, so generated clients decode the
-  message on every status. `SearchResponse`/`SearchResultObject`/
+  status carries the `ErrorResponse` schema — matching the search-scoped
+  `ServeError` wrapper, so generated clients decode the message on every
+  status. The sole wire exception is the no/malformed-credentials 401, which
+  the anonymous-access middleware answers above the swagger layer in the legacy
+  `{"code","message"}` shape (see the decision log). `SearchResponse`/`SearchResultObject`/
   `SearchResultMetadata` are shared by all search endpoints.
 - generated (never hand-edited; `tools/gen-code-from-swagger.sh`, pinned
   go-swagger v0.30.4): `adapters/handlers/rest/operations/search/*`,
@@ -381,10 +389,10 @@ enforced by the generated model at bind time; the rest are the handler's.
 | `certainty` | `*float64` (ptr) | cosine-only (else 422); mutually exclusive with `distance` (else 400); outside [0,1] → 400 |
 | `distance` | `*float64` (ptr) | max vector distance |
 | `target_vector` | `string` | required when the collection has >1 named vector (else 422); unknown name → 400; sole named vector selected implicitly |
-| `where` | `*models.WhereFilter` | reuses the existing definition; schema violation (bad operator enum / value type) → 422 (swagger); schema-valid but unknown property → 400 (handler `filterext.Parse`) |
+| `where` | `*models.WhereFilter` | reuses the existing definition; bad `operator` enum → 422 (swagger); wrong value type (e.g. a string for `valueInt`) → 400 (JSON decode); schema-valid but unknown property → 400 (handler `filterext.Parse`) |
 | `limit` / `offset` | `*int64` (ptr) | negative → 400; `limit` 0/omitted → `QUERY_DEFAULTS_LIMIT`; each and their sum capped at `QUERY_MAXIMUM_RESULTS` (else 400, checked pre-db so int overflow cannot reach the negative special limit flags) |
 | `auto_limit` | `*int64` (ptr) | maps to autocut |
-| `return_properties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; unknown name → 400 |
+| `return_properties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref, non-blob props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; unknown name → 400 |
 | `return_metadata` | `[]string` (enum) | `distance`, `certainty`, `score`, `explain_score`, `creation_time`, `last_update_time` — metadata keys only; the object `id` is **always returned** as the envelope's `id` field and is not a valid entry; omitted or `[]` → no `metadata` block; value outside the enum (incl. `id`) → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
 | `tenant` | `string` | tenant-scoped authz (`ShardsData`) |
 | `consistency_level` | `string` (enum) | ONE / QUORUM / ALL; other value → 422 (swagger enum) |
@@ -393,10 +401,11 @@ enforced by the generated model at bind time; the rest are the handler's.
 
 | Condition | Status | Body shape |
 |---|---|---|
-| malformed JSON body; `query` string form (array-only); wrong field type | 400 | `ErrorResponse` |
-| missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; schema-invalid `where` (bad operator/type) | 422 | `ErrorResponse` |
+| malformed JSON body; `query` string form (array-only); wrong field type (incl. a `where` value of the wrong JSON type, e.g. a string for `valueInt`, or `path` as a string) | 400 | `ErrorResponse` |
+| missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; bad `where` `operator` enum | 422 | `ErrorResponse` |
 | empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; both certainty+distance; semantically-invalid `where` (unknown property); unknown property in `return_properties` | 400 | `ErrorResponse` |
-| missing or invalid credentials | 401 | `ErrorResponse` |
+| invalid credentials (bad key/token, via the swagger security layer) | 401 | `ErrorResponse` |
+| no/malformed credentials (anonymous-access middleware, above the swagger layer) | 401 | legacy `{"code","message"}` (parity with existing endpoints) |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
 | unknown collection; unknown tenant | 404 | `ErrorResponse` |
 | no vectorizer / missing `target_vector` on multi-vector collection / certainty on non-cosine / reserved param present / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / API disabled | 422 | `ErrorResponse` |

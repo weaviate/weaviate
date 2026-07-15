@@ -42,13 +42,16 @@ func ServeError(rw http.ResponseWriter, r *http.Request, err error) {
 	}
 
 	for key, values := range rec.header {
-		if key == "Content-Length" {
+		// skip both: Content-Length is recomputed, and Content-Type is forced
+		// to application/json below (the writer may already hold a stale one)
+		if key == "Content-Length" || key == "Content-Type" {
 			continue
 		}
 		for _, value := range values {
 			rw.Header().Add(key, value)
 		}
 	}
+	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(rec.status)
 	rw.Write(body)
 }

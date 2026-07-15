@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -33,12 +34,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// IsSearchRoute reports whether path is under the static REST search
+// IsSearchRoute reports whether urlPath is under the static REST search
 // namespace, /v1/search/{collection}/{search-type}. Every such route is
 // semantically a read; the operational-mode middleware uses this to classify
 // search requests as reads even though POST is an HTTP write method.
-func IsSearchRoute(path string) bool {
-	parts := strings.Split(path, "/")
+//
+// path.Clean matches the router's normalization, so trailing/doubled/dot
+// slashes are classified the same way the router routes them.
+func IsSearchRoute(urlPath string) bool {
+	parts := strings.Split(path.Clean(urlPath), "/")
 	// ["", "v1", "search", {collection}, {search-type}]
 	return len(parts) == 5 && parts[0] == "" && parts[1] == "v1" &&
 		parts[2] == "search" && parts[3] != "" && parts[4] != ""
@@ -134,17 +138,13 @@ func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 		return &APIError{Status: apiErr.Status, Err: namespacing.StripErrForPrincipal(principal, apiErr.Err)}
 	}
 
-	if h.disabled.Get() {
-		return nil, newAPIError(http.StatusUnprocessableEntity, "rest search api is disabled")
-	}
-
 	// reserved fields are rejected before any schema access, so an
 	// unauthorized caller cannot probe the collection
 	if apiErr := checkReservedFields(common); apiErr != nil {
 		return nil, strip(apiErr)
 	}
 
-	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.namespacesEnabled, collection)
+	resolved, aliasUsed, err := namespacing.Resolve(principal, h.schemaReader, h.namespacesEnabled, collection)
 	if err != nil {
 		return nil, strip(&APIError{Status: http.StatusBadRequest, Err: err})
 	}
@@ -155,15 +155,20 @@ func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 	class, err := getClass(resolved)
 	if err != nil {
 		var forbidden autherrs.Forbidden
-		if resolved != collection && errors.As(err, &forbidden) {
-			// deny on the name the caller sent — a 403 must not disclose
-			// the alias target
-			deniedPrincipal := principal
-			if deniedPrincipal == nil {
-				deniedPrincipal = &models.Principal{Username: "anonymous"}
-			}
-			err = autherrs.NewForbidden(deniedPrincipal, authorization.READ, dataResources(collection, tenant)...)
+		if errors.As(err, &forbidden) {
+			// 403 before the disabled/existence checks, with the alias target hidden
+			return nil, strip(statusFromError(h.hideAliasTarget(ctx, principal, collection, tenant, aliasUsed != "", err)))
 		}
+		// authorized but not found: fall through so disabled still wins over 404
+	}
+
+	// after authz, so a denied caller can't learn the endpoint is disabled
+	// (parity with DISABLE_GRAPHQL)
+	if h.disabled.Get() {
+		return nil, newAPIError(http.StatusUnprocessableEntity, "rest search api is disabled")
+	}
+
+	if err != nil {
 		return nil, strip(statusFromError(err))
 	}
 
@@ -195,6 +200,29 @@ func (h *Handler) NearText(ctx context.Context, principal *models.Principal,
 		return h.buildNearTextParams(class, className, body, getClass, principal)
 	}
 	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+}
+
+// hideAliasTarget makes an alias denial indistinguishable from a denial on a
+// plain collection of the caller-supplied name: it re-runs the authorizer on
+// that name so the 403 matches in wording and never names the alias target.
+// The access decision was already made by getClass; this only reshapes it.
+func (h *Handler) hideAliasTarget(ctx context.Context, principal *models.Principal,
+	collection, tenant string, aliasUsed bool, err error,
+) error {
+	var forbidden autherrs.Forbidden
+	if !aliasUsed || !errors.As(err, &forbidden) {
+		return err
+	}
+	if reauth := h.authorizer.Authorize(ctx, principal, authorization.READ, dataResources(collection, tenant)...); reauth != nil {
+		return reauth
+	}
+	// authorized on the alias name but denied on its target: still deny,
+	// without naming the target
+	deniedPrincipal := principal
+	if deniedPrincipal == nil {
+		deniedPrincipal = &models.Principal{Username: "anonymous"}
+	}
+	return autherrs.NewForbidden(deniedPrincipal, authorization.READ, dataResources(collection, tenant)...)
 }
 
 // dataResources is the authorization resource set for a collection's (or

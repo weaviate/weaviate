@@ -6577,6 +6577,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -10364,7 +10370,7 @@ func init() {
           "x-nullable": true
         },
         "limit": {
-          "description": "The maximum number of objects to return.",
+          "description": "The maximum number of objects to return. Omitted or ` + "`" + `0` + "`" + ` falls back to the server default (` + "`" + `QUERY_DEFAULTS_LIMIT` + "`" + `); a value above ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` is rejected.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
@@ -17985,6 +17991,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -22147,7 +22159,7 @@ func init() {
           "x-nullable": true
         },
         "limit": {
-          "description": "The maximum number of objects to return.",
+          "description": "The maximum number of objects to return. Omitted or ` + "`" + `0` + "`" + ` falls back to the server default (` + "`" + `QUERY_DEFAULTS_LIMIT` + "`" + `); a value above ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` is rejected.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true

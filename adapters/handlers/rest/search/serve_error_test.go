@@ -51,6 +51,21 @@ func TestServeErrorKeepsStatusAndHeaders(t *testing.T) {
 	require.Len(t, payload.Error, 1)
 }
 
+func TestServeErrorSingleContentType(t *testing.T) {
+	// the writer go-swagger hands us has usually already set a Content-Type
+	// (here a stale/wrong one); the reshaped error must end with exactly one
+	// Content-Type header, application/json, not a duplicate
+	req := httptest.NewRequest(http.MethodDelete, "/v1/search/Movie/near-text", nil)
+	rec := httptest.NewRecorder()
+	rec.Header().Set("Content-Type", "text/event-stream")
+
+	ServeError(rec, req, openapierrors.MethodNotAllowed(http.MethodDelete, []string{http.MethodPost}))
+
+	got := rec.Result().Header["Content-Type"]
+	require.Len(t, got, 1, "exactly one Content-Type header")
+	assert.Equal(t, "application/json", got[0])
+}
+
 func TestServeErrorCompositeValidation(t *testing.T) {
 	// several bind failures arrive as a composite error; the message must
 	// survive the reshaping

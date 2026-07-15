@@ -428,3 +428,48 @@ func (o *SearchNearTextBadGateway) WriteResponse(rw http.ResponseWriter, produce
 		}
 	}
 }
+
+// SearchNearTextServiceUnavailableCode is the HTTP code returned for type SearchNearTextServiceUnavailable
+const SearchNearTextServiceUnavailableCode int = 503
+
+/*
+SearchNearTextServiceUnavailable The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.
+
+swagger:response searchNearTextServiceUnavailable
+*/
+type SearchNearTextServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSearchNearTextServiceUnavailable creates SearchNearTextServiceUnavailable with default headers values
+func NewSearchNearTextServiceUnavailable() *SearchNearTextServiceUnavailable {
+
+	return &SearchNearTextServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the search near text service unavailable response
+func (o *SearchNearTextServiceUnavailable) WithPayload(payload *models.ErrorResponse) *SearchNearTextServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the search near text service unavailable response
+func (o *SearchNearTextServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SearchNearTextServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

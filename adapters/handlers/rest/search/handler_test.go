@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -165,9 +166,14 @@ func TestIsSearchRoute(t *testing.T) {
 		// any search-type under the namespace counts
 		{"/v1/search/Movie/hybrid", true},
 		{"/v1/search/Movie/bm25", true},
-		{"/v1/search/Movie/near-text/", false},
+		// non-canonical spellings the router still routes must classify as search
+		{"/v1/search/Movie/near-text/", true},
+		{"/v1//search/Movie/near-text", true},
+		{"/v1/search/Movie/./near-text", true},
+		{"/v1/search/Movie/sub/../near-text", true},
 		{"/v1/search/Movie", false},
 		{"/v1/search/near-text", false},
+		// doubled slash = missing collection segment; router wouldn't route it
 		{"/v1/search//near-text", false},
 		{"/v2/search/Movie/near-text", false},
 		{"/v1/Search/Movie/near-text", false},
@@ -308,6 +314,30 @@ func TestHandlerDisabled(t *testing.T) {
 	assert.Contains(t, apiErr.Error(), "disabled")
 }
 
+// TestHandlerDisabledMissingCollection: disabled endpoint answers 422 even for
+// a missing collection (disabled check runs after authz, before existence).
+func TestHandlerDisabledMissingCollection(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.handler.disabled = runtime.NewDynamicValue(true)
+
+	_, apiErr := doNearText(t, deps, nil, "NoSuchCollection", `{"query":["space"]}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+	assert.Contains(t, apiErr.Error(), "disabled")
+}
+
+// TestHandlerDisabledUnauthorized: unauthorized caller gets 403, not the
+// disabled 422 (a denied caller must not learn the endpoint is disabled).
+func TestHandlerDisabledUnauthorized(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.handler.disabled = runtime.NewDynamicValue(true)
+	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Movie"))
+
+	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
 func TestHandlerUnknownBodyFieldIgnored(t *testing.T) {
 	deps := newTestHandler(t)
 
@@ -387,18 +417,163 @@ func TestHandlerResolvesAliases(t *testing.T) {
 	assert.Equal(t, "Movie", deps.searcher.lastParams.ClassName)
 }
 
+// rbacLikeAuthorizer denies every request with a Forbidden derived from the
+// resources and wrapped like the real RBAC authorizer ("rbac: %w"), so a
+// denial's shape depends on the resolved collection. The shared FakeAuthorizer
+// returns a fixed error and can't catch the alias oracle these tests guard.
+type rbacLikeAuthorizer struct{}
+
+func (rbacLikeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	p := principal
+	if p == nil {
+		p = &models.Principal{Username: "anonymous"}
+	}
+	return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+}
+
+func (a rbacLikeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
+}
+
+func (a rbacLikeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	return nil, a.Authorize(ctx, principal, verb, resources...)
+}
+
 // TestHandlerAliasForbiddenDoesNotLeakTarget: a denied request against an
 // alias must not disclose the alias's target collection in the 403.
 func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
 	deps := newTestHandler(t)
+	deps.handler.authorizer = rbacLikeAuthorizer{}
 	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
-	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Movie"))
 
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusForbidden, apiErr.Status)
 	assert.NotContains(t, apiErr.Error(), "Movie", "403 must not name the alias target")
 	assert.Contains(t, apiErr.Error(), "Films")
+}
+
+// TestHandlerAliasForbiddenNoExistenceOracle: for one name, a denial must be
+// byte-identical whether the name is a registered alias or a plain unknown
+// collection — else the difference reveals the alias to a denied caller.
+func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
+	// registered alias Films -> Movie, caller denied everything
+	aliased := newTestHandler(t)
+	aliased.handler.authorizer = rbacLikeAuthorizer{}
+	aliased.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	_, aliasErr := doNearText(t, aliased, nil, "Films", `{"query":["space"]}`)
+	require.NotNil(t, aliasErr)
+
+	// same name, not an alias (and not a class), same denied caller
+	plain := newTestHandler(t)
+	plain.handler.authorizer = rbacLikeAuthorizer{}
+	_, plainErr := doNearText(t, plain, nil, "Films", `{"query":["space"]}`)
+	require.NotNil(t, plainErr)
+
+	assert.Equal(t, plainErr.Status, aliasErr.Status)
+	assert.Equal(t, plainErr.Error(), aliasErr.Error(),
+		"alias and non-alias denials must be indistinguishable")
+}
+
+// denyCollections denies READ on the named collections (by resource path) and
+// allows the rest, to test cross-collection authz for refs and filters.
+type denyCollections struct {
+	denied   map[string]bool
+	requests []mocks.AuthZReq
+}
+
+func (a *denyCollections) authorize(principal *models.Principal, verb string, resources []string) error {
+	a.requests = append(a.requests, mocks.AuthZReq{Principal: principal, Verb: verb, Resources: resources})
+	for _, r := range resources {
+		for name := range a.denied {
+			if strings.Contains(r, "/collections/"+name+"/") {
+				p := principal
+				if p == nil {
+					p = &models.Principal{Username: "anonymous"}
+				}
+				return fmt.Errorf("rbac: %w", autherrs.NewForbidden(p, verb, resources...))
+			}
+		}
+	}
+	return nil
+}
+
+func (a *denyCollections) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return a.authorize(principal, verb, resources)
+}
+
+func (a *denyCollections) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return a.authorize(principal, verb, resources)
+}
+
+func (a *denyCollections) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	if err := a.authorize(principal, verb, resources); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
+func (a *denyCollections) Calls() []mocks.AuthZReq { return a.requests }
+
+// TestHandlerAuthorizesReferencedCollections: collections reached via a
+// reference selection or a where filter are authorized, not just the primary.
+func TestHandlerAuthorizesReferencedCollections(t *testing.T) {
+	for name, body := range map[string]string{
+		"reference selection": `{"query":["space"],"return_properties":["hasAuthor.name"]}`,
+		"where filter across a reference": `{"query":["space"],"where":` +
+			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			deps := newTestHandler(t)
+			authz := &denyCollections{denied: map[string]bool{}}
+			deps.handler.authorizer = authz
+
+			_, apiErr := doNearText(t, deps, nil, "Movie", body)
+			require.Nil(t, apiErr)
+
+			var authorizedAuthor bool
+			for _, c := range authz.Calls() {
+				for _, r := range c.Resources {
+					if strings.Contains(r, "/collections/Author/") {
+						authorizedAuthor = true
+					}
+				}
+			}
+			assert.True(t, authorizedAuthor,
+				"the referenced Author collection must be authorized, not just Movie")
+		})
+	}
+}
+
+// TestHandlerCompoundFilterForbiddenIs403: a READ denial inside a compound
+// (And/Or) where filter must be 403 like the same clause alone — the typed
+// error must survive the operand merge. The two-failing-operand case exercises
+// the multi-error merge path.
+func TestHandlerCompoundFilterForbiddenIs403(t *testing.T) {
+	bodies := map[string]string{
+		"single clause": `{"query":["space"],"where":` +
+			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"}}`,
+		// one failing operand (Author ref denied); the year clause is valid
+		"compound, one failing operand": `{"query":["space"],"where":{"operator":"And","operands":[` +
+			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"},` +
+			`{"path":["year"],"operator":"GreaterThan","valueInt":2000}]}}`,
+		// two failing operands (denial + wrong-type year): merge must keep the
+		// Forbidden reachable so status stays 403
+		"compound, two failing operands": `{"query":["space"],"where":{"operator":"And","operands":[` +
+			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"},` +
+			`{"path":["year"],"operator":"Equal","valueText":"not-an-int"}]}}`,
+	}
+
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			deps := newTestHandler(t)
+			deps.handler.authorizer = &denyCollections{denied: map[string]bool{"Author": true}}
+
+			_, apiErr := doNearText(t, deps, nil, "Movie", body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusForbidden, apiErr.Status, apiErr.Error())
+		})
+	}
 }
 
 func TestHandlerLowercasesCollection(t *testing.T) {
