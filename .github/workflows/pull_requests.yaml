@@ -807,6 +807,60 @@ jobs:
           max_attempts: 1
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  DropVectorIndex-On-Demand-Tests-Check:
+    name: drop-vector-index on demand
+    runs-on: ubuntu-latest
+    outputs:
+      run_pipeline: ${{ steps.check.outputs.run_pipeline }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 2
+      - id: check
+        name: check
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
+          if [[ "$commit_message" == *"drop-vector-index"* || "$commit_message" == "prepare release"* ]]; then
+            echo "Run pipeline"
+            echo "run_pipeline=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: drop-vector-index"
+            echo "run_pipeline=false" >> $GITHUB_OUTPUT
+          fi
+  Acceptance-DropVectorIndex-Tests:
+    name: drop-vector-index (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    needs: [DropVectorIndex-On-Demand-Tests-Check]
+    if: ${{ needs.DropVectorIndex-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "cluster"
+            test: "--acceptance-drop-vector-index-cluster"
+          - name: "restart-cluster"
+            test: "--acceptance-drop-vector-index-restart-cluster"
+          - name: "rolling-restart"
+            test: "--acceptance-drop-vector-index-rolling-restart"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+      - name: Login to Docker Hub
+        uses: ./.github/actions/docker-login
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests drop-vector-index
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+        with:
+          timeout_minutes: 30
+          max_attempts: 1
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
