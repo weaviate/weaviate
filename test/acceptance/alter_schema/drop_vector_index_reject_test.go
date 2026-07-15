@@ -137,16 +137,10 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 				helper.AssertRequestOk(t, resp, err, nil)
 			})
 
-			// Insert an object carrying the vector before the drop. This gives the
-			// finalizer real physical data to clean up, so it cannot short-circuit
-			// and remove the schema entry immediately: with a flushed segment in the
-			// drop op's pending set, the finalizer's first (immediate) pending read
-			// is non-empty, so completion is deferred to at least its first 30s poll
-			// tick (see DropVectorIndexProvider.pollUntilEmpty). The "none" marker
-			// then deterministically persists past the verify window below, and —
-			// more importantly — is still present for the re-creation-rejection step,
-			// so that step genuinely exercises "reject re-creating a dropped vector"
-			// rather than degrading into a plain fresh add once the entry is gone.
+			// Insert an object so the finalizer's pending set is non-empty,
+			// deferring completion to its first 30s poll tick
+			// (DropVectorIndexProvider.pollUntilEmpty) and keeping the "none"
+			// marker present for the re-creation-rejection step below.
 			t.Run("insert object with the vector", func(t *testing.T) {
 				obj := &models.Object{
 					ID:         strfmt.UUID("00000000-0000-0000-0000-000000000101"),
@@ -158,9 +152,8 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 					clobjects.NewObjectsCreateParams().WithBody(obj), nil)
 				require.NoError(t, err)
 
-				// Wait past the ~1s dirty-flush so the vector lands in a segment
-				// (not just the memtable). A flushed segment is what puts the drop op
-				// into a non-empty pending state, deferring finalization.
+				// Wait past the ~1s dirty-flush so the vector lands in a segment,
+				// not just the memtable, keeping the drop's pending set non-empty.
 				time.Sleep(3 * time.Second)
 			})
 
@@ -173,9 +166,7 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 			})
 
 			t.Run("verify vector index is dropped", func(t *testing.T) {
-				// Accept both terminal post-drop states: the entry still present
-				// with the "none" marker, or already removed by the async cleanup
-				// finalizer. Either proves the drop took effect.
+				// The finalizer may already have reclaimed the entry; either state is valid.
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 					cls := helper.GetClass(t, className)
 					cfg, ok := cls.VectorConfig["my_vector"]
@@ -190,11 +181,9 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 				cls := helper.GetClass(t, className)
 				require.NotNil(t, cls)
 
-				// Pin the premise: the dropped vector must still be present with the
-				// "none" marker. The inserted object keeps the finalizer busy, so the
-				// marker is here and the update below is a genuine re-creation of a
-				// dropped vector — not a plain fresh add (which is allowed and would
-				// make the require.Error below pass/fail for the wrong reason).
+				// Guard: without the "none" marker the update below is a fresh add,
+				// not a genuine re-creation, and require.Error would pass for the
+				// wrong reason.
 				cfg, ok := cls.VectorConfig["my_vector"]
 				require.True(t, ok, "dropped vector entry must still exist for the re-creation to be a re-creation")
 				require.Equal(t, "none", cfg.VectorIndexType, "dropped vector must carry the 'none' marker before re-creation is attempted")
