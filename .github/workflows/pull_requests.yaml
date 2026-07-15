@@ -838,12 +838,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "singlenode"
-            test: "--acceptance-drop-vector-index-singlenode"
           - name: "cluster"
             test: "--acceptance-drop-vector-index-cluster"
-          - name: "restart-singlenode"
-            test: "--acceptance-drop-vector-index-restart-singlenode"
           - name: "restart-cluster"
             test: "--acceptance-drop-vector-index-restart-cluster"
           - name: "rolling-restart"

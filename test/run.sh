@@ -59,9 +59,7 @@ function main() {
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
   run_acceptance_drop_vector_index=false
-  run_acceptance_drop_vector_index_singlenode=false
   run_acceptance_drop_vector_index_cluster=false
-  run_acceptance_drop_vector_index_restart_singlenode=false
   run_acceptance_drop_vector_index_restart_cluster=false
   run_acceptance_drop_vector_index_rolling_restart=false
 
@@ -121,9 +119,7 @@ function main() {
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
           --acceptance-drop-vector-index|-advi) run_all_tests=false; run_acceptance_drop_vector_index=true;;
-          --acceptance-drop-vector-index-singlenode|-advis) run_all_tests=false; run_acceptance_drop_vector_index_singlenode=true;;
           --acceptance-drop-vector-index-cluster|-advic) run_all_tests=false; run_acceptance_drop_vector_index_cluster=true;;
-          --acceptance-drop-vector-index-restart-singlenode|-advirs) run_all_tests=false; run_acceptance_drop_vector_index_restart_singlenode=true;;
           --acceptance-drop-vector-index-restart-cluster|-advirc) run_all_tests=false; run_acceptance_drop_vector_index_restart_cluster=true;;
           --acceptance-drop-vector-index-rolling-restart|-advirr) run_all_tests=false; run_acceptance_drop_vector_index_rolling_restart=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
@@ -424,19 +420,9 @@ function main() {
     run_acceptance_drop_vector_index
   fi
 
-  if $run_acceptance_drop_vector_index_singlenode; then
-    echo "running drop-vector-index single-node acceptance tests"
-    run_acceptance_drop_vector_index_singlenode
-  fi
-
   if $run_acceptance_drop_vector_index_cluster; then
     echo "running drop-vector-index cluster acceptance tests"
     run_acceptance_drop_vector_index_cluster
-  fi
-
-  if $run_acceptance_drop_vector_index_restart_singlenode; then
-    echo "running drop-vector-index restart single-node acceptance tests"
-    run_acceptance_drop_vector_index_restart_singlenode
   fi
 
   if $run_acceptance_drop_vector_index_restart_cluster; then
@@ -1007,25 +993,11 @@ function run_acceptance_drop_vector_index() {
     test/acceptance/drop_vector_index
 }
 
-function run_acceptance_drop_vector_index_singlenode() {
-  build_weaviate_test_image
-  echo_green "acceptance — drop-vector-index-singlenode"
-  AOF_GROUP_RUN='^TestDropVectorIndex_SingleNode$' \
-    run_aof_group "drop-vector-index-singlenode" test/acceptance/drop_vector_index
-}
-
 function run_acceptance_drop_vector_index_cluster() {
   build_weaviate_test_image
   echo_green "acceptance — drop-vector-index-cluster"
   AOF_GROUP_RUN='^TestDropVectorIndex_Cluster$' \
     run_aof_group "drop-vector-index-cluster" test/acceptance/drop_vector_index
-}
-
-function run_acceptance_drop_vector_index_restart_singlenode() {
-  build_weaviate_test_image
-  echo_green "acceptance — drop-vector-index-restart-singlenode"
-  AOF_GROUP_RUN='^TestDropVectorIndex_Restart_SingleNode$' \
-    run_aof_group "drop-vector-index-restart-singlenode" test/acceptance/drop_vector_index
 }
 
 function run_acceptance_drop_vector_index_restart_cluster() {
