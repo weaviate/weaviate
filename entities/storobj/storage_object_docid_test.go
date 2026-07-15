@@ -37,6 +37,9 @@ import (
 type fakeObjectsBucket struct {
 	class string
 	store map[uint64][]byte
+	// capturedCtx records the ctx the batch path passes to GetBySecondaryBatch, so a
+	// ctx-threading test can prove the caller ctx reaches it (not a fresh context.TODO()).
+	capturedCtx context.Context
 }
 
 func (b *fakeObjectsBucket) lookup(_ context.Context, _ int, seckey, buffer []byte) ([]byte, []byte, error) {
@@ -69,6 +72,7 @@ func (b *fakeObjectsBucket) SecondaryViewLookup() (secondaryLookup, func()) {
 // doc-id key exactly as the production path encodes it. Results align to keys; a
 // missing doc id yields nil (the WithEmpty "not found" case).
 func (b *fakeObjectsBucket) GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte) ([][]byte, error) {
+	b.capturedCtx = ctx
 	out := make([][]byte, len(keys))
 	for i, key := range keys {
 		v, _, err := b.lookup(ctx, pos, key, nil)
@@ -147,7 +151,7 @@ func TestObjectsByDocIDWithEmptyPositionalRestore(t *testing.T) {
 	}
 	bucket := newFakeBucket(t, class, present)
 
-	out, err := ObjectsByDocIDWithEmpty(bucket, ids, additional.Properties{}, nil, logger)
+	out, err := ObjectsByDocIDWithEmpty(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 	require.NoError(t, err)
 	require.Len(t, out, n, "WithEmpty must preserve length")
 
@@ -175,7 +179,7 @@ func TestObjectsByDocIDCompactionPreservesInputOrder(t *testing.T) {
 	present := []uint64{5, 1, 1 << 40, 2, 7, 1<<32 + 9}
 	bucket := newFakeBucket(t, class, present)
 
-	out, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+	out, err := ObjectsByDocID(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 	require.NoError(t, err)
 
 	var wantOrder []uint64
@@ -206,13 +210,34 @@ func TestObjectsByDocIDDuplicateIDsPositional(t *testing.T) {
 	ids := []uint64{42, 7, 42, 1000, 7, 42}
 	bucket := newFakeBucket(t, class, []uint64{42, 7, 1000})
 
-	out, err := ObjectsByDocIDWithEmpty(bucket, ids, additional.Properties{}, nil, logger)
+	out, err := ObjectsByDocIDWithEmpty(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 	require.NoError(t, err)
 	require.Len(t, out, len(ids))
 	for i, id := range ids {
 		require.NotNil(t, out[i], "position %d", i)
 		assert.Equal(t, id, out[i].DocID, "position %d", i)
 	}
+}
+
+// TestObjectsByDocIDThreadsContext pins the ctx fix (gh#309 pass-3b): the batch path must
+// thread the caller's ctx all the way into bucket.GetBySecondaryBatch, not substitute a
+// fresh context.TODO(). A context.TODO() carries neither cancellation/deadline nor the
+// bm25 slow-log accumulator, which is why bm25 never showed batch phase timings. The
+// sentinel value survives only if the real ctx is threaded.
+func TestObjectsByDocIDThreadsContext(t *testing.T) {
+	const class = "TestClass"
+	logger := logrus.New()
+	bucket := newFakeBucket(t, class, []uint64{1, 2, 3})
+
+	type ctxKey string
+	const sentinel ctxKey = "gh309-ctx-sentinel"
+	ctx := context.WithValue(context.Background(), sentinel, "threaded")
+
+	_, err := ObjectsByDocID(ctx, bucket, []uint64{1, 2, 3}, additional.Properties{}, nil, logger)
+	require.NoError(t, err)
+	require.NotNil(t, bucket.capturedCtx, "batch path must reach GetBySecondaryBatch")
+	require.Equal(t, "threaded", bucket.capturedCtx.Value(sentinel),
+		"objectsByDocIDBatch must thread the caller ctx into GetBySecondaryBatch, not context.TODO()")
 }
 
 // TestSecondaryKeyLessMatchesDiskTreeOrder is the comparator gate: the sort

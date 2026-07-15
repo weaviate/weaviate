@@ -1693,7 +1693,7 @@ func TestObjectsByDocID(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(context.Background(), bucket, test.inputIDs, additional.Properties{}, nil, logger)
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -1723,7 +1723,7 @@ func TestObjectsByDocIDSharedView(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			bucket := genFakeBucket(t, 1000)
 
-			res, err := ObjectsByDocID(bucket, tt.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(context.Background(), bucket, tt.inputIDs, additional.Properties{}, nil, logger)
 			require.NoError(t, err)
 			require.Len(t, res, len(tt.inputIDs))
 
@@ -1753,7 +1753,7 @@ func TestObjectsByDocIDSharedViewReleasedOnError(t *testing.T) {
 			bucket := genFakeBucket(t, 1000)
 			bucket.lookupErr = fmt.Errorf("boom")
 
-			_, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+			_, err := ObjectsByDocID(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 			require.Error(t, err)
 
 			// the view is still released exactly once when a lookup fails mid-batch
@@ -1783,7 +1783,7 @@ func TestObjectsByDocIDBatchSlabViewCap(t *testing.T) {
 	delete(bucket.objects, secondaryBatchViewHoldCapForTest+7)
 	delete(bucket.objects, 2*secondaryBatchViewHoldCapForTest+42)
 
-	out, err := ObjectsByDocIDWithEmpty(bucket, ids, additional.Properties{}, nil, logger)
+	out, err := ObjectsByDocIDWithEmpty(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 	require.NoError(t, err)
 	require.Len(t, out, n)
 
@@ -1805,7 +1805,7 @@ func TestObjectsByDocIDEmptyBatch(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	bucket := genFakeBucket(t, 1000)
 
-	res, err := ObjectsByDocID(bucket, nil, additional.Properties{}, nil, logger)
+	res, err := ObjectsByDocID(context.Background(), bucket, nil, additional.Properties{}, nil, logger)
 	require.NoError(t, err)
 	require.Empty(t, res)
 
@@ -1816,7 +1816,7 @@ func TestObjectsByDocIDEmptyBatch(t *testing.T) {
 
 func TestObjectsByDocIDNilBucket(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	_, err := ObjectsByDocID(nil, []uint64{0}, additional.Properties{}, nil, logger)
+	_, err := ObjectsByDocID(context.Background(), nil, []uint64{0}, additional.Properties{}, nil, logger)
 	require.Error(t, err)
 }
 
@@ -1976,7 +1976,7 @@ func BenchmarkObjectsByDocIDPublic(b *testing.B) {
 	for _, amount := range []int{1, 2, 10, 100} {
 		b.Run(fmt.Sprintf("batch/amount:%v", amount), func(t *testing.B) {
 			for i := 0; i < t.N; i++ {
-				_, err := ObjectsByDocID(bucket, ids[:amount], additional.Properties{}, nil, logger)
+				_, err := ObjectsByDocID(context.Background(), bucket, ids[:amount], additional.Properties{}, nil, logger)
 				require.Nil(t, err)
 			}
 		})
@@ -2024,7 +2024,7 @@ func FuzzObjectGet(f *testing.F) {
 			}
 		}
 
-		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+		res, err := ObjectsByDocID(context.Background(), bucket, ids, additional.Properties{}, nil, logger)
 		require.Nil(t, err)
 		require.Len(t, res, len(ids))
 		for i, obj := range res {

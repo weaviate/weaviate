@@ -683,7 +683,7 @@ func resolveDocIDFingerprintToUUIDs(t *testing.T, logger logrus.FieldLogger,
 	t.Helper()
 	out := make(map[string][]string, len(docIDMap))
 	for term, docIDs := range docIDMap {
-		objs, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, docIDs, additional.Properties{}, nil, logger)
+		objs, err := storobj.ObjectsByDocIDWithEmpty(context.Background(), objectsBucket, docIDs, additional.Properties{}, nil, logger)
 		require.NoErrorf(t, err, "resolve docIDs for term %q", term)
 		require.Lenf(t, objs, len(docIDs),
 			"ObjectsByDocIDWithEmpty must return one slot per input docID for term %q (input=%d, got=%d)",

@@ -33,6 +33,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -883,7 +884,7 @@ func indexHitsForKeys(t testing.TB, b *Bucket, view BucketConsistentView, keys [
 	for i, k := range keys {
 		unresolved[i] = secondaryBatchKey{origIdx: i, key: k}
 	}
-	hits, err := b.disk.getBySecondaryBatchIndexHits(context.Background(), secondaryPos, unresolved, view.Disk)
+	hits, err := b.disk.getBySecondaryBatchIndexHits(context.Background(), secondaryPos, unresolved, view.Disk, defaultSecondaryBatchReadConcurrency, nil)
 	require.NoError(t, err)
 	return hits
 }
@@ -1042,6 +1043,174 @@ func TestBucketGetBySecondaryBatchCtxCancelMidPhase2(t *testing.T) {
 
 	_, _, err := b.disk.readSecondaryBatchValuesConcurrent(ctx, hits, view.Disk, 16, hook)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+// ---- phase-1 concurrency gate (gh#309 pass-3b cold bm25 fix) -----------------------
+//
+// pass-3b attributed ~75% of the cold bm25 wall to phase-1 getBySecondaryBatchIndexHits
+// running strictly serial (1 goroutine) doing the cold-dominant mmap DiskTree.Get
+// descents, while the v3 close gate instrumented only phase 2. These gates instrument
+// the REAL phase-1 descent path through the extended secondaryBatchReadHook
+// (onDescentStart/onDescentDone), so a re-serialized phase 1 FAILS them; the co-gate to
+// the phase-2 concurrency gate above.
+
+// buildOldestSegmentHitBucket writes all numKeys target keys into the OLDEST segment and
+// fills each of the numSegments-1 newer segments with disjoint filler keys. Every target
+// key therefore stays unresolved through every newer segment (a descent per segment) and
+// only confirms in the oldest: the worst-case cold shape that forces a full descent of
+// every segment for every key, maximizing the phase-1 descent fan-out under test.
+func buildOldestSegmentHitBucket(t testing.TB, numKeys, numSegments int, extra ...BucketOption) (*Bucket, [][]byte) {
+	t.Helper()
+	require.GreaterOrEqual(t, numSegments, 2,
+		"need >= 2 segments so target keys descend newer segments before confirming in the oldest")
+	b := newSecondaryBatchTestBucketMode(t, false, true, extra...)
+
+	keys := make([][]byte, numKeys)
+	for d := 0; d < numKeys; d++ {
+		val := make([]byte, 48)
+		val[0], val[1] = byte(d), byte(d>>8) // observably distinct per key
+		require.NoError(t, b.Put(encodePrimaryKey(uint64(d)), val,
+			WithSecondaryKey(secondaryPos, encodeDocID(uint64(d)))))
+		keys[d] = encodeDocID(uint64(d))
+	}
+	require.NoError(t, b.FlushAndSwitch()) // oldest segment (lowest index) holds every target key
+
+	filler := uint64(10_000_000) // disjoint from the [0,numKeys) target docID range
+	for s := 1; s < numSegments; s++ {
+		for i := 0; i < 8; i++ {
+			val := make([]byte, 16)
+			require.NoError(t, b.Put(encodePrimaryKey(filler), val,
+				WithSecondaryKey(secondaryPos, encodeDocID(filler))))
+			filler++
+		}
+		require.NoError(t, b.FlushAndSwitch())
+	}
+	return b, keys
+}
+
+// unresolvedFromKeys builds the phase-1 input set (origIdx-tagged) from a key slice. Each
+// call allocates a fresh backing array because getBySecondaryBatchIndexHits consumes it as
+// compaction scratch.
+func unresolvedFromKeys(keys [][]byte) []secondaryBatchKey {
+	u := make([]secondaryBatchKey, len(keys))
+	for i, k := range keys {
+		u[i] = secondaryBatchKey{origIdx: i, key: k}
+	}
+	return u
+}
+
+// TestBucketGetBySecondaryBatchPhase1ConcurrencyPeakInflight is close-blocking gate (i):
+// at B=16 over a 500-key oldest-segment-resolve batch, phase 1 must run >= 8 index
+// descents concurrently. Directly catches a limit=1 misconfig, a lost fan-out, or a
+// refactor that re-serializes descents, none of which the phase-2 gate can see.
+func TestBucketGetBySecondaryBatchPhase1ConcurrencyPeakInflight(t *testing.T) {
+	b, keys := buildOldestSegmentHitBucket(t, 500, 6)
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	const batchConcurrency = 16
+	probe := newConcurrencyProbe(8, 2*time.Second)
+	hook := &secondaryBatchReadHook{onDescentStart: probe.onReadStart, onDescentDone: probe.onReadDone}
+
+	hits, err := b.disk.getBySecondaryBatchIndexHits(
+		context.Background(), secondaryPos, unresolvedFromKeys(keys), view.Disk, batchConcurrency, hook)
+	require.NoError(t, err)
+	require.Len(t, hits, len(keys), "every target key must confirm in the oldest segment")
+
+	require.GreaterOrEqualf(t, probe.peakInflight(), 8,
+		"phase 1 peaked at %d in-flight descents at B=16; < 8 means it serialized "+
+			"(limit=1 misconfig, lost fan-out, or a re-serializing refactor)", probe.peakInflight())
+}
+
+// TestBucketGetBySecondaryBatchPhase1ForcedSerialRED is the forced-serial RED co-assertion:
+// with descent concurrency pinned to 1, the same probe MUST peak at exactly 1 (< 8), so the
+// gate above is proven to have teeth (it distinguishes concurrent from serial, not merely
+// that the happy path passes). This is the "forced-serial goes RED" requirement.
+func TestBucketGetBySecondaryBatchPhase1ForcedSerialRED(t *testing.T) {
+	b, keys := buildOldestSegmentHitBucket(t, 500, 6)
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	probe := newConcurrencyProbe(8, 500*time.Millisecond)
+	hook := &secondaryBatchReadHook{onDescentStart: probe.onReadStart, onDescentDone: probe.onReadDone}
+
+	hits, err := b.disk.getBySecondaryBatchIndexHits(
+		context.Background(), secondaryPos, unresolvedFromKeys(keys), view.Disk, 1, hook)
+	require.NoError(t, err)
+	require.Len(t, hits, len(keys))
+
+	require.Equalf(t, 1, probe.peakInflight(),
+		"forced-serial (limit=1) phase 1 must peak at exactly 1 in-flight descent; got %d",
+		probe.peakInflight())
+	require.Lessf(t, probe.peakInflight(), 8,
+		"forced-serial phase 1 must FAIL the >= 8 concurrency gate (peak=%d); if it does not, the "+
+			"gate has no teeth", probe.peakInflight())
+}
+
+// TestBucketGetBySecondaryBatchPhase1WallTimeRatio is gate (iii): under a fixed injected
+// per-descent latency, the concurrent batch (B=16) must complete in <= 0.5x the serial
+// (B=1) wall time on the same descent set. A serialized phase 1 would be ~1x and fail.
+func TestBucketGetBySecondaryBatchPhase1WallTimeRatio(t *testing.T) {
+	b, keys := buildOldestSegmentHitBucket(t, 500, 6)
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	const perDescent = 200 * time.Microsecond
+	latency := &secondaryBatchReadHook{onDescentStart: func() { time.Sleep(perDescent) }}
+
+	startSerial := time.Now()
+	hitsSerial, err := b.disk.getBySecondaryBatchIndexHits(
+		context.Background(), secondaryPos, unresolvedFromKeys(keys), view.Disk, 1, latency)
+	serialWall := time.Since(startSerial)
+	require.NoError(t, err)
+	require.Len(t, hitsSerial, len(keys))
+
+	startConc := time.Now()
+	hitsConc, err := b.disk.getBySecondaryBatchIndexHits(
+		context.Background(), secondaryPos, unresolvedFromKeys(keys), view.Disk, 16, latency)
+	concWall := time.Since(startConc)
+	require.NoError(t, err)
+	require.Len(t, hitsConc, len(keys))
+
+	require.Lessf(t, concWall, serialWall/2,
+		"concurrent phase 1 (B=16) must be <= 0.5x serial (B=1) under injected %s/descent latency; "+
+			"serial=%s concurrent=%s (a serialized phase 1 would be ~1x)", perDescent, serialWall, concWall)
+}
+
+// TestBucketGetBySecondaryBatchCtxCancelMidPhase1 confirms cancellation aborts phase 1 at
+// descent granularity (not only phase 2): a ctx cancelled on the first descent surfaces
+// context.Canceled from the descent errgroup rather than running every descent to
+// completion. The -race run would flag any goroutine leak/deadlock in the drain.
+func TestBucketGetBySecondaryBatchCtxCancelMidPhase1(t *testing.T) {
+	b, keys := buildOldestSegmentHitBucket(t, 500, 6)
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var once sync.Once
+	hook := &secondaryBatchReadHook{onDescentStart: func() { once.Do(cancel) }}
+
+	_, err := b.disk.getBySecondaryBatchIndexHits(
+		ctx, secondaryPos, unresolvedFromKeys(keys), view.Disk, 16, hook)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// TestBucketGetBySecondaryBatchSlowLogAnnotationOnRealCtx pins the ctx fix (storage_object.go
+// no longer passes context.TODO()): resolving under a real ctx that carries the slow-query
+// accumulator must land the lsm_get_by_secondary_batch per-phase timing entry. A context.TODO()
+// carries no accumulator, so the annotation is silently dropped, exactly why bm25 never
+// showed batch phase timings while the filter path did (pass-3b bonus finding).
+func TestBucketGetBySecondaryBatchSlowLogAnnotationOnRealCtx(t *testing.T) {
+	b, keys := buildAllHitSecondaryBucket(t, 64, 4)
+	ctx := helpers.InitSlowQueryDetails(context.Background())
+
+	_, err := b.GetBySecondaryBatch(ctx, secondaryPos, keys)
+	require.NoError(t, err)
+
+	details := helpers.ExtractSlowQueryDetails(ctx)
+	require.Contains(t, details, "lsm_get_by_secondary_batch",
+		"batch resolver must annotate the slow log under a real ctx; a context.TODO() would "+
+			"silently drop the accumulator (the gh#309 bm25 missing-batch-timings bug)")
 }
 
 // newCompactableSecondaryBucket is like newSecondaryBatchTestBucket but leaves compaction
