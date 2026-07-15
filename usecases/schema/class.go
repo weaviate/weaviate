@@ -340,7 +340,7 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 	return vectorIndexConfig, nil
 }
 
-func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool, stripNamespaces bool) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -359,6 +359,17 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		if err := json.Unmarshal(d.Aliases, &aliases); err != nil {
 			return fmt.Errorf("unmarshal aliases: %w", err)
 		}
+	}
+
+	// Strip before RAFT so the propagated class name matches the participant's
+	// post-strip staging dir (see usecases/backup/restorer.restoreOne).
+	if stripNamespaces {
+		class.Class = namespacing.StripQualification(class.Class)
+		namespacing.StripPropertyDataTypes(class.Properties)
+		for _, alias := range aliases {
+			alias.Alias = namespacing.StripQualification(alias.Alias)
+		}
+		shardingState.IndexID = class.Class
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
@@ -456,7 +467,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// Namespaced callers send the stripped (short) class name in the body
 	// after a GET. Qualify it and require it to match the path so a
 	// mismatch surfaces explicitly instead of being silently overwritten.
-	if updated != nil && principal != nil && principal.Namespace != "" {
+	if updated != nil && namespacing.ConfinedNamespace(principal) != "" {
 		qualifiedBody, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, updated.Class)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)

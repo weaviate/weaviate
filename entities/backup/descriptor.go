@@ -55,6 +55,7 @@ type DistributedBackupDescriptor struct {
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         CompressionType            `json:"compressionType"`
 	BaseBackupID            string                     `json:"baseBackupId"`
+	Users                   []string                   `json:"users,omitempty"`
 }
 
 // Len returns how many nodes exist in d
@@ -94,6 +95,19 @@ func (d *DistributedBackupDescriptor) Classes() []string {
 	for cls := range set {
 		lst[i] = cls
 		i++
+	}
+	return lst
+}
+
+// UserList returns the deduped dynamic-user IDs recorded in d (empty when none).
+func (d *DistributedBackupDescriptor) UserList() []string {
+	set := make(map[string]struct{}, len(d.Users))
+	for _, u := range d.Users {
+		set[u] = struct{}{}
+	}
+	lst := make([]string, 0, len(set))
+	for u := range set {
+		lst = append(lst, u)
 	}
 	return lst
 }
@@ -241,6 +255,10 @@ func (d *DistributedBackupDescriptor) GetStatus() Status {
 
 func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
 	return d.CompressionType
+}
+
+func (d *DistributedBackupDescriptor) GetStartedAt() time.Time {
+	return d.StartedAt
 }
 
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
@@ -521,6 +539,10 @@ func (d *BackupDescriptor) List() []string {
 
 func (d *BackupDescriptor) GetBaseBackupID() string {
 	return d.BaseBackupID
+}
+
+func (d *BackupDescriptor) GetStartedAt() time.Time {
+	return d.StartedAt
 }
 
 // AllExist checks if all classes exist in d.

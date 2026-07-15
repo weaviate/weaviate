@@ -209,7 +209,7 @@ const maxStripDepth = 64
 // Fields so deeper cross-refs are stripped too. No-op for global /
 // NS-disabled principals.
 func stripResultsOwnNamespace(principal *models.Principal, results []any) []any {
-	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" || len(results) == 0 {
+	if namespacing.ConfinedNamespace(principal) == "" || len(results) == 0 {
 		return results
 	}
 	out := make([]any, len(results))

@@ -144,12 +144,50 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
+// MultiObjectRawByID returns the raw on-disk binary for each id (nil where
+// absent/deleted), aligned with input order. Slices are copies: the bucket may
+// reuse pooled/mmap buffers after the read.
+func (s *Shard) MultiObjectRawByID(ctx context.Context, ids []strfmt.UUID) ([][]byte, error) {
+	s.activityTrackerRead.Add(1)
+	out := make([][]byte, len(ids))
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	for i, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		b, err := bucket.Get(idBytes)
+		if err != nil {
+			return nil, err
+		}
+		if b == nil {
+			continue
+		}
+
+		cp := make([]byte, len(b))
+		copy(cp, b)
+		out[i] = cp
+	}
+
+	return out, nil
+}
+
 func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
 	// Replication-internal operation: do not count as user read activity.
 	objects := make([]types.RepairResponse, len(query))
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	for i, q := range query {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		idBytes, err := uuid.MustParse(q.ID).MarshalBinary()
 		if err != nil {
 			return nil, err
@@ -191,7 +229,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		return nil, fmt.Errorf("invalid final UUID %q: %w", finalUUID, err)
 	}
 
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+	// Digest mode: only the header is read below, so skip the full value copy.
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -247,7 +286,8 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	cursor := bucket.Cursor()
+	// Digest mode: only the header is read below (localTime), skip the full value.
+	cursor := bucket.CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	firstUUID, err := uuid.Parse(sourceDigests[0].ID)

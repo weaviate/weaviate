@@ -70,9 +70,9 @@ type ShardReplicationFSM struct {
 	opsByCollection map[string][]ShardReplicationOp
 	// opsByCollectionAndShard stores the array of ShardReplicationOp for each collection and shard
 	opsByCollectionAndShard map[string]map[string][]ShardReplicationOp
-	// opsByTargetFQDN stores the registered ShardReplicationOp (if any) for each destination replica
-	opsByTargetFQDN map[shardFQDN]ShardReplicationOp
-	// opsBySourceFQDN stores the registered ShardReplicationOp (if any) for each source replica
+	// opsByTargetFQDN stores the registered ShardReplicationOps for each destination replica.
+	opsByTargetFQDN map[shardFQDN][]ShardReplicationOp
+	// opsBySourceFQDN stores the registered ShardReplicationOps for each source replica
 	opsBySourceFQDN map[shardFQDN][]ShardReplicationOp
 	// opsById stores opId -> replicationOp
 	opsById map[uint64]ShardReplicationOp
@@ -89,7 +89,7 @@ func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 		opsBySource:             make(map[string][]ShardReplicationOp),
 		opsByCollection:         make(map[string][]ShardReplicationOp),
 		opsByCollectionAndShard: make(map[string]map[string][]ShardReplicationOp),
-		opsByTargetFQDN:         make(map[shardFQDN]ShardReplicationOp),
+		opsByTargetFQDN:         make(map[shardFQDN][]ShardReplicationOp),
 		opsBySourceFQDN:         make(map[shardFQDN][]ShardReplicationOp),
 		opsById:                 make(map[uint64]ShardReplicationOp),
 		statusById:              make(map[uint64]ShardReplicationOpStatus),
@@ -136,9 +136,7 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 	s.resetState()
 
 	for op, status := range snap.Ops {
-		if err := s.writeOpIntoFSM(op, status); err != nil {
-			return err
-		}
+		s.insertOpIntoFSM(op, status)
 	}
 
 	return nil
@@ -384,33 +382,31 @@ func (s *ShardReplicationFSM) readWriteReplicas(collection, shard string, shardR
 // It returns a tuple of boolean (readOk, writeOk)
 func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection string, shard string) (bool, bool) {
 	replicaFQDN := newShardFQDN(node, collection, shard)
-	op, ok := s.opsByTargetFQDN[replicaFQDN]
+	ops, ok := s.opsByTargetFQDN[replicaFQDN]
 	// No target replication ops for that replica, ensure we check if it's a source
 	if !ok {
 		return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
 	}
 
-	opState, ok := s.statusById[op.ID]
-	if !ok {
-		// TODO: This should never happens
-		return true, true
-	}
-
-	// Filter read/write based on the state of the replica op
-	readOk := false
-	writeOk := false
-	switch opState.GetCurrentState() {
-	case api.READY:
-		readOk = true
-		writeOk = true
-	case api.DEHYDRATING:
-		readOk = true
-		writeOk = true
-	case api.INTEGRATING:
-		// Target is a counted r/w replica while the CCL is still draining.
-		readOk = true
-		writeOk = true
-	default:
+	readOk, writeOk := false, false
+outer:
+	for _, op := range ops {
+		opState, ok := s.statusById[op.ID]
+		if !ok {
+			// A missing status should never happen (every indexed op has one). Bail
+			// conservatively as read+write allowed; this early-returns rather than
+			// continuing the fold, discarding any routability accumulated so far —
+			// acceptable precisely because the branch is unreachable.
+			return true, true
+		}
+		switch opState.GetCurrentState() {
+		case api.READY, api.DEHYDRATING, api.INTEGRATING:
+			// Target is a counted r/w replica while the CCL is still draining.
+			readOk = true
+			writeOk = true
+			break outer
+		default:
+		}
 	}
 	return readOk, writeOk
 }

@@ -9,10 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package namespacing provides the syntax-only helpers used to qualify
-// collection and alias names with their owning namespace. The helpers are
-// pure functions: no I/O, no validation beyond a length check on the
-// pre-qualification short name.
+// Package namespacing provides the helpers used to qualify collection, alias,
+// user, and role names (and RBAC resource paths) with their owning namespace,
+// and to resolve them back. The helpers are pure syntax transforms except
+// ResolveRoleName, which consults a caller-supplied existence callback to fall
+// back from a namespace-local to a global role.
 package namespacing
 
 import (
@@ -56,7 +57,7 @@ func ValidateNamespacePrefix(principal *models.Principal, namespacesEnabled bool
 	if !strings.Contains(name, schema.NamespaceSeparator) {
 		return nil
 	}
-	if !namespacesEnabled || (principal != nil && principal.Namespace != "") {
+	if !namespacesEnabled || ConfinedNamespace(principal) != "" {
 		return fmt.Errorf("'%s' is not a valid %s name", name, kind)
 	}
 	ns, _, _ := strings.Cut(name, schema.NamespaceSeparator)
@@ -87,7 +88,7 @@ func QualifyForCreate(principal *models.Principal, namespacesEnabled bool, raw, 
 	if !namespacesEnabled {
 		return raw, nil
 	}
-	if principal == nil || principal.Namespace == "" {
+	if ConfinedNamespace(principal) == "" {
 		return "", ErrCreateRequiresNamespace
 	}
 	if len(raw) > ShortNameMaxLength {

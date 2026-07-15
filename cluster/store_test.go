@@ -32,6 +32,7 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -1382,6 +1383,56 @@ func TestStoreMetrics(t *testing.T) {
 		// after
 		require.Equal(t, 1, int(testutil.ToFloat64(store.metrics.applyFailures)))
 	})
+}
+
+func TestStoreDBLoadProgressFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		progress func() *db.StartupProgressSnapshot
+		want     logrus.Fields
+	}{
+		{
+			name:     "no progress source returns nil",
+			progress: nil,
+			want:     nil,
+		},
+		{
+			name:     "no shards to load returns nil",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 0, Total: 0} },
+			want:     nil,
+		},
+		{
+			name:     "negative total returns nil",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 0, Total: -1} },
+			want:     nil,
+		},
+		{
+			name:     "nothing loaded yet",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 0, Total: 10} },
+			want:     logrus.Fields{"shards_loaded": int64(0), "shards_total": int64(10), "progress": "0%"},
+		},
+		{
+			name:     "partial progress rounds to whole percent",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 1, Total: 3} },
+			want:     logrus.Fields{"shards_loaded": int64(1), "shards_total": int64(3), "progress": "33%"},
+		},
+		{
+			name:     "partial progress",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 3, Total: 10} },
+			want:     logrus.Fields{"shards_loaded": int64(3), "shards_total": int64(10), "progress": "30%"},
+		},
+		{
+			name:     "fully loaded",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 10, Total: 10} },
+			want:     logrus.Fields{"shards_loaded": int64(10), "shards_total": int64(10), "progress": "100%"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := &Store{cfg: Config{DBLoadProgress: tt.progress}}
+			assert.Equal(t, tt.want, st.dbLoadProgressFields())
+		})
+	}
 }
 
 type MockStore struct {

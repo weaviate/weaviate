@@ -267,11 +267,26 @@ func TestUpdateIndexShards(t *testing.T) {
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, initialState)
 			}).Maybe()
+
+			rootPath := t.TempDir()
+
+			// Seed a non-zero on-disk index counter for each initial shard BEFORE
+			// NewIndex runs. NewIndex→initAndStoreShards defers loading of empty HOT
+			// multi-tenant shards, storing them as unloaded *LazyLoadShard wrappers.
+			// "Empty" is decided via indexcounter.ReadOnDisk (a counter of 0 / missing
+			// indexcount file). Writing a counter of 1 makes each initial shard read as
+			// non-empty so the deferral does not apply, keeping this test focused on
+			// updateIndexShards' add/remove/keep behavior and the eager⇒*Shard /
+			// lazy⇒*LazyLoadShard contract rather than the empty-tenant deferral.
+			for _, shardName := range tt.initialShards {
+				seedShardObjectCounter(t, rootPath, "TestClass", shardName)
+			}
+
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
 				ClassName:            schema.ClassName("TestClass"),
-				RootPath:             t.TempDir(),
+				RootPath:             rootPath,
 				ReplicationFactor:    1,
 				ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
@@ -336,6 +351,48 @@ func TestUpdateIndexShards(t *testing.T) {
 			}
 
 			mockSchemaGetter.AssertExpectations(t)
+		})
+	}
+}
+
+// When the index is not local yet (RAFT schema not applied on this node) or
+// the class does not exist, the shard-status migrator methods must wrap
+// schemaUC.ErrNotFound so the REST handler maps them to 404 rather than 500.
+func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
+	logger := logrus.New()
+	migrator := NewMigrator(&DB{}, logger, "node1")
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{
+			name: "GetShardsStatus",
+			call: func() error {
+				_, err := migrator.GetShardsStatus(context.Background(), "DoesNotExist", "")
+				return err
+			},
+		},
+		{
+			name: "GetShardsQueueSize",
+			call: func() error {
+				_, err := migrator.GetShardsQueueSize(context.Background(), "DoesNotExist", "")
+				return err
+			},
+		},
+		{
+			name: "UpdateShardStatus",
+			call: func() error {
+				return migrator.UpdateShardStatus(context.Background(), "DoesNotExist", "shard1", models.TenantActivityStatusHOT, 0)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call()
+			require.Error(t, err)
+			require.ErrorIs(t, err, schemaUC.ErrNotFound)
 		})
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -224,12 +225,22 @@ func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
-	classInfo := s.schema.ClassInfo(req.Class)
-
-	// Discard restoring a class if it already exists
-	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
-		s.log.WithField("class", req.Class).Info("class already restored")
-		return fmt.Errorf("class name %s already exists", req.Class)
+	// Discard restoring a class if it, or a similar name, already exists.
+	// ClassEqual mirrors the ADD_CLASS branch below: index directories are
+	// lowercased on disk, so a variable case restore would land its data in
+	// the existing class's directory even though the exact name check passes.
+	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS {
+		if other, isAlias := s.schema.ClassEqual(req.Class); other != "" {
+			item := "class"
+			if isAlias {
+				item = "alias"
+			}
+			s.log.WithField("class", req.Class).Infof("restore discarded: %s %q already exists", item, other)
+			if other == req.Class {
+				return fmt.Errorf("%s name %s already exists", item, req.Class)
+			}
+			return fmt.Errorf("%w: found similar %s %q", ErrClassExists, item, other)
+		}
 	}
 
 	// Discard adding class if the name already exists or a similar one exists
@@ -911,14 +922,47 @@ func (op applyOp) validate() error {
 	return nil
 }
 
+const slowApplyThreshold = 10 * time.Second
+
+func humanizeDuration(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return d.Round(time.Millisecond).String()
+	case d < time.Minute:
+		return d.Round(10 * time.Millisecond).String()
+	default:
+		return d.Round(time.Second).String()
+	}
+}
+
 // apply does apply commands from RAFT to schema 1st and then db
 func (s *SchemaManager) apply(op applyOp) error {
 	if err := op.validate(); err != nil {
 		return fmt.Errorf("could not validate raft apply op: %w", err)
 	}
 
+	begin := time.Now()
+	var schemaTook, callbackTook, storeTook time.Duration
+	defer func() {
+		total := time.Since(begin)
+		if total < slowApplyThreshold || s.log == nil {
+			return
+		}
+		s.log.WithFields(logrus.Fields{
+			"action":        "raft_apply_time",
+			"op":            op.op,
+			"took":          humanizeDuration(total),
+			"schema_took":   humanizeDuration(schemaTook),
+			"callback_took": humanizeDuration(callbackTook),
+			"store_took":    humanizeDuration(storeTook),
+		}).Warnf("raft apply held the apply loop for %s; commands queued behind it are delayed",
+			humanizeDuration(total))
+	}()
+
 	// schema applied 1st to make sure any validation happen before applying it to db
+	schemaBegin := time.Now()
 	schemaErr := op.updateSchema()
+	schemaTook = time.Since(schemaBegin)
 	if schemaErr != nil {
 		var partialErr *PartialUpdateError
 		if !op.allowPartialSchemaErr || !errors.As(schemaErr, &partialErr) {
@@ -929,11 +973,16 @@ func (s *SchemaManager) apply(op applyOp) error {
 	if op.enableSchemaCallback && s.db != nil {
 		// TriggerSchemaUpdateCallbacks is concurrent and at
 		// this point of time schema shall be up to date.
+		callbackBegin := time.Now()
 		s.db.TriggerSchemaUpdateCallbacks()
+		callbackTook = time.Since(callbackBegin)
 	}
 
 	if !op.schemaOnly {
-		if err := op.updateStore(); err != nil {
+		storeBegin := time.Now()
+		err := op.updateStore()
+		storeTook = time.Since(storeBegin)
+		if err != nil {
 			if schemaErr != nil {
 				// Both the schema update (partial) and the DB update failed.
 				// Return both so the caller is informed of what was skipped

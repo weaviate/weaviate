@@ -72,7 +72,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 		resourceFilter := filter.New[*models.NodeShardStatus](m.authorizer, m.rbacconfig)
 
 		for i, nodeS := range status {
-			status[i].Shards = resourceFilter.Filter(
+			filtered := resourceFilter.Filter(
 				ctx,
 				principal,
 				nodeS.Shards,
@@ -81,10 +81,34 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 					return authorization.Nodes(verbosityString, shard.Class)[0]
 				},
 			)
+			if len(filtered) == len(nodeS.Shards) {
+				continue // caller is authorized for every shard on this node
+			}
+			// Hidden shards mean the node-wide Stats still aggregate classes the
+			// caller can't see, so rebuild them from the visible shards. BatchStats
+			// is node-wide queue/throughput telemetry with no per-class data, so it
+			// leaks nothing and is left intact for the caller's dynamic batching.
+			status[i].Shards = filtered
+			if status[i].Stats != nil {
+				status[i].Stats = statsFromShards(filtered)
+			}
 		}
 	}
 
 	return status, nil
+}
+
+// statsFromShards sums the object count over the given shards and reports how
+// many there are.
+func statsFromShards(shards []*models.NodeShardStatus) *models.NodeStats {
+	var objectCount int64
+	for _, shard := range shards {
+		objectCount += shard.ObjectCount
+	}
+	return &models.NodeStats{
+		ObjectCount: objectCount,
+		ShardCount:  int64(len(shards)),
+	}
 }
 
 func (m *Manager) GetNodeStatistics(ctx context.Context,

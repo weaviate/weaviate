@@ -782,6 +782,14 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
+		// additional arrives over JSON, which drops IncludeAllTargetVectors
+		// (json:"-"), so a requester that asked for vectors would get named
+		// vectors stripped by MarshalWithAdditional. Reconstruct the intent
+		// here; this also keeps mixed-version clusters correct (older
+		// coordinators never send the flag).
+		if additional.Vector && !additional.IncludeAllTargetVectors && len(additional.Vectors) == 0 {
+			additional.IncludeAllTargetVectors = true
+		}
 		resBytes, err := shared.IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, additional, queryProfiles)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

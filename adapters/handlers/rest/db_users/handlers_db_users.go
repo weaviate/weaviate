@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -151,7 +152,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		}
 		// dbUser.Id is the qualified storage key; show the short form to namespaced callers.
 		displayID := namespacing.StripOwnNamespace(principal, dbUser.Id)
-		response, err = h.addToListAllResponse(response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
+		response, err = h.addToListAllResponse(ctx, principal, response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
@@ -166,7 +167,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 				// don't overwrite dynamic users with the same name. Can happen after import
 				continue
 			}
-			response, err = h.addToListAllResponse(response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
+			response, err = h.addToListAllResponse(ctx, principal, response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 			}
@@ -176,22 +177,18 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
+func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
 	roles, err := h.dbUsers.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
 	if err != nil {
 		return response, err
 	}
 
-	roleNames := make([]string, 0, len(roles))
-	for role := range roles {
-		roleNames = append(roleNames, role)
-	}
-
+	own := principal != nil && internalID == principal.Username && principal.UserType == models.UserTypeInputDb
 	resp := &models.DBUserInfo{
 		Active:             &active,
 		UserID:             &displayID,
 		DbUserType:         &userType,
-		Roles:              roleNames,
+		Roles:              h.visibleRoleNames(ctx, principal, roles, own),
 		APIKeyFirstLetters: apiKeyFirstLetter,
 		Namespace:          namespace,
 	}
@@ -204,6 +201,22 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, int
 
 	response = append(response, resp)
 	return response, nil
+}
+
+// visibleRoleNames returns the role names to expose for a db user, matching the
+// authz role-read paths: a role naming a foreign namespace, an operator-reserved
+// global role, and a role whose permissions the caller does not hold are dropped,
+// and the caller's own namespace prefix is stripped from the rest. A subject
+// reading its own roles keeps them all.
+func (h *dynUserHandler) visibleRoleNames(ctx context.Context, principal *models.Principal, roles map[string][]authorization.Policy, own bool) []string {
+	names := make([]string, 0, len(roles))
+	for roleName, policies := range roles {
+		if !own && !rolevisibility.RoleVisibleToCaller(ctx, h.authorizer, h.namespacesEnabled, principal, roleName, policies) {
+			continue
+		}
+		names = append(names, namespacing.StripOwnNamespace(principal, roleName))
+	}
+	return names
 }
 
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
@@ -259,11 +272,8 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
 	}
 
-	roles := make([]string, 0, len(existingRoles))
-	for roleName := range existingRoles {
-		roles = append(roles, roleName)
-	}
-	response.Roles = roles
+	own := principal != nil && internalKey == principal.Username && principal.UserType == models.UserTypeInputDb
+	response.Roles = h.visibleRoleNames(ctx, principal, existingRoles, own)
 
 	return users.NewGetUserInfoOK().WithPayload(response)
 }

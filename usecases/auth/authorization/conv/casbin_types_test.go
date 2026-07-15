@@ -1286,3 +1286,61 @@ func TestIsOpaqueIDResource(t *testing.T) {
 		})
 	}
 }
+
+func TestSubjectNamespace(t *testing.T) {
+	tests := []struct {
+		name          string
+		subject       string
+		wantUser      string
+		wantAuthType  authentication.AuthType
+		wantNamespace string
+		wantErr       bool
+	}{
+		{
+			name:          "namespaced db principal",
+			subject:       "db:customer1:bob",
+			wantUser:      "customer1:bob",
+			wantAuthType:  authentication.AuthTypeDb,
+			wantNamespace: "customer1",
+		},
+		{
+			name:          "namespaced oidc principal",
+			subject:       "oidc:customer1:carol",
+			wantUser:      "customer1:carol",
+			wantAuthType:  authentication.AuthTypeOIDC,
+			wantNamespace: "customer1",
+		},
+		{
+			name:          "global db principal has no namespace",
+			subject:       "db:bob",
+			wantUser:      "bob",
+			wantAuthType:  authentication.AuthTypeDb,
+			wantNamespace: "",
+		},
+		{
+			name:          "group subject is global",
+			subject:       "group:customer1:eng",
+			wantUser:      "customer1:eng",
+			wantAuthType:  "",
+			wantNamespace: "",
+		},
+		{
+			name:    "unparseable subject errors",
+			subject: "no-separator",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user, authType, namespace, err := SubjectNamespace(tt.subject)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantUser, user)
+			require.Equal(t, tt.wantAuthType, authType)
+			require.Equal(t, tt.wantNamespace, namespace)
+		})
+	}
+}

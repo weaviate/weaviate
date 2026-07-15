@@ -183,3 +183,107 @@ func TestShardReplicationFSM_AllPeersAtLeast(t *testing.T) {
 		require.False(t, fsm.AllPeersAtLeast(999, api.INTEGRATING, []string{"node1"}))
 	})
 }
+
+func TestShardReplicationFSM_FilterOneReplica_Coexistence(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+	replicas := []string{"node2"}
+
+	cases := []struct {
+		name string
+		// each entry seeds an op targeting node2 from a distinct source and drives it
+		// to a state; the first source is reused only when there is one op.
+		ops       []struct{ srcNode, state string }
+		wantRead  []string
+		wantWrite []string
+	}{
+		{
+			name:      "CANCELLED + active INTEGRATING ⇒ routable",
+			ops:       []struct{ srcNode, state string }{{"node1", string(api.CANCELLED)}, {"node3", string(api.INTEGRATING)}},
+			wantRead:  []string{"node2"},
+			wantWrite: []string{"node2"},
+		},
+		{
+			name:      "CANCELLED only ⇒ excluded",
+			ops:       []struct{ srcNode, state string }{{"node1", string(api.CANCELLED)}},
+			wantRead:  []string{},
+			wantWrite: []string{},
+		},
+		{
+			name:      "single active INTEGRATING op ⇒ routable (single-op behaviour unchanged)",
+			ops:       []struct{ srcNode, state string }{{"node1", string(api.INTEGRATING)}},
+			wantRead:  []string{"node2"},
+			wantWrite: []string{"node2"},
+		},
+		{
+			name:      "single HYDRATING op ⇒ target not yet routable (single-op behaviour unchanged)",
+			ops:       []struct{ srcNode, state string }{{"node1", string(api.HYDRATING)}},
+			wantRead:  []string{},
+			wantWrite: []string{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			for i, o := range tc.ops {
+				id := uint64(i + 1)
+				seedOpFull(t, fsm, id, o.srcNode, "node2", coll, shard, api.COPY)
+				if api.ShardReplicationState(o.state) == api.CANCELLED {
+					driveToCancelled(t, fsm, id)
+				} else {
+					driveToState(t, fsm, id, api.ShardReplicationState(o.state))
+				}
+			}
+			assert.Equal(t, tc.wantRead, fsm.FilterOneShardReplicasRead(coll, shard, replicas))
+			assert.Equal(t, tc.wantWrite, fsm.FilterOneShardReplicasWrite(coll, shard, replicas))
+		})
+	}
+}
+
+// TestShardReplicationFSM_RemoveOneOfTwoTargetOps pins the per-target slice remove
+// path: removing one of two ops coexisting on a target FQDN leaves the other routable,
+// and removing the last deletes the map key so filterOneReplicaReadWrite falls through
+// to the source check instead of OR-folding a lingering empty slice to (false,false) —
+// which would silently drop the replica from read+write routing.
+func TestShardReplicationFSM_RemoveOneOfTwoTargetOps(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+	fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+	remove := func(id uint64) {
+		t.Helper()
+		require.NoError(t, fsm.RemoveReplicationOp(&api.ReplicationRemoveOpRequest{
+			Version: api.ReplicationCommandVersionV0,
+			Id:      id,
+		}))
+	}
+
+	// Two ops coexist on target node2: a terminal cancelled MOVE and an active MOVE
+	// from a distinct source (admission allows the active op beside the cancelled one).
+	seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.MOVE)
+	driveToCancelled(t, fsm, 1)
+	seedOpFull(t, fsm, 2, "node3", "node2", coll, shard, api.MOVE)
+	driveToState(t, fsm, 2, api.INTEGRATING)
+
+	replicas := []string{"node2"}
+	require.Len(t, fsm.GetOpsForTarget("node2"), 2)
+
+	// Remove the cancelled op: the active INTEGRATING survivor keeps node2 routable.
+	remove(1)
+	require.Len(t, fsm.GetOpsForTarget("node2"), 1)
+	require.Equal(t, []string{"node2"}, fsm.FilterOneShardReplicasRead(coll, shard, replicas))
+	require.Equal(t, []string{"node2"}, fsm.FilterOneShardReplicasWrite(coll, shard, replicas))
+
+	// Remove the last op: the empty target key is deleted, so routing falls through to
+	// the source check; with no op on node2 it routes as a normal replica. Were the
+	// empty-key delete dropped, the empty slice would OR-fold to (false,false) and node2
+	// would be silently dropped from routing.
+	remove(2)
+	require.Empty(t, fsm.GetOpsForTarget("node2"))
+	require.Equal(t, []string{"node2"}, fsm.FilterOneShardReplicasRead(coll, shard, replicas))
+	require.Equal(t, []string{"node2"}, fsm.FilterOneShardReplicasWrite(coll, shard, replicas))
+}

@@ -188,7 +188,7 @@ func runLiveQueryDuringChangeTokenizationCase(
 
 	className := fmt.Sprintf("LiveQueryTok_%s_%s_%s", startTok, targetTok, indexType)
 
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
 		[]*models.Property{
 			{Name: "text", DataType: []string{"text"}, Tokenization: startTok},
 		})
@@ -415,7 +415,7 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 		queryLimit  = 2000 // Must exceed objectCount so all matches are returned.
 	)
 
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
 		[]*models.Property{
 			{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 		})

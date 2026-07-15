@@ -89,7 +89,7 @@ func TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle(t *testin
 	// `category`: text, IndexFilterable=false → will be enable-filterable'd
 	// `path`: text, tokenization=field → will be change-tokenization'd to word
 	trueVal, falseVal := true, false
-	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{
 			Name:              "price",
 			DataType:          []string{"int"},

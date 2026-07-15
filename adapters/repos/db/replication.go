@@ -190,6 +190,14 @@ func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, le
 	return index.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
+func (db *DB) CompareHashTreeRoots(ctx context.Context, className string, roots map[string]hashtree.Digest) ([]string, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.CompareHashTreeRoots(ctx, roots)
+}
+
 func (db *DB) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
 	index, pr := db.replicatedIndex(indexName)
 	if pr != nil {
@@ -651,7 +659,7 @@ func (s *Shard) filePutter(ctx context.Context,
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	s, release, err := idx.getOrInitShard(ctx, shard)
+	s, release, err := idx.GetShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
@@ -671,17 +679,39 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 	for i, u := range updates {
 		incomingObj := u.LatestObject
+		lastUpdateTime := u.LastUpdateTimeUnixMilli
 
-		if (u.Deleted && u.ID == "") || (!u.Deleted && (incomingObj == nil || incomingObj.ID == "")) {
+		// raw path: decode once for indexing, persist the bytes verbatim on write.
+		// FromBinaryDisk (canonical class) because the on-disk class-name may be
+		// empty, which FromBinaryNetwork rejects.
+		var rawObj *storobj.Object
+		if u.RawBytes != nil {
+			decoded, decErr := storobj.FromBinaryDisk(u.RawBytes, idx.Config.ClassName.String())
+			if decErr != nil {
+				result = append(result, types.RepairResponse{
+					Err: fmt.Sprintf("decode raw object at position %d: %v", i, decErr),
+				})
+				continue
+			}
+			decoded.PrecomputedDiskBinary = u.RawBytes
+			rawObj = decoded
+			lastUpdateTime = rawObj.LastUpdateTimeUnix()
+		}
+
+		if (u.Deleted && u.ID == "") ||
+			(!u.Deleted && rawObj == nil && (incomingObj == nil || incomingObj.ID == "")) {
 			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
 			result = append(result, types.RepairResponse{Err: msg})
 			continue
 		}
 
 		var id strfmt.UUID
-		if u.Deleted {
+		switch {
+		case u.Deleted:
 			id = u.ID
-		} else {
+		case rawObj != nil:
+			id = rawObj.ID()
+		default:
 			id = incomingObj.ID
 		}
 
@@ -707,7 +737,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 		if currUpdateTime != u.StaleUpdateTime {
 
-			if currUpdateTime == u.LastUpdateTimeUnixMilli {
+			if currUpdateTime == lastUpdateTime {
 				// local object was updated in the mean time, no need to do anything
 				continue
 			}
@@ -721,7 +751,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			// the fact `currUpdateTime == u.StaleUpdateTime` does not hold.
 			if !locallyDeleted ||
 				idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
-				currUpdateTime > u.LastUpdateTimeUnixMilli {
+				currUpdateTime > lastUpdateTime {
 				// object changed and its state differs from recent known state
 				r := types.RepairResponse{
 					ID:         id.String(),
@@ -744,7 +774,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		// time-based strategy and a more recent creation/update is required
 		if !u.Deleted && locallyDeleted &&
 			(idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
-				currUpdateTime > u.LastUpdateTimeUnixMilli) {
+				currUpdateTime > lastUpdateTime) {
 			r := types.RepairResponse{
 				ID:         id.String(),
 				Deleted:    locallyDeleted,
@@ -768,7 +798,11 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			continue
 		}
 
-		updateBatch = append(updateBatch, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+		if rawObj != nil {
+			updateBatch = append(updateBatch, rawObj)
+		} else {
+			updateBatch = append(updateBatch, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+		}
 	}
 
 	if len(updateBatch) > 0 {
@@ -1024,6 +1058,37 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+// CompareHashTreeRoots returns shards whose local root was read and differs; not-ready
+// shards (missing/uninitialised/cold) are omitted — caught once they become ready.
+func (i *Index) CompareHashTreeRoots(ctx context.Context,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	diverging := make([]string, 0, len(roots))
+	for shardName, sourceRoot := range roots {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		localRoot, ok := func() (hashtree.Digest, bool) {
+			shard, release, err := i.GetShard(ctx, shardName)
+			if err != nil || shard == nil {
+				return hashtree.Digest{}, false
+			}
+			defer release()
+			return shard.HashTreeRoot()
+		}()
+		if ok && localRoot != sourceRoot {
+			diverging = append(diverging, shardName)
+		}
+	}
+	return diverging, nil
+}
+
+func (i *Index) IncomingCompareHashTreeRoots(ctx context.Context,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return i.CompareHashTreeRoots(ctx, roots)
 }
 
 func (i *Index) CountObjects(ctx context.Context, shardName string) (int, error) {

@@ -120,6 +120,7 @@ type ShardLike interface {
 	AnalyzeObjectForMigrationWithOverlay(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+	HashTreeRoot() (root hashtree.Digest, ok bool)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
 	ConvertQueue(targetVector string) error
@@ -235,6 +236,9 @@ type ShardLike interface {
 type asyncReplicationController interface {
 	enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error
 	disableAsyncReplication(ctx context.Context) error
+	// hasActiveAsyncReplicationTargetOverrides reports whether the shard holds
+	// target-node overrides that force async replication on.
+	hasActiveAsyncReplicationTargetOverrides() bool
 }
 
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -305,7 +309,8 @@ type Shard struct {
 	// Done() for hashbeat cycles is called before the result is sent back to
 	// the dispatcher, so the scheduler cannot re-dispatch until Done() fires.
 	// Callers that need a strict happens-before guarantee call asyncRepWg.Wait()
-	// after Deregister to ensure all goroutines have fully exited.
+	// after Deregister; Deregister settles Done()s for batches still queued, so
+	// Wait() only covers cycles that actually started.
 	asyncRepWg sync.WaitGroup
 
 	// asyncRepNeedsRebuild is set by runEntry when the effective hashtree height
@@ -345,12 +350,11 @@ type Shard struct {
 	// Lock ordering when both are needed: asyncReplicationRWMux before asyncReplicationStatsMux.
 	asyncReplicationStatsMux sync.RWMutex
 
-	haltForTransferMux               sync.Mutex
-	haltForTransferInactivityTimeout time.Duration
-	haltForTransferInactivityTimer   *time.Timer
-	haltForTransferDeadline          time.Time
-	haltForTransferCount             int
-	haltForTransferCancel            func()
+	haltForTransferMux                sync.Mutex
+	haltForTransferInactivityTimeout  time.Duration
+	haltForTransferInactivityDeadline time.Time
+	haltForTransferCount              int
+	haltForTransferCtxCancel          context.CancelFunc
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

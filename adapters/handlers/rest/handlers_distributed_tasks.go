@@ -17,7 +17,6 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -44,7 +43,7 @@ func (h *distributedTasksHandlers) getTasks(params distributed_tasks.Distributed
 		if errors.As(err, &autherrs.Forbidden{}) {
 			return distributed_tasks.NewDistributedTasksGetForbidden()
 		}
-		return nodes.NewNodesGetClassInternalServerError().
+		return distributed_tasks.NewDistributedTasksGetInternalServerError().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
