@@ -56,6 +56,16 @@ func hybridFilterSchema() map[string]any {
 	for i, op := range whereFilterOperators {
 		enum[i] = op
 	}
+	scalar := func(typ, desc string) map[string]any {
+		return map[string]any{"type": typ, "description": desc}
+	}
+	arrayOf := func(itemType, desc string) map[string]any {
+		return map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": itemType},
+			"description": desc,
+		}
+	}
 	return map[string]any{
 		"type": "object",
 		"description": "Optional where-filter, identical in shape to the REST `where` argument. " +
@@ -67,41 +77,17 @@ func hybridFilterSchema() map[string]any {
 				"enum":        enum,
 				"description": "Comparison operator for a leaf filter, or And/Or/Not to combine `operands`.",
 			},
-			"path": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "string"},
-				"description": "Property path. Direct property: [\"title\"]. Cross-reference: [\"hasAuthor\",\"Author\",\"name\"].",
-			},
-			"valueText":    map[string]any{"type": "string", "description": "Value for text/string properties."},
-			"valueInt":     map[string]any{"type": "integer", "description": "Value for int properties."},
-			"valueNumber":  map[string]any{"type": "number", "description": "Value for number properties."},
-			"valueBoolean": map[string]any{"type": "boolean", "description": "Value for boolean properties."},
-			"valueDate":    map[string]any{"type": "string", "description": "Value for date properties, RFC3339 (e.g. 2020-01-01T00:00:00Z)."},
-			"valueTextArray": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "string"},
-				"description": "Values for ContainsAny/ContainsAll/ContainsNone on text properties.",
-			},
-			"valueIntArray": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "integer"},
-				"description": "Values for ContainsAny/ContainsAll/ContainsNone on int properties.",
-			},
-			"valueNumberArray": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "number"},
-				"description": "Values for ContainsAny/ContainsAll/ContainsNone on number properties.",
-			},
-			"valueBooleanArray": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "boolean"},
-				"description": "Values for ContainsAny/ContainsAll/ContainsNone on boolean properties.",
-			},
-			"valueDateArray": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "string"},
-				"description": "Values for ContainsAny/ContainsAll/ContainsNone on date properties, each RFC3339.",
-			},
+			"path":              arrayOf("string", "Property path. Direct property: [\"title\"]. Cross-reference: [\"hasAuthor\",\"Author\",\"name\"]."),
+			"valueText":         scalar("string", "Value for text/string properties."),
+			"valueInt":          scalar("integer", "Value for int properties."),
+			"valueNumber":       scalar("number", "Value for number properties."),
+			"valueBoolean":      scalar("boolean", "Value for boolean properties."),
+			"valueDate":         scalar("string", "Value for date properties, RFC3339 (e.g. 2020-01-01T00:00:00Z)."),
+			"valueTextArray":    arrayOf("string", "Values for ContainsAny/ContainsAll/ContainsNone on text properties."),
+			"valueIntArray":     arrayOf("integer", "Values for ContainsAny/ContainsAll/ContainsNone on int properties."),
+			"valueNumberArray":  arrayOf("number", "Values for ContainsAny/ContainsAll/ContainsNone on number properties."),
+			"valueBooleanArray": arrayOf("boolean", "Values for ContainsAny/ContainsAll/ContainsNone on boolean properties."),
+			"valueDateArray":    arrayOf("string", "Values for ContainsAny/ContainsAll/ContainsNone on date properties, each RFC3339."),
 			"valueGeoRange": map[string]any{
 				"type":        "object",
 				"description": "Value for WithinGeoRange: a center coordinate plus a max distance in meters.",
@@ -121,11 +107,7 @@ func hybridFilterSchema() map[string]any {
 					},
 				},
 			},
-			"operands": map[string]any{
-				"type":        "array",
-				"items":       map[string]any{"type": "object"},
-				"description": "Nested where-filters with the same structure as this object. Use with the And/Or operators to build compound filters.",
-			},
+			"operands": arrayOf("object", "Nested where-filters with the same structure as this object. Use with the And/Or operators to build compound filters."),
 		},
 	}
 }
