@@ -175,11 +175,8 @@ func randomVector(dims int) []float32 {
 	return out
 }
 
-// lazilyMaterializedSeries lists every series name of the metric families that
-// materialize lazily on first use: their presence depends on background LSM
-// activity rather than the number of classes. The file_io families are
-// summaries, so they also expose _sum and _count series. Exact names only, so
-// a future family that merely shares a prefix is still counted.
+// lazilyMaterializedSeries only appear after first use, so their count depends on
+// background LSM activity rather than class count; includes summary _sum/_count series.
 var lazilyMaterializedSeries = map[string]bool{
 	"file_io_writes_total_bytes":       true,
 	"file_io_writes_total_bytes_sum":   true,
@@ -190,9 +187,7 @@ var lazilyMaterializedSeries = map[string]bool{
 	"mmap_operations_total":            true,
 }
 
-// metricName extracts the metric name from a Prometheus exposition line: the
-// family name for "# HELP"/"# TYPE" lines, otherwise the series name, i.e.
-// everything before the label set or the value.
+// metricName returns the metric/series name from a Prometheus exposition line.
 func metricName(line string) string {
 	if strings.HasPrefix(line, "# HELP ") || strings.HasPrefix(line, "# TYPE ") {
 		if fields := strings.Fields(line); len(fields) >= 3 {
