@@ -1222,7 +1222,14 @@ func localMetaWithObjectLimit(t *testing.T) {
 			count := meta.(map[string]interface{})["count"]
 			countInt, err := count.(json.Number).Int64()
 			require.Nil(t, err)
-			assert.InDelta(t, 500, countInt, 1)
+			// The 500 RansomNote objects have random per-run contents, so a
+			// few vectors can legitimately fall outside the distance cut or be
+			// missed by distance-bounded HNSW traversal (deltas of up to 7
+			// observed in CI). The test only needs to prove that no
+			// objectLimit-style cap was applied (sibling subtests cap at 100),
+			// so a generous lower bound is enough.
+			assert.Greater(t, countInt, int64(450))
+			assert.LessOrEqual(t, countInt, int64(500))
 		})
 	})
 
@@ -1251,7 +1258,10 @@ func localMetaWithObjectLimit(t *testing.T) {
 			count := meta.(map[string]interface{})["count"]
 			countInt, err := count.(json.Number).Int64()
 			require.Nil(t, err)
-			assert.InDelta(t, 500, countInt, 1)
+			// See the distance-variant subtest above for why the count is
+			// bounded rather than pinned to exactly 500.
+			assert.Greater(t, countInt, int64(450))
+			assert.LessOrEqual(t, countInt, int64(500))
 		})
 	})
 
