@@ -14,6 +14,7 @@ package classification
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/search"
@@ -35,6 +36,9 @@ func (r *vectorClassSearchRepo) VectorClassSearch(ctx context.Context,
 		Pagination: params.Pagination,
 		ClassName:  params.ClassName,
 		Properties: r.getProperties(params.Properties),
+		AdditionalProperties: additional.Properties{
+			Vector: true,
+		},
 	}, nil, nil)
 }
 
