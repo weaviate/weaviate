@@ -199,6 +199,13 @@ func countMetricsLines(t *testing.T, metricsEndpoint string) (int, []string) {
 	var lines []string
 	for scanner.Scan() {
 		line := scanner.Text()
+		// no metric line may ever leak a class name, not even the ones
+		// excluded from the count below
+		require.NotContains(
+			t,
+			strings.ToLower(line),
+			strings.ToLower(metricClassPrefix),
+		)
 		if strings.Contains(line, "shards_loaded") || strings.Contains(line, "shards_loading") || strings.Contains(line, "shards_unloading") || strings.Contains(line, "shards_unloaded") {
 			continue
 		}
@@ -208,11 +215,13 @@ func countMetricsLines(t *testing.T, metricsEndpoint string) (int, []string) {
 		if strings.Contains(line, "weaviate_lsm_bucket_read_operation") {
 			continue
 		}
-		require.NotContains(
-			t,
-			strings.ToLower(line),
-			strings.ToLower(metricClassPrefix),
-		)
+		// bounded-cardinality I/O metrics whose series materialize lazily on
+		// first use per label combination (e.g. the first segment-file read
+		// after a compaction), so their line count depends on background
+		// LSM activity, not on the number of classes
+		if strings.Contains(line, "file_io_") || strings.Contains(line, "mmap_operations") {
+			continue
+		}
 		lineCount++
 		lines = append(lines, line)
 	}
