@@ -1183,6 +1183,79 @@ func TestIdentifyIntegration(t *testing.T) {
 	}
 }
 
+// TestMapTracker_TrackThenGet_NoUndercount is a regression test for the
+// drain-before-serve race in mapTracker.run (see weaviate/weaviate#12201).
+//
+// Track is a fire-and-forget non-blocking send onto a buffered channel, so a
+// sequential Track-then-Get from the same caller must always observe that
+// Track: by the time Get is served the event is already queued. Before the fix,
+// once run's background goroutine was parked in its second select a buffered
+// trackChan event and the unbuffered getChan request could become ready at the
+// same instant and Go would pick a ready case at random; when the Get won it
+// copied the still-stale counts and undercounted by one.
+//
+// The window only opens with real parallelism between the caller and the
+// background goroutine (with GOMAXPROCS=1 the leading priority select always
+// drains first), so the test pins GOMAXPROCS to 2 for a reliable, host- and
+// core-count-independent repro. Each iteration does a sequential Track then Get
+// and asserts the running count is exact. Before the fix this failed within a
+// few thousand iterations (tens of undercounts per 100k); with the fix it is
+// deterministically clean. Both concrete trackers are exercised because they
+// share the same mapTracker.run.
+func TestMapTracker_TrackThenGet_NoUndercount(t *testing.T) {
+	// Pin to 2 Ps: the race cannot occur with a single P, and pinning (rather
+	// than leaving the host default) keeps the repro rate high and stable
+	// regardless of how many cores the CI runner has. The test does not call
+	// t.Parallel, so no sibling test observes the changed value.
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(2))
+
+	const iterations = 100000
+
+	tests := []struct {
+		name  string
+		build func() (track func(), count func() int64, stop func())
+	}{
+		{
+			name: "IntegrationTracker",
+			build: func() (func(), func() int64, func()) {
+				logger, _ := test.NewNullLogger()
+				tracker := NewIntegrationTracker(logger)
+				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+				req.Header.Set(integrationHeaderKey, testMyIntegration)
+				return func() { tracker.Track(req) },
+					func() int64 { return tracker.Get()[testMyIntegration]["unknown"] },
+					tracker.Stop
+			},
+		},
+		{
+			name: "ClientTracker",
+			build: func() (func(), func() int64, func()) {
+				logger, _ := test.NewNullLogger()
+				tracker := NewClientTracker(logger)
+				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+				req.Header.Set("X-Weaviate-Client", "weaviate-client-python/4.10.0")
+				return func() { tracker.Track(req) },
+					func() int64 { return tracker.Get()[ClientTypePython]["4.10.0"] },
+					tracker.Stop
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			track, count, stop := tc.build()
+			defer stop()
+
+			for i := 1; i <= iterations; i++ {
+				track()
+				require.Equalf(t, int64(i), count(),
+					"Get undercounted at iteration %d: a Track event queued before "+
+						"the Get was still buffered when the counts were copied", i)
+			}
+		})
+	}
+}
+
 // testMapTrackerStopBehavior verifies that get and getAndReset return nil
 // after the tracker has been stopped. Uses the inner mapTracker directly
 // since this test file is in the same package.
