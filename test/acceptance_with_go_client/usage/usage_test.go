@@ -945,27 +945,34 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 			)
 		}
 
-		// before upgrade, compare dynamic and flat
-		colFlat, err := getDebugUsageWithPortAndCollection(debug, classNameFlat)
-		require.NoError(t, err)
-		require.NotNil(t, colFlat)
-		require.Len(t, colFlat.Shards, 1)
-		shardFlat := colFlat.Shards[0]
-		require.Equal(t, int64(objectCount1), shardFlat.ObjectsCount)
-		require.Len(t, shardFlat.NamedVectors, 1)
-		vectorFlat := shardFlat.NamedVectors[0]
+		// before upgrade, compare dynamic and flat.
+		// Reading usage right after a COLD/HOT cycle can momentarily race with the shard
+		// finishing its reload: while it is not yet loaded, the dimensions are read from disk
+		// and may briefly report no vectors, which inflates ObjectsStorageBytes (vectors are
+		// not subtracted). Retry until the on-disk/loaded view settles.
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			colFlat, err := getDebugUsageWithPortAndCollection(debug, classNameFlat)
+			require.NoError(ct, err)
+			require.NotNil(ct, colFlat)
+			require.Len(ct, colFlat.Shards, 1)
+			shardFlat := colFlat.Shards[0]
+			require.Equal(ct, int64(objectCount1), shardFlat.ObjectsCount)
+			require.Len(ct, shardFlat.NamedVectors, 1)
+			vectorFlat := shardFlat.NamedVectors[0]
 
-		colDynamic, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
-		require.NoError(t, err)
-		require.NotNil(t, colDynamic)
-		shardDynamic := colDynamic.Shards[0]
-		require.Equal(t, int64(objectCount1), shardDynamic.ObjectsCount)
-		require.Len(t, shardDynamic.NamedVectors, 1)
-		vectorDynamic := shardDynamic.NamedVectors[0]
+			colDynamic, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
+			require.NoError(ct, err)
+			require.NotNil(ct, colDynamic)
+			require.Len(ct, colDynamic.Shards, 1)
+			shardDynamic := colDynamic.Shards[0]
+			require.Equal(ct, int64(objectCount1), shardDynamic.ObjectsCount)
+			require.Len(ct, shardDynamic.NamedVectors, 1)
+			vectorDynamic := shardDynamic.NamedVectors[0]
 
-		require.InDelta(t, shardDynamic.ObjectsStorageBytes, shardFlat.ObjectsStorageBytes, float64(shardDynamic.ObjectsStorageBytes)*0.05)
-		require.Equal(t, shardDynamic.VectorStorageBytes, shardFlat.VectorStorageBytes)
-		require.Equal(t, vectorDynamic.Dimensionalities, vectorFlat.Dimensionalities)
+			require.InDelta(ct, shardDynamic.ObjectsStorageBytes, shardFlat.ObjectsStorageBytes, float64(shardDynamic.ObjectsStorageBytes)*0.05)
+			require.Equal(ct, shardDynamic.VectorStorageBytes, shardFlat.VectorStorageBytes)
+			require.Equal(ct, vectorDynamic.Dimensionalities, vectorFlat.Dimensionalities)
+		}, 2*time.Minute, 500*time.Millisecond)
 
 		// now upgrade to hnsw and compare again
 		for _, class := range []*models.Class{classDynamic, classFlat, classHnsw} {
@@ -1005,26 +1012,30 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 			)
 		}
 
-		colHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameHnsw)
-		require.NoError(t, err)
-		require.NotNil(t, colHNSW)
-		require.Len(t, colHNSW.Shards, 1)
-		shardHNSW := colHNSW.Shards[0]
-		require.Equal(t, int64(objectCount2+10), shardHNSW.ObjectsCount)
-		require.Len(t, shardHNSW.NamedVectors, 1)
-		vectorHNSW := shardHNSW.NamedVectors[0]
+		// As above, retry the post-COLD/HOT usage comparison until the reloaded shards settle.
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			colHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameHnsw)
+			require.NoError(ct, err)
+			require.NotNil(ct, colHNSW)
+			require.Len(ct, colHNSW.Shards, 1)
+			shardHNSW := colHNSW.Shards[0]
+			require.Equal(ct, int64(objectCount2+10), shardHNSW.ObjectsCount)
+			require.Len(ct, shardHNSW.NamedVectors, 1)
+			vectorHNSW := shardHNSW.NamedVectors[0]
 
-		colDynamicHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
-		require.NoError(t, err)
-		require.NotNil(t, colDynamicHNSW)
-		shardDynamicHNSW := colDynamicHNSW.Shards[0]
-		require.Equal(t, int64(objectCount2+10), shardDynamicHNSW.ObjectsCount)
-		require.Len(t, shardDynamicHNSW.NamedVectors, 1)
-		vectorDynamicHNSW := shardDynamicHNSW.NamedVectors[0]
+			colDynamicHNSW, err := getDebugUsageWithPortAndCollection(debug, classNameDynamic)
+			require.NoError(ct, err)
+			require.NotNil(ct, colDynamicHNSW)
+			require.Len(ct, colDynamicHNSW.Shards, 1)
+			shardDynamicHNSW := colDynamicHNSW.Shards[0]
+			require.Equal(ct, int64(objectCount2+10), shardDynamicHNSW.ObjectsCount)
+			require.Len(ct, shardDynamicHNSW.NamedVectors, 1)
+			vectorDynamicHNSW := shardDynamicHNSW.NamedVectors[0]
 
-		// there might be some small differences in the object storage due to class
-		require.InDelta(t, shardDynamicHNSW.ObjectsStorageBytes, shardHNSW.ObjectsStorageBytes, float64(shardDynamicHNSW.ObjectsStorageBytes)*0.1)
-		require.Equal(t, vectorDynamicHNSW.Dimensionalities, vectorHNSW.Dimensionalities)
+			// there might be some small differences in the object storage due to class
+			require.InDelta(ct, shardDynamicHNSW.ObjectsStorageBytes, shardHNSW.ObjectsStorageBytes, float64(shardDynamicHNSW.ObjectsStorageBytes)*0.1)
+			require.Equal(ct, vectorDynamicHNSW.Dimensionalities, vectorHNSW.Dimensionalities)
+		}, 2*time.Minute, 500*time.Millisecond)
 	})
 
 	t.Run("dynamic with RQ", func(t *testing.T) {
