@@ -66,6 +66,10 @@ func newSecondaryBatchTestBucketMode(t testing.TB, useBloom, pread bool, extra .
 		WithMinMMapSize(0), // any non-empty segment maps; pread flag then picks the read path
 		WithUseBloomFilter(useBloom),
 		WithDisableCompaction(true),
+		// Install a default-off chunked-pipeline toggle on every batch test bucket so the
+		// differential oracle can flip it on and re-assert equality (gh#309 Addendum-2). A
+		// later extra opt (e.g. an explicit W or a pre-on toggle) overrides this default.
+		WithSecondaryBatchPipeline(configRuntime.NewDynamicValue(false)),
 	}
 	opts = append(opts, extra...)
 	b, err := NewBucketCreator().NewBucket(
@@ -128,12 +132,29 @@ func requireBatchEqualsLoop(t testing.TB, b *Bucket, pos int, keys [][]byte) [][
 	t.Helper()
 	ctx := context.Background()
 	want := resolveViaLoop(t, b, pos, keys)
+
+	assertEqualsWant := func(label string, got [][]byte, err error) {
+		require.NoErrorf(t, err, "%s: GetBySecondaryBatch errored", label)
+		require.Lenf(t, got, len(keys), "%s: length mismatch", label)
+		for i := range keys {
+			require.Equalf(t, want[i], got[i],
+				"%s: batch vs per-key-loop divergence at position %d (key %x)", label, i, keys[i])
+		}
+	}
+
+	// 4-phase path (= pr2), the default.
 	got, err := b.GetBySecondaryBatch(ctx, pos, keys)
-	require.NoError(t, err)
-	require.Len(t, got, len(keys))
-	for i := range keys {
-		require.Equalf(t, want[i], got[i],
-			"batch vs per-key-loop divergence at position %d (key %x)", i, keys[i])
+	assertEqualsWant("4-phase", got, err)
+
+	// Chunked-pipeline path (gh#309 Addendum-2): flip the toggle on and re-assert exact
+	// positional equality against the same per-key oracle, then restore. Every fixture that
+	// funnels through this oracle (newest-wins, deleted-re-added, flushing-memtable,
+	// bloom-FP, cross-mechanism, positional, empty/single) thereby covers pipeline-on too.
+	if b.secondaryBatchPipeline != nil {
+		require.NoError(t, b.secondaryBatchPipeline.SetValue(true))
+		gotPipe, errPipe := b.GetBySecondaryBatch(ctx, pos, keys)
+		require.NoError(t, b.secondaryBatchPipeline.SetValue(false))
+		assertEqualsWant("pipeline", gotPipe, errPipe)
 	}
 	return got
 }
@@ -200,9 +221,9 @@ const (
 // recheck is reachable), leaves the last batch in the active memtable, and forces a
 // flushing memtable to exercise the flushing path. bloom optionally on; pread selects
 // the value-read mode.
-func buildRandomizedSecondaryBucket(t testing.TB, seed int64, useBloom, pread bool) (*Bucket, []uint64) {
+func buildRandomizedSecondaryBucket(t testing.TB, seed int64, useBloom, pread bool, extra ...BucketOption) (*Bucket, []uint64) {
 	t.Helper()
-	b := newSecondaryBatchTestBucketMode(t, useBloom, pread)
+	b := newSecondaryBatchTestBucketMode(t, useBloom, pread, extra...)
 	rng := rand.New(rand.NewSource(seed))
 
 	const universeSize = 300

@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -73,9 +74,11 @@ const secondaryBatchViewHoldCap = 500
 // on a device with spare IOPS headroom, lower it on a throttled one.
 const defaultSecondaryBatchReadConcurrency = 16
 
-// secondaryBatchReadConcurrencyValue returns the effective phase-2 semaphore bound:
-// the runtime-configured value when set and positive, else the default 16. Read once
-// per batch so a mid-flight DynamicValue change never re-sizes an in-flight error group.
+// secondaryBatchReadConcurrencyValue returns the effective read-concurrency bound: the
+// runtime-configured value when set and positive, else the default 16. In the 4-phase
+// path it bounds phase-2 value reads; in the chunked-pipeline path (Addendum 2) it is W,
+// the worker count. Read once per batch so a mid-flight DynamicValue change never re-sizes
+// an in-flight error group.
 func (b *Bucket) secondaryBatchReadConcurrencyValue() int {
 	if b.secondaryBatchReadConcurrency != nil {
 		if v := b.secondaryBatchReadConcurrency.Get(); v > 0 {
@@ -83,6 +86,35 @@ func (b *Bucket) secondaryBatchReadConcurrencyValue() int {
 		}
 	}
 	return defaultSecondaryBatchReadConcurrency
+}
+
+// secondaryChunkSize is the contiguous sorted-key chunk width the pipeline driver hands
+// to each worker. 32 matches the empirically cold-winning chunk width of the pre-batch
+// per-worker path (gh#309 pass-3c). It is a tuning knob, not a concurrency bound:
+// shrinking it cuts the straggler tail (a chunk of all-cold-oldest-segment keys), widening
+// it improves a worker's upper-tree-page cache locality. Follow-up: promote to a
+// DynamicValue if the cold A/B shows tail sensitivity.
+const secondaryChunkSize = 32
+
+// secondaryBatchPipelineEnabled reports whether the Addendum-2 chunked-pipeline path is
+// toggled on for this bucket. Nil (unconfigured) or false means the 4-phase path (= pr2).
+func (b *Bucket) secondaryBatchPipelineEnabled() bool {
+	return b.secondaryBatchPipeline != nil && b.secondaryBatchPipeline.Get()
+}
+
+// slowLogMaskedContext masks the slow_query_details accumulator for the per-key
+// getBySecondaryCore calls the pipeline driver issues. Without the mask, W workers would
+// each append a per-key lsm_get_by_secondary_batch entry, contending the accumulator mutex
+// on the cold path and burying the single batch entry under n per-key entries; the driver
+// annotates ONCE after eg.Wait() instead. Cancellation, deadline, and every other context
+// value are delegated to the embedded context unchanged.
+type slowLogMaskedContext struct{ context.Context }
+
+func (c slowLogMaskedContext) Value(key any) any {
+	if s, ok := key.(string); ok && s == "slow_query_details" {
+		return nil
+	}
+	return c.Context.Value(key)
 }
 
 // GetBySecondaryBatch resolves multiple secondary keys, acquiring and releasing
@@ -152,6 +184,14 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 		}
 		out[0] = bytes.Clone(v)
 		return out, nil
+	}
+
+	// Addendum-2 chunked-pipeline path (gh#309), behind the runtime toggle. When on, it
+	// retires the 4-phase cross-key algorithm below in favour of a per-key concurrent
+	// chunked driver over the single-key primitive. Toggle off (default) = the 4-phase
+	// path (= pr2), so QA A/Bs pipeline-on vs pipeline-off in one binary, one knob flip.
+	if b.secondaryBatchPipelineEnabled() {
+		return b.getBySecondaryBatchPipelined(ctx, pos, keys, view, out, concurrentBatches, nil)
 	}
 
 	memtables, count := viewMemtables(view)
@@ -248,6 +288,113 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 		}
 	}
 	b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, valuesTook, recheckTook, concurrentBatches, int64(arenaBytes))
+	return out, nil
+}
+
+// getBySecondaryBatchPipelined is the Addendum-2 chunked-pipeline resolver (gh#309). It
+// retires the 4-phase cross-key algorithm and instead drives the single-key primitive
+// getBySecondaryCore once per key, over sorted contiguous secondaryChunkSize chunks, with
+// W = secondaryBatchReadConcurrencyValue work-stealing workers under the one shared view.
+// Each worker resolves its chunk's keys serially (one outstanding read at a time), so peak
+// in-flight I/O per batch = W, identical to the 4-phase max(phase1, phase2) bound; the BxQ
+// node envelope holds verbatim with B=W.
+//
+// Correctness is inherited from getBySecondaryCore, not re-derived: newest-wins across
+// memtables and segments, the deleted+re-added-same-secondary-key recheck via
+// existsWithConsistentViewUpTo, and copy-under-refcount (#1837) all come from the proven
+// serial primitive. This driver only chunks and parallelizes it. Positional alignment
+// (INV-LSMKV-BATCH-1) holds because each key resolves into its own disjoint out[origIdx]
+// slot; concurrency reorders completion, never identity. Every returned value is
+// bytes.Clone'd so it survives view release (no arena; per-value clone is the copy-out,
+// and the getBySecondaryCore path is 0.085% of allocations, so the clone is the
+// minimum-correct allocation, not an extra one).
+//
+// hook is nil in production; when set it wraps each per-key resolve (onReadStart/onReadDone)
+// so the worker-concurrency gate can count peak in-flight workers.
+func (b *Bucket) getBySecondaryBatchPipelined(ctx context.Context, pos int, keys [][]byte,
+	view BucketConsistentView, out [][]byte, concurrentBatches int64, hook *secondaryBatchReadHook,
+) ([][]byte, error) {
+	n := len(keys)
+	before := time.Now()
+
+	// Sort keys once by bytes.Compare (= little-endian docID order) so a contiguous chunk
+	// is a contiguous slice of the secondary keyspace, giving each worker a largely
+	// disjoint leaf region of every segment's index (the cold fault-friendliness the A/B
+	// tests). Keep the permutation to restore positional alignment.
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, c int) bool {
+		return bytes.Compare(keys[order[a]], keys[order[c]]) < 0
+	})
+
+	numChunks := (n + secondaryChunkSize - 1) / secondaryChunkSize
+	workers := b.secondaryBatchReadConcurrencyValue()
+	if workers > numChunks {
+		workers = numChunks
+	}
+
+	var cursor atomic.Int64
+	eg, egctx := enterrors.NewErrorGroupWithContextWrapper(b.logger, ctx)
+	// Per-key calls take cancellation/deadline from egctx but must NOT each annotate the
+	// slow log (W-way mutex contention + n buried entries); mask the accumulator and
+	// annotate once after Wait.
+	keyCtx := slowLogMaskedContext{Context: egctx}
+	for w := 0; w < workers; w++ {
+		eg.Go(func() error {
+			// Per-worker buffer, reused across the worker's keys. getBySecondaryCore may
+			// return a value aliasing this buffer, but we bytes.Clone it immediately, so
+			// reuse on the next key is safe and no buffer is shared across workers.
+			var buffer []byte
+			for {
+				if err := egctx.Err(); err != nil {
+					return err
+				}
+				ci := int(cursor.Add(1)) - 1
+				if ci >= numChunks {
+					return nil
+				}
+				start := ci * secondaryChunkSize
+				end := start + secondaryChunkSize
+				if end > n {
+					end = n
+				}
+				for _, oi := range order[start:end] {
+					if err := egctx.Err(); err != nil {
+						return err
+					}
+					if hook != nil && hook.onReadStart != nil {
+						hook.onReadStart()
+					}
+					v, buf, err := b.getBySecondaryCore(keyCtx, pos, keys[oi], buffer, view, 0,
+						"lsm_get_by_secondary_batch")
+					if hook != nil && hook.onReadDone != nil {
+						hook.onReadDone()
+					}
+					if err != nil {
+						if lsmkv.IsDeletedOrNotFound(err) {
+							continue // out[oi] stays nil (missing or deleted)
+						}
+						return err
+					}
+					buffer = buf // keep any grown buffer for the worker's next key
+					out[oi] = bytes.Clone(v)
+				}
+			}
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Annotate once. The interleaved per-key shape has no distinct phases, so per-phase
+	// fields are not populated; Total (aggregate wall) and the node-wide concurrent-batch
+	// gauge are what the cold A/B reads.
+	helpers.AnnotateSlowQueryLogAppend(ctx, "lsm_get_by_secondary_batch", BucketSlowLogEntry{
+		Total:                time.Since(before),
+		ConcurrentBatchCount: concurrentBatches,
+	})
 	return out, nil
 }
 
