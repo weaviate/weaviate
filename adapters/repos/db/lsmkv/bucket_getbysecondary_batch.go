@@ -75,7 +75,7 @@ const defaultSecondaryBatchReadConcurrency = 16
 
 // secondaryBatchReadConcurrencyValue returns the effective phase-2 semaphore bound:
 // the runtime-configured value when set and positive, else the default 16. Read once
-// per batch so a mid-flight DynamicValue change never re-sizes an in-flight errgroup.
+// per batch so a mid-flight DynamicValue change never re-sizes an in-flight error group.
 func (b *Bucket) secondaryBatchReadConcurrencyValue() int {
 	if b.secondaryBatchReadConcurrency != nil {
 		if v := b.secondaryBatchReadConcurrency.Get(); v > 0 {

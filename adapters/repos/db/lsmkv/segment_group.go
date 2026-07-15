@@ -1028,7 +1028,7 @@ func (sg *SegmentGroup) getBySecondaryBatchIndexHits(ctx context.Context, pos in
 // Every value is read into ONE per-batch arena sized sum(node.End-node.Start).
 // Each read goroutine writes a DISJOINT arena sub-slice (three-index sliced so its
 // cap == its own size; it cannot overrun into a sibling's range), so the writes are
-// race-free and errgroup.Wait happens-before the caller reads any result. The
+// race-free and the error group's Wait happens-before the caller reads any result. The
 // parsed priKey/value ALIAS their arena sub-slice: the arena is the copy-out
 // (copyNode has already copied the bytes off the possibly-mmap'd segment, so the
 // slices stay valid after the consistent view is released, issue #1837), and it
