@@ -29,6 +29,7 @@ function main() {
   only_module_value=false
   run_unit_and_integration_tests=false
   run_unit_tests=false
+  unit_shard=""
   run_integration_tests=false
   run_integration_tests_only_vector_package=false
   run_integration_tests_without_vector_package=false
@@ -48,6 +49,8 @@ function main() {
   while [[ "$#" -gt 0 ]]; do
       case $1 in
           --unit-only|-u) run_all_tests=false; run_unit_tests=true;;
+          --unit-only-adapters|-uad) run_all_tests=false; run_unit_tests=true; unit_shard="adapters";;
+          --unit-only-non-adapters|-una) run_all_tests=false; run_unit_tests=true; unit_shard="non-adapters";;
           --unit-and-integration-only|-ui) run_all_tests=false; run_unit_and_integration_tests=true;;
           --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
           --integration-vector-package-only|-ivpo) run_all_tests=false; run_integration_tests=true; run_integration_tests_only_vector_package=true;;
@@ -91,6 +94,8 @@ function main() {
           --help|-h) printf '%s\n' \
               "Options:"\
               "--unit-only | -u"\
+              "--unit-only-adapters | -uad"\
+              "--unit-only-non-adapters | -una"\
               "--unit-and-integration-only | -ui"\
               "--integration-only | -i"\
               "--acceptance-only | -a"\
@@ -273,7 +278,17 @@ function run_unit_tests() {
     echo "Skipping unit test"
     return
   fi
-  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
+  local packages
+  packages=$(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules')
+  # The adapters/* tree is slow to compile but fast to run, so its shard has idle
+  # run-phase capacity. Co-locate the heaviest run-bound non-adapters package
+  # (usecases/replica) there to balance wall-clock across shards.
+  local adapters_extra='/usecases/replica'
+  case "$unit_shard" in
+    adapters)     packages=$(echo "$packages" | grep -E "/adapters/|$adapters_extra");;
+    non-adapters) packages=$(echo "$packages" | grep -vE "/adapters/|$adapters_extra");;
+  esac
+  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $packages | grep -v '\[no test files\]'
 }
 
 function run_integration_tests() {
