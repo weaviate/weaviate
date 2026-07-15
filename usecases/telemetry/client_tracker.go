@@ -103,14 +103,12 @@ func newMapTracker[K comparable](logger logrus.FieldLogger, initCap, maxKeys, ma
 // Uses a priority select pattern to drain all tracking events before
 // handling Get/GetAndReset requests, ensuring consistent results.
 //
-// The leading priority select is not sufficient on its own: once the goroutine
-// is parked in the second select, a buffered trackChan event and an unbuffered
-// getChan/resetChan request can become ready at the same time, and Go picks a
-// ready case at random. Because Track is a fire-and-forget non-blocking send, a
-// sequential Track-then-Get on the caller side can then serve the Get while the
-// Track event is still buffered, undercounting the result. To honor the
-// drain-before-serve contract, the Get/GetAndReset cases first drain any events
-// still buffered in trackChan (via drainTrackChan) before copying the counts.
+// The leading priority select alone doesn't close the race: once parked in
+// the second select, a buffered trackChan event and an unbuffered
+// getChan/resetChan request can both be ready, and select picks at random.
+// Since Track is a non-blocking send, a sequential Track-then-Get could then
+// see Get served first and undercount. Get/GetAndReset call drainTrackChan
+// first to close this window.
 func (t *mapTracker[K]) run() {
 	counts := make(map[K]map[string]int64, t.initCap)
 	for {
@@ -146,12 +144,8 @@ func (t *mapTracker[K]) run() {
 	}
 }
 
-// drainTrackChan applies every tracking event currently buffered in trackChan
-// without blocking. It is called before serving a Get/GetAndReset so that a
-// Track event which became ready at the same instant as the request cannot be
-// left buffered while the counts are copied. This closes the drain-before-serve
-// hole in run's second select, where a random ready-case pick could otherwise
-// serve the request ahead of an already-queued Track event.
+// drainTrackChan flushes all events currently buffered in trackChan without
+// blocking. Called before Get/GetAndReset copy counts; see run for why.
 func (t *mapTracker[K]) drainTrackChan(counts map[K]map[string]int64) {
 	for {
 		select {

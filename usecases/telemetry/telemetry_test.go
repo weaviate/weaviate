@@ -1183,30 +1183,12 @@ func TestIdentifyIntegration(t *testing.T) {
 	}
 }
 
-// TestMapTracker_TrackThenGet_NoUndercount is a regression test for the
-// drain-before-serve race in mapTracker.run (see weaviate/weaviate#12201).
-//
-// Track is a fire-and-forget non-blocking send onto a buffered channel, so a
-// sequential Track-then-Get from the same caller must always observe that
-// Track: by the time Get is served the event is already queued. Before the fix,
-// once run's background goroutine was parked in its second select a buffered
-// trackChan event and the unbuffered getChan request could become ready at the
-// same instant and Go would pick a ready case at random; when the Get won it
-// copied the still-stale counts and undercounted by one.
-//
-// The window only opens with real parallelism between the caller and the
-// background goroutine (with GOMAXPROCS=1 the leading priority select always
-// drains first), so the test pins GOMAXPROCS to 2 for a reliable, host- and
-// core-count-independent repro. Each iteration does a sequential Track then Get
-// and asserts the running count is exact. Before the fix this failed within a
-// few thousand iterations (tens of undercounts per 100k); with the fix it is
-// deterministically clean. Both concrete trackers are exercised because they
-// share the same mapTracker.run.
+// TestMapTracker_TrackThenGet_NoUndercount pins the drain-before-serve race in
+// mapTracker.run, where a random select pick could serve Get before an
+// already-buffered Track event (weaviate/weaviate#12201).
 func TestMapTracker_TrackThenGet_NoUndercount(t *testing.T) {
-	// Pin to 2 Ps: the race cannot occur with a single P, and pinning (rather
-	// than leaving the host default) keeps the repro rate high and stable
-	// regardless of how many cores the CI runner has. The test does not call
-	// t.Parallel, so no sibling test observes the changed value.
+	// GOMAXPROCS=1 never triggers the race; pin to 2 for a stable repro
+	// regardless of the host's core count.
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(2))
 
 	const iterations = 100000
