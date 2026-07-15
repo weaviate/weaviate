@@ -620,6 +620,10 @@ func (s *Shard) removePersistedHashtree() error {
 // Only the newest .ht is a load candidate: if it fails to deserialize the
 // directory is discarded entirely — never fall back to an older, staler tree,
 // which would silently drop every write made after it.
+//
+// Every removal is strict: a file that cannot be removed fails the load,
+// because anything left behind goes stale once the shard serves writes and
+// would be trusted as the newest snapshot by a later load.
 func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.AggregatedHashTree, error) {
 	dir := s.pathHashTree()
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
@@ -652,13 +656,12 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 		}
 		filename := filepath.Join(dir, entry.Name())
 
-		// Sweep everything but the newest .ht; failures are non-fatal.
+		// Sweep everything but the newest .ht.
 		if attemptedNewest || ext != ".ht" {
 			if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-				logger.Warnf("deleting stale hashtree file %q: %v", filename, err)
-			} else {
-				removedAny = true
+				return nil, fmt.Errorf("deleting stale hashtree file %q: %w", filename, err)
 			}
+			removedAny = true
 			continue
 		}
 		attemptedNewest = true
@@ -667,10 +670,9 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 		if err != nil {
 			logger.Warnf("opening hashtree file %q: %v", filename, err)
 			if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-				logger.Warnf("deleting unreadable hashtree file %q: %v", filename, err)
-			} else {
-				removedAny = true
+				return nil, fmt.Errorf("deleting unreadable hashtree file %q: %w", filename, err)
 			}
+			removedAny = true
 			continue
 		}
 
@@ -683,10 +685,9 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 			loaded = nil
 			logger.Warnf("deserializing hashtree file %q: %v", filename, err)
 			if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
-				logger.Warnf("deleting corrupt hashtree file %q: %v", filename, err)
-			} else {
-				removedAny = true
+				return nil, fmt.Errorf("deleting corrupt hashtree file %q: %w", filename, err)
 			}
+			removedAny = true
 			continue
 		}
 
