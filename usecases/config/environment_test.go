@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -297,6 +298,61 @@ func TestEnvironmentLazyLoadShardCountThreshold(t *testing.T) {
 	}
 }
 
+func TestEnvironmentBM25FilterTombMergeGateRatio(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    float64
+		expectError bool
+	}{
+		{"default when unset", "", DefaultBM25FilterTombMergeGateRatio, false},
+		{"explicit 1", "1", 1, false},
+		{"zero always merges", "0", 0, false},
+		{"custom ratio", "2.5", 2.5, false},
+		{"plus inf disables the fold", "+Inf", math.Inf(1), false},
+		{"inf lowercase", "inf", math.Inf(1), false},
+		{"negative rejected", "-1", 0, true},
+		{"NaN rejected", "NaN", 0, true},
+		{"unparseable rejected", "abc", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO", tt.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.BM25FilterTombMergeGateRatio.Get())
+			}
+		})
+	}
+}
+
+func TestBM25GateRatioRuntimeValidation(t *testing.T) {
+	// The env value is validated at startup; NewDynamicValueWithValidation carries
+	// the same validator, so runtime config updates via SetValue are rejected too.
+	conf := Config{}
+	require.NoError(t, FromEnv(&conf))
+	dv := conf.BM25FilterTombMergeGateRatio
+	require.NotNil(t, dv)
+	require.Equal(t, DefaultBM25FilterTombMergeGateRatio, dv.Get())
+
+	// valid runtime updates apply
+	require.NoError(t, dv.SetValue(2.5))
+	assert.Equal(t, 2.5, dv.Get())
+	require.NoError(t, dv.SetValue(math.Inf(1)))
+
+	// invalid runtime updates are rejected; the last valid value is retained
+	require.Error(t, dv.SetValue(-1))
+	require.Error(t, dv.SetValue(math.NaN()))
+	assert.Equal(t, math.Inf(1), dv.Get())
+}
+
 func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
 	t.Run("DISABLE_LAZY_LOAD_SHARDS=true sets EnableLazyLoadShards=false", func(t *testing.T) {
 		t.Setenv("DISABLE_LAZY_LOAD_SHARDS", "true")
@@ -395,6 +451,37 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, conf.LazyLoadShardSizeThresholdGB)
 			}
+		})
+	}
+}
+
+func TestEnvironmentHaltForTransferTimeout(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{name: "default", expected: DefaultHaltForTransferTimeout},
+		{name: "configured", value: "30m", expected: 30 * time.Minute},
+		{name: "invalid", value: "not-a-duration", expectedErr: true},
+		{name: "zero", value: "0s", expectedErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HALT_FOR_TRANSFER_TIMEOUT", tt.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, conf.HaltForTransferTimeout)
 		})
 	}
 }
@@ -627,6 +714,40 @@ func TestEnvironmentGRPCPort(t *testing.T) {
 	}
 }
 
+// TestEnvironmentGRPCWebEnabledDefaultsTrue pins that grpc-web is on by default
+// on every construction path now that the enable env var is gone: FromEnv seeds a
+// non-nil DynamicValue(true) (so the runtime override has a live value to flip),
+// and a bare Config resolves true via the nil-safe accessor (nil.Get() would
+// otherwise be false and silently disable the default).
+func TestEnvironmentGRPCWebEnabledDefaultsTrue(t *testing.T) {
+	t.Run("bare Config resolves true via accessor", func(t *testing.T) {
+		require.True(t, Config{}.GRPC.GrpcWebEnabledOrDefault())
+	})
+
+	// The config file is parsed into GRPC.GrpcWebEnabled before FromEnv runs, so
+	// FromEnv must only default when nothing set the value. Anything already there
+	// (an operator's grpc.grpcWebEnabled off-switch, in particular) has to survive.
+	preset := []struct {
+		name string
+		seed *configRuntime.DynamicValue[bool]
+		want bool
+	}{
+		{name: "nil is seeded to default true", seed: nil, want: true},
+		{name: "file-set false survives", seed: configRuntime.NewDynamicValue(false), want: false},
+		{name: "file-set true survives", seed: configRuntime.NewDynamicValue(true), want: true},
+	}
+	for _, tt := range preset {
+		t.Run("FromEnv preserves file value: "+tt.name, func(t *testing.T) {
+			conf := Config{}
+			conf.GRPC.GrpcWebEnabled = tt.seed
+			require.NoError(t, FromEnv(&conf))
+			require.NotNil(t, conf.GRPC.GrpcWebEnabled, "runtime override needs a live value to toggle")
+			require.Equal(t, tt.want, conf.GRPC.GrpcWebEnabled.Get())
+			require.Equal(t, tt.want, conf.GRPC.GrpcWebEnabledOrDefault())
+		})
+	}
+}
+
 func TestEnvironmentCORS_Methods(t *testing.T) {
 	factors := []struct {
 		name        string
@@ -681,7 +802,7 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 			if tt.expectedErr {
 				require.NotNil(t, err)
 			} else {
-				require.Equal(t, tt.expected, conf.DisableGraphQL)
+				require.Equal(t, tt.expected, conf.DisableGraphQL.Get())
 			}
 		})
 	}

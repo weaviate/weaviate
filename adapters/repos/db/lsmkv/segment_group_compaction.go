@@ -382,6 +382,11 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		c := newCompactorReplace(f, left.newReplaceCursorReusable(), right.newReplaceCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+		// recycle the cursor read buffers on every exit, including a panic in do()
+		defer func() {
+			c.c1.releaseReader()
+			c.c2.releaseReader()
+		}()
 
 		aborted, err := runCompactor(c.do)
 		if err != nil {

@@ -226,6 +226,8 @@ type queryStats struct {
 	// which forces the legacy WAND path instead of BlockMaxWAND.
 	allBucketsAreInverted bool
 	// n is the total number of documents in the collection (BM25's "N").
+	// Approximate (see Bucket.CountApproximate); terms.Idf clamps so an
+	// undercount cannot yield a negative idf.
 	n                 float64
 	averagePropLength float64
 }
@@ -247,7 +249,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	if objectsBucket == nil {
 		return queryTerms{}, queryStats{}, pins, fmt.Errorf("objects bucket not available (store shutting down?)")
 	}
-	count, err := objectsBucket.Count(ctx)
+	count, err := objectsBucket.CountApproximate()
 	if err != nil {
 		return queryTerms{}, queryStats{}, pins, fmt.Errorf("count objects: %w", err)
 	}
@@ -475,6 +477,15 @@ func (b *BM25Searcher) wand(
 	// A leaked pin would block a future retokenization swap's Shutdown forever.
 	defer pins.release()
 
+	return b.wandFromStats(ctx, filterDocIds, params, limit, additional, qterms, qstats, pins, start)
+}
+
+// wandFromStats is wand with the query terms/stats precomputed; start feeds
+// the slow-query timing annotations. The caller keeps ownership of pins and
+// must release them after this returns.
+func (b *BM25Searcher) wandFromStats(
+	ctx context.Context, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int, additional additional.Properties, qterms queryTerms, qstats queryStats, pins *pinnedSearchableBuckets, start time.Time,
+) ([]*storobj.Object, []float32, error) {
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)
 	minimumOrTokensMatch := math.MaxInt64
@@ -760,7 +771,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if filterDocIds != nil {
 			n += float64(filteredDocIDs.GetCardinality())
 		}
-		termResult.SetIdf(math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoost))
+		termResult.SetIdf(terms.Idf(n, N) * float64(duplicateTextBoost))
 		termResult.SetPosPointer(0)
 		termResult.SetIdPointer(termResult.Data[0].Id)
 		return termResult, nil
@@ -835,7 +846,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	if filterDocIds != nil {
 		n += float64(filteredDocIDs.GetCardinality())
 	}
-	termResult.SetIdf(math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost))
+	termResult.SetIdf(terms.Idf(n, N) * float64(duplicateTextBoost))
 
 	// catch special case where there are no results and would panic termResult.data[0].id
 	// related to #4125

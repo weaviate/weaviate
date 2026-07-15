@@ -61,6 +61,10 @@ const (
 	// chunkHeaderSize is the size of a chunk file header:
 	// magic + version + record count.
 	chunkHeaderSize = len(magicHeader) + 1 + 8
+
+	// minEncodedRecordSize is the smallest possible record footprint in a
+	// chunk payload: a 4-byte length prefix plus at least 1 byte of record data.
+	minEncodedRecordSize = 4 + 1
 )
 
 // regex pattern for the chunk files.
@@ -359,9 +363,26 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 	defer c.Close()
 
+	// The record count comes from disk and may be corrupt. It is only used as
+	// a capacity hint: cap it by the number of records that could possibly
+	// fit in the chunk payload.
+	payloadSize := c.size - uint64(chunkHeaderSize)
+	count := c.count
+	if maxRecords := payloadSize / minEncodedRecordSize; count > maxRecords {
+		q.Logger.WithField("file", c.path).
+			Warnf("chunk header claims %d records, but at most %d fit in %d bytes of payload; the header is likely corrupt", c.count, maxRecords, payloadSize)
+		count = maxRecords
+	}
+
 	// decode all tasks from the chunk
 	// and partition them by worker
-	tasks := make([]Task, 0, c.count)
+	tasks := make([]Task, 0, count)
+
+	// A chunk torn by a crash (e.g. power loss before its tail reached disk)
+	// ends mid-record. The records before the corruption are still valid:
+	// salvage them and quarantine the file, otherwise the chunk is never
+	// removed and its records stay counted, so the queue never drains.
+	var corruptChunkErr error
 
 	buf := make([]byte, 4)
 	for {
@@ -372,12 +393,24 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		if errors.Is(err, io.EOF) {
 			break
 		}
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			corruptChunkErr = errors.Wrap(err, "chunk ends mid-record")
+			break
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to read record length")
 		}
 		length := binary.BigEndian.Uint32(buf)
 		if length == 0 {
-			return nil, errors.New("invalid record length")
+			corruptChunkErr = errors.New("invalid record length")
+			break
+		}
+		// the length prefix comes from disk and may be corrupt: a record
+		// cannot be larger than the chunk payload that contains it. Validate
+		// before allocating.
+		if uint64(length) > payloadSize-4 {
+			corruptChunkErr = errors.Errorf("invalid record length %d, chunk payload is only %d bytes", length, payloadSize)
+			break
 		}
 
 		// read the record
@@ -387,6 +420,10 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 			buf = buf[:length]
 		}
 		_, err = io.ReadFull(c.r, buf)
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			corruptChunkErr = errors.Wrap(err, "chunk ends mid-record")
+			break
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to read record")
 		}
@@ -405,14 +442,24 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		q.Logger.WithField("file", c.path).WithError(err).Warn("failed to close chunk file")
 	}
 
+	if corruptChunkErr != nil {
+		q.quarantineChunk(c, corruptChunkErr)
+	}
+
 	if len(tasks) == 0 {
-		// empty chunk, remove it
-		q.removeChunk(c)
+		if corruptChunkErr == nil {
+			// empty chunk, remove it
+			q.removeChunk(c)
+		}
 		return nil, nil
 	}
 
 	doneFn := func() {
-		q.removeChunk(c)
+		// a quarantined chunk is already renamed and removed from the
+		// queue's accounting
+		if corruptChunkErr == nil {
+			q.removeChunk(c)
+		}
 		if q.onBatchProcessed != nil {
 			q.onBatchProcessed()
 		}
@@ -503,6 +550,7 @@ func (q *DiskQueue) Wait(ctx context.Context) error {
 func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
 	err := q.Pause(ctx)
 	if err != nil {
+		q.Resume()
 		return err
 	}
 	defer q.Resume()
@@ -649,6 +697,33 @@ func (q *DiskQueue) removeChunk(c *chunk) {
 	q.metrics.DiskUsage(q.diskUsage)
 	q.metrics.Size(q.recordCount)
 	q.m.Unlock()
+}
+
+// quarantineChunk renames a torn or corrupt chunk file to <name>.corrupt so
+// it is no longer scheduled, and removes its records from the queue's
+// accounting so the queue can drain. The file is kept on disk for inspection.
+func (q *DiskQueue) quarantineChunk(c *chunk, cause error) {
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
+
+	q.r.ReleaseChunk(c)
+
+	quarantinePath := c.path + ".corrupt"
+	err := os.Rename(c.path, quarantinePath)
+	if err != nil {
+		q.Logger.WithField("file", c.path).Errorf("failed to quarantine corrupt chunk: %v", err)
+		return
+	}
+
+	q.m.Lock()
+	defer q.m.Unlock()
+	q.recordCount -= c.count
+	q.diskUsage -= int64(c.size)
+	q.metrics.DiskUsage(q.diskUsage)
+	q.metrics.Size(q.recordCount)
+
+	q.Logger.WithField("file", quarantinePath).
+		Errorf("chunk is truncated or corrupt, quarantined it; records beyond the corruption are lost: %v", cause)
 }
 
 // analyzeDisk is a slow method that determines the number of records

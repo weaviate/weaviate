@@ -43,6 +43,18 @@ var (
 	ErrAsyncCheckpointStale = errors.New("checkpoint createdAt is not newer than the active one")
 	// ErrAsyncReplicationNotActive maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncReplicationNotActive = errors.New("async replication is not active on this shard")
+	// MsgCLevel consistency level cannot be achieved
+	MsgCLevel = "cannot achieve consistency level"
+
+	ErrReplicas = errors.New("cannot reach enough replicas")
+	ErrRepair   = errors.New("read repair error")
+	ErrRead     = errors.New("read error")
+
+	ErrNoDiffFound = errors.New("no diff found")
+
+	// ErrCompareHashTreeRootsUnsupported: target node too old to serve the RPC
+	// (gRPC Unimplemented or REST 404). Callers fall back to per-shard descent.
+	ErrCompareHashTreeRootsUnsupported = errors.New("CompareHashTreeRoots not supported by target node")
 )
 
 const AsyncCheckpointMaxShardsPerRequest = 10_000
@@ -327,6 +339,13 @@ type ShardDifferenceReader struct {
 	RangeReader       hashtree.AggregatedHashTreeRangeReader
 }
 
+// localReadRoutingPlan resolves shardName's replicas from local schema only: no leader query, no implicit tenant activation. All async-replication resolution must use this.
+func (f *Finder) localReadRoutingPlan(shardName string) (types.ReadRoutingPlan, error) {
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	options.LocalOnly = true
+	return f.router.BuildReadRoutingPlan(options)
+}
+
 // CollectShardDifferences collects the differences between the local node and the target nodes.
 // It returns a ShardDifferenceReader that contains the differences and the target node name/address.
 // If no differences are found, it returns ErrNoDiffFound.
@@ -336,8 +355,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
-	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
-	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
@@ -420,9 +438,9 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
-		replicaNodeNames = append(replicaNodeNames, replica)
 		replicaHostAddr, ok := f.nodeResolver.NodeHostname(replica)
 		if ok {
+			replicaNodeNames = append(replicaNodeNames, replica)
 			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
 		}
 	}
@@ -478,6 +496,111 @@ func (f *Finder) CompareDigests(ctx context.Context,
 	shardName string, host string, digests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
 	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
+}
+
+// targetHostAddrsForShard resolves a shard's remote replica host addresses
+// (excluding the local node), mirroring CollectShardDifferences.
+func (f *Finder) targetHostAddrsForShard(shardName string) ([]string, error) {
+	routingPlan, err := f.localReadRoutingPlan(shardName)
+	if err != nil {
+		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
+	}
+
+	localNodeName := f.LocalNodeName()
+	localHostAddr, ok := f.nodeResolver.NodeHostname(localNodeName)
+	if !ok {
+		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
+	}
+
+	var hosts []string
+	for _, node := range routingPlan.NodeNames() {
+		if node == localNodeName {
+			continue
+		}
+		addr, ok := f.nodeResolver.NodeHostname(node)
+		if !ok || addr == localHostAddr {
+			continue
+		}
+		hosts = append(hosts, addr)
+	}
+	return hosts, nil
+}
+
+// prefilterMaxShardsPerRPC caps shards per CompareHashTreeRoots request to bound
+// gRPC/REST message size.
+const prefilterMaxShardsPerRPC = 1000
+
+// CompareHashTreeRootsMaxShardsPerRequest bounds the shard map a receiver accepts, above the sender's prefilterMaxShardsPerRPC.
+const CompareHashTreeRootsMaxShardsPerRequest = 10_000
+
+// PrefilterStats reports the per-host root-compare RPC outcomes for observability.
+type PrefilterStats struct {
+	OK          int
+	Errored     int
+	Unsupported int
+}
+
+// PrefilterShardRoots batches the level-0 root compare against replicas, returning
+// the subset needing a full descent (absent ⇒ in-sync). Chunked serially per host.
+func (f *Finder) PrefilterShardRoots(ctx context.Context,
+	roots map[string]hashtree.Digest,
+) (map[string]struct{}, PrefilterStats) {
+	needFull := make(map[string]struct{})
+	byHost := make(map[string]map[string]hashtree.Digest)
+
+	for shard, root := range roots {
+		hosts, err := f.targetHostAddrsForShard(shard)
+		if err != nil {
+			needFull[shard] = struct{}{}
+			continue
+		}
+		for _, h := range hosts {
+			sub := byHost[h]
+			if sub == nil {
+				sub = make(map[string]hashtree.Digest)
+				byHost[h] = sub
+			}
+			sub[shard] = root
+		}
+	}
+
+	var stats PrefilterStats
+	chunk := make(map[string]hashtree.Digest, prefilterMaxShardsPerRPC)
+	flush := func(host string) {
+		if len(chunk) == 0 {
+			return
+		}
+		diverging, err := f.client.CompareHashTreeRoots(ctx, host, f.class, chunk)
+		if err != nil {
+			// Unsupported peer or transport error: full descent for this chunk;
+			// a later cycle retries the batched path.
+			if errors.Is(err, ErrCompareHashTreeRootsUnsupported) {
+				stats.Unsupported++
+			} else {
+				stats.Errored++
+			}
+			for s := range chunk {
+				needFull[s] = struct{}{}
+			}
+		} else {
+			stats.OK++
+			for _, s := range diverging {
+				needFull[s] = struct{}{}
+			}
+		}
+		clear(chunk)
+	}
+
+	for host, sub := range byHost {
+		for s, r := range sub {
+			chunk[s] = r
+			if len(chunk) >= prefilterMaxShardsPerRPC {
+				flush(host)
+			}
+		}
+		flush(host)
+	}
+	return needFull, stats
 }
 
 // Overwrite specified object with most recent contents
@@ -581,8 +704,7 @@ type AsyncCheckpointShardStatus struct {
 }
 
 func (f *Finder) remoteReplicaHosts(shardName string) (names []string, addrs []string) {
-	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
-	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	routingPlan, err := f.localReadRoutingPlan(shardName)
 	if err != nil {
 		return nil, nil
 	}

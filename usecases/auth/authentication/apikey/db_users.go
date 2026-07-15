@@ -415,6 +415,19 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 	return users, nil
 }
 
+// ListAllUsers returns storage keys (qualified "namespace:userId" form, see
+// [MakeUserKey]) — directly matchable against backup includeUsers selectors.
+func (c *DBUser) ListAllUsers() []string {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	out := make([]string, 0, len(c.data.Users))
+	for id := range c.data.Users {
+		out = append(out, id)
+	}
+	return out
+}
+
 func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -569,18 +582,81 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 	return nil
 }
 
-func (c *DBUser) Snapshot() ([]byte, error) {
+// Snapshot serialises the dynamic-user state to JSON. Zero userIDs captures
+// the whole cluster (RAFT FSM, ordinary backups); a non-empty set is the
+// graduation path, where a missing id errors rather than ship incomplete.
+func (c *DBUser) Snapshot(userIDs ...string) ([]byte, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	marshal, err := json.Marshal(DBUserSnapshot{Data: c.data, Version: SnapshotVersion})
+	data := c.data
+	if len(userIDs) > 0 {
+		filtered, err := filterDBUserData(c.data, userIDs)
+		if err != nil {
+			return nil, err
+		}
+		data = filtered
+	}
+
+	marshal, err := json.Marshal(DBUserSnapshot{Data: data, Version: SnapshotVersion})
 	if err != nil {
 		return nil, err
 	}
 	return marshal, nil
 }
 
-func (c *DBUser) Restore(snapshot []byte) error {
+// filterDBUserData returns src restricted to ids. A missing id errors rather
+// than silently dropping — the resolved set must materialise exactly.
+func filterDBUserData(src dbUserdata, ids []string) (dbUserdata, error) {
+	keep := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if _, ok := src.Users[id]; !ok {
+			return dbUserdata{}, fmt.Errorf("dynamic user %q not found in snapshot source", id)
+		}
+		keep[id] = struct{}{}
+	}
+
+	out := dbUserdata{
+		SecureKeyStorageById:    make(map[string]string, len(keep)),
+		IdentifierToId:          make(map[string]string, len(keep)),
+		IdToIdentifier:          make(map[string]string, len(keep)),
+		Users:                   make(map[string]*User, len(keep)),
+		UserKeyRevoked:          make(map[string]struct{}, len(keep)),
+		ImportedApiKeysWeakHash: make(map[string][sha256.Size]byte, len(keep)),
+	}
+
+	// Users is the existence-of-truth map (verified above); absence from any
+	// other id-keyed map is fine.
+	for id := range keep {
+		out.Users[id] = src.Users[id] // pointer copy; same lock that produced src
+		if v, ok := src.SecureKeyStorageById[id]; ok {
+			out.SecureKeyStorageById[id] = v
+		}
+		if v, ok := src.IdToIdentifier[id]; ok {
+			out.IdToIdentifier[id] = v
+		}
+		if _, ok := src.UserKeyRevoked[id]; ok {
+			out.UserKeyRevoked[id] = struct{}{}
+		}
+		if v, ok := src.ImportedApiKeysWeakHash[id]; ok {
+			out.ImportedApiKeysWeakHash[id] = v
+		}
+	}
+
+	// IdentifierToId is keyed by user id; filter by value.
+	for identifier, id := range src.IdentifierToId {
+		if _, ok := keep[id]; ok {
+			out.IdentifierToId[identifier] = id
+		}
+	}
+
+	return out, nil
+}
+
+// Restore replaces in-memory state with snapshot. stripNamespaces=true is the
+// graduation path: ids drop the "<namespace>:" prefix and User.Namespace is
+// cleared, with a collision erroring rather than overwriting credentials.
+func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -599,9 +675,107 @@ func (c *DBUser) Restore(snapshot []byte) error {
 	if snapshotRestore.Version != SnapshotVersion {
 		return fmt.Errorf("invalid snapshot version")
 	}
+
+	if stripNamespaces {
+		stripped, err := stripDBUserNamespace(snapshotRestore.Data)
+		if err != nil {
+			return err
+		}
+		snapshotRestore.Data = stripped
+	}
+
 	c.data = restoreAllFields(snapshotRestore.Data)
 
 	return nil
+}
+
+// ValidateNamespaceStrip dry-runs the stripNamespaces arm of [DBUser.Restore]
+// against snapshot without mutating any state: it unmarshals, checks the
+// snapshot version, and attempts the namespace strip, returning the exact
+// collision error a real restore would hit.
+func ValidateNamespaceStrip(snapshot []byte) error {
+	// Restore treats an empty snapshot as a no-op.
+	if len(snapshot) == 0 {
+		return nil
+	}
+
+	snapshotRestore := DBUserSnapshot{}
+	if err := json.Unmarshal(snapshot, &snapshotRestore); err != nil {
+		return err
+	}
+
+	if snapshotRestore.Version != SnapshotVersion {
+		return fmt.Errorf("invalid snapshot version")
+	}
+
+	_, err := stripDBUserNamespace(snapshotRestore.Data)
+	return err
+}
+
+// stripDBUserNamespace drops the "<namespace>:" prefix from every field containing an ID;
+// non-namespace prefix or bare ids pass through. A collision between IDs after stripping
+// returns a clear error.
+func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
+	out := dbUserdata{
+		SecureKeyStorageById: make(map[string]string, len(src.SecureKeyStorageById)),
+		IdentifierToId:       make(map[string]string, len(src.IdentifierToId)),
+		IdToIdentifier:       make(map[string]string, len(src.IdToIdentifier)),
+		Users:                make(map[string]*User, len(src.Users)),
+		UserKeyRevoked:       make(map[string]struct{}, len(src.UserKeyRevoked)),
+		// Imported keys are never namespaced so don't need stripping
+		ImportedApiKeysWeakHash: src.ImportedApiKeysWeakHash,
+	}
+
+	for id, user := range src.Users {
+		newID := namespacing.StripQualification(id)
+		if _, exists := out.Users[newID]; exists {
+			return dbUserdata{}, fmt.Errorf("namespace strip would alias dynamic users under %q", newID)
+		}
+		// Fresh User — [User] embeds sync.RWMutex; value-copy would copylock.
+		cp := &User{
+			Id:                 user.Id,
+			Active:             user.Active,
+			InternalIdentifier: user.InternalIdentifier,
+			ApiKeyFirstLetters: user.ApiKeyFirstLetters,
+			CreatedAt:          user.CreatedAt,
+			LastUsedAt:         user.LastUsedAt,
+			ImportedWithKey:    user.ImportedWithKey,
+			Namespace:          user.Namespace,
+		}
+		if newID != id {
+			cp.Id = newID
+			cp.Namespace = ""
+		}
+		out.Users[newID] = cp
+	}
+
+	for id, v := range src.SecureKeyStorageById {
+		newID := namespacing.StripQualification(id)
+		if _, exists := out.SecureKeyStorageById[newID]; exists {
+			return dbUserdata{}, fmt.Errorf("SecureKeyStorageById %q already exists in a different namespace", id)
+		}
+		out.SecureKeyStorageById[newID] = v
+	}
+	for id, v := range src.IdToIdentifier {
+		newID := namespacing.StripQualification(id)
+		if _, exists := out.IdToIdentifier[newID]; exists {
+			return dbUserdata{}, fmt.Errorf("IdToIdentifier %q already exists in a different namespace", id)
+		}
+		out.IdToIdentifier[newID] = v
+	}
+	for id := range src.UserKeyRevoked {
+		newID := namespacing.StripQualification(id)
+		if _, exists := out.UserKeyRevoked[newID]; exists {
+			return dbUserdata{}, fmt.Errorf("UserKeyRevoked %q already exists in a different namespace", id)
+		}
+		out.UserKeyRevoked[newID] = struct{}{}
+	}
+	// IdentifierToId is keyed by user id; rewrite the value.
+	for identifier, id := range src.IdentifierToId {
+		out.IdentifierToId[identifier] = namespacing.StripQualification(id)
+	}
+
+	return out, nil
 }
 
 func (c *DBUser) storeToFile() error {

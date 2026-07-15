@@ -2089,6 +2089,63 @@ func (_c *MockShardLike_HashTreeLevel_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
+// HashTreeRoot provides a mock function with no fields
+func (_m *MockShardLike) HashTreeRoot() (hashtree.Digest, bool) {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for HashTreeRoot")
+	}
+
+	var r0 hashtree.Digest
+	var r1 bool
+	if rf, ok := ret.Get(0).(func() (hashtree.Digest, bool)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() hashtree.Digest); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(hashtree.Digest)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func() bool); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Get(1).(bool)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_HashTreeRoot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HashTreeRoot'
+type MockShardLike_HashTreeRoot_Call struct {
+	*mock.Call
+}
+
+// HashTreeRoot is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) HashTreeRoot() *MockShardLike_HashTreeRoot_Call {
+	return &MockShardLike_HashTreeRoot_Call{Call: _e.mock.On("HashTreeRoot")}
+}
+
+func (_c *MockShardLike_HashTreeRoot_Call) Run(run func()) *MockShardLike_HashTreeRoot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_HashTreeRoot_Call) Return(root hashtree.Digest, ok bool) *MockShardLike_HashTreeRoot_Call {
+	_c.Call.Return(root, ok)
+	return _c
+}
+
+func (_c *MockShardLike_HashTreeRoot_Call) RunAndReturn(run func() (hashtree.Digest, bool)) *MockShardLike_HashTreeRoot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ID provides a mock function with no fields
 func (_m *MockShardLike) ID() string {
 	ret := _m.Called()

@@ -52,6 +52,7 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
@@ -472,6 +473,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
 		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
@@ -502,6 +504,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationConcurrency:    appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency,
 			AsyncReplicationPropagationBatchSize:      appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize,
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
+			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
 		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
@@ -514,6 +517,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		HNSWWaitForCachePrefill:                      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:                    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
 		HNSWAcornFilterRatio:                         appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		BM25FilterTombMergeGateRatio:                 appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
 		HNSWGeoIndexEF:                               appState.ServerConfig.Config.HNSWGeoIndexEF,
 		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		TenantActivityReadLogLevel:                   appState.ServerConfig.Config.TenantActivityReadLogLevel,
@@ -1438,6 +1442,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcInstrument...)
+	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState)
+	if err != nil {
+		appState.Logger.WithField("action", "grpc_web_startup").
+			Fatalf("init grpc-web handler: %v", err)
+	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
@@ -1566,14 +1575,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	startGrpcServer(grpcServer, appState)
 	setupMCPHandlers(api, appState, objectsManager)
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+
+	restHandler := setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	// Serve grpc-web on the REST port under /v1/grpc-web/ rather than a dedicated listener
+	return grpcweb.Mount("/v1/grpc-web", grpcWebHandler, restHandler,
+		func() bool { return appState.ServerConfig.Config.GRPC.GrpcWebEnabledOrDefault() })
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
+	// userLister lets the scheduler resolve includeUsers selectors. It stays
+	// nil when dynamic DB users are disabled, in which case includeUsers
+	// requests are rejected with a clear error rather than panicking.
+	var userLister backup.UserLister
+	if appState.ServerConfig.Config.Authentication.DBUsers.Enabled && appState.APIKey != nil && appState.APIKey.Dynamic != nil {
+		userLister = appState.APIKey.Dynamic
+	}
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, appState.Modules,
+		appState.DB, userLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		appState.Logger)
@@ -1630,7 +1650,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 
 	monitoring.InitConfig(serverConfig.Config.Monitoring)
 
-	if serverConfig.Config.DisableGraphQL {
+	if serverConfig.Config.DisableGraphQL.Get() {
 		logger.WithFields(logrus.Fields{
 			"action":          "startup",
 			"disable_graphql": true,
@@ -2618,6 +2638,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
 		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
 		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
+		registered.AsyncReplicationRootPrefilterBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize
 		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
@@ -2627,6 +2648,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
+		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
@@ -2649,6 +2671,8 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
+		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
+		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2692,7 +2716,7 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 				registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 				// common config
 				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsageShardConcurrency = appState.ServerConfig.Config.Usage.ShardConcurrency
 				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 			})
@@ -2714,6 +2738,17 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 					appState.Logger.WithField("action", "reconcile_async_replication").Error(err)
 				}
 			}, appState.Logger)
+			return nil
+		}
+		// GraphQL is loaded lazily on toggle: makeUpdateSchemaCall skips the build
+		// while disabled, so on enable rebuild from the current schema, and on
+		// disable drop the graph (it's no longer served).
+		hooks["DisableGraphQL"] = func() error {
+			if appState.ServerConfig.Config.DisableGraphQL.Get() {
+				appState.SetGraphQL(nil)
+			} else {
+				rebuildGraphQLOnEnable(appState)
+			}
 			return nil
 		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())

@@ -77,10 +77,10 @@ func (b *BM25Searcher) wandBlock(
 
 	// fallback to the old search process if not all buckets are inverted
 	if !qstats.allBucketsAreInverted {
-		// wand takes its OWN pins; release ours first — holding two RLocks
-		// on the same bucket deadlocks against a queued Shutdown writer.
-		pins.release()
-		objects, scores, err := b.wand(ctx, filterDocIds, class, params, limit, additional)
+		// Reuse this query's terms, stats, and pinned buckets on the fallback
+		// path instead of regenerating them; the deferred pins.release() above
+		// runs once wandFromStats returns.
+		objects, scores, err := b.wandFromStats(ctx, filterDocIds, params, limit, additional, qterms, qstats, pins, start)
 		return objects, scores, true, err
 	}
 
@@ -147,7 +147,7 @@ func (b *BM25Searcher) wandBlock(
 				}
 				n := globalIdfCounts[term] / nonZeroTerms[term]
 
-				globalIdfs[term] = math.Log(float64(1)+(qstats.n-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateBoostsByTerm[term])
+				globalIdfs[term] = terms.Idf(float64(n), qstats.n) * float64(duplicateBoostsByTerm[term])
 			}
 			for _, result := range allResults[lenAllResults:] {
 				if len(result) == 0 {

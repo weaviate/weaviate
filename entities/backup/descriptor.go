@@ -55,6 +55,7 @@ type DistributedBackupDescriptor struct {
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         CompressionType            `json:"compressionType"`
 	BaseBackupID            string                     `json:"baseBackupId"`
+	Users                   []string                   `json:"users,omitempty"`
 }
 
 // Len returns how many nodes exist in d
@@ -94,6 +95,19 @@ func (d *DistributedBackupDescriptor) Classes() []string {
 	for cls := range set {
 		lst[i] = cls
 		i++
+	}
+	return lst
+}
+
+// UserList returns the deduped dynamic-user IDs recorded in d (empty when none).
+func (d *DistributedBackupDescriptor) UserList() []string {
+	set := make(map[string]struct{}, len(d.Users))
+	for _, u := range d.Users {
+		set[u] = struct{}{}
+	}
+	lst := make([]string, 0, len(set))
+	for u := range set {
+		lst = append(lst, u)
 	}
 	return lst
 }
