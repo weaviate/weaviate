@@ -175,6 +175,37 @@ func randomVector(dims int) []float32 {
 	return out
 }
 
+// lazilyMaterializedSeries lists every series name of the metric families that
+// materialize lazily on first use: their presence depends on background LSM
+// activity rather than the number of classes. The file_io families are
+// summaries, so they also expose _sum and _count series. Exact names only, so
+// a future family that merely shares a prefix is still counted.
+var lazilyMaterializedSeries = map[string]bool{
+	"file_io_writes_total_bytes":       true,
+	"file_io_writes_total_bytes_sum":   true,
+	"file_io_writes_total_bytes_count": true,
+	"file_io_reads_total_bytes":        true,
+	"file_io_reads_total_bytes_sum":    true,
+	"file_io_reads_total_bytes_count":  true,
+	"mmap_operations_total":            true,
+}
+
+// metricName extracts the metric name from a Prometheus exposition line: the
+// family name for "# HELP"/"# TYPE" lines, otherwise the series name, i.e.
+// everything before the label set or the value.
+func metricName(line string) string {
+	if strings.HasPrefix(line, "# HELP ") || strings.HasPrefix(line, "# TYPE ") {
+		if fields := strings.Fields(line); len(fields) >= 3 {
+			return fields[2]
+		}
+		return ""
+	}
+	if i := strings.IndexAny(line, "{ "); i != -1 {
+		return line[:i]
+	}
+	return line
+}
+
 func countMetricsLines(t *testing.T, metricsEndpoint string) (int, []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -211,9 +242,7 @@ func countMetricsLines(t *testing.T, metricsEndpoint string) (int, []string) {
 		if strings.Contains(line, "weaviate_lsm_bucket_read_operation") {
 			continue
 		}
-		// these series materialize lazily on first use, so their count depends
-		// on background LSM activity rather than the number of classes
-		if strings.Contains(line, "file_io_") || strings.Contains(line, "mmap_operations") {
+		if lazilyMaterializedSeries[metricName(line)] {
 			continue
 		}
 		lineCount++
