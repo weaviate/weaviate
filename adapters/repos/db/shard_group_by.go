@@ -102,13 +102,18 @@ func (g *grouper) Do(ctx context.Context) ([]*storobj.Object, []float32, error) 
 		return nil, nil, fmt.Errorf("getting bucket class name: %w", err)
 	}
 
+	// Reused across iterations and grown to fit the largest object. Safe to reuse
+	// because ParseAndExtractProperty and FromBinaryOptionalDisk copy every value
+	// out before the next lookup overwrites the buffer.
+	var lsmBuf []byte
 DOCS_LOOP:
 	for i, docID := range g.ids {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		objData, err := g.objBucket.GetBySecondary(ctx, 0, docIDBytes)
+		objData, newBuf, err := g.objBucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, lsmBuf)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
 		}
+		lsmBuf = newBuf
 		if objData == nil {
 			continue
 		}

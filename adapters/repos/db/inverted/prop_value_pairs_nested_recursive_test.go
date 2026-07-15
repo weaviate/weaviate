@@ -59,7 +59,7 @@ func (f *fakeRecFetcher) fetchValue(_ context.Context, leaf *propValuePair) (*sr
 	return bm, func() { f.releaseCalls++ }, nil
 }
 
-func (f *fakeRecFetcher) fetchExists(leaf *propValuePair) (*sroar.Bitmap, func(), error) {
+func (f *fakeRecFetcher) fetchExists(_ context.Context, leaf *propValuePair) (*sroar.Bitmap, func(), error) {
 	f.existsCalls++
 	if f.failOnLeaf == leaf {
 		return nil, nil, errors.New("fake fetch error")
@@ -74,7 +74,7 @@ func (f *fakeRecFetcher) fetchExists(leaf *propValuePair) (*sroar.Bitmap, func()
 	return bm, func() { f.releaseCalls++ }, nil
 }
 
-func (f *fakeRecFetcher) fetchExistsAtPath(leaf *propValuePair, path string) (*sroar.Bitmap, func(), error) {
+func (f *fakeRecFetcher) fetchExistsAtPath(_ context.Context, leaf *propValuePair, path string) (*sroar.Bitmap, func(), error) {
 	f.existsAtPathCalls++
 	if f.failOnLeaf == leaf {
 		return nil, nil, errors.New("fake fetch error")
