@@ -12,12 +12,19 @@
 package noop
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+func Test_SnapshotMutableFiles(t *testing.T) {
+	relPaths, err := NewIndex().SnapshotMutableFiles(context.Background(), t.TempDir(), t.TempDir())
+	require.NoError(t, err)
+	assert.Nil(t, relPaths)
+}
 
 func Test_UpdateConfig(t *testing.T) {
 	t.Run("hnsw: with skip==true", func(t *testing.T) {

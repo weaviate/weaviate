@@ -26,6 +26,7 @@ const (
 	projectIDProperty   = "projectId"
 	endpointIDProperty  = "endpointId"
 	regionProperty      = "region"
+	locationProperty    = "location"
 	modelIDProperty     = "modelId"
 	modelProperty       = "model"
 	temperatureProperty = "temperature"
@@ -38,6 +39,7 @@ var (
 	DefaultGoogleApiEndpoint          = "us-central1-aiplatform.googleapis.com"
 	DefaultGoogleModel                = "chat-bison"
 	DefaultGoogleRegion               = "us-central1"
+	DefaultGoogleLocation             = "us-central1"
 	DefaultGoogleTemperature          = 1.0
 	DefaultTokenLimit                 = 1024
 	DefaultTokenLimitGemini1_0        = 2048
@@ -56,6 +58,7 @@ type ClassSettings interface {
 	ProjectID() string
 	EndpointID() string
 	Region() string
+	Location() string
 
 	ModelID() string
 	Model() string
@@ -182,6 +185,10 @@ func (ic *classSettings) Model() string {
 
 func (ic *classSettings) Region() string {
 	return ic.getStringProperty(regionProperty, DefaultGoogleRegion)
+}
+
+func (ic *classSettings) Location() string {
+	return ic.getStringProperty(locationProperty, DefaultGoogleLocation)
 }
 
 // parameters

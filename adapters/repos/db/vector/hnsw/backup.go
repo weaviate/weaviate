@@ -36,6 +36,10 @@ func (h *hnsw) ResumeAfterBackup(ctx context.Context) error {
 	return nil
 }
 
+func (h *hnsw) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	return nil, nil
+}
+
 // ListFiles lists all files that are part of the part of the HNSW
 // except the last commit-log which is writable. This operation is typically
 // called immediately after calling SwitchCommitlogs which means that the

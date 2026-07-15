@@ -199,6 +199,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			}(),
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
+			HaltForTransferTimeout:                       m.db.config.HaltForTransferTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
 			SkipWriteClassNameOnDisk:                     m.db.config.LSMSkipWriteClassNameEnabled,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
@@ -220,16 +221,17 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				}
 				return m.db.config.HNSWWaitForCachePrefill
 			}(),
-			HNSWFlatSearchConcurrency:  m.db.config.HNSWFlatSearchConcurrency,
-			HNSWAcornFilterRatio:       m.db.config.HNSWAcornFilterRatio,
-			VisitedListPoolMaxSize:     m.db.config.VisitedListPoolMaxSize,
-			QuerySlowLogEnabled:        m.db.config.QuerySlowLogEnabled,
-			QuerySlowLogThreshold:      m.db.config.QuerySlowLogThreshold,
-			InvertedSorterDisabled:     m.db.config.InvertedSorterDisabled,
-			LazyPropertyLengthsEnabled: m.db.config.LazyPropertyLengthsEnabled,
-			MaintenanceModeEnabled:     m.db.config.MaintenanceModeEnabled,
-			HFreshEnabled:              m.db.config.HFreshEnabled,
-			AutoTenantActivation:       schema.AutoTenantActivationEnabled(class),
+			HNSWFlatSearchConcurrency:    m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:         m.db.config.HNSWAcornFilterRatio,
+			BM25FilterTombMergeGateRatio: m.db.config.BM25FilterTombMergeGateRatio,
+			VisitedListPoolMaxSize:       m.db.config.VisitedListPoolMaxSize,
+			QuerySlowLogEnabled:          m.db.config.QuerySlowLogEnabled,
+			QuerySlowLogThreshold:        m.db.config.QuerySlowLogThreshold,
+			InvertedSorterDisabled:       m.db.config.InvertedSorterDisabled,
+			LazyPropertyLengthsEnabled:   m.db.config.LazyPropertyLengthsEnabled,
+			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
+			HFreshEnabled:                m.db.config.HFreshEnabled,
+			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -561,7 +563,8 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+		// index not yet local (RAFT schema not applied on this node) or class does not exist
+		return nil, fmt.Errorf("cannot get shards queue size for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
 	return idx.getShardsQueueSize(ctx, tenant)
@@ -575,7 +578,8 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+		// index not yet local (RAFT schema not applied on this node) or class does not exist
+		return nil, fmt.Errorf("cannot get shards status for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
 	return idx.getShardsStatus(ctx, tenant)
@@ -589,7 +593,8 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
+		// index not yet local (RAFT schema not applied on this node) or class does not exist
+		return fmt.Errorf("cannot update shard status to a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)

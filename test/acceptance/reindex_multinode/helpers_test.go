@@ -25,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -61,9 +62,22 @@ func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...str
 	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
 
-// createCollection creates a class with the given shard count and replication factor
-// via the REST API.
-func createCollection(t *testing.T, restURI, className string, shardCount, rf int, properties []*models.Property) {
+func textProps(names ...string) []*models.Property {
+	props := make([]*models.Property, 0, len(names))
+	for _, name := range names {
+		props = append(props, &models.Property{
+			Name:         name,
+			DataType:     []string{"text"},
+			Tokenization: "word",
+		})
+	}
+	return props
+}
+
+// createCollection creates a class via the REST API, then blocks until it is
+// in every node's local schema view: a lagging follower fails consistency=ALL
+// writes, and retrying isn't safe (auto-UUIDs would duplicate).
+func createCollection(t *testing.T, compose *docker.DockerCompose, restURI, className string, shardCount, rf int, properties []*models.Property) {
 	t.Helper()
 
 	class := map[string]interface{}{
@@ -91,6 +105,31 @@ func createCollection(t *testing.T, restURI, className string, shardCount, rf in
 
 	respBody, _ := io.ReadAll(resp.Body)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "create class failed: %s", string(respBody))
+
+	// consistency:false forces a local read; the default proxies to the
+	// leader, which would hide a lagging follower.
+	for _, node := range compose.Containers() {
+		if !strings.HasPrefix(node.Name(), "weaviate-") {
+			continue
+		}
+		nodeURI := node.URI()
+		require.Eventuallyf(t, func() bool {
+			req, err := http.NewRequest(http.MethodGet,
+				fmt.Sprintf("http://%s/v1/schema/%s", nodeURI, className), nil)
+			if err != nil {
+				return false
+			}
+			req.Header.Set("consistency", "false")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return false
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			return resp.StatusCode == http.StatusOK
+		}, 60*time.Second, 100*time.Millisecond,
+			"class %s must be locally visible on node %s before consistency=ALL writes", className, node.Name())
+	}
 }
 
 // deleteCollection deletes a class via the REST API.
@@ -354,21 +393,15 @@ func assertQueryConsistency(t *testing.T, results [][]string) {
 	}
 }
 
-// getClassFromNode retrieves a class schema from a specific node.
+// getClassFromNode is LEADER-PROXIED (default GET consistency): fine for
+// cluster-level assertions, never a per-node visibility gate — use
+// reindexhelpers.AwaitTokenizationVisible for gating.
 func getClassFromNode(t *testing.T, restURI, className string) *models.Class {
 	t.Helper()
 
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s", restURI, className))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, "get class failed: %s", string(body))
-
-	var class models.Class
-	require.NoError(t, json.Unmarshal(body, &class))
-	return &class
+	class, ok := reindexhelpers.FetchClass(restURI, className, false)
+	require.True(t, ok, "get class %s via %s failed", className, restURI)
+	return class
 }
 
 // tryImportObject attempts to import a single object and returns an error
@@ -403,29 +436,14 @@ func tryImportObject(restURI, className, text string) error {
 	return nil
 }
 
-// tryGetPropertyTokenization retrieves a property's tokenization from a node.
-// Returns "" if the request fails or the property is not found.
+// tryGetPropertyTokenization is LEADER-PROXIED (default GET consistency):
+// fine for cluster-level assertions, never a per-node visibility gate — use
+// reindexhelpers.AwaitTokenizationVisible for gating. "" = failed/not found.
 func tryGetPropertyTokenization(restURI, className, propName string) string {
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s", restURI, className))
-	if err != nil {
+	class, ok := reindexhelpers.FetchClass(restURI, className, false)
+	if !ok {
 		return ""
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return ""
-	}
-
-	var class models.Class
-	if err := json.Unmarshal(body, &class); err != nil {
-		return ""
-	}
-
 	for _, prop := range class.Properties {
 		if prop.Name == propName {
 			return prop.Tokenization
@@ -622,6 +640,11 @@ func filterMigrationLogLines(s string) []string {
 		"recovered untidied", "swap INCOMPLETE", "swap complete",
 		"runtime swap", "trim:",
 		"distributed task", "distributedtask",
+		// raft leadership lines: correlate with the FINISHED vs
+		// local-schema race (see AwaitTokenizationVisible).
+		"entering follower state", "entering candidate state",
+		"entering leader state", "election won", "leadership",
+		"raft_node_state",
 	}
 	var out []string
 	for _, line := range strings.Split(s, "\n") {

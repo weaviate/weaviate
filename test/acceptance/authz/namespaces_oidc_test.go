@@ -369,4 +369,193 @@ func TestNamespacesOIDC(t *testing.T) {
 		}
 		assert.True(t, found, "namespaced DB user %q must appear in GET roles/{name}/users; got %+v", qualifiedID, users)
 	})
+
+	// The namespace comes from the token claim, not a stored DB-user id; role
+	// qualification and matcher confinement must work the same on this path.
+	t.Run("namespaced OIDC admin manages its own namespace-local role", func(t *testing.T) {
+		// Narrow the OIDC principal to a customer1 admin.
+		const oidcUserID = "customer1:oidc-namespaced-customer1"
+		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, oidcUserID)
+		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Admin, oidcUserID)
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-namespaced-customer1")
+
+		readRole := func(name, collection string) *models.Role {
+			return &models.Role{
+				Name: authorization.String(name),
+				Permissions: []*models.Permission{
+					helper.NewCollectionsPermission().
+						WithAction(authorization.ReadCollections).
+						WithCollection(collection).
+						Permission(),
+				},
+			}
+		}
+		findCollection := func(role *models.Role) string {
+			for _, p := range role.Permissions {
+				if p.Collections != nil && p.Collections.Collection != nil {
+					return *p.Collections.Collection
+				}
+			}
+			return ""
+		}
+
+		t.Run("create auto-prefixes; caller sees short form, operator sees qualified", func(t *testing.T) {
+			helper.CreateRole(t, token, readRole("oidceditor", "*"))
+			defer helper.DeleteRole(t, adminKey, "customer1:oidceditor")
+
+			// Caller reads back bare; operator reads the stored qualified form.
+			own := helper.GetRoleByName(t, token, "oidceditor")
+			assert.Equal(t, "oidceditor", *own.Name)
+			assert.Equal(t, "*", findCollection(own))
+
+			stored := helper.GetRoleByName(t, adminKey, "customer1:oidceditor")
+			assert.Equal(t, "customer1:oidceditor", *stored.Name)
+			assert.Equal(t, "customer1:*", findCollection(stored))
+		})
+
+		t.Run("addPermissions/removePermissions qualify on write and strip on read", func(t *testing.T) {
+			helper.CreateRole(t, token, readRole("oidcupd", "*"))
+			defer helper.DeleteRole(t, adminKey, "customer1:oidcupd")
+
+			extra := helper.NewCollectionsPermission().
+				WithAction(authorization.ReadCollections).WithCollection("Movies").Permission()
+			helper.AddPermissions(t, token, "oidcupd", extra)
+
+			// Caller sees "Movies" bare; operator sees it qualified.
+			require.Contains(t, collectionNames(helper.GetRoleByName(t, token, "oidcupd")), "Movies")
+			require.Contains(t, collectionNames(helper.GetRoleByName(t, adminKey, "customer1:oidcupd")), "customer1:Movies")
+
+			helper.RemovePermissions(t, token, "oidcupd", extra)
+			require.NotContains(t, collectionNames(helper.GetRoleByName(t, token, "oidcupd")), "Movies")
+		})
+
+		t.Run("the OIDC admin assigns its local role and sees it on own-info, stripped", func(t *testing.T) {
+			helper.CreateRole(t, token, readRole("oidcassign", "*"))
+			defer helper.DeleteRole(t, adminKey, "customer1:oidcassign")
+
+			helper.AssignRoleToUserOIDC(t, token, "oidcassign", "oidc-namespaced-customer1")
+			helper.WaitForOwnRole(t, token, "oidcassign")
+
+			info := helper.GetInfoForOwnUser(t, token)
+			var found bool
+			for _, r := range info.Roles {
+				assert.NotContains(t, *r.Name, ":", "own-info role names must not carry a namespace prefix")
+				if *r.Name == "oidcassign" {
+					found = true
+				}
+			}
+			assert.True(t, found, "own-info must list the assigned local role under its short name")
+		})
+
+		t.Run("delete by the OIDC admin removes the local role", func(t *testing.T) {
+			helper.CreateRole(t, token, readRole("oidcdisposable", "*"))
+			_, err := helper.Client(t).Authz.DeleteRole(
+				clauthz.NewDeleteRoleParams().WithID("oidcdisposable"), helper.CreateAuth(token))
+			require.NoError(t, err)
+
+			// Gone in the operator's qualified view too.
+			_, getErr := helper.Client(t).Authz.GetRole(
+				clauthz.NewGetRoleParams().WithID("customer1:oidcdisposable"), helper.CreateAuth(adminKey))
+			var notFound *clauthz.GetRoleNotFound
+			require.True(t, errors.As(getErr, &notFound), "expected GetRoleNotFound, got %T: %v", getErr, getErr)
+		})
+	})
+
+	// Matcher confinement must bound the OIDC-authenticated admin too.
+	t.Run("namespaced OIDC admin is confined to its namespace for role writes", func(t *testing.T) {
+		const oidcUserID = "customer1:oidc-namespaced-customer1"
+		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, oidcUserID)
+		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Admin, oidcUserID)
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-namespaced-customer1")
+
+		t.Run("a qualified foreign-namespace role name is rejected", func(t *testing.T) {
+			// Colon form is rejected before any existence check; customer2 need not exist.
+			_, err := helper.Client(t).Authz.DeleteRole(
+				clauthz.NewDeleteRoleParams().WithID("customer2:ghost"), helper.CreateAuth(token))
+			var badReq *clauthz.DeleteRoleBadRequest
+			require.True(t, errors.As(err, &badReq), "got %T: %v", err, err)
+		})
+
+		t.Run("a global role cannot be edited or deleted by the namespaced admin", func(t *testing.T) {
+			// A global role lies outside the namespaced admin's matcher scope.
+			const globalRole = "oidcglobalprobe"
+			helper.CreateRole(t, adminKey, &models.Role{
+				Name: authorization.String(globalRole),
+				Permissions: []*models.Permission{
+					helper.NewCollectionsPermission().
+						WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+				},
+			})
+			defer helper.DeleteRole(t, adminKey, globalRole)
+
+			extra := []*models.Permission{
+				helper.NewCollectionsPermission().
+					WithAction(authorization.ReadCollections).WithCollection("Movies").Permission(),
+			}
+			_, addErr := helper.Client(t).Authz.AddPermissions(
+				clauthz.NewAddPermissionsParams().WithID(globalRole).
+					WithBody(clauthz.AddPermissionsBody{Permissions: extra}),
+				helper.CreateAuth(token))
+			var addForbidden *clauthz.AddPermissionsForbidden
+			require.True(t, errors.As(addErr, &addForbidden), "got %T: %v", addErr, addErr)
+
+			_, delErr := helper.Client(t).Authz.DeleteRole(
+				clauthz.NewDeleteRoleParams().WithID(globalRole), helper.CreateAuth(token))
+			var delForbidden *clauthz.DeleteRoleForbidden
+			require.True(t, errors.As(delErr, &delForbidden), "got %T: %v", delErr, delErr)
+		})
+	})
+
+	// Reading one's OWN group's roles surfaces an operator-reserved role bound to
+	// that group (the own-group relaxation in visibleRolesForSubject), though the
+	// same caller cannot see it via getRole/getRoles.
+	t.Run("own-group self-read surfaces a reserved role that getRole/getRoles hide", func(t *testing.T) {
+		const groupName = "AllUsers"
+		const reserved = "operator_grpselfread"
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: authorization.String(reserved),
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().
+					WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, reserved)
+		helper.AssignRoleToGroup(t, adminKey, reserved, groupName)
+		defer helper.RevokeRoleFromGroup(t, adminKey, reserved, groupName)
+
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-customer1-group-member")
+
+		hasRole := func(roles []*models.Role, name string) bool {
+			for _, r := range roles {
+				if r.Name != nil && *r.Name == name {
+					return true
+				}
+			}
+			return false
+		}
+
+		// Self-read of the member's own group lists the reserved role.
+		require.True(t, hasRole(helper.GetRolesForGroup(t, token, groupName, false), reserved),
+			"own-group self-read must surface the reserved role bound to the caller's group")
+
+		// The same member cannot see that reserved role directly: getRole 404s and
+		// getRoles omits it — proof the visibility comes from the own-group relaxation.
+		_, err := helper.Client(t).Authz.GetRole(
+			clauthz.NewGetRoleParams().WithID(reserved), helper.CreateAuth(token))
+		var notFound *clauthz.GetRoleNotFound
+		require.True(t, errors.As(err, &notFound), "reserved role must be hidden from getRole; got %T: %v", err, err)
+		require.False(t, hasRole(helper.GetRoles(t, token), reserved),
+			"reserved role must not appear in the member's getRoles list")
+	})
+}
+
+// collectionNames returns each collections permission's collection.
+func collectionNames(role *models.Role) []string {
+	out := make([]string, 0, len(role.Permissions))
+	for _, p := range role.Permissions {
+		if p.Collections != nil && p.Collections.Collection != nil {
+			out = append(out, *p.Collections.Collection)
+		}
+	}
+	return out
 }

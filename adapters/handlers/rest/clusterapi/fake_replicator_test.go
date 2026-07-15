@@ -130,6 +130,10 @@ func (f *fakeReplicator) GetAsyncCheckpointStatus(_ context.Context, _ string, _
 	return map[string]replica.AsyncCheckpointShardStatus{}, nil
 }
 
+func (f *fakeReplicator) CompareHashTreeRoots(ctx context.Context, className string, roots map[string]hashtree.Digest) ([]string, error) {
+	return nil, nil
+}
+
 func (f *fakeReplicator) Done() {
 	close(f.commitBlock)
 }

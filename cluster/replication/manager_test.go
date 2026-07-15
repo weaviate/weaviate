@@ -12,6 +12,7 @@
 package replication_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1050,6 +1051,109 @@ func uuid4() strfmt.UUID {
 	return strfmt.UUID(id.String())
 }
 
+func TestReplicationFSM_HasActiveReplicationForShard(t *testing.T) {
+	// Node-independence: the op registered below is node1->node2, yet the queries (which
+	// take no node argument) must report it active for its collection/shard on every node.
+	type shardCheck struct {
+		collection string
+		shard      string
+		expected   bool
+	}
+	type collectionCheck struct {
+		collection string
+		expected   bool
+	}
+
+	activeShardChecks := []shardCheck{
+		{collection: "TestCollection", shard: "shard1", expected: true},
+		{collection: "non-existing-collection", shard: "shard1", expected: false},
+		{collection: "TestCollection", shard: "non-existing-shard", expected: false},
+	}
+	inactiveShardChecks := []shardCheck{
+		{collection: "TestCollection", shard: "shard1", expected: false},
+		{collection: "non-existing-collection", shard: "shard1", expected: false},
+		{collection: "TestCollection", shard: "non-existing-shard", expected: false},
+	}
+	activeCollectionChecks := []collectionCheck{
+		{collection: "TestCollection", expected: true},
+		{collection: "non-existing-collection", expected: false},
+	}
+	inactiveCollectionChecks := []collectionCheck{
+		{collection: "TestCollection", expected: false},
+		{collection: "non-existing-collection", expected: false},
+	}
+
+	tests := []struct {
+		name             string
+		status           api.ShardReplicationState
+		shardChecks      []shardCheck
+		collectionChecks []collectionCheck
+	}{
+		// Non-terminal: active.
+		{name: "op is REGISTERED", status: api.REGISTERED, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is HYDRATING", status: api.HYDRATING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is FINALIZING", status: api.FINALIZING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is INTEGRATING", status: api.INTEGRATING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		{name: "op is DEHYDRATING", status: api.DEHYDRATING, shardChecks: activeShardChecks, collectionChecks: activeCollectionChecks},
+		// Terminal and not marked for deletion: inactive.
+		{name: "op is READY", status: api.READY, shardChecks: inactiveShardChecks, collectionChecks: inactiveCollectionChecks},
+		{name: "op is CANCELLED", status: api.CANCELLED, shardChecks: inactiveShardChecks, collectionChecks: inactiveCollectionChecks},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			reg := prometheus.NewPedanticRegistry()
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaReader := schemaManager.NewSchemaReader()
+			manager := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), reg)
+			schemaManager.AddClass(
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+					Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+					State: &sharding.State{
+						Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+					},
+				}), "node1", true, false)
+
+			// Create ApplyRequest
+			subCommand, _ := json.Marshal(&api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
+				SourceCollection: "TestCollection",
+				SourceShard:      "shard1",
+				SourceNode:       "node1",
+				TargetNode:       "node2",
+				TransferType:     api.COPY.String(),
+			})
+			applyRequest := &api.ApplyRequest{
+				SubCommand: subCommand,
+			}
+
+			// Execute
+			err := manager.Replicate(0, applyRequest)
+			assert.NoError(t, err)
+
+			manager.GetReplicationFSM().UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+				Id:      0,
+				Version: 0,
+				State:   tt.status,
+			})
+
+			fsm := manager.GetReplicationFSM()
+			for _, c := range tt.shardChecks {
+				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForShard(c.collection, c.shard),
+					"HasActiveReplicationForShard(%q, %q)", c.collection, c.shard)
+			}
+			for _, c := range tt.collectionChecks {
+				assert.Equalf(t, c.expected, fsm.HasActiveReplicationForCollection(c.collection),
+					"HasActiveReplicationForCollection(%q)", c.collection)
+			}
+		})
+	}
+}
+
 func TestManager_QueryReplicationScalePlan(t *testing.T) {
 	t.Parallel()
 
@@ -1417,10 +1521,232 @@ func TestManager_QueryReplicationScalePlan(t *testing.T) {
 	}
 }
 
+// seedRestoreOp registers an op (distinct shard per id so FQDNs don't collide)
+// and drives it to the given state, for building a snapshot to restore.
+func seedRestoreOp(t *testing.T, fsm *replication.ShardReplicationFSM, opID uint64, state api.ShardReplicationState) {
+	t.Helper()
+	require.NoError(t, fsm.Replicate(opID, &api.ReplicationReplicateShardRequest{
+		Version:          api.ReplicationCommandVersionV0,
+		Uuid:             strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", opID)),
+		SourceNode:       "node1",
+		SourceCollection: "TestClass",
+		SourceShard:      fmt.Sprintf("shard%d", opID),
+		TargetNode:       "node2",
+		TransferType:     api.COPY.String(),
+	}))
+	if state == api.CANCELLED {
+		driveToCancelled(t, fsm, opID)
+		return
+	}
+	driveToState(t, fsm, opID, state)
+}
+
+// TestManager_ReannouncesReachedStatesAfterRestore covers the cutover-deadlock
+// edge: a node that obtains an op's state via snapshot restore (InstallSnapshot
+// catch-up, or joining mid-op) never applies UPDATE_STATE, so it never broadcasts
+// NodeReachedState and never appears in peers' PerNodeState — which would stall
+// the AllPeersAtLeast barrier forever. Manager.Restore must re-announce this
+// node's reached state for every non-terminal op (and only those).
+func TestManager_ReannouncesReachedStatesAfterRestore(t *testing.T) {
+	// Build a snapshot containing a mix of in-progress and terminal ops.
+	src := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+	seedRestoreOp(t, src, 1, api.INTEGRATING)
+	seedRestoreOp(t, src, 2, api.DEHYDRATING)
+	seedRestoreOp(t, src, 3, api.HYDRATING)
+	seedRestoreOp(t, src, 4, api.READY)     // terminal — must not be re-announced
+	seedRestoreOp(t, src, 5, api.CANCELLED) // terminal — must not be re-announced
+	blob, err := src.Snapshot()
+	require.NoError(t, err)
+
+	// schemaReader/nodeSelector are unused on the broadcast path; no inflight
+	// drainer is set, so the INTEGRATING/DEHYDRATING drain is a no-op.
+	m := replication.NewManager(schema.SchemaReader{}, nil, prometheus.NewPedanticRegistry())
+	m.SetLogger(logrus.New())
+
+	type announcement struct {
+		id    uint64
+		node  string
+		state api.ShardReplicationState
+	}
+	got := make(chan announcement, 16)
+	m.SetNodeReachedStateSubmitter("node2", func(ctx context.Context, req *api.ReplicationNodeReachedStateRequest) error {
+		got <- announcement{id: req.Id, node: req.NodeId, state: req.State}
+		return nil
+	})
+
+	require.NoError(t, m.Restore(blob))
+
+	// Exactly the three non-terminal ops are re-announced, each for the local node.
+	want := map[uint64]api.ShardReplicationState{
+		1: api.INTEGRATING,
+		2: api.DEHYDRATING,
+		3: api.HYDRATING,
+	}
+	seen := make(map[uint64]api.ShardReplicationState, len(want))
+	deadline := time.After(5 * time.Second)
+	for len(seen) < len(want) {
+		select {
+		case a := <-got:
+			require.Equal(t, "node2", a.node, "broadcast must carry the local node id")
+			seen[a.id] = a.state
+		case <-deadline:
+			t.Fatalf("timed out waiting for re-announcements; saw %v, want %v", seen, want)
+		}
+	}
+	require.Equal(t, want, seen)
+
+	// Terminal ops (READY/CANCELLED) must not be re-announced.
+	select {
+	case a := <-got:
+		t.Fatalf("unexpected re-announcement for op %d (%v); terminal ops must be skipped", a.id, a.state)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 func mustMarshal(v interface{}) []byte {
 	data, err := json.Marshal(v)
 	if err != nil {
 		panic(err)
 	}
 	return data
+}
+
+// restoreOp is the shape a determinism-row builder uses to declare an op it
+// wants present in the source snapshot.
+type restoreOp struct {
+	id           uint64
+	srcNode      string
+	tgtNode      string
+	collection   string
+	shard        string
+	transferType api.ShardReplicationTransferType
+	// state the op should be driven to before the snapshot is taken; CANCELLED is
+	// driven via CancellationComplete (the FSM rejects CANCELLED via UpdateOpState).
+	state api.ShardReplicationState
+}
+
+// targetExpect is the per-target-replica expectation a determinism row asserts after
+// every restore. opCount reads the per-node target index (opsByTarget, the append slice
+// the producer builds work sets from); routable reads the per-FQDN routing index
+// (opsByTargetFQDN) — the only index the Part B last-writer-wins clobber touches.
+type targetExpect struct {
+	node       string
+	collection string
+	shard      string
+	opCount    int  // ops reconstructed into the per-node target index
+	routable   bool // an active op survives on this FQDN ⇒ target is read+write routable
+}
+
+func TestManager_SnapshotRestore_Deterministic(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+
+	cases := []struct {
+		name string
+		// seeded in id order; a terminal op must precede the active op sharing its FQDN.
+		ops []restoreOp
+		// one routable + one non-routable op per shared target replica.
+		wantTargets []targetExpect
+	}{
+		{
+			name: "cancelled MOVE + active MOVE on same source+target",
+			ops: []restoreOp{
+				{id: 1, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.CANCELLED},
+				{id: 2, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.INTEGRATING},
+			},
+			wantTargets: []targetExpect{{node: "node2", collection: coll, shard: shard, opCount: 2, routable: true}},
+		},
+		{
+			name: "cancelled MOVE + active MOVE from a distinct source into the same target",
+			ops: []restoreOp{
+				{id: 1, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.CANCELLED},
+				{id: 2, srcNode: "node3", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.INTEGRATING},
+			},
+			wantTargets: []targetExpect{{node: "node2", collection: coll, shard: shard, opCount: 2, routable: true}},
+		},
+		{
+			name: "completed COPY (READY) + active recopy COPY into the same target",
+			ops: []restoreOp{
+				{id: 1, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.COPY, state: api.READY},
+				{id: 2, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.COPY, state: api.HYDRATING},
+			},
+			wantTargets: []targetExpect{{node: "node2", collection: coll, shard: shard, opCount: 2, routable: true}},
+		},
+		{
+			name: "combined snapshot mixing the above coexistences",
+			ops: []restoreOp{
+				{id: 1, srcNode: "node1", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.CANCELLED},
+				{id: 2, srcNode: "node3", tgtNode: "node2", collection: coll, shard: shard, transferType: api.MOVE, state: api.INTEGRATING},
+				{id: 3, srcNode: "node4", tgtNode: "node5", collection: coll, shard: shard, transferType: api.COPY, state: api.READY},
+				{id: 4, srcNode: "node4", tgtNode: "node5", collection: coll, shard: shard, transferType: api.COPY, state: api.HYDRATING},
+			},
+			wantTargets: []targetExpect{
+				{node: "node2", collection: coll, shard: shard, opCount: 2, routable: true},
+				{node: "node5", collection: coll, shard: shard, opCount: 2, routable: true},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Build the committed snapshot on a source FSM.
+			src := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			for _, op := range tc.ops {
+				seedOpFull(t, src, op.id, op.srcNode, op.tgtNode, op.collection, op.shard, op.transferType)
+				switch op.state {
+				case api.REGISTERED:
+				case api.CANCELLED:
+					driveToCancelled(t, src, op.id)
+				default:
+					driveToState(t, src, op.id, op.state)
+				}
+			}
+			blob, err := src.Snapshot()
+			require.NoError(t, err)
+
+			// Restore the same bytes 100 times; each restore ranges a freshly randomized map.
+			const restores = 100
+			var prevStatus map[replication.ShardReplicationOp]replication.ShardReplicationOpStatus
+			for i := 0; i < restores; i++ {
+				dst := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+				err := dst.Restore(blob)
+				require.NoErrorf(t, err, "restore %d/%d must not error", i+1, restores)
+
+				// Every op is present in opsById/statusById.
+				gotStatus := dst.GetStatusByOps()
+				require.Lenf(t, gotStatus, len(tc.ops), "restore %d: op count", i+1)
+				for _, op := range tc.ops {
+					_, ok := dst.GetOpById(op.id)
+					require.Truef(t, ok, "restore %d: op %d present", i+1, op.id)
+				}
+
+				// per-node index (append-based) — holds both ops even under the clobber.
+				for _, tgt := range tc.wantTargets {
+					require.Lenf(t, dst.GetOpsForTarget(tgt.node), tgt.opCount,
+						"restore %d: per-node target index count for %s", i+1, tgt.node)
+				}
+
+				// routing reads opsByTargetFQDN, the clobbered index: a clobber drops one
+				// op, so ~half the random orders leave the non-routable op and return empty.
+				for _, tgt := range tc.wantTargets {
+					want := []string{}
+					if tgt.routable {
+						want = []string{tgt.node}
+					}
+					require.Equalf(t, want, dst.FilterOneShardReplicasRead(tgt.collection, tgt.shard, []string{tgt.node}),
+						"restore %d: target %s read routing", i+1, tgt.node)
+					require.Equalf(t, want, dst.FilterOneShardReplicasWrite(tgt.collection, tgt.shard, []string{tgt.node}),
+						"restore %d: target %s write routing", i+1, tgt.node)
+				}
+
+				// Every restore reconstructs the identical FSM state.
+				if prevStatus != nil {
+					require.Equalf(t, prevStatus, gotStatus, "restore %d state must match restore %d", i+1, i)
+				}
+				prevStatus = gotStatus
+			}
+		})
+	}
 }

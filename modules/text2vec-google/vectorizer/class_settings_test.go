@@ -30,6 +30,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantProjectID   string
 		wantModelID     string
 		wantTitle       string
+		wantLocation    string
 		wantTaskType    string
 		wantDimensions  *int64
 		wantErr         error
@@ -44,7 +45,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "gemini-embedding-001",
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
 		},
@@ -63,6 +63,21 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantModelID:     "gemini-embedding-001",
 			wantTitle:       "title",
 			wantTaskType:    "CODE_RETRIEVAL_QUERY",
+			wantDimensions:  &DefaultDimensions,
+			wantErr:         nil,
+		},
+		{
+			name: "custom location",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "projectId",
+					"location":  "europe-west1",
+				},
+			},
+			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
+			wantProjectID:   "projectId",
+			wantModelID:     "gemini-embedding-001",
+			wantLocation:    "europe-west1",
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
 		},
@@ -95,7 +110,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "gemini-embedding-001",
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
 		},
@@ -110,7 +124,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "embedding-gecko-001",
-			wantTaskType:    DefaultTaskType,
 			wantDimensions:  nil,
 			wantErr:         nil,
 		},
@@ -145,20 +158,32 @@ func Test_classSettings_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ic := NewClassSettings(tt.cfg)
 			if tt.wantErr != nil {
-				assert.EqualError(t, ic.Validate(&models.Class{Class: "Test", Properties: []*models.Property{
-					{
-						Name:     "test",
-						DataType: []string{schema.DataTypeText.String()},
-					},
-				}}), tt.wantErr.Error())
+				assert.EqualError(t, ic.Validate(classForSettingsValidation()), tt.wantErr.Error())
 			} else {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
 				assert.Equal(t, tt.wantModelID, ic.Model())
 				assert.Equal(t, tt.wantTitle, ic.TitleProperty())
-				assert.Equal(t, tt.wantTaskType, ic.TaskType())
+				assert.Equal(t, wantOrDefault(tt.wantLocation, DefaultLocation), ic.Location())
+				assert.Equal(t, wantOrDefault(tt.wantTaskType, DefaultTaskType), ic.TaskType())
 				assert.Equal(t, tt.wantDimensions, ic.Dimensions())
 			}
 		})
 	}
+}
+
+func classForSettingsValidation() *models.Class {
+	return &models.Class{Class: "Test", Properties: []*models.Property{
+		{
+			Name:     "test",
+			DataType: []string{schema.DataTypeText.String()},
+		},
+	}}
+}
+
+func wantOrDefault(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }

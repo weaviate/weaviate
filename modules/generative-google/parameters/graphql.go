@@ -39,6 +39,10 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 					Description: "region",
 					Type:        graphql.String,
 				},
+				"location": &graphql.InputObjectFieldConfig{
+					Description: "location",
+					Type:        graphql.String,
+				},
 				"model": &graphql.InputObjectFieldConfig{
 					Description: "model",
 					Type:        graphql.String,

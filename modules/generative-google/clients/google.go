@@ -111,7 +111,7 @@ var (
 	FINISH_REASON_SPII               = "SPII"
 )
 
-func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, region string) string {
+func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string {
 	if useGenerativeAI {
 		// Generative AI endpoints, for more context check out this link:
 		// https://developers.generativeai.google/models/language#model_variations
@@ -123,18 +123,24 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, region stri
 	}
 	if strings.HasPrefix(modelID, "gemini") {
 		// Vertex AI support for Gemini models: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini
-		urlTemplate := "https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent"
-		return fmt.Sprintf(urlTemplate, region, projectID, region, modelID)
+		// The global endpoint is served from a region-less host, while regional endpoints
+		// are prefixed with the region, e.g. us-central1-aiplatform.googleapis.com.
+		host := fmt.Sprintf("%s-aiplatform.googleapis.com", region)
+		if location == "global" {
+			host = "aiplatform.googleapis.com"
+		}
+		urlTemplate := "https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent"
+		return fmt.Sprintf(urlTemplate, host, projectID, location, modelID)
 	}
-	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, modelID)
+	urlTemplate := "https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:predict"
+	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, location, modelID)
 }
 
 type google struct {
 	apiKey        string
 	useGoogleAuth bool
 	googleApiKey  *apikey.GoogleApiKey
-	buildUrlFn    func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region string) string
+	buildUrlFn    func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string
 	httpClient    *http.Client
 	logger        logrus.FieldLogger
 }
@@ -176,7 +182,7 @@ func (v *google) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		modelID = params.EndpointID
 	}
 
-	endpointURL := v.buildUrlFn(useGenerativeAIEndpoint, params.ApiEndpoint, params.ProjectID, modelID, params.Region)
+	endpointURL := v.buildUrlFn(useGenerativeAIEndpoint, params.ApiEndpoint, params.ProjectID, modelID, params.Region, params.Location)
 	input := v.getPayload(useGenerativeAIEndpoint, prompt, params)
 
 	body, err := json.Marshal(input)
@@ -263,6 +269,9 @@ func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{},
 	}
 	if params.Region == "" {
 		params.Region = settings.Region()
+	}
+	if params.Location == "" {
+		params.Location = settings.Location()
 	}
 	if params.Model == "" {
 		model := settings.Model()

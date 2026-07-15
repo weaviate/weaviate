@@ -254,3 +254,93 @@ func (f *fakeRouter) NodeHostname(nodeName string) (string, bool) {
 	host, ok := f.hostnames[nodeName]
 	return host, ok
 }
+
+// TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the
+// rf=1 scale-out lost-write fix: while a replica movement is active for the shard, a write
+// must be routed through the replicator (so it registers in the in-flight fence and the
+// source's change-capture log cannot be sealed over it), even at replicationFactor=1 with a
+// single-node write-set. Without the fix the "active movement, single replica" row returns
+// false — the write would take the direct-local path that bypasses the fence.
+func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement(t *testing.T) {
+	const (
+		className = "MoveClass"
+		shardName = "shard1"
+		tenant    = ""
+	)
+
+	tests := []struct {
+		name           string
+		replicationF   int64
+		movementActive bool
+		// writeReplicas is the router's write-set node names. nil means the router must NOT
+		// be consulted (the call should short-circuit before GetWriteReplicasLocation).
+		writeReplicas []string
+		want          bool
+	}{
+		{
+			name:           "rf=1, no movement, single replica -> direct-local",
+			replicationF:   1,
+			movementActive: false,
+			writeReplicas:  []string{"node-A"},
+			want:           false,
+		},
+		{
+			name:           "rf=1, ACTIVE movement, single replica -> replicator (regression pin)",
+			replicationF:   1,
+			movementActive: true,
+			writeReplicas:  nil, // movement short-circuits before the router is consulted
+			want:           true,
+		},
+		{
+			name:           "rf=1, no movement, two replicas -> replicator",
+			replicationF:   1,
+			movementActive: false,
+			writeReplicas:  []string{"node-A", "node-B"},
+			want:           true,
+		},
+		{
+			name:           "rf>1 -> replicator (short-circuit, FSM+router untouched)",
+			replicationF:   3,
+			movementActive: false,
+			writeReplicas:  nil,
+			want:           true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fsm := &fakeFSMReader{active: tt.movementActive}
+
+			mockRouter := types.NewMockRouter(t)
+			if tt.writeReplicas != nil {
+				replicas := make([]types.Replica, 0, len(tt.writeReplicas))
+				for _, n := range tt.writeReplicas {
+					replicas = append(replicas, types.Replica{NodeName: n, ShardName: shardName})
+				}
+				mockRouter.EXPECT().
+					GetWriteReplicasLocation(className, tenant, shardName).
+					Return(types.WriteReplicaSet{Replicas: replicas}, nil).
+					Once()
+			}
+			// When writeReplicas is nil we set no expectation, so any router call fails the
+			// test — proving the call short-circuited before consulting the router.
+
+			idx := &Index{
+				Config:               IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
+				replicationFSMReader: fsm,
+				router:               mockRouter,
+			}
+
+			got := idx.shardHasMultipleReplicasWrite(tenant, shardName)
+			require.Equal(t, tt.want, got)
+
+			if tt.replicationF > 1 {
+				require.Zero(t, fsm.callCount, "rf>1 must short-circuit before consulting the replication FSM")
+			}
+			if tt.movementActive {
+				require.Equal(t, className, fsm.gotColl)
+				require.Equal(t, shardName, fsm.gotShard)
+			}
+		})
+	}
+}

@@ -132,6 +132,10 @@ func (i *Index) ListFiles(context.Context, string) ([]string, error) {
 	return nil, nil
 }
 
+func (i *Index) SnapshotMutableFiles(context.Context, string, string) ([]string, error) {
+	return nil, nil
+}
+
 func (i *Index) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }

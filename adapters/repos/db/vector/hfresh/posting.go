@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -142,5 +143,8 @@ func (d *Distancer) DistanceBetweenCompressedVectors(a, b []byte) (float32, erro
 }
 
 func (d *Distancer) DistanceBetweenVectors(a, b []float32) (float32, error) {
+	if d == nil || d.distancer == nil {
+		return 0, errors.New("hfresh distancer is not initialized")
+	}
 	return d.distancer.SingleDist(a, b)
 }

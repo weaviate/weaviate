@@ -68,7 +68,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
@@ -114,7 +114,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
@@ -156,14 +156,14 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(fmt.Errorf("failed to copy replica")).
 					Times(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationRegisterError(mock.Anything, uint64(opId), fmt.Errorf("failed to copy replica").Error()).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
@@ -204,7 +204,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
@@ -248,7 +248,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).

@@ -65,7 +65,10 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	friendliUrl := v.getFriendliUrl(ctx, params.BaseURL)
+	friendliUrl, err := v.getFriendliUrl(ctx, params.BaseURL)
+	if err != nil {
+		return nil, err
+	}
 	friendliPrompt := []map[string]string{
 		{"role": "user", "content": prompt},
 	}
@@ -179,12 +182,12 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 	return nil
 }
 
-func (v *friendliai) getFriendliUrl(ctx context.Context, baseURL string) string {
-	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Friendli-Baseurl"); headerBaseURL != "" {
-		passedBaseURL = headerBaseURL
+func (v *friendliai) getFriendliUrl(ctx context.Context, baseURL string) (string, error) {
+	passedBaseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Friendli-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL)
+	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL), nil
 }
 
 func (v *friendliai) getApiKey(ctx context.Context) (string, error) {

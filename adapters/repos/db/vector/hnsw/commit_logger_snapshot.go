@@ -849,34 +849,43 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 			_, tombstoneIsCleaned := state.TombstonesDeleted[n.id]
 
 			if hasATombstone && tombstoneIsCleaned {
-				// if the node has been deleted but its tombstone has been cleaned up
-				// we can write a nil node
+				// the node has been deleted and its tombstone already cleaned up:
+				// persist it as a nil slot so the on-disk slot index stays aligned
+				// with node ids. (Previously this `continue`d without appending the
+				// byte to the block, shifting every later node in the block.)
 				if err := writeByte(&buf, 0); err != nil {
 					return err
 				}
-				continue
-			}
-
-			if hasATombstone {
-				_ = writeByte(&buf, 1)
 			} else {
-				_ = writeByte(&buf, 2)
-			}
+				if hasATombstone {
+					_ = writeByte(&buf, 1)
+				} else {
+					_ = writeByte(&buf, 2)
+				}
 
-			_ = writeUint32(&buf, uint32(n.level))
+				_ = writeUint32(&buf, uint32(n.level))
 
-			connData := n.connections.Data()
-			_ = writeUint32(&buf, uint32(len(connData)))
+				connData := n.connections.Data()
+				_ = writeUint32(&buf, uint32(len(connData)))
 
-			_, err = buf.Write(connData)
-			if err != nil {
-				return errors.Wrapf(err, "write connections data for node %d", n.id)
+				_, err = buf.Write(connData)
+				if err != nil {
+					return errors.Wrapf(err, "write connections data for node %d", n.id)
+				}
 			}
 		} else {
 			// nil node
 			if err := writeByte(&buf, 0); err != nil {
 				return err
 			}
+		}
+
+		// a single node entry must fit within an otherwise-empty block (which
+		// already carries an 8-byte start-index header); otherwise no valid
+		// fixed-size block can hold it. Fail loudly rather than emit a malformed
+		// (oversized) block or panic on negative padding.
+		if buf.Len()+8 > maxBlockSize {
+			return fmt.Errorf("node %d entry of %d bytes exceeds block capacity %d", i, buf.Len(), maxBlockSize-8)
 		}
 
 		// add node data to block if there's enough space, otherwise create a new block
@@ -918,11 +927,15 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 		hasher.Reset()
 		hw = io.MultiWriter(&block, hasher)
 
-		// write next node index at the start of the new block
-		if i+1 < len(state.Nodes) {
-			if err := writeUint64(hw, uint64(i+1)); err != nil {
-				return err
-			}
+		// the current node did not fit the previous block, so it begins the new
+		// one: write its id as the block's start index, then the node entry
+		// itself. (Previously the start index was written as i+1 and the entry
+		// was never written, silently dropping one node per block boundary.)
+		if err := writeUint64(hw, uint64(i)); err != nil {
+			return err
+		}
+		if _, err := hw.Write(buf.Bytes()); err != nil {
+			return err
 		}
 	}
 

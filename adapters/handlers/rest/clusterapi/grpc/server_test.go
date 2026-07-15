@@ -32,7 +32,6 @@ import (
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
-	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -68,13 +67,11 @@ func Test_ServerReplicationService(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name         string
-		auth         bool
-		requestQueue bool
+		name string
+		auth bool
 	}{
 		{name: "no auth"},
 		{name: "with auth", auth: true},
-		{name: "with request queue", requestQueue: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			grpcDialOpts := []grpcext.DialOption{grpcext.WithTransportCredentials(insecure.NewCredentials())}
@@ -91,16 +88,6 @@ func Test_ServerReplicationService(t *testing.T) {
 			} else {
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Password = ""
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Username = ""
-			}
-
-			if tt.requestQueue {
-				state.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(true)
-				state.ServerConfig.Config.Cluster.RequestQueueConfig.NumWorkers = 10
-				state.ServerConfig.Config.Cluster.RequestQueueConfig.QueueSize = 100
-				state.ServerConfig.Config.Cluster.RequestQueueConfig.QueueFullHttpStatus = 503
-				state.ServerConfig.Config.Cluster.RequestQueueConfig.QueueShutdownTimeoutSeconds = 90
-			} else {
-				state.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(false)
 			}
 
 			mockReplicator := types.NewMockReplicator(t)

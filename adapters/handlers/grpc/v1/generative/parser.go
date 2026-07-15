@@ -23,6 +23,7 @@ import (
 	cohereParams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
 	contextualaiParams "github.com/weaviate/weaviate/modules/generative-contextualai/parameters"
 	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
+	deepseekParams "github.com/weaviate/weaviate/modules/generative-deepseek/parameters"
 	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
@@ -173,6 +174,9 @@ func (p *Parser) extractFromQuery(generative *generate.Params, queries []*pb.Gen
 	case *pb.GenerativeProvider_Contextualai:
 		generative.Options = p.contextualai(query.GetContextualai())
 		p.providerName = contextualaiParams.Name
+	case *pb.GenerativeProvider_Deepseek:
+		generative.Options = p.deepseek(query.GetDeepseek())
+		p.providerName = deepseekParams.Name
 	default:
 		// do nothing
 	}
@@ -382,6 +386,7 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 			ProjectID:        in.GetProjectId(),
 			EndpointID:       in.GetEndpointId(),
 			Region:           in.GetRegion(),
+			Location:         in.GetLocation(),
 			Model:            in.GetModel(),
 			Temperature:      in.Temperature,
 			MaxTokens:        p.int64ToInt(in.MaxTokens),
@@ -482,6 +487,24 @@ func (p *Parser) contextualai(in *pb.GenerativeContextualAI) map[string]any {
 			SystemPrompt:    in.GetSystemPrompt(),
 			AvoidCommentary: in.AvoidCommentary,
 			Knowledge:       knowledge,
+		},
+	}
+}
+
+func (p *Parser) deepseek(in *pb.GenerativeDeepseek) map[string]any {
+	if in == nil {
+		return nil
+	}
+	return map[string]any{
+		deepseekParams.Name: deepseekParams.Params{
+			BaseURL:          in.GetBaseUrl(),
+			Model:            in.GetModel(),
+			Temperature:      in.Temperature,
+			MaxTokens:        p.int64ToInt(in.MaxTokens),
+			FrequencyPenalty: in.FrequencyPenalty,
+			PresencePenalty:  in.PresencePenalty,
+			TopP:             in.TopP,
+			Stop:             in.Stop.GetValues(),
 		},
 	}
 }

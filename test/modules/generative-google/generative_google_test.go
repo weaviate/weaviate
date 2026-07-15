@@ -36,9 +36,9 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 		class := planets.BaseClass("PlanetsGenerativeTest")
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
-				Vectorizer: map[string]interface{}{
-					"text2vec-google": map[string]interface{}{
-						"properties":         []interface{}{"description"},
+				Vectorizer: map[string]any{
+					"text2vec-google": map[string]any{
+						"properties":         []any{"description"},
 						"vectorizeClassName": false,
 						"projectId":          gcpProject,
 						"modelId":            "text-embedding-005",
@@ -52,29 +52,31 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 			generativeModel    string
 			frequencyPenalty   *float64
 			presencePenalty    *float64
+			location           string
 			absentModuleConfig bool
 			withImages         bool
 		}{
 			{
-				name:             "gemini-2.0-flash-lite-001",
-				generativeModel:  "gemini-2.0-flash-lite-001",
+				name:             "gemini-3.1-flash-lite",
+				generativeModel:  "gemini-3.1-flash-lite",
 				frequencyPenalty: grpchelper.ToPtr(0.5),
 				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
-				name:             "gemini-2.0-flash-001",
-				generativeModel:  "gemini-2.0-flash-001",
+				name:             "gemini-3.5-flash",
+				generativeModel:  "gemini-3.5-flash",
 				frequencyPenalty: grpchelper.ToPtr(0.5),
 				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
 				name:               "absent module config",
-				generativeModel:    "gemini-2.0-flash-lite-001",
+				generativeModel:    "gemini-3.1-flash-lite",
+				location:           "global",
 				absentModuleConfig: true,
 			},
 			{
-				name:            "gemini-2.0-flash-001",
-				generativeModel: "gemini-2.0-flash-001",
+				name:            "gemini-3.5-flash",
+				generativeModel: "gemini-3.5-flash",
 				withImages:      true,
 			},
 		}
@@ -83,10 +85,11 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 				if tt.absentModuleConfig {
 					t.Log("skipping adding module config configuration to class")
 				} else {
-					class.ModuleConfig = map[string]interface{}{
-						generativeGoogle: map[string]interface{}{
+					class.ModuleConfig = map[string]any{
+						generativeGoogle: map[string]any{
 							"projectId": gcpProject,
 							"modelId":   tt.generativeModel,
+							"location":  "global",
 						},
 					}
 				}
@@ -127,14 +130,14 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "google:{topP:0.1 topK:40}"
 					if tt.absentModuleConfig {
-						params = fmt.Sprintf("google:{topP:0.1 topK:40 projectId:%q model:%q}", gcpProject, tt.generativeModel)
+						params = fmt.Sprintf("google:{topP:0.1 topK:40 projectId:%q model:%q location:%q}", gcpProject, tt.generativeModel, tt.location)
 					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
 
 				params := func() *pb.GenerativeGoogle {
 					params := &pb.GenerativeGoogle{
-						MaxTokens:        grpchelper.ToPtr(int64(256)),
+						MaxTokens:        grpchelper.ToPtr(int64(1024)),
 						Model:            grpchelper.ToPtr(tt.generativeModel),
 						Temperature:      grpchelper.ToPtr(0.5),
 						TopK:             grpchelper.ToPtr(int64(40)),
@@ -144,6 +147,7 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 					}
 					if tt.absentModuleConfig {
 						params.ProjectId = &gcpProject
+						params.Location = &tt.location
 					}
 					return params
 				}

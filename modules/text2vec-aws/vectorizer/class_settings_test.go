@@ -31,6 +31,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantEndpoint      string
 		wantTargetModel   string
 		wantTargetVariant string
+		wantDimensions    *int64
 		wantErr           error
 	}{
 		{
@@ -121,6 +122,22 @@ func Test_classSettings_Validate(t *testing.T) {
 				"region cannot be empty"),
 		},
 		{
+			name: "with dimensions - Titan Text v2",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"service":    "bedrock",
+					"region":     "us-east-1",
+					"model":      "amazon.titan-embed-text-v2:0",
+					"dimensions": 512,
+				},
+			},
+			wantService:    "bedrock",
+			wantRegion:     "us-east-1",
+			wantModel:      "amazon.titan-embed-text-v2:0",
+			wantDimensions: ptrInt64(512),
+			wantErr:        nil,
+		},
+		{
 			name: "wrong properties",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -145,7 +162,12 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantEndpoint, ic.Endpoint())
 				assert.Equal(t, tt.wantTargetModel, ic.TargetModel())
 				assert.Equal(t, tt.wantTargetVariant, ic.TargetVariant())
+				assert.Equal(t, tt.wantDimensions, ic.Dimensions())
 			}
 		})
 	}
+}
+
+func ptrInt64(v int64) *int64 {
+	return &v
 }

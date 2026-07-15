@@ -43,12 +43,19 @@ func (b *BlockEntry) Encode() []byte {
 }
 
 func DecodeBlockEntry(data []byte) *BlockEntry {
-	return &BlockEntry{
-		MaxId:               binary.LittleEndian.Uint64(data),
-		Offset:              binary.LittleEndian.Uint32(data[8:]),
-		MaxImpactTf:         binary.LittleEndian.Uint32(data[12:]),
-		MaxImpactPropLength: binary.LittleEndian.Uint32(data[16:]),
-	}
+	b := &BlockEntry{}
+	DecodeBlockEntryInto(data, b)
+	return b
+}
+
+// DecodeBlockEntryInto decodes a block entry into an existing value, letting
+// callers decode a whole []BlockEntry contiguously without a heap allocation per
+// block.
+func DecodeBlockEntryInto(data []byte, b *BlockEntry) {
+	b.MaxId = binary.LittleEndian.Uint64(data)
+	b.Offset = binary.LittleEndian.Uint32(data[8:])
+	b.MaxImpactTf = binary.LittleEndian.Uint32(data[12:])
+	b.MaxImpactPropLength = binary.LittleEndian.Uint32(data[16:])
 }
 
 type BlockDataDecoded struct {

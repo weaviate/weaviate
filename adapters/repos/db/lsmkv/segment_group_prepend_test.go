@@ -222,7 +222,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 					case <-stop:
 						return
 					default:
-						bm, release, err := tgtBucket.RoaringSetGet([]byte("key-tgt"))
+						bm, release, err := tgtBucket.RoaringSetGet(t.Context(), []byte("key-tgt"))
 						if err != nil {
 							readErrors <- err
 							return
@@ -443,7 +443,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		//   - Source removed 2, but target (newer) added 2 → 2 present
 		//   - Source added 10, target didn't touch it → 10 present
 		//   - Target added 20, source didn't touch it → 20 present
-		bm, release, err := tgtBucket.RoaringSetGet([]byte("key-x"))
+		bm, release, err := tgtBucket.RoaringSetGet(t.Context(), []byte("key-x"))
 		require.NoError(t, err)
 		defer release()
 
@@ -876,7 +876,7 @@ func createTestBucket(t *testing.T, ctx context.Context, dir, strategy string) *
 // returns a bitmap containing all expected values.
 func assertRoaringSetContains(t *testing.T, b *Bucket, key []byte, expected []uint64) {
 	t.Helper()
-	bm, release, err := b.RoaringSetGet(key)
+	bm, release, err := b.RoaringSetGet(t.Context(), key)
 	require.NoError(t, err)
 	defer release()
 	for _, v := range expected {

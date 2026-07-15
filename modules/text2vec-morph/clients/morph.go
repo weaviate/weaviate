@@ -69,6 +69,7 @@ func (v *client) getSettings(cfg moduletools.ClassConfig) openai.Settings {
 		ResourceName:         "", // Not used by Morph
 		DeploymentID:         "", // Not used by Morph
 		BaseURL:              settings.BaseURL(),
+		Endpoint:             settings.Endpoint(),
 		IsAzure:              false, // Morph doesn't support Azure
 		IsThirdPartyProvider: true,  // Morph is always third-party
 		ApiVersion:           "",    // Not used by Morph

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -23,13 +24,14 @@ import (
 
 func Test_TokenAuthComposer(t *testing.T) {
 	type test struct {
-		name         string
-		token        string
-		config       config.Authentication
-		oidc         TokenFunc
-		apiKey       TokenFunc
-		expectErr    bool
-		expectErrMsg string
+		name              string
+		token             string
+		config            config.Authentication
+		namespacesEnabled bool
+		oidc              TokenFunc
+		apiKey            TokenFunc
+		expectErr         bool
+		expectErrMsg      string
 	}
 
 	tests := []test{
@@ -214,12 +216,75 @@ func Test_TokenAuthComposer(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "john doe",
 		},
+		{
+			name: "namespaces enabled - rejects global non-operator principal",
+			config: config.Authentication{
+				APIKey: config.StaticAPIKey{Enabled: true},
+			},
+			namespacesEnabled: true,
+			token:             "does not matter",
+			apiKey: func(t string, s []string) (*models.Principal, error) {
+				return &models.Principal{Username: "drifted", Namespace: "", IsGlobalOperator: false}, nil
+			},
+			oidc: func(t string, s []string) (*models.Principal, error) {
+				panic("i should never be called")
+			},
+			expectErr:    true,
+			expectErrMsg: "neither namespace-confined nor a global operator",
+		},
+		{
+			name: "namespaces enabled - allows global operator principal",
+			config: config.Authentication{
+				APIKey: config.StaticAPIKey{Enabled: true},
+			},
+			namespacesEnabled: true,
+			token:             "does not matter",
+			apiKey: func(t string, s []string) (*models.Principal, error) {
+				return &models.Principal{Username: "root", Namespace: "", IsGlobalOperator: true}, nil
+			},
+			oidc: func(t string, s []string) (*models.Principal, error) {
+				panic("i should never be called")
+			},
+			expectErr: false,
+		},
+		{
+			name: "namespaces enabled - allows namespace-confined principal",
+			config: config.Authentication{
+				APIKey: config.StaticAPIKey{Enabled: true},
+			},
+			namespacesEnabled: true,
+			token:             "does not matter",
+			apiKey: func(t string, s []string) (*models.Principal, error) {
+				return &models.Principal{Username: "ns-user", Namespace: "ns1", IsGlobalOperator: false}, nil
+			},
+			oidc: func(t string, s []string) (*models.Principal, error) {
+				panic("i should never be called")
+			},
+			expectErr: false,
+		},
+		{
+			name: "namespaces disabled - allows global non-operator principal",
+			config: config.Authentication{
+				APIKey: config.StaticAPIKey{Enabled: true},
+			},
+			namespacesEnabled: false,
+			token:             "does not matter",
+			apiKey: func(t string, s []string) (*models.Principal, error) {
+				return &models.Principal{Username: "regular", Namespace: "", IsGlobalOperator: false}, nil
+			},
+			oidc: func(t string, s []string) (*models.Principal, error) {
+				panic("i should never be called")
+			},
+			expectErr: false,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			v := New(
 				test.config,
+				test.namespacesEnabled,
+				logrus.New(),
 				fakeValidator{v: test.apiKey},
 				fakeValidator{v: test.oidc},
 			)

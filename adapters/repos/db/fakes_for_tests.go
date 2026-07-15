@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -406,30 +405,6 @@ func (f *FakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
-func (f *FakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error {
-	return nil
-}
-
-func (f *FakeRemoteClient) ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error {
-	return nil
-}
-
-func (f *FakeRemoteClient) ListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error) {
-	return nil, nil
-}
-
-func (f *FakeRemoteClient) GetFileMetadata(ctx context.Context, hostName, indexName, shardName,
-	fileName string,
-) (file.FileMetadata, error) {
-	return file.FileMetadata{}, nil
-}
-
-func (f *FakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, shardName,
-	fileName string,
-) (io.ReadCloser, error) {
-	return nil, nil
-}
-
 func (f *FakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
 	return nil
 }
@@ -587,4 +562,10 @@ func (c *FakeReplicationClient) CreateAsyncCheckpoint(_ context.Context, _, _ st
 
 func (c *FakeReplicationClient) DeleteAsyncCheckpoint(_ context.Context, _, _ string, _ []string) error {
 	return nil
+}
+
+func (c *FakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return nil, nil
 }

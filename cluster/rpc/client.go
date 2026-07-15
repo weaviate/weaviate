@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -23,6 +24,8 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -286,11 +289,12 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	return cl.leaderRpcConn, nil
 }
 
-// fromRPCError parses the error sent by rpc server to identify status
-// and chain sentinel errors accordingly. This is the only sentinel
-// re-chain point on the client side; the gRPC hop drops the errors.Is
-// chain and callers expect typed sentinels they can match against.
-// Sentinels that share a status code are disambiguated by message text.
+// fromRPCError parses the error sent by rpc server to identify status and chain
+// type-full errors accordingly, so the client can make decisions on typed errors
+// rather than raw gRPC status. It re-types by code: a usage-limit rejection
+// (LimitExceededRPCCode) becomes a *LimitExceededError — message from the status,
+// structured limit/value from the ErrorInfo detail — so a follower that forwarded
+// the request surfaces the full canonical 429; NotFound chains the sentinel.
 func fromRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -301,6 +305,16 @@ func fromRPCError(err error) error {
 	}
 	msg := err.Error()
 	switch st.Code() {
+	case LimitExceededRPCCode:
+		le := &usagelimits.LimitExceededError{RenderedMessage: st.Message()}
+		for _, d := range st.Details() {
+			if info, ok := d.(*errdetails.ErrorInfo); ok {
+				le.Limit = usagelimits.LimitName(info.Metadata["limit"])
+				le.Value, _ = strconv.ParseInt(info.Metadata["value"], 10, 64)
+				break
+			}
+		}
+		return le
 	case codes.NotFound:
 		switch {
 		case strings.Contains(msg, namespaces.ErrNamespaceGone.Error()):

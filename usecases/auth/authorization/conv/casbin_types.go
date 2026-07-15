@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -218,12 +219,19 @@ func CasbinNamespaces(name string) string {
 }
 
 // ContainsNamespaceSeparator reports whether a casbin resource path contains
-// the namespace separator. The separator never appears in any other valid
-// resource path segment (collection, shard, tenant, role, and user names all
-// forbid it), so a plain byte scan unambiguously detects namespace
-// qualification regardless of the path shape.
+// the namespace separator. A hit means qualification only for the collection
+// shapes (schema/data/aliases); for users/<id> and groups/<...>, whose ids may
+// contain ':' (e.g. OIDC usernames), callers must shape-check first.
 func ContainsNamespaceSeparator(resource string) bool {
 	return strings.IndexByte(resource, schema.NamespaceSeparator[0]) >= 0
+}
+
+// IsOpaqueIDResource reports whether resource addresses a users/<id> or
+// groups/<type>/<name> shape, whose id may legitimately contain ':' (e.g. an
+// OIDC username) as part of the id rather than a namespace qualifier.
+func IsOpaqueIDResource(resource string) bool {
+	return strings.HasPrefix(resource, authorization.UsersDomain+"/") ||
+		strings.HasPrefix(resource, authorization.GroupsDomain+"/")
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
@@ -593,4 +601,26 @@ func GetUserAndPrefix(name string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid name: %s", name)
 	}
 	return user, prefix, nil
+}
+
+// SubjectNamespace returns a grouping subject's user identifier, auth type, and
+// namespace (e.g. "db:customer1:bob" -> "customer1"). A global principal
+// ("db:bob") and a group subject both yield no namespace; a group additionally
+// yields a zero auth type. An unparseable key returns an error so callers can
+// fail closed rather than treat it as global.
+func SubjectNamespace(subject string) (user string, authType authentication.AuthType, namespace string, err error) {
+	user, prefix, err := GetUserAndPrefix(subject)
+	if err != nil {
+		return "", "", "", err
+	}
+	switch prefix {
+	case string(authentication.AuthTypeDb):
+		authType = authentication.AuthTypeDb
+	case string(authentication.AuthTypeOIDC):
+		authType = authentication.AuthTypeOIDC
+	default:
+		// Group subjects are global; no namespace.
+		return user, "", "", nil
+	}
+	return user, authType, namespacing.NamespaceFromQualified(user), nil
 }

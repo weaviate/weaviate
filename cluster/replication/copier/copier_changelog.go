@@ -129,6 +129,24 @@ func (c *Copier) StopChangeCapture(ctx context.Context, srcNodeId, indexName, sh
 	return nil
 }
 
+// ReleaseReplicaSnapshot covers the case where CopyReplicaFiles' defer
+// never registered because the Create response was lost in transit. Source
+// is idempotent on unknown opIDs.
+func (c *Copier) ReleaseReplicaSnapshot(ctx context.Context, srcNodeId, indexName, opID string) error {
+	client, err := c.dialSource(ctx, srcNodeId)
+	if err != nil {
+		return err
+	}
+	_, err = client.ReleaseReplicaSnapshot(ctx, &protocol.ReleaseReplicaSnapshotRequest{
+		IndexName: indexName,
+		OpId:      opID,
+	})
+	if err != nil {
+		return fmt.Errorf("release replica snapshot on %s: %w", srcNodeId, err)
+	}
+	return nil
+}
+
 func (c *Copier) dialSource(ctx context.Context, srcNodeId string) (FileReplicationServiceClient, error) {
 	addr := c.nodeSelector.NodeAddress(srcNodeId)
 	port, err := c.nodeSelector.NodeGRPCPort(srcNodeId)

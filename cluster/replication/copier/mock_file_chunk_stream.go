@@ -288,7 +288,7 @@ func (_c *MockFileChunkStream_RecvMsg_Call) RunAndReturn(run func(interface{}) e
 }
 
 // Send provides a mock function with given fields: _a0
-func (_m *MockFileChunkStream) Send(_a0 *protocol.GetFileRequest) error {
+func (_m *MockFileChunkStream) Send(_a0 *protocol.GetReplicaSnapshotFileRequest) error {
 	ret := _m.Called(_a0)
 
 	if len(ret) == 0 {
@@ -296,7 +296,7 @@ func (_m *MockFileChunkStream) Send(_a0 *protocol.GetFileRequest) error {
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*protocol.GetFileRequest) error); ok {
+	if rf, ok := ret.Get(0).(func(*protocol.GetReplicaSnapshotFileRequest) error); ok {
 		r0 = rf(_a0)
 	} else {
 		r0 = ret.Error(0)
@@ -311,14 +311,14 @@ type MockFileChunkStream_Send_Call struct {
 }
 
 // Send is a helper method to define mock.On call
-//   - _a0 *protocol.GetFileRequest
+//   - _a0 *protocol.GetReplicaSnapshotFileRequest
 func (_e *MockFileChunkStream_Expecter) Send(_a0 interface{}) *MockFileChunkStream_Send_Call {
 	return &MockFileChunkStream_Send_Call{Call: _e.mock.On("Send", _a0)}
 }
 
-func (_c *MockFileChunkStream_Send_Call) Run(run func(_a0 *protocol.GetFileRequest)) *MockFileChunkStream_Send_Call {
+func (_c *MockFileChunkStream_Send_Call) Run(run func(_a0 *protocol.GetReplicaSnapshotFileRequest)) *MockFileChunkStream_Send_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*protocol.GetFileRequest))
+		run(args[0].(*protocol.GetReplicaSnapshotFileRequest))
 	})
 	return _c
 }
@@ -328,7 +328,7 @@ func (_c *MockFileChunkStream_Send_Call) Return(_a0 error) *MockFileChunkStream_
 	return _c
 }
 
-func (_c *MockFileChunkStream_Send_Call) RunAndReturn(run func(*protocol.GetFileRequest) error) *MockFileChunkStream_Send_Call {
+func (_c *MockFileChunkStream_Send_Call) RunAndReturn(run func(*protocol.GetReplicaSnapshotFileRequest) error) *MockFileChunkStream_Send_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -32,6 +32,7 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -268,6 +269,7 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false)
 			},
 		},
 		{
@@ -469,6 +471,78 @@ func TestStoreApply(t *testing.T) {
 			doAfter: func(ms *MockStore) error { return nil },
 		},
 		{
+			name: "UpdateTenant/HasActiveReplicationForShard/true",
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
+				}})},
+			resp: Response{Error: schema.ErrReplicaMovementInProgress},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+					Status:         models.TenantActivityStatusHOT,
+				}}, PartitioningEnabled: true}
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard("C1", "T1").Return(true)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			},
+			doAfter: func(ms *MockStore) error {
+				want := map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+					Status:         models.TenantActivityStatusHOT,
+				}}
+
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
+				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
+					return fmt.Errorf("physical state want: %v got: %v", want, got)
+				}
+				return nil
+			},
+		},
+		{
+			name: "UpdateTenant/HasActiveReplicationForShard/false",
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
+				}})},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+					Status:         models.TenantActivityStatusHOT,
+				}}, PartitioningEnabled: true}
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard("C1", "T1").Return(false)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			},
+			doAfter: func(ms *MockStore) error {
+				want := map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+					Status:         models.TenantActivityStatusCOLD,
+				}}
+
+				shardingState, err := readShardingState(ms.store.SchemaReader(), "C1")
+				require.Nil(t, err)
+				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
+					return fmt.Errorf("physical state want: %v got: %v", want, got)
+				}
+				return nil
+			},
+		},
+		{
 			name: "UpdateTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
@@ -497,6 +571,7 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				m.replicationFSM.EXPECT().HasActiveReplicationForShard(Anything, Anything).Return(false)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {
@@ -1308,6 +1383,56 @@ func TestStoreMetrics(t *testing.T) {
 		// after
 		require.Equal(t, 1, int(testutil.ToFloat64(store.metrics.applyFailures)))
 	})
+}
+
+func TestStoreDBLoadProgressFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		progress func() *db.StartupProgressSnapshot
+		want     logrus.Fields
+	}{
+		{
+			name:     "no progress source returns nil",
+			progress: nil,
+			want:     nil,
+		},
+		{
+			name:     "no shards to load returns nil",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 0, Total: 0} },
+			want:     nil,
+		},
+		{
+			name:     "negative total returns nil",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 0, Total: -1} },
+			want:     nil,
+		},
+		{
+			name:     "nothing loaded yet",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 0, Total: 10} },
+			want:     logrus.Fields{"shards_loaded": int64(0), "shards_total": int64(10), "progress": "0%"},
+		},
+		{
+			name:     "partial progress rounds to whole percent",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 1, Total: 3} },
+			want:     logrus.Fields{"shards_loaded": int64(1), "shards_total": int64(3), "progress": "33%"},
+		},
+		{
+			name:     "partial progress",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 3, Total: 10} },
+			want:     logrus.Fields{"shards_loaded": int64(3), "shards_total": int64(10), "progress": "30%"},
+		},
+		{
+			name:     "fully loaded",
+			progress: func() *db.StartupProgressSnapshot { return &db.StartupProgressSnapshot{Loaded: 10, Total: 10} },
+			want:     logrus.Fields{"shards_loaded": int64(10), "shards_total": int64(10), "progress": "100%"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := &Store{cfg: Config{DBLoadProgress: tt.progress}}
+			assert.Equal(t, tt.want, st.dbLoadProgressFields())
+		})
+	}
 }
 
 type MockStore struct {

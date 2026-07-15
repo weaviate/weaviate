@@ -36,6 +36,9 @@ func InitSlowQueryDetails(ctx context.Context) context.Context {
 }
 
 func AnnotateSlowQueryLog(ctx context.Context, key string, value any) {
+	if ctx == nil {
+		return
+	}
 	val := ctx.Value("slow_query_details")
 	if val == nil {
 		return
@@ -57,6 +60,9 @@ func AnnotateSlowQueryLog(ctx context.Context, key string, value any) {
 }
 
 func AnnotateSlowQueryLogAppend[T any](ctx context.Context, key string, value T) {
+	if ctx == nil {
+		return
+	}
 	val := ctx.Value("slow_query_details")
 	if val == nil {
 		return

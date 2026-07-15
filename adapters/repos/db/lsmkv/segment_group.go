@@ -41,8 +41,7 @@ import (
 )
 
 type SegmentGroup struct {
-	segments              []Segment
-	segmentRefCounterLock sync.Mutex
+	segments []Segment
 
 	// Holds compacted / cleaned up segments meant to be closed and removed from disk
 	// after their's refs counter drops to 0.
@@ -599,19 +598,18 @@ func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, relea
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
-	sg.segmentRefCounterLock.Lock()
+	// incRef under the RLock so the refs are taken before any compaction (which
+	// holds the write lock) can swap these segments out. refCount is atomic, so no
+	// separate refcount lock is needed.
 	for _, seg := range segments {
 		seg.incRef()
 	}
-	sg.segmentRefCounterLock.Unlock()
 	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
-		sg.segmentRefCounterLock.Lock()
 		for _, seg := range segments {
 			seg.decRef()
 		}
-		sg.segmentRefCounterLock.Unlock()
 	}
 }
 
@@ -816,43 +814,47 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayers, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
 		return nil, noopRelease, nil
 	}
 
-	release = noopRelease
+	// acquired (not the named return, which error paths overwrite with
+	// noopRelease) is what the defer frees, so a mid-merge disk read error
+	// can't leak the first layer's pooled buffer.
+	acquired := noopRelease
 	// use bigger buffer for first layer, to make space for further merges
 	// with following layers
 	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.25)
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
-		if err == nil {
+		layer, layerRelease, getErr := segments[i].roaringSetGet(key, bitmapBufPool)
+		if getErr == nil {
 			out = append(out, layer)
-			release = layerRelease
+			acquired = layerRelease
 			i++
 			break
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, noopRelease, err
+		if !errors.Is(getErr, lsmkv.NotFound) {
+			return nil, noopRelease, getErr
 		}
 	}
 	defer func() {
 		if err != nil {
-			release()
+			acquired()
 		}
 	}()
 
 	for ; i < ln; i++ {
-		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool, maxConc); mergeErr != nil {
+			err = mergeErr
 			return nil, noopRelease, err
 		}
 	}
 
-	return out, release, nil
+	return out, acquired, nil
 }
 
 func (sg *SegmentGroup) count() int {

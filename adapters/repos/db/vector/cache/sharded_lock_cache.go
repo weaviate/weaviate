@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/sirupsen/logrus"
@@ -677,6 +678,12 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 	}
 	vec, err := s.multipleVectorForID(ctx, fetchID, relativeID)
 	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) && e.DocID != id {
+			// key not-found errors by the requested node id — callers ask this
+			// cache by node id and must not see the internal docID fetch
+			return nil, storobj.NewErrNotFoundf(id, "%v", err)
+		}
 		return nil, err
 	}
 

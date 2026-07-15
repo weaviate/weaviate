@@ -144,11 +144,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 }
 
 func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
-	endpoint := config.Endpoint
-	if headerEndpoint := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Endpoint"); headerEndpoint != "" {
-		endpoint = headerEndpoint
-	}
-	return endpoint, nil
+	return modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Databricks-Endpoint", config.Endpoint)
 }
 
 func (v *client) getError(statusCode int, resBody embedding) error {

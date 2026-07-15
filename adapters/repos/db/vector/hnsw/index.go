@@ -168,7 +168,10 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed       atomic.Bool
+	compressed atomic.Bool
+	// compressing spans Upgrade() through compressThenCallback completion;
+	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
+	compressing      atomic.Bool
 	doNotRescore     bool
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
@@ -667,6 +670,10 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	if h.compressed.Load() {
 		dist, err := distancer.DistanceToNode(node)
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "distToNode")
+			}
 			return 0, err
 		}
 
@@ -682,7 +689,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
-			return 0, nil
+			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err,
@@ -705,14 +712,37 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
-	h.shardedNodeLocks.RLock(h.entryPointID)
-	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
 
-	return h.isEmptyUnlocked()
+	empty := func() bool {
+		h.shardedNodeLocks.RLock(h.entryPointID)
+		defer h.shardedNodeLocks.RUnlock(h.entryPointID)
+
+		return h.isEmptyUnlocked()
+	}()
+	if !empty {
+		return false
+	}
+
+	// a nil entrypoint slot is not proof of emptiness: cleanup can remove a
+	// stranded entrypoint while live nodes remain
+	h.shardedNodeLocks.RLockAll()
+	defer h.shardedNodeLocks.RUnlockAll()
+
+	return !h.hasLiveNodesUnlocked()
 }
 
 func (h *hnsw) isEmptyUnlocked() bool {
 	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
+}
+
+// callers must hold h.RLock and all sharded node locks
+func (h *hnsw) hasLiveNodesUnlocked() bool {
+	for _, node := range h.nodes {
+		if node != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
@@ -911,6 +941,10 @@ func (h *hnsw) Multivector() bool {
 
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
+}
+
+func (h *hnsw) UpgradeInProgress() bool {
+	return h.compressing.Load()
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {

@@ -17,12 +17,21 @@ import (
 )
 
 func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
-	if len(packed) < 8 {
+	if len(packed) < 9 {
 		return // Error handling: insufficient input or output space
+	}
+
+	n := len(deltas)
+	if n == 0 {
+		return
 	}
 
 	// Read the first delta using BigEndian to handle byte order explicitly
 	deltas[0] = binary.BigEndian.Uint64(packed[0:8])
+
+	if n == 1 {
+		return
+	}
 
 	// Read bitsNeeded (6 bits starting from bit 2 of packed[8])
 	bitsNeeded := int((packed[8] >> 2) & 0x3F)
@@ -31,37 +40,177 @@ func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
 		return
 	}
 
-	// Starting bit position after reading bitsNeeded
-	bitPos := 6
-	bytePos := 8 // Start from packed[8]
+	bnu := uint(bitsNeeded)
+	bitsMask := uint64(1)<<bnu - 1
 
-	// Initialize the bit buffer with the remaining bits in packed[8], if any
-	bitsLeft := 8 - bitPos
-	bitBuffer := uint64(packed[bytePos] & ((1 << bitsLeft) - 1))
+	bits := packed[8:]
+	bitsLen := len(bits)
 
-	bytePos++
+	if bnu <= 32 {
+		// High-aligned bit reservoir:
+		//   - `buf` holds the next bits to extract in its MSB; the very next bit
+		//     to read is at position 63.
+		//   - `bitsAvail` counts valid bits, which occupy positions 63..64-bitsAvail.
+		//   - Extract: value = buf >> (64 - bnu); buf <<= bnu; bitsAvail -= bnu.
+		//   - Refill: buf |= newBits << (64 - bitsAvail - chunkBits).
+		//
+		// The 6-bit header was consumed via `packed[8]>>2`; the low 2 bits of
+		// bits[0] are the start of the first delta and seed the reservoir.
+		buf := uint64(bits[0]&0x3) << 62
+		bitsAvail := 2
+		bytePos := 1
 
-	// Precompute the mask for bitsNeeded bits
-	bitsMask := uint64((1 << bitsNeeded) - 1)
+		// Refill 32 bits per chunk. We refill only when bitsAvail < bnu, so
+		// bitsAvail is at most 31 when we refill (bnu <= 32), keeping
+		// bitsAvail+32 <= 63 — safe to store in the reservoir.
+		//
+		// The delta and non-delta loops are split deliberately to keep the
+		// deltaDiff branch out of the per-value hot loop; do not merge them.
+		if deltaDiff {
+			prev := deltas[0]
+			i := 1
+			for ; i < n; i++ {
+				if bitsAvail < int(bnu) {
+					if bytePos+4 > bitsLen {
+						break
+					}
+					buf |= uint64(binary.BigEndian.Uint32(bits[bytePos:])) << uint(32-bitsAvail)
+					bytePos += 4
+					bitsAvail += 32
+				}
+				prev += buf >> (64 - bnu)
+				buf <<= bnu
+				bitsAvail -= int(bnu)
+				deltas[i] = prev
+			}
+			decodeTailDelta(deltas, bits, bytePos, bitsLen, buf, bitsAvail, bnu, i, n, prev)
+		} else {
+			i := 1
+			for ; i < n; i++ {
+				if bitsAvail < int(bnu) {
+					if bytePos+4 > bitsLen {
+						break
+					}
+					buf |= uint64(binary.BigEndian.Uint32(bits[bytePos:])) << uint(32-bitsAvail)
+					bytePos += 4
+					bitsAvail += 32
+				}
+				deltas[i] = buf >> (64 - bnu)
+				buf <<= bnu
+				bitsAvail -= int(bnu)
+			}
+			decodeTail(deltas, bits, bytePos, bitsLen, buf, bitsAvail, bnu, i, n)
+		}
+		return
+	}
 
-	// Read the deltas
-	for i := 1; i < len(deltas); i++ {
-		// Ensure we have enough bits in the buffer
+	// bnu > 32: per-iteration uint64 load, tracking the absolute bit position.
+	//
+	// Fast path: read 8 bytes at a time and extract bitsNeeded bits with a
+	// single shift+mask. Safe only when bnu <= 57 (so that bitOffset+bnu <= 64
+	// for any bitOffset in [0,7]) and when we have 8 bytes available.
+	bitPos := uint(6)
+	fastEnd := 1
+	if bnu <= 57 && bitsLen >= 8 {
+		// fastEnd is the first index whose 8-byte read might run past the end.
+		// That read needs bytePos+8 <= bitsLen, i.e. bitPos <= 8*bitsLen-57
+		// (= 8*(bitsLen-8)+7). bitPos starts at 6 and grows by bnu per value, so
+		// the safe delta-bit budget past the header is room = 8*bitsLen-63 (-57-6).
+		room := 8*bitsLen - 63
+		fastEnd = 2 + room/bitsNeeded
+		if fastEnd > n {
+			fastEnd = n
+		}
+	}
+
+	if deltaDiff {
+		prev := deltas[0]
+		for i := 1; i < fastEnd; i++ {
+			bytePos := bitPos >> 3
+			bitOffset := bitPos & 7
+			val := binary.BigEndian.Uint64(bits[bytePos:])
+			d := (val >> (64 - bitOffset - bnu)) & bitsMask
+			prev += d
+			deltas[i] = prev
+			bitPos += bnu
+		}
+	} else {
+		for i := 1; i < fastEnd; i++ {
+			bytePos := bitPos >> 3
+			bitOffset := bitPos & 7
+			val := binary.BigEndian.Uint64(bits[bytePos:])
+			deltas[i] = (val >> (64 - bitOffset - bnu)) & bitsMask
+			bitPos += bnu
+		}
+	}
+
+	if fastEnd >= n {
+		return
+	}
+
+	// Tail: byte-by-byte for the remaining values where a uint64 read would
+	// run past the end of the input.
+	bytePosT := int(bitPos >> 3)
+	if bytePosT >= bitsLen {
+		return
+	}
+	bitOffset := int(bitPos & 7)
+	bitsLeft := 8 - bitOffset
+	bitBuffer := uint64(bits[bytePosT]) & (uint64(1)<<uint(bitsLeft) - 1)
+	bytePosT++
+
+	for i := fastEnd; i < n; i++ {
 		for bitsLeft < bitsNeeded {
-			if bytePos >= len(packed) {
-				// Handle insufficient data
+			if bytePosT >= bitsLen {
 				return
 			}
-			bitBuffer = (bitBuffer << 8) | uint64(packed[bytePos])
+			bitBuffer = (bitBuffer << 8) | uint64(bits[bytePosT])
 			bitsLeft += 8
-			bytePos++
+			bytePosT++
 		}
-		// Extract bitsNeeded bits from the buffer
 		bitsLeft -= bitsNeeded
-		deltas[i] = (bitBuffer >> bitsLeft) & bitsMask
+		deltas[i] = (bitBuffer >> uint(bitsLeft)) & bitsMask
 		if deltaDiff {
 			deltas[i] += deltas[i-1]
 		}
+	}
+}
+
+// decodeTail finishes the reservoir-style decode for the last few values, where
+// a 32-bit refill would run past the end of the input. Refills one byte at a
+// time. Called from the bnu <= 32 fast paths.
+func decodeTail(deltas []uint64, bits []byte, bytePos, bitsLen int, buf uint64, bitsAvail int, bnu uint, i, n int) {
+	for ; i < n; i++ {
+		for bitsAvail < int(bnu) {
+			if bytePos >= bitsLen {
+				return
+			}
+			buf |= uint64(bits[bytePos]) << uint(56-bitsAvail)
+			bytePos++
+			bitsAvail += 8
+		}
+		deltas[i] = buf >> (64 - bnu)
+		buf <<= bnu
+		bitsAvail -= int(bnu)
+	}
+}
+
+// decodeTailDelta is the delta variant of decodeTail.
+func decodeTailDelta(deltas []uint64, bits []byte, bytePos, bitsLen int, buf uint64, bitsAvail int, bnu uint, i, n int, prev uint64) {
+	p := prev
+	for ; i < n; i++ {
+		for bitsAvail < int(bnu) {
+			if bytePos >= bitsLen {
+				return
+			}
+			buf |= uint64(bits[bytePos]) << uint(56-bitsAvail)
+			bytePos++
+			bitsAvail += 8
+		}
+		p += buf >> (64 - bnu)
+		buf <<= bnu
+		bitsAvail -= int(bnu)
+		deltas[i] = p
 	}
 }
 
