@@ -117,9 +117,10 @@ func testSustainedLoad(compose *docker.DockerCompose) func(t *testing.T) {
 				require.EventuallyWithT(t, func(collect *assert.CollectT) {
 					got := helper.GetClass(t, className)
 					cfg, ok := got.VectorConfig[dropped]
-					if assert.True(collect, ok) {
-						assert.Equal(collect, "none", cfg.VectorIndexType)
+					if !ok {
+						return // finalizer already removed the entry; also valid
 					}
+					assert.Equal(collect, "none", cfg.VectorIndexType)
 				}, 15*time.Second, 200*time.Millisecond, "marker on %s", uri)
 			}
 		})
