@@ -26,15 +26,14 @@ import (
 type Resolver struct {
 	cacher cacher
 	// for groupBy feature
-	withGroup    bool
-	groupByProps search.SelectProperties
-	// groupByIdx is built at construction; groupByProps is never mutated
-	// afterwards, so the index cannot go stale
+	withGroup bool
+	// groupByIdx is built at construction and never mutated afterwards, so
+	// the index cannot go stale
 	groupByIdx search.SelectPropertiesIndex
 }
 
 type cacher interface {
-	Build(ctx context.Context, objects []search.Result, properties search.SelectProperties, additional additional.Properties, groupByProperties search.SelectProperties) error
+	Build(ctx context.Context, objects []search.Result, properties search.SelectProperties, additional additional.Properties, groupByIdx search.SelectPropertiesIndex) error
 	Get(si multi.Identifier) (search.Result, bool)
 }
 
@@ -46,16 +45,15 @@ func NewResolverWithGroup(cacher cacher, groupByProps search.SelectProperties) *
 	return &Resolver{
 		cacher: cacher,
 		// for groupBy feature
-		withGroup:    true,
-		groupByProps: groupByProps,
-		groupByIdx:   groupByProps.Indexed(),
+		withGroup:  true,
+		groupByIdx: groupByProps.Indexed(),
 	}
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 	properties search.SelectProperties, additional additional.Properties,
 ) ([]search.Result, error) {
-	if err := r.cacher.Build(ctx, objects, properties, additional, r.groupByProps); err != nil {
+	if err := r.cacher.Build(ctx, objects, properties, additional, r.groupByIdx); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
 

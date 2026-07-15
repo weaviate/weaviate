@@ -710,7 +710,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps)
+		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps.Indexed())
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -841,7 +841,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps)
+		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps.Indexed())
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -1029,7 +1029,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, groupByProps)
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, groupByProps.Indexed())
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)

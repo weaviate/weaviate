@@ -47,15 +47,13 @@ type cacherJob struct {
 
 type Cacher struct {
 	sync.Mutex
-	jobs         []cacherJob
-	logger       logrus.FieldLogger
-	repo         repo
-	store        map[multi.Identifier]search.Result
-	additional   additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
-	tenant       string
-	groupByProps search.SelectProperties
-	// groupByIdx is rebuilt alongside groupByProps on every Build call, so it
-	// cannot go stale
+	jobs       []cacherJob
+	logger     logrus.FieldLogger
+	repo       repo
+	store      map[multi.Identifier]search.Result
+	additional additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
+	tenant     string
+	// groupByIdx is reassigned on every Build call, so it cannot go stale
 	groupByIdx search.SelectPropertiesIndex
 }
 
@@ -79,11 +77,10 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 //
 // This keeps request times to a minimum even on deeply nested requests.
 func (c *Cacher) Build(ctx context.Context, objects []search.Result,
-	properties search.SelectProperties, additional additional.Properties, groupByProperties search.SelectProperties,
+	properties search.SelectProperties, additional additional.Properties, groupByIdx search.SelectPropertiesIndex,
 ) error {
 	c.additional = additional
-	c.groupByProps = groupByProperties
-	c.groupByIdx = groupByProperties.Indexed()
+	c.groupByIdx = groupByIdx
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {
 		return fmt.Errorf("build request cache: %w", err)
@@ -141,7 +138,7 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search
 			return err
 		}
 
-		if c.groupByProps != nil {
+		if c.groupByIdx != nil {
 			if err := c.parseAdditionalGroup(obj); err != nil {
 				return err
 			}
