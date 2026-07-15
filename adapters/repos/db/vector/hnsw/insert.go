@@ -332,7 +332,30 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		return err
 	}
 
+	// purge state left by a previously failed attempt so whole-task retries
+	h.RLock()
+	var purge []uint64
+	for _, docID := range docIDs {
+		if _, ok := h.docIDVectors[docID]; ok {
+			purge = append(purge, docID)
+		}
+	}
+	h.RUnlock()
+	if len(purge) > 0 {
+		if err := h.DeleteMulti(purge...); err != nil {
+			return errors.Wrap(err, "purge partially indexed docs before re-insert")
+		}
+	}
+
+	seenInBatch := make(map[uint64]struct{}, len(docIDs))
 	for i, docID := range docIDs {
+		if _, dup := seenInBatch[docID]; dup {
+			if err := h.DeleteMulti(docID); err != nil {
+				return errors.Wrapf(err, "purge duplicate doc %d before re-insert", docID)
+			}
+		}
+		seenInBatch[docID] = struct{}{}
+
 		numVectors := len(vectors[i])
 		levels := make([]uint8, numVectors)
 		for j := range numVectors {
