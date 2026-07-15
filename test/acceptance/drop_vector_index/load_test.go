@@ -67,14 +67,7 @@ func testSustainedLoad(compose *docker.DockerCompose) func(t *testing.T) {
 					{Name: "name", DataType: []string{schema.DataTypeText.String()}},
 				},
 				VectorConfig: map[string]models.VectorConfig{
-					dropped: {
-						Vectorizer:      map[string]any{"none": map[string]any{}},
-						VectorIndexType: "hnsw",
-					},
-					sibling: {
-						Vectorizer:      map[string]any{"none": map[string]any{}},
-						VectorIndexType: "hnsw",
-					},
+					dropped: noneVectorConfig(), sibling: noneVectorConfig(),
 				},
 			}
 			_, err := helper.Client(t).Schema.SchemaObjectsCreate(
@@ -176,7 +169,10 @@ func testSustainedLoad(compose *docker.DockerCompose) func(t *testing.T) {
 		})
 
 		t.Run("exact counts and clean state after finalize", func(t *testing.T) {
-			objs := listAllObjectsWithVectors(t, className)
+			// Limit derived from the expected count (+1 headroom so an extra
+			// persisted object still surfaces) — a longer loadFor must not turn
+			// the exact-count assertion into a truncation failure.
+			objs := listObjectsWithVectors(t, className, "", int64(baseCount+cleanWrites+1))
 			expected := map[strfmt.UUID]bool{}
 			for i := range baseCount {
 				expected[baseID(i)] = true

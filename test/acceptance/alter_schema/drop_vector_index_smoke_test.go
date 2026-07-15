@@ -27,13 +27,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testDropVectorIndexSmoke is an end-to-end smoke test of the public drop path
-// through the real server: dropping a named vector sets the "none" marker
-// (Phase 1) and the drop is immediately effective — writes targeting the dropped
-// vector are rejected exactly as for a never-existing vector. The full
-// lifecycle — cleanup drain, schema-entry removal, name reuse — is covered by
-// the lifecycle acceptance tests.
-
 // errorResponseText flattens a go-swagger error into searchable text: Error()
 // prints payload pointers (&{Error:[0x...]}), so the payload messages must be
 // extracted through GetPayload.
@@ -49,6 +42,12 @@ func errorResponseText(err error) string {
 	return text
 }
 
+// testDropVectorIndexSmoke is an end-to-end smoke test of the public drop path
+// through the real server: dropping a named vector sets the "none" marker
+// (Phase 1) and the drop is immediately effective — writes targeting the dropped
+// vector are rejected exactly as for a never-existing vector. The full
+// lifecycle — cleanup drain, schema-entry removal, name reuse — is covered by
+// the lifecycle acceptance tests.
 func testDropVectorIndexSmoke() func(t *testing.T) {
 	return func(t *testing.T) {
 		className := "DropVectorIndexSmoke"

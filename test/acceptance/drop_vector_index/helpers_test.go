@@ -31,6 +31,13 @@ import (
 // the drop task polls on a 30s ticker, so completion lands within a few ticks.
 const finalizeTimeout = 3 * time.Minute
 
+func noneVectorConfig() models.VectorConfig {
+	return models.VectorConfig{
+		Vectorizer:      map[string]any{"none": map[string]any{}},
+		VectorIndexType: "hnsw",
+	}
+}
+
 func randVec(dim int, seed float32) []float32 {
 	v := make([]float32, dim)
 	for i := range v {
@@ -73,12 +80,11 @@ func eventuallyTargetVectorRemoved(t *testing.T, className, targetVector string)
 
 func listAllObjectsWithVectors(t *testing.T, className string) []*models.Object {
 	t.Helper()
-	return listObjectsWithVectors(t, className, "")
+	return listObjectsWithVectors(t, className, "", 100)
 }
 
-func listObjectsWithVectors(t *testing.T, className, tenant string) []*models.Object {
+func listObjectsWithVectors(t *testing.T, className, tenant string, limit int64) []*models.Object {
 	t.Helper()
-	limit := int64(100)
 	include := "vector"
 	params := clobjects.NewObjectsListParams().WithClass(&className).WithLimit(&limit).WithInclude(&include)
 	if tenant != "" {
@@ -176,5 +182,5 @@ func errorResponseText(err error) string {
 
 func listTenantObjectsWithVectors(t *testing.T, className, tenant string) []*models.Object {
 	t.Helper()
-	return listObjectsWithVectors(t, className, tenant)
+	return listObjectsWithVectors(t, className, tenant, 100)
 }

@@ -73,14 +73,7 @@ func testWriteMatrix() func(t *testing.T) {
 					{Name: "toTarget", DataType: []string{targetClassName}},
 				},
 				VectorConfig: map[string]models.VectorConfig{
-					dropped: {
-						Vectorizer:      map[string]any{"none": map[string]any{}},
-						VectorIndexType: "hnsw",
-					},
-					sibling: {
-						Vectorizer:      map[string]any{"none": map[string]any{}},
-						VectorIndexType: "hnsw",
-					},
+					dropped: noneVectorConfig(), sibling: noneVectorConfig(),
 				},
 			}
 			_, err = helper.Client(t).Schema.SchemaObjectsCreate(

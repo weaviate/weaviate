@@ -24,13 +24,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func noneVectorConfig() models.VectorConfig {
-	return models.VectorConfig{
-		Vectorizer:      map[string]any{"none": map[string]any{}},
-		VectorIndexType: "hnsw",
-	}
-}
-
 // testConcurrentDrops pins overlapping drops: a second drop on a DIFFERENT
 // vector while the first is still cleaning runs as its own task, a duplicate
 // drop of the SAME vector while active is a no-op success, and both drops
@@ -135,7 +128,11 @@ func testDeleteClassMidDrop() func(t *testing.T) {
 				Properties: []*models.Property{
 					{Name: "name", DataType: []string{schema.DataTypeText.String()}},
 				},
-				VectorConfig: map[string]models.VectorConfig{vec: noneVectorConfig()},
+				VectorConfig: map[string]models.VectorConfig{
+					// The sibling keeps vec droppable (a drop leaving no live
+					// named vector is rejected).
+					vec: noneVectorConfig(), "sibling": noneVectorConfig(),
+				},
 			}
 		}
 		insert := func(t *testing.T, idBase int) {
