@@ -13,7 +13,6 @@ package alterschema
 
 import (
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -137,10 +136,12 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 				helper.AssertRequestOk(t, resp, err, nil)
 			})
 
-			// Insert an object so the finalizer's pending set is non-empty,
-			// deferring completion to its first 30s poll tick
-			// (DropVectorIndexProvider.pollUntilEmpty) and keeping the "none"
-			// marker present for the re-creation-rejection step below.
+			// Insert an object before the drop so the drop op's pending set is
+			// non-empty at arm time: RegisterEditOp flushes the memtable into a
+			// segment before snapshotting pending, so this object is captured
+			// with no wait. That defers the finalizer to its first 30s poll tick
+			// (DropVectorIndexProvider.pollUntilEmpty), keeping the "none" marker
+			// present for the re-creation-rejection step below.
 			t.Run("insert object with the vector", func(t *testing.T) {
 				obj := &models.Object{
 					ID:         strfmt.UUID("00000000-0000-0000-0000-000000000101"),
@@ -151,10 +152,6 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 				_, err := helper.Client(t).Objects.ObjectsCreate(
 					clobjects.NewObjectsCreateParams().WithBody(obj), nil)
 				require.NoError(t, err)
-
-				// Wait past the ~1s dirty-flush so the vector lands in a segment,
-				// not just the memtable, keeping the drop's pending set non-empty.
-				time.Sleep(3 * time.Second)
 			})
 
 			t.Run("drop vector index", func(t *testing.T) {
