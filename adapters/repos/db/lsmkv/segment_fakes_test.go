@@ -250,6 +250,11 @@ func (f *fakeSegment) markForDeletion() error {
 	return nil
 }
 
+func (f *fakeSegment) markForDeletionExceptSegment() error {
+	f.isMarkedForDeletion = true
+	return nil
+}
+
 func (f *fakeSegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error) {
 	panic("not implemented")
 }

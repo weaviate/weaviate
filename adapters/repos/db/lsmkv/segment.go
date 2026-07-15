@@ -65,6 +65,7 @@ type Segment interface {
 	getInvertedData() *segmentInvertedData
 	isLoaded() bool
 	markForDeletion() error
+	markForDeletionExceptSegment() error
 	stripTmpExtensions(leftSegmentID, rightSegmentID string) error
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
 	newCollectionCursor() innerCursorCollection
@@ -131,6 +132,10 @@ type segment struct {
 	refCount         int
 
 	deleteMarkerSuffix string
+
+	// set when the .db was overwritten in place by a newer segment, so drop must
+	// not look for a ".deleteme" copy of it. See markForDeletionExceptSegment.
+	segmentFileSuperseded bool
 }
 
 type diskIndex interface {
@@ -488,6 +493,12 @@ func (s *segment) dropMarked() error {
 		return fmt.Errorf("drop previously marked metadata file: %w", err)
 	}
 
+	if s.segmentFileSuperseded {
+		// .db was overwritten in place; no ".deleteme" copy to remove, the old
+		// inode is freed by the preceding close().
+		return nil
+	}
+
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
 	// was a NotExists error here, something would be seriously wrong, and we
 	// don't want to ignore it.
@@ -513,6 +524,34 @@ func (s *segment) removeMarked(path string) error {
 }
 
 func (s *segment) markForDeletion() error {
+	if err := s.markSidecarsForDeletion(); err != nil {
+		return err
+	}
+
+	// for the segment itself, we're not accepting a NotExists error. If there
+	// was a NotExists error here, something would be seriously wrong, and we
+	// don't want to ignore it.
+	if err := s.markDeleted(s.path); err != nil {
+		return fmt.Errorf("mark segment deleted: %w", err)
+	}
+
+	return nil
+}
+
+// markForDeletionExceptSegment marks the sidecars for deletion but leaves the
+// .db in place, for the in-place cleanup switch where the new segment overwrites
+// the old .db at the same path (see segment_group_replacer.go switchOnDisk).
+func (s *segment) markForDeletionExceptSegment() error {
+	if err := s.markSidecarsForDeletion(); err != nil {
+		return err
+	}
+	s.segmentFileSuperseded = true
+	return nil
+}
+
+// markSidecarsForDeletion renames the derived files (bloom filters, CNA,
+// metadata) to their ".deleteme" markers.
+func (s *segment) markSidecarsForDeletion() error {
 	// support for persisting bloom filters and cnas was added in v1.17,
 	// therefore the files may not be present on segments created with previous
 	// versions. If we get a not exist error, we ignore it.
@@ -540,13 +579,6 @@ func (s *segment) markForDeletion() error {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("mark metadata file deleted: %w", err)
 		}
-	}
-
-	// for the segment itself, we're not accepting a NotExists error. If there
-	// was a NotExists error here, something would be seriously wrong, and we
-	// don't want to ignore it.
-	if err := s.markDeleted(s.path); err != nil {
-		return fmt.Errorf("mark segment deleted: %w", err)
 	}
 
 	return nil
