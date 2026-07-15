@@ -52,7 +52,8 @@ func errorResponseText(err error) string {
 // the schema (RemoveDroppedVectorConfig). Their timing is not controllable from
 // a black-box test — the finalizer may or may not complete within the test
 // window — so the schema assertion below accepts both post-drop states rather
-// than pinning either.
+// than pinning either. The full lifecycle — cleanup drain, schema-entry removal,
+// name reuse — is covered by the lifecycle acceptance tests.
 func testDropVectorIndexSmoke() func(t *testing.T) {
 	return func(t *testing.T) {
 		className := "DropVectorIndexSmoke"
@@ -140,9 +141,7 @@ func testDropVectorIndexSmoke() func(t *testing.T) {
 
 		// Best-effort teardown. DeleteClass is allowed to proceed during an
 		// in-flight cleanup (the conflict detector lets it through and the schema
-		// removes the task as it deletes the class), so this succeeds. The cleanup
-		// itself can't drain in this harness — the segment cleanup driver runs only
-		// on an interval that is off by default — but the container is ephemeral.
+		// removes the task as it deletes the class).
 		helper.Client(t).Schema.SchemaObjectsDelete(deleteParams, nil)
 	}
 }
