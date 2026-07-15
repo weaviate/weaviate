@@ -574,13 +574,10 @@ func TestSegmentIndexPin_CleanupReplaceErrorReleasesAccounting(t *testing.T) {
 	wantBudget := segmentIndexPinnedTotalBytes.Load()
 	wantTotal, wantBytes := pinnedTotal(), pinnedBytes()
 
-	// The cleanup candidate is the oldest segment; its rewrite reads through the
-	// already-mmap'd segment, so it survives until the switchover. The in-place
-	// crash-atomic cleanup switch renames the freshly-written .db.tmp onto the
-	// candidate's canonical .db path (same segment id); replacing that path with
-	// a directory makes stripTmpExtensions' rename fail, so the switchover fails
-	// exactly after preinitializeNewSegment has already pinned the (never
-	// published) rewritten segment.
+	// switchOnDisk now renames in place onto this path, so removing the file
+	// alone no longer fails the switchover. A directory here forces
+	// stripTmpExtensions' rename to fail instead, exercising release of the
+	// pinned-but-unpublished rewritten segment.
 	require.NoError(t, os.Remove(segments[0].path))
 	require.NoError(t, os.Mkdir(segments[0].path, 0o755))
 
