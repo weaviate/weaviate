@@ -285,8 +285,8 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 	return &RowReaderRoaringSet{
 		value:     value,
 		operator:  operator,
-		newCursor: func() lsmkv.CursorRoaringSet { return &dummyCursorRoaringSet{data: data} },
-		getter: func(key []byte) (*sroar.Bitmap, func(), error) {
+		newCursor: func(context.Context) lsmkv.CursorRoaringSet { return &dummyCursorRoaringSet{data: data} },
+		getter: func(_ context.Context, key []byte) (*sroar.Bitmap, func(), error) {
 			for i := 0; i < len(data); i++ {
 				if bytes.Equal([]byte(data[i].k), key) {
 					return roaringset.NewBitmap(data[i].v...), noopRelease, nil

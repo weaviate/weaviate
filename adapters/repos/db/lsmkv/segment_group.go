@@ -202,7 +202,15 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		potentialCompactedSegmentFileName := strings.TrimSuffix(entry, ".tmp")
 
 		if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
-			// another kind of temporal file, ignore at this point but it may need to be deleted...
+			// A non-.db segment .tmp (e.g. a precomputed segment-X.bloom.tmp) is a
+			// leftover from a crash during a compaction/cleanup switch — no such
+			// work runs during init — so remove it. The derived files are
+			// recomputed on load.
+			if strings.HasPrefix(entry, "segment-") {
+				if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+					return nil, fmt.Errorf("delete leftover segment temp file %q: %w", entry, err)
+				}
+			}
 			continue
 		}
 
@@ -814,43 +822,47 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment) (out roaringset.BitmapLayers, release func(), err error) {
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayers, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
 		return nil, noopRelease, nil
 	}
 
-	release = noopRelease
+	// acquired (not the named return, which error paths overwrite with
+	// noopRelease) is what the defer frees, so a mid-merge disk read error
+	// can't leak the first layer's pooled buffer.
+	acquired := noopRelease
 	// use bigger buffer for first layer, to make space for further merges
 	// with following layers
 	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.25)
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
-		if err == nil {
+		layer, layerRelease, getErr := segments[i].roaringSetGet(key, bitmapBufPool)
+		if getErr == nil {
 			out = append(out, layer)
-			release = layerRelease
+			acquired = layerRelease
 			i++
 			break
 		}
-		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, noopRelease, err
+		if !errors.Is(getErr, lsmkv.NotFound) {
+			return nil, noopRelease, getErr
 		}
 	}
 	defer func() {
 		if err != nil {
-			release()
+			acquired()
 		}
 	}()
 
 	for ; i < ln; i++ {
-		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool, maxConc); mergeErr != nil {
+			err = mergeErr
 			return nil, noopRelease, err
 		}
 	}
 
-	return out, release, nil
+	return out, acquired, nil
 }
 
 func (sg *SegmentGroup) count() int {
