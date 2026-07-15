@@ -195,8 +195,7 @@ func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys 
 	// Phase 1 - per-segment sorted index descents, newest-to-oldest, unresolved-set
 	// elimination on CONFIRMED index hits only (never a bloom pass). No value read.
 	beforeIndex := time.Now()
-	hits, err := b.disk.getBySecondaryBatchIndexHits(
-		ctx, pos, unresolved, segments, b.secondaryBatchReadConcurrencyValue(), nil)
+	hits, err := b.disk.getBySecondaryBatchIndexHits(ctx, pos, unresolved, segments, nil)
 	if err != nil {
 		return nil, err
 	}

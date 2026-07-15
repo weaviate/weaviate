@@ -359,7 +359,7 @@ func replaySecondaryBatchWithHook(ctx context.Context, b *Bucket, pos int, keys 
 	}
 
 	// phase 1 - index descents
-	hits, err := b.disk.getBySecondaryBatchIndexHits(ctx, pos, unresolved, segments, defaultSecondaryBatchReadConcurrency, nil)
+	hits, err := b.disk.getBySecondaryBatchIndexHits(ctx, pos, unresolved, segments, nil)
 	if err != nil {
 		return nil, err
 	}

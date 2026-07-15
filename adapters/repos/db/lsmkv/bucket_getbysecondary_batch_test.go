@@ -884,7 +884,7 @@ func indexHitsForKeys(t testing.TB, b *Bucket, view BucketConsistentView, keys [
 	for i, k := range keys {
 		unresolved[i] = secondaryBatchKey{origIdx: i, key: k}
 	}
-	hits, err := b.disk.getBySecondaryBatchIndexHits(context.Background(), secondaryPos, unresolved, view.Disk, defaultSecondaryBatchReadConcurrency, nil)
+	hits, err := b.disk.getBySecondaryBatchIndexHits(context.Background(), secondaryPos, unresolved, view.Disk, nil)
 	require.NoError(t, err)
 	return hits
 }
@@ -1045,14 +1045,13 @@ func TestBucketGetBySecondaryBatchCtxCancelMidPhase2(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-// ---- phase-1 concurrency gate (gh#309 pass-3b cold bm25 fix) -----------------------
+// ---- phase-1 descent path (gh#309 pass-3c: serial descents, cancellation, hook seam) ----
 //
-// pass-3b attributed ~75% of the cold bm25 wall to phase-1 getBySecondaryBatchIndexHits
-// running strictly serial (1 goroutine) doing the cold-dominant mmap DiskTree.Get
-// descents, while the v3 close gate instrumented only phase 2. These gates instrument
-// the REAL phase-1 descent path through the extended secondaryBatchReadHook
-// (onDescentStart/onDescentDone), so a re-serialized phase 1 FAILS them; the co-gate to
-// the phase-2 concurrency gate above.
+// pass-3c reverted the within-segment parallel-descent variant: on a QD-capped device the
+// parallel descents doubled major-fault events at identical page/byte counts and made cold
+// bm25 worse, so phase-1 descents are serial again. The onDescentStart/onDescentDone hook
+// seam is retained (nil in production) for the chunked-pipeline prototype A/B and for the
+// phase-1 cancellation gate below.
 
 // buildOldestSegmentHitBucket writes all numKeys target keys into the OLDEST segment and
 // fills each of the numSegments-1 newer segments with disjoint filler keys. Every target
@@ -1099,88 +1098,12 @@ func unresolvedFromKeys(keys [][]byte) []secondaryBatchKey {
 	return u
 }
 
-// TestBucketGetBySecondaryBatchPhase1ConcurrencyPeakInflight is close-blocking gate (i):
-// at B=16 over a 500-key oldest-segment-resolve batch, phase 1 must run >= 8 index
-// descents concurrently. Directly catches a limit=1 misconfig, a lost fan-out, or a
-// refactor that re-serializes descents, none of which the phase-2 gate can see.
-func TestBucketGetBySecondaryBatchPhase1ConcurrencyPeakInflight(t *testing.T) {
-	b, keys := buildOldestSegmentHitBucket(t, 500, 6)
-	view := b.GetConsistentView()
-	defer view.ReleaseView()
-
-	const batchConcurrency = 16
-	probe := newConcurrencyProbe(8, 2*time.Second)
-	hook := &secondaryBatchReadHook{onDescentStart: probe.onReadStart, onDescentDone: probe.onReadDone}
-
-	hits, err := b.disk.getBySecondaryBatchIndexHits(
-		context.Background(), secondaryPos, unresolvedFromKeys(keys), view.Disk, batchConcurrency, hook)
-	require.NoError(t, err)
-	require.Len(t, hits, len(keys), "every target key must confirm in the oldest segment")
-
-	require.GreaterOrEqualf(t, probe.peakInflight(), 8,
-		"phase 1 peaked at %d in-flight descents at B=16; < 8 means it serialized "+
-			"(limit=1 misconfig, lost fan-out, or a re-serializing refactor)", probe.peakInflight())
-}
-
-// TestBucketGetBySecondaryBatchPhase1ForcedSerialRED is the forced-serial RED co-assertion:
-// with descent concurrency pinned to 1, the same probe MUST peak at exactly 1 (< 8), so the
-// gate above is proven to have teeth (it distinguishes concurrent from serial, not merely
-// that the happy path passes). This is the "forced-serial goes RED" requirement.
-func TestBucketGetBySecondaryBatchPhase1ForcedSerialRED(t *testing.T) {
-	b, keys := buildOldestSegmentHitBucket(t, 500, 6)
-	view := b.GetConsistentView()
-	defer view.ReleaseView()
-
-	probe := newConcurrencyProbe(8, 500*time.Millisecond)
-	hook := &secondaryBatchReadHook{onDescentStart: probe.onReadStart, onDescentDone: probe.onReadDone}
-
-	hits, err := b.disk.getBySecondaryBatchIndexHits(
-		context.Background(), secondaryPos, unresolvedFromKeys(keys), view.Disk, 1, hook)
-	require.NoError(t, err)
-	require.Len(t, hits, len(keys))
-
-	require.Equalf(t, 1, probe.peakInflight(),
-		"forced-serial (limit=1) phase 1 must peak at exactly 1 in-flight descent; got %d",
-		probe.peakInflight())
-	require.Lessf(t, probe.peakInflight(), 8,
-		"forced-serial phase 1 must FAIL the >= 8 concurrency gate (peak=%d); if it does not, the "+
-			"gate has no teeth", probe.peakInflight())
-}
-
-// TestBucketGetBySecondaryBatchPhase1WallTimeRatio is gate (iii): under a fixed injected
-// per-descent latency, the concurrent batch (B=16) must complete in <= 0.5x the serial
-// (B=1) wall time on the same descent set. A serialized phase 1 would be ~1x and fail.
-func TestBucketGetBySecondaryBatchPhase1WallTimeRatio(t *testing.T) {
-	b, keys := buildOldestSegmentHitBucket(t, 500, 6)
-	view := b.GetConsistentView()
-	defer view.ReleaseView()
-
-	const perDescent = 200 * time.Microsecond
-	latency := &secondaryBatchReadHook{onDescentStart: func() { time.Sleep(perDescent) }}
-
-	startSerial := time.Now()
-	hitsSerial, err := b.disk.getBySecondaryBatchIndexHits(
-		context.Background(), secondaryPos, unresolvedFromKeys(keys), view.Disk, 1, latency)
-	serialWall := time.Since(startSerial)
-	require.NoError(t, err)
-	require.Len(t, hitsSerial, len(keys))
-
-	startConc := time.Now()
-	hitsConc, err := b.disk.getBySecondaryBatchIndexHits(
-		context.Background(), secondaryPos, unresolvedFromKeys(keys), view.Disk, 16, latency)
-	concWall := time.Since(startConc)
-	require.NoError(t, err)
-	require.Len(t, hitsConc, len(keys))
-
-	require.Lessf(t, concWall, serialWall/2,
-		"concurrent phase 1 (B=16) must be <= 0.5x serial (B=1) under injected %s/descent latency; "+
-			"serial=%s concurrent=%s (a serialized phase 1 would be ~1x)", perDescent, serialWall, concWall)
-}
-
-// TestBucketGetBySecondaryBatchCtxCancelMidPhase1 confirms cancellation aborts phase 1 at
-// descent granularity (not only phase 2): a ctx cancelled on the first descent surfaces
-// context.Canceled from the descent errgroup rather than running every descent to
-// completion. The -race run would flag any goroutine leak/deadlock in the drain.
+// TestBucketGetBySecondaryBatchCtxCancelMidPhase1 confirms a ctx cancelled during phase 1
+// aborts the resolve rather than descending every remaining segment: cancelling on the
+// first descent surfaces context.Canceled at the next per-segment ctx check. Serial phase 1
+// checks ctx once per segment, so cancellation is observed at segment granularity; the
+// worst-case oldest-segment fixture guarantees more than one segment is descended. The
+// -race run would flag any leak in the unwind.
 func TestBucketGetBySecondaryBatchCtxCancelMidPhase1(t *testing.T) {
 	b, keys := buildOldestSegmentHitBucket(t, 500, 6)
 	view := b.GetConsistentView()
@@ -1191,7 +1114,7 @@ func TestBucketGetBySecondaryBatchCtxCancelMidPhase1(t *testing.T) {
 	hook := &secondaryBatchReadHook{onDescentStart: func() { once.Do(cancel) }}
 
 	_, err := b.disk.getBySecondaryBatchIndexHits(
-		ctx, secondaryPos, unresolvedFromKeys(keys), view.Disk, 16, hook)
+		ctx, secondaryPos, unresolvedFromKeys(keys), view.Disk, hook)
 	require.ErrorIs(t, err, context.Canceled)
 }
 
