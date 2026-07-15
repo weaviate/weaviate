@@ -1259,6 +1259,29 @@ func localMetaWithObjectLimit(t *testing.T) {
 		})
 	})
 
+	t.Run("unfiltered count is exact", func(t *testing.T) {
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
+			{
+				Aggregate {
+					RansomNote {
+						meta {
+							count
+						}
+					}
+				}
+			}
+		`)
+
+		res := result.Get("Aggregate", "RansomNote").AsSlice()
+		require.Len(t, res, 1)
+		meta := res[0].(map[string]interface{})["meta"]
+		count := meta.(map[string]interface{})["count"]
+		countInt, err := count.(json.Number).Int64()
+		require.Nil(t, err)
+		// Without a vector filter the count comes from the object store, not ANN traversal, so it is exact.
+		assert.Equal(t, int64(500), countInt)
+	})
+
 	t.Run("with nearObject and low distance (few results), high objectLimit", func(t *testing.T) {
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
