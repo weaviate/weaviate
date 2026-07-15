@@ -43,9 +43,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms").
 		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "100ms").
 		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
-		// match the legacy docker-compose-test.yml monitoring setup, so that
-		// the metrics stability test scrapes this container instead of
-		// whatever else might listen on the host's port 2112
+		// so metricsCount scrapes this container, not whatever else is on :2112
 		WithWeaviateEnv("PROMETHEUS_MONITORING_ENABLED", "true").
 		WithWeaviateEnv("PROMETHEUS_MONITORING_GROUP_CLASSES", "true").
 		Start(ctx)
@@ -58,8 +56,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 }
 
 func TestGraphQL_SyncIndexing(t *testing.T) {
-	// legacy setup: docker-compose-test.yml maps the metrics port to
-	// localhost:2112
+	// docker-compose-test.yml maps metrics to localhost:2112
 	testGraphQL(t, "localhost:8080", "localhost:2112")
 }
 

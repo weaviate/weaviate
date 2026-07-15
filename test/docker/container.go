@@ -58,9 +58,7 @@ func (d *DockerContainer) ClusterURI() string {
 	return d.GetEndpoint(CLUSTER)
 }
 
-// MetricsURI returns the host-mapped address of the Prometheus metrics
-// endpoint. It is only set when the container was started with
-// PROMETHEUS_MONITORING_ENABLED, otherwise it returns an empty string.
+// MetricsURI returns "" unless started with PROMETHEUS_MONITORING_ENABLED.
 func (d *DockerContainer) MetricsURI() string {
 	return d.GetEndpoint(METRICS)
 }

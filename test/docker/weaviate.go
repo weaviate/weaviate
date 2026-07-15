@@ -136,10 +136,8 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "6060/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
 	}
-	// Expose the Prometheus metrics port when monitoring is enabled, so tests
-	// can scrape /metrics through the host-mapped port instead of assuming a
-	// fixed localhost:2112 mapping (which only exists in the legacy
-	// docker-compose setup).
+	// Expose the metrics port when monitoring is enabled, so tests scrape the
+	// host-mapped port instead of assuming a fixed localhost:2112.
 	metricsPort := nat.Port("2112/tcp")
 	exposeMetricsPort := entcfg.Enabled(env["PROMETHEUS_MONITORING_ENABLED"])
 	if exposeMetricsPort {

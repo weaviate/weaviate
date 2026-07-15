@@ -34,10 +34,7 @@ import (
 
 const metricClassPrefix = "MetricsClassPrefix"
 
-// metricsCount asserts that the number of metrics lines does not grow with the
-// number of classes. metricsEndpoint is the host:port of the Prometheus
-// metrics listener of the instance under test: the host-mapped port of the
-// container (testcontainers setup) or localhost:2112 (legacy setup).
+// metricsEndpoint is the host:port of the instance under test's Prometheus listener.
 func metricsCount(t *testing.T, metricsEndpoint string) {
 	defer cleanupMetricsClasses(t, 0, 20)
 	createImportQueryMetricsClasses(t, 0, 10)
@@ -199,8 +196,7 @@ func countMetricsLines(t *testing.T, metricsEndpoint string) (int, []string) {
 	var lines []string
 	for scanner.Scan() {
 		line := scanner.Text()
-		// no metric line may ever leak a class name, not even the ones
-		// excluded from the count below
+		// no line may leak a class name, including ones excluded below
 		require.NotContains(
 			t,
 			strings.ToLower(line),
@@ -215,10 +211,8 @@ func countMetricsLines(t *testing.T, metricsEndpoint string) (int, []string) {
 		if strings.Contains(line, "weaviate_lsm_bucket_read_operation") {
 			continue
 		}
-		// bounded-cardinality I/O metrics whose series materialize lazily on
-		// first use per label combination (e.g. the first segment-file read
-		// after a compaction), so their line count depends on background
-		// LSM activity, not on the number of classes
+		// these series materialize lazily on first use, so their count depends
+		// on background LSM activity rather than the number of classes
 		if strings.Contains(line, "file_io_") || strings.Contains(line, "mmap_operations") {
 			continue
 		}
