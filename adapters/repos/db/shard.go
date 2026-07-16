@@ -419,11 +419,28 @@ type Shard struct {
 	// shard that restarts after its local swap tidied but before the
 	// cluster-wide schema flip lands would come up with an empty map
 	// for that property (the only on-disk evidence is gone once
-	// FinalizeCompletedMigrations promotes it), relying entirely on
-	// IsRangeableLocallyReady's bucket-existence fallback to answer
-	// `true`. That fallback is still correct on its own, but it made
-	// [Shard.rangeableForceIndexOverlay]'s len(rangeableLocalReady)==0
-	// fast exit unsafe until this seeding was added.
+	// FinalizeCompletedMigrations promotes it). This does NOT
+	// self-heal via IsRangeableLocallyReady's bucket-existence
+	// fallback: rangeable-bucket loading at shard init is
+	// schema-driven (createPropertyValueIndex only calls
+	// CreateOrLoadBucket for the rangeable bucket when
+	// inverted.HasRangeableIndex(prop) is true against the LIVE class
+	// schema passed into initProperties - see
+	// shard_init_properties.go:527), and the live schema is still
+	// pre-flip by definition in this window. So the bucket, though it
+	// physically exists on disk from the completed swap, is never
+	// registered in s.store, and the fallback's
+	// `s.store.Bucket(...) != nil` check answers `false`, not `true`.
+	// This seed therefore closes a real single-restart write-loss
+	// window that pre-dates and is independent of
+	// [Shard.rangeableForceIndexOverlay]'s fast exit: a bare restart
+	// in this window reopened the gap even on the pre-fast-exit slow
+	// path, because the overlay's own
+	// `if !s.IsRangeableLocallyReady(p.Name) { continue }` guard
+	// would skip forcing rangeable exactly when it needed to fire. Do
+	// not remove this seeding on the theory that the bucket-existence
+	// fallback "covers it anyway" - it doesn't, for this specific
+	// restart timing.
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 

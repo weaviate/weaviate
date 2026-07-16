@@ -280,11 +280,22 @@ func rangeableMigrationTrackerDirs(s *Shard) []string {
 // pre-scan, a shard that restarts after its local swap tidied but
 // before the cluster-wide schema flip lands comes up with an empty
 // rangeableLocalReady map for that property. IsRangeableLocallyReady's
-// bucket-existence fallback still answers correctly in that case (the
-// bucket physically exists on disk), but
-// [Shard.rangeableForceIndexOverlay]'s len(rangeableLocalReady)==0
-// fast exit (shard_write_inverted.go) would then unsafely skip the
-// overlay for exactly the write-loss window GH
+// bucket-existence fallback does NOT self-heal that case: bucket
+// loading at shard init is schema-driven
+// (createPropertyValueIndex only calls CreateOrLoadBucket for the
+// rangeable bucket when inverted.HasRangeableIndex(prop) is true
+// against the LIVE class schema - see shard_init_properties.go:527),
+// and the live schema is still pre-flip here by definition. So the
+// bucket, though physically present on disk from the completed swap,
+// is never registered in s.store, and s.store.Bucket(...) returns
+// nil. The fallback therefore answers `false`, not `true`, in exactly
+// this window. That makes this seed a fix for a real pre-existing
+// single-restart write-loss window, not just a safety net for the
+// len(rangeableLocalReady)==0 fast exit added below:
+// [Shard.rangeableForceIndexOverlay]'s
+// `if !s.IsRangeableLocallyReady(p.Name) { continue }` guard
+// (shard_write_inverted.go) would skip forcing rangeable on the slow
+// path too, for exactly the write-loss window GH
 // weaviate/weaviate#12189 opened (weaviate/0-weaviate-issues#319,
 // rangeable instance).
 //
