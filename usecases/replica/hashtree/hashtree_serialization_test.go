@@ -48,7 +48,7 @@ func TestHashTreeSerialization(t *testing.T) {
 	}
 }
 
-// TestHashTreeDeserializationHeaderValidation pins the header checksum: real murmur and the legacy pre-fix echo are accepted, any header corruption is rejected before the tree is allocated.
+// TestHashTreeDeserializationHeaderValidation: real and legacy checksums accepted, header corruption rejected.
 func TestHashTreeDeserializationHeaderValidation(t *testing.T) {
 	const height = 4
 

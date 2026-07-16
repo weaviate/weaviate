@@ -1993,7 +1993,7 @@ func TestLoadHashtreeRejectsCorruptNewestFile(t *testing.T) {
 	require.Empty(t, htFilesInDir(t, dir), "both files must be consumed")
 }
 
-// TestLoadHashtreeRemoveFailureIsFatal: a file the load cannot remove must fail the load rather than linger and be trusted as "newest" later.
+// TestLoadHashtreeRemoveFailureIsFatal: an unremovable file must fail the load, not linger to be trusted later.
 func TestLoadHashtreeRemoveFailureIsFatal(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("requires non-root to make the hashtree directory read-only")
@@ -2029,7 +2029,7 @@ func TestLoadHashtreeRemoveFailureIsFatal(t *testing.T) {
 	}
 }
 
-// TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes pins a pre-existing residual: a conflict-delete draining past the hashtree capture reaches the store but not the captured tree, so the dumped .ht over-represents.
+// TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes pins: a drain-window conflict-delete reaches the store but not the dumped tree.
 func TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes(t *testing.T) {
 	t.Skip("pinned: drain-window conflict-delete stales the shutdown .ht — fix (drain-before-capture) tracked as follow-up")
 
@@ -2097,7 +2097,7 @@ func TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes(t *testing.T) {
 		"shutdown .ht must reflect deletes applied during the worker drain window")
 }
 
-// TestUnfreezeMustNotTrustDownloadedHashtree pins a pre-existing upgrade-window residual: an offload artifact produced by a pre-fix version carries a .ht that can be stale relative to the artifact's store, and activation trust-loads it.
+// TestUnfreezeMustNotTrustDownloadedHashtree pins: activation trust-loads a possibly-stale .ht from a pre-fix offload artifact.
 func TestUnfreezeMustNotTrustDownloadedHashtree(t *testing.T) {
 	t.Skip("pinned: activation over downloaded artifact files trust-loads a possibly-stale .ht — scrub belongs in the offload download path, tracked as follow-up")
 

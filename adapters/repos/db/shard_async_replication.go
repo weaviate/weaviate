@@ -575,10 +575,8 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	return nil
 }
 
-// removePersistedHashtree deletes any persisted .ht (and sweeps stray .ht.tmp)
-// without deserialising them. Called when async replication is disabled while
-// the shard stays live: a leftover .ht goes stale on the first write and a
-// later enable would trust it as "cached". Missing directory is success.
+// removePersistedHashtree deletes persisted .ht and stray .ht.tmp files: a
+// leftover .ht goes stale on the first write and a later enable would trust it.
 func (s *Shard) removePersistedHashtree() error {
 	dir := s.pathHashTree()
 	dirEntries, err := os.ReadDir(dir)
@@ -610,17 +608,10 @@ func (s *Shard) removePersistedHashtree() error {
 	return nil
 }
 
-// tryLoadHashtreeFromDisk loads the most-recent .ht and clears the directory
-// (loaded file, older .ht duplicates, stray .ht.tmp) with a single fsync.
+// tryLoadHashtreeFromDisk loads the newest .ht and clears the directory.
 // Returns nil (full scan) when nothing loads or the height mismatches.
-//
-// Only the newest .ht is a load candidate: if it fails to deserialize the
-// directory is discarded entirely — never fall back to an older, staler tree,
-// which would silently drop every write made after it.
-//
-// Every removal is strict: a file that cannot be removed fails the load,
-// because anything left behind goes stale once the shard serves writes and
-// would be trusted as the newest snapshot by a later load.
+// Never falls back to an older tree, and any failed removal fails the load:
+// a leftover file would be trusted as the newest snapshot by a later load.
 func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.AggregatedHashTree, error) {
 	dir := s.pathHashTree()
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
@@ -688,7 +679,7 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 			continue
 		}
 
-		// Strict: the consumed file must not survive to be reloaded as "cached".
+		// The consumed file must not survive to be reloaded as "cached".
 		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
@@ -885,12 +876,9 @@ func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error 
 }
 
 // mayStopAsyncReplication cancels async replication, deregisters the shard, and
-// waits up to asyncReplicationWorkerDrainTimeout for in-flight cycles to drain.
-//
-// persistHashtree may be true only on the shutdown path: a persisted .ht is
-// trusted verbatim on the next load, so it is safe to write only when the shard
-// serves no further writes. Drop (destroyed) and offload-halt (stays live) pass
-// false. Unlike disableAsyncReplication, this waits for in-flight cycles.
+// waits (bounded) for in-flight cycles to drain. persistHashtree only on the
+// shutdown path: a .ht is trusted verbatim on load, so only a shard serving no
+// further writes may write one.
 func (s *Shard) mayStopAsyncReplication(persistHashtree bool) {
 	s.asyncReplicationRWMux.Lock()
 
@@ -959,8 +947,8 @@ func (s *Shard) mayStopAsyncReplication(persistHashtree bool) {
 	}
 
 	if persistHashtree && capturedHT != nil {
-		// Synchronous and best-effort: a rebuildable cache must not fail shutdown,
-		// and a detached goroutine could later publish a stale snapshot.
+		// Synchronous (a detached goroutine could publish a stale snapshot late)
+		// and best-effort (a rebuildable cache must not fail shutdown).
 		if err := s.dumpHashTreeOf(capturedHT); err != nil {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -1040,9 +1028,8 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 // full scan. mayStopAsyncReplication (shutdown/drop/backup) is the only
 // safe producer of a .ht because the shard serves no further writes.
 //
-// It also scrubs any persisted .ht (best-effort): shard-live/async-off is the
-// one state in which a .ht must not exist, so a prior shutdown's file is removed
-// rather than merely not written.
+// It also scrubs any persisted .ht (best-effort): none may exist while the
+// shard is live with async off.
 //
 // Unlike mayStopAsyncReplication, this function does NOT call
 // asyncRepWg.Wait(); use mayStopAsyncReplication (or Deregister + explicit
@@ -1079,8 +1066,7 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 	s.asyncReplicationStatsByTargetNode = nil
 	s.asyncReplicationStatsMux.Unlock()
 
-	// Best-effort: a later re-enable must not load a snapshot predating the
-	// writes served while async was off.
+	// A later re-enable must not load a snapshot predating disabled-window writes.
 	if err := s.removePersistedHashtree(); err != nil {
 		s.index.logger.
 			WithField("action", "async_replication").
@@ -1211,9 +1197,8 @@ func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncRep
 	return asyncReplicationStatsToReturn
 }
 
-// dumpHashTreeOf serializes ht via an atomic write-<name>.tmp/sync/rename so a
-// crash mid-write never leaves a truncated .ht. On any error the .tmp is removed
-// (nothing else reclaims it eagerly).
+// dumpHashTreeOf serializes ht via atomic tmp/sync/rename; on any error the
+// .tmp is removed.
 func (s *Shard) dumpHashTreeOf(ht hashtree.AggregatedHashTree) (err error) {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
@@ -1226,9 +1211,8 @@ func (s *Shard) dumpHashTreeOf(ht hashtree.AggregatedHashTree) (err error) {
 	if err != nil {
 		return fmt.Errorf("storing hashtree %q: %w", tmpFilename, err)
 	}
-	// closed=true after the explicit pre-rename Close makes the deferred close a
-	// no-op on the happy path; on error the .tmp is removed (IsNotExist tolerated,
-	// as a post-rename error means the tmp name is already gone).
+	// Deferred close is a no-op after the pre-rename Close; on error the .tmp is
+	// removed (IsNotExist tolerated: post-rename errors find it already gone).
 	var closed bool
 	defer func() {
 		if !closed {
