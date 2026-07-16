@@ -1349,7 +1349,8 @@ func TestSubjectNamespace(t *testing.T) {
 // TestUserNameWithTypeScoped pins the empty-namespace slot encoding: only a
 // global OIDC subject gets the leading ':'. Every row round-trips back to its
 // (namespace, name) through SubjectNamespace/NamespaceFromQualified, and
-// StripGlobalOIDCSlot inverts the slot for global OIDC rows.
+// StripGlobalOIDCSlot inverts the slot for global OIDC rows. Global OIDC names
+// are colon-free — a namespaced name is the only one that may carry ':'.
 func TestUserNameWithTypeScoped(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -1368,24 +1369,6 @@ func TestUserNameWithTypeScoped(t *testing.T) {
 			wantSubject:   "oidc::carol",
 			wantNamespace: "",
 			wantName:      "carol",
-		},
-		{
-			name:          "global oidc colon-bearing name gets slot",
-			authType:      authentication.AuthTypeOIDC,
-			user:          "customer1:carol",
-			isGlobal:      true,
-			wantSubject:   "oidc::customer1:carol",
-			wantNamespace: "",
-			wantName:      "customer1:carol",
-		},
-		{
-			name:          "global oidc name starting with colon: single slot, no double-slot",
-			authType:      authentication.AuthTypeOIDC,
-			user:          ":carol",
-			isGlobal:      true,
-			wantSubject:   "oidc:::carol",
-			wantNamespace: "",
-			wantName:      ":carol",
 		},
 		{
 			name:          "namespaced oidc carol",
@@ -1474,12 +1457,6 @@ func TestUserNameWithTypeFromPrincipal(t *testing.T) {
 			principal:       &models.Principal{UserType: models.UserTypeInputOidc, Username: "carol", IsGlobalOperator: true},
 			wantSubject:     "oidc::carol",
 			wantUserPortion: ":carol",
-		},
-		{
-			name:            "global oidc colon-bearing name gets slot",
-			principal:       &models.Principal{UserType: models.UserTypeInputOidc, Username: "customer1:carol", IsGlobalOperator: true},
-			wantSubject:     "oidc::customer1:carol",
-			wantUserPortion: ":customer1:carol",
 		},
 		{
 			name:            "namespaced oidc: no slot",

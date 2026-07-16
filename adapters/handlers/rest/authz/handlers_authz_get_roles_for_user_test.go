@@ -585,86 +585,13 @@ func TestGetRolesForUser_OwnUserSelfReadBypass(t *testing.T) {
 }
 
 // TestGetRolesForUser_GlobalOIDCSlotSelfBypass pins that the self-read bypass is
-// slot-aware. A global OIDC caller whose username looks namespaced
-// ("customer1:carol") must not self-match the namespaced OIDC target of the same
-// id: that target resolves to a different subject, so the read must be
-// authorized. A global OIDC caller reading its own namespace-less id still
-// bypasses.
+// slot-aware: a global OIDC caller reading its own id looks itself up under the
+// slotted subject ":carol", so the bypass finds its own roles without an
+// explicit read on its user id.
 func TestGetRolesForUser_GlobalOIDCSlotSelfBypass(t *testing.T) {
 	falseP := false
-	roles := map[string][]authorization.Policy{
-		"role1": {{Resource: authorization.Collections("X")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
-	}
-
-	tests := []struct {
-		name       string
-		username   string
-		userID     string
-		denyAuthz  bool   // wire Authorize(Users(userID)) to deny; absence pins the bypass
-		groupKey   string // GetRolesForUserOrGroup subject on the bypass path
-		wantStatus any
-	}{
-		{
-			name:       "global oidc colon-name caller cannot self-bypass namespaced target",
-			username:   "customer1:carol",
-			userID:     "customer1:carol",
-			denyAuthz:  true,
-			wantStatus: &authz.GetRolesForUserForbidden{},
-		},
-		{
-			name:       "global oidc caller reading its own id still bypasses",
-			username:   "carol",
-			userID:     "carol",
-			groupKey:   ":carol",
-			wantStatus: &authz.GetRolesForUserOK{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			principal := &models.Principal{
-				Username:         tt.username,
-				IsGlobalOperator: true,
-				UserType:         models.UserTypeInputOidc,
-			}
-			authorizer := authorization.NewMockAuthorizer(t)
-			controller := NewMockControllerAndGetUsers(t)
-			logger, _ := test.NewNullLogger()
-
-			if tt.denyAuthz {
-				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.userID)[0]).Return(fmt.Errorf("not allowed"))
-			} else {
-				authorizer.On("AuthorizeSilent", mock.Anything, principal, mock.Anything, mock.Anything).Return(nil).Maybe()
-				controller.On("GetRolesForUserOrGroup", tt.groupKey, authentication.AuthTypeOIDC, false).Return(roles, nil)
-			}
-
-			h := &authZHandlers{
-				authorizer:        authorizer,
-				controller:        controller,
-				logger:            logger,
-				namespacesEnabled: true,
-				oidcConfigs:       config.OIDC{Enabled: true},
-			}
-			res := h.getRolesForUser(authz.GetRolesForUserParams{
-				ID:               tt.userID,
-				UserType:         string(models.UserTypeInputOidc),
-				IncludeFullRoles: &falseP,
-				HTTPRequest:      req,
-			}, principal)
-			assert.IsType(t, tt.wantStatus, res)
-		})
-	}
-}
-
-// TestGetRolesForUser_GlobalOIDCSelfFlagNoForeignDisclosure pins the disclosure
-// the slot fix actually closes: a global OIDC caller named "customer1:carol"
-// legitimately passes the per-user read gate, but reading the namespaced subject
-// of the same id must be a FOREIGN read (own=false) so a role whose permissions
-// the caller does not hold is filtered out — not returned at self visibility.
-func TestGetRolesForUser_GlobalOIDCSelfFlagNoForeignDisclosure(t *testing.T) {
-	falseP := false
 	principal := &models.Principal{
-		Username:         "customer1:carol",
+		Username:         "carol",
 		IsGlobalOperator: true,
 		UserType:         models.UserTypeInputOidc,
 	}
@@ -672,15 +599,9 @@ func TestGetRolesForUser_GlobalOIDCSelfFlagNoForeignDisclosure(t *testing.T) {
 	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
-	// The caller holds read on the users domain, so the per-user gate passes; any
-	// leak would come solely from the wrong self-flag. The name-only visibility
-	// gate denies (no role-read-all, does not hold the target role's perms), so a
-	// foreign read must hide the role.
-	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("customer1:carol")[0]).Return(nil).Maybe()
-	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles()[0]).Return(fmt.Errorf("no all")).Maybe()
-	authorizer.On("AuthorizeSilent", mock.Anything, principal, mock.Anything, mock.Anything).Return(fmt.Errorf("not held")).Maybe()
-	controller.On("GetRolesForUserOrGroup", "customer1:carol", authentication.AuthTypeOIDC, false).Return(map[string][]authorization.Policy{
-		authorization.Admin: {{Resource: authorization.Collections("X")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
+	authorizer.On("AuthorizeSilent", mock.Anything, principal, mock.Anything, mock.Anything).Return(nil).Maybe()
+	controller.On("GetRolesForUserOrGroup", ":carol", authentication.AuthTypeOIDC, false).Return(map[string][]authorization.Policy{
+		"role1": {{Resource: authorization.Collections("X")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
 	}, nil)
 
 	h := &authZHandlers{
@@ -691,14 +612,12 @@ func TestGetRolesForUser_GlobalOIDCSelfFlagNoForeignDisclosure(t *testing.T) {
 		oidcConfigs:       config.OIDC{Enabled: true},
 	}
 	res := h.getRolesForUser(authz.GetRolesForUserParams{
-		ID:               "customer1:carol",
+		ID:               "carol",
 		UserType:         string(models.UserTypeInputOidc),
 		IncludeFullRoles: &falseP,
 		HTTPRequest:      req,
 	}, principal)
-	ok, isOK := res.(*authz.GetRolesForUserOK)
-	require.True(t, isOK, "got %T", res)
-	assert.Empty(t, ok.Payload, "namespaced target's non-visible role must not leak via a self-read")
+	assert.IsType(t, &authz.GetRolesForUserOK{}, res)
 }
 
 // TestGetRolesForUserDeprecated_DisabledOnNamespacesEnabled — the deprecated

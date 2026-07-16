@@ -574,7 +574,7 @@ func TestClassifyPrincipal(t *testing.T) {
 		want              want
 	}{
 		{
-			name:              "NS-disabled short-circuits to global with empty namespace",
+			name:              "NS-disabled short-circuits to empty namespace, not global",
 			namespacesEnabled: false,
 			claims:            map[string]any{},
 			want:              want{namespace: "", isGlobal: false},

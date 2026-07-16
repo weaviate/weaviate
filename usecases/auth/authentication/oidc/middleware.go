@@ -180,9 +180,9 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	}
 
 	// A global OIDC principal's name must not contain the namespace separator:
-	// its RBAC subject uses the empty-namespace slot ":<name>", which a colon in
-	// the name would make ambiguous with a namespaced subject. Namespaced
-	// principals may carry ':' in their name.
+	// the role-assignment API reads such an id as namespace-qualified and grants
+	// to the namespaced subject instead, so the principal could authenticate but
+	// never hold a role. Namespaced principals may carry ':' in their name.
 	if c.namespacesEnabled && isGlobal && strings.Contains(username, schema.NamespaceSeparator) {
 		return nil, errors.New(401, "unauthorized: a global OIDC principal's username must not contain '%s' on a namespace-enabled cluster", schema.NamespaceSeparator)
 	}
@@ -224,8 +224,10 @@ func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, group
 
 // classifyPrincipal resolves the namespace and global-operator flag for an
 // OIDC token's claims. On namespace-disabled clusters it short-circuits to
-// the "global, no namespace" shape — startup validation guarantees the claim
-// env vars are empty in that case, so the classifier has nothing to inspect.
+// the "no namespace, not global" shape — startup validation guarantees the
+// claim env vars are empty in that case, so the classifier has nothing to
+// inspect. An empty namespace is not global: that distinction is what keeps
+// NS-disabled subjects out of the empty-namespace slot.
 //
 // On namespace-enabled clusters the rule matrix is:
 //

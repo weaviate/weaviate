@@ -596,9 +596,15 @@ func UserNameWithTypeFromId(username string, authType authentication.AuthType) s
 
 // ScopedSubjectUser returns the grouping-subject user-portion for a principal.
 // A global OIDC user gets one leading PREFIX_SEPARATOR (the empty-namespace
-// slot) so it can never collide with a namespaced OIDC user of the same short
-// name; every other case (namespaced OIDC, any DB, NS-disabled) is returned
+// slot); every other case (namespaced OIDC, any DB, NS-disabled) is returned
 // unchanged.
+//
+// The slot gives every OIDC subject an explicit namespace position, so a global
+// name and a namespaced one stay distinct even when the global name itself
+// contains ':' (global ":customer1:carol" vs namespaced "customer1:carol").
+// Authentication requires global names to be colon-free, so nothing relies on
+// that yet; the slot is kept so the restriction can be lifted without
+// re-encoding stored subjects.
 func ScopedSubjectUser(authType authentication.AuthType, user string, isGlobal bool) string {
 	if isGlobal && authType == authentication.AuthTypeOIDC {
 		return PREFIX_SEPARATOR + user
