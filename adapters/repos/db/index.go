@@ -3285,7 +3285,7 @@ func (i *Index) drop() error {
 	lastBackup := i.lastBackup.Load()
 	keepFiles := lastBackup != nil
 
-	// NewSafe: the dropShard closures run concurrently in the errgroup and Add to
+	// NewSafe: the dropShard closures run concurrently in the eg and Add to
 	// ec from multiple goroutines.
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -3374,7 +3374,7 @@ func (i *Index) dropShards(names []string) error {
 		return errAlreadyShutdown
 	}
 
-	// NewSafe: dropShard closures Add concurrently from the errgroup goroutines.
+	// NewSafe: dropShard closures Add concurrently from the eg goroutines.
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
@@ -3463,7 +3463,7 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 		return errAlreadyShutdown
 	}
 
-	// NewSafe: the delete closures Add concurrently from the errgroup goroutines.
+	// NewSafe: the delete closures Add concurrently from the eg goroutines.
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
