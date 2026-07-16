@@ -496,7 +496,7 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 		c.ongoingOps.DeleteHasBeenCancelled(op.Op.ID)
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // Ensure sync shards timesout reasonbly in case of hang
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // Bound the cancel cleanup (StopChangeCapture, ReleaseReplicaSnapshot, target-shard drop) in case one hangs
 	defer cancel()
 
 	// Safe for ops that never reached HYDRATING: idempotent for unknown opIDs.
@@ -516,13 +516,11 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 		logger.WithError(err).Warn("ReleaseReplicaSnapshot failed during cancel (non-fatal)")
 	}
 
-	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
-	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
-	if err := c.sync(ctx, op); err != nil {
-		logger.WithError(err).
-			WithField("op", op).
-			Error(fmt.Errorf("failure while syncing replica shard when cancelling the op"))
-	}
+	// Drop the op's target shard (files included). copier.go stages files into
+	// the live shard dir during hydration; a cancel before the replica is added
+	// to the schema leaves that residue behind. The consumer runs on the target
+	// node by construction, so this is a guarded local drop, not a RAFT reconcile.
+	c.dropCancelledOpTargetShard(ctx, op, logger)
 
 	// If the operation is only being cancelled then notify the FSM so it can update its state
 	if op.Status.OnlyCancellation() {
@@ -541,14 +539,57 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	}
 }
 
-func (c *CopyOpConsumer) sync(ctx context.Context, op ShardReplicationOpAndStatus) error {
-	if _, err := c.leaderClient.SyncShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
-		return err
+// dropCancelledOpTargetShard removes the op's target shard (files included)
+// from this node when the op has been cancelled/deleted and this node is not a
+// replica of the shard.
+//
+// The guard is fail-closed on every branch and the whole helper is
+// log-and-continue (a failed cleanup never aborts cancellation):
+//  1. target-is-self: impossible by construction;
+//  2. op authority: only a cancelled/deleted op may drop its target;
+//  3. membership: a fresh ShardReplicas read; if this node is (again) a replica
+//     a newer op re-acquired the shard, so dropping would wipe a live replica.
+//
+// Convergence: cancelOp runs precisely because this node's local replication FSM
+// surfaced the cancel, and both the membership read and the drop act on this
+// node's local schema/files, so decision and action are locally consistent.
+func (c *CopyOpConsumer) dropCancelledOpTargetShard(ctx context.Context, op ShardReplicationOpAndStatus, logger *logrus.Entry) {
+	coll := op.Op.TargetShard.CollectionId
+	shard := op.Op.TargetShard.ShardId
+
+	logger = logger.WithFields(logrus.Fields{
+		"op_id":      op.Op.ID,
+		"collection": coll,
+		"shard":      shard,
+		"node":       c.nodeId,
+	})
+
+	if op.Op.TargetShard.NodeId != c.nodeId {
+		logger.WithField("target_node", op.Op.TargetShard.NodeId).
+			Error("refusing to drop cancelled-op target shard: op target node is not this node")
+		return
 	}
-	if _, err := c.leaderClient.SyncShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
-		return err
+
+	if !op.Status.ShouldCancel && !op.Status.ShouldDelete && op.Status.GetCurrentState() != api.CANCELLED {
+		logger.Warn("refusing to drop target shard: op is neither cancelled nor deleted")
+		return
 	}
-	return nil
+
+	nodes, err := c.schemaReader.ShardReplicas(coll, shard)
+	if err != nil {
+		logger.Errorf("refusing to drop target shard: failed to read shard replicas: %v", err)
+		return
+	}
+	if slices.Contains(nodes, c.nodeId) {
+		logger.Warn("refusing to drop target shard: this node is a replica of the shard")
+		return
+	}
+
+	if err := c.replicaCopier.DropLocalShard(ctx, coll, shard); err != nil {
+		logger.Errorf("failed to drop cancelled-op target shard: %v", err)
+		return
+	}
+	logger.Info("dropped cancelled-op target shard")
 }
 
 // processRegisteredOp is the state handler for the REGISTERED state.

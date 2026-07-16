@@ -143,7 +143,8 @@ func (c *compactorInverted) do(ctx context.Context) error {
 		return errors.Wrap(err, "get property lengths")
 	}
 
-	c.propLengthIds, c.propLengthLens = mergePropLenPairs(ids1, lens1, ids2, lens2)
+	// drop the property lengths of docs cleanupValues removes from the older segment
+	c.propLengthIds, c.propLengthLens = mergePropLenPairs(ids1, lens1, ids2, lens2, c.tombstonesToClean)
 
 	tombstones := c.computeTombstones()
 
@@ -252,20 +253,21 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 	return len(tombstonesBuffer) + 8, nil
 }
 
-func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
-	count := c.c1.segment.invertedData.avgPropertyLengthsCount + c.c2.segment.invertedData.avgPropertyLengthsCount
-	average := 0.0
-	if !math.IsNaN(c.c1.segment.invertedData.avgPropertyLengthsAvg) && !math.IsInf(c.c1.segment.invertedData.avgPropertyLengthsAvg, 0) && c.c1.segment.invertedData.avgPropertyLengthsCount > 0 {
-		average += c.c1.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c1.segment.invertedData.avgPropertyLengthsCount) / float64(count))
-	}
-	if !math.IsNaN(c.c2.segment.invertedData.avgPropertyLengthsAvg) && !math.IsInf(c.c2.segment.invertedData.avgPropertyLengthsAvg, 0) && c.c2.segment.invertedData.avgPropertyLengthsCount > 0 {
-		average += c.c2.segment.invertedData.avgPropertyLengthsAvg * (float64(c.c2.segment.invertedData.avgPropertyLengthsCount) / float64(count))
-	}
-
+// mergedPropertyLengthStats returns the merged segment's (count, average)
+// property length from the live set in c.propLengthLens, which mergePropLenPairs
+// has already stripped of the older segment's tombstoned docs and cross-segment
+// duplicates. Deriving it from the array keeps the stored avgdl in step with
+// what the segment physically holds.
+func (c *compactorInverted) mergedPropertyLengthStats() (uint64, float64) {
+	count := uint64(len(c.propLengthLens))
 	if count == 0 {
 		return 0, 0
 	}
-	return count, average
+	var sum uint64
+	for _, l := range c.propLengthLens {
+		sum += uint64(l)
+	}
+	return count, float64(sum) / float64(count)
 }
 
 func (c *compactorInverted) writePropertyLengths() (int, error) {
@@ -274,7 +276,7 @@ func (c *compactorInverted) writePropertyLengths() (int, error) {
 		return 0, err
 	}
 
-	count, average := c.combinePropertyLengths()
+	count, average := c.mergedPropertyLengthStats()
 
 	buf := make([]byte, 8)
 

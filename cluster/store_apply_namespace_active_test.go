@@ -85,7 +85,6 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL:                           {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION:                 {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS:                    {},
-	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD:                           {},
 	api.ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION:                        {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD:                 {},
 	api.ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE:                             {},
