@@ -580,6 +580,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_multinode' \
     | grep -v 'test/acceptance/reindex_singlenode' \
     | grep -v 'test/acceptance/reindex_concurrent' \
+    | grep -v 'test/acceptance/reindex_rangeable' \
     | grep -v 'test/acceptance/reindex_mt' \
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/distributed_tasks' \
@@ -972,8 +973,15 @@ function run_acceptance_reindex_concurrent() {
   # TestParallelEnableFilterableAndRangeable). TestParallelConflictMatrix
   # historically runs the longest of the three. Split out of the
   # singlenode bundle for fast feedback.
+  #
+  # reindex_rangeable (TestEnableRangeable_ConcurrentWrites) is co-located here
+  # rather than left to the fast-acceptance catch-all: it is a single-node
+  # concurrent-reindex test that belongs with its siblings, and folding it into
+  # this existing named job keeps it named without a new CI matrix entry. It is
+  # excluded from get_fast_acceptance_packages so it runs exactly once.
   run_aof_group "reindex-concurrent" \
-    test/acceptance/reindex_concurrent
+    test/acceptance/reindex_concurrent \
+    test/acceptance/reindex_rangeable
 }
 
 function run_acceptance_reindex_mt() {
