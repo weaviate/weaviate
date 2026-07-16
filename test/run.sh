@@ -780,16 +780,19 @@ function run_acceptance_reindex_multinode() {
   # _rm, _restart, _scale, _changetok):
   #   -aj         : TestMultiNode_ChangeTokenization_AJ_*  (adjacent journeys)
   #   -rm         : TestMultiNode_RestartMatrix             (parametrised restart)
-  #   -restart    : TestMultiNode_*Restart* / *Crash* (excl. AJ + Matrix)
-  #   -scale      : TestMultiNode_HappyPath, _ConcurrentDifferent*,
+  #   -restart    : TestMultiNode_*Restart* / *Crash* (excl. AJ + Matrix);
+  #                 -restart-b also carries _RepeatedParallelMigrationJourney_*
+  #                 (rebalanced off -scale for wall-clock, 2026-07)
+  #   -scale      : TestMultiNode_HappyPath, _QueryConsistencyDuringReindex,
+  #                 _ConcurrentDifferentMigrations*,
   #                 _EnableRangeable_* (NoPartialCountsInFlight +
-  #                 ConcurrentUpdatesNoLossNoPanic),
-  #                 _RepeatedParallelMigrationJourney_*,
-  #                 _PostRestartReapplyMigrations_*
+  #                 ConcurrentUpdatesNoLossNoPanic)
   #   -changetok  : TestMultiNode_ChangeTokenization_* (non-AJ) +
   #                 TestMultiNode_BackToBackChangeTokenization_* +
   #                 TestLiveQueriesDuringChangeTokenization +
-  #                 TestPartialResultsDuringChangeTokenization
+  #                 TestPartialResultsDuringChangeTokenization +
+  #                 _PostRestartReapplyMigrations_* (rebalanced off -scale
+  #                 for wall-clock, 2026-07)
   #
   # IMPORTANT: when adding a new sub-shard, also add its top-level test
   # prefixes to the SKIP regex below to prevent the catch-all from
@@ -830,39 +833,65 @@ function run_acceptance_reindex_multinode_restart_a() {
 function run_acceptance_reindex_multinode_restart_b() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-restart-b (finalizing-window restarts + post-restart migration)"
-  # 3 tests:
+  # 4 tests:
   #   TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency
   #   TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency
   #   TestMultiNode_PostRestartMigration_NoStallPlateau
+  #   TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency
   #
-  # The "narrow timing window" bucket — every test here is about a
-  # specific moment in the migration state machine (FINALIZING window
-  # races) or about the post-restart migration replay path. Same
+  # The first three are the "narrow timing window" bucket — every one is
+  # about a specific moment in the migration state machine (FINALIZING
+  # window races) or about the post-restart migration replay path. Same
   # rationale as -restart-a: per-test cluster lifecycle is structural,
   # not optional.
-  AOF_GROUP_RUN='TestMultiNode_(RollingRestartDuringFinalizing|UngracefulStopDuringFinalizing|PostRestartMigration)' \
+  #
+  # RepeatedParallelMigrationJourney was rebalanced here off -scale
+  # (2026-07, measured ~94s CI) to relieve that shard's over-budget
+  # wall-clock. It is a repeated-parallel-migration orchestration test
+  # parked in this shard for wall-clock balance; it fits the "cluster
+  # lifecycle per test" theme even if it is not itself a restart test.
+  # Measured CI package total: 217.6s (3 tests) -> ~312s (4 tests);
+  # job wall-clock 7m51s -> ~9m25s.
+  AOF_GROUP_RUN='TestMultiNode_(RollingRestartDuringFinalizing|UngracefulStopDuringFinalizing|PostRestartMigration|RepeatedParallelMigrationJourney)' \
     run_aof_group "reindex-multinode-restart-b" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_multinode_scale() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-scale"
-  # Scale / orchestration tests. Locally measured wall-clock ≈ 283s
-  # across 5 tests; +CI overhead → ~8-9 min total. The single longest
-  # test in the whole package (PostRestartReapplyMigrations_ExactCounts
-  # AcrossReplicas, 135s) lives here so it's amortised against the
-  # smaller orchestration tests.
-  AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
+  # Scale / orchestration tests. 5 tests:
+  #   TestMultiNode_HappyPath
+  #   TestMultiNode_QueryConsistencyDuringReindex
+  #   TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle
+  #   TestMultiNode_EnableRangeable_NoPartialCountsInFlight
+  #   TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic
+  #
+  # Rebalanced 2026-07: once the RF3 concurrent-update rangeable test
+  # (EnableRangeable_ConcurrentUpdatesNoLossNoPanic) was wired in here the
+  # shard hit 11m27s in CI, over the ~10 min acceptance budget. The two
+  # heaviest orchestration tests were moved onto shards with headroom to
+  # bring this one back under budget, NOT dropped:
+  #   RepeatedParallelMigrationJourney_PerReplicaConsistency  -> -restart-b
+  #   PostRestartReapplyMigrations_ExactCountsAcrossReplicas  -> -changetok
+  # Measured CI package total: 354.5s (7 tests) -> ~198s (5 tests);
+  # job wall-clock 11m27s -> ~8m51s.
+  AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_)' \
     run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_multinode_changetok() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-changetok"
-  # Change-tokenization tests (non-AJ; AJ has its own -aj shard) plus
-  # the FINALIZING-window probe tests. Locally measured wall-clock
-  # ≈ 171s across 7 tests; +CI overhead → ~7-8 min total.
-  AOF_GROUP_RUN='TestMultiNode_ChangeTokenization_(RestartThenRoundTrip|MTRoundTrip|ConcurrentDifferentProps|RoundTrip)|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
+  # Change-tokenization tests (non-AJ; AJ has its own -aj shard) plus the
+  # FINALIZING-window probe tests, plus PostRestartReapplyMigrations.
+  #
+  # PostRestartReapplyMigrations_ExactCountsAcrossReplicas was rebalanced
+  # here off -scale (2026-07, measured ~62s CI) to relieve that shard's
+  # over-budget wall-clock. It is an orchestration test parked in this
+  # shard for wall-clock balance, not a change-tokenization test.
+  # Measured CI package total: 226s (7 tests) -> ~288s (8 tests);
+  # job wall-clock 8m15s -> ~9m17s.
+  AOF_GROUP_RUN='TestMultiNode_ChangeTokenization_(RestartThenRoundTrip|MTRoundTrip|ConcurrentDifferentProps|RoundTrip)|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization|TestMultiNode_PostRestartReapplyMigrations' \
     run_aof_group "reindex-multinode-changetok" test/acceptance/reindex_multinode
 }
 
