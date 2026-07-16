@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
@@ -190,6 +191,75 @@ func TestReindexStagedSwap_SiblingFailureRollsBackStagedUnits(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, rtC2.IsUnswapped(),
 		"unitC never staged anything; rollback must not fabricate an unswapped record")
+}
+
+// TestReindexStagedSwap_PartialStageFailureRollsBackSwappedProps covers
+// a mid-Phase-2a failure INSIDE one unit's own swap: a multi-property
+// task flips its first prop, then fails on the second. The unit reports
+// failure (no staged.mig), the task goes FAILED, and the rollback must
+// restore exactly the props that had already flipped.
+func TestReindexStagedSwap_PartialStageFailureRollsBackSwappedProps(t *testing.T) {
+	ctx := testCtx()
+	props := []string{"alpha", "beta"}
+	className := "PartialStage_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, props)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for i := 0; i < 8; i++ {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    strfmt.UUID(uuid.NewString()),
+				Class: className,
+				Properties: map[string]interface{}{
+					"alpha": "hello alpha " + uuid.NewString(),
+					"beta":  "hello beta " + uuid.NewString(),
+				},
+			},
+		}
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	task := newTestTask(idx.logger, strategy)
+	dispatchMatrixDriveToMerged(t, ctx, shard, task, dispatchMatrixPathInline)
+	task.config.stagedSwapCommit = true
+
+	rt, err := task.newReindexTracker(shard.pathLSM())
+	require.NoError(t, err)
+	taskProps, err := task.readPropsToReindex(rt)
+	require.NoError(t, err)
+	require.Len(t, taskProps, 2)
+
+	// First prop flips, second fails — a torn Phase 2a.
+	origSwapFn := task.processOneSwapPropFn
+	var swappedProp string
+	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+		if swappedProp != "" {
+			return nil, fmt.Errorf("injected mid-Phase-2a failure on prop %q", propName)
+		}
+		swappedProp = propName
+		return origSwapFn(ctx, store, rt, propIdx, propName)
+	}
+	require.Error(t, task.runtimeSwap(ctx, task.logger, shard, rt, taskProps))
+	require.NotEmpty(t, swappedProp, "exactly one prop must have flipped before the failure")
+	require.True(t, rt.IsSwappedProp(swappedProp))
+	require.False(t, rt.IsStaged(), "a torn swap must not be recorded as fully staged")
+
+	// Task verdict: FAILED. The rollback must restore the flipped prop.
+	require.NoError(t, task.RollbackSwapOnShard(ctx, shard))
+
+	for _, propName := range taskProps {
+		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+		require.Equal(t, lsmkv.StrategyMapCollection, shard.store.Bucket(bucketName).Strategy(),
+			"prop %q must serve the OLD (map) data after the partial-stage rollback", propName)
+		require.False(t, rt.IsSwappedProp(propName))
+	}
+	require.True(t, rt.IsUnswapped(), "the deferred on-disk restore must be recorded")
 }
 
 // TestReindexStagedSwap_CommitSingleShardDegenerate is the single-shard
