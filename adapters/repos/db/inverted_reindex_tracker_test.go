@@ -66,6 +66,47 @@ func TestFileReindexTracker_GetProgressTornSentinel(t *testing.T) {
 	}
 }
 
+// Pins: a torn progress checkpoint whose trailing count field is half-written
+// must not panic parseProgressFile / GetMigratedCount; it counts as no progress.
+func TestFileReindexTracker_GetMigratedCountTornProgress(t *testing.T) {
+	parser := &UuidKeyParser{}
+	keyStr := "11111111-1111-1111-1111-111111111111"
+	timeStr := "2026-07-16T10:00:00Z"
+
+	// Both shapes split into exactly 4 lines, so the len!=4 guard passes while the
+	// trailing count field has no space to split on: the index-out-of-range panic.
+	tornVariants := map[string]string{
+		"ends after all N newline": timeStr + "\n" + keyStr + "\nall 5\n",
+		"ends mid idx field":       timeStr + "\n" + keyStr + "\nall 5\nidx",
+	}
+
+	for name, torn := range tornVariants {
+		t.Run(name, func(t *testing.T) {
+			tr := newTestReindexTracker(t)
+			key, err := parser.FromString(keyStr)
+			require.NoError(t, err)
+			require.NoError(t, tr.markProgress(key, 10, 5))
+
+			progressPath := filepath.Join(tr.config.migrationPath, "progress.mig.000000001")
+			require.NoError(t, os.WriteFile(progressPath, []byte(torn), 0o600))
+
+			require.NotPanics(t, func() {
+				_, _, allCount, idxCount, perr := tr.parseProgressFile(progressPath)
+				require.NoError(t, perr)
+				require.Zero(t, allCount, "torn checkpoint counts as no progress")
+				require.Zero(t, idxCount, "torn checkpoint counts as no progress")
+			})
+
+			require.NotPanics(t, func() {
+				total, snapshots, gerr := tr.GetMigratedCount()
+				require.NoError(t, gerr)
+				require.Zero(t, total, "torn checkpoint contributes 0 to the total")
+				require.Len(t, snapshots, 1)
+			})
+		})
+	}
+}
+
 func TestFileReindexTracker_GetProgressValidRoundTrip(t *testing.T) {
 	parser := &UuidKeyParser{}
 	key, err := parser.FromString("22222222-2222-2222-2222-222222222222")

@@ -267,6 +267,14 @@ func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKe
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
 
+	// A torn checkpoint can end after "all N\n" or mid-"idx", leaving a trailing
+	// count field with no space; treat as no progress, don't panic on the [1] index.
+	allField := strings.Split(progressFileFields[2], " ")
+	idxField := strings.Split(progressFileFields[3], " ")
+	if len(allField) < 2 || len(idxField) < 2 {
+		return t.keyParser.FromBytes(nil), time.Time{}, 0, 0, nil
+	}
+
 	tm, err = t.decodeTime(strings.TrimSpace(progressFileFields[0]))
 	if err != nil {
 		err = fmt.Errorf("failed to parse timestamp from %s: %w", progressFilePath, err)
@@ -279,13 +287,13 @@ func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKe
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
 
-	allCount, err = strconv.Atoi(strings.Split(progressFileFields[2], " ")[1])
+	allCount, err = strconv.Atoi(allField[1])
 	if err != nil {
 		err = fmt.Errorf("failed to parse objects migrated count from %s: %w", progressFilePath, err)
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
 
-	idxCount, err = strconv.Atoi(strings.Split(progressFileFields[3], " ")[1])
+	idxCount, err = strconv.Atoi(idxField[1])
 	if err != nil {
 		err = fmt.Errorf("failed to parse index count from %s: %w", progressFilePath, err)
 		return lastProcessedKey, tm, allCount, idxCount, err
