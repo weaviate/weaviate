@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -324,6 +325,30 @@ func TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFli
 	require.True(t, overlay2[propName].ForceRangeable)
 }
 
+// newSeedHistoryTestShardWithTracker builds a fresh shard for a
+// TestSeedRangeableLocalReadyFromMigrationHistory sub-test and drives a
+// single rangeable migration far enough to leave exactly one tracker
+// dir on disk with a parseable payload.mig (SaveRecoveryPayload'd
+// explicitly, since driving the migration inline never goes through
+// ReindexProvider - see filterableToRangeableRecoveryPayloadJSON's
+// godoc). namePrefix keeps each sub-test's class name distinct;
+// t.Cleanup shuts the shard down when the sub-test returns, so callers
+// don't need their own defer.
+func newSeedHistoryTestShardWithTracker(t *testing.T, ctx context.Context, namePrefix, propName string) *Shard {
+	t.Helper()
+	className := namePrefix + uuid.NewString()[:8]
+	class := newFilterableToRangeableTestClass(className)
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	task := newLiveFilterableToRangeableTask(t, shard.index, className, propName)
+	require.NoError(t, task.SaveRecoveryPayload(shard.pathLSM(),
+		filterableToRangeableRecoveryPayloadJSON(t, propName)))
+	return shard
+}
+
 // TestSeedRangeableLocalReadyFromMigrationHistory unit-tests
 // [seedRangeableLocalReadyFromMigrationHistory] directly against a
 // hand-built on-disk tracker, isolating it from the full
@@ -333,17 +358,8 @@ func TestSeedRangeableLocalReadyFromMigrationHistory(t *testing.T) {
 	ctx := testCtx()
 
 	t.Run("tidied tracker with parseable payload seeds true", func(t *testing.T) {
-		className := "SeedHistoryTidied_" + uuid.NewString()[:8]
 		const propName = "score"
-		class := newFilterableToRangeableTestClass(className)
-		shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-			false, false, false)
-		shard := shd.(*Shard)
-		defer shard.Shutdown(ctx)
-
-		task := newLiveFilterableToRangeableTask(t, shard.index, className, propName)
-		require.NoError(t, task.SaveRecoveryPayload(shard.pathLSM(),
-			filterableToRangeableRecoveryPayloadJSON(t, propName)))
+		shard := newSeedHistoryTestShardWithTracker(t, ctx, "SeedHistoryTidied_", propName)
 		dirs := rangeableMigrationTrackerDirs(shard)
 		require.Len(t, dirs, 1)
 		require.NoError(t, os.WriteFile(filepath.Join(dirs[0], "tidied.mig"), nil, 0o644))
@@ -357,17 +373,8 @@ func TestSeedRangeableLocalReadyFromMigrationHistory(t *testing.T) {
 	})
 
 	t.Run("in-flight (non-tidied) tracker with parseable payload also seeds true (markInFlightRangeableMigrationsNotReady corrects it later)", func(t *testing.T) {
-		className := "SeedHistoryInFlight_" + uuid.NewString()[:8]
 		const propName = "score"
-		class := newFilterableToRangeableTestClass(className)
-		shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-			false, false, false)
-		shard := shd.(*Shard)
-		defer shard.Shutdown(ctx)
-
-		task := newLiveFilterableToRangeableTask(t, shard.index, className, propName)
-		require.NoError(t, task.SaveRecoveryPayload(shard.pathLSM(),
-			filterableToRangeableRecoveryPayloadJSON(t, propName)))
+		shard := newSeedHistoryTestShardWithTracker(t, ctx, "SeedHistoryInFlight_", propName)
 		// No tidied.mig written: this tracker is still in-flight.
 
 		seedRangeableLocalReadyFromMigrationHistory(shard)
