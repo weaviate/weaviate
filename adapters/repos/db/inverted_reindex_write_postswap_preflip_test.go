@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -120,200 +122,215 @@ func driveEnableSearchableToPostSwapWindow(
 	return task
 }
 
-func TestReindexPostSwapPreFlip_EnableFilterable_InsertNotLost(t *testing.T) {
-	const propName = "title"
-	ctx := testCtx()
-	className := "PostSwapPreFlipEfInsert_" + uuid.NewString()[:8]
-	class := newNoIndexTestClass(className, []string{propName})
+// postSwapPreFlipTarget bundles the enable-filterable vs enable-searchable
+// specific pieces (bucket accessor, fingerprint helper, window-arming drive
+// function) so the Insert/Update/Delete scenario runners below don't
+// duplicate the migration-flavor dispatch. This is the structural source of
+// what were 6 nearly-identical top-level test bodies.
+type postSwapPreFlipTarget struct {
+	label       string // "filterable" / "searchable" -- used in failure text
+	bucket      func(shard *Shard, propName string) *lsmkv.Bucket
+	fingerprint func(t *testing.T, b *lsmkv.Bucket) map[string][]uint64
+	drive       func(t *testing.T, shard *Shard, idx *Index, className, propName string) *ShardReindexTaskGeneric
+}
+
+func filterableTarget() postSwapPreFlipTarget {
+	return postSwapPreFlipTarget{
+		label: "filterable",
+		bucket: func(shard *Shard, propName string) *lsmkv.Bucket {
+			return shard.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+		},
+		fingerprint: fingerprintRoaringSetBucket,
+		drive:       driveEnableFilterableToPostSwapWindow,
+	}
+}
+
+func searchableTarget() postSwapPreFlipTarget {
+	return postSwapPreFlipTarget{
+		label: "searchable",
+		bucket: func(shard *Shard, propName string) *lsmkv.Bucket {
+			return shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+		},
+		fingerprint: fingerprintInvertedBucket,
+		drive: func(t *testing.T, shard *Shard, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			return driveEnableSearchableToPostSwapWindow(t, shard, idx, className, propName,
+				models.PropertyTokenizationWord)
+		},
+	}
+}
+
+// newPostSwapPreFlipShard builds the no-index test class + shard shared by
+// every scenario below and registers its teardown.
+func newPostSwapPreFlipShard(
+	t *testing.T, ctx context.Context, classPrefix string, propNames []string,
+) (*Shard, *Index, string) {
+	t.Helper()
+	className := classPrefix + "_" + uuid.NewString()[:8]
+	class := newNoIndexTestClass(className, propNames)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
 	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+	return shard, idx, className
+}
 
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "alpha")))
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "bravo")))
+type insertNotLostCase struct {
+	target      postSwapPreFlipTarget
+	classPrefix string
+	backfill    []string
+}
 
-	driveEnableFilterableToPostSwapWindow(t, shard, idx, className, propName)
+func runPostSwapPreFlipInsertNotLost(t *testing.T, c insertNotLostCase) {
+	const propName = "title"
+	ctx := testCtx()
+	shard, idx, className := newPostSwapPreFlipShard(t, ctx, c.classPrefix, []string{propName})
 
-	// In-window write: live schema still says IndexFilterable=false.
+	for _, v := range c.backfill {
+		require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), v)))
+	}
+
+	c.target.drive(t, shard, idx, className, propName)
+
+	// In-window write: live schema flag still says false.
 	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "zulu")),
 		"in-window insert must not error")
 
-	fp := fingerprintRoaringSetBucket(t, shard.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
+	fp := c.target.fingerprint(t, c.target.bucket(shard, propName))
 	require.NotEmptyf(t, fp["zulu"],
 		"weaviate/0-weaviate-issues#319: fresh insert during the post-swap pre-flip window "+
-			"must be present in the swapped canonical filterable bucket; got fingerprint %v", fp)
-	require.NotEmpty(t, fp["alpha"], "backfilled token must survive the in-window write")
-	require.NotEmpty(t, fp["bravo"], "backfilled token must survive the in-window write")
+			"must be present in the swapped canonical %s bucket; got %v", c.target.label, fp)
+	for _, v := range c.backfill {
+		require.NotEmpty(t, fp[v], "backfilled token must survive the in-window write")
+	}
 }
 
-func TestReindexPostSwapPreFlip_EnableFilterable_UpdateLeavesNoGhost(t *testing.T) {
-	const propName = "title"
-	ctx := testCtx()
-	className := "PostSwapPreFlipEfUpdate_" + uuid.NewString()[:8]
-	class := newNoIndexTestClass(className, []string{propName})
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	targetID := uuid.NewString()
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "ghosttoken")))
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "bystander")))
-
-	driveEnableFilterableToPostSwapWindow(t, shard, idx, className, propName)
-
-	bucket := shard.store.Bucket(helpers.BucketFromPropNameLSM(propName))
-	require.NotEmpty(t, fingerprintRoaringSetBucket(t, bucket)["ghosttoken"],
-		"backfill must have indexed the pre-update value")
-
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "freshtoken")),
-		"in-window update must not error")
-
-	fp := fingerprintRoaringSetBucket(t, bucket)
-	require.NotEmptyf(t, fp["freshtoken"],
-		"weaviate/0-weaviate-issues#319: the updated value written during the post-swap "+
-			"pre-flip window must be findable in the swapped canonical bucket; got %v", fp)
-	require.Emptyf(t, fp["ghosttoken"],
-		"weaviate/0-weaviate-issues#319 (ghost check): the object's PRE-update value must be "+
-			"removed from the swapped canonical bucket by the in-window update's delete leg; got %v", fp)
-	require.NotEmpty(t, fp["bystander"], "unrelated backfilled token must survive")
-}
-
-func TestReindexPostSwapPreFlip_EnableFilterable_DeleteRemovesPostings(t *testing.T) {
-	const propName = "title"
-	ctx := testCtx()
-	className := "PostSwapPreFlipEfDelete_" + uuid.NewString()[:8]
-	class := newNoIndexTestClass(className, []string{propName})
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	targetID := uuid.NewString()
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "deltoken")))
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "bystander")))
-
-	driveEnableFilterableToPostSwapWindow(t, shard, idx, className, propName)
-
-	bucket := shard.store.Bucket(helpers.BucketFromPropNameLSM(propName))
-	require.NotEmpty(t, fingerprintRoaringSetBucket(t, bucket)["deltoken"],
-		"backfill must have indexed the to-be-deleted object")
-
-	require.NoError(t, shard.DeleteObject(ctx, strfmt.UUID(targetID), time.Now()),
-		"in-window delete must not error")
-
-	fp := fingerprintRoaringSetBucket(t, bucket)
-	require.Emptyf(t, fp["deltoken"],
-		"weaviate/0-weaviate-issues#319 (delete journey): postings of an object deleted during "+
-			"the post-swap pre-flip window must be removed from the swapped canonical bucket; got %v", fp)
-	require.NotEmpty(t, fp["bystander"], "unrelated backfilled token must survive")
+func TestReindexPostSwapPreFlip_EnableFilterable_InsertNotLost(t *testing.T) {
+	runPostSwapPreFlipInsertNotLost(t, insertNotLostCase{
+		target:      filterableTarget(),
+		classPrefix: "PostSwapPreFlipEfInsert",
+		backfill:    []string{"alpha", "bravo"},
+	})
 }
 
 func TestReindexPostSwapPreFlip_EnableSearchable_InsertNotLost(t *testing.T) {
-	const propName = "title"
-	ctx := testCtx()
-	className := "PostSwapPreFlipEsInsert_" + uuid.NewString()[:8]
-	class := newNoIndexTestClass(className, []string{propName})
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "alpha")))
-
-	driveEnableSearchableToPostSwapWindow(t, shard, idx, className, propName,
-		models.PropertyTokenizationWord)
-
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "zulu")),
-		"in-window insert must not error")
-
-	fp := fingerprintInvertedBucket(t, shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
-	require.NotEmptyf(t, fp["zulu"],
-		"weaviate/0-weaviate-issues#319: fresh insert during the post-swap pre-flip window "+
-			"must be present in the swapped canonical searchable bucket; got %v", fp)
-	require.NotEmpty(t, fp["alpha"], "backfilled token must survive the in-window write")
+	runPostSwapPreFlipInsertNotLost(t, insertNotLostCase{
+		target:      searchableTarget(),
+		classPrefix: "PostSwapPreFlipEsInsert",
+		backfill:    []string{"alpha"},
+	})
 }
 
-func TestReindexPostSwapPreFlip_EnableSearchable_UpdateLeavesNoGhost(t *testing.T) {
+type updateNoGhostCase struct {
+	target        postSwapPreFlipTarget
+	classPrefix   string
+	withBystander bool
+}
+
+func runPostSwapPreFlipUpdateLeavesNoGhost(t *testing.T, c updateNoGhostCase) {
 	const propName = "title"
 	ctx := testCtx()
-	className := "PostSwapPreFlipEsUpdate_" + uuid.NewString()[:8]
-	class := newNoIndexTestClass(className, []string{propName})
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	shard, idx, className := newPostSwapPreFlipShard(t, ctx, c.classPrefix, []string{propName})
 
 	targetID := uuid.NewString()
 	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "ghosttoken")))
+	if c.withBystander {
+		require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "bystander")))
+	}
 
-	driveEnableSearchableToPostSwapWindow(t, shard, idx, className, propName,
-		models.PropertyTokenizationWord)
+	c.target.drive(t, shard, idx, className, propName)
 
-	bucket := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-	require.NotEmpty(t, fingerprintInvertedBucket(t, bucket)["ghosttoken"],
+	bucket := c.target.bucket(shard, propName)
+	require.NotEmpty(t, c.target.fingerprint(t, bucket)["ghosttoken"],
 		"backfill must have indexed the pre-update value")
 
 	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "freshtoken")),
 		"in-window update must not error")
 
-	fp := fingerprintInvertedBucket(t, bucket)
+	fp := c.target.fingerprint(t, bucket)
 	require.NotEmptyf(t, fp["freshtoken"],
 		"weaviate/0-weaviate-issues#319: the updated value written during the post-swap "+
-			"pre-flip window must be findable in the swapped canonical searchable bucket; got %v", fp)
+			"pre-flip window must be findable in the swapped canonical %s bucket; got %v", c.target.label, fp)
 	require.Emptyf(t, fp["ghosttoken"],
 		"weaviate/0-weaviate-issues#319 (ghost check): the object's PRE-update value must be "+
-			"removed from the swapped canonical searchable bucket; got %v", fp)
+			"removed from the swapped canonical %s bucket; got %v", c.target.label, fp)
+	if c.withBystander {
+		require.NotEmpty(t, fp["bystander"], "unrelated backfilled token must survive")
+	}
 }
 
-func TestReindexPostSwapPreFlip_EnableSearchable_DeleteRemovesPostings(t *testing.T) {
+func TestReindexPostSwapPreFlip_EnableFilterable_UpdateLeavesNoGhost(t *testing.T) {
+	runPostSwapPreFlipUpdateLeavesNoGhost(t, updateNoGhostCase{
+		target:        filterableTarget(),
+		classPrefix:   "PostSwapPreFlipEfUpdate",
+		withBystander: true,
+	})
+}
+
+func TestReindexPostSwapPreFlip_EnableSearchable_UpdateLeavesNoGhost(t *testing.T) {
+	runPostSwapPreFlipUpdateLeavesNoGhost(t, updateNoGhostCase{
+		target:      searchableTarget(),
+		classPrefix: "PostSwapPreFlipEsUpdate",
+	})
+}
+
+type deleteRemovesPostingsCase struct {
+	target        postSwapPreFlipTarget
+	classPrefix   string
+	withBystander bool
+}
+
+func runPostSwapPreFlipDeleteRemovesPostings(t *testing.T, c deleteRemovesPostingsCase) {
 	const propName = "title"
 	ctx := testCtx()
-	className := "PostSwapPreFlipEsDelete_" + uuid.NewString()[:8]
-	class := newNoIndexTestClass(className, []string{propName})
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	shard, idx, className := newPostSwapPreFlipShard(t, ctx, c.classPrefix, []string{propName})
 
 	targetID := uuid.NewString()
 	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "deltoken")))
+	if c.withBystander {
+		require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "bystander")))
+	}
 
-	driveEnableSearchableToPostSwapWindow(t, shard, idx, className, propName,
-		models.PropertyTokenizationWord)
+	c.target.drive(t, shard, idx, className, propName)
 
-	bucket := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-	require.NotEmpty(t, fingerprintInvertedBucket(t, bucket)["deltoken"],
+	bucket := c.target.bucket(shard, propName)
+	require.NotEmpty(t, c.target.fingerprint(t, bucket)["deltoken"],
 		"backfill must have indexed the to-be-deleted object")
 
 	require.NoError(t, shard.DeleteObject(ctx, strfmt.UUID(targetID), time.Now()),
 		"in-window delete must not error")
 
-	fp := fingerprintInvertedBucket(t, bucket)
+	fp := c.target.fingerprint(t, bucket)
 	require.Emptyf(t, fp["deltoken"],
 		"weaviate/0-weaviate-issues#319 (delete journey): postings of an object deleted during "+
-			"the post-swap pre-flip window must be removed from the swapped canonical searchable bucket; got %v", fp)
+			"the post-swap pre-flip window must be removed from the swapped canonical %s bucket; got %v",
+		c.target.label, fp)
+	if c.withBystander {
+		require.NotEmpty(t, fp["bystander"], "unrelated backfilled token must survive")
+	}
+}
+
+func TestReindexPostSwapPreFlip_EnableFilterable_DeleteRemovesPostings(t *testing.T) {
+	runPostSwapPreFlipDeleteRemovesPostings(t, deleteRemovesPostingsCase{
+		target:        filterableTarget(),
+		classPrefix:   "PostSwapPreFlipEfDelete",
+		withBystander: true,
+	})
+}
+
+func TestReindexPostSwapPreFlip_EnableSearchable_DeleteRemovesPostings(t *testing.T) {
+	runPostSwapPreFlipDeleteRemovesPostings(t, deleteRemovesPostingsCase{
+		target:      searchableTarget(),
+		classPrefix: "PostSwapPreFlipEsDelete",
+	})
 }
 
 // TestReindexPostSwapPreFlip_EnableFilterable_MultiProp: both migrating
 // props must receive the in-window write.
 func TestReindexPostSwapPreFlip_EnableFilterable_MultiProp(t *testing.T) {
 	ctx := testCtx()
-	className := "PostSwapPreFlipEfMulti_" + uuid.NewString()[:8]
 	propNames := []string{"title", "subtitle"}
-	class := newNoIndexTestClass(className, propNames)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	shard, idx, className := newPostSwapPreFlipShard(t, ctx, "PostSwapPreFlipEfMulti", propNames)
 
 	putMulti := func(id, title, subtitle string) {
 		obj := &storobj.Object{
