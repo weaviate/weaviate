@@ -267,8 +267,8 @@ func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKe
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
 
-	// A torn checkpoint can end after "all N\n" or mid-"idx", leaving a trailing
-	// count field with no space; treat as no progress, don't panic on the [1] index.
+	// A torn write can end after "all N\n" or mid-"idx", leaving the trailing
+	// count field unsplittable — treat as no progress instead of panicking on [1].
 	allField := strings.Split(progressFileFields[2], " ")
 	idxField := strings.Split(progressFileFields[3], " ")
 	if len(allField) < 2 || len(idxField) < 2 {

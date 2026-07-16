@@ -20,37 +20,12 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestRuntimeSwap_Phase2a_OverlayArmedBeforeSentinel pins the Phase 2a
-// per-prop ordering that keeps live queries correct across a runtime
-// swap. Inside runtimeSwap's tight loop, for each property the order MUST
-// be:
-//
-//  1. SwapBucketPointer  — in-memory pointer flip (bucket now resolves to
-//     the NEW, post-swap content)
-//  2. onPropSwapped      — arm the per-shard tokenization overlay so the
-//     query analyzer matches the NEW bucket
-//  3. markSwappedProp    — the durable per-prop sentinel fsync
-//
-// The overlay (step 2) MUST sit BETWEEN the flip and the fsync. If the
-// fsync (step 3, single-digit ms on slow disks) runs before the overlay,
-// a live query landing in that window tokenizes its input with the OLD
-// analyzer against the NEW bucket and returns a transient 0-result
-// answer. That is the mechanism behind the CI flake in
-// TestLiveQueriesDuringChangeTokenization/reverse_field_to_word_searchable:
-// the sentinel fsync sat inside the query-visible window for no reason.
-//
-// The test observes the ordering exclusively through the production
-// onPropSwapped hook — there is no test-only production seam. At hook-fire
-// time it records, per prop, (a) that the pointer flip already happened
-// (the canonical bucket pointer now equals the ingest bucket, not the
-// pre-swap main bucket) and (b) that the per-prop sentinel is still absent
-// on disk. After the swap it asserts the sentinel landed. Together these
-// pin the full observable order: pointer flip → overlay set → sentinel on
-// disk.
-//
-// A regression that moves the overlay arm back to AFTER markSwappedProp
-// (the pre-fix order) fails assertion (b): the sentinel would already be
-// on disk when the overlay is armed.
+// TestRuntimeSwap_Phase2a_OverlayArmedBeforeSentinel pins that
+// onPropSwapped arms the overlay BETWEEN the bucket-pointer flip and the
+// markSwappedProp fsync — reordering it lets a live query tokenize the
+// NEW bucket with the OLD analyzer for a transient 0-result answer. It
+// observes ordering through the production onPropSwapped hook, not a
+// test-only seam.
 func TestRuntimeSwap_Phase2a_OverlayArmedBeforeSentinel(t *testing.T) {
 	ctx := testCtx()
 	const numObjects = 5
@@ -70,8 +45,8 @@ func TestRuntimeSwap_Phase2a_OverlayArmedBeforeSentinel(t *testing.T) {
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
-	// Drive iteration + runtimePrepare only; stop before Phase 2a so we can
-	// capture pre-flip bucket pointers and wire the observation hook.
+	// Stop before Phase 2a so we can capture pre-flip bucket pointers and
+	// wire the observation hook.
 	task.skipSwapOnFinish.Store(true)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
@@ -105,9 +80,8 @@ func TestRuntimeSwap_Phase2a_OverlayArmedBeforeSentinel(t *testing.T) {
 		flipHappened   bool
 		sentinelAbsent bool
 	}
-	// The Phase 2a loop is sequential (no goroutines), so the hook fires on
-	// the calling goroutine, once per prop, in order — no synchronization
-	// needed around observed.
+	// Phase 2a runs sequentially (no goroutines): the hook fires once per
+	// prop, in order, on this goroutine — no lock needed around observed.
 	var observed []observation
 	task.onPropSwapped = func(propName string) {
 		cur := shard.store.Bucket(strategy.SourceBucketName(propName))

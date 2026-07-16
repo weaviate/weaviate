@@ -42,12 +42,11 @@
 //
 // 2a — tight loop, MUST stay microseconds: a query hitting a
 // not-yet-swapped prop tokenizes new-analyzer input against the old
-// bucket. The live path flips the bucket pointer and arms the overlay as
-// one critical section (swapPropAtomic / Shard.SwapBucketAndSetOverlay);
-// the legacy fallback fires the [onPropSwapped] overlay hook per-flip
-// (not once up front) and BEFORE that prop's markSwappedProp sentinel
-// fsync, so the overlay≠bucket exposure stays one in-memory map write
-// with no file I/O inside it.
+// bucket. The live path (swapPropAtomic / Shard.SwapBucketAndSetOverlay)
+// flips the pointer and arms the overlay as one critical section; the
+// legacy fallback fires [onPropSwapped] per-flip, BEFORE that prop's
+// sentinel fsync, keeping the overlay≠bucket window to one in-memory
+// write with no file I/O inside it.
 //
 // 2b — post-atomic inline tidy (slow but correctness-safe):
 // oldMainBucket.Shutdown(ctx) + os.Rename(oldMainDir, backupDir) per
@@ -203,17 +202,16 @@ type ShardReindexTaskGeneric struct {
 	// method; tests substitute a wrapper.
 	processOneTidyPropFn func(propIdx int, propName, lsmPath string) error
 
-	// onPropSwapped runs inside the Phase 2a legacy per-prop path right
-	// after each bucket-pointer flip and BEFORE that prop's markSwappedProp
-	// sentinel fsync (see processOneSwapProp), so a query never observes
-	// overlay≠bucket for longer than one in-memory map write and the fsync
-	// stays out of the correctness-sensitive window. Runs on the swap
-	// goroutine, so SetTokenizationOverlay's own lock is enough. Wired only
-	// for tokenization-changing migrations.
+	// onPropSwapped fires in the legacy Phase 2a path right after the
+	// bucket-pointer flip and BEFORE the sentinel fsync (see
+	// processOneSwapProp), so a query never sees overlay≠bucket for more
+	// than one in-memory write. Runs on the swap goroutine, under
+	// SetTokenizationOverlay's own lock; wired only for
+	// tokenization-changing migrations.
 	//
-	// Only the recovery/resume (legacy) path fires this; the live Phase-2a
-	// loop routes through swapPropAtomic, which arms the overlay inside
-	// SwapBucketAndSetOverlay under one lock instead.
+	// Legacy/recovery path only — the live Phase-2a path routes through
+	// swapPropAtomic, which arms the overlay itself inside
+	// SwapBucketAndSetOverlay under one lock.
 	onPropSwapped func(propName string)
 
 	// swapPropAtomic, when non-nil, runs the Phase-2a per-prop flip AND the
@@ -265,39 +263,29 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	return t
 }
 
-// processOneSwapProp is the production body of runtimeSwap's Phase 2a
-// per-prop loop: in-memory pointer flip → overlay arm → per-prop
-// sentinel write. Returns the displaced old main bucket for the
-// caller's Phase 2b (Shutdown + dir rename). Skips the flip+mark for
-// props whose per-prop sentinel is already set (recovery idempotency),
-// but still re-arms the overlay so a resumed swap re-establishes it.
+// processOneSwapProp is runtimeSwap's Phase 2a per-prop body: pointer
+// flip → overlay arm → sentinel write. Returns the displaced old main
+// bucket for Phase 2b. Skips the flip+mark when the per-prop sentinel
+// is already set (recovery idempotency), but still re-arms the overlay
+// so a resumed swap re-establishes it.
 //
 // Ordering is load-bearing on the legacy/recovery path (swapPropAtomic
-// nil). The [onPropSwapped] overlay hook fires immediately after
-// SwapBucketPointer and BEFORE markSwappedProp. The query-visible
-// "mixed-state" window is [pointer flip … overlay arm]: while it is open
-// the bucket already resolves to the NEW (post-swap) content but the
-// query analyzer overlay is not yet set, so a live query tokenizes its
-// input with the OLD analyzer against the NEW bucket and returns a
-// transient 0-result answer. Arming the overlay before markSwappedProp
-// keeps that window to a single in-memory map write and pulls the
-// sentinel fsync (single-digit ms on slow disks) out of it entirely. See
-// the Phase 2a contract in the file-level godoc.
+// nil): the overlay MUST arm between the pointer flip and the sentinel
+// fsync. Reorder it and a query can land on the NEW bucket while the
+// overlay still reflects the OLD analyzer, tokenizing against the wrong
+// bucket for a transient 0-result answer — see the file-level Phase 2a
+// contract.
 //
-// Under swapPropAtomic (the live production path) this method is instead
-// the flip callback inside Shard.SwapBucketAndSetOverlay, which sets the
-// overlay under tokenizationOverlayMu itself; this method must NOT fire
-// onPropSwapped there (it would re-enter that lock), so both hook fires
-// are guarded on swapPropAtomic == nil.
+// Under swapPropAtomic (the live path) this method instead runs as
+// SwapBucketAndSetOverlay's flip callback, which already holds
+// tokenizationOverlayMu; firing onPropSwapped here would re-enter that
+// lock and deadlock, so both call sites guard on swapPropAtomic == nil.
 func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store *lsmkv.Store, rt reindexTracker, _ int, propName string) (*lsmkv.Bucket, error) {
 	if rt.IsSwappedProp(propName) {
-		// Sentinel already on disk (resumed swap): the pointer flip landed
-		// in a prior attempt. Re-arm the overlay so the resumed swap
-		// re-establishes bucket≡overlay alignment, matching the happy path.
-		// Legacy path only: under swapPropAtomic this method runs as the flip
-		// callback inside SwapBucketAndSetOverlay, which already holds
-		// tokenizationOverlayMu and re-arms the overlay itself, so firing
-		// onPropSwapped here would re-enter that lock and deadlock.
+		// Resumed swap: re-arm the overlay so bucket≡overlay alignment is
+		// re-established. Legacy path only — under swapPropAtomic this runs
+		// as SwapBucketAndSetOverlay's flip callback, which already holds
+		// tokenizationOverlayMu; firing onPropSwapped here would deadlock.
 		if t.swapPropAtomic == nil && t.onPropSwapped != nil {
 			t.onPropSwapped(propName)
 		}
@@ -309,12 +297,10 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 	if err != nil {
 		return nil, fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
 	}
-	// Arm the query-analyzer overlay for this prop BEFORE the sentinel
-	// fsync, closing the [flip … overlay] mixed-state window described
-	// above with only an in-memory map write inside it. Legacy path only:
-	// under swapPropAtomic the enclosing SwapBucketAndSetOverlay owns the
-	// overlay set under one lock, and re-entering tokenizationOverlayMu here
-	// would deadlock.
+	// Arm the overlay BEFORE the sentinel fsync, closing the [flip …
+	// overlay] window with only an in-memory write. Legacy path only —
+	// under swapPropAtomic, SwapBucketAndSetOverlay owns the overlay set
+	// under one lock; re-entering tokenizationOverlayMu here would deadlock.
 	if t.swapPropAtomic == nil && t.onPropSwapped != nil {
 		t.onPropSwapped(propName)
 	}
@@ -1833,21 +1819,16 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	store := shard.Store()
 	lsmPath := shard.pathLSM()
 
-	// Phase 2a (atomic, tight loop): in-memory pointer swap per property.
-	// This is the ONLY work that runs inside the per-shard tokenization
-	// overlay's "mixed-state" window (between first prop swapped and last
-	// prop swapped). The live path is swapPropAtomic
-	// (Shard.SwapBucketAndSetOverlay): it runs the SwapBucketPointer flip +
-	// markSwappedProp sentinel write (its flip callback) and the overlay set
-	// as ONE critical section under tokenizationOverlayMu, so no query ever
-	// observes a bucket≠overlay pair. The legacy/recovery fallback
-	// (swapPropAtomic nil) instead does SwapBucketPointer (a map-write under
-	// bucketsLock, microseconds) → onPropSwapped overlay arm (an in-memory
-	// map write) → markSwappedProp (a single fsync, single-digit ms), so the
-	// overlay arm sits BETWEEN the flip and the fsync and the
-	// correctness-sensitive [flip … overlay] sub-window holds no file I/O;
-	// see processOneSwapProp's godoc. The per-prop loop completes in a few ms
-	// total even for 4-property migrations.
+	// Phase 2a (atomic, tight loop): in-memory pointer swap per property,
+	// the ONLY work inside the per-shard tokenization overlay's
+	// "mixed-state" window. The live path (swapPropAtomic /
+	// Shard.SwapBucketAndSetOverlay) flips the pointer, writes the
+	// sentinel, and sets the overlay as ONE critical section under
+	// tokenizationOverlayMu — no query ever sees a bucket≠overlay pair. The
+	// legacy/recovery fallback instead arms the overlay between the flip
+	// and the sentinel fsync (see processOneSwapProp's godoc), keeping file
+	// I/O out of the correctness-sensitive window. The per-prop loop
+	// completes in a few ms total even for 4-property migrations.
 	//
 	// The slow disk work (old-bucket Shutdown, oldMainDir→backupDir
 	// rename) is pulled OUT of this loop so it can't extend the
@@ -1871,12 +1852,10 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 				return err
 			}
 		} else {
-			// Legacy/recovery path: processOneSwapProp arms the onPropSwapped
-			// overlay hook itself, between the pointer flip and the sentinel
-			// fsync (and on the already-swapped-on-resume path), so the
-			// query-visible mixed-state window excludes all file I/O. See its
-			// godoc for the ordering contract. The atomic path above instead
-			// arms the overlay inside SwapBucketAndSetOverlay.
+			// Legacy/recovery path: processOneSwapProp arms the overlay itself,
+			// between the flip and the sentinel fsync, keeping file I/O out of
+			// the mixed-state window (see its godoc). The atomic path above
+			// arms the overlay inside SwapBucketAndSetOverlay instead.
 			oldMainBucket, err = t.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
 			if err != nil {
 				return err

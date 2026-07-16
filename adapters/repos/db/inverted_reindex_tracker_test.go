@@ -66,15 +66,15 @@ func TestFileReindexTracker_GetProgressTornSentinel(t *testing.T) {
 	}
 }
 
-// Pins: a torn progress checkpoint whose trailing count field is half-written
-// must not panic parseProgressFile / GetMigratedCount; it counts as no progress.
+// Pins: a torn checkpoint with a half-written count field must not panic
+// parseProgressFile / GetMigratedCount — it counts as no progress.
 func TestFileReindexTracker_GetMigratedCountTornProgress(t *testing.T) {
 	parser := &UuidKeyParser{}
 	keyStr := "11111111-1111-1111-1111-111111111111"
 	timeStr := "2026-07-16T10:00:00Z"
 
-	// Both shapes split into exactly 4 lines, so the len!=4 guard passes while the
-	// trailing count field has no space to split on: the index-out-of-range panic.
+	// Both shapes pass the len!=4 guard (exactly 4 lines) but leave the trailing
+	// count field with no space to split on, triggering the [1]-index panic.
 	tornVariants := map[string]string{
 		"ends after all N newline": timeStr + "\n" + keyStr + "\nall 5\n",
 		"ends mid idx field":       timeStr + "\n" + keyStr + "\nall 5\nidx",
