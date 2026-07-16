@@ -394,29 +394,10 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		return fmt.Errorf("multiple index groups set in one request (%v) — issue separate requests, one per group", groupsSet)
 	}
 	if len(groupsSet) == 0 {
-		// Zero actionable verbs. Distinguish two shapes:
-		//
-		//  1. Exactly one index group was present but carried no verb — the
-		//     canonical case being {"rangeable":{"enabled":false}}. Enabled is
-		//     a plain bool with omitempty, so enabled:false is wire-identical
-		//     to an absent enabled; both land here. The natural intent behind
-		//     such a call is to DISABLE the index (enabled:true is the enable
-		//     call, so enabled:false reads as its symmetric inverse). This PUT
-		//     has no disable verb — reversal lives on a DIFFERENT URL, a DELETE
-		//     against the property's index. Naming that exact endpoint turns a
-		//     dead-end 400 into an actionable signpost. The old generic verb
-		//     list did not mention DELETE at all, which led a prod-scale QA
-		//     effort to conclude a built rangeable index was a one-way
-		//     migration with no rollback path (0-weaviate-issues#316); the
-		//     DELETE (shipped v1.36.0) fully reverses it.
-		//
-		//  2. Empty body, or several groups present-but-verbless — there is no
-		//     single disable target to name, so fall back to the generic verb
-		//     list below.
-		//
-		// The DELETE indexName enum (filterable / searchable / rangeFilters) is
-		// defined on DELETE /v1/schema/{className}/properties/{propertyName}/index/{indexName}
-		// in openapi-specs/schema.json.
+		// A single group with no verb (incl. enabled:false, wire-identical to
+		// absent) reads as disable intent, but this PUT has no disable verb —
+		// only DELETE .../index/{indexName} reverses it. Name that endpoint
+		// here instead of falling through to the generic list (0-weaviate-issues#316).
 		switch {
 		case body.Rangeable != nil && body.Filterable == nil && body.Searchable == nil:
 			return fmt.Errorf("no actionable change detected in rangeable. " +
