@@ -207,56 +207,34 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	for i := range conf.RootUsers {
-		if strings.TrimSpace(conf.RootUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.RootUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Root)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
+	for _, list := range []struct {
+		role  string
+		users []string
+	}{
+		{authorization.Root, conf.RootUsers},
+		// admin/viewer are temporary, to enable import of existing keys to WCD
+		{authorization.Admin, conf.AdminUsers},
+		{authorization.Viewer, conf.ViewerUsers},
+	} {
+		for _, user := range list.users {
+			if strings.TrimSpace(user) == "" {
+				continue
 			}
-		}
 
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeScoped(authentication.AuthTypeOIDC, conf.RootUsers[i], namespacesEnabled), conv.PrefixRoleName(authorization.Root)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
+			if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, user) {
+				if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb), conv.PrefixRoleName(list.role)); err != nil {
+					return fmt.Errorf("add role for user: %w", err)
+				}
 			}
-		}
-	}
 
-	// temporary to enable import of existing keys to WCD (Admin + readonly)
-	for i := range conf.AdminUsers {
-		if strings.TrimSpace(conf.AdminUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.AdminUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Admin)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
+			if !authNconf.OIDC.Enabled {
+				continue
 			}
-		}
-
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeScoped(authentication.AuthTypeOIDC, conf.AdminUsers[i], namespacesEnabled), conv.PrefixRoleName(authorization.Admin)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
+			subject, err := conv.SubjectForTarget(namespacesEnabled, authentication.AuthTypeOIDC, user)
+			if err != nil {
+				return fmt.Errorf("%s user subject: %w", list.role, err)
 			}
-		}
-	}
-
-	for i := range conf.ViewerUsers {
-		if strings.TrimSpace(conf.ViewerUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.ViewerUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
-		}
-
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeScoped(authentication.AuthTypeOIDC, conf.ViewerUsers[i], namespacesEnabled), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+			if _, err := enforcer.AddRoleForUser(subject, conv.PrefixRoleName(list.role)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}

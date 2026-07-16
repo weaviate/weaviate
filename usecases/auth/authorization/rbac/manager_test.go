@@ -315,8 +315,10 @@ func TestManager_OIDCGlobalNamespacedNoBleed(t *testing.T) {
 	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("roleNs"), conv.CasbinBackups("*"), authorization.READ, authorization.BackupsDomain)
 	require.NoError(t, err)
 
-	globalSubject := conv.UserNameWithTypeScoped(authentication.AuthTypeOIDC, shortName, true)
-	nsSubject := conv.UserNameWithTypeScoped(authentication.AuthTypeOIDC, nsQualified, false)
+	globalSubject, err := conv.SubjectForTarget(true, authentication.AuthTypeOIDC, shortName)
+	require.NoError(t, err)
+	nsSubject, err := conv.SubjectForTarget(true, authentication.AuthTypeOIDC, nsQualified)
+	require.NoError(t, err)
 	require.Equal(t, "oidc::carol", globalSubject)
 	require.Equal(t, "oidc:customer1:carol", nsSubject)
 
@@ -324,12 +326,16 @@ func TestManager_OIDCGlobalNamespacedNoBleed(t *testing.T) {
 	require.NoError(t, m.AddRolesForUser(nsSubject, []string{"roleNs"}))
 
 	// Grouping table: each subject holds only its own role.
-	globalRoles, err := m.GetRolesForUserOrGroup(conv.ScopedSubjectUser(authentication.AuthTypeOIDC, shortName, true), authentication.AuthTypeOIDC, false)
+	globalSubjectUser, err := conv.SubjectUserForTarget(true, authentication.AuthTypeOIDC, shortName)
+	require.NoError(t, err)
+	globalRoles, err := m.GetRolesForUserOrGroup(globalSubjectUser, authentication.AuthTypeOIDC, false)
 	require.NoError(t, err)
 	require.Contains(t, globalRoles, "roleGlobal")
 	require.NotContains(t, globalRoles, "roleNs")
 
-	nsRoles, err := m.GetRolesForUserOrGroup(conv.ScopedSubjectUser(authentication.AuthTypeOIDC, nsQualified, false), authentication.AuthTypeOIDC, false)
+	nsSubjectUser, err := conv.SubjectUserForTarget(true, authentication.AuthTypeOIDC, nsQualified)
+	require.NoError(t, err)
+	nsRoles, err := m.GetRolesForUserOrGroup(nsSubjectUser, authentication.AuthTypeOIDC, false)
 	require.NoError(t, err)
 	require.Contains(t, nsRoles, "roleNs")
 	require.NotContains(t, nsRoles, "roleGlobal")

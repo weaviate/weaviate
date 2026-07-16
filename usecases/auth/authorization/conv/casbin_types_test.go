@@ -1346,79 +1346,129 @@ func TestSubjectNamespace(t *testing.T) {
 	}
 }
 
-// TestUserNameWithTypeScoped pins the empty-namespace slot encoding: only a
-// global OIDC subject gets the leading ':'. Every row round-trips back to its
-// (namespace, name) through SubjectNamespace/NamespaceFromQualified, and
-// StripGlobalOIDCSlot inverts the slot for global OIDC rows. Global OIDC names
-// are colon-free — a namespaced name is the only one that may carry ':'.
-func TestUserNameWithTypeScoped(t *testing.T) {
+// TestSubjectForTarget pins the empty-namespace slot encoding for an addressed
+// user id: only a global OIDC subject gets the leading ':', and the slot is
+// derived from the id's own namespace rather than supplied by the caller. Every
+// row round-trips back to its (namespace, name) through
+// SubjectNamespace/NamespaceFromQualified, and StripGlobalOIDCSlot inverts the
+// slot for global OIDC rows. Global OIDC names are colon-free — a namespaced
+// name is the only one that may carry ':'.
+func TestSubjectForTarget(t *testing.T) {
 	tests := []struct {
-		name          string
-		authType      authentication.AuthType
-		user          string // user-portion before slotting (already qualified for namespaced rows)
-		isGlobal      bool
-		wantSubject   string
-		wantNamespace string
-		wantName      string // original name recovered from the subject
+		name              string
+		authType          authentication.AuthType
+		user              string // resolved id (already qualified for namespaced rows)
+		namespacesEnabled bool
+		wantErr           string
+		wantSubject       string
+		wantSlotted       bool // subject carries the global empty-namespace slot
+		wantNamespace     string
+		wantName          string // original name recovered from the subject
 	}{
 		{
-			name:          "global oidc bare name gets slot",
-			authType:      authentication.AuthTypeOIDC,
-			user:          "carol",
-			isGlobal:      true,
-			wantSubject:   "oidc::carol",
-			wantNamespace: "",
-			wantName:      "carol",
+			name:              "global oidc bare name gets slot",
+			authType:          authentication.AuthTypeOIDC,
+			user:              "carol",
+			namespacesEnabled: true,
+			wantSubject:       "oidc::carol",
+			wantSlotted:       true,
+			wantNamespace:     "",
+			wantName:          "carol",
 		},
 		{
-			name:          "namespaced oidc carol",
-			authType:      authentication.AuthTypeOIDC,
-			user:          "customer1:carol",
-			isGlobal:      false,
-			wantSubject:   "oidc:customer1:carol",
-			wantNamespace: "customer1",
-			wantName:      "carol",
+			name:              "namespaced oidc carol",
+			authType:          authentication.AuthTypeOIDC,
+			user:              "customer1:carol",
+			namespacesEnabled: true,
+			wantSubject:       "oidc:customer1:carol",
+			wantNamespace:     "customer1",
+			wantName:          "carol",
 		},
 		{
-			name:          "namespaced oidc colon-bearing short name",
-			authType:      authentication.AuthTypeOIDC,
-			user:          "customer1:foo:bar",
-			isGlobal:      false,
-			wantSubject:   "oidc:customer1:foo:bar",
-			wantNamespace: "customer1",
-			wantName:      "foo:bar",
+			name:              "namespaced oidc colon-bearing short name",
+			authType:          authentication.AuthTypeOIDC,
+			user:              "customer1:foo:bar",
+			namespacesEnabled: true,
+			wantSubject:       "oidc:customer1:foo:bar",
+			wantNamespace:     "customer1",
+			wantName:          "foo:bar",
 		},
 		{
-			name:          "same short name in another namespace does not collide",
-			authType:      authentication.AuthTypeOIDC,
-			user:          "customer2:carol",
-			isGlobal:      false,
-			wantSubject:   "oidc:customer2:carol",
-			wantNamespace: "customer2",
-			wantName:      "carol",
+			name:              "same short name in another namespace does not collide",
+			authType:          authentication.AuthTypeOIDC,
+			user:              "customer2:carol",
+			namespacesEnabled: true,
+			wantSubject:       "oidc:customer2:carol",
+			wantNamespace:     "customer2",
+			wantName:          "carol",
 		},
 		{
-			name:          "global db row: no slot",
-			authType:      authentication.AuthTypeDb,
-			user:          "bob",
-			isGlobal:      true,
-			wantSubject:   "db:bob",
-			wantNamespace: "",
-			wantName:      "bob",
+			name:              "global db row: no slot",
+			authType:          authentication.AuthTypeDb,
+			user:              "bob",
+			namespacesEnabled: true,
+			wantSubject:       "db:bob",
+			wantNamespace:     "",
+			wantName:          "bob",
 		},
 		{
 			name:          "ns-disabled oidc row: no slot",
 			authType:      authentication.AuthTypeOIDC,
 			user:          "carol",
-			isGlobal:      false,
 			wantSubject:   "oidc:carol",
 			wantNamespace: "",
 			wantName:      "carol",
 		},
+		{
+			name:          "ns-disabled db row: no slot",
+			authType:      authentication.AuthTypeDb,
+			user:          "bob",
+			wantSubject:   "db:bob",
+			wantNamespace: "",
+			wantName:      "bob",
+		},
+		{
+			name:              "namespaced db row: no slot",
+			authType:          authentication.AuthTypeDb,
+			user:              "customer1:bob",
+			namespacesEnabled: true,
+			wantSubject:       "db:customer1:bob",
+			wantNamespace:     "customer1",
+			wantName:          "bob",
+		},
+		{
+			name:              "oidc id with leading separator is rejected",
+			authType:          authentication.AuthTypeOIDC,
+			user:              ":carol",
+			namespacesEnabled: true,
+			wantErr:           "must not begin with",
+		},
+		{
+			name:          "ns-disabled oidc id with leading separator passes through",
+			authType:      authentication.AuthTypeOIDC,
+			user:          ":carol",
+			wantSubject:   "oidc::carol",
+			wantNamespace: "",
+			wantName:      ":carol",
+		},
+		{
+			name:              "db id with leading separator is not slot-encoded",
+			authType:          authentication.AuthTypeDb,
+			user:              ":bob",
+			namespacesEnabled: true,
+			wantSubject:       "db::bob",
+			wantNamespace:     "",
+			wantName:          ":bob",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			subject := UserNameWithTypeScoped(tt.authType, tt.user, tt.isGlobal)
+			subject, err := SubjectForTarget(tt.namespacesEnabled, tt.authType, tt.user)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
 			require.Equal(t, tt.wantSubject, subject)
 
 			userPortion, authType, namespace, err := SubjectNamespace(subject)
@@ -1428,7 +1478,7 @@ func TestUserNameWithTypeScoped(t *testing.T) {
 			require.Equal(t, tt.wantNamespace, namespacing.NamespaceFromQualified(userPortion))
 
 			switch {
-			case tt.authType == authentication.AuthTypeOIDC && tt.isGlobal:
+			case tt.wantSlotted:
 				require.Equal(t, tt.wantName, StripGlobalOIDCSlot(userPortion))
 			case tt.wantNamespace != "":
 				require.Equal(t, tt.wantName, namespacing.StripQualification(userPortion))

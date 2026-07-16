@@ -587,14 +587,14 @@ func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
 // empty namespace is not global: on namespace-disabled clusters every principal
 // has one.
 func ScopedSubjectUserFromPrincipal(principal *models.Principal) string {
-	return ScopedSubjectUser(authentication.AuthType(principal.UserType), principal.Username, principal.IsGlobalOperator)
+	return scopedSubjectUser(authentication.AuthType(principal.UserType), principal.Username, principal.IsGlobalOperator)
 }
 
 func UserNameWithTypeFromId(username string, authType authentication.AuthType) string {
 	return fmt.Sprintf("%s:%s", authType, username)
 }
 
-// ScopedSubjectUser returns the grouping-subject user-portion for a principal.
+// scopedSubjectUser returns the grouping-subject user-portion for a user.
 // A global OIDC user gets one leading PREFIX_SEPARATOR (the empty-namespace
 // slot); every other case (namespaced OIDC, any DB, NS-disabled) is returned
 // unchanged.
@@ -605,24 +605,58 @@ func UserNameWithTypeFromId(username string, authType authentication.AuthType) s
 // Authentication requires global names to be colon-free, so nothing relies on
 // that yet; the slot is kept so the restriction can be lifted without
 // re-encoding stored subjects.
-func ScopedSubjectUser(authType authentication.AuthType, user string, isGlobal bool) string {
+//
+// Unexported on purpose: isGlobal must come from one of the two exported
+// entry points, never from a predicate a call site invents.
+func scopedSubjectUser(authType authentication.AuthType, user string, isGlobal bool) string {
 	if isGlobal && authType == authentication.AuthTypeOIDC {
 		return PREFIX_SEPARATOR + user
 	}
 	return user
 }
 
-// UserNameWithTypeScoped builds the full casbin subject for a principal,
-// applying the empty-namespace slot for global OIDC users (see
-// ScopedSubjectUser).
-func UserNameWithTypeScoped(authType authentication.AuthType, user string, isGlobal bool) string {
-	return UserNameWithTypeFromId(ScopedSubjectUser(authType, user, isGlobal), authType)
+// ValidateOIDCUserID rejects an OIDC user id with a leading PREFIX_SEPARATOR:
+// it would take the global empty-namespace slot's position and produce a
+// subject that can never authenticate.
+func ValidateOIDCUserID(namespacesEnabled bool, internalID string) error {
+	if namespacesEnabled && strings.HasPrefix(internalID, PREFIX_SEPARATOR) {
+		return fmt.Errorf("oidc user id must not begin with %q", PREFIX_SEPARATOR)
+	}
+	return nil
+}
+
+// SubjectUserForTarget returns the grouping-subject user-portion for a resolved
+// user id that a request addresses, deriving the slot from the id's own
+// namespace. Use this — not the caller's principal — whenever the subject being
+// written or read is someone other than the caller: the enforcement path
+// derives the slot from the authenticated principal, so a write must produce
+// the same subject the target will later present.
+//
+// internalID must already be resolved through QualifyUserIDForLookup; a raw
+// request id from a namespaced caller would derive the global slot.
+func SubjectUserForTarget(namespacesEnabled bool, authType authentication.AuthType, internalID string) (string, error) {
+	if authType == authentication.AuthTypeOIDC {
+		if err := ValidateOIDCUserID(namespacesEnabled, internalID); err != nil {
+			return "", err
+		}
+	}
+	return scopedSubjectUser(authType, internalID, namespacing.GlobalSubjectTarget(namespacesEnabled, internalID)), nil
+}
+
+// SubjectForTarget builds the full casbin subject for a resolved user id a
+// request addresses (see SubjectUserForTarget).
+func SubjectForTarget(namespacesEnabled bool, authType authentication.AuthType, internalID string) (string, error) {
+	user, err := SubjectUserForTarget(namespacesEnabled, authType, internalID)
+	if err != nil {
+		return "", err
+	}
+	return UserNameWithTypeFromId(user, authType), nil
 }
 
 // StripGlobalOIDCSlot removes exactly one leading PREFIX_SEPARATOR from an OIDC
-// user-portion — the inverse of the slot added by ScopedSubjectUser. Apply only
-// to OIDC user-portions on namespace-enabled clusters, where a leading ':' is
-// unambiguously the global slot.
+// user-portion — the inverse of the slot added by SubjectUserForTarget. Apply
+// only to OIDC user-portions on namespace-enabled clusters, where a leading ':'
+// is unambiguously the global slot.
 func StripGlobalOIDCSlot(user string) string {
 	return strings.TrimPrefix(user, PREFIX_SEPARATOR)
 }

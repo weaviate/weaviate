@@ -853,9 +853,12 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("username to assign role to doesn't exist")))
 	}
 
-	isGlobal := namespacing.GlobalSubjectTarget(h.namespacesEnabled, internalID)
 	for _, userType := range userTypes {
-		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeScoped(userType, internalID, isGlobal), roleNames); err != nil {
+		subject, err := conv.SubjectForTarget(h.namespacesEnabled, userType, internalID)
+		if err != nil {
+			return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		if err := h.controller.AddRolesForUser(subject, roleNames); err != nil {
 			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("AddRolesForUser: %w", err)))
 		}
 	}
@@ -1100,7 +1103,12 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserNotFound()
 	}
 
-	existingRoles, err := h.controller.GetRolesForUserOrGroup(conv.ScopedSubjectUser(userType, internalID, targetGlobal), userType, false)
+	subjectUser, err := conv.SubjectUserForTarget(h.namespacesEnabled, userType, internalID)
+	if err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	existingRoles, err := h.controller.GetRolesForUserOrGroup(subjectUser, userType, false)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupsWithRoles: %w", err)))
 	}
@@ -1389,9 +1397,12 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	if userTypes == nil {
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("username to revoke role from doesn't exist")))
 	}
-	isGlobal := namespacing.GlobalSubjectTarget(h.namespacesEnabled, internalID)
 	for _, userType := range userTypes {
-		if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeScoped(userType, internalID, isGlobal), roleNames...); err != nil {
+		subject, err := conv.SubjectForTarget(h.namespacesEnabled, userType, internalID)
+		if err != nil {
+			return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		if err := h.controller.RevokeRolesForUser(subject, roleNames...); err != nil {
 			return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("RevokeRolesForUser: %w", err)))
 		}
 	}
@@ -1636,13 +1647,7 @@ func (h *authZHandlers) validateUserIDForNamespaces(userID string, userType mode
 		return nil
 	}
 	if userType == models.UserTypeInputOidc {
-		// A leading ':' re-slots into the global empty-namespace slot and
-		// produces a subject that can never authenticate and trips the startup
-		// invariant. Reject exactly what the boot check will later refuse.
-		if strings.HasPrefix(userID, conv.PREFIX_SEPARATOR) {
-			return fmt.Errorf("oidc user id must not begin with %q", conv.PREFIX_SEPARATOR)
-		}
-		return nil
+		return conv.ValidateOIDCUserID(h.namespacesEnabled, userID)
 	}
 	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID) {
 		return nil
