@@ -435,11 +435,15 @@ Decision log for the settled points:
    bm25 `search_operator` deferral (2026-07-14) applies to the hybrid
    keyword leg identically. All are safe widenings later (b6ef0eed
    asymmetry rule).
-5. **`return_metadata` certainty is NOT force-cleared** (unlike bm25):
-   hybrid is a vector search, so gRPC keeps the certainty flag
-   (`extractTargetVectors` marks hybrid `vectorSearch`), subject only to
-   the shared cosine-compatibility silent drop. Distance metadata comes
-   back from the vector leg.
+5. **`return_metadata` `distance`/`certainty` on hybrid: SILENT OMISSION.**
+   The request flags mirror gRPC exactly — hybrid is a vector search, so
+   the certainty flag is NOT force-cleared like bm25's (subject only to the
+   shared cosine-compatibility drop) — but the fused result list carries
+   only scores: the explorer emits `distance` for plain vector searches,
+   never for the hybrid path, so the response omits both keys whatever the
+   flags say (verified live; identical to what gRPC/GraphQL return for
+   hybrid). The meaningful hybrid metadata keys are `score` and
+   `explain_score`.
 
 ### 2026-07-16 — fourth endpoint: near-object (search anchored at an object)
 

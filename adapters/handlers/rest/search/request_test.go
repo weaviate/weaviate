@@ -1236,7 +1236,10 @@ func TestHybridReturnMetadata(t *testing.T) {
 	t.Run("certainty stays requested on a cosine index", func(t *testing.T) {
 		// hybrid is a vector search: unlike bm25, the certainty flag is NOT
 		// force-cleared (gRPC parity — vectorSearch keeps the flag, subject
-		// only to the cosine-compatibility silent drop)
+		// only to the cosine-compatibility silent drop). The flags are
+		// inert on the wire either way: the fused hybrid list carries only
+		// scores, so the response omits distance/certainty (covered end to
+		// end in the acceptance suite).
 		searcher, apiErr := buildHybrid(t, movieClass(),
 			`{"query":"space","return_metadata":["distance","certainty"]}`)
 		require.Nil(t, apiErr)

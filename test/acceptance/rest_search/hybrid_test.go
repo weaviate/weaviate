@@ -234,29 +234,41 @@ func TestRESTSearchHybrid(t *testing.T) {
 	})
 
 	t.Run("max_vector_distance cuts off far objects", func(t *testing.T) {
-		// read the two live distances, then cut between them: exactly the
-		// closer object must survive, on the keyword leg too
+		// hybrid hits never carry distance metadata (the fused list carries
+		// scores; the explorer emits distance only for plain vector
+		// searches), so probe the cutoff by its effect: the loosest cosine
+		// cutoff keeps everything, a near-zero one drops everything —
+		// keyword-leg matches included
 		status, out := postHybrid(t, "Song", map[string]interface{}{
-			"query":           "spaceship galaxy",
-			"alpha":           1,
-			"return_metadata": []string{"distance"},
-		})
-		require.Equal(t, http.StatusOK, status, "%v", out)
-		require.Len(t, results(t, out), 2)
-		d0, ok := metadataOf(t, hit(t, out, 0))["distance"].(float64)
-		require.True(t, ok, "distance missing: %v", out)
-		d1, ok := metadataOf(t, hit(t, out, 1))["distance"].(float64)
-		require.True(t, ok, "distance missing: %v", out)
-		require.Less(t, d0, d1)
-
-		status, out = postHybrid(t, "Song", map[string]interface{}{
 			"query":               "spaceship galaxy",
-			"max_vector_distance": (d0 + d1) / 2,
+			"max_vector_distance": 1.99,
 			"return_properties":   []string{"title"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
-		require.Len(t, results(t, out), 1)
-		assert.Equal(t, hybridSong1ID.String(), idOf(t, hit(t, out, 0)))
+		require.Len(t, results(t, out), 2)
+
+		status, out = postHybrid(t, "Song", map[string]interface{}{
+			"query":               "spaceship galaxy",
+			"max_vector_distance": 0.0001,
+			"return_properties":   []string{"title"},
+		})
+		require.Equal(t, http.StatusOK, status, "%v", out)
+		require.Empty(t, results(t, out))
+	})
+
+	t.Run("distance and certainty metadata are silently omitted", func(t *testing.T) {
+		// both are in the shared return_metadata enum and stay requested
+		// (hybrid is a vector search, gRPC keeps the flags), but the fused
+		// result list only carries scores — the response omits them
+		status, out := postHybrid(t, "Song", map[string]interface{}{
+			"query":           "spaceship galaxy",
+			"return_metadata": []string{"distance", "certainty", "score"},
+		})
+		require.Equal(t, http.StatusOK, status, "%v", out)
+		metadata := metadataOf(t, hit(t, out, 0))
+		assert.Contains(t, metadata, "score")
+		assert.NotContains(t, metadata, "distance")
+		assert.NotContains(t, metadata, "certainty")
 	})
 
 	t.Run("query_properties restricts the keyword leg", func(t *testing.T) {
