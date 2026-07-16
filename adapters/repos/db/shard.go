@@ -962,38 +962,45 @@ func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
 }
 
+// registerAddToPropertyValueIndex appends callback to the folded write-path
+// snapshot and returns a disarm func that REMOVES it again (by id, copy-on-write
+// under the mutex). Removing rather than flagging keeps the slice bounded: the
+// backup-window migration path (re)registers a pair per run, so a
+// flag-and-keep disarm would leak one entry per migration onto the hot path for
+// the life of the shard. Disarm is idempotent — a second call finds no matching
+// id and no-ops.
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
-	disabled := &atomic.Bool{}
-	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if disabled.Load() {
-			return nil
-		}
-		return callback(shard, docID, property)
-	}
-
+	var id uint64
 	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-		cur.add = appendAddCallback(cur.add, wrapped)
+		id = cur.nextCallbackID
+		cur.nextCallbackID++
+		cur.add = appendAddCallback(cur.add, id, callback)
 		return cur
 	})
 
-	return func() { disabled.Store(true) }
+	return func() {
+		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+			cur.add = removeAddCallback(cur.add, id)
+			return cur
+		})
+	}
 }
 
 func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {
-	disabled := &atomic.Bool{}
-	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if disabled.Load() {
-			return nil
-		}
-		return callback(shard, docID, property)
-	}
-
+	var id uint64
 	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-		cur.del = appendDeleteCallback(cur.del, wrapped)
+		id = cur.nextCallbackID
+		cur.nextCallbackID++
+		cur.del = appendDeleteCallback(cur.del, id, callback)
 		return cur
 	})
 
-	return func() { disabled.Store(true) }
+	return func() {
+		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+			cur.del = removeDeleteCallback(cur.del, id)
+			return cur
+		})
+	}
 }
 
 // AnyActiveMovement reports whether a replica movement is in flight for this shard.

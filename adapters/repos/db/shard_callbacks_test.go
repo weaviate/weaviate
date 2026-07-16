@@ -348,4 +348,131 @@ func TestShardCallbacks_ConcurrentRegistrationAndWrites(t *testing.T) {
 
 	// The base callback must have been invoked at least once (sanity).
 	assert.Greater(t, baseCount.Load(), int64(0))
+
+	// Every concurrent registration disarmed itself, so the folded snapshot
+	// must be back to exactly the one base callback. A disarm that only flagged
+	// (rather than removed) its closure would leave numRegistrations leaked
+	// entries here — the unbounded-growth leak this guards against.
+	assert.Len(t, s.loadPropValueIndexState().add, 1,
+		"disarm must REMOVE each registration; the slice must not accumulate disarmed closures")
+}
+
+// TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth is the regression
+// test for the callback-slice leak (PR #11985 reviewer finding S1;
+// weaviate/0-weaviate-issues#298 family). Disarm must REMOVE a registration's
+// closures from the folded write-path snapshot, not merely flag them disabled.
+// Before the fix, every past migration's closures stayed on the hot write path
+// forever — O(migrations) per-write cost and a slow leak on long-lived shards.
+//
+// The shrink is asserted through observable behavior — the number of callback
+// invocations per fire tracks the number of *currently armed* callbacks — so a
+// future append-without-remove regression makes the leaked closures fire and
+// inflates the count. No test-only seam is added to production code; the slice
+// is read via the production loadPropValueIndexState snapshot.
+func TestShardCallbacks_DisarmRemovesCallbacks_NoUnboundedGrowth(t *testing.T) {
+	const numMigrations = 100
+
+	t.Run("single-callback add path", func(t *testing.T) {
+		s := &Shard{}
+		var invocations atomic.Int64
+		countingAdd := func(_ *Shard, _ uint64, _ *inverted.Property) error {
+			invocations.Add(1)
+			return nil
+		}
+
+		// A witness callback stays armed for the whole test.
+		s.registerAddToPropertyValueIndex(countingAdd)
+
+		// Simulate many migrations: each arms a counting callback then disarms it.
+		for i := 0; i < numMigrations; i++ {
+			s.registerAddToPropertyValueIndex(countingAdd)()
+		}
+
+		require.Len(t, s.loadPropValueIndexState().add, 1,
+			"only the witness callback may remain after %d arm+disarm cycles", numMigrations)
+
+		invocations.Store(0)
+		require.NoError(t, s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "p"}))
+		assert.Equal(t, int64(1), invocations.Load(),
+			"exactly one armed callback must fire; a leak would inflate this to 1+%d", numMigrations)
+	})
+
+	t.Run("single-callback delete path", func(t *testing.T) {
+		s := &Shard{}
+		var invocations atomic.Int64
+		countingDel := func(_ *Shard, _ uint64, _ *inverted.Property) error {
+			invocations.Add(1)
+			return nil
+		}
+
+		s.registerDeleteFromPropertyValueIndex(countingDel)
+		for i := 0; i < numMigrations; i++ {
+			s.registerDeleteFromPropertyValueIndex(countingDel)()
+		}
+
+		require.Len(t, s.loadPropValueIndexState().del, 1,
+			"only the witness callback may remain after %d arm+disarm cycles", numMigrations)
+
+		invocations.Store(0)
+		require.NoError(t, s.onDeleteFromPropertyValueIndex(1, &inverted.Property{Name: "p"}))
+		assert.Equal(t, int64(1), invocations.Load(),
+			"exactly one armed callback must fire; a leak would inflate this to 1+%d", numMigrations)
+	})
+
+	t.Run("double-write scope path", func(t *testing.T) {
+		s := &Shard{}
+		var addInvocations, delInvocations atomic.Int64
+		props := []string{"p"}
+
+		// Each migration arms the add+delete pair AND the scope, then disarms
+		// all three in one atomic mutate.
+		for i := 0; i < numMigrations; i++ {
+			s.registerDoubleWriteWithScope(
+				func(_ *Shard, _ uint64, _ *inverted.Property) error { addInvocations.Add(1); return nil },
+				func(_ *Shard, _ uint64, _ *inverted.Property) error { delInvocations.Add(1); return nil },
+				props, nil,
+			)()
+		}
+
+		st := s.loadPropValueIndexState()
+		assert.Empty(t, st.add, "every disarm must remove its add closure")
+		assert.Empty(t, st.del, "every disarm must remove its delete closure")
+		assert.Empty(t, st.scope.props, "disarm must collapse the scope back to the idle fast path")
+
+		// Firing must invoke nothing — all pairs were removed, not just flagged.
+		require.NoError(t, s.fireAddToPropertyValueIndex(st, 1, &inverted.Property{Name: "p"}))
+		require.NoError(t, s.fireDeleteFromPropertyValueIndex(st, 1, &inverted.Property{Name: "p"}))
+		assert.Equal(t, int64(0), addInvocations.Load(),
+			"all add closures must be removed on disarm; a leak would fire %d of them", numMigrations)
+		assert.Equal(t, int64(0), delInvocations.Load(),
+			"all delete closures must be removed on disarm; a leak would fire %d of them", numMigrations)
+	})
+
+	t.Run("interleaved arm/disarm leaves only the still-armed callbacks", func(t *testing.T) {
+		s := &Shard{}
+		var invocations atomic.Int64
+		countingAdd := func(_ *Shard, _ uint64, _ *inverted.Property) error {
+			invocations.Add(1)
+			return nil
+		}
+
+		// Arm three, disarm the middle one — order must not matter for removal.
+		d0 := s.registerAddToPropertyValueIndex(countingAdd)
+		d1 := s.registerAddToPropertyValueIndex(countingAdd)
+		d2 := s.registerAddToPropertyValueIndex(countingAdd)
+		_ = d0
+		_ = d2
+		d1()
+
+		require.Len(t, s.loadPropValueIndexState().add, 2,
+			"disarming one of three must leave exactly two armed")
+		require.NoError(t, s.onAddToPropertyValueIndex(1, &inverted.Property{Name: "p"}))
+		assert.Equal(t, int64(2), invocations.Load(), "the two still-armed callbacks must fire")
+
+		// Disarm the remaining two; the slice must be empty.
+		d0()
+		d2()
+		assert.Empty(t, s.loadPropValueIndexState().add,
+			"disarming all registrations must leave an empty slice")
+	})
 }

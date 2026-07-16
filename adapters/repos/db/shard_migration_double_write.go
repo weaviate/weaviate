@@ -12,8 +12,6 @@
 package db
 
 import (
-	"sync/atomic"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -85,13 +83,34 @@ func insertUnlessIn(dst map[string]struct{}, key string, drop []string) map[stri
 	return dst
 }
 
+// addCallbackEntry pairs a registered add callback with the id its disarm func
+// removes it by. Go forbids comparing func values, so an explicit id lets
+// disarm drop exactly this registration from the copy-on-write slice — the
+// callback is REMOVED, not just flagged, so the slice can never grow without
+// bound across a long-lived shard's migration history.
+type addCallbackEntry struct {
+	id uint64
+	fn onAddToPropertyValueIndex
+}
+
+// deleteCallbackEntry is addCallbackEntry's delete-side counterpart.
+type deleteCallbackEntry struct {
+	id uint64
+	fn onDeleteFromPropertyValueIndex
+}
+
 // propValueIndexState folds the callback slices and migration scope into one
 // atomic snapshot, so a concurrent arm/disarm can never expose
 // callbacks-without-scope or scope-without-callbacks to a write.
+//
+// nextCallbackID hands out per-registration ids under mutatePropValueIndexState's
+// mutex; it is carried by copy across mutations so every registration gets a
+// distinct id its disarm can remove by.
 type propValueIndexState struct {
-	add   []onAddToPropertyValueIndex
-	del   []onDeleteFromPropertyValueIndex
-	scope migrationDoubleWriteScope
+	add            []addCallbackEntry
+	del            []deleteCallbackEntry
+	scope          migrationDoubleWriteScope
+	nextCallbackID uint64
 }
 
 // emptyPropValueIndexState is returned by loadPropValueIndexState before any
@@ -124,17 +143,57 @@ func (s *Shard) mutatePropValueIndexState(fn func(cur propValueIndexState) propV
 	s.propValueIndexState.Store(&next)
 }
 
-func appendAddCallback(cur []onAddToPropertyValueIndex, cb onAddToPropertyValueIndex) []onAddToPropertyValueIndex {
-	updated := make([]onAddToPropertyValueIndex, len(cur)+1)
+// appendAddCallback returns a fresh slice (copy-on-write) with cb appended
+// under id, so a lock-free reader iterating the old slice is never mutated.
+func appendAddCallback(cur []addCallbackEntry, id uint64, cb onAddToPropertyValueIndex) []addCallbackEntry {
+	updated := make([]addCallbackEntry, len(cur)+1)
 	copy(updated, cur)
-	updated[len(cur)] = cb
+	updated[len(cur)] = addCallbackEntry{id: id, fn: cb}
 	return updated
 }
 
-func appendDeleteCallback(cur []onDeleteFromPropertyValueIndex, cb onDeleteFromPropertyValueIndex) []onDeleteFromPropertyValueIndex {
-	updated := make([]onDeleteFromPropertyValueIndex, len(cur)+1)
+func appendDeleteCallback(cur []deleteCallbackEntry, id uint64, cb onDeleteFromPropertyValueIndex) []deleteCallbackEntry {
+	updated := make([]deleteCallbackEntry, len(cur)+1)
 	copy(updated, cur)
-	updated[len(cur)] = cb
+	updated[len(cur)] = deleteCallbackEntry{id: id, fn: cb}
+	return updated
+}
+
+// removeAddCallback returns a fresh slice (copy-on-write) with the entry
+// carrying id dropped, so disarm shrinks the slice a lock-free reader may be
+// iterating without mutating that reader's copy. Returns cur unchanged (same
+// backing array) when id is absent, making a double-disarm a no-op.
+func removeAddCallback(cur []addCallbackEntry, id uint64) []addCallbackEntry {
+	idx := -1
+	for i := range cur {
+		if cur[i].id == id {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return cur
+	}
+	updated := make([]addCallbackEntry, 0, len(cur)-1)
+	updated = append(updated, cur[:idx]...)
+	updated = append(updated, cur[idx+1:]...)
+	return updated
+}
+
+func removeDeleteCallback(cur []deleteCallbackEntry, id uint64) []deleteCallbackEntry {
+	idx := -1
+	for i := range cur {
+		if cur[i].id == id {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return cur
+	}
+	updated := make([]deleteCallbackEntry, 0, len(cur)-1)
+	updated = append(updated, cur[:idx]...)
+	updated = append(updated, cur[idx+1:]...)
 	return updated
 }
 
@@ -143,7 +202,7 @@ func appendDeleteCallback(cur []onDeleteFromPropertyValueIndex, cb onDeleteFromP
 func (s *Shard) fireAddToPropertyValueIndex(st *propValueIndexState, docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()
 	for _, cb := range st.add {
-		ec.Add(cb(s, docID, property))
+		ec.Add(cb.fn(s, docID, property))
 	}
 	return ec.ToError()
 }
@@ -151,7 +210,7 @@ func (s *Shard) fireAddToPropertyValueIndex(st *propValueIndexState, docID uint6
 func (s *Shard) fireDeleteFromPropertyValueIndex(st *propValueIndexState, docID uint64, property *inverted.Property) error {
 	ec := errorcompounder.New()
 	for _, cb := range st.del {
-		ec.Add(cb(s, docID, property))
+		ec.Add(cb.fn(s, docID, property))
 	}
 	return ec.ToError()
 }
@@ -230,35 +289,40 @@ func (s *Shard) migrationDoubleWriteDelete(st *propValueIndexState, prevObject *
 // callbacks in ONE atomic Store, so a concurrent writer never sees callbacks
 // without the scope and leaks source-tokenized terms into the ingest bucket
 // (weaviate/0-weaviate-issues#298). Returned func disarms both.
+//
+// Disarm REMOVES the callbacks (by id) in the SAME atomic mutate that drops the
+// scope. Two consequences:
+//
+//   - No unbounded growth. Earlier this only flagged the closures disabled and
+//     left them in the slice, so every past migration's pair stayed on the hot
+//     write path forever — O(migrations) per-write cost plus a slow leak on
+//     long-lived shards. Removing them keeps the slice bounded by the number of
+//     migrations in flight.
+//   - No disabled-flag guard needed. A flag was only ever required because the
+//     old disarm dropped the scope while leaving the callbacks present,
+//     transiently exposing a {scope-absent, callback-present} state a writer
+//     would double-write through. Removing callback and scope together makes
+//     that torn state unobservable, so the flag is redundant. Any in-flight
+//     writer still holding the pre-disarm snapshot fires the callback safely:
+//     resolveScopedDoubleWriteBucket lands the mirror in the surviving canonical
+//     bucket (target phase) or no-ops when the sidecar is gone (backup phase).
 func (s *Shard) registerDoubleWriteWithScope(add onAddToPropertyValueIndex, del onDeleteFromPropertyValueIndex,
 	props []string, overlay map[string]inverted.PropertyOverlay,
 ) func() {
-	disabled := &atomic.Bool{}
-	wrappedAdd := func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if disabled.Load() {
-			return nil
-		}
-		return add(shard, docID, property)
-	}
-	wrappedDelete := func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if disabled.Load() {
-			return nil
-		}
-		return del(shard, docID, property)
-	}
-
+	var id uint64
 	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
-		cur.add = appendAddCallback(cur.add, wrappedAdd)
-		cur.del = appendDeleteCallback(cur.del, wrappedDelete)
+		id = cur.nextCallbackID
+		cur.nextCallbackID++
+		cur.add = appendAddCallback(cur.add, id, add)
+		cur.del = appendDeleteCallback(cur.del, id, del)
 		cur.scope = cur.scope.withArmed(props, overlay)
 		return cur
 	})
 
 	return func() {
-		// Disable callbacks before dropping the scope, so none can write the
-		// post-swap ingest bucket while the inline path resumes owning these props.
-		disabled.Store(true)
 		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+			cur.add = removeAddCallback(cur.add, id)
+			cur.del = removeDeleteCallback(cur.del, id)
 			cur.scope = cur.scope.withDisarmed(props, overlay)
 			return cur
 		})
