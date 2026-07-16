@@ -72,11 +72,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		s.mayStopAsyncReplication()
 	}
 
-	if s.haltForTransferCount > 1 {
-		// shard was already halted
-		return nil
-	}
-
+	// Placed before the pause branch so it also covers count>1 callers: on error
+	// mayForceResumeMaintenanceCycles(ctx, false) decrements our own increment and
+	// only truly resumes at count==0, so a failed count>1 caller rolls back 2→1
+	// without unhalting the shard the first op still holds.
 	defer func() {
 		if err != nil {
 			// each preparation step below wraps its own error; only append
@@ -87,15 +86,28 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		}
 	}()
 
-	if err = s.store.PauseCompaction(innerCtx); err != nil {
-		return fmt.Errorf("pause compaction: %w", err)
+	// Pause steps run only on the first halt. Re-pausing per halt would strand the
+	// per-bucket pause-timer refcount (1 pause : 1 stop) and never observe the
+	// Prometheus pause-duration timer.
+	if s.haltForTransferCount == 1 {
+		if err = s.store.PauseCompaction(innerCtx); err != nil {
+			return fmt.Errorf("pause compaction: %w", err)
+		}
+		if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(innerCtx); err != nil {
+			return fmt.Errorf("pause vector maintenance: %w", err)
+		}
+		if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(innerCtx); err != nil {
+			return fmt.Errorf("pause geo props maintenance: %w", err)
+		}
+	} else {
+		s.index.logger.WithField("shard", s.name).
+			Debugf("shard already halted for transfer (count=%d); re-sealing state on shared halt", s.haltForTransferCount)
 	}
-	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(innerCtx); err != nil {
-		return fmt.Errorf("pause vector maintenance: %w", err)
-	}
-	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(innerCtx); err != nil {
-		return fmt.Errorf("pause geo props maintenance: %w", err)
-	}
+
+	// Seal steps run on EVERY halt: a second consumer's snapshot deliberately
+	// excludes the active memtable/WAL and the active HNSW commit-log, so any
+	// write that landed after the first consumer's flush must be re-sealed here or
+	// it is silently dropped from the second consumer's snapshot.
 
 	// get the queues ready for backup (e.g. enable maintenance mode, switch to new chunks)
 	_ = s.ForEachVectorQueue(func(targetVector string, q *VectorIndexQueue) error {
