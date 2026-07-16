@@ -727,3 +727,209 @@ func TestSidecarBackfill_EnableSearchable_TallyDurableAcrossRestart(t *testing.T
 	assert.InDelta(t, float64(controlSum)/float64(controlCount), reloadedMean, 0.001,
 		"BM25 avgdl (prop-length mean) must survive a restart immediately after a completed enable-searchable migration")
 }
+
+// -----------------------------------------------------------------------------
+// PR #12221 QA finding: recomputeSearchableTallyForProp rescans the objects
+// bucket via CursorOnDisk, which by construction only ever sees
+// segment-resident data (lsmkv/cursor_bucket_replace.go). The objects
+// bucket is flushed exactly once, at the START of the backfill loop
+// (OnAfterLsmInitAsync); the recompute runs much later, inside
+// runtimeSwap/completeMigrationOnShard, with no re-flush before this fix.
+// A write that lands in the objects memtable after the backfill's flush
+// but before the recompute's cursor snapshot is therefore invisible to the
+// rescan, even though it IS live-searchable (the migration-window
+// double-write callback mirrors postings into the searchable bucket
+// unconditionally - see registerAddToPropertyValueIndex - while
+// SetPropertyLengths on the normal write path only tracks props that are
+// ALREADY live-searchable, which the migrating prop is not until this
+// recompute flips it). Net effect: avgdl silently undercounts by exactly
+// the concurrent-write volume that raced the backfill-to-recompute window.
+// -----------------------------------------------------------------------------
+
+// TestSidecarBackfill_EnableSearchable_TallyMissesConcurrentWriteInMemtable
+// is the RED/GREEN regression test for the residual above.
+//
+// Causal link: this test catches the bug because it writes the (n+1)th
+// object to the migrated shard strictly AFTER RunReindexOnlyOnShard's
+// backfill scan has already returned (so the backfill never processed it)
+// and strictly BEFORE RunSwapOnShard's post-swap recompute runs - landing
+// it in the objects memtable at exactly the moment
+// recomputeSearchableTallyForProp opens its rescan cursor. Verified RED on
+// the pre-fix tree (recomputeSearchableTallyForProp's FlushAndSwitch call
+// temporarily removed, then restored - see handoff log): migrated tally
+// COUNT/SUM = 20/60 (the concurrent object's 7-word contribution silently
+// dropped) vs control's 21/67. Post-fix (GREEN): migrated tally is
+// bit-for-bit equal to control's 21/67.
+func TestSidecarBackfill_EnableSearchable_TallyMissesConcurrentWriteInMemtable(t *testing.T) {
+	const numObjects = 20 // no nils - keeps the arithmetic exact and legible
+	const concurrentObjText = "alpha bravo charlie delta echo foxtrot golf"
+	ctx := testCtx()
+
+	migratedClassName := "SidecarBackfillConcurrentWrite_" + uuid.NewString()[:8]
+	vFalse := false
+	migratedClass := newSidecarBackfillTextClass(migratedClassName, &vFalse, &vFalse)
+	migratedShd, migratedIdx := testShardWithSettings(t, ctx, migratedClass, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	migratedShard := migratedShd.(*Shard)
+	defer migratedShard.Shutdown(ctx)
+
+	objects := sidecarBackfillTextObjects(migratedClassName, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, migratedShard.PutObject(ctx, obj))
+	}
+
+	task, wrapped := newEnableSearchableTask(t, migratedIdx, migratedClassName, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, migratedShard))
+
+	// THE RACE: written after the backfill scan already returned, before
+	// RunPrepareOnShard/RunSwapOnShard run the post-swap recompute. Lands
+	// in the objects memtable - nothing flushes it before
+	// recomputeSearchableTallyForProp's own FlushAndSwitch call (the fix
+	// under test).
+	concurrentObj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: migratedClassName,
+			Properties: map[string]interface{}{
+				sidecarBackfillTextProp: concurrentObjText,
+			},
+		},
+	}
+	require.NoError(t, migratedShard.PutObject(ctx, concurrentObj))
+
+	require.NoError(t, task.RunPrepareOnShard(ctx, migratedShard))
+	require.NoError(t, task.RunSwapOnShard(ctx, migratedShard))
+	require.True(t, wrapped.migrationCompleted)
+
+	// Control: identical n+1 objects, searchable from class creation - no
+	// backfill/recompute involved at all, so this is unaffected by the bug
+	// by construction and pins the ground truth the migrated shard must
+	// converge to.
+	controlClassName := "SidecarBackfillConcurrentWriteControl_" + uuid.NewString()[:8]
+	vTrue := true
+	controlClass := newSidecarBackfillTextClass(controlClassName, &vFalse, &vTrue)
+	controlShd, _ := testShardWithSettings(t, ctx, controlClass, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	controlShard := controlShd.(*Shard)
+	defer controlShard.Shutdown(ctx)
+
+	controlObjects := sidecarBackfillTextObjects(controlClassName, numObjects, 0)
+	for _, obj := range controlObjects {
+		require.NoError(t, controlShard.PutObject(ctx, obj))
+	}
+	controlExtra := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: controlClassName,
+			Properties: map[string]interface{}{
+				sidecarBackfillTextProp: concurrentObjText,
+			},
+		},
+	}
+	require.NoError(t, controlShard.PutObject(ctx, controlExtra))
+
+	controlSum, controlCount, controlMean, err := controlShard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+	require.EqualValues(t, numObjects+1, controlCount, "sanity: control must have tallied all n+1 objects")
+
+	migratedSum, migratedCount, migratedMean, err := migratedShard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+
+	assert.Equal(t, controlCount, migratedCount,
+		"BUG regression check (gh#322 / PR#12221 residual): BM25 tally COUNT must include an object written to "+
+			"the objects memtable between the backfill scan and the post-swap recompute - got %d, want %d (control)",
+		migratedCount, controlCount)
+	assert.Equal(t, controlSum, migratedSum,
+		"BUG regression check (gh#322 / PR#12221 residual): BM25 tally SUM must include an object written to "+
+			"the objects memtable between the backfill scan and the post-swap recompute - got %d, want %d (control)",
+		migratedSum, controlSum)
+	assert.InDelta(t, controlMean, migratedMean, 0.001,
+		"BM25 avgdl must include the concurrent-write object's contribution")
+}
+
+// TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindowWrite
+// pins the claim QA asked for alongside the flush fix: a write that races
+// into the objects memtable in the residual window BETWEEN the new flush
+// and the cursor open (a window this fix cannot close by construction - the
+// flush and the cursor open are two sequential calls, not one atomic
+// operation) is not lost. It is durable in a new segment created by the
+// racing writer's own path, and any SUBSEQUENT recompute - idempotent by
+// construction (ResetProperty + full rescan) - picks it up. The production
+// call site for a "subsequent recompute" is a recovery re-entry into
+// completeMigrationOnShard (finalizeMigrationAfterRecovery); this test
+// exercises the same idempotent primitive directly to keep the repro fast
+// and deterministic rather than driving a full crash/resume harness.
+//
+// Causal link: this test catches a regression in the idempotency claim
+// specifically - not the flush-window bug above - because it writes the
+// residual-window object AFTER the first (successful, flushed) recompute
+// has already run and produced a tally that does NOT include it, then
+// asserts a second direct recomputeSearchableTallyForProp call converges to
+// the correct total. If a future change made the recompute non-idempotent
+// (e.g. an additive tally instead of ResetProperty-then-rescan), this test
+// would fail by double-counting the first n objects instead of landing on
+// exactly n+1.
+func TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindowWrite(t *testing.T) {
+	const numObjects = 20
+	const residualObjText = "alpha bravo charlie" // 3 words
+	ctx := testCtx()
+
+	migratedClassName := "SidecarBackfillResidualWindow_" + uuid.NewString()[:8]
+	vFalse := false
+	migratedClass := newSidecarBackfillTextClass(migratedClassName, &vFalse, &vFalse)
+	migratedShd, migratedIdx := testShardWithSettings(t, ctx, migratedClass, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	migratedShard := migratedShd.(*Shard)
+	defer migratedShard.Shutdown(ctx)
+
+	objects := sidecarBackfillTextObjects(migratedClassName, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, migratedShard.PutObject(ctx, obj))
+	}
+
+	task, wrapped := newEnableSearchableTask(t, migratedIdx, migratedClassName, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, migratedShard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, migratedShard))
+	require.NoError(t, task.RunSwapOnShard(ctx, migratedShard))
+	require.True(t, wrapped.migrationCompleted)
+
+	firstSum, firstCount, _, err := migratedShard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+	require.EqualValues(t, numObjects, firstCount, "sanity: first recompute must land on exactly the n pre-existing objects")
+
+	// Simulate a write racing the residual window between the fix's flush
+	// and the cursor open: land an (n+1)th object on the shard strictly
+	// AFTER the first recompute has already completed and been flushed.
+	residualObj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: migratedClassName,
+			Properties: map[string]interface{}{
+				sidecarBackfillTextProp: residualObjText,
+			},
+		},
+	}
+	require.NoError(t, migratedShard.PutObject(ctx, residualObj))
+
+	// THE CONVERGENCE CHECK: a second, independent recompute (same
+	// idempotent primitive a recovery re-entry into
+	// completeMigrationOnShard would invoke) must pick up the residual
+	// write and land on n+1 - not 2n (double-count, would indicate the
+	// reset-then-rescan idempotency contract broke) and not n (would
+	// indicate the residual write was permanently lost, not just delayed).
+	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
+	require.NoError(t, migratedShard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
+
+	secondSum, secondCount, _, err := migratedShard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+
+	assert.EqualValues(t, numObjects+1, secondCount,
+		"a second recompute must converge to n+1 (pick up the residual-window write exactly once) - "+
+			"got count=%d after first=%d", secondCount, firstCount)
+	assert.Equal(t, firstSum+3, secondSum,
+		"a second recompute's SUM must equal the first plus exactly the residual object's 3-word contribution "+
+			"(no double-count of the original n objects) - got sum=%d after first=%d", secondSum, firstSum)
+}
