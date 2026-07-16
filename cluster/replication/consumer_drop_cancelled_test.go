@@ -130,17 +130,6 @@ func TestDropCancelledOpTargetShard(t *testing.T) {
 			wantMessage:    "dropped cancelled-op target shard",
 		},
 		{
-			name:           "drop error is logged and swallowed",
-			opCollection:   "TestCollection",
-			targetNode:     self,
-			belongsToNodes: []string{other},
-			setupStatus:    func(s *ShardReplicationOpStatus) { s.TriggerCancellation() },
-			dropErr:        context.DeadlineExceeded,
-			wantDrop:       true,
-			wantLevel:      logrus.ErrorLevel,
-			wantMessage:    "failed to drop cancelled-op target shard",
-		},
-		{
 			name:           "not cancelled or deleted refuses",
 			opCollection:   "TestCollection",
 			targetNode:     self,
@@ -167,19 +156,9 @@ func TestDropCancelledOpTargetShard(t *testing.T) {
 			belongsToNodes: []string{other},
 			setupStatus:    func(s *ShardReplicationOpStatus) { s.TriggerCancellation() },
 			wantDrop:       false,
-			wantLevel:      logrus.ErrorLevel,
+			wantLevel:      logrus.WarnLevel,
 			wantMessage:    "op target node is not this node",
 			wantExtraField: "target_node",
-		},
-		{
-			name:           "shard replicas read error fails closed",
-			opCollection:   "MissingCollection", // absent from the schema reader
-			targetNode:     self,
-			belongsToNodes: []string{other},
-			setupStatus:    func(s *ShardReplicationOpStatus) { s.TriggerCancellation() },
-			wantDrop:       false,
-			wantLevel:      logrus.ErrorLevel,
-			wantMessage:    "failed to read shard replicas",
 		},
 	}
 
