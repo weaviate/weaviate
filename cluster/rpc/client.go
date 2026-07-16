@@ -333,6 +333,12 @@ func fromRPCError(err error) error {
 			return errors.Join(err, namespaces.ErrInvalidStateTransition)
 		case strings.Contains(msg, namespaces.ErrInvalidState.Error()):
 			return errors.Join(err, namespaces.ErrInvalidState)
+		case strings.Contains(msg, namespaces.ErrNamespaceSuspended.Error()):
+			return errors.Join(err, namespaces.ErrNamespaceSuspended)
+		case strings.Contains(msg, namespaces.ErrCollectionSuspended.Error()):
+			return errors.Join(err, namespaces.ErrCollectionSuspended)
+		case strings.Contains(msg, namespaces.ErrNamespaceResuming.Error()):
+			return errors.Join(err, namespaces.ErrNamespaceResuming)
 		}
 	case codes.AlreadyExists:
 		if strings.Contains(msg, namespaces.ErrAlreadyExists.Error()) {
