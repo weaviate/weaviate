@@ -351,6 +351,13 @@ func MarshalSortedKeys(w io.Writer, keys []KeyRedux, dataStartOffset uint64) (in
 		return 0, nil
 	}
 
+	// The first key's data spans [dataStartOffset, keys[0].ValueEnd]; a start past
+	// the end would silently serialize a corrupt node, so reject it explicitly.
+	if dataStartOffset > uint64(keys[0].ValueEnd) {
+		return 0, fmt.Errorf("dataStartOffset %d exceeds first key's ValueEnd %d",
+			dataStartOffset, keys[0].ValueEnd)
+	}
+
 	capacity := balancedTreeCapacity(n)
 
 	// Build BFS-position → sorted-index mapping.

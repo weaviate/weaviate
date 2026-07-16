@@ -264,7 +264,7 @@ func (c *compactorSet) writeIndexes(f *segmentindex.SegmentFile,
 		return fmt.Errorf("unsupported secondary indexes in compactorSet")
 	}
 
-	_, err := segmentindex.MarshalSortedKeys(f.BodyWriter(), keys, segmentindex.HeaderSize)
+	_, err := segmentindex.MarshalSortedKeys(f.BodyWriter(), keys, uint64(segmentindex.HeaderSize))
 	return err
 }
 

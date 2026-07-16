@@ -301,3 +301,48 @@ func TestMarshalSortedKeysFromKeys(t *testing.T) {
 		assert.ElementsMatch(t, expected, keys)
 	})
 }
+
+// MarshalSortedKeys must place the first key's data at the caller-provided
+// dataStartOffset (not a hard-coded HeaderSize), while later keys chain from the
+// previous key's ValueEnd. This is what lets inverted segments, whose data
+// begins after an extended header, use the direct KeyRedux marshaller.
+func TestMarshalSortedKeysDataStartOffset(t *testing.T) {
+	keys := []KeyRedux{
+		{Key: []byte("aaa"), ValueEnd: 40},
+		{Key: []byte("bbb"), ValueEnd: 55},
+		{Key: []byte("ccc"), ValueEnd: 70},
+	}
+	const dataStart = 27 // not HeaderSize — e.g. an inverted extended header
+
+	var buf bytes.Buffer
+	_, err := MarshalSortedKeys(&buf, keys, dataStart)
+	require.NoError(t, err)
+
+	dTree := NewDiskTree(buf.Bytes())
+
+	// first key starts at the provided offset, ends at its ValueEnd
+	n, err := dTree.Get([]byte("aaa"))
+	require.NoError(t, err)
+	assert.Equal(t, uint64(dataStart), n.Start)
+	assert.Equal(t, uint64(40), n.End)
+
+	// later keys chain from the previous ValueEnd
+	n, err = dTree.Get([]byte("bbb"))
+	require.NoError(t, err)
+	assert.Equal(t, uint64(40), n.Start)
+	assert.Equal(t, uint64(55), n.End)
+
+	n, err = dTree.Get([]byte("ccc"))
+	require.NoError(t, err)
+	assert.Equal(t, uint64(55), n.Start)
+	assert.Equal(t, uint64(70), n.End)
+}
+
+// A dataStartOffset past the first key's ValueEnd would serialize start > end;
+// MarshalSortedKeys must reject it rather than emit a corrupt index.
+func TestMarshalSortedKeysRejectsOffsetPastFirstValueEnd(t *testing.T) {
+	keys := []KeyRedux{{Key: []byte("aaa"), ValueEnd: 10}}
+	var buf bytes.Buffer
+	_, err := MarshalSortedKeys(&buf, keys, 20)
+	require.Error(t, err)
+}
