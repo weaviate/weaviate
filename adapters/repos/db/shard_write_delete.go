@@ -19,13 +19,14 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
-	_, err := s.deleteObject(ctx, id, deletionTime, false)
+	_, err := s.deleteObject(ctx, id, deletionTime, fromChangeLogReplay(ctx))
 	return err
 }
 

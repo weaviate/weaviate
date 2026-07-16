@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/graphql"
@@ -118,8 +119,12 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		if shard.Shard != tenantName {
 			continue
 		}
-		sourceNode = shard.Replicas[0]                                 // Take the first (of two) replica as the source node
-		targetNode = symmetricDifference(nodeNames, shard.Replicas)[0] // Choose the other node as the target
+		require.NotEmpty(t, shard.Replicas, "tenant %s has no replicas (nodes=%v)", tenantName, nodeNames)
+		others := symmetricDifference(nodeNames, shard.Replicas)
+		require.NotEmpty(t, others, "no node outside the replica set of tenant %s (nodes=%v, replicas=%v)",
+			tenantName, nodeNames, shard.Replicas)
+		sourceNode = shard.Replicas[0] // Take the first (of two) replica as the source node
+		targetNode = others[0]         // Choose the other node as the target
 	}
 
 	// Start replication

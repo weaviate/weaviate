@@ -53,12 +53,12 @@ type recBitmapFetcher interface {
 	// fetchExists returns the raw _exists.{relPath} bitmap, restricted by any
 	// arr[N] indices on the leaf. Used for IsNull=false (positive existence
 	// leaf) and as the operand half of strict-existential IsNull=true.
-	fetchExists(leaf *propValuePair) (*sroar.Bitmap, func(), error)
+	fetchExists(ctx context.Context, leaf *propValuePair) (*sroar.Bitmap, func(), error)
 	// fetchExistsAtPath returns the raw _exists.{path} bitmap, restricted by
 	// the leaf's arr[N] indices. Used to materialize strict-existential IsNull
 	// inside correlated AND: caller AndNots _exists.{relPath} from
 	// _exists.{operandLCA} to obtain "∃ LCA-element without the operand."
-	fetchExistsAtPath(leaf *propValuePair, path string) (*sroar.Bitmap, func(), error)
+	fetchExistsAtPath(ctx context.Context, leaf *propValuePair, path string) (*sroar.Bitmap, func(), error)
 }
 
 // normalizeRecGroup walks the group's children and builds the recursive input.
@@ -229,7 +229,7 @@ func materializeNestedContainsNone(
 
 	// Universe at the operand's scalar-array scope, restricted by any
 	// arr[N] pins carried on the ContainsNone pvp itself.
-	universe, universeRel, err := fetcher.fetchExistsAtPath(pv, pv.nested.relPath)
+	universe, universeRel, err := fetcher.fetchExistsAtPath(ctx, pv, pv.nested.relPath)
 	if err != nil {
 		return fmt.Errorf("materializeNestedContainsNone: fetch exists at %q: %w", pv.nested.relPath, err)
 	}
@@ -254,7 +254,7 @@ func materializeNestedContainsNone(
 func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmapFetcher, bitmapOps *invnested.BitmapOps, input *recGroupInput) error {
 	if leaf.operator == filters.OperatorIsNull {
 		input.positives = append(input.positives, leaf)
-		return materializeNestedIsNull(leaf, fetcher, bitmapOps, input)
+		return materializeNestedIsNull(ctx, leaf, fetcher, bitmapOps, input)
 	}
 
 	bm, rel, err := fetcher.fetchValue(ctx, leaf)
@@ -285,12 +285,13 @@ func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmap
 // share their parent's element-position encoding, so the existential bitmap
 // and value-leaf bitmaps live at the same per-element leaf positions.
 func materializeNestedIsNull(
+	ctx context.Context,
 	leaf *propValuePair,
 	fetcher recBitmapFetcher,
 	bitmapOps *invnested.BitmapOps,
 	input *recGroupInput,
 ) error {
-	bm, rel, err := fetcher.fetchExists(leaf)
+	bm, rel, err := fetcher.fetchExists(ctx, leaf)
 	if err != nil {
 		return fmt.Errorf("normalizeRecGroup: fetch exists for %q: %w", leaf.nested.relPath, err)
 	}
@@ -304,7 +305,7 @@ func materializeNestedIsNull(
 	if err != nil {
 		return fmt.Errorf("normalizeRecGroup: compute LCA for IsNull %q: %w", leaf.nested.relPath, err)
 	}
-	lcaBm, lcaRel, err := fetcher.fetchExistsAtPath(leaf, lca)
+	lcaBm, lcaRel, err := fetcher.fetchExistsAtPath(ctx, leaf, lca)
 	if err != nil {
 		return fmt.Errorf("normalizeRecGroup: fetch exists at LCA %q for IsNull on %q: %w", lca, leaf.nested.relPath, err)
 	}
@@ -341,7 +342,7 @@ func fetchOperatorSubtreeBitmaps(
 ) error {
 	if node.nested.isNested {
 		if node.operator == filters.OperatorIsNull {
-			return materializeNestedIsNull(node, fetcher, bitmapOps, input)
+			return materializeNestedIsNull(ctx, node, fetcher, bitmapOps, input)
 		}
 		bm, rel, err := fetcher.fetchValue(ctx, node)
 		if err != nil {
@@ -435,16 +436,16 @@ func (f *searcherBitmapFetcher) fetchValue(ctx context.Context, leaf *propValueP
 	return dbm.docIDs, dbm.release, nil
 }
 
-func (f *searcherBitmapFetcher) fetchExists(leaf *propValuePair) (*sroar.Bitmap, func(), error) {
-	return leaf.fetchNestedExistsPositions(f.s)
+func (f *searcherBitmapFetcher) fetchExists(ctx context.Context, leaf *propValuePair) (*sroar.Bitmap, func(), error) {
+	return leaf.fetchNestedExistsPositions(ctx, f.s)
 }
 
-func (f *searcherBitmapFetcher) fetchExistsAtPath(leaf *propValuePair, path string) (*sroar.Bitmap, func(), error) {
+func (f *searcherBitmapFetcher) fetchExistsAtPath(ctx context.Context, leaf *propValuePair, path string) (*sroar.Bitmap, func(), error) {
 	metaBucket := f.s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(leaf.prop))
 	if metaBucket == nil {
 		return nil, nil, fmt.Errorf("fetchExistsAtPath: meta bucket for %q not found", leaf.prop)
 	}
-	positions, release, err := metaBucket.RoaringSetGet(invnested.ExistsKey(path))
+	positions, release, err := metaBucket.RoaringSetGet(ctx, invnested.ExistsKey(path))
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetchExistsAtPath: read exists key %q for %q: %w", path, leaf.prop, err)
 	}
@@ -452,7 +453,7 @@ func (f *searcherBitmapFetcher) fetchExistsAtPath(leaf *propValuePair, path stri
 		return positions, release, nil
 	}
 	dbm := &docBitmap{docIDs: positions, release: release}
-	restricted, err := leaf.restrictByNestedIdx(f.s, dbm)
+	restricted, err := leaf.restrictByNestedIdx(ctx, f.s, dbm)
 	if err != nil {
 		return nil, nil, err
 	}

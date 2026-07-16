@@ -423,6 +423,21 @@ func TestToRPCError(t *testing.T) {
 			expected: codes.FailedPrecondition,
 		},
 		{
+			name:     "ErrNamespaceSuspended maps to FailedPrecondition",
+			err:      namespaces.ErrNamespaceSuspended,
+			expected: codes.FailedPrecondition,
+		},
+		{
+			name:     "ErrCollectionSuspended maps to FailedPrecondition",
+			err:      namespaces.ErrCollectionSuspended,
+			expected: codes.FailedPrecondition,
+		},
+		{
+			name:     "ErrNamespaceResuming maps to FailedPrecondition",
+			err:      namespaces.ErrNamespaceResuming,
+			expected: codes.FailedPrecondition,
+		},
+		{
 			name:     "Unknown error maps to Internal",
 			err:      errors.New("unknown error"),
 			expected: codes.Internal,

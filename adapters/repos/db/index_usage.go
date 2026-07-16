@@ -407,6 +407,16 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	}
 
 	// Get named vector data for cold shards from schema configuration
+	targetVectors := make([]string, 0, len(vectorConfigs))
+	for targetVector := range vectorConfigs {
+		targetVectors = append(targetVectors, targetVector)
+	}
+	// open the dimensions bucket once for all target vectors
+	dimensionalitiesAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, targetVectors)
+	if err != nil {
+		return nil, err
+	}
+
 	var namedVectors types.VectorsUsage
 	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
@@ -428,10 +438,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 			vectorUsage.VectorIndexType = vectorIndexConfig.IndexType()
 		}
 
-		dimensionalities, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, i.logger, i.path(), shardName, targetVector)
-		if err != nil {
-			return nil, err
-		}
+		dimensionalities := dimensionalitiesAll[targetVector]
 		uncompressedVectorSize += uint64(dimensionalities.Count) * uint64(dimensionalities.Dimensions) * 4
 		vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &dimensionalities)
 		vectorUsage.MultiVectorConfig = multiVectorConfigFromConfig(vectorIndexConfig)
