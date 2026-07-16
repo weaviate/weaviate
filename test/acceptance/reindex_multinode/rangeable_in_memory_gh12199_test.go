@@ -19,8 +19,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,7 +43,7 @@ import (
 //     fixed path (serving bucket has keepSegmentsInMemory=false).
 //
 // Per-mechanism revert-probe mapping:
-//   - (b) alone       -> caught by the child-1 prepend GUARD, not the WARN/INFO
+//   - (b) alone       -> caught by the prepend GUARD, not the WARN/INFO
 //     assertions: reverting only (b) leaves keepSegmentsInMemory=true on the
 //     ingest bucket, so the guard rejects the backfill prepend and
 //     AwaitReindexFinished fails with INV-RANGEABLE-REP-EQUALS-DISK before any
@@ -56,10 +54,11 @@ import (
 //     empty rep served, so the WARN appears and the INFO (marker unset)
 //     disappears. A counts-only probe can't catch that double revert; these
 //     assertions can.
-//   - (c) alone       -> child-1 Layer-1 four-case matrix (empty rep + disk
-//     segments must fall back).
-//   - guard alone     -> child-1 guard unit test (active-rep prepend errors).
-//   - option-(a) trap -> child-1 fold-order value-integrity unit test.
+//   - (c) alone       -> the Layer-1 four-case disk-fallback matrix (empty rep
+//     and disk segments must fall back).
+//   - guard alone     -> the prepend guard's own unit test (active-rep prepend
+//     errors).
+//   - option-(a) trap -> the fold-order value-integrity unit test.
 const (
 	deferredINFOSubstr = "in-memory knob deferred until next reload"
 	fallbackWARNSubstr = "falling back to the disk range reader"
@@ -158,23 +157,13 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// (1) Counts correct post-swap without restart (pre-fix served 0: empty
-	// in-memory rep). Poll briefly for the per-shard swap + schema flip to settle.
-	require.Eventually(t, func() bool {
-		c, e := rangeCount(restURI, className, "score", gh12199RangeLo, gh12199RangeHi)
-		return e == nil && c == gh12199Baseline
-	}, 60*time.Second, 200*time.Millisecond,
-		"GH#12199: post-swap range count must equal golden %d WITHOUT restart", gh12199Baseline)
-
-	// Drive a few more range reads so the deferred-serving INFO's first-disk-read
-	// trigger has definitely run on every marked bucket.
-	for i := 0; i < 5; i++ {
-		_, _ = rangeCount(restURI, className, "score", gh12199RangeLo, gh12199RangeHi)
-	}
-	time.Sleep(2 * time.Second) // let the container flush stdout
-
-	// (2) The (c) WARN must not fire on the fixed path (serving bucket has
-	// keepSegmentsInMemory=false) - see the revert-probe mapping above.
-	assert.Zero(t, countInLogs(ctx, t, container, fallbackWARNSubstr),
+	// in-memory rep), (2) the (c) WARN must not fire on the fixed path
+	// (serving bucket has keepSegmentsInMemory=false) - see the revert-probe
+	// mapping above. Poll briefly for the per-shard swap + schema flip to
+	// settle.
+	awaitRangeCountSettledNoFallback(ctx, t, container, restURI, className,
+		gh12199RangeLo, gh12199RangeHi, gh12199Baseline,
+		"GH#12199: post-swap range count must equal golden %d WITHOUT restart", gh12199Baseline,
 		"(c) disk-fallback WARN must not fire on the fixed path (WARN present => (b) AND guard both reverted, empty rep served, GH#12199)")
 
 	// (3) The deferred-serving INFO must be present - only the (b) marker path
@@ -198,17 +187,9 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 		return resp.StatusCode == http.StatusOK
 	}, 90*time.Second, 200*time.Millisecond, "node must be ready after restart")
 
-	require.Eventually(t, func() bool {
-		c, e := rangeCount(restURI, className, "score", gh12199RangeLo, gh12199RangeHi)
-		return e == nil && c == gh12199Baseline
-	}, 60*time.Second, 200*time.Millisecond,
-		"post-restart range count must still equal golden %d (rep rebuilt at boot)", gh12199Baseline)
-
-	for i := 0; i < 5; i++ {
-		_, _ = rangeCount(restURI, className, "score", gh12199RangeLo, gh12199RangeHi)
-	}
-	time.Sleep(2 * time.Second)
-	assert.Zero(t, countInLogs(ctx, t, container, fallbackWARNSubstr),
+	awaitRangeCountSettledNoFallback(ctx, t, container, restURI, className,
+		gh12199RangeLo, gh12199RangeHi, gh12199Baseline,
+		"post-restart range count must still equal golden %d (rep rebuilt at boot)", gh12199Baseline,
 		"no (c) WARN after restart: the rep is rebuilt at boot and serves in-memory")
 }
 
@@ -235,40 +216,11 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 		require.Equal(t, gh12199Baseline, c, "node %d baseline", nodeIdx)
 	}
 
-	var (
-		wrongCounts atomic.Int64
-		queryRuns   atomic.Int64
-		queryErrors atomic.Int64
-		stopCh      = make(chan struct{})
-		wg          sync.WaitGroup
-	)
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		wg.Add(1)
-		uri := restURIOf(compose, nodeIdx)
-		idx := nodeIdx
-		go func() {
-			defer wg.Done()
-			ticker := time.NewTicker(50 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-stopCh:
-					return
-				case <-ticker.C:
-				}
-				c, err := rangeCount(uri, className, "score", gh12199RangeLo, gh12199RangeHi)
-				queryRuns.Add(1)
-				if err != nil {
-					queryErrors.Add(1)
-					continue
-				}
-				if c != gh12199Baseline {
-					wrongCounts.Add(1)
-					t.Logf("GH#12199 in-flight divergence: node %d returned %d (expected %d)", idx, c, gh12199Baseline)
-				}
-			}
-		}()
-	}
+	counters, stopCh, wg := startRangeCountPolling(compose, className,
+		gh12199RangeLo, gh12199RangeHi, gh12199Baseline, 3,
+		func(nodeIdx, got int) {
+			t.Logf("GH#12199 in-flight divergence: node %d returned %d (expected %d)", nodeIdx, got, gh12199Baseline)
+		}, nil)
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURIOf(compose, 1), className, "score",
 		`{"rangeable":{"enabled":true}}`)
@@ -289,7 +241,7 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 	wg.Wait()
 
 	t.Logf("in-flight probes: %d runs, %d transient errors, %d wrong counts",
-		queryRuns.Load(), queryErrors.Load(), wrongCounts.Load())
+		counters.queryRuns.Load(), counters.queryErrors.Load(), counters.wrongCounts.Load())
 
 	// The schema flip committed on every node.
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
@@ -304,7 +256,7 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 		assert.True(t, ok, "node %d: IndexRangeFilters should be true", nodeIdx)
 	}
 
-	assert.Zero(t, wrongCounts.Load(),
+	assert.Zero(t, counters.wrongCounts.Load(),
 		"GH#12199: zero silent-wrong range counts during the in-flight enable-rangeable "+
 			"window with INDEX_RANGEABLE_IN_MEMORY=true. A non-zero count means a replica "+
 			"served from an empty in-memory rep instead of the disk path.")
