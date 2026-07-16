@@ -657,6 +657,98 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 	})
 }
 
+// createTestBucketRoaringSetRange creates a RoaringSetRange bucket. When
+// keepSegmentsInMemory is true the bucket builds an in-memory representation at
+// open, which is the state the PrependSegmentsFromBucket guard protects.
+func createTestBucketRoaringSetRange(t *testing.T, ctx context.Context, dir string, keepSegmentsInMemory bool) *Bucket {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	opts := []BucketOption{
+		WithStrategy(StrategyRoaringSetRange),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithKeepSegmentsInMemory(keepSegmentsInMemory),
+	}
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	b.SetMemtableThreshold(1e9)
+	return b
+}
+
+// TestSegmentGroup_PrependSegments_RoaringSetRangeGuard verifies the GH#12199
+// guard: prepending into a RoaringSetRange bucket that keeps an active in-memory
+// representation is rejected before any file copy or splice, because the rep
+// cannot be maintained through a splice (folding logically-older backfill
+// segments onto a rep holding newer live values corrupts the value; see the
+// fold-order value-integrity test in the roaringsetrange package). This guard is
+// the STRUCTURAL defense against option (a): a future incremental-merge attempt
+// inside PrependSegmentsFromBucket hits this error before any merge runs.
+// Compaction is exempt from the invariant (it changes physical layout only and
+// never references the rep), so it is not guarded here.
+func TestSegmentGroup_PrependSegments_RoaringSetRangeGuard(t *testing.T) {
+	ctx := context.Background()
+
+	// Build a source RoaringSetRange bucket with one flushed segment, so that if
+	// the guard did NOT fire, files WOULD be copied into the target.
+	makeSource := func(t *testing.T) string {
+		t.Helper()
+		srcDir := t.TempDir()
+		src := createTestBucketRoaringSetRange(t, ctx, srcDir, false)
+		require.NoError(t, src.RoaringSetRangeAdd(42, 100))
+		require.NoError(t, src.FlushAndSwitch())
+		require.NoError(t, src.Shutdown(ctx))
+		return srcDir
+	}
+
+	t.Run("active rep: prepend rejected before mutation", func(t *testing.T) {
+		srcDir := makeSource(t)
+
+		tgtDir := t.TempDir()
+		tgt := createTestBucketRoaringSetRange(t, ctx, tgtDir, true) // rep active
+		defer tgt.Shutdown(ctx)
+		require.NotNil(t, tgt.disk.roaringSetRangeSegmentInMemory,
+			"keepSegmentsInMemory=true must build the rep at open")
+
+		segsBefore := tgt.disk.Len()
+		filesBefore := countDBFiles(t, tgtDir)
+
+		err := tgt.PrependSegmentsFromBucket(ctx, srcDir)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrPrependWouldDesyncInMemoryRep)
+		assert.Contains(t, err.Error(), "INV-RANGEABLE-REP-EQUALS-DISK")
+		assert.Contains(t, err.Error(), "keepSegmentsInMemory=false")
+		assert.Contains(t, err.Error(), "GH#12199")
+
+		// Pre-mutation failure: segment list unmutated, no files copied.
+		assert.Equal(t, segsBefore, tgt.disk.Len(), "segment list must be unmutated")
+		assert.Equal(t, filesBefore, countDBFiles(t, tgtDir), "no segment files may be copied")
+	})
+
+	t.Run("no rep: prepend proceeds as before", func(t *testing.T) {
+		srcDir := makeSource(t)
+
+		tgtDir := t.TempDir()
+		tgt := createTestBucketRoaringSetRange(t, ctx, tgtDir, false) // no rep
+		defer tgt.Shutdown(ctx)
+		require.Nil(t, tgt.disk.roaringSetRangeSegmentInMemory)
+
+		// Give the target one segment so the prepend is a real splice.
+		require.NoError(t, tgt.RoaringSetRangeAdd(7, 999))
+		require.NoError(t, tgt.FlushAndSwitch())
+		segsBefore := tgt.disk.Len()
+
+		require.NoError(t, tgt.PrependSegmentsFromBucket(ctx, srcDir))
+		assert.Equal(t, segsBefore+1, tgt.disk.Len(), "source segment must be spliced in")
+	})
+}
+
+func countDBFiles(t *testing.T, dir string) int {
+	t.Helper()
+	files, err := discoverDBFiles(dir)
+	require.NoError(t, err)
+	return len(files)
+}
+
 func TestParseSegmentTimestamp(t *testing.T) {
 	tests := []struct {
 		name     string

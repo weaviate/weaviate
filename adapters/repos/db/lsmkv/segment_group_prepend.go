@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -25,6 +26,18 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
+
+// ErrPrependWouldDesyncInMemoryRep is returned by PrependSegmentsFromBucket when
+// the target is a RoaringSetRange segment group that keeps an active in-memory
+// representation. Splicing segments into such a group without rebuilding the rep
+// would leave the rep out of sync with disk (INV-RANGEABLE-REP-EQUALS-DISK) and
+// silently serve empty or partial range results with no error and no fallback
+// (GH#12199). Callers must open the bucket with keepSegmentsInMemory=false, or
+// implement a full oldest-to-newest rep rebuild before splicing.
+var ErrPrependWouldDesyncInMemoryRep = errors.New(
+	"prepend segments: RoaringSetRange bucket has an active in-memory representation " +
+		"which this operation cannot maintain (INV-RANGEABLE-REP-EQUALS-DISK); " +
+		"open the bucket with keepSegmentsInMemory=false, or implement a full-rebuild merge - see GH#12199")
 
 // PrependSegmentsFromBucket copies all segments from srcDir and atomically
 // prepends them into this SegmentGroup's segment list. The copied segments
@@ -43,11 +56,38 @@ import (
 //     segments, which would produce incorrect object counts.
 //   - Supported strategies: RoaringSet, RoaringSetRange, SetCollection,
 //     MapCollection, Inverted.
+//
+// Per-strategy derived-state obligations (whoever adds the next strategy here
+// MUST answer this): splicing segments mutates sg.segments, so any strategy that
+// keeps segment-group-level derived state has to maintain it, be guarded, or be
+// rejected before mutation.
+//
+//	Replace         -> rejected (countNetAdditions not recalculable)
+//	Inverted        -> maintained (avgPropertyLengths, below)
+//	RoaringSetRange -> guarded (rep desync would be silent; see the guard below
+//	                   and INV-RANGEABLE-REP-EQUALS-DISK / GH#12199)
+//	RoaringSet, SetCollection, MapCollection -> no segment-group-level derived
+//	                   state exists on this tree, so nothing to maintain
 func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	// Step 1: Validate strategy — Replace is not supported.
 	if sg.strategy == StrategyReplace {
 		return fmt.Errorf("prepend segments: strategy %q is not supported because "+
 			"countNetAdditions cannot be recalculated for prepended segments", sg.strategy)
+	}
+
+	// Step 1b: A RoaringSetRange group with an active in-memory representation
+	// cannot be spliced. Prepending logically-older backfill segments cannot be
+	// folded into a rep that already holds newer live values without corrupting
+	// them (an incremental older-onto-newer merge lets the OLD value win), and
+	// leaving the rep untouched serves empty/partial range results with no signal
+	// (GH#12199). Reject before any file copy or splice so the failure is clean
+	// (no files copied, segment list unmutated), mirroring the Replace rejection.
+	// The rep pointer is assigned once in newSegmentGroup before the group is
+	// published and never reassigned, so this read needs no lock. The strategy
+	// conjunct is redundant (the field is only ever set for RoaringSetRange) but
+	// kept to document intent.
+	if sg.strategy == StrategyRoaringSetRange && sg.roaringSetRangeSegmentInMemory != nil {
+		return fmt.Errorf("%w (bucket=%s)", ErrPrependWouldDesyncInMemoryRep, filepath.Base(sg.dir))
 	}
 
 	// Step 2: Discover source segments (.db files).

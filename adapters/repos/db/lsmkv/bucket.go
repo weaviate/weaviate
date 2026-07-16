@@ -234,6 +234,20 @@ type Bucket struct {
 	// (currently used by roaringsetrange inverted indexes)
 	keepSegmentsInMemory bool
 
+	// rangeableInMemoryDeferred marks a RoaringSetRange bucket opened with
+	// keepSegmentsInMemory forced off while the global INDEX_RANGEABLE_IN_MEMORY
+	// knob is on (the reindex ingest path, GH#12199). It selects a diagnostic log
+	// line only (the deferred-serving INFO) and never influences read-path
+	// selection, which is governed purely by keepSegmentsInMemory.
+	rangeableInMemoryDeferred bool
+
+	// per-bucket-open dedup for the two GH#12199 diagnostic log lines: the
+	// deferred-serving INFO (marked disk-path bucket) and the (c) disk-fallback
+	// WARN (unpopulated rep with disk segments present). A fresh Bucket is built
+	// on every open, so a plain sync.Once yields once-per-bucket-open semantics.
+	rangeableDeferredLogOnce  sync.Once
+	rangeableFallbackWarnOnce sync.Once
+
 	// pool of buffers for bitmaps merges
 	// (currently used by roaringsetrange inverted indexes)
 	bitmapBufPool roaringset.BitmapBufPool

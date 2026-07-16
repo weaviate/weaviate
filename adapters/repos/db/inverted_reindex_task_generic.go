@@ -2402,7 +2402,27 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard *Shard, props []string,
 	keepLevelCompaction, keepTombstones bool,
 ) error {
-	bucketOpts := t.bucketOptions(shard, t.strategy.TargetStrategy(), keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
+	strategy := t.strategy.TargetStrategy()
+	bucketOpts := t.bucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
+
+	// GH#12199: when the global in-mem rangeable knob is on, the ingest bucket is
+	// the one that becomes the main bucket after the per-shard swap and serves
+	// range reads from disk (its rep is forced off in bucketOptions). Mark it so
+	// the read path can emit a durable, query-time "serving from disk; in-mem knob
+	// deferred" signal, and log the deferred-acceleration trade-off once here at
+	// ingest-bucket creation. Only the ingest bucket is marked: the reindex and
+	// backup buckets are torn down and never serve production reads.
+	if strategy == lsmkv.StrategyRoaringSetRange && shard.Index().Config.IndexRangeableInMemory {
+		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
+		logger.WithField("props", props).Info(
+			"INDEX_RANGEABLE_IN_MEMORY is on, but the enable-rangeable reindex opens its " +
+				"ingest buckets with keepSegmentsInMemory=false to avoid serving empty range " +
+				"results from an unpopulated in-memory representation (GH#12199). Range queries " +
+				"on these properties serve correctly from disk after the swap; the in-memory " +
+				"acceleration takes effect at the next bucket open (node restart, shard reload, " +
+				"or tenant reactivation).")
+	}
+
 	return t.loadBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
 }
 
@@ -2566,7 +2586,7 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 ) []lsmkv.BucketOption {
 	cfg := shard.Index().Config
 
-	return shard.makeDefaultBucketOptions(strategy,
+	opts := shard.makeDefaultBucketOptions(strategy,
 		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
 		lsmkv.WithKeepTombstones(keepTombstones),
 		// overwrite DynamicMemtableSizing
@@ -2577,6 +2597,20 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 			memtableOptFactor*cfg.MemtablesMaxActiveSeconds,
 		),
 	)
+
+	// GH#12199: reindex/ingest RoaringSetRange buckets must never build an
+	// in-memory representation. The backfill enters via PrependSegmentsFromBucket,
+	// which does not (and safely cannot) rebuild the rep, so a kept-in-memory rep
+	// would serve empty/partial range results after the per-shard swap until the
+	// next clean bucket open. Force keepSegmentsInMemory=false regardless of the
+	// global knob (custom options apply after the strategy defaults, so this
+	// wins); the knob's in-memory acceleration resumes on the next bucket open,
+	// when boot population rebuilds the rep from all disk segments.
+	if strategy == lsmkv.StrategyRoaringSetRange {
+		opts = append(opts, lsmkv.WithKeepSegmentsInMemory(false))
+	}
+
+	return opts
 }
 
 // -----------------------------------------------------------------------------
