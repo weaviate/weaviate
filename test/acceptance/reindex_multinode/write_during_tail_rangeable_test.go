@@ -104,8 +104,13 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 	var (
 		written  atomic.Int64
 		stopCh   = make(chan struct{})
+		stopOnce sync.Once
 		writerWg sync.WaitGroup
 	)
+	stopWriter := func() {
+		stopOnce.Do(func() { close(stopCh) })
+		writerWg.Wait()
+	}
 	writerWg.Add(1)
 	go func() {
 		defer writerWg.Done()
@@ -127,11 +132,9 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 	// Registered right after the writer starts (LIFO: fires before the
 	// cluster-teardown defers above) so any early require/timeout exit
 	// stops the writer instead of leaving it running against a
-	// tearing-down cluster.
-	defer func() {
-		close(stopCh)
-		writerWg.Wait()
-	}()
+	// tearing-down cluster. stopWriter is safe to call again on the
+	// normal path below (sync.Once guards the channel close).
+	defer stopWriter()
 
 	// Guards against a vacuous pass: without this, a too-small fixture
 	// could finish before the writer goroutine has produced any samples.
@@ -142,8 +145,7 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 	// Stop the writer now that the migration has finished; further
 	// writes would land under the ordinary (post-flip) path and add
 	// nothing to the window this test targets.
-	close(stopCh)
-	writerWg.Wait()
+	stopWriter()
 	tailWriteCount := int(written.Load())
 	t.Logf("injected %d tail writes with sentinel scores in [%d, %d) across the migration lifecycle",
 		tailWriteCount, tailSentinelBase, tailSentinelBase+tailWriteCount)
