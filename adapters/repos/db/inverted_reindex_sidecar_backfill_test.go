@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -746,6 +747,43 @@ func TestSidecarBackfill_EnableSearchable_TallyDurableAcrossRestart(t *testing.T
 // the concurrent-write volume that raced the backfill-to-recompute window.
 // -----------------------------------------------------------------------------
 
+// newSidecarBackfillSearchableFixture builds the shard+task scaffold shared
+// by the enable-searchable BM25-tally regression tests below: a fresh shard
+// named "<classNamePrefix>_<random>" with numObjects pre-existing text
+// objects (sidecarBackfillTextObjects, no nils - keeps the arithmetic exact
+// and legible), an EnableSearchableStrategy task wired for
+// sidecarBackfillTextProp, and the task's backfill phase
+// (RunReindexOnlyOnShard) already run - so the double-write callbacks are
+// registered and active on return.
+//
+// t.Cleanup (not defer) shuts the shard down: this is a shared helper
+// called from multiple test functions, and t.Cleanup ties the shard's
+// lifetime to the CALLING test's completion regardless of how many other
+// defers that test stacks afterward, which a bare defer inside this helper
+// cannot do (a defer here would fire when THIS function returns, i.e.
+// immediately - before the caller ever uses the shard).
+func newSidecarBackfillSearchableFixture(t *testing.T, ctx context.Context, classNamePrefix string, numObjects int,
+) (*Shard, *Index, *ShardReindexTaskGeneric, *testEnableSearchableStrategyWrapper) {
+	t.Helper()
+
+	className := classNamePrefix + "_" + uuid.NewString()[:8]
+	vFalse := false
+	class := newSidecarBackfillTextClass(className, &vFalse, &vFalse)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	objects := sidecarBackfillTextObjects(className, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, wrapped := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+
+	return shard, idx, task, wrapped
+}
+
 // TestSidecarBackfill_EnableSearchable_TallyMissesConcurrentWriteInMemtable
 // is the RED/GREEN regression test for the residual above.
 //
@@ -765,21 +803,8 @@ func TestSidecarBackfill_EnableSearchable_TallyMissesConcurrentWriteInMemtable(t
 	const concurrentObjText = "alpha bravo charlie delta echo foxtrot golf"
 	ctx := testCtx()
 
-	migratedClassName := "SidecarBackfillConcurrentWrite_" + uuid.NewString()[:8]
-	vFalse := false
-	migratedClass := newSidecarBackfillTextClass(migratedClassName, &vFalse, &vFalse)
-	migratedShd, migratedIdx := testShardWithSettings(t, ctx, migratedClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	migratedShard := migratedShd.(*Shard)
-	defer migratedShard.Shutdown(ctx)
-
-	objects := sidecarBackfillTextObjects(migratedClassName, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, migratedShard.PutObject(ctx, obj))
-	}
-
-	task, wrapped := newEnableSearchableTask(t, migratedIdx, migratedClassName, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, migratedShard))
+	migratedShard, _, task, wrapped := newSidecarBackfillSearchableFixture(t, ctx, "SidecarBackfillConcurrentWrite", numObjects)
+	migratedClassName := migratedShard.Index().Config.ClassName.String()
 
 	// THE RACE: written after the backfill scan already returned, before
 	// RunPrepareOnShard/RunSwapOnShard run the post-swap recompute. Lands
@@ -807,7 +832,7 @@ func TestSidecarBackfill_EnableSearchable_TallyMissesConcurrentWriteInMemtable(t
 	// by construction and pins the ground truth the migrated shard must
 	// converge to.
 	controlClassName := "SidecarBackfillConcurrentWriteControl_" + uuid.NewString()[:8]
-	vTrue := true
+	vFalse, vTrue := false, true
 	controlClass := newSidecarBackfillTextClass(controlClassName, &vFalse, &vTrue)
 	controlShd, _ := testShardWithSettings(t, ctx, controlClass, enthnsw.UserConfig{Skip: true},
 		false, false, false)
@@ -871,26 +896,20 @@ func TestSidecarBackfill_EnableSearchable_TallyMissesConcurrentWriteInMemtable(t
 // (e.g. an additive tally instead of ResetProperty-then-rescan), this test
 // would fail by double-counting the first n objects instead of landing on
 // exactly n+1.
+//
+// This write lands AFTER RunSwapOnShard has already returned, so - unlike
+// TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWindow
+// below - the double-write callbacks are already disabled by the time it
+// happens; the write's only route into the tally is the direct
+// recomputeSearchableTallyForProp call this test makes itself.
 func TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindowWrite(t *testing.T) {
 	const numObjects = 20
 	const residualObjText = "alpha bravo charlie" // 3 words
 	ctx := testCtx()
 
-	migratedClassName := "SidecarBackfillResidualWindow_" + uuid.NewString()[:8]
-	vFalse := false
-	migratedClass := newSidecarBackfillTextClass(migratedClassName, &vFalse, &vFalse)
-	migratedShd, migratedIdx := testShardWithSettings(t, ctx, migratedClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	migratedShard := migratedShd.(*Shard)
-	defer migratedShard.Shutdown(ctx)
+	migratedShard, _, task, wrapped := newSidecarBackfillSearchableFixture(t, ctx, "SidecarBackfillResidualWindow", numObjects)
+	migratedClassName := migratedShard.Index().Config.ClassName.String()
 
-	objects := sidecarBackfillTextObjects(migratedClassName, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, migratedShard.PutObject(ctx, obj))
-	}
-
-	task, wrapped := newEnableSearchableTask(t, migratedIdx, migratedClassName, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, migratedShard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, migratedShard))
 	require.NoError(t, task.RunSwapOnShard(ctx, migratedShard))
 	require.True(t, wrapped.migrationCompleted)
