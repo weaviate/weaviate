@@ -303,6 +303,55 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			maxReplicationFac:            1,
 			groupingSubjects:             []string{"db:alice", "group:engineers"},
 		},
+		// A subject the invariants cannot parse must fail startup rather than be
+		// skipped: GetUserAndPrefix errors on a missing separator, an empty
+		// prefix, or an empty user.
+		{
+			name:                         "enabled, subject without a separator is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"carol"},
+			wantErr:                      true,
+			errSubstr:                    "1 unparseable role assignment subject",
+		},
+		{
+			name:                         "enabled, subject with an empty user is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:"},
+			wantErr:                      true,
+			errSubstr:                    `(e.g. "oidc:")`,
+		},
+		{
+			name:                         "enabled, subject with an empty prefix is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{":carol"},
+			wantErr:                      true,
+			errSubstr:                    "1 unparseable role assignment subject",
+		},
+		{
+			// The guard runs on both flags — an unreadable row is not an
+			// NS-enabled-only concern.
+			name:                         "disabled, unparseable subject is rejected",
+			enabled:                      false,
+			lsmSkipWriteClassNameEnabled: false,
+			groupingSubjects:             []string{"carol"},
+			wantErr:                      true,
+			errSubstr:                    "1 unparseable role assignment subject",
+		},
+		{
+			name:                         "enabled, unparseable subjects are all counted",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"carol", "oidc:", "oidc::valid"},
+			wantErr:                      true,
+			errSubstr:                    "2 unparseable role assignment subject",
+		},
 	}
 
 	for _, tt := range tests {

@@ -1255,10 +1255,20 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
 	}
 
+	// A subject that cannot be parsed cannot be checked against the invariants
+	// below, and skipping it would report a clean cluster while the row it could
+	// not read stays live.
+	if n, ex := countQualified(groupingSubjects, func(s string) bool {
+		_, _, err := conv.GetUserAndPrefix(s)
+		return err != nil
+	}); n > 0 {
+		return fmt.Errorf("cluster has %d unparseable role assignment subject(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
+	}
+
 	// Reject unslotted OIDC grouping subjects: with namespaces enabled every OIDC
 	// subject's user-portion must be namespaced ("customer1:carol") or carry the
-	// global empty-namespace slot (":carol"). A bare "oidc:carol" enforces as
-	// ":carol" and silently misses its grant.
+	// global empty-namespace slot (":carol"). An authenticated global OIDC user
+	// presents "oidc::carol", so a stored "oidc:carol" row is never matched.
 	if enabled {
 		if n, ex := countQualified(groupingSubjects, func(s string) bool {
 			user, prefix, err := conv.GetUserAndPrefix(s)
