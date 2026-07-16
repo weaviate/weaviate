@@ -43,31 +43,47 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 		}
 
 		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
-		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
-			if err := s.addToPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
-				return errors.Wrap(err, "add indexed property length")
-			}
-		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
-				return errors.Wrap(err, "add indexed null state")
-			}
+		if err := s.writeLengthNullSidecar(prop.Name, docID, prop.Length >= 0, prop.Length, prop.Length == 0,
+			"add indexed property length", "add indexed null state"); err != nil {
+			return err
 		}
 	}
 
 	// add nil properties to the nullstate and property length inverted index
 	for _, nilProperty := range nilProps {
-		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-			if err := s.addToPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
-				return errors.Wrap(err, "add indexed property length")
-			}
+		if err := s.writeLengthNullSidecar(nilProperty.Name, docID, nilProperty.AddToPropertyLength, 0, true,
+			"add indexed property length", "add indexed null state"); err != nil {
+			return err
 		}
+	}
 
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
-				return errors.Wrap(err, "add indexed null state")
-			}
+	return nil
+}
+
+// writeLengthNullSidecar writes the property-length and null-state sidecar
+// entries for a single (non-nil or nil) property to the live length/null
+// LSM buckets. Shared by the normal write path (extendInvertedIndicesLSM,
+// unscoped) and the migration backfill path (backfillSidecarsForMigration,
+// scoped to propsInScope).
+//
+// `writeLength` gates the length write independently of `length` itself:
+// the non-nil-property caller gates on `prop.Length >= 0` (properties where
+// a length doesn't make sense, e.g. floats, use a negative sentinel), while
+// the nil-property caller gates on `nilProperty.AddToPropertyLength` and
+// always passes length 0. `lengthErrMsg`/`nullErrMsg` let each caller keep
+// its own error-wrap text.
+func (s *Shard) writeLengthNullSidecar(name string, docID uint64, writeLength bool, length int, isNull bool,
+	lengthErrMsg, nullErrMsg string,
+) error {
+	if s.index.invertedIndexConfig.IndexPropertyLength && writeLength {
+		if err := s.addToPropertyLengthIndex(name, docID, length); err != nil {
+			return errors.Wrap(err, lengthErrMsg)
+		}
+	}
+
+	if s.index.invertedIndexConfig.IndexNullState {
+		if err := s.addToPropertyNullIndex(name, docID, isNull); err != nil {
+			return errors.Wrap(err, nullErrMsg)
 		}
 	}
 
@@ -149,16 +165,9 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 
 		// properties where defining a length does not make sense (floats
 		// etc.) have a negative entry as length - mirrors extendInvertedIndicesLSM.
-		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
-			if err := s.addToPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
-				return errors.Wrap(err, "backfill: add indexed property length")
-			}
-		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
-				return errors.Wrap(err, "backfill: add indexed null state")
-			}
+		if err := s.writeLengthNullSidecar(prop.Name, docID, prop.Length >= 0, prop.Length, prop.Length == 0,
+			"backfill: add indexed property length", "backfill: add indexed null state"); err != nil {
+			return err
 		}
 	}
 
@@ -167,21 +176,14 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 			continue
 		}
 
-		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-			if err := s.addToPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
-				return errors.Wrap(err, "backfill: add indexed property length (nil)")
-			}
-		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
-				return errors.Wrap(err, "backfill: add indexed null state (nil)")
-			}
-		}
 		// Nil properties are never fed to the BM25 tally on the normal
 		// write path either (SetPropertyLengths only iterates `props`,
 		// never `nilprops` - see shard_write_put.go:562) - no tally call
 		// here, matching that behavior exactly.
+		if err := s.writeLengthNullSidecar(nilProperty.Name, docID, nilProperty.AddToPropertyLength, 0, true,
+			"backfill: add indexed property length (nil)", "backfill: add indexed null state (nil)"); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -210,6 +212,25 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 // crash points it is invoked. Flushes the tracker to disk before returning
 // so the recomputed tally survives a crash immediately after this call
 // returns.
+//
+// Flushes the objects bucket's memtable to segments before opening the
+// rescan cursor. CursorOnDisk only ever sees segment-resident data (see
+// lsmkv/cursor_bucket_replace.go), so without this flush any object whose
+// write is still sitting in the active/flushing objects memtable at the
+// moment this function runs would be invisible to the rescan even though
+// it is already live-searchable (the double-write callback during the
+// migration window mirrors postings into the searchable bucket
+// unconditionally, and SetPropertyLengths on the normal write path only
+// tracks props that are ALREADY live-searchable, which the migrating prop
+// is not until this recompute flips it) - producing a permanently
+// under-counted avgdl for every concurrent write that lands in memory
+// during the backfill-to-recompute window (weaviate/0-weaviate-issues#322).
+// A write that races in between this flush and the cursor open is not
+// lost: it lands in the new active memtable, and because every invocation
+// of this function flushes before its own rescan (and the recompute is
+// idempotent by construction, see above), any future invocation converges
+// the tally - e.g. a resume through the recovery path re-entering
+// completeMigrationOnShard.
 func (s *Shard) recomputeSearchableTallyForProp(ctx context.Context, propName string,
 	overlay map[string]inverted.PropertyOverlay,
 ) error {
@@ -219,6 +240,9 @@ func (s *Shard) recomputeSearchableTallyForProp(ctx context.Context, propName st
 	objectsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
 		return errors.New("recompute searchable tally: objects bucket not found")
+	}
+	if err := objectsBucket.FlushAndSwitch(); err != nil {
+		return errors.Wrap(err, "recompute searchable tally: flush objects bucket before rescan")
 	}
 	cursor := objectsBucket.CursorOnDisk()
 	defer cursor.Close()
