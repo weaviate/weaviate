@@ -246,8 +246,15 @@ func TestManager_CountNamespaceLocalRBAC(t *testing.T) {
 	// A namespace-named group is still a global assignment: it must not count,
 	// else the namespace could never be removed (the cascade leaves it).
 	require.NoError(t, m.AddRolesForUser(conv.PrefixGroupName("customer1:team"), []string{"auditor"}))
+	// A global OIDC subject carries an empty namespace prefix, so the segment
+	// before the first separator is empty and it belongs to no namespace. The
+	// second holds a name that looks namespaced: the empty prefix still wins.
+	// Neither may count, else customer1 could never be removed.
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(":dave", authentication.AuthTypeOIDC), []string{"auditor"}))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(":customer1:erin", authentication.AuthTypeOIDC), []string{"auditor"}))
 
-	// 1 local role + 2 namespaced assignments (alice, carol); auditor + bob + group excluded.
+	// 1 local role + 2 namespaced assignments (alice, carol); auditor + bob +
+	// group + both global OIDC subjects excluded.
 	got, err := m.CountNamespaceLocalRBAC("customer1")
 	require.NoError(t, err)
 	assert.Equal(t, 3, got)

@@ -217,6 +217,24 @@ func TestAssignRoleToUserNamespacedOIDCQualified(t *testing.T) {
 	controller.AssertCalled(t, "AddRolesForUser", "oidc:customer1:carol", []string{"customer1:editor"})
 }
 
+// TestAssignRoleToUserNamespacedOIDCColonInName pins the id shape this branch
+// exists to allow: an OIDC short name may itself contain ':', so a namespaced
+// caller assigning to "carol:x" builds oidc:customer1:carol:x. The namespace is
+// the segment before the FIRST separator, so the name keeps its own.
+func TestAssignRoleToUserNamespacedOIDCColonInName(t *testing.T) {
+	h, controller := nsAssignHandler(t, "customer1")
+	h.oidcConfigs = config.OIDC{Enabled: true}
+	principal := &models.Principal{Username: "customer1:admin", UserType: "oidc", Namespace: "customer1"}
+	res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+		HTTPRequest: req,
+		ID:          "carol:x",
+		Body:        authz.AssignRoleToUserBody{Roles: []string{"editor"}, UserType: models.UserTypeInputOidc},
+	}, principal)
+	_, ok := res.(*authz.AssignRoleToUserOK)
+	require.True(t, ok, "got %T", res)
+	controller.AssertCalled(t, "AddRolesForUser", "oidc:customer1:carol:x", []string{"customer1:editor"})
+}
+
 // TestRevokeRoleFromUserNamespacedOIDCQualified mirrors the assign-side subject
 // check on the revoke path: a namespaced caller's bare OIDC id resolves to the
 // qualified subject oidc:customer1:carol.

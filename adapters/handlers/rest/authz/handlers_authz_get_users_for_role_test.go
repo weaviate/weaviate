@@ -71,87 +71,81 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 	assert.Equal(t, expectedResponse, parsed.Payload)
 }
 
-// TestGetUsersForRoleStripsEmptyNamespaceGlobalOIDC pins that a global OIDC subject stored
-// with the empty namespace prefix (":carol") is stripped to "carol" in the
-// response on an NS-enabled cluster.
-func TestGetUsersForRoleStripsEmptyNamespaceGlobalOIDC(t *testing.T) {
-	authorizer := authorization.NewMockAuthorizer(t)
-	controller := NewMockControllerAndGetUsers(t)
-	logger, _ := test.NewNullLogger()
+// TestGetUsersForRoleGlobalOIDCDisplayID pins how a global OIDC subject stored
+// with the empty namespace prefix (":carol") reaches the response: stripped to
+// "carol" on namespace-enabled clusters, verbatim when namespaces are off.
+func TestGetUsersForRoleGlobalOIDCDisplayID(t *testing.T) {
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		callerUsername    string
+		isGlobalOperator  bool
+		// denyRead wires AuthorizeSilent to deny, so inclusion can only come
+		// from the self-check.
+		denyRead   bool
+		wantUserID string
+	}{
+		{
+			name:              "strips the empty namespace prefix",
+			namespacesEnabled: true,
+			callerUsername:    "op",
+			isGlobalOperator:  true,
+			wantUserID:        "carol",
+		},
+		{
+			// With namespaces off a leading ':' is an ordinary OIDC name
+			// character, not an empty namespace.
+			name:              "keeps a colon id when namespaces are disabled",
+			namespacesEnabled: false,
+			callerUsername:    "op",
+			wantUserID:        ":carol",
+		},
+		{
+			// The self-check compares the stored subject, so it fires before the
+			// strip and the caller stays listed without an explicit read. If the
+			// strip ran first, the caller would silently drop out.
+			name:              "caller self-includes despite a denied read",
+			namespacesEnabled: true,
+			callerUsername:    "carol",
+			isGlobalOperator:  true,
+			denyRead:          true,
+			wantUserID:        "carol",
+		},
+	}
 
-	principal := &models.Principal{Username: "op", UserType: models.UserTypeInputOidc, IsGlobalOperator: true}
-	params := authz.GetUsersForRoleParams{ID: "viewer", HTTPRequest: req}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
 
-	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles()[0]).Return(nil).Maybe()
-	authorizer.On("AuthorizeSilent", mock.Anything, principal, authorization.READ, mock.Anything).Return(nil).Maybe()
-	controller.On("GetRoles", params.ID).Return(map[string][]authorization.Policy{params.ID: {collPolicy(authorization.READ, "Movies")}}, nil).Maybe()
-	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeOIDC, false).Return([]string{":carol"}, nil)
-	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeDb, false).Return([]string{}, nil)
-	controller.On("GetUsers").Return(map[string]apikey.UserView{}, nil).Maybe()
+			principal := &models.Principal{
+				Username:         tt.callerUsername,
+				UserType:         models.UserTypeInputOidc,
+				IsGlobalOperator: tt.isGlobalOperator,
+			}
+			params := authz.GetUsersForRoleParams{ID: "viewer", HTTPRequest: req}
 
-	h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, rbacconfig: rbacconf.Config{Enabled: true}, namespacesEnabled: true}
-	res := h.getUsersForRole(params, principal)
-	parsed, ok := res.(*authz.GetUsersForRoleOK)
-	require.True(t, ok, "got %T", res)
-	require.Len(t, parsed.Payload, 1)
-	assert.Equal(t, "carol", parsed.Payload[0].UserID)
-	assert.Equal(t, models.UserTypeOutputOidc, *parsed.Payload[0].UserType)
-}
+			var silentErr error
+			if tt.denyRead {
+				silentErr = errors.New("no read on user")
+			}
+			authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), mock.Anything).Return(nil).Maybe()
+			authorizer.On("AuthorizeSilent", mock.Anything, principal, authorization.READ, mock.Anything).Return(silentErr).Maybe()
+			controller.On("GetRoles", params.ID).Return(map[string][]authorization.Policy{params.ID: {collPolicy(authorization.READ, "Movies")}}, nil).Maybe()
+			controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeOIDC, false).Return([]string{":carol"}, nil)
+			controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeDb, false).Return([]string{}, nil)
+			controller.On("GetUsers").Return(map[string]apikey.UserView{}, nil).Maybe()
 
-// TestGetUsersForRoleKeepsColonIDWhenNamespacesDisabled pins that the strip
-// only runs on NS-enabled clusters: with namespaces off, a stored OIDC id that
-// happens to start with ':' is returned verbatim, not stripped to a bare name.
-func TestGetUsersForRoleKeepsColonIDWhenNamespacesDisabled(t *testing.T) {
-	authorizer := authorization.NewMockAuthorizer(t)
-	controller := NewMockControllerAndGetUsers(t)
-	logger, _ := test.NewNullLogger()
-
-	principal := &models.Principal{Username: "op", UserType: models.UserTypeInputOidc}
-	params := authz.GetUsersForRoleParams{ID: "viewer", HTTPRequest: req}
-
-	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil).Maybe()
-	authorizer.On("AuthorizeSilent", mock.Anything, principal, authorization.READ, mock.Anything).Return(nil).Maybe()
-	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeOIDC, false).Return([]string{":carol"}, nil)
-	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeDb, false).Return([]string{}, nil)
-	controller.On("GetUsers").Return(map[string]apikey.UserView{}, nil).Maybe()
-
-	h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, rbacconfig: rbacconf.Config{Enabled: true}, namespacesEnabled: false}
-	res := h.getUsersForRole(params, principal)
-	parsed, ok := res.(*authz.GetUsersForRoleOK)
-	require.True(t, ok, "got %T", res)
-	require.Len(t, parsed.Payload, 1)
-	assert.Equal(t, ":carol", parsed.Payload[0].UserID)
-	assert.Equal(t, models.UserTypeOutputOidc, *parsed.Payload[0].UserType)
-}
-
-// TestGetUsersForRoleSelfInclusionGlobalOIDC pins that the empty namespace prefix is stripped
-// before the self-check, so a global OIDC caller stored as ":carol" matches its
-// own principal.Username and appears in its role's member list even without an
-// explicit read on its own user id. AuthorizeSilent is wired to deny, so
-// inclusion can only come from the self-check; if the strip ran after it, the
-// caller would silently drop from the list and this test would fail.
-func TestGetUsersForRoleSelfInclusionGlobalOIDC(t *testing.T) {
-	authorizer := authorization.NewMockAuthorizer(t)
-	controller := NewMockControllerAndGetUsers(t)
-	logger, _ := test.NewNullLogger()
-
-	principal := &models.Principal{Username: "carol", UserType: models.UserTypeInputOidc, IsGlobalOperator: true}
-	params := authz.GetUsersForRoleParams{ID: "viewer", HTTPRequest: req}
-
-	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles()[0]).Return(nil).Maybe()
-	authorizer.On("AuthorizeSilent", mock.Anything, principal, authorization.READ, mock.Anything).Return(errors.New("no read on user")).Maybe()
-	controller.On("GetRoles", params.ID).Return(map[string][]authorization.Policy{params.ID: {collPolicy(authorization.READ, "Movies")}}, nil).Maybe()
-	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeOIDC, false).Return([]string{":carol"}, nil)
-	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeDb, false).Return([]string{}, nil)
-	controller.On("GetUsers").Return(map[string]apikey.UserView{}, nil).Maybe()
-
-	h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, rbacconfig: rbacconf.Config{Enabled: true}, namespacesEnabled: true}
-	res := h.getUsersForRole(params, principal)
-	parsed, ok := res.(*authz.GetUsersForRoleOK)
-	require.True(t, ok, "got %T", res)
-	require.Len(t, parsed.Payload, 1)
-	assert.Equal(t, "carol", parsed.Payload[0].UserID)
-	assert.Equal(t, models.UserTypeOutputOidc, *parsed.Payload[0].UserType)
+			h := &authZHandlers{authorizer: authorizer, controller: controller, logger: logger, rbacconfig: rbacconf.Config{Enabled: true}, namespacesEnabled: tt.namespacesEnabled}
+			res := h.getUsersForRole(params, principal)
+			parsed, ok := res.(*authz.GetUsersForRoleOK)
+			require.True(t, ok, "got %T", res)
+			require.Len(t, parsed.Payload, 1)
+			assert.Equal(t, tt.wantUserID, parsed.Payload[0].UserID)
+			assert.Equal(t, models.UserTypeOutputOidc, *parsed.Payload[0].UserType)
+		})
+	}
 }
 
 // TestGetUsersForRoleSubjectAwareSelfInclusion pins that self-inclusion is

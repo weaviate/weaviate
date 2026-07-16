@@ -303,6 +303,33 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			maxReplicationFac:            1,
 			groupingSubjects:             []string{"db:alice", "group:engineers"},
 		},
+		{
+			// Two leading separators would strip to ":carol", an id
+			// ValidateOIDCUserID rejects on write.
+			name:                         "enabled, doubled empty namespace prefix is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:::carol"},
+			wantErr:                      true,
+			errSubstr:                    "name contains ':'",
+		},
+		{
+			name:                         "enabled, no grouping subjects at all",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{},
+		},
+		{
+			// RBAC disabled leaves the slice nil; the invariants must pass
+			// rather than panic.
+			name:                         "enabled, nil grouping subjects",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             nil,
+		},
 		// A subject the invariants cannot parse must fail startup rather than be
 		// skipped: GetUserAndPrefix errors on a missing separator, an empty
 		// prefix, or an empty user.
