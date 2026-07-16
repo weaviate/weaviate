@@ -43,7 +43,7 @@ func TestAllNonRefNonBlobProperties(t *testing.T) {
 	tests := []struct {
 		name     string
 		class    *models.Class
-		expected search.SelectProperties
+		expected []search.SelectProperty
 	}{
 		{
 			name:     "class with no properties returns nil",
@@ -64,7 +64,7 @@ func TestAllNonRefNonBlobProperties(t *testing.T) {
 					{Name: "tags", DataType: schema.DataTypeTextArray.PropString()},
 				},
 			},
-			expected: search.SelectProperties{
+			expected: []search.SelectProperty{
 				{Name: "title", IsPrimitive: true},
 				{Name: "count", IsPrimitive: true},
 				{Name: "enabled", IsPrimitive: true},
@@ -86,7 +86,7 @@ func TestAllNonRefNonBlobProperties(t *testing.T) {
 					{Name: "count", DataType: schema.DataTypeInt.PropString()},
 				},
 			},
-			expected: search.SelectProperties{
+			expected: []search.SelectProperty{
 				{Name: "title", IsPrimitive: true},
 				{Name: "count", IsPrimitive: true},
 			},
@@ -109,7 +109,7 @@ func TestAllNonRefNonBlobProperties(t *testing.T) {
 					},
 				},
 			},
-			expected: search.SelectProperties{
+			expected: []search.SelectProperty{
 				{
 					Name:     "meta",
 					IsObject: true,
@@ -135,7 +135,7 @@ func TestAllNonRefNonBlobProperties(t *testing.T) {
 					},
 				},
 			},
-			expected: search.SelectProperties{
+			expected: []search.SelectProperty{
 				{
 					Name:     "entries",
 					IsObject: true,
@@ -169,7 +169,7 @@ func TestAllNonRefNonBlobProperties(t *testing.T) {
 					},
 				},
 			},
-			expected: search.SelectProperties{
+			expected: []search.SelectProperty{
 				{
 					Name:     "profile",
 					IsObject: true,
@@ -212,7 +212,7 @@ func TestAllNonRefNonBlobProperties(t *testing.T) {
 					{Name: "count", DataType: schema.DataTypeInt.PropString()},
 				},
 			},
-			expected: search.SelectProperties{
+			expected: []search.SelectProperty{
 				{Name: "title", IsPrimitive: true},
 				{
 					Name:     "meta",
@@ -308,7 +308,7 @@ func TestAllNonRefNonBlobProperties_Errors(t *testing.T) {
 			wantCauseText: "invalid-dataType",
 		},
 		{
-			name: "unknown data type inside a nested property propagates the nested wrap unchanged",
+			name: "unknown data type inside a nested property carries the intermediate wrap",
 			class: &models.Class{
 				Class: "BadNestedDataType",
 				Properties: []*models.Property{
@@ -321,7 +321,10 @@ func TestAllNonRefNonBlobProperties_Errors(t *testing.T) {
 					},
 				},
 			},
-			wantWrap:      "get nested property data type: ",
+			// Faithful port: the recursive branch re-wraps, so the class-level
+			// error carries the intermediate "get all non ref non blob nested
+			// properties" prefix, byte-identical to the original gRPC message.
+			wantWrap:      "get all non ref non blob nested properties: get nested property data type: ",
 			wantNotWrap:   "get property data type: ",
 			wantCauseText: schema.ErrorNoSuchDatatype,
 		},
@@ -331,17 +334,24 @@ func TestAllNonRefNonBlobProperties_Errors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := search.AllNonRefNonBlobProperties(tt.class)
 			require.Error(t, err)
-			assert.Nil(t, got)
+			// Faithful port: every error branch returns an empty (non-nil)
+			// slice, matching the original gRPC implementation.
+			assert.Equal(t, []search.SelectProperty{}, got)
+			assert.NotNil(t, got)
 			assert.ErrorContains(t, err, tt.wantWrap)
 			if tt.wantNotWrap != "" {
 				assert.NotContains(t, err.Error(), tt.wantNotWrap)
 			}
 
-			// %w wrapping must expose the cause to errors.Unwrap/errors.Is.
-			cause := errors.Unwrap(err)
-			require.NotNil(t, cause)
-			assert.EqualError(t, cause, tt.wantCauseText)
-			assert.ErrorIs(t, err, cause)
+			// %w wrapping must expose the leaf cause through the (possibly
+			// multi-level) chain to errors.Unwrap/errors.Is.
+			leaf := err
+			for next := errors.Unwrap(leaf); next != nil; next = errors.Unwrap(leaf) {
+				leaf = next
+			}
+			require.NotEqual(t, err, leaf)
+			assert.EqualError(t, leaf, tt.wantCauseText)
+			assert.ErrorIs(t, err, leaf)
 		})
 	}
 }
@@ -443,7 +453,9 @@ func TestAllNonRefNonBlobNestedProperties_DirectAdapter_Error(t *testing.T) {
 
 	got, err := search.AllNonRefNonBlobNestedProperties(&testProperty{prop})
 	require.Error(t, err)
-	assert.Nil(t, got)
+	// Faithful port: error branches return an empty (non-nil) slice.
+	assert.Equal(t, []search.SelectProperty{}, got)
+	assert.NotNil(t, got)
 	assert.ErrorContains(t, err, "get nested property data type: ")
 
 	cause := errors.Unwrap(err)

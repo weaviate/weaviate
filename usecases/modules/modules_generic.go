@@ -13,8 +13,8 @@ package modules
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -51,7 +51,7 @@ func vectorFromSearchParam[T dto.Embedding](
 			cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector, dbConfig)
 			vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 			if err != nil {
-				return true, nil, errors.Wrapf(enterrors.NewErrQueryVectorization(err), "vectorize params")
+				return true, nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 			}
 			return true, vector, nil
 		}
@@ -75,11 +75,11 @@ func crossClassVectorFromSearchParam[T dto.Embedding](
 				cfg := NewCrossClassModuleConfig(dbConfig)
 				vector, err := searchVectorFn(ctx, params, "", findVectorFn, cfg)
 				if err != nil {
-					return true, nil, "", errors.Wrapf(enterrors.NewErrQueryVectorization(err), "vectorize params")
+					return true, nil, "", fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 				}
 				targetVector, err := getTargetVectorFn(nil, params)
 				if err != nil {
-					return true, nil, "", errors.Wrapf(err, "get target vector")
+					return true, nil, "", fmt.Errorf("get target vector: %w", err)
 				}
 				if len(targetVector) > 0 {
 					return true, vector, targetVector[0], nil

@@ -22,25 +22,33 @@ import (
 // references and blobs, descending into object / object-array properties via
 // AllNonRefNonBlobNestedProperties. It is the canonical "return all
 // properties" selection shared by the gRPC and REST search APIs.
-func AllNonRefNonBlobProperties(class *models.Class) (SelectProperties, error) {
-	var props SelectProperties
+//
+// This is a faithful port of the original gRPC getAllNonRefNonBlobProperties
+// with no intentional behavioral change.
+func AllNonRefNonBlobProperties(class *models.Class) ([]SelectProperty, error) {
+	var props []SelectProperty
 	for _, prop := range class.Properties {
 		dt, err := schema.GetPropertyDataType(class, prop.Name)
 		if err != nil {
-			return nil, fmt.Errorf("get property data type: %w", err)
+			return []SelectProperty{}, fmt.Errorf("get property data type: %w", err)
 		}
 		switch *dt {
 		case schema.DataTypeCRef, schema.DataTypeBlob, schema.DataTypeBlobHash:
 			continue
 		case schema.DataTypeObject, schema.DataTypeObjectArray:
-			nestedProps, err := AllNonRefNonBlobNestedProperties(&propertyAdapter{prop})
+			nested, err := schema.GetPropertyByName(class, prop.Name)
 			if err != nil {
-				return nil, err
+				return []SelectProperty{}, fmt.Errorf("get nested property by name: %w", err)
+			}
+			nestedProps, err := AllNonRefNonBlobNestedProperties(&propertyAdapter{nested})
+			if err != nil {
+				return []SelectProperty{}, fmt.Errorf("get all non ref non blob nested properties: %w", err)
 			}
 			props = append(props, SelectProperty{
-				Name:     prop.Name,
-				IsObject: true,
-				Props:    nestedProps,
+				Name:        prop.Name,
+				IsPrimitive: false,
+				IsObject:    true,
+				Props:       nestedProps,
 			})
 		default:
 			props = append(props, SelectProperty{Name: prop.Name, IsPrimitive: true})
@@ -51,29 +59,35 @@ func AllNonRefNonBlobProperties(class *models.Class) (SelectProperties, error) {
 
 // AllNonRefNonBlobNestedProperties is the nested-property counterpart of
 // AllNonRefNonBlobProperties, generic so that callers can pass their own
-// schema.PropertyInterface adapters.
-func AllNonRefNonBlobNestedProperties[P schema.PropertyInterface](prop P) ([]SelectProperty, error) {
+// schema.PropertyInterface adapters. It is a faithful port of the original
+// gRPC getAllNonRefNonBlobNestedProperties.
+func AllNonRefNonBlobNestedProperties[P schema.PropertyInterface](property P) ([]SelectProperty, error) {
 	var props []SelectProperty
-	for _, nested := range prop.GetNestedProperties() {
-		dt, err := schema.GetNestedPropertyDataType(prop, nested.Name)
+	for _, prop := range property.GetNestedProperties() {
+		dt, err := schema.GetNestedPropertyDataType(property, prop.Name)
 		if err != nil {
-			return nil, fmt.Errorf("get nested property data type: %w", err)
+			return []SelectProperty{}, fmt.Errorf("get nested property data type: %w", err)
 		}
 		switch *dt {
 		case schema.DataTypeCRef, schema.DataTypeBlob, schema.DataTypeBlobHash:
 			continue
 		case schema.DataTypeObject, schema.DataTypeObjectArray:
+			nested, err := schema.GetNestedPropertyByName(property, prop.Name)
+			if err != nil {
+				return []SelectProperty{}, fmt.Errorf("get nested property by name: %w", err)
+			}
 			nestedProps, err := AllNonRefNonBlobNestedProperties(&nestedPropertyAdapter{nested})
 			if err != nil {
-				return nil, err
+				return []SelectProperty{}, fmt.Errorf("get all non ref non blob nested properties: %w", err)
 			}
 			props = append(props, SelectProperty{
-				Name:     nested.Name,
-				IsObject: true,
-				Props:    nestedProps,
+				Name:        prop.Name,
+				IsPrimitive: false,
+				IsObject:    true,
+				Props:       nestedProps,
 			})
 		default:
-			props = append(props, SelectProperty{Name: nested.Name, IsPrimitive: true})
+			props = append(props, SelectProperty{Name: prop.Name, IsPrimitive: true})
 		}
 	}
 	return props, nil
