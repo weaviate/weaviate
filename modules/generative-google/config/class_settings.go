@@ -40,13 +40,10 @@ var (
 	DefaultGoogleModel                = "chat-bison"
 	DefaultGoogleRegion               = "us-central1"
 	DefaultGoogleLocation             = "us-central1"
-	DefaultGoogleTemperature          = 1.0
 	DefaultTokenLimit                 = 1024
 	DefaultTokenLimitGemini1_0        = 2048
 	DefaultTokenLimitGemini1_0_Vision = 2048
 	DefaultTokenLimitGemini1_5        = 8192
-	DefaultGoogleTopP                 = 0.95
-	DefaultGoogleTopK                 = 40
 	DefaulGenerativeAIApiEndpoint     = "generativelanguage.googleapis.com"
 	DefaulGenerativeAIModelID         = "chat-bison-001"
 )
@@ -64,13 +61,13 @@ type ClassSettings interface {
 	Model() string
 	// parameters
 	// 0.0 - 1.0
-	Temperature() float64
+	Temperature() *float64
 	// 1 - 1024 / 2048 Gemini 1.0 / 8192 Gemini 1.5
-	TokenLimit() int
+	TokenLimit() *int
 	// 1 -
-	TopK() int
+	TopK() *int
 	// 0.0 - 1.0
-	TopP() float64
+	TopP() *float64
 }
 
 type classSettings struct {
@@ -98,20 +95,16 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if apiEndpoint != DefaulGenerativeAIApiEndpoint && projectID == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 	}
-	temperature := ic.Temperature()
-	if temperature < 0 || temperature > 1 {
+	if temperature := ic.Temperature(); temperature != nil && (*temperature < 0 || *temperature > 1) {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", temperatureProperty))
 	}
-	tokenLimit := ic.TokenLimit()
-	if tokenLimit < 1 || tokenLimit > ic.getDefaultTokenLimit(ic.ModelID()) {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and %v", tokenLimitProperty, ic.getDefaultTokenLimit(ic.ModelID())))
+	if tokenLimit := ic.TokenLimit(); tokenLimit != nil && (*tokenLimit < 1 || *tokenLimit > ic.getDefaultTokenLimit(ic.getModel())) {
+		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and %v", tokenLimitProperty, ic.getDefaultTokenLimit(ic.getModel())))
 	}
-	topK := ic.TopK()
-	if topK < 1 {
+	if topK := ic.TopK(); topK != nil && *topK < 1 {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value above or equal 1", topKProperty))
 	}
-	topP := ic.TopP()
-	if topP < 0 || topP > 1 {
+	if topP := ic.TopP(); topP != nil && (*topP < 0 || *topP > 1) {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", topPProperty))
 	}
 	if len(errorMessages) > 0 {
@@ -125,14 +118,17 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 	return ic.propertyValuesHelper.GetPropertyAsString(ic.cfg, name, defaultValue)
 }
 
-func (ic *classSettings) getFloatProperty(name string, defaultValue float64) float64 {
-	asFloat64 := ic.propertyValuesHelper.GetPropertyAsFloat64(ic.cfg, name, &defaultValue)
-	return *asFloat64
+// getOptionalFloatProperty returns nil when the property is not set, so that no
+// default is sent to the provider. wrongVal is an out-of-range sentinel returned
+// when the property is present but has an invalid (non-numeric) type, so that
+// Validate rejects it instead of silently skipping validation.
+func (ic *classSettings) getOptionalFloatProperty(name string, wrongVal float64) *float64 {
+	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, nil)
 }
 
-func (ic *classSettings) getIntProperty(name string, defaultValue int) int {
-	asInt := ic.propertyValuesHelper.GetPropertyAsInt(ic.cfg, name, &defaultValue)
-	return *asInt
+// getOptionalIntProperty behaves like getOptionalFloatProperty for integer properties.
+func (ic *classSettings) getOptionalIntProperty(name string, wrongVal int) *int {
+	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, nil)
 }
 
 func (ic *classSettings) getApiEndpoint(projectID string) string {
@@ -183,6 +179,15 @@ func (ic *classSettings) Model() string {
 	return ic.getStringProperty(modelProperty, "")
 }
 
+// getModel returns the model that will actually be used for a request: Model()
+// takes precedence over ModelID(), matching the client's request-building logic.
+func (ic *classSettings) getModel() string {
+	if model := ic.Model(); model != "" {
+		return model
+	}
+	return ic.ModelID()
+}
+
 func (ic *classSettings) Region() string {
 	return ic.getStringProperty(regionProperty, DefaultGoogleRegion)
 }
@@ -194,21 +199,21 @@ func (ic *classSettings) Location() string {
 // parameters
 
 // 0.0 - 1.0
-func (ic *classSettings) Temperature() float64 {
-	return ic.getFloatProperty(temperatureProperty, DefaultGoogleTemperature)
+func (ic *classSettings) Temperature() *float64 {
+	return ic.getOptionalFloatProperty(temperatureProperty, -1.0)
 }
 
 // 1 - 1024
-func (ic *classSettings) TokenLimit() int {
-	return ic.getIntProperty(tokenLimitProperty, ic.getDefaultTokenLimit(ic.ModelID()))
+func (ic *classSettings) TokenLimit() *int {
+	return ic.getOptionalIntProperty(tokenLimitProperty, 0)
 }
 
 // 1 - 40
-func (ic *classSettings) TopK() int {
-	return ic.getIntProperty(topKProperty, DefaultGoogleTopK)
+func (ic *classSettings) TopK() *int {
+	return ic.getOptionalIntProperty(topKProperty, 0)
 }
 
 // 0.0 - 1.0
-func (ic *classSettings) TopP() float64 {
-	return ic.getFloatProperty(topPProperty, DefaultGoogleTopP)
+func (ic *classSettings) TopP() *float64 {
+	return ic.getOptionalFloatProperty(topPProperty, -1.0)
 }
