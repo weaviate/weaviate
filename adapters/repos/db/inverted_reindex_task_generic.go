@@ -1419,10 +1419,12 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	store := shard.Store()
 	propExtraction := storobj.NewPropExtraction()
 	bucketsByPropName := map[string]*lsmkv.Bucket{}
+	propsInScope := make(map[string]struct{}, len(props))
 	for _, prop := range props {
 		propExtraction.Add(prop)
 		bucketName := t.reindexBucketName(prop)
 		bucketsByPropName[prop] = store.Bucket(bucketName)
+		propsInScope[prop] = struct{}{}
 	}
 
 	breakCh := make(chan bool, 1)
@@ -1461,6 +1463,23 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	// schema is unchanged; only the analyzer's per-call view is overlaid.
 	schemaOverlay := t.strategy.AnalyzerOverlay(props)
 
+	// concreteShard is used to backfill the null/length sidecar buckets and
+	// the BM25 prop-length tally for pre-existing objects
+	// (weaviate/0-weaviate-issues#322) - see backfillSidecarsForMigration.
+	// Resolved once (not per-object): unwrapShard is a cheap type
+	// assertion, but there is no reason to repeat it per iteration. A nil
+	// concreteShard (unsupported shard type) degrades to "sidecar backfill
+	// skipped, value-index backfill unaffected" rather than failing the
+	// whole migration - sidecars are best-effort until proven otherwise
+	// for the LazyLoadShard/tests-only shard type, mirroring the tolerance
+	// pattern OnTaskCompleted's tokenization-overlay-clear already uses for
+	// an unwrap failure.
+	concreteShard, unwrapErr := unwrapShard(ctx, shard)
+	if unwrapErr != nil {
+		logger.Warnf("sidecar backfill skipped (shard unwrap failed, value-index backfill unaffected): %v", unwrapErr)
+		concreteShard = nil
+	}
+
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
 		propExtraction, reindexStarted, breakCh, schemaOverlay)
 
@@ -1486,6 +1505,13 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 					}
 				}
 				indexedCount++
+			}
+			if concreteShard != nil && (len(md.props) > 0 || len(md.nilProps) > 0) {
+				if err := concreteShard.backfillSidecarsForMigration(md.docID, md.props, md.nilProps, propsInScope); err != nil {
+					breakCh <- true
+					err = fmt.Errorf("backfilling sidecars for object '%s': %w", md.key.String(), err)
+					return zerotime, false, err
+				}
 			}
 			processedCount++
 			lastProcessedKey = md.key
@@ -2691,10 +2717,11 @@ func isSegmentWal(filename string) bool {
 // -----------------------------------------------------------------------------
 
 type migrationData struct {
-	key   indexKey
-	docID uint64
-	props []inverted.Property
-	err   error
+	key      indexKey
+	docID    uint64
+	props    []inverted.Property
+	nilProps []inverted.NilProperty
+	err      error
 }
 
 type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool, schemaOverlay map[string]inverted.PropertyOverlay,
@@ -2748,7 +2775,12 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 				// target inverted-index flag is still false on the live
 				// schema during backfill. It is nil for retokenize / refresh
 				// strategies. See MigrationStrategy.AnalyzerOverlay.
-				props, _, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
+				//
+				// nilProps (previously discarded here) feeds the sidecar
+				// backfill's null-state entries for properties that are nil
+				// on this object - see backfillSidecarsForMigration and
+				// weaviate/0-weaviate-issues#322.
+				props, nilProps, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
 				if err != nil {
 					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
 					break
@@ -2757,7 +2789,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 				if <-breakCh {
 					break
 				}
-				mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
+				mdCh <- &migrationData{key: ik.Clone(), props: props, nilProps: nilProps, docID: obj.DocID}
 			} else {
 				if <-breakCh {
 					break
