@@ -36,6 +36,7 @@ type reindexTracker interface {
 
 	markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error
 	GetProgress() (indexKey, *time.Time, error)
+	getProcessedObjectCount() (int, error)
 
 	IsReindexed() bool
 	markReindexed() error
@@ -234,6 +235,32 @@ func (t *fileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 
 	t.progressCheckpoint = checkpoint + 1
 	return key, &tm, nil
+}
+
+// getProcessedObjectCount returns the cumulative number of objects processed
+// across every persisted checkpoint — the sum of each checkpoint's "all N"
+// count written by [fileReindexTracker.markProgress]. On a fresh scan with no
+// checkpoints it returns 0.
+//
+// It exists to keep live reindex progress reporting cumulative across
+// crash-resumes and chunk boundaries. The iteration loop's per-invocation
+// processedCount resets to 0 every time
+// [ShardReindexTaskGeneric.OnAfterLsmInitAsync] is (re-)entered — including
+// after a crash-resume, which restarts the scan from the persisted checkpoint
+// key rather than from zero. Without a baseline, the reported fraction would
+// restart near 0 on resume; because the /v1/tasks unit progress is monotonic
+// (see cluster/distributedtask.Manager.UpdateUnitProgress), the displayed value
+// would then freeze at the pre-crash checkpoint until the resumed scan
+// re-crossed it and jump to completion in one step. Feeding this value into the
+// reported fraction makes resumed-scan progress advance at the same granularity
+// as a fresh scan. weaviate/0-weaviate-issues#317.
+//
+// The persisted per-checkpoint counts are deliberately left per-chunk (this
+// function sums them), so the on-disk progress-file format is unchanged and an
+// operator mid-reindex who upgrades still sums correctly.
+func (t *fileReindexTracker) getProcessedObjectCount() (int, error) {
+	total, _, err := t.GetMigratedCount()
+	return total, err
 }
 
 func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKey indexKey, tm time.Time, allCount int, idxCount int, err error) {
