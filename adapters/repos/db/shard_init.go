@@ -158,10 +158,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	// Finalize any completed migrations whose directory renames were deferred
 	// from a runtime swap. This must run before bucket loading (initNonVector)
-	// so that buckets are found at their canonical directory names. The
-	// schema-backed verdict resolves staged-but-uncommitted semantic swaps
-	// (weaviate/0-weaviate-issues#220): the cluster-wide schema flip is the
-	// durable record of whether the migration's ack barrier committed.
+	// so that buckets are found at their canonical directory names. See
+	// [StagedMigrationVerdictFunc] for why the schema is the verdict source
+	// for staged swaps (weaviate/0-weaviate-issues#220).
 	FinalizeCompletedMigrationsWithVerdict(s.pathLSM(), s.index.logger,
 		func(payload *ReindexTaskPayload) (bool, bool) {
 			cls := s.index.getSchema.ReadOnlyClass(payload.Collection)

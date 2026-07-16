@@ -607,11 +607,10 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 
 	case rt.IsSwapped():
 		if t.config.stagedSwapCommit {
-			// Staged mode: the swap is already staged (a re-fired SWAP
-			// callback after a retried ack). Do NOT tidy — that deletes
-			// the OLD backup the pre-commit protocol must preserve until
-			// the task verdict. Just make sure the staged sentinel is on
-			// disk and report success so the ack barrier can proceed.
+			// Staged mode: this is a re-fired SWAP callback after a
+			// retried ack. Do NOT tidy — that would delete the OLD
+			// backup the pre-commit protocol must preserve until the
+			// task verdict.
 			logger.WithField("props", props).Info("RunSwapOnShard: already staged; awaiting cluster-wide task verdict")
 			if !rt.IsStaged() {
 				if err := rt.markStaged(); err != nil {
@@ -748,21 +747,17 @@ func (t *ShardReindexTaskGeneric) afterStagedSwap(ctx context.Context,
 }
 
 // CommitSwapOnShard is the task-level COMMIT of a staged swap
-// (weaviate/0-weaviate-issues#220). Runs the destructive terminal work
-// that [runtimeSwap] deferred in staged mode: strategy
-// OnMigrationComplete, tidied.mig, and the trim that deletes THIS gen's
-// OLD backup dir. MUST only be called once the cluster-wide ack barrier
-// has confirmed every unit's swap succeeded AND the schema flip has
-// committed — [ReindexProvider.OnTaskCompleted] is the only production
-// caller. Idempotent: a re-fired completion callback on an
-// already-committed shard is a no-op.
+// (weaviate/0-weaviate-issues#220): runs the destructive terminal work
+// [runtimeSwap] deferred (OnMigrationComplete, tidied.mig, OLD-backup
+// trim). MUST only run once the ack barrier confirmed every unit's swap
+// AND the schema flip committed — [ReindexProvider.OnTaskCompleted] is
+// the only production caller. Idempotent.
 //
-// Crash windows: the DTM task status (RAFT) plus staged.mig/tidied.mig
-// make every interleaving recoverable — a crash before markTidied leaves
-// staged.mig, which [FinalizeCompletedMigrationsWithVerdict] resolves at
-// next startup by comparing the recovery payload's target against the
-// already-flipped schema; a crash after markTidied is the legacy
-// tidied-but-untrimmed state the startup finalize already sweeps.
+// Crash windows: staged.mig/tidied.mig plus the DTM task status make
+// every interleaving recoverable — a crash before markTidied is resolved
+// by [FinalizeCompletedMigrationsWithVerdict] against the already-flipped
+// schema; after markTidied is the legacy tidied-but-untrimmed state the
+// startup finalize already sweeps.
 func (t *ShardReindexTaskGeneric) CommitSwapOnShard(ctx context.Context, shard ShardLike) error {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -825,15 +820,12 @@ func (t *ShardReindexTaskGeneric) CommitSwapOnShard(ctx context.Context, shard S
 }
 
 // RollbackSwapOnShard undoes a staged swap after the cluster-wide task
-// verdict is FAILED/CANCELLED (weaviate/0-weaviate-issues#220). The
-// in-memory part restores the OLD bucket under the canonical name
-// immediately (queries serve OLD-under-OLD-schema again, no restart
-// needed); the on-disk backup→canonical dir rename is deferred to the
-// next startup via unswapped.mig because the OLD bucket stays live on
-// its backup-named dir and live dirs must never be renamed. The
-// discarded NEW buckets (ingest sidecars) are shut down and removed.
-// Idempotent: re-fired terminal callbacks and shards whose staged state
-// was already resolved (nothing swapped) are no-ops.
+// verdict is FAILED/CANCELLED (weaviate/0-weaviate-issues#220). Restores
+// the OLD bucket under the canonical name immediately in memory (no
+// restart needed); the on-disk backup→canonical rename is deferred to
+// next startup via unswapped.mig, since the OLD bucket is live at its
+// backup-named dir and live dirs must never be renamed. Discarded NEW
+// buckets are shut down and removed. Idempotent.
 func (t *ShardReindexTaskGeneric) RollbackSwapOnShard(ctx context.Context, shard ShardLike) error {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -864,12 +856,10 @@ func (t *ShardReindexTaskGeneric) RollbackSwapOnShard(ctx context.Context, shard
 	}
 
 	// Disable the verdict-window double-writes BEFORE re-pointing:
-	// SwapBucketPointer removes the backup name from the store's map, and
-	// on this branch the double-write callbacks are not nil-bucket-safe
+	// SwapBucketPointer removes the backup name from the store, and the
+	// double-write callbacks aren't nil-bucket-safe on this branch
 	// (weaviate/weaviate#11985 hardens them) — a write racing the loop
-	// below would panic. The cost is a few-ms window in which writes land
-	// only in the about-to-be-discarded NEW buckets of not-yet-restored
-	// props; once #11985's canonical-fallback lands this can be revisited.
+	// below would panic.
 	t.disableCallbacks()
 
 	store := concreteShard.store
@@ -888,7 +878,6 @@ func (t *ShardReindexTaskGeneric) RollbackSwapOnShard(ctx context.Context, shard
 				return fmt.Errorf("rollback swap: loading OLD backup bucket for %q: %w", propName, err)
 			}
 		}
-		// Atomically re-point the canonical name at the OLD bucket.
 		displaced, err := store.SwapBucketPointer(ctx, mainName, backupName)
 		if err != nil {
 			return fmt.Errorf("rollback swap: restoring bucket pointer %q <- %q: %w", mainName, backupName, err)
@@ -897,9 +886,8 @@ func (t *ShardReindexTaskGeneric) RollbackSwapOnShard(ctx context.Context, shard
 			return fmt.Errorf("rollback swap: unmarking swapped prop %q: %w", propName, err)
 		}
 		if displaced != nil {
-			// The discarded NEW bucket: shut down (drains in-flight
-			// compactions) and remove its dir — the task failed, this
-			// data will never be promoted.
+			// Discarded NEW bucket: this data will never be promoted.
+			// Shutdown drains in-flight compactions before removal.
 			if err := displaced.Shutdown(ctx); err != nil {
 				logger.Warnf("rollback swap: failed to shut down discarded NEW bucket for %q; leaving its dir for next-restart sweep: %v", propName, err)
 			} else {
@@ -1218,13 +1206,11 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 
 	// Pre-commit staging (weaviate/0-weaviate-issues#220): a staged-mode
 	// migration must never advance the swap/tidy ladder at shard init —
-	// swapping here would commit a NEW dataset whose cluster-wide task
-	// verdict hasn't arrived, and tidying would destroy the OLD backup
-	// the verdict may still need for a rollback. The staged/unswapped
-	// restart windows are resolved BEFORE this hook by
-	// [FinalizeCompletedMigrationsWithVerdict] (schema-derived verdict);
-	// any remaining merged state waits for the DTM re-drive
-	// (RunSwapOnShard) or the task-level commit/rollback.
+	// swapping would commit a dataset whose cluster verdict hasn't
+	// arrived, and tidying would destroy the OLD backup a rollback may
+	// still need. Staged/unswapped windows are resolved BEFORE this hook
+	// by [FinalizeCompletedMigrationsWithVerdict]; remaining merged state
+	// waits for the DTM re-drive or the task-level commit/rollback.
 	if t.config.stagedSwapCommit {
 		if rt.IsTidied() {
 			// Committed migration whose tracker removal is still pending:
@@ -2130,18 +2116,14 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 
 	// Pre-commit staging (weaviate/0-weaviate-issues#220): for semantic
-	// migrations the swap is only STAGED at this point. Everything above
-	// is reversible — the pointer flip can be undone in memory and the
-	// OLD data still exists on disk as the backup dir. The destructive
-	// terminal work (OnMigrationComplete, tidied.mig, and the trim that
-	// deletes THIS gen's OLD backup) must not run until the cluster-wide
-	// ack barrier has confirmed every unit's swap succeeded — otherwise a
-	// SIBLING unit's failure flips the task to FAILED, the schema flip is
-	// skipped, and this shard would be left permanently inverted
-	// (bucket=NEW, schema=OLD) with its rollback data already destroyed.
-	// The commit happens in [CommitSwapOnShard] (driven by
-	// OnTaskCompleted after the schema flip); the rollback in
-	// [RollbackSwapOnShard]; crash recovery for the staged window in
+	// migrations the swap is only STAGED here — the pointer flip is
+	// reversible and OLD still exists on disk as the backup. The
+	// destructive terminal work (OnMigrationComplete, tidied.mig, OLD
+	// backup trim) must wait for the ack barrier to confirm every unit
+	// succeeded — otherwise a sibling failure leaves this shard
+	// permanently inverted (bucket=NEW, schema=OLD) with its rollback
+	// data destroyed. Commit: [CommitSwapOnShard]; rollback:
+	// [RollbackSwapOnShard]; crash recovery:
 	// [FinalizeCompletedMigrationsWithVerdict].
 	if t.config.stagedSwapCommit {
 		if !rt.IsStaged() {
@@ -2180,13 +2162,12 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// dirs whose owning gen is strictly older than this gen.
 	//
 	// weaviate/0-weaviate-issues#220: this call ALSO deletes THIS gen's
-	// OLD backup dir (the currentBackupBase case), which is irreversible.
-	// It is only reachable inline for format-only migrations (whose
-	// schema effects are per-shard, so no cluster-level verdict can
-	// contradict the local commit). Semantic migrations return above at
-	// the staged.mig point and run this trim from [CommitSwapOnShard]
-	// only after the ack barrier confirmed all-success. See
-	// TestReindexInversion_SiblingSwapFailure*.
+	// OLD backup dir (the currentBackupBase case) — irreversible, and
+	// only reachable inline for format-only migrations (per-shard schema
+	// effects; no cluster verdict can contradict them). Semantic
+	// migrations return above at staged.mig and run this trim from
+	// [CommitSwapOnShard] only after the ack barrier confirms
+	// all-success. See TestReindexInversion_SiblingSwapFailure*.
 	t.trimOlderGenerationsLocked(logger, shard, rt, props)
 
 	logger.Info("runtime swap: migration complete (ingest→main rename deferred to next restart)")

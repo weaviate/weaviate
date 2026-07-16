@@ -31,41 +31,21 @@ import (
 )
 
 // This file pins the pre-commit staging protocol for
-// https://github.com/weaviate/0-weaviate-issues/issues/220.
+// weaviate/0-weaviate-issues#220: a semantic migration's swap must not
+// destroy a shard's OLD backup before the cluster-wide ack barrier
+// confirms every unit succeeded, or a sibling failure leaves a permanent
+// bucket↔schema inversion with no way to roll back.
 //
-// # The defect it guards against
-//
-// A semantic (tokenization-changing) migration used to COMMIT its swap
-// per shard inside [ShardReindexTaskGeneric.runtimeSwap] — pointer flip,
-// old→backup rename, tidied.mig, and the trim that DELETES the OLD
-// backup — all before the cluster-wide ack barrier had seen a single
-// ack. A sibling unit failing afterwards flipped the task to FAILED and
-// skipped the schema flip, leaving every already-committed shard
-// permanently inverted (bucket=NEW, schema=OLD) with its rollback data
-// already destroyed.
-//
-// # The protocol under test
-//
-// STAGE (per shard, pre-ack): pointer flip + old→backup rename +
-// swapped.mig + staged.mig. Nothing destroyed.
-// COMMIT (task-level, post-barrier + schema flip): OnMigrationComplete +
-// tidied.mig + trim ([ShardReindexTaskGeneric.CommitSwapOnShard]).
-// ROLLBACK (task FAILED/CANCELLED): pointer restored to the preserved
-// OLD backup + unswapped.mig ([ShardReindexTaskGeneric.RollbackSwapOnShard]).
-// RESTART inside the window: resolved by the schema-backed verdict in
+// Protocol: STAGE (pointer flip + backup rename; nothing destroyed) →
+// COMMIT ([ShardReindexTaskGeneric.CommitSwapOnShard], post-barrier) or
+// ROLLBACK ([ShardReindexTaskGeneric.RollbackSwapOnShard], on
+// FAILED/CANCELLED) → crash recovery via
 // [FinalizeCompletedMigrationsWithVerdict].
 
-// TestReindexInversion_SiblingSwapFailureLeavesNoRollback_RFC220 is the
-// original pin, now a passing regression test: after unit A stages its
-// swap and unit B (a sibling replica of the same property) fails, unit
-// A's OLD-tokenized backup dir MUST still exist so the task can be
-// rolled back to OLD tokenization.
-//
-// RED on the pre-staging code (verified 2026-07-16: trimOlderGenerations
-// Locked deleted the backup inside runtimeSwap, before the barrier could
-// observe B's failure). GREEN with pre-commit staging: the destructive
-// trim is deferred to CommitSwapOnShard, which only ever runs on the
-// all-success verdict.
+// TestReindexInversion_SiblingSwapFailureLeavesNoRollback_RFC220 pins
+// weaviate/0-weaviate-issues#220: after unit A stages its swap and
+// sibling unit B fails, A's OLD-tokenized backup dir must still exist so
+// the task can be rolled back to OLD tokenization.
 func TestReindexInversion_SiblingSwapFailureLeavesNoRollback_RFC220(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
@@ -121,12 +101,9 @@ func TestReindexInversion_SiblingSwapFailureLeavesNoRollback_RFC220(t *testing.T
 			"could observe the failure — making the schema↔bucket inversion permanent.", backupDirA)
 }
 
-// TestReindexStagedSwap_SiblingFailureRollsBackStagedUnits is the
-// multi-shard rollback case: units A and B stage their swaps, unit C
-// fails, the task verdict is FAILED — RollbackSwapOnShard (what
-// OnTaskCompleted's FAILED branch drives per staged unit) must restore
-// the OLD data under the canonical bucket name on A and B without a
-// restart, and record the deferred on-disk restore durably.
+// TestReindexStagedSwap_SiblingFailureRollsBackStagedUnits: units A and
+// B stage, unit C fails — RollbackSwapOnShard must restore A and B's
+// OLD data under the canonical name without a restart.
 func TestReindexStagedSwap_SiblingFailureRollsBackStagedUnits(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
@@ -193,11 +170,10 @@ func TestReindexStagedSwap_SiblingFailureRollsBackStagedUnits(t *testing.T) {
 		"unitC never staged anything; rollback must not fabricate an unswapped record")
 }
 
-// TestReindexStagedSwap_PartialStageFailureRollsBackSwappedProps covers
-// a mid-Phase-2a failure INSIDE one unit's own swap: a multi-property
-// task flips its first prop, then fails on the second. The unit reports
-// failure (no staged.mig), the task goes FAILED, and the rollback must
-// restore exactly the props that had already flipped.
+// TestReindexStagedSwap_PartialStageFailureRollsBackSwappedProps: a
+// multi-property task flips its first prop then fails on the second
+// (torn Phase 2a, no staged.mig) — rollback must restore exactly the
+// props that had already flipped.
 func TestReindexStagedSwap_PartialStageFailureRollsBackSwappedProps(t *testing.T) {
 	ctx := testCtx()
 	props := []string{"alpha", "beta"}
@@ -262,11 +238,10 @@ func TestReindexStagedSwap_PartialStageFailureRollsBackSwappedProps(t *testing.T
 	require.True(t, rt.IsUnswapped(), "the deferred on-disk restore must be recorded")
 }
 
-// TestReindexStagedSwap_CommitSingleShardDegenerate is the single-shard
-// (single-unit) case: stage via the production RunSwapOnShard entry
-// point, then commit via CommitSwapOnShard — the end state must equal
-// the legacy inline commit (tidied, OLD backup trimmed, canonical=NEW,
-// OnMigrationComplete ran), just split across the barrier.
+// TestReindexStagedSwap_CommitSingleShardDegenerate: single-unit stage
+// (via RunSwapOnShard) then commit (via CommitSwapOnShard) must reach
+// the same end state as the legacy inline commit, just split across the
+// barrier.
 func TestReindexStagedSwap_CommitSingleShardDegenerate(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
@@ -307,13 +282,11 @@ func TestReindexStagedSwap_CommitSingleShardDegenerate(t *testing.T) {
 	require.NoError(t, task.CommitSwapOnShard(ctx, shard))
 }
 
-// TestReindexStagedSwap_RestartDuringStagedWindow_TaskCommits covers the
-// crash-in-window residual: the node dies after staging; the task
-// meanwhile went FINISHED (all acks landed, another node committed the
-// cluster-wide schema flip). At the next boot the schema-backed verdict
-// says "flipped" and FinalizeCompletedMigrationsWithVerdict must
-// complete the COMMIT: promote the staged NEW data to the canonical
-// name, drop the OLD backup and the tracker.
+// TestReindexStagedSwap_RestartDuringStagedWindow_TaskCommits: the node
+// dies after staging while the task reaches FINISHED elsewhere (schema
+// flip already committed). At the next boot the schema-backed verdict
+// says "flipped", and FinalizeCompletedMigrationsWithVerdict must
+// complete the commit.
 func TestReindexStagedSwap_RestartDuringStagedWindow_TaskCommits(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
@@ -348,13 +321,10 @@ func TestReindexStagedSwap_RestartDuringStagedWindow_TaskCommits(t *testing.T) {
 		"the tracker dir must be removed after the boot-time commit")
 }
 
-// TestReindexStagedSwap_RestartDuringStagedWindow_TaskPendingOrFailed is
-// the other crash direction: the node dies after staging and the task
-// did NOT commit (still SWAPPING, or FAILED). The schema still shows the
-// source state, so the boot verdict is "not flipped" —
-// FinalizeCompletedMigrationsWithVerdict must restore the OLD data to
-// the canonical name and revert the tracker to the merged state (so a
-// still-live task's DTM re-drive can re-stage), destroying nothing.
+// TestReindexStagedSwap_RestartDuringStagedWindow_TaskPendingOrFailed:
+// the node dies after staging and the task did not commit — the boot
+// verdict is "not flipped", so FinalizeCompletedMigrationsWithVerdict
+// must restore OLD and revert the tracker to merged, destroying nothing.
 func TestReindexStagedSwap_RestartDuringStagedWindow_TaskPendingOrFailed(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
@@ -403,11 +373,10 @@ func TestReindexStagedSwap_RestartDuringStagedWindow_TaskPendingOrFailed(t *test
 	assertRestoredToMerged("nil-verdict pass")
 }
 
-// TestReindexStagedSwap_RestartAfterInProcessRollback covers the
-// deferred half of RollbackSwapOnShard: the in-memory rollback ran (task
-// FAILED while the process was up), then the node restarted. The boot
-// pass must complete the on-disk restore — OLD back under the canonical
-// name, discarded sidecars and the tracker removed.
+// TestReindexStagedSwap_RestartAfterInProcessRollback: the in-memory
+// rollback ran (task FAILED while the process was up), then the node
+// restarted — the boot pass must complete the on-disk restore (OLD
+// under the canonical name, sidecars and tracker removed).
 func TestReindexStagedSwap_RestartAfterInProcessRollback(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"

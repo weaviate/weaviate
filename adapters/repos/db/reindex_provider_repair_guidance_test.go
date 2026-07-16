@@ -52,9 +52,8 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationBo
 		`PUT /v1/schema/Products/indexes/name {"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`,
 		entry.Data["repair_command"])
 	require.Contains(t, entry.Message, "FAILED")
-	// Staged swaps are rolled back automatically now
-	// (weaviate/0-weaviate-issues#220); the guidance must say so instead
-	// of describing a permanent inversion.
+	// Guidance must describe automatic rollback, not a permanent
+	// inversion (weaviate/0-weaviate-issues#220).
 	require.Contains(t, entry.Message, "rolled back")
 }
 

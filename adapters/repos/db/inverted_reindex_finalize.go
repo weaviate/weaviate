@@ -153,18 +153,14 @@ func fileExistsInDir(dirPath, fileName string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// StagedMigrationVerdictFunc resolves the cluster-side verdict for a
+// StagedMigrationVerdictFunc resolves the cluster verdict for a
 // staged-but-uncommitted semantic swap at startup
-// (weaviate/0-weaviate-issues#220). The schema itself is the verdict
-// record: the cluster-wide flip commits via RAFT if and only if the ack
-// barrier confirmed every unit — so comparing the current schema against
-// the migration's recorded target answers "did the task commit?" without
-// needing the DTM state (which isn't available this early in shard init).
-// Returns flipped=true when the schema already reflects the migration's
-// target (COMMIT: promote the staged NEW data), flipped=false when it
-// still reflects the source (verdict pending or FAILED: restore OLD and
-// let the DTM re-drive or terminal cleanup decide), and ok=false when
-// the schema cannot be consulted (class missing).
+// (weaviate/0-weaviate-issues#220). The schema is the verdict record —
+// the flip only commits via RAFT once the ack barrier confirmed every
+// unit — so comparing the schema against the migration's target answers
+// "did the task commit?" without needing DTM state, unavailable this
+// early in shard init. flipped=true: COMMIT (promote NEW); flipped=false:
+// pending/FAILED (restore OLD); ok=false: schema unavailable.
 type StagedMigrationVerdictFunc func(payload *ReindexTaskPayload) (flipped bool, ok bool)
 
 // FinalizeCompletedMigrations scans the shard's .migrations/ directory for
@@ -230,26 +226,14 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 }
 
 // FinalizeCompletedMigrationsWithVerdict is [FinalizeCompletedMigrations]
-// plus staged-window crash recovery (weaviate/0-weaviate-issues#220):
-// generations whose swap was STAGED (staged.mig, or a semantic
-// migration's merged-but-unverdicted state) are not blindly promoted.
-// Instead the verdict func decides:
-//
-//   - schema already flipped → the task committed cluster-wide before
-//     this node's local commit finished; complete the COMMIT (write the
-//     tidied sentinels, promote NEW, drop the OLD backup + tracker).
-//   - schema not flipped → verdict pending or FAILED; restore the OLD
-//     data to the canonical name, revert the tracker to the "merged"
-//     state, and leave the NEW ingest data + tracker in place so a
-//     still-live task's DTM re-drive can re-stage (a FAILED task's
-//     leftovers are garbage-only and swept by the terminal cleanup /
-//     a later finalize).
-//
-// Generations carrying unswapped.mig (an in-process rollback whose disk
-// restore was deferred) are restored and removed. Production shard init
-// passes a schema-backed verdict; the nil-verdict wrapper above keeps
-// staged gens untouched-but-restored-conservatively (log + OLD restore),
-// which is the least-destructive default.
+// plus staged-window crash recovery (weaviate/0-weaviate-issues#220): a
+// STAGED gen (staged.mig, or a semantic migration's
+// merged-but-unverdicted state) is resolved via verdict rather than
+// blindly promoted — see [resolveStagedSwapAtStartup] for the two
+// outcomes. Gens carrying unswapped.mig (a deferred rollback restore)
+// are handled by [restoreRolledBackStagedSwap]. The nil-verdict wrapper
+// above is the least-destructive default: treat every staged gen as
+// unresolved.
 func FinalizeCompletedMigrationsWithVerdict(lsmPath string, logger logrus.FieldLogger, verdict StagedMigrationVerdictFunc) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
@@ -292,10 +276,9 @@ func FinalizeCompletedMigrationsWithVerdict(lsmPath string, logger logrus.FieldL
 	}
 
 	for namespace, gens := range groups {
-		// Staged-window pre-pass: resolve rolled-back and staged gens
-		// before the promotion candidates are computed, so an
-		// unverdicted swap can never be promoted (or deleted) by the
-		// generic paths below.
+		// Staged-window pre-pass: resolve rolled-back/staged gens before
+		// promotion candidates are computed, so an unverdicted swap can
+		// never be promoted by the generic paths below.
 		pending := map[int]bool{}
 		for i := range gens {
 			g := gens[i]
@@ -378,9 +361,8 @@ func FinalizeCompletedMigrationsWithVerdict(lsmPath string, logger logrus.FieldL
 		// or recovered ingest dir).
 		for _, g := range gens {
 			if pending[g.gen] {
-				// Parked by the staged-window pre-pass (verdict pending,
-				// restored to OLD, or an already-restored rollback) —
-				// never promote or delete these here.
+				// Parked by the staged-window pre-pass — never promote or
+				// delete these here.
 				continue
 			}
 			migDir := filepath.Join(migrationsDir, g.dirName)
@@ -427,15 +409,12 @@ type genInfo struct {
 	unswapped bool
 }
 
-// isUnverdictedSemanticGen reports whether a merged-but-untidied gen
-// belongs to a semantic (staged-mode) migration whose cluster verdict is
-// unknown at this shard's boot. Such gens must not take the generic
-// merged-promotion recovery path — that path's "the schema flip has
-// likely already committed" assumption is exactly wrong when a sibling
-// unit failed (weaviate/0-weaviate-issues#220). Detection is via the
-// recovery payload the DTM flow persists next to the sentinels; a gen
-// without payload.mig belongs to a legacy/format-only flow and keeps the
-// old behavior.
+// isUnverdictedSemanticGen reports whether a merged-but-untidied gen is
+// a semantic migration whose cluster verdict is unknown at boot — such
+// gens must skip the generic merged-promotion recovery path, whose "the
+// schema flip already committed" assumption is wrong when a sibling unit
+// failed (weaviate/0-weaviate-issues#220). A gen without payload.mig is
+// a legacy/format-only flow and keeps the old behavior.
 func isUnverdictedSemanticGen(migDir string, g genInfo) bool {
 	if !g.merged {
 		return false

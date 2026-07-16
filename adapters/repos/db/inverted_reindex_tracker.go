@@ -58,14 +58,11 @@ type reindexTracker interface {
 	markTidied() error
 
 	// Staged-commit sentinels (weaviate/0-weaviate-issues#220). staged.mig
-	// records "per-shard swap fully staged (pointer flipped, OLD preserved
-	// as backup), awaiting the cluster-wide task verdict". It is the
-	// durable "swap committed locally, schema flip pending" marker: written
-	// after markSwapped in staged mode, retired either by the task-level
-	// COMMIT (markTidied + trim, after the ack barrier confirmed
-	// all-success and the schema flip landed) or by the ROLLBACK path.
-	// unswapped.mig records "the in-memory rollback ran; the on-disk
-	// backup→canonical restore is deferred to next startup".
+	// marks "swap staged locally (pointer flipped, OLD preserved as
+	// backup), awaiting the cluster-wide task verdict" — written after
+	// markSwapped, retired by the task-level COMMIT (markTidied + trim)
+	// or ROLLBACK. unswapped.mig marks "in-memory rollback ran; on-disk
+	// backup→canonical restore deferred to next startup".
 	IsStaged() bool
 	markStaged() error
 	unmarkStaged() error
@@ -459,14 +456,12 @@ func (t *fileReindexTracker) IsStaged() bool {
 }
 
 // markStaged writes the staged.mig sentinel durably (fsync'd file +
-// parent dir). Unlike the other sentinels, staged.mig is the load-bearing
-// crash-recovery record for the pre-commit window — losing it across a
-// power cut would let the next startup's FinalizeCompletedMigrations
-// promote a swap whose task verdict never arrived. The other sentinels
-// gain the same durability when the diskio.WriteFileSync migration
-// (weaviate/weaviate#12208) is backported; this helper intentionally
-// mirrors its write→fsync→close→fsync-dir semantics so consolidating
-// onto that helper later is a drop-in change.
+// parent dir): it's the load-bearing crash-recovery record for the
+// pre-commit window — losing it across a power cut would let the next
+// startup promote a swap whose task verdict never arrived. Mirrors the
+// write→fsync→close→fsync-dir semantics of the pending
+// diskio.WriteFileSync migration (weaviate/weaviate#12208) so
+// consolidating onto it later is a drop-in change.
 func (t *fileReindexTracker) markStaged() error {
 	return t.createFileDurable(t.config.filenameStaged, []byte(t.encodeTimeNow()))
 }

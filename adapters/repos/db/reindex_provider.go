@@ -1177,16 +1177,13 @@ func (p *ReindexProvider) runShardPrepPhase(
 // runShardSwapPhase. Partial success leaves the overlay set for the
 // flipped props only.
 //
-// Pre-commit staging (weaviate/0-weaviate-issues#220): for semantic
-// migrations each reindexTask.RunSwapOnShard below only STAGES its
-// per-shard swap — the pointer flips (queries cut over) but the OLD data
-// survives as the backup dir and no tidied.mig is written. The
-// destructive per-shard commit (trim of the OLD backup) runs from
-// OnTaskCompleted via [ReindexProvider.commitStagedSwapsLocally] only
-// after the post-completion ack barrier confirmed every unit; a sibling
-// failure flips the task to FAILED and
-// [ReindexProvider.rollbackStagedSwapsLocally] restores the OLD data on
-// every staged unit, so a mid-flight sub-task failure can no longer
+// Pre-commit staging (weaviate/0-weaviate-issues#220): each
+// reindexTask.RunSwapOnShard below only STAGES a semantic migration's
+// per-shard swap (pointer flip; OLD survives as backup, no tidied.mig).
+// The destructive commit ([ReindexProvider.commitStagedSwapsLocally])
+// runs only after the ack barrier confirms every unit; on a sibling
+// failure, [ReindexProvider.rollbackStagedSwapsLocally] restores OLD on
+// every staged unit instead — so a mid-flight failure can no longer
 // leave a permanent schema↔bucket inversion.
 func (p *ReindexProvider) runShardSwapPhase(
 	ctx context.Context,
@@ -1593,11 +1590,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 			case distributedtask.TaskStatusCancelled:
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusFinished:
-				// This node's tick observed FINISHED directly — another
-				// node's OnTaskCompleted already committed the schema flip
-				// and finalized. The cluster verdict is COMMIT, so finish
-				// this node's local staged swaps (weaviate/0-weaviate-
-				// issues#220). Idempotent for already-committed shards.
+				// Another node already committed the schema flip; finish
+				// this node's staged swaps too (idempotent)
+				// (weaviate/0-weaviate-issues#220).
 				if IsSemanticMigration(payload.MigrationType) {
 					p.commitStagedSwapsLocally(task, payload, logger)
 				}
@@ -1660,16 +1655,14 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 }
 
 // commitStagedSwapsLocally runs the task-level COMMIT of every staged
-// swap this node owns, after the cluster verdict (schema flip / FINISHED
-// status) is durable. A node that restarted mid-window had its staged
-// state restored to "merged" at boot, so the swap is re-driven first —
-// RunSwapOnShard is idempotent for already-staged shards.
+// swap this node owns once the cluster verdict is durable. A node that
+// restarted mid-window had its staged state reverted to "merged" at
+// boot, so the swap is re-driven first (RunSwapOnShard is idempotent).
 //
-// Errors are logged, not returned: OnTaskCompleted is void today, and an
-// uncommitted staged shard is safe — its staged.mig is resolved by the
-// schema-backed verdict at the next restart. Once the OnTaskCompleted
-// error-return contract (weaviate/weaviate#11986) lands, these errors
-// should propagate so the scheduler holds FINISHED and retries.
+// Errors are logged, not returned: an uncommitted staged shard is safe
+// (staged.mig resolves via the schema-backed verdict at next restart).
+// Once weaviate/weaviate#11986 lands, these should propagate so the
+// scheduler retries.
 func (p *ReindexProvider) commitStagedSwapsLocally(
 	task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) {
@@ -1875,10 +1868,9 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}
 
 	// Roll back staged swaps FIRST (weaviate/0-weaviate-issues#220): the
-	// task verdict is terminal-without-flip, so every unit that staged its
-	// swap must restore the OLD data under the canonical name before the
-	// sidecar teardown below runs. Must happen after the drain — a
-	// rollback racing an in-flight runtimeSwap would tear bucket pointers.
+	// verdict is terminal-without-flip, so staged units must restore OLD
+	// before the sidecar teardown below runs. Must happen after the
+	// drain — racing an in-flight runtimeSwap would tear bucket pointers.
 	p.rollbackStagedSwapsLocally(task, payload, logger)
 
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
@@ -2046,14 +2038,12 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 
 // logOperatorRepairGuidanceOnFailedSemanticMigration logs the exact REST
 // command an operator should issue to recover from a FAILED semantic
-// migration. Sub-tasks that staged their swap before the failed sibling
-// are rolled back automatically ([rollbackStagedSwapsLocally] /
-// the startup restore in [FinalizeCompletedMigrationsWithVerdict]), so
-// the guidance is defense-in-depth for the residual cases: a rollback
-// step that itself failed (each is logged as an ERROR alongside this
-// guidance), or torn partial state on the unit whose own swap failed
-// mid-flight. Rebuild is idempotent on a healthy index, so issuing the
-// command on an already-rolled-back property is safe.
+// migration. Staged swaps are now rolled back automatically
+// ([rollbackStagedSwapsLocally] / the startup restore in
+// [FinalizeCompletedMigrationsWithVerdict]); this guidance is
+// defense-in-depth for a failed rollback step (logged as its own ERROR)
+// or torn state on the unit whose own swap failed mid-flight. Rebuild is
+// idempotent, so issuing it on an already-rolled-back property is safe.
 func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
