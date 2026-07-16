@@ -19,13 +19,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestMergeProps_Tokenization pins the Tokenization-merge behavior backported
-// for weaviate/0-weaviate-issues#238: a v1.38 runtime-reindex
-// change-tokenization migration commits the flip as an UpdateProperty carrying
-// the new tokenization. If a node is downgraded to this (patched) v1.37 and
-// replays that log entry, MergeProps must apply the new tokenization —
-// otherwise the property keeps its AddClass-time value and every query is
-// tokenized against a mismatched index, silently returning 0 hits.
+// TestMergeProps_Tokenization pins weaviate/0-weaviate-issues#238: a downgraded
+// v1.37 node replaying a v1.38 tokenization migration must apply it, not
+// silently keep the stale value and return 0 hits.
 func TestMergeProps_Tokenization(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -35,8 +31,7 @@ func TestMergeProps_Tokenization(t *testing.T) {
 		expectNestedNames  []string
 	}{
 		{
-			// The #238 repro: replaying a v1.38-written migration must apply
-			// the flipped tokenization. Red without the backport.
+			// #238 repro: replaying a v1.38 migration must flip the tokenization.
 			name: "migration flips tokenization",
 			old: []*models.Property{{
 				Name:         "title",
@@ -51,8 +46,7 @@ func TestMergeProps_Tokenization(t *testing.T) {
 			expectTokenization: models.PropertyTokenizationField,
 		},
 		{
-			// The no-op guard: an UpdateProperty carrying no tokenization
-			// (e.g. a plain index-only update) must not wipe the stored value.
+			// An index-only update (no tokenization) must not wipe the stored value.
 			name: "empty incoming tokenization keeps stored value",
 			old: []*models.Property{{
 				Name:         "title",
@@ -62,12 +56,8 @@ func TestMergeProps_Tokenization(t *testing.T) {
 			expectTokenization: models.PropertyTokenizationWord,
 		},
 		{
-			// The native-v1.37 neutrality invariant the backport's safety
-			// argument rests on: native v1.37 never mutates an existing
-			// property's tokenization, so the incoming value always equals
-			// the stored one and the merge must be a no-op. Green with and
-			// without the backport by design — it pins the invariant rather
-			// than reproducing #238.
+			// Invariant the backport relies on: native v1.37 never changes
+			// tokenization, so this merge is always a no-op.
 			name: "same incoming tokenization is a no-op",
 			old: []*models.Property{{
 				Name:         "title",
@@ -82,9 +72,7 @@ func TestMergeProps_Tokenization(t *testing.T) {
 			expectTokenization: models.PropertyTokenizationWord,
 		},
 		{
-			// MergeProps keys on strings.ToLower(Name): a differently-cased
-			// incoming name must still merge into the existing property
-			// instead of appending a duplicate.
+			// A differently-cased incoming name must still merge, not duplicate.
 			name: "case-insensitive name match merges tokenization",
 			old: []*models.Property{{
 				Name:         "Title",
@@ -99,9 +87,7 @@ func TestMergeProps_Tokenization(t *testing.T) {
 			expectTokenization: models.PropertyTokenizationField,
 		},
 		{
-			// The nested-merge branch replaces the merged property with a
-			// copy (propCopy := *mergedProps[oldIdx]) after the tokenization
-			// assignment; the flip must survive that copy.
+			// The tokenization flip must survive the nested-merge copy path.
 			name: "tokenization flip survives copy-on-nested-merge",
 			old: []*models.Property{{
 				Name:         "info",

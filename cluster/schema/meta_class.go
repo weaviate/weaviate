@@ -221,17 +221,10 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 			mergedProps[oldIdx].IndexFilterable = new[idx].IndexFilterable
 			mergedProps[oldIdx].IndexSearchable = new[idx].IndexSearchable
 			if new[idx].Tokenization != "" {
-				// v1.38 runtime-reindex commits a change-tokenization migration as
-				// an UpdateProperty carrying the new tokenization. Without merging
-				// it, a node downgraded to this version keeps the old tokenization
-				// and silently returns 0 hits (0-weaviate-issues#238). Native
-				// v1.37 never mutates an existing property's tokenization, so the
-				// incoming value equals the stored one here and this is a no-op.
-				// Downgrade envelope: this assumes v1.38.x persists reindexed
-				// data at the unsuffixed canonical bucket path (true today — no
-				// live BucketGeneration producer); a release that activates
-				// generation-suffixed bucket paths re-breaks the v1.37 downgrade
-				// and must re-evaluate this backport.
+				// Backport for weaviate/0-weaviate-issues#238: v1.38 change-tokenization
+				// migrations replay as an UpdateProperty; skipping this merge leaves a
+				// downgraded v1.37 node on stale tokenization, silently returning 0 hits.
+				// Holds only while v1.38.x reindexes to the unsuffixed bucket path.
 				mergedProps[oldIdx].Tokenization = new[idx].Tokenization
 			}
 
