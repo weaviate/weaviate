@@ -104,3 +104,72 @@ func TestGlobalBucketRegistry_RemoveByPrefix(t *testing.T) {
 		})
 	}
 }
+
+// RemoveByPrefixes is the batched form: one locked scan deletes the union of the
+// matches of every dir, honouring the same dir/dir+separator boundary per dir.
+func TestGlobalBucketRegistry_RemoveByPrefixes(t *testing.T) {
+	base := filepath.Join(string(filepath.Separator)+"var", "lib", "weaviate", "MyClass")
+	lsm := func(tenant string) string { return filepath.Join(base, tenant, "lsm") }
+	id := func(tenant string) string { return filepath.Join(lsm(tenant), "property__id") }
+
+	tests := []struct {
+		name     string
+		seed     []string
+		prefixes []string
+		wantIn   []string // purged
+		wantOut  []string // survive
+	}{
+		{
+			name:     "purges the union of several tenants in one call",
+			seed:     []string{id("t1"), id("t2"), id("t3"), id("t10")},
+			prefixes: []string{lsm("t1"), lsm("t2"), lsm("t3")},
+			wantIn:   []string{id("t1"), id("t2"), id("t3")},
+			wantOut:  []string{id("t10")}, // t1 !⊑ t10 boundary holds across the batch
+		},
+		{
+			name:     "each dir keeps its exact separator boundary",
+			seed:     []string{lsm("t1"), id("t1"), lsm("t10"), id("t10")},
+			prefixes: []string{lsm("t1")},
+			wantIn:   []string{lsm("t1"), id("t1")},
+			wantOut:  []string{lsm("t10"), id("t10")},
+		},
+		{
+			name:     "absent and empty dirs are no-ops, present ones still purge",
+			seed:     []string{id("t1")},
+			prefixes: []string{lsm("t1"), lsm("t99")},
+			wantIn:   []string{id("t1")},
+			wantOut:  nil,
+		},
+		{
+			name:     "empty dir list is a no-op",
+			seed:     []string{id("t1")},
+			prefixes: nil,
+			wantIn:   nil,
+			wantOut:  []string{id("t1")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, p := range tt.seed {
+				require.NoError(t, GlobalBucketRegistry.TryAdd(p))
+			}
+			t.Cleanup(func() {
+				for _, p := range tt.seed {
+					GlobalBucketRegistry.Remove(p)
+				}
+			})
+
+			GlobalBucketRegistry.RemoveByPrefixes(tt.prefixes)
+
+			for _, p := range tt.wantIn {
+				require.NoError(t, GlobalBucketRegistry.TryAdd(p),
+					"%s should have been purged by RemoveByPrefixes(%v)", p, tt.prefixes)
+			}
+			for _, p := range tt.wantOut {
+				require.ErrorIs(t, GlobalBucketRegistry.TryAdd(p), ErrBucketAlreadyRegistered,
+					"%s must survive RemoveByPrefixes(%v) (over-match)", p, tt.prefixes)
+			}
+		})
+	}
+}

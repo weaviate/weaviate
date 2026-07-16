@@ -3262,6 +3262,11 @@ func (i *Index) drop() error {
 
 	i.closed = true
 
+	// Terminal registry sweep. Safe because i.closed is set under closeLock.Lock and every
+	// bucket-registering init path re-checks it under closeLock.RLock, so no live
+	// bucket for this index can register once the drop begins.
+	defer lsmkv.GlobalBucketRegistry.RemoveByPrefix(i.path())
+
 	i.closingCancel()
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
@@ -3269,6 +3274,9 @@ func (i *Index) drop() error {
 	lastBackup := i.lastBackup.Load()
 	keepFiles := lastBackup != nil
 
+	// NewSafe: the dropShard closures run concurrently in the errgroup and Add to
+	// ec from multiple goroutines.
+	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
@@ -3285,6 +3293,7 @@ func (i *Index) drop() error {
 				return nil // shard already does not exist
 			}
 			if err := shard.drop(keepFiles); err != nil {
+				ec.Add(err)
 				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
 			}
 
@@ -3310,7 +3319,10 @@ func (i *Index) drop() error {
 
 	if keepFiles {
 		// backup framework expects the DeleteMarkerAdd-prefixed rename
-		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
+		if err := os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID()))); err != nil {
+			return err
+		}
+		return ec.ToError()
 	}
 
 	// rename sync (must complete even if ctx is expired); RemoveAll async
@@ -3321,7 +3333,7 @@ func (i *Index) drop() error {
 	if deleted != "" {
 		spawnAsyncDelete(deleted, i.logger)
 	}
-	return nil
+	return ec.ToError()
 }
 
 // withCloseRLockGuard runs fn under i.closeLock.RLock, returning
@@ -3351,9 +3363,15 @@ func (i *Index) dropShards(names []string) error {
 		return errAlreadyShutdown
 	}
 
-	ec := errorcompounder.New()
+	// NewSafe: dropShard closures Add concurrently from the errgroup goroutines.
+	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
+
+	var (
+		unloadedMu    sync.Mutex
+		unloadedNames []string
+	)
 
 	for _, name := range names {
 		name := name
@@ -3371,7 +3389,9 @@ func (i *Index) dropShards(names []string) error {
 					ec.Add(err)
 					i.logger.WithField("action", "drop_shard").WithField("shard", name).Error(err)
 				}
-				lsmkv.GlobalBucketRegistry.RemoveByPrefix(shardPathLSM(i.path(), name))
+				unloadedMu.Lock()
+				unloadedNames = append(unloadedNames, name)
+				unloadedMu.Unlock()
 			} else {
 				// If shard is loaded use the native primitive to drop it
 				if err := shard.drop(false); err != nil {
@@ -3385,7 +3405,43 @@ func (i *Index) dropShards(names []string) error {
 	}
 
 	eg.Wait()
+
+	i.purgeUnloadedShardRegistry(unloadedNames)
+
 	return ec.ToError()
+}
+
+// purgeUnloadedShardRegistry removes, in a single locked registry scan, the
+// GlobalBucketRegistry entries under the lsm subtree of each unloaded shard that
+// dropShards deleted from disk.
+//
+// Correctness rests on holding each name's shardCreateLocks write lock across
+// BOTH the gate (i.shards.Load(name)==nil) AND the RemoveByPrefixes scan.
+func (i *Index) purgeUnloadedShardRegistry(names []string) {
+	if len(names) == 0 {
+		return
+	}
+
+	names = slices.Clone(names)
+	slices.Sort(names)
+	names = slices.Compact(names)
+
+	for _, name := range names {
+		i.shardCreateLocks.Lock(name)
+	}
+	defer func() {
+		for _, name := range names {
+			i.shardCreateLocks.Unlock(name)
+		}
+	}()
+
+	dirs := make([]string, 0, len(names))
+	for _, name := range names {
+		if i.shards.Load(name) == nil {
+			dirs = append(dirs, shardPathLSM(i.path(), name))
+		}
+	}
+	lsmkv.GlobalBucketRegistry.RemoveByPrefixes(dirs)
 }
 
 func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
@@ -3396,7 +3452,8 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 		return errAlreadyShutdown
 	}
 
-	ec := errorcompounder.New()
+	// NewSafe: the delete closures Add concurrently from the errgroup goroutines.
+	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 

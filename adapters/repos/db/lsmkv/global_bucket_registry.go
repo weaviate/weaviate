@@ -64,14 +64,37 @@ func (r *globalBucketRegistry) Remove(absoluteBucketPath string) {
 // ".../t1/lsm" and ".../t1/lsm/property__id" but never a sibling like
 // ".../t10/lsm", whose registration belongs to a different, possibly live shard.
 func (r *globalBucketRegistry) RemoveByPrefix(dir string) {
-	prefix := dir + string(filepath.Separator)
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	r.removeByPrefixesLocked([]string{dir})
+}
+
+// RemoveByPrefixes is RemoveByPrefix batched: it deletes every registered path
+// under any dir in dirs in a single locked scan.
+func (r *globalBucketRegistry) RemoveByPrefixes(dirs []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.removeByPrefixesLocked(dirs)
+}
+
+func (r *globalBucketRegistry) removeByPrefixesLocked(dirs []string) {
+	if len(dirs) == 0 {
+		return
+	}
+
+	prefixes := make([]string, len(dirs))
+	for i, dir := range dirs {
+		prefixes[i] = dir + string(filepath.Separator)
+	}
+
 	for key := range r.buckets {
-		if key == dir || strings.HasPrefix(key, prefix) {
-			delete(r.buckets, key)
+		for i, dir := range dirs {
+			if key == dir || strings.HasPrefix(key, prefixes[i]) {
+				delete(r.buckets, key)
+				break
+			}
 		}
 	}
 }

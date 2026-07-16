@@ -43,6 +43,13 @@ import (
 // for any tenant name therefore takes the "unloaded" (!ok) branch, which
 // deletes the on-disk subtree without a Store to Shutdown each bucket.
 func newEmptyMTIndex(t *testing.T) *Index {
+	return newEmptyMTIndexAt(t, t.TempDir())
+}
+
+// newEmptyMTIndexAt is newEmptyMTIndex over a caller-supplied RootPath, so a
+// second index (a same-name restore/recreate) can be built on the same on-disk
+// class path as a first one that was dropped.
+func newEmptyMTIndexAt(t *testing.T, rootPath string) *Index {
 	t.Helper()
 	logger := logrus.New()
 
@@ -73,7 +80,7 @@ func newEmptyMTIndex(t *testing.T) *Index {
 
 	index, err := NewIndex(context.Background(), IndexConfig{
 		ClassName:         schema.ClassName("TestClass"),
-		RootPath:          t.TempDir(),
+		RootPath:          rootPath,
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
@@ -169,4 +176,163 @@ func TestDropShardsRegistry_UnloadedRemoveAllFailureDoesNotPanic(t *testing.T) {
 
 	err := idx.dropShards([]string{tenant})
 	require.Error(t, err, "dropShards must surface the RemoveAll failure rather than panic")
+}
+
+// A tenant-batch delete purges every unloaded tenant's registry residue in ONE
+// scan and honours the same dir/dir+separator boundary as the per-tenant call,
+// so a batch of {t1,t2,t3} never touches siblings {t10,t20}.
+func TestDropShardsRegistry_BatchPurgeBoundary(t *testing.T) {
+	idx := newEmptyMTIndex(t)
+
+	drop := []string{"t1", "t2", "t3"}
+	siblings := []string{"t10", "t20"} // must survive: t1 !⊑ t10, t2 !⊑ t20
+
+	for _, tenant := range append(append([]string{}, drop...), siblings...) {
+		p := tenantIDBucketPath(idx, tenant)
+		require.NoError(t, lsmkv.GlobalBucketRegistry.TryAdd(p))
+		t.Cleanup(func() { lsmkv.GlobalBucketRegistry.Remove(p) })
+	}
+
+	require.NoError(t, idx.dropShards(drop))
+
+	for _, tenant := range drop {
+		p := tenantIDBucketPath(idx, tenant)
+		require.NoError(t, lsmkv.GlobalBucketRegistry.TryAdd(p),
+			"batched dropShards must purge every dropped tenant's registry residue")
+		lsmkv.GlobalBucketRegistry.Remove(p)
+	}
+	for _, tenant := range siblings {
+		p := tenantIDBucketPath(idx, tenant)
+		require.ErrorIs(t, lsmkv.GlobalBucketRegistry.TryAdd(p), lsmkv.ErrBucketAlreadyRegistered,
+			"batched dropShards must not over-match a sibling tenant (%s)", tenant)
+	}
+}
+
+// dropShards fans its per-tenant work across errgroup goroutines that each call
+// ec.Add on failure. With a non-thread-safe errorcompounder.New(), >=2 tenants
+// failing concurrently is a data race and a potentially lost error; NewSafe()
+// makes ec.Add safe. Force several cold tenants to fail their os.RemoveAll at
+// once and run under -race.
+func TestDropShardsRegistry_ConcurrentCompounderNoRace(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("runs as root: filesystem permissions are ignored, cannot inject a RemoveAll failure")
+	}
+
+	idx := newEmptyMTIndex(t)
+
+	tenants := []string{"t1", "t2", "t3", "t4", "t5", "t6"}
+	for _, tenant := range tenants {
+		require.NoError(t, os.MkdirAll(shardPath(idx.path(), tenant), 0o700))
+	}
+	// Revoke write on the class dir so every child os.RemoveAll fails with EACCES
+	// concurrently, driving concurrent ec.Add from the errgroup goroutines.
+	t.Cleanup(func() { _ = os.Chmod(idx.path(), 0o700) })
+	require.NoError(t, os.Chmod(idx.path(), 0o500))
+
+	err := idx.dropShards(tenants)
+	require.Error(t, err, "dropShards must compound the concurrent RemoveAll failures")
+}
+
+// A concurrent init that already published a shard for a just-dropped tenant must
+// NOT have its live registry entry purged. The realistic adversary is an Incoming*
+// replica-write ensure-init or a lazy/on-demand init, both of which register
+// buckets under shardCreateLocks(name) (IncomingCreateShard is vestigial — no
+// in-repo caller since v1.33.0). purgeUnloadedShardRegistry holds each name's
+// shardCreateLocks across the gate and the scan; seeding i.shards before the call
+// pins the "init completed first" branch, where the purge takes t1's lock
+// uncontended and the gate skips it (the TryAdd-before-Store interleave is pinned
+// by TestDropShardsRegistry_BatchPurgeGate_InFlightInit).
+func TestDropShardsRegistry_BatchPurgeGate(t *testing.T) {
+	idx := newEmptyMTIndex(t)
+
+	// t1: a shard is present (a concurrent init won the race after the drop
+	// goroutine released shardCreateLocks). t2: absent — residue to purge.
+	idx.shards.Store("t1", &LazyLoadShard{})
+	t.Cleanup(func() { idx.shards.LoadAndDelete("t1") }) // LIFO: before index.Shutdown
+
+	p1 := tenantIDBucketPath(idx, "t1")
+	p2 := tenantIDBucketPath(idx, "t2")
+	require.NoError(t, lsmkv.GlobalBucketRegistry.TryAdd(p1))
+	require.NoError(t, lsmkv.GlobalBucketRegistry.TryAdd(p2))
+	t.Cleanup(func() {
+		lsmkv.GlobalBucketRegistry.Remove(p1)
+		lsmkv.GlobalBucketRegistry.Remove(p2)
+	})
+
+	idx.purgeUnloadedShardRegistry([]string{"t1", "t2"})
+
+	require.ErrorIs(t, lsmkv.GlobalBucketRegistry.TryAdd(p1), lsmkv.ErrBucketAlreadyRegistered,
+		"gate must skip a tenant present in i.shards, preserving its live registration")
+	require.NoError(t, lsmkv.GlobalBucketRegistry.TryAdd(p2),
+		"an absent tenant's residue must still be purged in the batch")
+	lsmkv.GlobalBucketRegistry.Remove(p2) // re-added by the probe above
+}
+
+// The i.shards gate alone is not enough: getOptInitLocalShard registers a bucket
+// (TryAdd, lsmkv/bucket.go:386) BEFORE it publishes the shard (i.shards.Store,
+// index.go:3083), both under shardCreateLocks.Lock(name). A purge that reads only
+// the gate, holding no per-name lock, can observe the TryAdd'd-but-unpublished
+// bucket as absent and remove a LIVE registration — disabling the registry's sole
+// double-open guard (a later open of the same path would TryAdd successfully and
+// yield two *Bucket on the same segment files). The fix holds shardCreateLocks(N)
+// across BOTH the gate and the RemoveByPrefixes scan, making the purge mutually
+// exclusive with the init's TryAdd→Store window.
+//
+// This pins that property deterministically: an in-flight init holds Lock(N) with
+// N's id bucket TryAdd'd but not yet published; the purge is spawned, then the init
+// is released to publish N and drop the lock. Under the under-lock design the purge
+// cannot pass Lock(N) until then, so its gate necessarily runs AFTER Store(N) and
+// skips N — N's live registration survives. This is deterministically green on the
+// fixed code (the purge is provably serialized after the init's Store) and cannot
+// deadlock.
+//
+// This is not a synctest test: Go's testing/synctest does not treat
+// sync.Mutex/RWMutex acquisition as a durably-blocking operation (only channel
+// ops, select, time.Sleep, sync.Cond.Wait, sync.WaitGroup.Wait qualify), so
+// synctest.Wait() never returns once the fixed purge parks on shardCreateLocks and
+// the green path hangs. A deterministic test that is BOTH reliably red on the
+// unlocked code AND green here is impossible without that synctest edge (any
+// release-then-observe script either races or deadlocks the fix).
+func TestDropShardsRegistry_BatchPurgeGate_InFlightInit(t *testing.T) {
+	idx := newEmptyMTIndex(t)
+
+	const tenant = "t1"
+	// LIFO, before newEmptyMTIndex's Shutdown cleanup: drop the shard the init
+	// goroutine publishes so Shutdown does not tear down a zero-value shard.
+	t.Cleanup(func() { idx.shards.LoadAndDelete(tenant) })
+
+	p := tenantIDBucketPath(idx, tenant)
+	t.Cleanup(func() { lsmkv.GlobalBucketRegistry.Remove(p) })
+
+	locked := make(chan struct{})  // closed once the init holds Lock(N) and has TryAdd'd
+	publish := make(chan struct{}) // signals the init to Store + Unlock
+	purgeDone := make(chan struct{})
+
+	// In-flight init: hold shardCreateLocks(N) across the TryAdd→Store window,
+	// exactly as getOptInitLocalShard does.
+	go func() {
+		idx.shardCreateLocks.Lock(tenant)
+		_ = lsmkv.GlobalBucketRegistry.TryAdd(p)
+		close(locked)
+		<-publish
+		idx.shards.Store(tenant, &LazyLoadShard{})
+		idx.shardCreateLocks.Unlock(tenant)
+	}()
+
+	<-locked // init now holds Lock(N) with N's bucket registered but unpublished
+
+	go func() {
+		idx.purgeUnloadedShardRegistry([]string{tenant})
+		close(purgeDone)
+	}()
+
+	// Release the init: it publishes N and drops the lock. The under-lock purge is
+	// blocked on Lock(N) until here, so its gate runs after Store(N) and skips N.
+	close(publish)
+	<-purgeDone
+
+	require.ErrorIs(t, lsmkv.GlobalBucketRegistry.TryAdd(p), lsmkv.ErrBucketAlreadyRegistered,
+		"the under-lock purge must block on shardCreateLocks(N) until the init publishes N, "+
+			"then skip it — leaving N's live registration intact")
+	lsmkv.GlobalBucketRegistry.Remove(p) // re-added by the probe above
 }
