@@ -486,10 +486,8 @@ type Shard struct {
 	callbacksAddToPropertyValueIndex      atomic.Value // []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex atomic.Value // []onDeleteFromPropertyValueIndex
 	propertyValueIndexCallbacksMu         sync.Mutex
-	// Live count of add-to-property-value-index callbacks (a reindex in flight).
-	// Disabled callbacks stay in the slice, so this counter — not the slice
-	// length — is the cheap "is a reindex active" gate the write paths read to
-	// decide whether to mirror co-located props into the ingest bucket.
+	// Live callback count; disabled callbacks stay in the slice, so slice
+	// length can't be used as the "reindex active" gate.
 	activeAddToPropertyValueIndexCallbacks atomic.Int32
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid

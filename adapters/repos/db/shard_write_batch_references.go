@@ -172,13 +172,10 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 	return errs
 }
 
-// mirrorColocatedPropsForReindex mirrors the freshly-merged object's full prop
-// set into any in-flight reindex ingest bucket. The batch-ref writers touch
-// only the reference's own buckets, so without this a reindex of a co-located
-// primitive property loses the object: mutableMergeObjectLSM bumps its
-// LastUpdateTimeUnix past the reindex watermark, the backfill scan skips it, yet
-// its value was never mirrored (weaviate/0-weaviate-issues#318). No-op when no
-// reindex is active.
+// mirrorColocatedPropsForReindex mirrors the merged object's props for any
+// in-flight reindex. Batch-ref writes only touch their own buckets, so this
+// prevents the backfill scan from skipping an object whose co-located target
+// value was never re-indexed (weaviate/0-weaviate-issues#318).
 func (b *referencesBatcher) mirrorColocatedPropsForReindex(res mutableMergeResult) error {
 	if !b.shard.hasActiveReindexMirror() {
 		return nil

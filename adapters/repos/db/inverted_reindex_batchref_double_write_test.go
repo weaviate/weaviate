@@ -30,11 +30,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// reindexRaceClass builds a class with three co-located properties: a
-// searchable text prop (the reindex target), a filterable-only text prop, and
-// a self-reference. MapToBlockmax targets only the searchable prop, so the
-// other two stand in for "co-located data a concurrent write touches while the
-// searchable prop is being reindexed".
+// reindexRaceClass has a searchable "title" (the reindex target) alongside a
+// filterable-only prop and a self-reference, standing in for co-located data
+// a concurrent write touches during the reindex.
 func reindexRaceClass(className string) *models.Class {
 	return &models.Class{
 		Class:             className,
@@ -101,19 +99,11 @@ func batchRefTo(className, sourceID, targetID string, updateTime int64) objects.
 	}
 }
 
-// TestReindexDoubleWrite_ConcurrentWritePreservesColocatedProp reproduces
-// weaviate/0-weaviate-issues#318: a write that bumps an object's
-// LastUpdateTimeUnix past the reindex watermark makes the backfill scan skip
-// the object, so its value for a co-located property being reindexed must be
-// mirrored into the ingest bucket by a double-write callback. The batch-
-// reference path (and any delta merge) bumps the timestamp without firing the
-// callbacks for the unchanged target property, silently dropping it from the
-// new index generation.
-//
-// Each case seeds a "victim" object whose searchable title is unique, starts a
-// MapToBlockmax reindex of title, performs a concurrent write against the
-// victim timestamped past the watermark, then drives the reindex to swap and
-// asserts the victim's title posting survives.
+// TestReindexDoubleWrite_ConcurrentWritePreservesColocatedProp pins
+// weaviate/0-weaviate-issues#318: a batch-ref or delta-merge write that bumps
+// an object past the reindex watermark without re-analyzing its co-located
+// target property must still mirror that value into the ingest bucket, or the
+// backfill scan's skip silently drops it from the new index generation.
 func TestReindexDoubleWrite_ConcurrentWritePreservesColocatedProp(t *testing.T) {
 	const (
 		pastTS         = int64(1_000)
@@ -124,9 +114,8 @@ func TestReindexDoubleWrite_ConcurrentWritePreservesColocatedProp(t *testing.T) 
 
 	cases := []struct {
 		name string
-		// preloadRef adds a reference before the reindex starts so the
-		// concurrent batch write bumps ref-count 1->2, exercising the
-		// writeInvertedDeletions ("delete") leg alongside the add leg.
+		// preloadRef bumps ref-count 1->2 on the concurrent write, exercising
+		// the delete leg alongside the add leg.
 		preloadRef bool
 		mutate     func(t *testing.T, ctx context.Context, shard *Shard, className, victimID string, updateTime int64)
 	}{
@@ -208,16 +197,13 @@ func TestReindexDoubleWrite_ConcurrentWritePreservesColocatedProp(t *testing.T) 
 				}
 			}
 
-			// Start the reindex: registers the double-write callbacks and
-			// stamps reindexStarted = now (>> pastTS), so every seeded object
-			// is behind the watermark and gets scanned.
+			// Watermark lands after pastTS, so every seeded object gets scanned.
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTask(idx.logger, strategy)
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
-			// The concurrent write lands an hour past the watermark, so the
-			// backfill scan skips the victim and must rely on the double-write
-			// to have mirrored its (unchanged) title into the ingest bucket.
+			// An hour past the watermark: the backfill scan skips the victim,
+			// so it must rely on the double-write mirror.
 			futureTS := time.Now().UnixMilli() + int64(time.Hour/time.Millisecond)
 			tc.mutate(t, ctx, shard, className, victimID, futureTS)
 
