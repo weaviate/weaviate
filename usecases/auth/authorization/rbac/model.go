@@ -156,7 +156,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 // local config
 func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
 	if namespacesEnabled {
-		if err := rejectNamespaceSeparatorInBootstrapUsers(conf); err != nil {
+		if err := rejectNamespaceSeparatorInBootstrapUsers(conf, authNconf); err != nil {
 			return err
 		}
 	}
@@ -275,25 +275,32 @@ var (
 	groupsPrefix     = authorization.GroupsDomain + "/"
 )
 
-// rejectNamespaceSeparatorInBootstrapUsers fails startup when a static
-// bootstrap user (root/admin/viewer) name contains the namespace separator on
-// a namespace-enabled cluster. These names are always registered as global
-// subjects: a separator in an OIDC name re-slots into a subject that can never
-// authenticate and that the startup invariants reject, and a namespaced
-// principal must never inherit a cluster-wide role. Read-only has no static
-// user list (groups only), so it needs no guard.
-func rejectNamespaceSeparatorInBootstrapUsers(conf rbacconf.Config) error {
-	for _, list := range []struct {
-		role  string
-		users []string
-	}{
-		{authorization.Root, conf.RootUsers},
-		{authorization.Admin, conf.AdminUsers},
-		{authorization.Viewer, conf.ViewerUsers},
-	} {
+// rejectNamespaceSeparatorInBootstrapUsers fails startup when a statically
+// configured user name (root/admin/viewer or static API-key) contains the
+// namespace separator on a namespace-enabled cluster. These names are always
+// registered as global subjects: a separator in an OIDC name re-slots into a
+// subject that can never authenticate and that the startup invariants reject, a
+// namespaced principal must never inherit a cluster-wide role, and a static
+// API-key name carrying a separator produces the same subject as a namespaced
+// DB user of that name. Read-only has no static user list (groups only), so it
+// needs no guard.
+func rejectNamespaceSeparatorInBootstrapUsers(conf rbacconf.Config, authNconf config.Authentication) error {
+	type userList struct {
+		source string
+		users  []string
+	}
+	lists := []userList{
+		{"RBAC " + authorization.Root, conf.RootUsers},
+		{"RBAC " + authorization.Admin, conf.AdminUsers},
+		{"RBAC " + authorization.Viewer, conf.ViewerUsers},
+	}
+	if authNconf.APIKey.Enabled {
+		lists = append(lists, userList{"static API-key", authNconf.APIKey.Users})
+	}
+	for _, list := range lists {
 		for _, u := range list.users {
 			if strings.Contains(u, schema.NamespaceSeparator) {
-				return fmt.Errorf("RBAC %s user %q contains the namespace separator %q; static bootstrap users are global and their names must not contain it", list.role, u, schema.NamespaceSeparator)
+				return fmt.Errorf("%s user %q contains the namespace separator %q; statically configured users are global and their names must not contain it", list.source, u, schema.NamespaceSeparator)
 			}
 		}
 	}

@@ -1093,30 +1093,45 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testin
 }
 
 // TestApplyPredefinedRoles_RejectsNamespaceSeparatorInBootstrapUsers pins the
-// static-bootstrap reject: a root/admin/viewer user whose name contains the
-// namespace separator fails startup on NS clusters. Root guards against a
-// namespaced principal inheriting cluster-wide root; admin/viewer guard against
-// a colon-bearing global OIDC name that would slot into an un-authenticatable
-// subject the startup invariants reject. NS-disabled is unaffected.
+// static-user reject: a root/admin/viewer or static API-key user whose name
+// contains the namespace separator fails startup on NS clusters. Root guards
+// against a namespaced principal inheriting cluster-wide root; admin/viewer
+// guard against a colon-bearing global OIDC name that would slot into an
+// un-authenticatable subject the startup invariants reject. A static API-key
+// name is global but reaches casbin unslotted, so a separator there produces the
+// same subject as a namespaced DB user of that name. NS-disabled is unaffected.
 func TestApplyPredefinedRoles_RejectsNamespaceSeparatorInBootstrapUsers(t *testing.T) {
+	apiKeys := func(users ...string) config.Authentication {
+		return config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: users}}
+	}
 	tests := []struct {
 		name              string
 		conf              rbacconf.Config
+		authNconf         config.Authentication
 		namespacesEnabled bool
 		wantErr           bool
 	}{
-		{"namespaced root user on NS cluster rejected", rbacconf.Config{Enabled: true, RootUsers: []string{"customer1:alice"}}, true, true},
-		{"colon admin user on NS cluster rejected", rbacconf.Config{Enabled: true, AdminUsers: []string{"customer1:carol"}}, true, true},
-		{"leading-colon admin user on NS cluster rejected", rbacconf.Config{Enabled: true, AdminUsers: []string{":carol"}}, true, true},
-		{"colon viewer user on NS cluster rejected", rbacconf.Config{Enabled: true, ViewerUsers: []string{"customer1:carol"}}, true, true},
-		{"bare users on NS cluster allowed", rbacconf.Config{Enabled: true, RootUsers: []string{"alice"}, AdminUsers: []string{"bob"}, ViewerUsers: []string{"carol"}}, true, false},
-		{"mixed list with one namespaced on NS cluster rejected", rbacconf.Config{Enabled: true, RootUsers: []string{"alice", "customer1:bob"}}, true, true},
-		{"colon admin user on NS-disabled allowed", rbacconf.Config{Enabled: true, AdminUsers: []string{"customer1:carol"}}, false, false},
+		{"namespaced root user on NS cluster rejected", rbacconf.Config{Enabled: true, RootUsers: []string{"customer1:alice"}}, config.Authentication{}, true, true},
+		{"colon admin user on NS cluster rejected", rbacconf.Config{Enabled: true, AdminUsers: []string{"customer1:carol"}}, config.Authentication{}, true, true},
+		{"leading-colon admin user on NS cluster rejected", rbacconf.Config{Enabled: true, AdminUsers: []string{":carol"}}, config.Authentication{}, true, true},
+		{"colon viewer user on NS cluster rejected", rbacconf.Config{Enabled: true, ViewerUsers: []string{"customer1:carol"}}, config.Authentication{}, true, true},
+		{"bare users on NS cluster allowed", rbacconf.Config{Enabled: true, RootUsers: []string{"alice"}, AdminUsers: []string{"bob"}, ViewerUsers: []string{"carol"}}, config.Authentication{}, true, false},
+		{"mixed list with one namespaced on NS cluster rejected", rbacconf.Config{Enabled: true, RootUsers: []string{"alice", "customer1:bob"}}, config.Authentication{}, true, true},
+		{"colon admin user on NS-disabled allowed", rbacconf.Config{Enabled: true, AdminUsers: []string{"customer1:carol"}}, config.Authentication{}, false, false},
+
+		// A static API-key user is global and its subject is never slotted, so a
+		// separator aliases it onto a namespaced DB user's subject.
+		{"colon static API-key user on NS cluster rejected", rbacconf.Config{Enabled: true}, apiKeys("customer1:carol"), true, true},
+		{"leading-colon static API-key user on NS cluster rejected", rbacconf.Config{Enabled: true}, apiKeys(":carol"), true, true},
+		{"mixed static API-key list with one colon on NS cluster rejected", rbacconf.Config{Enabled: true}, apiKeys("alice", "customer1:bob"), true, true},
+		{"bare static API-key users on NS cluster allowed", rbacconf.Config{Enabled: true}, apiKeys("alice", "bob"), true, false},
+		{"colon static API-key user on NS-disabled allowed", rbacconf.Config{Enabled: true}, apiKeys("customer1:carol"), false, false},
+		{"colon static API-key user with API keys disabled allowed", rbacconf.Config{Enabled: true}, config.Authentication{APIKey: config.StaticAPIKey{Enabled: false, Users: []string{"customer1:carol"}}}, true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := freshPolicyDir(t)
-			_, err := Init(tt.conf, dir, config.Authentication{}, tt.namespacesEnabled)
+			_, err := Init(tt.conf, dir, tt.authNconf, tt.namespacesEnabled)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
