@@ -72,6 +72,110 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 	return nil
 }
 
+// backfillSidecarsForMigration writes the null-state / property-length
+// sidecar entries (and, for searchable targets, the BM25 prop-length tally)
+// that an enable-* runtime migration's backfill loop would otherwise skip
+// for pre-existing objects (weaviate/0-weaviate-issues#322).
+//
+// The migration's backfill (ShardReindexTaskGeneric.OnAfterLsmInitAsync)
+// already computes both `props` and `nilProps` via
+// Shard.AnalyzeObjectForMigrationWithOverlay for every scanned object - the
+// same two return values a normal PutObject write feeds to
+// extendInvertedIndicesLSM / SetPropertyLengths. This mirrors that gating
+// logic (see extendInvertedIndicesLSM above and the legacy
+// ShardInvertedReindexer.handleProperty/handleNilProperty in
+// inverted_reindexer.go), but restricted to `propsInScope` - the set of
+// properties THIS migration targets.
+//
+// Scoping to propsInScope is load-bearing, not cosmetic: `props`/`nilProps`
+// cover every analyzed property on the object, including ones that already
+// had a live index (and were already correctly backfilled at original
+// write time) long before this migration started. Writing null/length for
+// those again is harmless (RoaringSet Add is idempotent), but re-running
+// the BM25 tally (GetPropertyLengthTracker().TrackProperty) for a
+// non-migrating property would double-count its Sum/Count - corrupting
+// avgdl for a property this migration never touched. See
+// TestSidecarBackfill_ScopedToMigratingPropOnly.
+//
+// Null/length buckets are NOT part of the reindex/ingest/backup swap
+// machinery: they are the same live bucket the normal write path uses
+// (addToPropertyLengthIndex / addToPropertyNullIndex below), so writing
+// into them directly during backfill requires no swap/versioning changes
+// and is safe under the existing pause/resume tick boundary (a paused tick
+// always persists lastProcessedKey for exactly the objects it already
+// wrote - see markProgress in OnAfterLsmInitAsync).
+//
+// KNOWN LIMITATION (documented, not silently shipped - see the PR
+// description's "Known limitation" section and
+// Conversations/<task>__tally-crash-resume-design-brief.md): the BM25
+// tally call is a cumulative in-memory/on-disk counter increment, not an
+// idempotent set-add. A hard process crash exactly mid-tick (after this
+// function has run for some objects in the current batch but before
+// OnAfterLsmInitAsync's end-of-tick markProgress call persists), followed
+// by a restart that replays the same tick, would double-count the tally
+// contribution for the objects processed before the crash. The null/length
+// bucket writes are unaffected (idempotent). This is a narrow window
+// (bounded by one tick's batch size) that only affects the BM25 avgdl
+// statistic, not filter correctness; flagged for QA Claude / architect
+// input per rule 8b rather than silently shipped or used to block the rest
+// of this fix.
+func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Property,
+	nilProps []inverted.NilProperty, propsInScope map[string]struct{},
+) error {
+	for _, prop := range props {
+		if _, ok := propsInScope[prop.Name]; !ok {
+			continue
+		}
+		if isMetaCountProperty(prop) || isInternalProperty(prop) {
+			continue
+		}
+
+		// properties where defining a length does not make sense (floats
+		// etc.) have a negative entry as length - mirrors extendInvertedIndicesLSM.
+		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
+			if err := s.addToPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
+				return errors.Wrap(err, "backfill: add indexed property length")
+			}
+		}
+
+		if s.index.invertedIndexConfig.IndexNullState {
+			if err := s.addToPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
+				return errors.Wrap(err, "backfill: add indexed null state")
+			}
+		}
+
+		if prop.HasSearchableIndex {
+			if err := s.GetPropertyLengthTracker().TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+				return errors.Wrap(err, "backfill: track property length for BM25 tally")
+			}
+		}
+	}
+
+	for _, nilProperty := range nilProps {
+		if _, ok := propsInScope[nilProperty.Name]; !ok {
+			continue
+		}
+
+		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
+			if err := s.addToPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
+				return errors.Wrap(err, "backfill: add indexed property length (nil)")
+			}
+		}
+
+		if s.index.invertedIndexConfig.IndexNullState {
+			if err := s.addToPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
+				return errors.Wrap(err, "backfill: add indexed null state (nil)")
+			}
+		}
+		// Nil properties are never fed to the BM25 tally on the normal
+		// write path either (SetPropertyLengths only iterates `props`,
+		// never `nilprops` - see shard_write_put.go:562) - no tally call
+		// here, matching that behavior exactly.
+	}
+
+	return nil
+}
+
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
 	if property.HasFilterableIndex {
 		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))

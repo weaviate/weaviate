@@ -34,6 +34,31 @@ func isPropertyForLength(dt schema.DataType) bool {
 }
 
 func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (map[string]interface{}, []inverted.NilProperty, error) {
+	return s.analyzeObjectCommonWithOverlay(object, c, nil)
+}
+
+// analyzeObjectCommonWithOverlay is analyzeObjectCommon plus an optional
+// migration overlay (see AnalyzeObjectForMigrationWithOverlay). Without the
+// overlay, a property targeted by a from-scratch enable-* migration is
+// never nil-tracked during the backfill scan: HasAnyInvertedIndex(prop)
+// reads the LIVE (pre-migration) schema, which is false for the very
+// property the migration is trying to populate, so a pre-existing object
+// missing that property would silently produce no NilProperty entry at
+// all - the property is neither in `props` (analyzer skips it, no value)
+// nor in `nilProps` (this gate skips it too). That is the null-state half
+// of weaviate/0-weaviate-issues#322: the sidecar backfill in
+// OnAfterLsmInitAsync can only write what analyzeObjectCommon hands it.
+//
+// The overlay-aware check treats a property as "has an inverted index" for
+// nil-tracking purposes if EITHER the live schema already says so, OR the
+// migration overlay forces one of Filterable/Searchable/Rangeable on for
+// it - the exact same condition the analyzer already uses downstream for
+// non-nil properties (see AnalyzerOverlay implementations per strategy).
+// AnalyzeObject (the normal write path) always passes a nil overlay, so
+// this is unchanged for ordinary writes.
+func (s *Shard) analyzeObjectCommonWithOverlay(object *storobj.Object, c *models.Class,
+	overlay map[string]inverted.PropertyOverlay,
+) (map[string]interface{}, []inverted.NilProperty, error) {
 	var schemaMap map[string]interface{}
 
 	if object.Properties() == nil {
@@ -62,11 +87,18 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 			default:
 			}
 
+			hasIndex := inverted.HasAnyInvertedIndex(prop)
+			if !hasIndex {
+				if ov, ok := overlay[prop.Name]; ok && (ov.ForceFilterable || ov.ForceSearchable || ov.ForceRangeable) {
+					hasIndex = true
+				}
+			}
+
 			// Add props as nil props if
 			// 1. They are not in the schema map ( == nil)
-			// 2. Their inverted index is enabled
+			// 2. Their inverted index is enabled (live schema or migration overlay)
 			_, ok := schemaMap[prop.Name]
-			if !ok && inverted.HasAnyInvertedIndex(prop) {
+			if !ok && hasIndex {
 				nilProps = append(nilProps, inverted.NilProperty{
 					Name:                prop.Name,
 					AddToPropertyLength: isPropertyForLength(dt),
@@ -175,7 +207,7 @@ func (s *Shard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
 		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
-	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
+	schemaMap, nilProps, err := s.analyzeObjectCommonWithOverlay(object, c, overlay)
 	if err != nil {
 		return nil, nil, err
 	}

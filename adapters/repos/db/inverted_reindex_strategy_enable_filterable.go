@@ -132,10 +132,14 @@ func (s *EnableFilterableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 
 // PreReindexHook creates empty filterable (RoaringSet) buckets for the
 // targeted properties so the generic state machine has a "source" bucket
-// to swap with the populated ingest bucket.
+// to swap with the populated ingest bucket. Null/length buckets are
+// created too: an unindexed property has none (shard init skips it), and
+// the backfill (see OnAfterLsmInitAsync's sidecar write) needs them to
+// exist before it can write pre-existing objects' null/length entries.
 func (s *EnableFilterableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {
+		shard.ensureNullLengthBucketsForMigration(ctx, propName)
 		bucketName := helpers.BucketFromPropNameLSM(propName)
 		if shard.store.Bucket(bucketName) != nil {
 			continue
