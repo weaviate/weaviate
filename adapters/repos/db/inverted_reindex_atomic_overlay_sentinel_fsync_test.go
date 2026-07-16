@@ -70,9 +70,9 @@ func (f *sentinelFsyncFailTracker) markSwappedProp(propName string) error {
 func TestAtomicOverlaySwap_SentinelFsyncFailure_OverlayStaysConsistentWithBucket(t *testing.T) {
 	ctx := testCtx()
 	fx := setupTwoTokenizationShard(t, ctx, "SentinelFsyncFailShard")
-	shard, idx := fx.shard, fx.idx
+	shard := fx.shard
 	fieldBucket, wordBucket := fx.fieldBucket, fx.wordBucket
-	className, fieldProp, wordProp := fx.className, fx.fieldProp, fx.wordProp
+	className, fieldProp := fx.className, fx.fieldProp
 	phrase, validCount := fx.phrase, fx.matchDocs
 
 	// Baseline: FIELD tokenization + FIELD bucket is the only consistent
@@ -80,34 +80,7 @@ func TestAtomicOverlaySwap_SentinelFsyncFailure_OverlayStaysConsistentWithBucket
 	require.Equal(t, validCount,
 		lookupCount(ctx, models.PropertyTokenizationField, fieldBucket, className, phrase))
 
-	task := NewRuntimeSearchableRetokenizeTask(
-		idx.logger, fieldProp, models.PropertyTokenizationWord,
-		className, lsmkv.StrategyInverted, className, 1,
-	)
-	fieldBucketName := helpers.BucketSearchableFromPropNameLSM(fieldProp)
-	wordBucketName := helpers.BucketSearchableFromPropNameLSM(wordProp)
-	// Same simplified flip used by TestAtomicOverlaySwap_BM25NeverSeesZeroCount:
-	// redirect the FIELD prop's bucket pointer to the WORD bucket via the
-	// production SwapBucketPointer call, without needing a full
-	// runtimePrepare/ingest-bucket dance. rt is intentionally unused here -
-	// the sentinel write is the CALLER's job under swapPropAtomic (see
-	// maybeWirePerPropOverlaySet), not processOneSwapPropFn's.
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store,
-		_ reindexTracker, _ int, _ string,
-	) (*lsmkv.Bucket, error) {
-		return store.SwapBucketPointer(ctx, fieldBucketName, wordBucketName)
-	}
-
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
-		Collection:         className,
-		Properties:         []string{fieldProp},
-		TargetTokenization: models.PropertyTokenizationWord,
-	}
-	// Wires the PRODUCTION task.swapPropAtomic closure under test - the
-	// exact code this bug fix touches in reindex_provider.go.
-	require.True(t, maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task}),
-		"overlay wiring must be active for a tokenization-changing migration")
+	task := wireSimplifiedFieldToWordSwapTask(t, fx)
 
 	rtIface, err := task.newReindexTracker(shard.pathLSM())
 	require.NoError(t, err)

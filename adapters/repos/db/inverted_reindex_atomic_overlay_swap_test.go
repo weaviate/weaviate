@@ -56,9 +56,9 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 	const hookSleepMs = 50
 
 	fx := setupTwoTokenizationShard(t, ctx, "RetokWordRace")
-	shard, idx := fx.shard, fx.idx
+	shard := fx.shard
 	fieldBucket, wordBucket := fx.fieldBucket, fx.wordBucket
-	className, fieldProp, wordProp := fx.className, fx.fieldProp, fx.wordProp
+	className, fieldProp := fx.className, fx.fieldProp
 	phrase, validCount := fx.phrase, fx.matchDocs
 
 	// Baseline: CONSISTENT pairs find validCount docs; MIXED pairs miss → 0.
@@ -73,26 +73,7 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 
 	// The "flip" redirects the FIELD prop's searchable bucket to the
 	// WORD-content bucket via the same SwapBucketPointer the migration uses.
-	task := NewRuntimeSearchableRetokenizeTask(
-		idx.logger, fieldProp, models.PropertyTokenizationWord,
-		className, lsmkv.StrategyInverted, className, 1,
-	)
-	fieldBucketName := helpers.BucketSearchableFromPropNameLSM(fieldProp)
-	wordBucketName := helpers.BucketSearchableFromPropNameLSM(wordProp)
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store,
-		_ reindexTracker, _ int, _ string,
-	) (*lsmkv.Bucket, error) {
-		return store.SwapBucketPointer(ctx, fieldBucketName, wordBucketName)
-	}
-
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
-		Collection:         className,
-		Properties:         []string{fieldProp},
-		TargetTokenization: models.PropertyTokenizationWord,
-	}
-	require.True(t, maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task}),
-		"overlay wiring must be active for a tokenization-changing migration")
+	task := wireSimplifiedFieldToWordSwapTask(t, fx)
 
 	// Widen the flip↔overlay window so the race is deterministically observable.
 	if nonAtomic {
