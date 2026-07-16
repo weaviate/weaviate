@@ -366,6 +366,9 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 		hnswConfig.RQ.Bits = 8
 		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
 	case "bq":
+		if err := vectorIndexCommon.ValidateBQCompatibility(hnswConfig.Distance, true); err != nil {
+			return hnswConfig, err
+		}
 		hnswConfig.BQ.Enabled = true
 	default:
 		return hnswConfig, errors.New("invalid default quantization for hnsw index: " + compression)

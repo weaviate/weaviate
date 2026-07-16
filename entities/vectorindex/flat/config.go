@@ -293,6 +293,9 @@ func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, 
 		flatConfig.RQ.RescoreLimit = DefaultCompressionRescore
 		flatConfig.RQ.Cache = DefaultVectorCache
 	case "bq":
+		if err := vectorindexcommon.ValidateBQCompatibility(flatConfig.Distance, true); err != nil {
+			return flatConfig, err
+		}
 		flatConfig.BQ.Enabled = true
 		flatConfig.BQ.RescoreLimit = DefaultCompressionRescore
 		flatConfig.BQ.Cache = DefaultVectorCache
