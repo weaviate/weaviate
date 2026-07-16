@@ -786,13 +786,13 @@ function run_acceptance_reindex_multinode() {
   #   -scale      : TestMultiNode_HappyPath, _QueryConsistencyDuringReindex,
   #                 _ConcurrentDifferentMigrations*,
   #                 _EnableRangeable_* (NoPartialCountsInFlight +
-  #                 ConcurrentUpdatesNoLossNoPanic)
+  #                 ConcurrentUpdatesNoLossNoPanic) +
+  #                 _PostRestartReapplyMigrations_* (moved back off
+  #                 -changetok for wall-clock, 2026-07)
   #   -changetok  : TestMultiNode_ChangeTokenization_* (non-AJ) +
   #                 TestMultiNode_BackToBackChangeTokenization_* +
   #                 TestLiveQueriesDuringChangeTokenization +
-  #                 TestPartialResultsDuringChangeTokenization +
-  #                 _PostRestartReapplyMigrations_* (rebalanced off -scale
-  #                 for wall-clock, 2026-07)
+  #                 TestPartialResultsDuringChangeTokenization
   #
   # IMPORTANT: when adding a new sub-shard, also add its top-level test
   # prefixes to the SKIP regex below to prevent the catch-all from
@@ -859,23 +859,28 @@ function run_acceptance_reindex_multinode_restart_b() {
 function run_acceptance_reindex_multinode_scale() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-scale"
-  # Scale / orchestration tests. 5 tests:
+  # Scale / orchestration tests. 6 tests:
   #   TestMultiNode_HappyPath
   #   TestMultiNode_QueryConsistencyDuringReindex
   #   TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle
   #   TestMultiNode_EnableRangeable_NoPartialCountsInFlight
   #   TestMultiNode_EnableRangeable_ConcurrentUpdatesNoLossNoPanic
+  #   TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas
   #
-  # Rebalanced 2026-07: once the RF3 concurrent-update rangeable test
-  # (EnableRangeable_ConcurrentUpdatesNoLossNoPanic) was wired in here the
-  # shard hit 11m27s in CI, over the ~10 min acceptance budget. The two
-  # heaviest orchestration tests were moved onto shards with headroom to
-  # bring this one back under budget, NOT dropped:
-  #   RepeatedParallelMigrationJourney_PerReplicaConsistency  -> -restart-b
-  #   PostRestartReapplyMigrations_ExactCountsAcrossReplicas  -> -changetok
-  # Measured CI package total: 354.5s (7 tests) -> ~198s (5 tests);
-  # job wall-clock 11m27s -> ~8m51s.
-  AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_)' \
+  # 2026-07 rebalance history: this shard hit 11m27s once the RF3
+  # concurrent-update rangeable test was wired in, so the two heaviest
+  # orchestration tests (RepeatedParallelMigrationJourney -> -restart-b,
+  # PostRestartReapplyMigrations -> -changetok) were moved off and it
+  # landed at a measured 8m19s.
+  #
+  # Follow-up (2026-07): PostRestartReapplyMigrations (~62s CI) is moved
+  # back HERE off -changetok. -changetok had overshot to a measured
+  # 10m27s (its 8m15s->9m17s projection ran ~70s optimistic: a ~62s test
+  # cost it ~132s of wall-clock because it pushed that shard into a
+  # superlinear regime). scale has headroom at 8m19s and stays linear, so
+  # the add costs ~62s: projected ~9m21s (~39s margin). Watch this shard
+  # on the next CI run -- it now carries the thinnest scale margin.
+  AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_|PostRestartReapplyMigrations)' \
     run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode
 }
 
@@ -883,15 +888,17 @@ function run_acceptance_reindex_multinode_changetok() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-changetok"
   # Change-tokenization tests (non-AJ; AJ has its own -aj shard) plus the
-  # FINALIZING-window probe tests, plus PostRestartReapplyMigrations.
+  # FINALIZING-window probe tests.
   #
-  # PostRestartReapplyMigrations_ExactCountsAcrossReplicas was rebalanced
-  # here off -scale (2026-07, measured ~62s CI) to relieve that shard's
-  # over-budget wall-clock. It is an orchestration test parked in this
-  # shard for wall-clock balance, not a change-tokenization test.
-  # Measured CI package total: 226s (7 tests) -> ~288s (8 tests);
-  # job wall-clock 8m15s -> ~9m17s.
-  AOF_GROUP_RUN='TestMultiNode_ChangeTokenization_(RestartThenRoundTrip|MTRoundTrip|ConcurrentDifferentProps|RoundTrip)|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization|TestMultiNode_PostRestartReapplyMigrations' \
+  # 2026-07: PostRestartReapplyMigrations_ExactCountsAcrossReplicas was
+  # briefly parked here off -scale, but it pushed this shard to a measured
+  # 10m27s (the 8m15s->9m17s projection ran ~70s optimistic; the ~62s test
+  # actually cost ~132s of wall-clock, i.e. 62s + ~70s of superlinear
+  # slowdown from crossing this shard's stress threshold). It has been
+  # moved back to -scale, which has headroom. Removing it drops this shard
+  # by ~62s + that ~70s of relief, back to its ~8m15s pre-add baseline
+  # (~1m45s margin under the ~10m budget).
+  AOF_GROUP_RUN='TestMultiNode_ChangeTokenization_(RestartThenRoundTrip|MTRoundTrip|ConcurrentDifferentProps|RoundTrip)|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
     run_aof_group "reindex-multinode-changetok" test/acceptance/reindex_multinode
 }
 
