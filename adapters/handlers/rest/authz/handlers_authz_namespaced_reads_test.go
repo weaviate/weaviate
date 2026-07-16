@@ -452,18 +452,43 @@ func TestHasPermissionNamespacedVisibility(t *testing.T) {
 	})
 
 	// A namespaced caller must submit bare resource paths, matching create/add/
-	// remove; a colon-bearing id is a cross-namespace reference and is rejected.
+	// remove; a colon-bearing collection id is a cross-namespace reference and is
+	// rejected.
 	t.Run("permission with qualified namespace id is rejected", func(t *testing.T) {
 		h, _ := nsReadHandler(t, false, nsRoles(), adminHeld(), nil)
 
 		qualified := &models.Permission{
-			Action: String(authorization.ReadUsers),
-			Users:  &models.PermissionUsers{Users: String("customer2:bob")},
+			Action:      String(authorization.ReadCollections),
+			Collections: &models.PermissionCollections{Collection: String("customer2:Movies")},
 		}
 		principal := &models.Principal{Username: "u", Namespace: "customer1"}
 		res := h.hasPermission(authz.HasPermissionParams{HTTPRequest: req, ID: "editor", Body: qualified}, principal)
 		_, ok := res.(*authz.HasPermissionBadRequest)
 		require.True(t, ok, "got %T", res)
+	})
+
+	// A user id may be an OIDC username containing ':', so it is not rejected as
+	// a qualifier; it resolves inside the caller's own namespace, matching what
+	// QualifyUserIDForLookup does on the assign path.
+	t.Run("colon-bearing user id resolves inside the caller's namespace", func(t *testing.T) {
+		h, controller := nsReadHandler(t, false, nsRoles(), adminHeld(), nil)
+
+		var gotResource string
+		controller.On("HasPermission", "customer1:editor", mock.Anything).
+			Return(func(role string, permission *authorization.Policy) bool {
+				gotResource = permission.Resource
+				return true
+			}, nil)
+
+		colonUser := &models.Permission{
+			Action: String(authorization.ReadUsers),
+			Users:  &models.PermissionUsers{Users: String("customer2:bob")},
+		}
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		res := h.hasPermission(authz.HasPermissionParams{HTTPRequest: req, ID: "editor", Body: colonUser}, principal)
+		_, ok := res.(*authz.HasPermissionOK)
+		require.True(t, ok, "got %T", res)
+		require.Equal(t, "users/customer1:customer2:bob", gotResource)
 	})
 }
 

@@ -82,7 +82,8 @@ func ResolveRoleName(principal *models.Principal, namespacesEnabled bool, raw st
 // QualifyRolePoliciesForCreate auto-prefixes the namespace-bearing segments of a
 // namespaced caller's role permissions (collection/alias/user/role names and
 // `*`) with its namespace, in place. An already-':'-qualified segment is
-// rejected. No-op for global principals and NS-disabled clusters.
+// rejected, except in users/<id>, whose id may contain ':' as part of an OIDC
+// username. No-op for global principals and NS-disabled clusters.
 func QualifyRolePoliciesForCreate(principal *models.Principal, namespacesEnabled bool, policies []authorization.Policy) error {
 	if !namespacesEnabled || ConfinedNamespace(principal) == "" {
 		return nil
@@ -105,11 +106,15 @@ func QualifyRolePoliciesForCreate(principal *models.Principal, namespacesEnabled
 }
 
 // qualifyResourceForCreate prefixes the namespace-bearing segment(s) of a
-// single policy resource. An already-':'-qualified segment is rejected.
+// single policy resource. An already-':'-qualified segment is rejected, except
+// in users/<id>, whose id may contain ':' as part of an OIDC username.
 // Resources that are not namespaceable pass through.
 func qualifyResourceForCreate(prefix, resource string) (string, error) {
+	// The prefix is prepended unconditionally, so a colon-bearing user id still
+	// resolves inside the caller's own namespace.
+	userID := strings.HasPrefix(resource, UsersPrefix)
 	return RewriteNamespaceSegments(resource, func(segment string) (string, error) {
-		if strings.Contains(segment, schema.NamespaceSeparator) {
+		if !userID && strings.Contains(segment, schema.NamespaceSeparator) {
 			return "", fmt.Errorf("'%s' is not a valid name", segment)
 		}
 		return prefix + segment, nil

@@ -546,6 +546,14 @@ func TestNamespacesOIDC(t *testing.T) {
 			}
 			return ""
 		}
+		findUser := func(role *models.Role) string {
+			for _, p := range role.Permissions {
+				if p.Users != nil && p.Users.Users != nil {
+					return *p.Users.Users
+				}
+			}
+			return ""
+		}
 
 		t.Run("create auto-prefixes; caller sees short form, operator sees qualified", func(t *testing.T) {
 			helper.CreateRole(t, token, readRole("oidceditor", "*"))
@@ -559,6 +567,30 @@ func TestNamespacesOIDC(t *testing.T) {
 			stored := helper.GetRoleByName(t, adminKey, "customer1:oidceditor")
 			assert.Equal(t, "customer1:oidceditor", *stored.Name)
 			assert.Equal(t, "customer1:*", findCollection(stored))
+		})
+
+		// A namespaced OIDC user's short name may itself contain ':' (preseed
+		// subject "foo:bar"), so a user id in a role permission is an opaque id,
+		// not a namespace qualifier: create must accept it and prefix the
+		// caller's own namespace rather than reject it.
+		t.Run("a permission naming a colon-bearing user id qualifies on write", func(t *testing.T) {
+			usersRole := &models.Role{
+				Name: authorization.String("oidcusers"),
+				Permissions: []*models.Permission{{
+					Action: authorization.String(authorization.ReadUsers),
+					Users:  &models.PermissionUsers{Users: authorization.String("foo:bar")},
+				}},
+			}
+			helper.CreateRole(t, token, usersRole)
+			defer helper.DeleteRole(t, adminKey, "customer1:oidcusers")
+
+			// Caller reads back the short id; operator reads the stored qualified
+			// form, whose namespace is the segment before the FIRST ':'.
+			own := helper.GetRoleByName(t, token, "oidcusers")
+			assert.Equal(t, "foo:bar", findUser(own))
+
+			stored := helper.GetRoleByName(t, adminKey, "customer1:oidcusers")
+			assert.Equal(t, "customer1:foo:bar", findUser(stored))
 		})
 
 		t.Run("addPermissions/removePermissions qualify on write and strip on read", func(t *testing.T) {

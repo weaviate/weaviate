@@ -1697,11 +1697,11 @@ func (h *authZHandlers) resolveAssignableRoles(principal *models.Principal, role
 // them at enforce time. No-op when namespaces are disabled.
 //
 // A ':' in a users/<id> or groups/<...> id is part of the opaque id (e.g. an
-// OIDC username), not a qualifier, so a global caller may use it. Namespaced
-// callers must still submit short, unqualified forms — symmetric with the
-// class-name rule that forbids them typing any "<namespace>:" prefix. So a
-// namespaced caller cannot express a colon-bearing group id; acceptable while
-// group grants are global-only. Revisit if namespaced callers gain them.
+// OIDC username), not a qualifier. Any caller may name a colon-bearing user id:
+// a namespaced caller's id is prefixed with its own namespace on write, so it
+// still cannot reach another namespace's user. A namespaced caller cannot
+// express a colon-bearing group id, because group ids are not namespace-bearing
+// and would match literally; acceptable while group grants are global-only.
 //
 // allowGlobalQualified lifts the restriction for a global caller, used by the
 // hasPermission read path so an operator can name a namespace-local role's
@@ -1716,6 +1716,9 @@ func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(principal *models
 	}
 	for _, p := range policies {
 		if !conv.ContainsNamespaceSeparator(p.Resource) {
+			continue
+		}
+		if conv.IsUserResource(p.Resource) {
 			continue
 		}
 		if global && conv.IsOpaqueIDResource(p.Resource) {
