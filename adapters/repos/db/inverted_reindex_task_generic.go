@@ -222,16 +222,6 @@ type ShardReindexTaskGeneric struct {
 	// drop()-vs-MkdirAll race deterministic. Always set — no test-only
 	// branch runs in production.
 	trackerMkdirGuard func(shard ShardLike) func(func() error) error
-
-	// newReindexTrackerGuardedFn is the dispatch function for
-	// newReindexTrackerGuarded. Defaults to the guarded
-	// NewFileReindexTracker construction (mkdirGuard wired before init(),
-	// matching newReindexTrackerGuarded's own godoc); tests substitute a
-	// wrapper that intercepts one specific tracker method call (e.g.
-	// markProgress) while delegating every other call to a real,
-	// correctly-guarded tracker. Same shape as processOneSwapPropFn /
-	// swapPropAtomic above. No test-only branch runs in production.
-	newReindexTrackerGuardedFn func(shard ShardLike) (reindexTracker, error)
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -263,14 +253,6 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	t.processOneTidyPropFn = t.processOneTidyProp
 	t.trackerMkdirGuard = func(shard ShardLike) func(func() error) error {
 		return shard.Index().withCloseRLockGuard
-	}
-	t.newReindexTrackerGuardedFn = func(shard ShardLike) (reindexTracker, error) {
-		rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
-		rt.mkdirGuard = t.trackerMkdirGuard(shard)
-		if err := rt.init(); err != nil {
-			return nil, err
-		}
-		return rt, nil
 	}
 	return t
 }
@@ -795,11 +777,66 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 	return nil
 }
 
-// finalizeMigrationAfterRecovery runs the strategy's OnMigrationComplete
-// hook and trims older on-disk generations. This is the rehydrate-path
-// equivalent of runtimeSwap's final two steps (lines 1103/1124),
-// invoked by the recovery branches in [RunSwapOnShard] which don't go
-// through runtimeSwap.
+// completeMigrationOnShard runs the strategy's OnMigrationComplete hook
+// and, for every migrating property whose AnalyzerOverlay forces
+// IndexSearchable on, recomputes that property's BM25 prop-length tally
+// from scratch (weaviate/0-weaviate-issues#322). Called from all
+// three OnMigrationComplete call sites - runtimeSwap's happy path, the
+// already-tidied re-trigger branch in OnAfterLsmInitAsync, and the
+// recovery/rehydrate path in finalizeMigrationAfterRecovery - so the tally
+// is recomputed regardless of which path a given shard's migration
+// actually completes through.
+//
+// Gating on AnalyzerOverlay's ForceSearchable (not the live schema's
+// HasSearchableIndex, and not a hardcoded strategy-type check) targets the
+// migration's own from->to index-shape delta: only a strategy that
+// genuinely transitions a property from "not searchable" to "searchable"
+// (currently only EnableSearchableStrategy) ever sets ForceSearchable in
+// its overlay. Every other strategy (EnableFilterableStrategy,
+// FilterableToRangeableStrategy, MapToBlockmaxStrategy,
+// RebuildSearchableStrategy, the retokenize/refresh strategies) leaves a
+// property's searchable-ness unchanged, so this recompute correctly never
+// runs for them - avoiding the exact double-count regression the earlier
+// per-object incremental tally write caused for those migrations.
+//
+// Idempotent: recomputeSearchableTallyForProp is a full reset-and-rescan,
+// so invoking this from more than one of the three call sites for the same
+// completed migration (e.g. a recovery re-entry) produces the same end
+// state every time.
+func (t *ShardReindexTaskGeneric) completeMigrationOnShard(ctx context.Context, shard ShardLike, props []string) error {
+	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
+		return err
+	}
+
+	overlay := t.strategy.AnalyzerOverlay(props)
+	if len(overlay) == 0 {
+		return nil
+	}
+
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("unwrapping shard %q for BM25 tally recompute: %w", shard.Name(), err)
+	}
+
+	for _, propName := range props {
+		ov, ok := overlay[propName]
+		if !ok || !ov.ForceSearchable {
+			continue
+		}
+		if err := concreteShard.recomputeSearchableTallyForProp(ctx, propName, overlay); err != nil {
+			return fmt.Errorf("recomputing BM25 tally for prop %q: %w", propName, err)
+		}
+	}
+
+	return nil
+}
+
+// finalizeMigrationAfterRecovery runs completeMigrationOnShard (the
+// strategy's OnMigrationComplete hook plus any BM25 tally recompute) and
+// trims older on-disk generations. This is the rehydrate-path equivalent
+// of runtimeSwap's final two steps (lines 1103/1124), invoked by the
+// recovery branches in [RunSwapOnShard] which don't go through
+// runtimeSwap.
 //
 // Best-effort on trim — failures are logged, not returned, matching
 // the trim policy at the end of runtimeSwap.
@@ -807,7 +844,7 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt reindexTracker, props []string,
 ) error {
-	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
+	if err := t.completeMigrationOnShard(ctx, shard, props); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
 	t.trimOlderGenerationsLocked(logger, shard, rt, props)
@@ -1259,7 +1296,12 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 // hold closeLock.RLock, and a nested RLock (sync.RWMutex is non-reentrant)
 // deadlocks against a queued drop() writer.
 func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (reindexTracker, error) {
-	return t.newReindexTrackerGuardedFn(shard)
+	rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
+	rt.mkdirGuard = t.trackerMkdirGuard(shard)
+	if err := rt.init(); err != nil {
+		return nil, err
+	}
+	return rt, nil
 }
 
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
@@ -1359,7 +1401,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 				return zerotime, false, err
 			}
 		}
-		err = t.strategy.OnMigrationComplete(ctx, shard)
+		err = t.completeMigrationOnShard(ctx, shard, props)
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)
 		}
@@ -1919,8 +1961,10 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).
 	// Per-shard schema-flag flip for blockmax / repair-* strategies.
 	// Either way, runs OUTSIDE the per-shard atomic window because it
-	// doesn't touch bucket pointers.
-	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
+	// doesn't touch bucket pointers. completeMigrationOnShard additionally
+	// recomputes the BM25 tally for any migrating property that adds a
+	// searchable index - see its godoc (weaviate/0-weaviate-issues#322).
+	if err := t.completeMigrationOnShard(ctx, shard, props); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
 

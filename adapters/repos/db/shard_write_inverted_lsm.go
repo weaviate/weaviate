@@ -23,8 +23,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -73,9 +75,8 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 }
 
 // backfillSidecarsForMigration writes the null-state / property-length
-// sidecar entries (and, for searchable targets, the BM25 prop-length tally)
-// that an enable-* runtime migration's backfill loop would otherwise skip
-// for pre-existing objects (weaviate/0-weaviate-issues#322).
+// sidecar entries that an enable-* runtime migration's backfill loop would
+// otherwise skip for pre-existing objects (weaviate/0-weaviate-issues#322).
 //
 // The migration's backfill (ShardReindexTaskGeneric.OnAfterLsmInitAsync)
 // already computes both `props` and `nilProps` via
@@ -91,10 +92,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 // cover every analyzed property on the object, including ones that already
 // had a live index (and were already correctly backfilled at original
 // write time) long before this migration started. Writing null/length for
-// those again is harmless (RoaringSet Add is idempotent), but re-running
-// the BM25 tally (GetPropertyLengthTracker().TrackProperty) for a
-// non-migrating property would double-count its Sum/Count - corrupting
-// avgdl for a property this migration never touched. See
+// those again is harmless (RoaringSet Add is idempotent). See
 // TestSidecarBackfill_ScopedToMigratingPropOnly.
 //
 // Null/length buckets are NOT part of the reindex/ingest/backup swap
@@ -105,20 +103,39 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 // always persists lastProcessedKey for exactly the objects it already
 // wrote - see markProgress in OnAfterLsmInitAsync).
 //
-// KNOWN LIMITATION (documented, not silently shipped - see the PR
-// description's "Known limitation" section and
-// Conversations/<task>__tally-crash-resume-design-brief.md): the BM25
-// tally call is a cumulative in-memory/on-disk counter increment, not an
-// idempotent set-add. A hard process crash exactly mid-tick (after this
-// function has run for some objects in the current batch but before
-// OnAfterLsmInitAsync's end-of-tick markProgress call persists), followed
-// by a restart that replays the same tick, would double-count the tally
-// contribution for the objects processed before the crash. The null/length
-// bucket writes are unaffected (idempotent). This is a narrow window
-// (bounded by one tick's batch size) that only affects the BM25 avgdl
-// statistic, not filter correctness; flagged for QA Claude / architect
-// input per rule 8b rather than silently shipped or used to block the rest
-// of this fix.
+// The BM25 prop-length tally is deliberately NOT updated here. Do not add a
+// per-object GetPropertyLengthTracker().TrackProperty call to this loop -
+// two invariants this function must preserve make a per-object,
+// per-tick tally write structurally wrong here (weaviate/0-weaviate-issues#322):
+//
+//  1. This function runs for every generic migration through the same
+//     OnAfterLsmInitAsync loop (map->blockmax, RebuildSearchable,
+//     retokenize, ...), not just enable-* migrations. `prop.HasSearchableIndex`
+//     reads true for any property that was ALREADY searchable before this
+//     migration started (map->blockmax on an existing searchable prop,
+//     RebuildSearchable, enable-filterable over an already-searchable
+//     bystander) - those objects were already tallied once at original
+//     PutObject time, so a per-object tally write here would double
+//     Sum/Count for every pre-existing object on any migration that
+//     doesn't newly add searchable-ness.
+//  2. A per-tick cumulative counter increment is not an idempotent
+//     set-add like the null/length RoaringSet writes above. A hard crash
+//     between this function applying a tick's writes and
+//     OnAfterLsmInitAsync's end-of-tick markProgress call, followed by a
+//     resume that replays the same tick, would double-count the tally for
+//     that tick's objects - and without an explicit flush, a crash
+//     immediately after a completed migration would lose the whole
+//     new-prop tally from memory.
+//
+// The tally is instead recomputed once, from scratch, per migrating
+// property that actually adds a searchable index (AnalyzerOverlay's
+// ForceSearchable), after the migration has fully swapped - see
+// ShardReindexTaskGeneric.completeMigrationOnShard and
+// Shard.recomputeSearchableTallyForProp. That recompute is a full
+// reset-and-rescan (same pattern as Migrator.RecountProperties), so it is
+// idempotent under replay by construction and immune to (1) because it
+// only ever runs for a migration whose overlay actually forces searchable
+// on for the target prop.
 func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Property,
 	nilProps []inverted.NilProperty, propsInScope map[string]struct{},
 ) error {
@@ -143,12 +160,6 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 				return errors.Wrap(err, "backfill: add indexed null state")
 			}
 		}
-
-		if prop.HasSearchableIndex {
-			if err := s.GetPropertyLengthTracker().TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
-				return errors.Wrap(err, "backfill: track property length for BM25 tally")
-			}
-		}
 	}
 
 	for _, nilProperty := range nilProps {
@@ -171,6 +182,78 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 		// write path either (SetPropertyLengths only iterates `props`,
 		// never `nilprops` - see shard_write_put.go:562) - no tally call
 		// here, matching that behavior exactly.
+	}
+
+	return nil
+}
+
+// recomputeSearchableTallyForProp rebuilds the BM25 prop-length tally for a
+// single property from scratch by scanning every object currently on the
+// shard, following the same clear-then-rescan pattern as
+// Migrator.RecountProperties (migrator.go) - the difference being scope:
+// RecountProperties rebuilds the tally for every searchable property on
+// every shard, this rebuilds it for exactly one migrating property on one
+// shard, without disturbing any other property's tally.
+//
+// Called once, post-swap, by ShardReindexTaskGeneric.completeMigrationOnShard
+// for a property whose migration overlay forces IndexSearchable on
+// (weaviate/0-weaviate-issues#322). `overlay` must be the same
+// AnalyzerOverlay the migration used, so objects written before the live
+// schema flag flips still analyze with HasSearchableIndex=true for this
+// property - without it every object would appear non-searchable (the live
+// schema flag is flipped separately, cluster-wide, from
+// ReindexProvider.OnTaskCompleted, strictly after every shard's
+// OnMigrationComplete has already run).
+//
+// Idempotent by construction: ResetProperty followed by a full rescan
+// produces the same end state regardless of how many times or from how many
+// crash points it is invoked. Flushes the tracker to disk before returning
+// so the recomputed tally survives a crash immediately after this call
+// returns.
+func (s *Shard) recomputeSearchableTallyForProp(ctx context.Context, propName string,
+	overlay map[string]inverted.PropertyOverlay,
+) error {
+	tracker := s.GetPropertyLengthTracker()
+	tracker.ResetProperty(propName)
+
+	objectsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return errors.New("recompute searchable tally: objects bucket not found")
+	}
+	cursor := objectsBucket.CursorOnDisk()
+	defer cursor.Close()
+
+	className := s.index.Config.ClassName.String()
+	addProps := additional.Properties{}
+	propExtraction := storobj.NewPropExtraction().Add(propName)
+
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		if err := ctx.Err(); err != nil {
+			return errors.Wrap(err, "recompute searchable tally")
+		}
+
+		obj, err := storobj.FromBinaryOptionalDisk(v, className, addProps, propExtraction)
+		if err != nil {
+			return errors.Wrap(err, "recompute searchable tally: unmarshal object")
+		}
+
+		props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, overlay)
+		if err != nil {
+			return errors.Wrap(err, "recompute searchable tally: analyze object")
+		}
+
+		for _, prop := range props {
+			if prop.Name != propName || !prop.HasSearchableIndex {
+				continue
+			}
+			if err := tracker.TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+				return errors.Wrap(err, "recompute searchable tally: track property")
+			}
+		}
+	}
+
+	if err := tracker.Flush(); err != nil {
+		return errors.Wrap(err, "recompute searchable tally: flush")
 	}
 
 	return nil
