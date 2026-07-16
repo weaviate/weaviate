@@ -456,12 +456,15 @@ func TestShardReplicationFSM_HasActiveTargetReplicationForShardDoesNotAllocate(t
 
 func TestShardReplicationFSM_HasActiveTargetReplicationForShardConcurrent(t *testing.T) {
 	const (
-		coll       = "TestClass"
-		writers    = 4
-		readers    = 4
-		iterations = 500
+		coll        = "TestClass"
+		writers     = 4
+		readers     = 4
+		iterations  = 500
+		pinnedShard = "pinned-shard"
 	)
 	fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+	seedOpFull(t, fsm, writers*iterations+1, "node1", "node2", coll, pinnedShard, api.COPY)
+	driveToState(t, fsm, writers*iterations+1, api.HYDRATING)
 
 	var eg errgroup.Group
 	for w := range writers {
@@ -505,11 +508,22 @@ func TestShardReplicationFSM_HasActiveTargetReplicationForShardConcurrent(t *tes
 				shard := fmt.Sprintf("shard-%d-%d", (r+i)%writers, i%iterations)
 				fsm.HasActiveTargetReplicationForShard(coll, shard, "node2")
 				fsm.HasActiveReplicationForShard(coll, shard)
+				if !fsm.HasActiveTargetReplicationForShard(coll, pinnedShard, "node2") {
+					return fmt.Errorf("expected pinned op on %q to gate replication", pinnedShard)
+				}
 			}
 			return nil
 		})
 	}
 	require.NoError(t, eg.Wait())
+
+	for w := range writers {
+		for i := range iterations {
+			shard := fmt.Sprintf("shard-%d-%d", w, i)
+			assert.Equal(t, i%2 != 0, fsm.HasActiveTargetReplicationForShard(coll, shard, "node2"))
+		}
+	}
+	assert.True(t, fsm.HasActiveTargetReplicationForShard(coll, pinnedShard, "node2"))
 }
 
 func BenchmarkHasActiveTargetReplicationForShard(b *testing.B) {

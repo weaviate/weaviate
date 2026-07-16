@@ -259,9 +259,10 @@ func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, sha
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
+	// The source-keyed bucket holds exactly the ops targeting (collection, shard):
+	// both op constructors build TargetShard from the source collection/shard.
 	for _, op := range s.opsByCollectionAndShard[collection][shard] {
-		if op.TargetShard.NodeId != targetNode ||
-			op.TargetShard.CollectionId != collection || op.TargetShard.ShardId != shard {
+		if op.TargetShard.NodeId != targetNode {
 			continue
 		}
 		status, ok := s.statusById[op.ID]
