@@ -2385,13 +2385,9 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 	strategy := t.strategy.TargetStrategy()
 	bucketOpts := t.bucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
 
-	// GH#12199: when the global in-mem rangeable knob is on, the ingest bucket is
-	// the one that becomes the main bucket after the per-shard swap and serves
-	// range reads from disk (its rep is forced off in bucketOptions). Mark it so
-	// the read path can emit a durable, query-time "serving from disk; in-mem knob
-	// deferred" signal, and log the deferred-acceleration trade-off once here at
-	// ingest-bucket creation. Only the ingest bucket is marked: the reindex and
-	// backup buckets are torn down and never serve production reads.
+	// GH#12199: mark only the ingest bucket - it becomes the main bucket after
+	// the swap and serves range reads from disk (rep forced off below).
+	// Reindex/backup buckets are torn down and never serve production reads.
 	if strategy == lsmkv.StrategyRoaringSetRange && shard.Index().Config.IndexRangeableInMemory {
 		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
 		logger.WithField("props", props).Info(
@@ -2578,14 +2574,10 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 		),
 	)
 
-	// GH#12199: reindex/ingest RoaringSetRange buckets must never build an
-	// in-memory representation. The backfill enters via PrependSegmentsFromBucket,
-	// which does not (and safely cannot) rebuild the rep, so a kept-in-memory rep
-	// would serve empty/partial range results after the per-shard swap until the
-	// next clean bucket open. Force keepSegmentsInMemory=false regardless of the
-	// global knob (custom options apply after the strategy defaults, so this
-	// wins); the knob's in-memory acceleration resumes on the next bucket open,
-	// when boot population rebuilds the rep from all disk segments.
+	// GH#12199: force keepSegmentsInMemory=false for RoaringSetRange reindex/ingest
+	// buckets - PrependSegmentsFromBucket can't rebuild the in-memory rep, so a kept
+	// rep would serve stale/empty range results until the next clean bucket open.
+	// This overrides the global knob; opts are appended after the strategy defaults.
 	if strategy == lsmkv.StrategyRoaringSetRange {
 		opts = append(opts, lsmkv.WithKeepSegmentsInMemory(false))
 	}

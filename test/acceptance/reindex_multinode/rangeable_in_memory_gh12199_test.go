@@ -33,45 +33,31 @@ import (
 )
 
 // This file is the GH#12199 regression suite: with INDEX_RANGEABLE_IN_MEMORY=true,
-// an enable-rangeable reindex must NOT serve empty range results from an
+// an enable-rangeable reindex must not serve empty range results from an
 // unpopulated in-memory representation after the per-shard swap (no restart
-// required). It codifies Etienne's R2d empirical confirmation (0 vs 20003 golden,
-// 0.011 MB empty rep) into permanent tests, and pins the two operator log signals
-// added by the fix.
+// required). It also pins the two operator log signals added by the fix.
 //
-// Log substrings emitted by the fix (adapters/repos/db/lsmkv/bucket_roaring_set_range.go):
-//   - deferredINFOSubstr: fires once per bucket-open at the first disk-path range
-//     read on a bucket the reindex ingest path marked (keepSegmentsInMemory forced
-//     off while the knob is on). Its PRESENCE confirms (b)'s marker path is applied
-//     at the fix SHA: only the (b) marker path sets the marker.
-//   - fallbackWARNSubstr: the (c) disk-fallback WARN. On the fixed path it must NOT
-//     fire, because the post-swap serving bucket has keepSegmentsInMemory=false.
+// Log substrings emitted by the fix (bucket_roaring_set_range.go):
+//   - deferredINFOSubstr: fires once per bucket-open on the marked ingest
+//     bucket's first disk-path read; presence confirms (b)'s marker path is
+//     applied.
+//   - fallbackWARNSubstr: the (c) disk-fallback WARN. Must NOT fire on the
+//     fixed path (serving bucket has keepSegmentsInMemory=false).
 //
-// Per-mechanism revert-probe mapping (verified empirically; QA round 1 correction):
-//   - (b) alone       -> caught by the child-1 prepend GUARD at reindex time, NOT by
-//     the WARN/INFO assertions below. Reverting ONLY (b) (drop the
-//     WithKeepSegmentsInMemory(false) override + the deferred marker,
-//     KEEP the guard) leaves the ingest bucket keepSegmentsInMemory=
-//     true, so it builds an ACTIVE in-memory rep; the child-1 prepend
-//     guard then rejects the backfill prepend and the reindex FAILS at
-//     AwaitReindexFinished with the INV-RANGEABLE-REP-EQUALS-DISK
-//     sentinel, before any post-swap query runs. That reindex failure
-//     is the single (b)-alone red condition, and it is caught by this
-//     acceptance repro at the AwaitReindexFinished step.
-//   - WARN/INFO pair  -> the fallbackWARNSubstr-absence + deferredINFOSubstr-presence
-//     assertions serve two roles: (i) positive happy-path proof that
-//     (b) IS applied at the fix SHA, and (ii) a tripwire for a (b) AND
-//     guard DOUBLE revert. Only when BOTH (b) and the guard are
-//     reverted does the empty-rep-served state actually arise: the
-//     reindex then completes, the post-swap read takes the (c)
-//     fallback so the WARN APPEARS, and the marker is unset so the
-//     deferred INFO DISAPPEARS (two conditions). A counts-only probe
-//     cannot catch that double-revert while (c) is in the tree; these
-//     assertions can. (The earlier "reverting (b) alone -> WARN+INFO
-//     redness" narrative was wrong: that probe had disabled the guard
-//     too. Corrected per QA round 1.)
-//   - (c) alone       -> child-1 Layer-1 four-case matrix (empty rep + disk segments
-//     must fall back), unit-scale, already red-green verified.
+// Per-mechanism revert-probe mapping:
+//   - (b) alone       -> caught by the child-1 prepend GUARD, not the WARN/INFO
+//     assertions: reverting only (b) leaves keepSegmentsInMemory=true on the
+//     ingest bucket, so the guard rejects the backfill prepend and
+//     AwaitReindexFinished fails with INV-RANGEABLE-REP-EQUALS-DISK before any
+//     post-swap query runs.
+//   - WARN/INFO pair  -> the WARN-absence + INFO-presence assertions serve two
+//     roles: (i) proof (b) is applied at the fix SHA, and (ii) a tripwire for a
+//     (b) AND guard DOUBLE revert - only then does the reindex complete with an
+//     empty rep served, so the WARN appears and the INFO (marker unset)
+//     disappears. A counts-only probe can't catch that double revert; these
+//     assertions can.
+//   - (c) alone       -> child-1 Layer-1 four-case matrix (empty rep + disk
+//     segments must fall back).
 //   - guard alone     -> child-1 guard unit test (active-rep prepend errors).
 //   - option-(a) trap -> child-1 fold-order value-integrity unit test.
 const (
@@ -101,9 +87,8 @@ func countInLogs(ctx context.Context, t *testing.T, c interface {
 }
 
 // startSingleNodeRangeableInMemCluster starts a 1-node cluster with the in-mem
-// rangeable knob on. INDEX_RANGEABLE_IN_MEMORY=true is the precondition for
-// GH#12199; LOG_LEVEL=info makes the deferred-serving INFO (and any (c) WARN)
-// visible in the container logs the assertions grep.
+// rangeable knob on (GH#12199 precondition) and LOG_LEVEL=info so the deferred
+// INFO / fallback WARN are visible in the logs the assertions grep.
 func startSingleNodeRangeableInMemCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
 	t.Helper()
 	compose, err := docker.New().
@@ -116,10 +101,9 @@ func startSingleNodeRangeableInMemCluster(ctx context.Context, t *testing.T) (*d
 	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
 
-// scoreForGH12199 maps import index i to a numeric score in [10_000, 60_000)
-// with step 5, so a [30_000, 40_000] band selects exactly 2001 of 10_000 objects
-// (mirrors in_flight_rangeable_test.go so a half-built bucket returns a visibly
-// wrong count).
+// scoreForGH12199 maps import index i to a score in [10_000, 60_000) step 5, so
+// [30_000, 40_000] selects exactly 2001/10_000 objects (mirrors
+// in_flight_rangeable_test.go; a half-built bucket returns a visibly wrong count).
 func scoreForGH12199(i int) int { return 10_000 + i*5 }
 
 const (
@@ -167,15 +151,14 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	require.NoError(t, err)
 	require.Equal(t, gh12199Baseline, golden, "pre-migration filterable baseline")
 
-	// Enable rangeable and wait for the migration to fully finish. NO restart.
+	// NO restart before the checks below - that's the core repro condition.
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
 		`{"rangeable":{"enabled":true}}`)
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
-	// (1) Counts correct post-swap WITHOUT restart. The pre-fix image returns 0
-	// here (empty in-memory rep served; Etienne R2d). Poll briefly for the
-	// per-shard swap + schema flip to settle.
+	// (1) Counts correct post-swap without restart (pre-fix served 0: empty
+	// in-memory rep). Poll briefly for the per-shard swap + schema flip to settle.
 	require.Eventually(t, func() bool {
 		c, e := rangeCount(restURI, className, "score", gh12199RangeLo, gh12199RangeHi)
 		return e == nil && c == gh12199Baseline
@@ -189,25 +172,19 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	}
 	time.Sleep(2 * time.Second) // let the container flush stdout
 
-	// (2) The (c) disk-fallback WARN must NOT fire on the fixed path: the serving
-	// bucket has keepSegmentsInMemory=false, so ReaderRoaringSetRange never reaches
-	// the (c) branch. Its presence would mean BOTH (b) and the prepend guard were
-	// reverted (the empty-rep-served state); a (b)-alone revert fails the reindex at
-	// the guard above and never reaches here.
+	// (2) The (c) WARN must not fire on the fixed path (serving bucket has
+	// keepSegmentsInMemory=false) - see the revert-probe mapping above.
 	assert.Zero(t, countInLogs(ctx, t, container, fallbackWARNSubstr),
 		"(c) disk-fallback WARN must not fire on the fixed path (WARN present => (b) AND guard both reverted, empty rep served, GH#12199)")
 
-	// (3) The deferred-serving INFO MUST be present: only the (b) marker path sets
-	// the marker, so its presence is the positive "(b) applied at the fix SHA" signal.
+	// (3) The deferred-serving INFO must be present - only the (b) marker path
+	// sets the marker (see revert-probe mapping above).
 	assert.Positive(t, countInLogs(ctx, t, container, deferredINFOSubstr),
 		"deferred-serving INFO must fire post-swap (marker set + first disk read); absence => (b) marker not applied, GH#12199")
 
 	// --- Post-restart in-memory hand-off case ---
-	// After a restart the rangeable bucket reopens via the normal shard path
-	// (knob on), so boot-time population rebuilds the in-memory rep from the now
-	// fully-populated disk segments. Range reads then serve from the rebuilt rep,
-	// counts stay correct, and no (c) WARN fires (rep populated). This pins the
-	// deferred-acceleration hand-off and the restart self-heal.
+	// After restart, boot-time population rebuilds the in-memory rep from disk,
+	// so reads serve from the rep again and no (c) WARN fires (rep populated).
 	require.NoError(t, compose.StopAt(ctx, 0, nil))
 	require.NoError(t, compose.StartAt(ctx, 0))
 	restURI = compose.GetWeaviate().URI()
@@ -235,11 +212,10 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 		"no (c) WARN after restart: the rep is rebuilt at boot and serves in-memory")
 }
 
-// TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe is the 3-node
-// statistical probe per reference_migration_window_race_reproducer.md: fire range
-// queries at every node throughout the migration window and count divergences
-// (non-error, non-golden), not single-shot. Silent wrong results, not errors, are
-// the failure mode.
+// TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe is a 3-node
+// statistical probe: fire range queries at every node throughout the migration
+// window and count divergences, not single-shot - silent wrong results, not
+// errors, are the failure mode.
 func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t,
@@ -334,12 +310,10 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 			"served from an empty in-memory rep instead of the disk path.")
 }
 
-// TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity runs the migration
-// under concurrent live writes that CHANGE a subset of objects' value, then
-// asserts VALUE integrity (not just membership): post-swap, a mover's NEW value
-// query returns it and its OLD value query does not. Fold-order corruption (the
-// rejected option (a)) would leave the old value winning; the empty-rep bug would
-// drop the movers entirely. Both are value/membership-discriminating here.
+// TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity migrates under
+// concurrent live writes that change movers' value, then asserts a mover's NEW
+// value query returns it and its OLD value query returns nothing - catches both
+// fold-order corruption (option (a)) and the empty-rep bug (movers dropped).
 func TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := startSingleNodeRangeableInMemCluster(ctx, t)

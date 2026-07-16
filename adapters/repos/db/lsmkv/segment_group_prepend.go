@@ -28,12 +28,9 @@ import (
 )
 
 // ErrPrependWouldDesyncInMemoryRep is returned by PrependSegmentsFromBucket when
-// the target is a RoaringSetRange segment group that keeps an active in-memory
-// representation. Splicing segments into such a group without rebuilding the rep
-// would leave the rep out of sync with disk (INV-RANGEABLE-REP-EQUALS-DISK) and
-// silently serve empty or partial range results with no error and no fallback
-// (GH#12199). Callers must open the bucket with keepSegmentsInMemory=false, or
-// implement a full oldest-to-newest rep rebuild before splicing.
+// the target RoaringSetRange group keeps an active in-memory rep: splicing would
+// desync it from disk (INV-RANGEABLE-REP-EQUALS-DISK) and silently serve
+// empty/partial range results (GH#12199). Open with keepSegmentsInMemory=false.
 var ErrPrependWouldDesyncInMemoryRep = errors.New(
 	"prepend segments: RoaringSetRange bucket has an active in-memory representation " +
 		"which this operation cannot maintain (INV-RANGEABLE-REP-EQUALS-DISK); " +
@@ -57,10 +54,9 @@ var ErrPrependWouldDesyncInMemoryRep = errors.New(
 //   - Supported strategies: RoaringSet, RoaringSetRange, SetCollection,
 //     MapCollection, Inverted.
 //
-// Per-strategy derived-state obligations (whoever adds the next strategy here
-// MUST answer this): splicing segments mutates sg.segments, so any strategy that
-// keeps segment-group-level derived state has to maintain it, be guarded, or be
-// rejected before mutation.
+// Per-strategy derived-state obligations (next strategy added here MUST answer
+// this): splicing mutates sg.segments, so any strategy with segment-group-level
+// derived state must maintain it, guard it, or reject the mutation.
 //
 //	Replace         -> rejected (countNetAdditions not recalculable)
 //	Inverted        -> maintained (avgPropertyLengths, below)
@@ -75,17 +71,12 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 			"countNetAdditions cannot be recalculated for prepended segments", sg.strategy)
 	}
 
-	// Step 1b: A RoaringSetRange group with an active in-memory representation
-	// cannot be spliced. Prepending logically-older backfill segments cannot be
-	// folded into a rep that already holds newer live values without corrupting
-	// them (an incremental older-onto-newer merge lets the OLD value win), and
-	// leaving the rep untouched serves empty/partial range results with no signal
-	// (GH#12199). Reject before any file copy or splice so the failure is clean
-	// (no files copied, segment list unmutated), mirroring the Replace rejection.
-	// The rep pointer is assigned once in newSegmentGroup before the group is
-	// published and never reassigned, so this read needs no lock. The strategy
-	// conjunct is redundant (the field is only ever set for RoaringSetRange) but
-	// kept to document intent.
+	// Step 1b: reject splicing into a RoaringSetRange group with an active
+	// in-memory rep - an incremental older-onto-newer merge could let a stale
+	// value win, and an unrebuilt rep silently serves empty/partial results
+	// (INV-RANGEABLE-REP-EQUALS-DISK, GH#12199). Reject before any copy/splice
+	// so the failure is clean. The rep pointer is set once in newSegmentGroup and
+	// never reassigned, so this read needs no lock.
 	if sg.strategy == StrategyRoaringSetRange && sg.roaringSetRangeSegmentInMemory != nil {
 		return fmt.Errorf("%w (bucket=%s)", ErrPrependWouldDesyncInMemoryRep, filepath.Base(sg.dir))
 	}

@@ -231,7 +231,7 @@ func countLogLevel(hook *test.Hook, level logrus.Level) int {
 	return n
 }
 
-// newRangeableRep returns an unpopulated rep (the 65-bitmap skeleton). Its
+// newRangeableRepEmpty returns an unpopulated rep (the 65-bitmap skeleton). Its
 // presence set is empty (IsUnpopulated == true) but Size() > 0.
 func newRangeableRepEmpty(logger logrus.FieldLogger) *roaringsetrange.SegmentInMemory {
 	return roaringsetrange.NewSegmentInMemory(logger)
@@ -279,11 +279,9 @@ func readEqual(t *testing.T, b *Bucket, value uint64) []uint64 {
 	return v.ToArray()
 }
 
-// TestRoaringSetRangeKeepSegmentsInMemoryOverride verifies the (b) mechanism
-// (GH#12199): the reindex path appends WithKeepSegmentsInMemory(false) after the
-// strategy default WithKeepSegmentsInMemory(knob); because options apply in order
-// and the last write wins, the override deterministically forces the rep off, so
-// the bucket serves range reads from the disk reader with no in-memory rep built.
+// TestRoaringSetRangeKeepSegmentsInMemoryOverride: the last
+// WithKeepSegmentsInMemory wins, forcing the rep off regardless of the
+// strategy default (GH#12199 (b)).
 func TestRoaringSetRangeKeepSegmentsInMemoryOverride(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -322,10 +320,10 @@ func TestRoaringSetRangeKeepSegmentsInMemoryOverride(t *testing.T) {
 	})
 }
 
-// TestRoaringSetRangeDiskFallback is the (c) four-case matrix (GH#12199): when
-// keepSegmentsInMemory is on, an unpopulated rep with disk segments present must
-// fall back to the disk reader and WARN once per bucket-open. The rep and disk
-// hold DIFFERENT docIDs so the returned result proves which path served the read.
+// TestRoaringSetRangeDiskFallback pins the (c) four-case matrix (GH#12199): an
+// unpopulated rep with disk segments present must fall back to disk and WARN
+// once per bucket-open. Rep and disk hold DIFFERENT docIDs so the result proves
+// which path served the read.
 func TestRoaringSetRangeDiskFallback(t *testing.T) {
 	const value = uint64(5)
 
@@ -342,8 +340,8 @@ func TestRoaringSetRangeDiskFallback(t *testing.T) {
 	t.Run("empty rep + disk segments: fallback, correct result, WARN", func(t *testing.T) {
 		logger, hook := test.NewNullLogger()
 		rep := newRangeableRepEmpty(logger)
-		// Pin the "Size() is the wrong discriminant" reasoning in code: the
-		// unpopulated skeleton reports a non-zero Size() yet IsUnpopulated.
+		// Size() is the wrong discriminant: the skeleton reports non-zero Size()
+		// yet IsUnpopulated() is true.
 		require.Greater(t, rep.Size(), 0)
 		require.True(t, rep.IsUnpopulated())
 		disk := []Segment{newRangeableDiskSegment(value, 200)}
@@ -364,10 +362,8 @@ func TestRoaringSetRangeDiskFallback(t *testing.T) {
 	})
 
 	t.Run("mass-delete-emptied rep + disk segments: fallback, correct residual, WARN", func(t *testing.T) {
-		// A knob-on bucket where every object carrying the property was deleted
-		// empties bitmaps[0] while disk (tombstone) segments remain and no restart
-		// happened. The fallback fires, disk serves the correct residual, and the
-		// WARN is emitted (its text names mass-deletion as a benign cause).
+		// Benign cause: mass-delete empties bitmaps[0] while disk tombstones
+		// remain and no restart occurred.
 		logger, hook := test.NewNullLogger()
 		rep := newRangeableRepEmpty(logger)
 		disk := []Segment{newRangeableDiskSegment(value, 200)}
@@ -390,10 +386,9 @@ func TestRoaringSetRangeDiskFallback(t *testing.T) {
 	})
 }
 
-// TestRoaringSetRangeDeferredServingINFO covers the durable deferred-acceleration
-// indicator (GH#12199): a bucket marked deferred emits a query-time INFO once per
-// bucket-open at the first disk-path range read; unmarked buckets never do; and
-// the marker selects a log line only, never a read path.
+// TestRoaringSetRangeDeferredServingINFO pins GH#12199: a deferred-marked bucket
+// emits the disk-serving INFO once per bucket-open; unmarked buckets never do,
+// and the marker never affects read-path selection.
 func TestRoaringSetRangeDeferredServingINFO(t *testing.T) {
 	const value = uint64(5)
 
@@ -420,10 +415,9 @@ func TestRoaringSetRangeDeferredServingINFO(t *testing.T) {
 	})
 
 	t.Run("marker selects a log line only, never a read path", func(t *testing.T) {
-		// keepSegmentsInMemory=true + marked + populated rep: read-path selection
-		// is governed by keepSegmentsInMemory, so the in-mem path is taken (rep
-		// populated => no fallback). The deferred INFO lives on the disk path, so
-		// it must NOT fire here, proving the marker does not select the path.
+		// keepSegmentsInMemory=true + marked + populated rep: in-mem path is
+		// taken, so the disk-path INFO must not fire, proving the marker doesn't
+		// select the path.
 		logger, hook := test.NewNullLogger()
 		rep := newRangeableRepPopulated(t, logger, value, 100)
 		disk := []Segment{newRangeableDiskSegment(value, 200)}
@@ -435,9 +429,8 @@ func TestRoaringSetRangeDeferredServingINFO(t *testing.T) {
 	})
 }
 
-// BenchmarkRoaringSetRangeReaderPopulatedHotPath measures the populated-rep hot
-// path, which the (c) fix extends by exactly one bitmaps[0].IsEmpty() call under
-// the rep's own RLock (short-circuited before any maintenanceLock access).
+// BenchmarkRoaringSetRangeReaderPopulatedHotPath bounds the overhead the (c) fix
+// adds to the populated-rep hot path: one short-circuited IsEmpty() check.
 func BenchmarkRoaringSetRangeReaderPopulatedHotPath(b *testing.B) {
 	logger, _ := test.NewNullLogger()
 	rep := roaringsetrange.NewSegmentInMemory(logger)

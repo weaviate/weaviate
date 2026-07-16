@@ -675,16 +675,10 @@ func createTestBucketRoaringSetRange(t *testing.T, ctx context.Context, dir stri
 	return b
 }
 
-// TestSegmentGroup_PrependSegments_RoaringSetRangeGuard verifies the GH#12199
-// guard: prepending into a RoaringSetRange bucket that keeps an active in-memory
-// representation is rejected before any file copy or splice, because the rep
-// cannot be maintained through a splice (folding logically-older backfill
-// segments onto a rep holding newer live values corrupts the value; see the
-// fold-order value-integrity test in the roaringsetrange package). This guard is
-// the STRUCTURAL defense against option (a): a future incremental-merge attempt
-// inside PrependSegmentsFromBucket hits this error before any merge runs.
-// Compaction is exempt from the invariant (it changes physical layout only and
-// never references the rep), so it is not guarded here.
+// TestSegmentGroup_PrependSegments_RoaringSetRangeGuard pins the GH#12199 guard:
+// splicing older backfill onto a RoaringSetRange bucket's active in-memory rep
+// would corrupt it, so the prepend is rejected before any file copy or splice.
+// Compaction is exempt - it only changes physical layout, never the rep.
 func TestSegmentGroup_PrependSegments_RoaringSetRangeGuard(t *testing.T) {
 	ctx := context.Background()
 
@@ -719,7 +713,6 @@ func TestSegmentGroup_PrependSegments_RoaringSetRangeGuard(t *testing.T) {
 		assert.Contains(t, err.Error(), "keepSegmentsInMemory=false")
 		assert.Contains(t, err.Error(), "GH#12199")
 
-		// Pre-mutation failure: segment list unmutated, no files copied.
 		assert.Equal(t, segsBefore, tgt.disk.Len(), "segment list must be unmutated")
 		assert.Equal(t, filesBefore, countDBFiles(t, tgtDir), "no segment files may be copied")
 	})
