@@ -76,13 +76,9 @@ func TestMaybeWirePerPropOverlaySet_FilterableVariant_WiresAndSets(t *testing.T)
 	assert.Equal(t, "word", s.TokenizationFor("name", "field"))
 }
 
-// TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp covers types that
-// must NOT wire any hook: enable-rangeable flips its schema flag inside
-// runtimeSwap on current main (no swap-vs-flip window), and format-only /
-// blockmax migrations don't change the analyzer's view at all. enable-* are
-// no longer in this list — they wire the force-index overlay
-// (weaviate/0-weaviate-issues#319), covered by
-// TestMaybeWirePerPropOverlaySet_EnableMigrations.
+// TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp covers types with
+// no swap-vs-flip window. enable-* migrations wire the force-index overlay
+// instead; see TestMaybeWirePerPropOverlaySet_EnableMigrations.
 func TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp(t *testing.T) {
 	for _, mt := range []ReindexMigrationType{
 		ReindexTypeEnableRangeable,
@@ -108,9 +104,9 @@ func TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp(t *testing.T) {
 }
 
 // TestMaybeWirePerPropOverlaySet_EnableMigrations_NoTokenizationOverlay pins
-// that the enable-* hook arms ONLY the force-index overlay — the
-// tokenization overlay (a query-path override) must stay untouched, since
-// enable-* never changes how an EXISTING index tokenizes queries.
+// that enable-* arms only the force-index overlay; the query-path
+// tokenization overlay stays untouched since enable-* doesn't retokenize an
+// existing index.
 func TestMaybeWirePerPropOverlaySet_EnableMigrations_NoTokenizationOverlay(t *testing.T) {
 	for _, mt := range []ReindexMigrationType{
 		ReindexTypeEnableFilterable,

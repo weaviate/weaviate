@@ -185,9 +185,8 @@ func (t *PropertyLengthTracker) UnTrackProperty(propName string, value float32) 
 		page = p
 		relBucketOffset = o
 	} else {
-		// Never-tracked property: nothing to subtract. See the equivalent
-		// no-op in JsonShardMetaData.UnTrackProperty for the journey
-		// (post-enable-searchable delete of a pre-migration object).
+		// Never-tracked property: nothing to subtract (see the equivalent
+		// no-op in JsonShardMetaData.UnTrackProperty).
 		return nil
 	}
 

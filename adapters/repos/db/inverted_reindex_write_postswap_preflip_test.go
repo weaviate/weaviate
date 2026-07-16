@@ -27,41 +27,14 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Regression tests for weaviate/0-weaviate-issues#319: the post-swap
-// pre-flip write-loss window of the enable-filterable / enable-searchable
-// migrations.
-//
-// Window mechanism: the per-shard runtimeSwap flips the canonical bucket
-// pointer to the backfilled bucket and tears down the double-write
-// callbacks (defer t.disableCallbacks()), while the cluster-wide schema
-// flip (OnTaskCompleted → flipSemanticMigrationSchema) commits on a LATER
-// scheduler tick. A write arriving in between is analyzed under the OLD
-// schema: the migrating property has no enabled index, analyzeProps drops
-// it (HasAnyInvertedIndex, inverted/objects.go), and nothing mirrors it —
-// fresh inserts are silently missing from the new index after the flip,
-// updates leave a stale ghost, deletes leave dangling postings.
-//
-// The tests below drive a shard into exactly that state with the
-// production Run{ReindexOnly,Prepare,Swap}OnShard trio — after
-// RunSwapOnShard returns, the bucket is swapped and the callbacks are
-// gone, but the live (test-fixture) schema still has the index flag
-// false, which IS the window. No scheduler manipulation or test seams
-// needed: the phases are the deterministic ordering handle.
-//
-// The fix under test: maybeWirePerPropOverlaySet arms the per-shard
-// force-index overlay atomically with each bucket-pointer flip, and
-// Shard.AnalyzeObject applies it, so in-window writes are analyzed under
-// the TARGET schema and land in the canonical (swapped) bucket via the
-// ordinary inline write path.
+// Regression tests for weaviate/0-weaviate-issues#319: writes landing in
+// the post-swap pre-flip window of enable-filterable / enable-searchable
+// migrations must not be lost (see maybeWirePerPropOverlaySet for the fix).
 
-// newNoIndexTestClass builds a class whose text properties have NO enabled
-// inverted index at all (IndexFilterable=false AND IndexSearchable=false).
-// This is the worst-case enable-* input: pre-fix, the analyzer drops such a
-// property entirely, so even the double-write callbacks (pre-swap) and the
-// inline path (post-swap) never see it. IndexNullState/IndexPropertyLength
-// stay enabled, matching newTestClassWithProps, so the tests also cover the
-// null/length bucket creation the migration must perform for a
-// previously-unindexed property.
+// newNoIndexTestClass builds a class whose properties have no enabled
+// inverted index — the worst-case enable-* input. IndexNullState/
+// IndexPropertyLength stay on, so the tests also cover the null/length
+// bucket creation for a previously-unindexed property.
 func newNoIndexTestClass(className string, propNames []string) *models.Class {
 	vFalse := false
 	props := make([]*models.Property, len(propNames))
@@ -102,10 +75,8 @@ func objWithTitle(className, id, title string) *storobj.Object {
 }
 
 // driveEnableFilterableToPostSwapWindow runs the production migration trio
-// and then simulates the provider's overlay wiring (the onPropSwapped hook
-// maybeWirePerPropOverlaySet installs before RunSwapOnShard). On return the
-// shard is inside the post-swap pre-flip window: canonical bucket = NEW,
-// live schema flag still false, double-write callbacks disabled.
+// and wires the overlay hook, leaving the shard inside the post-swap
+// pre-flip window (bucket swapped, live schema flag still false).
 func driveEnableFilterableToPostSwapWindow(
 	t *testing.T, shard *Shard, idx *Index, className, propName string,
 ) *ShardReindexTaskGeneric {
@@ -173,7 +144,6 @@ func TestReindexPostSwapPreFlip_EnableFilterable_InsertNotLost(t *testing.T) {
 	require.NotEmptyf(t, fp["zulu"],
 		"weaviate/0-weaviate-issues#319: fresh insert during the post-swap pre-flip window "+
 			"must be present in the swapped canonical filterable bucket; got fingerprint %v", fp)
-	// The backfilled rows must still be there too.
 	require.NotEmpty(t, fp["alpha"], "backfilled token must survive the in-window write")
 	require.NotEmpty(t, fp["bravo"], "backfilled token must survive the in-window write")
 }
@@ -195,12 +165,10 @@ func TestReindexPostSwapPreFlip_EnableFilterable_UpdateLeavesNoGhost(t *testing.
 
 	driveEnableFilterableToPostSwapWindow(t, shard, idx, className, propName)
 
-	// Sanity: the backfill indexed the pre-update value.
 	bucket := shard.store.Bucket(helpers.BucketFromPropNameLSM(propName))
 	require.NotEmpty(t, fingerprintRoaringSetBucket(t, bucket)["ghosttoken"],
 		"backfill must have indexed the pre-update value")
 
-	// In-window update of the same object to a new value.
 	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "freshtoken")),
 		"in-window update must not error")
 
@@ -235,7 +203,6 @@ func TestReindexPostSwapPreFlip_EnableFilterable_DeleteRemovesPostings(t *testin
 	require.NotEmpty(t, fingerprintRoaringSetBucket(t, bucket)["deltoken"],
 		"backfill must have indexed the to-be-deleted object")
 
-	// In-window delete.
 	require.NoError(t, shard.DeleteObject(ctx, strfmt.UUID(targetID), time.Now()),
 		"in-window delete must not error")
 
@@ -335,9 +302,8 @@ func TestReindexPostSwapPreFlip_EnableSearchable_DeleteRemovesPostings(t *testin
 			"the post-swap pre-flip window must be removed from the swapped canonical searchable bucket; got %v", fp)
 }
 
-// TestReindexPostSwapPreFlip_EnableFilterable_MultiProp covers the
-// multi-property variant: both migrating props must receive the in-window
-// write, and a prop NOT covered by the migration must remain untouched.
+// TestReindexPostSwapPreFlip_EnableFilterable_MultiProp: both migrating
+// props must receive the in-window write.
 func TestReindexPostSwapPreFlip_EnableFilterable_MultiProp(t *testing.T) {
 	ctx := testCtx()
 	className := "PostSwapPreFlipEfMulti_" + uuid.NewString()[:8]
@@ -365,8 +331,7 @@ func TestReindexPostSwapPreFlip_EnableFilterable_MultiProp(t *testing.T) {
 	}
 	putMulti(uuid.NewString(), "alpha", "one")
 
-	// Single task migrating BOTH props (matches production: one
-	// enable-filterable submit with a multi-prop selection).
+	// Single task migrating both props, matching a production multi-prop submit.
 	wrapped := &testEnableFilterableStrategyWrapper{
 		EnableFilterableStrategy: EnableFilterableStrategy{
 			propNames:  propNames,
@@ -420,14 +385,8 @@ func TestReindexPostSwapPreFlip_EnableFilterable_MultiProp(t *testing.T) {
 }
 
 // TestReindexPostSwapPreFlip_FlipVisible_OverlayObsolete pins the overlay's
-// two teardown guarantees once the schema flip is visible locally:
-//
-//  1. Backstop: even WITHOUT the explicit OnTaskCompleted clear, a live
-//     schema that already satisfies the entry makes the snapshot skip (and
-//     self-clear) it — post-flip writes analyze identically with or
-//     without the leftover entry.
-//  2. Explicit clear: ClearForceIndexOverlay drops the entry, and writes
-//     keep landing correctly via the live schema flag.
+// backstop self-clear once the live schema satisfies it, plus the explicit
+// ClearForceIndexOverlay path.
 func TestReindexPostSwapPreFlip_FlipVisible_OverlayObsolete(t *testing.T) {
 	const propName = "title"
 	ctx := testCtx()
@@ -442,13 +401,11 @@ func TestReindexPostSwapPreFlip_FlipVisible_OverlayObsolete(t *testing.T) {
 	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "alpha")))
 	driveEnableFilterableToPostSwapWindow(t, shard, idx, className, propName)
 
-	// Simulate the cluster-wide flip having applied locally: the test
-	// schema getter serves this exact class value, so mutating the prop
-	// is what a local FSM apply would make the analyzer see.
+	// Simulate the flip: mutating the prop here is what a local FSM apply
+	// would make the analyzer see.
 	vTrue := true
 	class.Properties[0].IndexFilterable = &vTrue
 
-	// The snapshot must now treat the (uncleared) entry as satisfied.
 	require.Nil(t, shard.SnapshotForceIndexOverlay(class.Properties),
 		"a live schema that satisfies the overlay entry must disable it (backstop)")
 
@@ -456,7 +413,7 @@ func TestReindexPostSwapPreFlip_FlipVisible_OverlayObsolete(t *testing.T) {
 	fp := fingerprintRoaringSetBucket(t, shard.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
 	require.NotEmpty(t, fp["yankee"], "post-flip write must be indexed via the live schema flag")
 
-	// Explicit clear (what OnTaskCompleted does) stays a no-op-safe path.
+	// Mirrors the explicit clear OnTaskCompleted performs.
 	shard.ClearForceIndexOverlay(propName)
 	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "xray")))
 	fp = fingerprintRoaringSetBucket(t, shard.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
@@ -583,8 +540,6 @@ func TestSnapshotForceIndexOverlay_LiveSchemaSatisfaction(t *testing.T) {
 				return
 			}
 			require.Nil(t, snap, "satisfied entry must be skipped")
-			// Self-clear backstop: the satisfied entry must be gone even
-			// without an explicit ClearForceIndexOverlay.
 			s.forceIndexOverlayMu.RLock()
 			_, stillThere := s.forceIndexOverlay[tc.prop.Name]
 			s.forceIndexOverlayMu.RUnlock()

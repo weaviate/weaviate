@@ -1638,9 +1638,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	}
 }
 
-// isEnableIndexMigration is true for migrations that create a brand-new
-// inverted index and therefore arm the per-shard force-index overlay for
-// their post-swap pre-flip window (weaviate/0-weaviate-issues#319).
+// isEnableIndexMigration reports whether the migration arms the per-shard
+// force-index overlay for its post-swap pre-flip window (weaviate/0-weaviate-issues#319).
 func isEnableIndexMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeEnableFilterable || mt == ReindexTypeEnableSearchable
 }
@@ -2198,24 +2197,15 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 // count (0 for reverse field→word). Per-flip wiring collapses it to one
 // map write; a swap that fails before any flip never sets it, keeping
 // the all-failed path clean.
-//
-// NOTE on enable-rangeable: on current main it flips IndexRangeFilters
-// inside runtimeSwap (no window). weaviate/weaviate#12206 defers that flip
-// to OnTaskCompleted, which opens the same write-side window for it — when
-// that lands, its (inline, non-provider-driven) swap path must arm
-// PropertyOverlay{ForceRangeable: true} the same way; the shard-side
-// mechanism already supports it.
 func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) bool {
 	if shard == nil || payload == nil {
 		return false
 	}
 	var hook func(propName string)
-	// tokenizationTarget is set only for tokenization-changing migrations, whose
-	// overlay set must be atomic with the bucket flip (read side: a query in the
-	// flip-to-set gap would see overlay != bucket and return wrong-tokenization
-	// results). Those route the live Phase-2a flip through swapPropAtomic.
-	// enable-* migrations arm a write-side force-index overlay via the legacy
-	// flip-then-onPropSwapped path and leave swapPropAtomic nil.
+	// tokenizationTarget (and swapPropAtomic) is set only for tokenization
+	// migrations: an unset overlay could let a query in the flip-to-set gap
+	// see stale tokenization. enable-* only need a write-side overlay, wired
+	// via onPropSwapped instead, so swapPropAtomic stays nil for them.
 	var tokenizationTarget string
 	switch payload.MigrationType {
 	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
@@ -2246,9 +2236,9 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 			continue
 		}
 		task := task
-		// onPropSwapped covers the recovery/resume path; for tokenization
-		// migrations the live Phase-2a loop uses swapPropAtomic instead, while
-		// enable-* migrations (swapPropAtomic nil) fire it on the live flip too.
+		// onPropSwapped covers the recovery/resume path. Tokenization
+		// migrations also swap live via swapPropAtomic; enable-* migrations
+		// (swapPropAtomic nil) fire onPropSwapped on the live flip too.
 		task.onPropSwapped = hook
 		if tokenizationTarget != "" {
 			task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,

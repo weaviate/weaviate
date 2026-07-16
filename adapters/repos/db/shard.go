@@ -967,12 +967,10 @@ func (s *Shard) SnapshotTokenizationOverlay(propNames []string) map[string]strin
 	return out
 }
 
-// SetForceIndexOverlay records that writes to propName on this shard must be
-// analyzed as if overlay's Force* flags (and target tokenization, when set)
-// were already committed to the live schema. Set per-prop atomically with the
-// bucket-pointer flip (see the [forceIndexOverlay] field godoc for the full
-// lifecycle); a zero-value overlay is a no-op so cleanup paths don't need to
-// guard the call.
+// SetForceIndexOverlay records that writes to propName must be analyzed as if
+// overlay were already live. Set per-prop atomically with the bucket flip
+// (see [forceIndexOverlay] for the lifecycle); a zero-value overlay is a
+// no-op, so cleanup paths don't need to guard the call.
 func (s *Shard) SetForceIndexOverlay(propName string, overlay inverted.PropertyOverlay) {
 	if propName == "" || (!overlay.ForceFilterable && !overlay.ForceSearchable && !overlay.ForceRangeable) {
 		return
@@ -1000,16 +998,11 @@ func (s *Shard) ClearForceIndexOverlay(propName string) {
 	delete(s.forceIndexOverlay, propName)
 }
 
-// SnapshotForceIndexOverlay returns the active force-index-overlay entries for
-// the supplied properties, skipping entries the live schema already satisfies
-// (the flip has applied locally; forcing would be a no-op and keeping the
-// entry live past the flip risks masking a later index DELETE). Satisfied
-// entries are also self-cleared, mirroring [Shard.TokenizationFor]'s
-// catch-up backstop, so the per-write map lookup disappears once the flip
-// lands even if the explicit OnTaskCompleted clear was missed.
-//
-// The returned map is owned by the caller. Nil when no entry applies — the
-// analyzer's fast path.
+// SnapshotForceIndexOverlay returns active force-index-overlay entries for
+// props, skipping (and self-clearing) any the live schema already satisfies —
+// keeping a stale entry risks masking a later index DELETE. Self-clear
+// mirrors [Shard.TokenizationFor]'s backstop, covering a missed explicit
+// clear. Nil when nothing applies (the analyzer's fast path).
 func (s *Shard) SnapshotForceIndexOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
@@ -1041,8 +1034,7 @@ func (s *Shard) SnapshotForceIndexOverlay(props []*models.Property) map[string]i
 	s.forceIndexOverlayMu.RUnlock()
 
 	for _, prop := range satisfied {
-		// Re-verify under the write lock so the self-clear can't race a
-		// concurrent re-arm (a newer migration generation on the same prop)
+		// Re-verify under the write lock: a concurrent re-arm could land
 		// between the RUnlock above and this delete.
 		s.forceIndexOverlayMu.Lock()
 		if current, ok := s.forceIndexOverlay[prop.Name]; ok && forceOverlaySatisfiedByLiveSchema(current, prop) {
@@ -1053,10 +1045,9 @@ func (s *Shard) SnapshotForceIndexOverlay(props []*models.Property) map[string]i
 	return out
 }
 
-// forceOverlaySatisfiedByLiveSchema reports whether every flag (and the
-// tokenization) the overlay would force is already present on the live
-// property — i.e. the cluster-wide schema flip has applied on this node and
-// the overlay entry is obsolete.
+// forceOverlaySatisfiedByLiveSchema reports whether the live property already
+// has every flag (and tokenization) the overlay would force — i.e. the
+// schema flip has applied here and the entry is obsolete.
 func forceOverlaySatisfiedByLiveSchema(overlay inverted.PropertyOverlay, prop *models.Property) bool {
 	if overlay.ForceFilterable && !inverted.HasFilterableIndex(prop) {
 		return false

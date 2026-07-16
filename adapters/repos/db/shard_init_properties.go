@@ -570,15 +570,11 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	)
 }
 
-// ensureNullLengthBucketsForMigration creates the per-prop null/length
-// buckets that initPropertyBuckets skips for a property with no enabled
-// inverted index. An enable-* migration makes such a property analyzable
-// (force-index overlay during the swap-vs-flip window, live flag after the
-// flip), and extendInvertedIndicesLSM / deleteFromInvertedIndicesLSM write
-// length/null entries for every analyzed property when the class config
-// enables them — without these buckets the first such write fails with
-// "no bucket for prop ... found". Idempotent (CreateOrLoadBucket); errors
-// are logged, matching the value-bucket creation in the PreReindexHooks.
+// ensureNullLengthBucketsForMigration creates the null/length buckets that
+// initPropertyBuckets skips for an unindexed property. An enable-* migration
+// makes such a property analyzable (force-index overlay, then the live
+// flag), and writes then emit length/null entries for it, which would
+// otherwise fail with a missing-bucket error. Idempotent; errors are logged.
 func (s *Shard) ensureNullLengthBucketsForMigration(ctx context.Context, propName string) {
 	if !s.index.invertedIndexConfig.IndexNullState && !s.index.invertedIndexConfig.IndexPropertyLength {
 		return
