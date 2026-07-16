@@ -100,9 +100,10 @@ type fileReindexTracker struct {
 	keyParser          indexKeyParser
 	config             fileReindexTrackerConfig
 
-	// mkdirGuard, when non-nil (expected: Index.withCloseRLockGuard), wraps
-	// init()'s MkdirAll so it cannot re-create a class dir Index.drop just
-	// renamed away; context.Canceled means the index is closing.
+	// mkdirGuard, when non-nil, wraps init()'s os.MkdirAll (expected:
+	// Index.withShardRLockGuard) so it cannot re-materialize a class or shard
+	// dir a concurrent delete just removed. context.Canceled means the dir
+	// was deliberately not created. nil = plain MkdirAll.
 	mkdirGuard func(func() error) error
 }
 

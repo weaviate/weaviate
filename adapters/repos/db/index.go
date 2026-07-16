@@ -3329,9 +3329,9 @@ func (i *Index) drop() error {
 // must be short and must not acquire i.closeLock for writing or any lock
 // drop() holds in an inverting order.
 //
-// Covers whole-index drops only: dropShards never sets i.closed, so tenant
-// deletes are invisible to the guard. Tracked in
-// https://github.com/weaviate/0-weaviate-issues/issues/288.
+// Scope: whole-index drops only. dropShards never sets i.closed, so this
+// guard is blind to it — fn touching a specific shard's directory must use
+// withShardRLockGuard instead (weaviate/0-weaviate-issues#288).
 func (i *Index) withCloseRLockGuard(fn func() error) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
@@ -3341,6 +3341,26 @@ func (i *Index) withCloseRLockGuard(fn func() error) error {
 	}
 
 	return fn()
+}
+
+// withShardRLockGuard is the per-shard companion of withCloseRLockGuard
+// (weaviate/0-weaviate-issues#288): dropShards never sets i.closed, so this
+// additionally holds shardCreateLocks.RLock and re-checks i.shards
+// membership — fn either completes before dropShards removes the shard dir
+// or bails with context.Canceled. fn must be short, must not acquire any
+// Index lock, and callers must not already hold shardCreateLocks(shardName)
+// for writing.
+func (i *Index) withShardRLockGuard(shardName string, fn func() error) error {
+	return i.withCloseRLockGuard(func() error {
+		i.shardCreateLocks.RLock(shardName)
+		defer i.shardCreateLocks.RUnlock(shardName)
+
+		if i.shards.Load(shardName) == nil {
+			return context.Canceled
+		}
+
+		return fn()
+	})
 }
 
 func (i *Index) dropShards(names []string) error {
@@ -3369,7 +3389,8 @@ func (i *Index) dropShards(names []string) error {
 				// This ensures that we also delete inactive shards/tenants
 				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
 					ec.Add(err)
-					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+					// shard is nil in this branch — shard.ID() would panic
+					i.logger.WithField("action", "drop_shard").WithField("shard", name).Error(err)
 				}
 			} else {
 				// If shard is loaded use the native primitive to drop it
