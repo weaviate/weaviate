@@ -52,7 +52,7 @@ func TestCompactHashTreeSerialization(t *testing.T) {
 	}
 }
 
-// TestCompactHashTreeDeserializationHeaderValidation pins the compact header checksum: real murmur and the legacy pre-fix echo (header bytes zero-padded) are accepted, corruption is rejected.
+// TestCompactHashTreeDeserializationHeaderValidation: real and legacy checksums accepted, corruption rejected.
 func TestCompactHashTreeDeserializationHeaderValidation(t *testing.T) {
 	const height = 4
 

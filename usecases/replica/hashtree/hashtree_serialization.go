@@ -28,8 +28,7 @@ const (
 	hashTreeHeaderLength int = 4 + 1 + 4 + DigestLength + DigestLength
 )
 
-// headerChecksum computes the murmur3-128 checksum of the header bytes
-// preceding the checksum field.
+// headerChecksum is the murmur3-128 of the header bytes preceding the checksum field.
 func headerChecksum(hdr []byte) [DigestLength]byte {
 	h1, h2 := murmur3.Sum128(hdr)
 	var cs [DigestLength]byte
@@ -38,21 +37,16 @@ func headerChecksum(hdr []byte) [DigestLength]byte {
 	return cs
 }
 
-// legacyHeaderChecksum reproduces the value historically stored in the
-// checksum field: hash.Sum(hdr) appends the hash of the (empty) hasher state
-// to hdr, so the DigestLength-sized copy took the header's own leading bytes,
-// zero-padded when the header is shorter (murmur3-128 of empty input is all
-// zeros). Accepted on read so pre-fix files remain loadable; the root-digest
-// recompute still guards their content.
+// legacyHeaderChecksum reproduces the pre-fix stored value: hash.Sum appended,
+// so the copy took the header's own leading bytes, zero-padded (murmur3-128 of
+// empty input is zeros). Accepted on read so pre-fix files stay loadable.
 func legacyHeaderChecksum(hdr []byte) [DigestLength]byte {
 	var legacy [DigestLength]byte
 	copy(legacy[:], hdr)
 	return legacy
 }
 
-// validHeaderChecksum reports whether the stored checksum field matches
-// either the real murmur3-128 of the preceding header bytes or the legacy
-// pre-fix value.
+// validHeaderChecksum accepts the real murmur3-128 or the legacy pre-fix value.
 func validHeaderChecksum(stored, hdr []byte) bool {
 	expected := headerChecksum(hdr)
 	if bytes.Equal(stored, expected[:]) {
@@ -143,8 +137,7 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	root.UnmarshalBinary(hdr[hdrOff : hdrOff+DigestLength])
 	hdrOff += DigestLength
 
-	// Validated before NewHashTree so a corrupted height cannot drive a huge
-	// allocation.
+	// Checked before NewHashTree so a corrupt height cannot drive a huge allocation.
 	if !validHeaderChecksum(hdr[hdrOff:hdrOff+DigestLength], hdr[:hdrOff]) {
 		return nil, fmt.Errorf("header checksum mismatch")
 	}
