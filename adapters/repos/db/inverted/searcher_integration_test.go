@@ -17,7 +17,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -954,4 +956,185 @@ func TestFilterASCIIFold(t *testing.T) {
 			assert.Len(t, objs, tc.expected)
 		})
 	}
+}
+
+// TestObjectsByDocID_BatchDifferential is the searcher-level differential test for
+// the filter-path wiring: the batched objectsByDocID (slabbed GetBySecondaryBatch)
+// must return results byte-identical to the serial per-key GetBySecondary loop, for
+// randomized docID sequences that mix found / deleted / non-existent / duplicate
+// ids across many limits. The reference (objectsByDocIDSerialReference) replicates
+// the exact pre-change loop; the production path is Searcher.objectsByDocID.
+func TestObjectsByDocID_BatchDifferential(t *testing.T) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { store.Shutdown(ctx) })
+
+	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1),
+		lsmkv.WithClassName(className)))
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+
+	const propName = "batch-diff-prop"
+	// numObjects intentionally exceeds the 500-key slab cap so the filter path
+	// issues multiple slabs and GetBySecondaryBatch's internal newest-wins segment
+	// phases (not just the memtable pass) are exercised.
+	const numObjects = 1500
+
+	uuids := make([]strfmt.UUID, numObjects)
+	docIDBytes := make([]byte, 8)
+	putOne := func(docID uint64) {
+		id := strfmt.UUID(uuid.NewString())
+		uuids[docID] = id
+		obj := storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    id,
+				Class: className,
+				Properties: map[string]interface{}{
+					propName: repeatString("v", int(docID%7)+1),
+				},
+			},
+			DocID: docID,
+		}
+		b, err := obj.MarshalBinary()
+		require.NoError(t, err)
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+		require.NoError(t, bucket.Put([]byte(id), b, lsmkv.WithSecondaryKey(0, docIDBytes)))
+	}
+
+	// Import in three flushed segments so newest-wins spans multiple on-disk
+	// segments, then apply tombstones in the still-active memtable so phase-0
+	// (memtable) and phase-3 (recheck) both see deletes.
+	for docID := uint64(0); docID < 500; docID++ {
+		putOne(docID)
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+	for docID := uint64(500); docID < 1000; docID++ {
+		putOne(docID)
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+	for docID := uint64(1000); docID < numObjects; docID++ {
+		putOne(docID)
+	}
+
+	rng := rand.New(rand.NewSource(42))
+	deleted := make(map[uint64]bool)
+	for docID := uint64(0); docID < numObjects; docID++ {
+		if rng.Float64() < 0.2 {
+			binary.LittleEndian.PutUint64(docIDBytes, docID)
+			require.NoError(t, bucket.Delete([]byte(uuids[docID]), lsmkv.WithSecondaryKey(0, docIDBytes)))
+			deleted[docID] = true
+		}
+	}
+
+	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(numObjects+64))
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+
+	// Build a randomized docID sequence: found + deleted + a few non-existent ids
+	// (>= numObjects) + occasional duplicates, in a random order.
+	makeSequence := func(n int) []uint64 {
+		seq := make([]uint64, 0, n)
+		for len(seq) < n {
+			switch {
+			case rng.Float64() < 0.08:
+				// non-existent docID
+				seq = append(seq, uint64(numObjects)+uint64(rng.Intn(64)))
+			case rng.Float64() < 0.10 && len(seq) > 0:
+				// duplicate an earlier id
+				seq = append(seq, seq[rng.Intn(len(seq))])
+			default:
+				seq = append(seq, uint64(rng.Intn(numObjects)))
+			}
+		}
+		return seq
+	}
+
+	limits := []int{1, 7, 128, 499, 500, 501, 750, 1000, numObjects, 0}
+	seqLens := []int{0, 1, 50, 500, 1200, 2000}
+
+	for _, refQuery := range []bool{false, true} {
+		addl := additional.Properties{ReferenceQuery: refQuery}
+		for _, seqLen := range seqLens {
+			seq := makeSequence(seqLen)
+			for _, limit := range limits {
+				name := fmt.Sprintf("refQuery=%t/seqLen=%d/limit=%d", refQuery, seqLen, limit)
+				t.Run(name, func(t *testing.T) {
+					want := objectsByDocIDSerialReference(t, store,
+						newSliceDocIDsIterator(append([]uint64(nil), seq...)),
+						addl, limit, []string{propName})
+					got, err := searcher.objectsByDocID(ctx,
+						newSliceDocIDsIterator(append([]uint64(nil), seq...)),
+						addl, limit, []string{propName})
+					require.NoError(t, err)
+					assert.Equal(t, want, got)
+				})
+			}
+		}
+	}
+}
+
+// objectsByDocIDSerialReference replicates the original serial resolution loop
+// (one bucket.GetBySecondary per iterated docID, deleted/missing ids skipped, limit
+// counting resolved objects) so the batched production path can be diffed against it.
+func objectsByDocIDSerialReference(t *testing.T, store *lsmkv.Store, it docIDsIterator,
+	addl additional.Properties, limit int, properties []string,
+) []*storobj.Object {
+	t.Helper()
+	ctx := context.Background()
+
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+	className, err := bucket.ClassName()
+	require.NoError(t, err)
+
+	if limit == 0 {
+		limit = int(config.DefaultQueryMaximumResults)
+	}
+	outlen := it.Len()
+	if outlen > limit {
+		outlen = limit
+	}
+	out := make([]*storobj.Object, outlen)
+
+	propertyPaths := make([][]string, len(properties))
+	for j := range properties {
+		propertyPaths[j] = []string{properties[j]}
+	}
+	props := &storobj.PropertyExtraction{PropertyPaths: propertyPaths}
+
+	docIDBytes := make([]byte, 8)
+	i := 0
+	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+		res, err := bucket.GetBySecondary(ctx, 0, docIDBytes)
+		require.NoError(t, err)
+		if res == nil {
+			continue
+		}
+
+		var unmarshalled *storobj.Object
+		if addl.ReferenceQuery {
+			unmarshalled, err = storobj.FromBinaryUUIDOnlyDisk(res, className)
+		} else {
+			unmarshalled, err = storobj.FromBinaryOptionalDisk(res, className, addl, props)
+		}
+		require.NoError(t, err)
+
+		out[i] = unmarshalled
+		i++
+		if i >= limit {
+			break
+		}
+	}
+	return out[:i]
 }

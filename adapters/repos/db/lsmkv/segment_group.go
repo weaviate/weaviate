@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -401,14 +403,16 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		}
 		var err error
 		if b.lazySegmentLoading {
-			segment, err = newLazySegment(filepath.Join(sg.dir, entry), logger,
+			segment, err = newLazySegment(
+				filepath.Join(sg.dir, entry), logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("init lazy segment %s: %w", filepath.Join(sg.dir, entry), err)
 			}
 		} else {
-			segment, err = newSegment(filepath.Join(sg.dir, entry), logger,
+			segment, err = newSegment(
+				filepath.Join(sg.dir, entry), logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
 			if err != nil {
@@ -854,6 +858,305 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 		}
 	}
 	return nil, nil, nil, -1, lsmkv.NotFound
+}
+
+// secondaryBatchKey is an unresolved key awaiting segment resolution in the
+// batched secondary resolver, tagged with its original position in the caller's
+// key slice so results restore positionally (INV-LSMKV-BATCH-1).
+type secondaryBatchKey struct {
+	origIdx int
+	key     []byte
+}
+
+// secondaryBatchIndexHit is a confirmed secondary-index hit from phase 1: key was
+// found in segments[segIdx] (the newest segment to contain it). node delimits the
+// value byte range; the value bytes are read later in phase 2.
+type secondaryBatchIndexHit struct {
+	origIdx int
+	key     []byte
+	segIdx  int
+	node    segmentindex.Node
+}
+
+// secondaryBatchLiveHit is a phase-2 result whose value was not a tombstone.
+// priKey and value are already copied out of the segment (safe after view
+// release). superseded is set by the phase-3 recheck when a newer version exists.
+// key is the original secondary key, retained so the phase-3 memtable half can
+// re-resolve it against the current memtables to distinguish a genuine supersede
+// from the gh#313 false positive. fromMemtable marks a hit whose value was recovered
+// from a memtable re-resolve (newest-wins); such a hit must NOT be re-checked against
+// segments, since a memtable is newer than every segment.
+type secondaryBatchLiveHit struct {
+	origIdx      int
+	key          []byte
+	priKey       []byte
+	value        []byte
+	segIdx       int
+	superseded   bool
+	fromMemtable bool
+}
+
+// getBySecondaryBatchIndexHits runs phase 1 of the batched secondary resolver:
+// per segment newest-to-oldest, a confirmed DiskTree.Get per still-unresolved key.
+// A CONFIRMED index hit (never a bloom pass alone) removes the key from the
+// unresolved set BEFORE older segments are descended, preserving Replace newest-wins
+// (INV-LSMKV-REPLACE-NEWEST-WINS): the newest segment to confirm a key is
+// authoritative whether its value turns out live or a tombstone (tombstone status is
+// only knowable after the phase-2 value read). No value bytes are read here. Keys
+// never confirmed in any segment do not appear in the returned hits (they resolve to
+// nil). pending is expected pre-sorted by key for descent cache locality; ctx is
+// checked once per segment. pending's backing array is consumed (used as in-place
+// filter scratch); the caller must not reuse it.
+//
+// Descents are issued SERIALLY within each segment. A within-segment parallel-descent
+// variant was tried and reverted (gh#309 pass-3c): on a QD-capped device the parallel
+// descents all walk the same secondary tree from the root over overlapping cold pages,
+// so the page-ins serialize at the device anyway while major-fault events roughly
+// double at identical resident-page/payload/disk-byte counts, making cold bm25 worse.
+// hook is nil in production; it wraps each descent (onDescentStart/onDescentDone) so
+// the chunked-pipeline prototype and its tests can instrument the phase-1 descent path.
+func (sg *SegmentGroup) getBySecondaryBatchIndexHits(ctx context.Context, pos int,
+	pending []secondaryBatchKey, segments []Segment, hook *secondaryBatchReadHook,
+) ([]secondaryBatchIndexHit, error) {
+	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
+		return nil, fmt.Errorf("SegmentGroup::getBySecondaryBatchIndexHits(): %w", err)
+	}
+
+	hits := make([]secondaryBatchIndexHit, 0, len(pending))
+	remaining := pending
+	// newest -> oldest: view.Disk has the newest segment at the highest index.
+	for i := len(segments) - 1; i >= 0 && len(remaining) > 0; i-- {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		seg := segments[i]
+		stillUnresolved := remaining[:0] // in-place filter; writes never overtake reads
+		for _, pk := range remaining {
+			if hook != nil && hook.onDescentStart != nil {
+				hook.onDescentStart()
+			}
+			node, err := seg.getBySecondaryIndexNode(pos, pk.key)
+			if hook != nil && hook.onDescentDone != nil {
+				hook.onDescentDone()
+			}
+			if err != nil {
+				if errors.Is(err, lsmkv.NotFound) {
+					stillUnresolved = append(stillUnresolved, pk)
+					continue
+				}
+				return nil, fmt.Errorf("SegmentGroup::getBySecondaryBatchIndexHits() %q: %w", seg.getPath(), err)
+			}
+			// confirmed index hit: authoritative newest version for this key
+			hits = append(hits, secondaryBatchIndexHit{origIdx: pk.origIdx, key: pk.key, segIdx: i, node: node})
+		}
+		remaining = stillUnresolved
+	}
+	return hits, nil
+}
+
+// readSecondaryBatchValuesConcurrent runs phase 2 of the batched secondary
+// resolver: it sorts the phase-1 hits by (segIdx, node.Start) for value-offset
+// locality, then issues the copyNode value reads CONCURRENTLY across a fixed pool of
+// min(limit, len(hits)) worker goroutines (the per-batch concurrency bound; default
+// limit 16). This is where the cold wall-time win lives: the device's idle queue depth
+// is used instead of one serial pread at a time.
+//
+// The pool pulls hits from a shared atomic cursor rather than spawning one goroutine
+// per hit. Both give exactly limit-wide value issue, but the pool dispatches only
+// `limit` goroutines per batch instead of len(hits). On warm/fast storage each value
+// read is a ~1us page-cache pread, and per-hit goroutine dispatch (semaphore park/wake,
+// scheduler work-stealing) cost ~30-35% CPU on top of the read (the gh#309 warm
+// regression); the fixed pool removes that overhead with the concurrency width and
+// every returned byte unchanged.
+//
+// Every value is read into ONE per-batch arena sized sum(node.End-node.Start).
+// Each read goroutine writes a DISJOINT arena sub-slice (three-index sliced so its
+// cap == its own size; it cannot overrun into a sibling's range), so the writes are
+// race-free and the error group's Wait happens-before the caller reads any result. The
+// parsed priKey/value ALIAS their arena sub-slice: the arena is the copy-out
+// (copyNode has already copied the bytes off the possibly-mmap'd segment, so the
+// slices stay valid after the consistent view is released, issue #1837), and it
+// stays UNPOOLED so GC keeps it rooted while any decoded object references it.
+// LOAD-BEARING INVARIANT: if the arena is ever pooled, decode MUST copy fields out
+// before the arena is released, or the issue #1837 aliasing class returns one
+// indirection removed.
+//
+// Tombstone hits resolve to nil (dropped). limit floors at 1 (limit==1 is a genuine
+// serial execution). hook is nil in production; tests inject it to count peak
+// in-flight reads and to inject a per-read latency. arenaBytes (== len(arena)) is
+// returned so the batch's phase-2 memory cost is observable. ctx cancellation drains
+// cleanly: the group cancels egctx on the first error and each goroutine checks
+// egctx before its read.
+func (sg *SegmentGroup) readSecondaryBatchValuesConcurrent(ctx context.Context,
+	hits []secondaryBatchIndexHit, segments []Segment, limit int,
+	hook *secondaryBatchReadHook,
+) ([]secondaryBatchLiveHit, int, error) {
+	if len(hits) == 0 {
+		return nil, 0, nil
+	}
+	sort.Slice(hits, func(a, b int) bool {
+		if hits[a].segIdx != hits[b].segIdx {
+			return hits[a].segIdx < hits[b].segIdx
+		}
+		return hits[a].node.Start < hits[b].node.Start
+	})
+
+	// exact per-hit offsets into one arena; sizes are known from the phase-1 nodes.
+	offsets := make([]int, len(hits))
+	arenaBytes := 0
+	for i, h := range hits {
+		offsets[i] = arenaBytes
+		arenaBytes += int(h.node.End - h.node.Start)
+	}
+	arena := make([]byte, arenaBytes)
+
+	if limit < 1 {
+		limit = 1
+	}
+
+	// results[i] is written only by whichever worker claims index i (disjoint index)
+	// -> race-free; the live/tombstone filter runs after Wait.
+	type phase2Result struct {
+		live secondaryBatchLiveHit
+		ok   bool
+	}
+	results := make([]phase2Result, len(hits))
+
+	// readOne resolves a single hit into results[i]. It is the read body shared by
+	// every worker; each i is claimed by exactly one worker so the results[i] and the
+	// disjoint arena sub-slice writes are race-free.
+	readOne := func(i int) error {
+		h := hits[i]
+		size := int(h.node.End - h.node.Start)
+		// disjoint sub-slice with cap==size: this worker can only write its own
+		// [offset, offset+size) range of the shared arena backing array.
+		dst := arena[offsets[i] : offsets[i]+size : offsets[i]+size]
+
+		if hook != nil && hook.onReadStart != nil {
+			hook.onReadStart()
+		}
+		priKey, value, _, err := segments[h.segIdx].readSecondaryValueAtNode(h.node, dst)
+		if hook != nil && hook.onReadDone != nil {
+			hook.onReadDone()
+		}
+		if err != nil {
+			if errors.Is(err, lsmkv.Deleted) {
+				// tombstone: newest version is a delete -> result nil, not an error
+				return nil
+			}
+			return fmt.Errorf("SegmentGroup::readSecondaryBatchValuesConcurrent() %q: %w",
+				segments[h.segIdx].getPath(), err)
+		}
+		// priKey/value alias the arena sub-slice; no clone (the arena is the copy-out).
+		results[i] = phase2Result{
+			live: secondaryBatchLiveHit{origIdx: h.origIdx, key: h.key, priKey: priKey, value: value, segIdx: h.segIdx},
+			ok:   true,
+		}
+		return nil
+	}
+
+	// Fixed worker pool: spawn min(limit, len(hits)) workers, each pulling the next
+	// unclaimed hit from a shared atomic cursor and reading it in a tight loop. This
+	// keeps value issue exactly limit-wide concurrent (the cold-storage win: the
+	// device's idle queue depth is used), but dispatches only `limit` goroutines total
+	// instead of one per hit. On warm/fast storage where each read is a ~1us page-cache
+	// pread, per-hit goroutine dispatch (park/wake on the semaphore, work-stealing) cost
+	// ~30-35% CPU on top of the read itself (gh#309 warm regression); a fixed pool
+	// removes it while leaving the concurrency width and every result byte-identical.
+	workers := limit
+	if workers > len(hits) {
+		workers = len(hits)
+	}
+	var cursor atomic.Int64
+	eg, egctx := enterrors.NewErrorGroupWithContextWrapper(sg.logger, ctx)
+	for w := 0; w < workers; w++ {
+		eg.Go(func() error {
+			for {
+				if err := egctx.Err(); err != nil {
+					return err
+				}
+				i := int(cursor.Add(1)) - 1
+				if i >= len(hits) {
+					return nil
+				}
+				if err := readOne(i); err != nil {
+					return err
+				}
+			}
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, arenaBytes, err
+	}
+
+	lives := make([]secondaryBatchLiveHit, 0, len(hits))
+	for i := range results {
+		if results[i].ok {
+			lives = append(lives, results[i].live)
+		}
+	}
+	return lives, arenaBytes, nil
+}
+
+// recheckSecondaryBatchInSegments runs the segment half of phase 3: for each live
+// hit, is a newer version of its primary key present (live OR tombstone) in any
+// segment newer than the segment where its secondary key was found? If so the hit
+// is superseded (result nil). This is the batched, loop-inverted form of
+// existsWithConsistentViewUpTo(priKey, segIdx+1): per-segment-outer /
+// sorted-priKey-inner, so each newer segment's primary index is descended once
+// over the sorted set of primary keys that must check it. Iterating segments
+// newest-to-oldest and dropping on the first present match makes each hit stop at
+// its newest superseding segment, exactly as the serial recheck does. Sets
+// hit.superseded in place. The memtable half runs first at the bucket layer
+// (memtables are newer than all segments).
+func (sg *SegmentGroup) recheckSecondaryBatchInSegments(ctx context.Context,
+	lives []secondaryBatchLiveHit, segments []Segment,
+) error {
+	if len(lives) == 0 {
+		return nil
+	}
+	scratch := make([]int, 0, len(lives))
+	remaining := len(lives)
+	// newest -> oldest; a hit at segIdx i must check segments with index > i.
+	for sj := len(segments) - 1; sj >= 1 && remaining > 0; sj-- {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		scratch = scratch[:0]
+		for k := range lives {
+			// fromMemtable hits carry a value recovered from a memtable re-resolve,
+			// which is newer than every segment; no segment can supersede them.
+			if !lives[k].superseded && !lives[k].fromMemtable && lives[k].segIdx < sj {
+				scratch = append(scratch, k)
+			}
+		}
+		if len(scratch) == 0 {
+			continue
+		}
+		sort.Slice(scratch, func(a, b int) bool {
+			return bytes.Compare(lives[scratch[a]].priKey, lives[scratch[b]].priKey) < 0
+		})
+		seg := segments[sj]
+		for _, k := range scratch {
+			// seg.exists is cheap only while a bloom filter fronts each newer segment:
+			// a bloom miss (the common case, since a primary key rarely reappears in a
+			// newer segment) answers "absent" without touching the tree. With bloom
+			// filters disabled, every one of these probes falls through to a real
+			// primary-index tree descent per key per newer segment, so this recheck
+			// loop's cost scales with (live hits x newer segments) instead of staying
+			// near-free. Keep bloom filters enabled on the objects bucket for this path
+			// to stay cheap.
+			err := seg.exists(lives[k].priKey)
+			if err == nil || errors.Is(err, lsmkv.Deleted) {
+				// present (live or tombstone) in a newer segment -> superseded
+				lives[k].superseded = true
+				remaining--
+			} else if !errors.Is(err, lsmkv.NotFound) {
+				return fmt.Errorf("SegmentGroup::recheckSecondaryBatchInSegments() %q: %w", seg.getPath(), err)
+			}
+		}
+	}
+	return nil
 }
 
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {

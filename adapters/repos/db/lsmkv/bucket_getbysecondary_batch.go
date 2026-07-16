@@ -1,0 +1,298 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package lsmkv
+
+// Batched secondary-key resolution on the Replace-strategy objects bucket
+// (gh#309). It resolves many secondary keys under ONE consistent view in four
+// phases: (0) a memtable pass, (1) per-segment newest-to-oldest index descents
+// with newest-wins elimination, (2) offset-sorted bounded-concurrent value reads
+// into one per-batch arena, and (3) a batched recheck that drops any hit
+// superseded by a newer version of its primary key. Nothing here holds or
+// re-enters a bucket lock across phase I/O (view refcounts only; see issues
+// #11486 and #11678), and every returned value is copied out of the
+// segment/memtable before the view is released so results stay valid afterwards
+// (copy-under-refcount, issue #1837).
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"sort"
+	"sync/atomic"
+	"time"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/lsmkv"
+)
+
+// concurrentSecondaryBatches counts the secondary batches currently resolving
+// across this process (== this node), single-key delegates included. It is the
+// leading indicator for adding a node-wide read-concurrency cap: the batch
+// resolver removes the serial-chain slowness that today limits how many cold
+// queries a node accepts at once, so node-wide concurrency climbs as the speedup
+// lands. Surfaced per batch in the slow log
+// (BucketSlowLogEntry.ConcurrentBatchCount); sustained values well above the
+// modeled range are the signal to bound node-wide concurrency before device queue
+// latency rises.
+var concurrentSecondaryBatches atomic.Int64
+
+// secondaryBatchReadHook is a nil-in-production instrumentation seam around each
+// phase-1 index descent AND each phase-2 value read. Tests inject it to (i) count
+// peak in-flight operations (proving the phase actually runs concurrently, not
+// accidentally serial) and (ii) inject a fixed per-op latency for a wall-time ratio
+// assertion. onReadStart/onReadDone wrap each phase-2 value read; onDescentStart/
+// onDescentDone wrap each phase-1 index descent. Each pair runs immediately before
+// and after its op, inside the worker goroutine.
+type secondaryBatchReadHook struct {
+	onReadStart    func()
+	onReadDone     func()
+	onDescentStart func()
+	onDescentDone  func()
+}
+
+// secondaryBatchViewHoldCap bounds the number of keys resolved under a single
+// consistent view. GetBySecondaryBatch chunks larger inputs into slabs of this
+// size, each slab acquiring and releasing its own view, so the window during which
+// compaction must wait for outstanding readers (waitForReferenceCountToReachZero)
+// stays bounded regardless of caller batch size. 500 = the BM25/filter `limit`
+// ceiling.
+const secondaryBatchViewHoldCap = 500
+
+// defaultSecondaryBatchReadConcurrency is the phase-2 value-read semaphore default,
+// used when no runtime value is configured. It is deliberately per-batch (not
+// node-wide) and runtime-tunable (see WithSecondaryBatchReadConcurrency): raise it
+// on a device with spare IOPS headroom, lower it on a throttled one.
+const defaultSecondaryBatchReadConcurrency = 16
+
+// secondaryBatchReadConcurrencyValue returns the effective phase-2 semaphore bound:
+// the runtime-configured value when set and positive, else the default 16. Read once
+// per batch so a mid-flight DynamicValue change never re-sizes an in-flight error group.
+func (b *Bucket) secondaryBatchReadConcurrencyValue() int {
+	if b.secondaryBatchReadConcurrency != nil {
+		if v := b.secondaryBatchReadConcurrency.Get(); v > 0 {
+			return v
+		}
+	}
+	return defaultSecondaryBatchReadConcurrency
+}
+
+// GetBySecondaryBatch resolves multiple secondary keys, acquiring and releasing
+// its own consistent view(s). Results are positionally aligned to keys: out[i]
+// corresponds to keys[i], nil for a missing or deleted object. Inputs larger than
+// secondaryBatchViewHoldCap are chunked internally into slabs, each slab under its
+// own view, so the caller never has to think about the view-hold cap.
+//
+// Like GetBySecondary, this is limited to the Replace strategy.
+func (b *Bucket) GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte) ([][]byte, error) {
+	if len(keys) == 0 {
+		return [][]byte{}, nil
+	}
+
+	out := make([][]byte, len(keys))
+	for start := 0; start < len(keys); start += secondaryBatchViewHoldCap {
+		end := start + secondaryBatchViewHoldCap
+		if end > len(keys) {
+			end = len(keys)
+		}
+
+		view := b.GetConsistentView()
+		res, err := b.GetBySecondaryBatchWithView(ctx, pos, keys[start:end], view)
+		view.ReleaseView()
+		if err != nil {
+			return nil, err
+		}
+		copy(out[start:end], res)
+	}
+	return out, nil
+}
+
+// GetBySecondaryBatchWithView is like GetBySecondaryBatch but resolves all keys
+// under an existing caller-supplied consistent view. The caller owns the view and
+// its hold duration, so this entry point does NOT slab-chunk (the 500-key
+// view-hold cap is enforced by GetBySecondaryBatch, which manages its own views).
+// Results are positionally aligned to keys, nil for missing/deleted. Every
+// returned value is copied out of the segment/memtable so results stay valid after
+// the caller releases the view (copy-under-refcount, #1837).
+func (b *Bucket) GetBySecondaryBatchWithView(ctx context.Context, pos int, keys [][]byte,
+	view BucketConsistentView,
+) ([][]byte, error) {
+	if pos >= int(b.secondaryIndices) {
+		return nil, fmt.Errorf("no secondary index at pos %d", pos)
+	}
+
+	n := len(keys)
+	if n == 0 {
+		return [][]byte{}, nil
+	}
+
+	// Count this batch in the node-wide concurrent-resolution gauge for its whole
+	// lifetime, single-key delegates included, so the leading indicator does not
+	// undercount. Released when the batch returns.
+	concurrentBatches := concurrentSecondaryBatches.Add(1)
+	defer concurrentSecondaryBatches.Add(-1)
+
+	out := make([][]byte, n)
+	if n == 1 {
+		// delegate to the single-key path; copy the result so it survives view release
+		v, _, err := b.getBySecondaryCore(ctx, pos, keys[0], nil, view, 0, "lsm_get_by_secondary_batch")
+		if err != nil {
+			if lsmkv.IsDeletedOrNotFound(err) {
+				return out, nil // out[0] stays nil
+			}
+			return nil, err
+		}
+		out[0] = bytes.Clone(v)
+		return out, nil
+	}
+
+	memtables, count := viewMemtables(view)
+	segments := view.Disk
+
+	// Phase 0 - memtable pass, walked in key-sorted order so the later per-segment
+	// index descents touch upper DiskTree pages in key order (cache locality). Each
+	// unresolved key carries its original position for positional restore; duplicate
+	// keys are handled independently (each position resolves on its own).
+	beforeMemtables := time.Now()
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return bytes.Compare(keys[order[a]], keys[order[b]]) < 0
+	})
+
+	unresolved := make([]secondaryBatchKey, 0, n)
+	for _, oi := range order {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		v, resolved, err := b.resolveSecondaryFromMemtables(pos, keys[oi], memtables, count, nil)
+		if resolved {
+			if err == nil {
+				out[oi] = bytes.Clone(v)
+			} else if !lsmkv.IsDeletedOrNotFound(err) {
+				return nil, err
+			}
+			// lsmkv.Deleted / lsmkv.NotFound -> out[oi] stays nil
+			continue
+		}
+		unresolved = append(unresolved, secondaryBatchKey{origIdx: oi, key: keys[oi]})
+	}
+	memtablesTook := time.Since(beforeMemtables)
+	if len(unresolved) == 0 {
+		return out, nil
+	}
+
+	// Phase 1 - per-segment sorted index descents, newest-to-oldest, unresolved-set
+	// elimination on CONFIRMED index hits only (never a bloom pass). No value read.
+	beforeIndex := time.Now()
+	hits, err := b.disk.getBySecondaryBatchIndexHits(ctx, pos, unresolved, segments, nil)
+	if err != nil {
+		return nil, err
+	}
+	indexTook := time.Since(beforeIndex)
+	if len(hits) == 0 {
+		b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, 0, 0, concurrentBatches, 0)
+		return out, nil
+	}
+
+	// Phase 2 - offset-sorted bounded-concurrent value reads. Live hits carry
+	// priKey/value aliasing a single per-batch arena; tombstone hits drop to nil.
+	// arenaBytes is the arena size, surfaced in the slow log for memory visibility.
+	beforeValues := time.Now()
+	lives, arenaBytes, err := b.disk.readSecondaryBatchValuesConcurrent(
+		ctx, hits, segments, b.secondaryBatchReadConcurrencyValue(), nil)
+	if err != nil {
+		return nil, err
+	}
+	valuesTook := time.Since(beforeValues)
+	if len(lives) == 0 {
+		b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, valuesTook, 0, concurrentBatches, int64(arenaBytes))
+		return out, nil
+	}
+
+	if b.secondaryBatchRecheckHook != nil {
+		b.secondaryBatchRecheckHook()
+	}
+
+	// Phase 3 - recheck: drop any live hit superseded by a newer version of its
+	// primary key. Memtables first (newer than every segment), then newer segments.
+	beforeRecheck := time.Now()
+	kept := lives[:0]
+	for _, lh := range lives {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		present, err := b.secondaryPresentInMemtables(lh.priKey, memtables, count)
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			kept = append(kept, lh)
+			continue
+		}
+		// priKey present in a memtable: either a genuine supersede or the gh#313 false
+		// positive, where a concurrent same-secondary-key Put landed in the memtable in
+		// the phase-1->phase-3 window (the view captures memtables by pointer). Phase 0
+		// missed lh.key in the memtable; re-resolve it against the now-current memtables.
+		// Present -> the memtable holds the authoritative newest version (recover it,
+		// cloned so it survives view release, and exempt it from the segment half since a
+		// memtable is newer than every segment). Absent -> genuine supersede, drop to nil.
+		v, resolved, rerr := b.resolveSecondaryFromMemtables(pos, lh.key, memtables, count, nil)
+		if rerr != nil && !lsmkv.IsDeletedOrNotFound(rerr) {
+			return nil, rerr
+		}
+		if resolved && rerr == nil {
+			lh.value = bytes.Clone(v)
+			lh.fromMemtable = true
+			kept = append(kept, lh)
+			if b.logger != nil {
+				b.logger.WithField("action", "lsm_get_by_secondary_batch_recheck_recovered").
+					Debug("batch recheck supersede overridden by memtable re-resolve (gh#313 window)")
+			}
+		}
+		// resolved with Deleted/NotFound, or absent from memtables -> superseded, drop.
+	}
+	lives = kept
+	if err := b.disk.recheckSecondaryBatchInSegments(ctx, lives, segments); err != nil {
+		return nil, err
+	}
+	recheckTook := time.Since(beforeRecheck)
+
+	for i := range lives {
+		if !lives[i].superseded {
+			out[lives[i].origIdx] = lives[i].value
+		}
+	}
+	b.annotateSecondaryBatchSlowLog(ctx, memtablesTook, indexTook, valuesTook, recheckTook, concurrentBatches, int64(arenaBytes))
+	return out, nil
+}
+
+// annotateSecondaryBatchSlowLog appends a per-phase timing entry for a batched
+// secondary resolution under the lsm_get_by_secondary_batch log key, so an engineer
+// reading the slow log sees WHERE the cold cost sits (index_descents vs value_reads
+// vs recheck), the node-wide concurrent-batch count, and the phase-2 arena size.
+func (b *Bucket) annotateSecondaryBatchSlowLog(ctx context.Context,
+	memtables, indexDescents, valueReads, recheck time.Duration,
+	concurrentBatches, arenaBytes int64,
+) {
+	helpers.AnnotateSlowQueryLogAppend(ctx, "lsm_get_by_secondary_batch", BucketSlowLogEntry{
+		Total:                memtables + indexDescents + valueReads + recheck,
+		ActiveMemtable:       memtables,
+		Segments:             indexDescents + valueReads,
+		IndexDescents:        indexDescents,
+		ValueReads:           valueReads,
+		Recheck:              recheck,
+		ConcurrentBatchCount: concurrentBatches,
+		ArenaBytes:           arenaBytes,
+	})
+}

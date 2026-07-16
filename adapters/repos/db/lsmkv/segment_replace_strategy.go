@@ -109,6 +109,62 @@ func (s *segment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []
 	return primaryKey, currContent, contentsCopy, err
 }
 
+// getBySecondaryIndexNode performs only the secondary-index descent for key at
+// pos: bloom-test then DiskTree.Get. It returns the index node (whose Start/End
+// delimit the value's byte range in the segment) on a confirmed hit, WITHOUT
+// reading the value bytes. Returns lsmkv.NotFound if the bloom filter or the
+// on-disk index has no entry for key.
+//
+// This is the index half of getBySecondary, split out for the batched resolver:
+// phase 1 collects confirmed index hits (newest-wins elimination keys on a
+// confirmed hit, never a bloom pass) and phase 2 reads the value bytes later via
+// readSecondaryValueAtNode. Whether the node is a live value or a tombstone is
+// only knowable after the value read, but the newest confirmed index hit is
+// authoritative for newest-wins regardless.
+func (s *segment) getBySecondaryIndexNode(pos int, key []byte) (segmentindex.Node, error) {
+	if s.strategy != segmentindex.StrategyReplace {
+		return segmentindex.Node{}, fmt.Errorf("getBySecondary only possible for strategy %q", StrategyReplace)
+	}
+
+	if pos >= len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
+		return segmentindex.Node{}, fmt.Errorf("no secondary index at pos %d", pos)
+	}
+
+	if s.useBloomFilter && !s.secondaryBloomFilters[pos].Test(key) {
+		return segmentindex.Node{}, lsmkv.NotFound
+	}
+
+	return s.secondaryIndices[pos].Get(key)
+}
+
+// readSecondaryValueAtNode reads and parses the value bytes for a node located by
+// getBySecondaryIndexNode. It copies the bytes out of the (possibly mmap'd)
+// segment exactly once here (copy-under-refcount, see the getBySecondary comment
+// and https://github.com/weaviate/weaviate/issues/1837) so the returned
+// primaryKey and value stay valid after the consistent view is released. Returns
+// lsmkv.Deleted (or an errorFromTombstonedValue wrapping it) for a tombstone
+// node. The returned allocBuf is the backing array of primaryKey and value; the
+// caller may reuse it as the buffer for the next read only AFTER copying
+// primaryKey/value out.
+func (s *segment) readSecondaryValueAtNode(node segmentindex.Node, buffer []byte) ([]byte, []byte, []byte, error) {
+	var contentsCopy []byte
+	if uint64(cap(buffer)) >= node.End-node.Start {
+		contentsCopy = buffer[:node.End-node.Start]
+	} else {
+		contentsCopy = make([]byte, node.End-node.Start)
+	}
+	if err := s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+		return nil, nil, nil, err
+	}
+
+	primaryKey, currContent, err := s.replaceStratParseData(contentsCopy)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return primaryKey, currContent, contentsCopy, nil
+}
+
 func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	if len(in) == 0 {
 		return nil, nil, lsmkv.NotFound

@@ -191,6 +191,13 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
+// filterObjectsByDocIDSlabSize bounds how many docIDs the filter path resolves per
+// GetBySecondaryBatch call. It matches the lsmkv batch view-hold cap (500), so each
+// slab resolves under exactly one consistent view. The per-batch value-read
+// concurrency (default 16) lives inside GetBySecondaryBatch; the filter path adds no
+// second in-flight bound.
+const filterObjectsByDocIDSlabSize = 500
+
 func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
@@ -215,7 +222,6 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	}
 
 	out := make([]*storobj.Object, outlen)
-	docIDBytes := make([]byte, 8)
 
 	propertyPaths := make([][]string, len(properties))
 	for j := range properties {
@@ -243,40 +249,77 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		}
 	}()
 
+	// Resolve docIDs in slabs: each slab is a single GetBySecondaryBatch call
+	// holding one consistent view for the whole slab (no per-key view churn).
+	// limit counts RESOLVED objects, not iterated docIDs (deleted/missing docIDs
+	// are skipped and do not consume the limit), so each slab is sized to
+	// min(slabSize, limit-i). A slab then yields at most limit-i found objects,
+	// which keeps the i>=limit break on a slab boundary: exactly the docIDs needed
+	// to reach the limit are resolved, and nils are routed to handleDeletedId in
+	// iterator order.
+	maxSlab := limit
+	if maxSlab > filterObjectsByDocIDSlabSize {
+		maxSlab = filterObjectsByDocIDSlabSize
+	}
+	keyBacking := make([]byte, maxSlab*8)
+	keys := make([][]byte, 0, maxSlab)
+	slabDocIDs := make([]uint64, 0, maxSlab)
+
 	i := 0
-	loop := 0
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		if loop%1000 == 0 && ctx.Err() != nil {
+	itDone := false
+	for i < limit && !itDone {
+		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		loop++
 
-		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		res, err := bucket.GetBySecondary(ctx, 0, docIDBytes)
+		slabCap := maxSlab
+		if remaining := limit - i; remaining < slabCap {
+			slabCap = remaining
+		}
+		keys = keys[:0]
+		slabDocIDs = slabDocIDs[:0]
+		for len(keys) < slabCap {
+			docID, ok := it.Next()
+			if !ok {
+				itDone = true
+				break
+			}
+			key := keyBacking[len(keys)*8 : len(keys)*8+8]
+			binary.LittleEndian.PutUint64(key, docID)
+			keys = append(keys, key)
+			slabDocIDs = append(slabDocIDs, docID)
+		}
+		if len(keys) == 0 {
+			break
+		}
+
+		resolved, err := bucket.GetBySecondaryBatch(ctx, 0, keys)
 		if err != nil {
 			return nil, err
 		}
 
-		if res == nil {
-			handleDeletedId(docID)
-			continue
-		}
+		for j, res := range resolved {
+			if res == nil {
+				handleDeletedId(slabDocIDs[j])
+				continue
+			}
 
-		var unmarshalled *storobj.Object
-		if additional.ReferenceQuery {
-			unmarshalled, err = storobj.FromBinaryUUIDOnlyDisk(res, className)
-		} else {
-			unmarshalled, err = storobj.FromBinaryOptionalDisk(res, className, additional, props)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
-		}
+			var unmarshalled *storobj.Object
+			if additional.ReferenceQuery {
+				unmarshalled, err = storobj.FromBinaryUUIDOnlyDisk(res, className)
+			} else {
+				unmarshalled, err = storobj.FromBinaryOptionalDisk(res, className, additional, props)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
+			}
 
-		out[i] = unmarshalled
-		i++
+			out[i] = unmarshalled
+			i++
 
-		if i >= limit {
-			break
+			if i >= limit {
+				break
+			}
 		}
 	}
 

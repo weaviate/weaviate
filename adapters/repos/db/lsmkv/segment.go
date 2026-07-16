@@ -62,6 +62,8 @@ type Segment interface {
 	get(key []byte) ([]byte, error)
 	exists(key []byte) error
 	getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
+	getBySecondaryIndexNode(pos int, key []byte) (segmentindex.Node, error)
+	readSecondaryValueAtNode(node segmentindex.Node, buffer []byte) ([]byte, []byte, []byte, error)
 	getCollection(key []byte) ([]value, error)
 	getCollectionBytes(key []byte) ([][]byte, error)
 	getInvertedData() *segmentInvertedData
