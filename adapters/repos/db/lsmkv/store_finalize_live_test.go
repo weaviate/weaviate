@@ -160,6 +160,25 @@ func TestFinalizeBucketSwapLive_ConcurrentReadsReturnCorrectResults(t *testing.T
 	}
 	canonicalDir, _ := stageIngestBucketAtCanonicalName(t, ctx, store, name, seed)
 
+	// One pinned read, like the shard's tokenization-pin path, so the finalize
+	// reader-drain (lifetimeLock) is exercised.
+	readPinnedOnce := func(key, want string) error {
+		b, release := store.AcquireBucketForRead(name)
+		if b == nil {
+			release()
+			return fmt.Errorf("bucket %q disappeared mid-finalize", name)
+		}
+		got, err := b.Get([]byte(key))
+		release()
+		if err != nil {
+			return fmt.Errorf("get %q: %w", key, err)
+		}
+		if string(got) != want {
+			return fmt.Errorf("stale/lost read for %q: got %q want %q", key, got, want)
+		}
+		return nil
+	}
+
 	var stop atomic.Bool
 	var wg sync.WaitGroup
 	const readers = 8
@@ -168,29 +187,12 @@ func TestFinalizeBucketSwapLive_ConcurrentReadsReturnCorrectResults(t *testing.T
 		wg.Add(1)
 		go func(r int) {
 			defer wg.Done()
-			i := 0
-			for !stop.Load() {
+			for i := 0; !stop.Load(); i++ {
 				key := fmt.Sprintf("k%04d", (r*37+i)%nKeys)
-				want := "v" + key[1:]
-				// Pin like the shard's tokenization-pin path so the finalize
-				// reader-drain (lifetimeLock) is exercised.
-				b, release := store.AcquireBucketForRead(name)
-				if b == nil {
-					release()
-					errCh <- fmt.Errorf("bucket %q disappeared mid-finalize", name)
+				if err := readPinnedOnce(key, "v"+key[1:]); err != nil {
+					errCh <- err
 					return
 				}
-				got, err := b.Get([]byte(key))
-				release()
-				if err != nil {
-					errCh <- fmt.Errorf("get %q: %w", key, err)
-					return
-				}
-				if string(got) != want {
-					errCh <- fmt.Errorf("stale/lost read for %q: got %q want %q", key, got, want)
-					return
-				}
-				i++
 			}
 		}(r)
 	}

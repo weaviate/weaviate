@@ -2182,6 +2182,14 @@ func (b *Bucket) flushActiveMemtableInPlace() error {
 		return fmt.Errorf("add segment: %w", err)
 	}
 
+	return b.postFlushBookkeepingInPlace(segment, tombstones)
+}
+
+// postFlushBookkeepingInPlace applies the per-strategy post-add updates for a
+// segment just flushed from the active memtable in place — mirroring what
+// atomicallyAddDiskSegmentAndRemoveFlushing + FlushAndSwitch's tombstone tail
+// do for the flushing memtable. MUST stay in sync with those.
+func (b *Bucket) postFlushBookkeepingInPlace(segment Segment, tombstones *sroar.Bitmap) error {
 	switch b.strategy {
 	case StrategyReplace:
 		if b.monitorCount {
