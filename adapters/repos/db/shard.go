@@ -486,6 +486,11 @@ type Shard struct {
 	callbacksAddToPropertyValueIndex      atomic.Value // []onAddToPropertyValueIndex
 	callbacksRemoveFromPropertyValueIndex atomic.Value // []onDeleteFromPropertyValueIndex
 	propertyValueIndexCallbacksMu         sync.Mutex
+	// Live count of add-to-property-value-index callbacks (a reindex in flight).
+	// Disabled callbacks stay in the slice, so this counter — not the slice
+	// length — is the cheap "is a reindex active" gate the write paths read to
+	// decide whether to mirror co-located props into the ingest bucket.
+	activeAddToPropertyValueIndexCallbacks atomic.Int32
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -985,7 +990,13 @@ func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueInd
 	s.callbacksAddToPropertyValueIndex.Store(updated)
 	s.propertyValueIndexCallbacksMu.Unlock()
 
-	return func() { disabled.Store(true) }
+	s.activeAddToPropertyValueIndexCallbacks.Add(1)
+	return func() {
+		// Decrement once, even if the disable func is called more than once.
+		if disabled.CompareAndSwap(false, true) {
+			s.activeAddToPropertyValueIndexCallbacks.Add(-1)
+		}
+	}
 }
 
 func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {

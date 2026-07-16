@@ -601,6 +601,17 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
+	// A docID-preserved (delta) update re-indexes only the changed props, so an
+	// in-flight reindex would miss this object's unchanged target props; mirror
+	// the full set into the ingest bucket to keep the backfill scan's skip
+	// lossless (weaviate/0-weaviate-issues#318). The non-preserved path already
+	// re-adds every prop, so it needs no extra mirror.
+	if status.docIDPreserved {
+		if err := s.mirrorPropsIntoReindexIngest(status.docID, props); err != nil {
+			return fmt.Errorf("mirror props into reindex ingest: %w", err)
+		}
+	}
+
 	if s.index.Config.TrackVectorDimensions {
 		err = object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
 			if err = s.extendDimensionTrackerLSM(dims, status.docID, targetVector); err != nil {

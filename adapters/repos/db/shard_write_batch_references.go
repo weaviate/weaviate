@@ -41,12 +41,12 @@ func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 // operations)
 type referencesBatcher struct {
 	sync.Mutex
-	shard ShardLike
+	shard *Shard
 	errs  []error
 	refs  objects.BatchReferences
 }
 
-func newReferencesBatcher(s ShardLike) *referencesBatcher {
+func newReferencesBatcher(s *Shard) *referencesBatcher {
 	return &referencesBatcher{
 		shard: s,
 	}
@@ -134,6 +134,15 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 			continue
 		}
 
+		// The merge above bumped the object past a live reindex watermark; mirror
+		// its co-located props so the backfill scan's skip stays lossless.
+		if err := b.mirrorColocatedPropsForReindex(res); err != nil {
+			errLock.Lock()
+			errs[i] = err
+			errLock.Unlock()
+			continue
+		}
+
 		prop, ok := propsByName[ref.From.Property.String()]
 		if !ok {
 			errLock.Lock()
@@ -161,6 +170,24 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 	}
 
 	return errs
+}
+
+// mirrorColocatedPropsForReindex mirrors the freshly-merged object's full prop
+// set into any in-flight reindex ingest bucket. The batch-ref writers touch
+// only the reference's own buckets, so without this a reindex of a co-located
+// primitive property loses the object: mutableMergeObjectLSM bumps its
+// LastUpdateTimeUnix past the reindex watermark, the backfill scan skips it, yet
+// its value was never mirrored (weaviate/0-weaviate-issues#318). No-op when no
+// reindex is active.
+func (b *referencesBatcher) mirrorColocatedPropsForReindex(res mutableMergeResult) error {
+	if !b.shard.hasActiveReindexMirror() {
+		return nil
+	}
+	props, _, _, err := b.shard.AnalyzeObject(res.next)
+	if err != nil {
+		return fmt.Errorf("analyze merged object for reindex mirror: %w", err)
+	}
+	return b.shard.mirrorPropsIntoReindexIngest(res.status.docID, props)
 }
 
 func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult, ref objects.BatchReference, prop *models.Property) error {

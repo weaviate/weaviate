@@ -321,6 +321,33 @@ func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Prope
 	return ec.ToError()
 }
 
+// hasActiveReindexMirror reports whether a reindex has live add-to-property-
+// value-index callbacks, i.e. whether co-located props need mirroring.
+func (s *Shard) hasActiveReindexMirror() bool {
+	return s.activeAddToPropertyValueIndexCallbacks.Load() > 0
+}
+
+// mirrorPropsIntoReindexIngest re-fires the add-to-property-value-index
+// callbacks for every analyzed property so an in-flight reindex captures the
+// object's target-property postings into the ingest bucket. Write paths that
+// bump LastUpdateTimeUnix past the reindex watermark without re-indexing every
+// property (batch references, delta merges) would otherwise let the backfill
+// scan skip the object with its unchanged target value never mirrored — silent
+// index loss (weaviate/0-weaviate-issues#318). The callbacks self-filter to the
+// props being reindexed, so non-target props (incl. the reference itself) are
+// no-ops. Gated so the common no-reindex write path pays nothing.
+func (s *Shard) mirrorPropsIntoReindexIngest(docID uint64, props []inverted.Property) error {
+	if !s.hasActiveReindexMirror() {
+		return nil
+	}
+	for i := range props {
+		if err := s.onAddToPropertyValueIndex(docID, &props[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func isMetaCountProperty(property inverted.Property) bool {
 	return len(property.Name) > len(schema.InternalMetaCountSuffix) &&
 		strings.HasSuffix(property.Name, schema.InternalMetaCountSuffix)
