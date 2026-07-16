@@ -1238,13 +1238,9 @@ func TestMapTracker_TrackThenGet_NoUndercount(t *testing.T) {
 	}
 }
 
-// TestMapTracker_TrackThenGetAndReset_NoUndercount is the GetAndReset sibling of
-// TestMapTracker_TrackThenGet_NoUndercount: it independently pins the resetChan
-// drain, so removing only that drain call (leaving the getChan one intact) is
-// caught here rather than relying on the shared helper for symmetry
-// (weaviate/weaviate#12201). GetAndReset clears the counts after returning them,
-// so each single-Track iteration starts from zero and the returned snapshot must
-// report exactly 1; an undrained buffered Track shows up as 0.
+// TestMapTracker_TrackThenGetAndReset_NoUndercount pins the same race on the
+// resetChan drain, independently of the getChan case above
+// (weaviate/weaviate#12201).
 func TestMapTracker_TrackThenGetAndReset_NoUndercount(t *testing.T) {
 	// GOMAXPROCS=1 never triggers the race; pin to 2 for a stable repro
 	// regardless of the host's core count.
