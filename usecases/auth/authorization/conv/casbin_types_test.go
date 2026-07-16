@@ -1458,42 +1458,52 @@ func TestUserNameWithTypeScoped(t *testing.T) {
 
 // TestUserNameWithTypeFromPrincipal pins the enforcement-side subject: a global
 // OIDC principal (IsGlobalOperator) gets the empty-namespace slot; namespaced
-// OIDC, any DB, and NS-disabled principals are unchanged.
+// OIDC, any DB, and NS-disabled principals are unchanged. It also pins that
+// ScopedSubjectUserFromPrincipal — the single caller-subject derivation both the
+// authn and authz self-read paths route through — yields the same subject's
+// user-portion, keyed off IsGlobalOperator rather than an empty namespace.
 func TestUserNameWithTypeFromPrincipal(t *testing.T) {
 	tests := []struct {
-		name        string
-		principal   *models.Principal
-		wantSubject string
+		name            string
+		principal       *models.Principal
+		wantSubject     string
+		wantUserPortion string
 	}{
 		{
-			name:        "global oidc bare name gets slot",
-			principal:   &models.Principal{UserType: models.UserTypeInputOidc, Username: "carol", IsGlobalOperator: true},
-			wantSubject: "oidc::carol",
+			name:            "global oidc bare name gets slot",
+			principal:       &models.Principal{UserType: models.UserTypeInputOidc, Username: "carol", IsGlobalOperator: true},
+			wantSubject:     "oidc::carol",
+			wantUserPortion: ":carol",
 		},
 		{
-			name:        "global oidc colon-bearing name gets slot",
-			principal:   &models.Principal{UserType: models.UserTypeInputOidc, Username: "customer1:carol", IsGlobalOperator: true},
-			wantSubject: "oidc::customer1:carol",
+			name:            "global oidc colon-bearing name gets slot",
+			principal:       &models.Principal{UserType: models.UserTypeInputOidc, Username: "customer1:carol", IsGlobalOperator: true},
+			wantSubject:     "oidc::customer1:carol",
+			wantUserPortion: ":customer1:carol",
 		},
 		{
-			name:        "namespaced oidc: no slot",
-			principal:   &models.Principal{UserType: models.UserTypeInputOidc, Username: "customer1:carol", IsGlobalOperator: false},
-			wantSubject: "oidc:customer1:carol",
+			name:            "namespaced oidc: no slot",
+			principal:       &models.Principal{UserType: models.UserTypeInputOidc, Username: "customer1:carol", IsGlobalOperator: false},
+			wantSubject:     "oidc:customer1:carol",
+			wantUserPortion: "customer1:carol",
 		},
 		{
-			name:        "global db: no slot",
-			principal:   &models.Principal{UserType: models.UserTypeInputDb, Username: "bob", IsGlobalOperator: true},
-			wantSubject: "db:bob",
+			name:            "global db: no slot",
+			principal:       &models.Principal{UserType: models.UserTypeInputDb, Username: "bob", IsGlobalOperator: true},
+			wantSubject:     "db:bob",
+			wantUserPortion: "bob",
 		},
 		{
-			name:        "ns-disabled oidc: no slot",
-			principal:   &models.Principal{UserType: models.UserTypeInputOidc, Username: "carol", IsGlobalOperator: false},
-			wantSubject: "oidc:carol",
+			name:            "ns-disabled oidc empty namespace is not global: no slot",
+			principal:       &models.Principal{UserType: models.UserTypeInputOidc, Username: "carol", IsGlobalOperator: false},
+			wantSubject:     "oidc:carol",
+			wantUserPortion: "carol",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.wantSubject, UserNameWithTypeFromPrincipal(tt.principal))
+			require.Equal(t, tt.wantUserPortion, ScopedSubjectUserFromPrincipal(tt.principal))
 		})
 	}
 }

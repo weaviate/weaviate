@@ -578,7 +578,16 @@ func NameHasPrefix(name string) bool {
 }
 
 func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
-	return UserNameWithTypeScoped(authentication.AuthType(principal.UserType), principal.Username, principal.IsGlobalOperator)
+	return UserNameWithTypeFromId(ScopedSubjectUserFromPrincipal(principal), authentication.AuthType(principal.UserType))
+}
+
+// ScopedSubjectUserFromPrincipal returns the caller's own grouping-subject
+// user-portion. The global slot comes from IsGlobalOperator — the authoritative
+// marker — so the subject can't differ from one field read to the next. An
+// empty namespace is not global: on namespace-disabled clusters every principal
+// has one.
+func ScopedSubjectUserFromPrincipal(principal *models.Principal) string {
+	return ScopedSubjectUser(authentication.AuthType(principal.UserType), principal.Username, principal.IsGlobalOperator)
 }
 
 func UserNameWithTypeFromId(username string, authType authentication.AuthType) string {

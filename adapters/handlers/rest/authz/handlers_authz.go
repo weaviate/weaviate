@@ -1163,7 +1163,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		ownTypeMatch := string(userType) == string(principal.UserType)
 		var ownSubject string
 		if ownTypeMatch {
-			ownSubject = conv.ScopedSubjectUser(userType, principal.Username, namespacing.ConfinedNamespace(principal) == "")
+			ownSubject = conv.ScopedSubjectUserFromPrincipal(principal)
 		}
 
 		filteredUsers := make([]string, 0, len(users))
