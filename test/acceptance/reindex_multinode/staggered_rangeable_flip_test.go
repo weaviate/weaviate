@@ -88,6 +88,17 @@ func TestMultiNode_EnableRangeable_SchemaFlagStaysFalseUntilAllUnitsTerminal(t *
 	// later schema read could pair with a stale not-all-done tasks
 	// snapshot taken earlier, before the units actually finished,
 	// falsely looking like an early flip.
+	//
+	// Schema read uses local=true (consistency:false), same-node as the
+	// tasks read below (QA re-verify hardening item on PR #12206): a
+	// leader-linearizable schema read and a node-local tasks read are
+	// two different clocks, opening a theoretical skew window in the T1
+	// monotonicity argument above (a stale-leader schema answer paired
+	// with a fresher local tasks answer, or vice versa, on a node that
+	// isn't the leader). Reading both from this node's own FSM state
+	// closes that window: T1 and T2 are now both this node's local
+	// clock, so the "T2 can only be more done than T1" ordering argument
+	// holds without cross-clock skew.
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 		wg.Add(1)
 		uri := restURIOf(compose, nodeIdx)
@@ -101,7 +112,7 @@ func TestMultiNode_EnableRangeable_SchemaFlagStaysFalseUntilAllUnitsTerminal(t *
 					return
 				case <-ticker.C:
 				}
-				cls, ok := reindexhelpers.FetchClass(uri, className, false)
+				cls, ok := reindexhelpers.FetchClass(uri, className, true)
 				if !ok {
 					continue
 				}

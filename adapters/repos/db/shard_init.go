@@ -156,6 +156,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
+	// Capture which properties this shard's on-disk migration history
+	// says have a locally-ready rangeable bucket, BEFORE
+	// FinalizeCompletedMigrations deletes a tidied tracker's directory
+	// (the only on-disk evidence for the "completed but not yet
+	// cluster-flipped" case). See
+	// [seedRangeableLocalReadyFromMigrationHistory].
+	seedRangeableLocalReadyFromMigrationHistory(s)
+
 	// Finalize any completed migrations whose directory renames were deferred
 	// from a runtime swap. This must run before bucket loading (initNonVector)
 	// so that buckets are found at their canonical directory names.
@@ -224,6 +232,92 @@ func (s *Shard) NotifyReady() {
 		Debugf("shard=%s is ready", s.name)
 }
 
+// rangeableMigrationTrackerDirs returns the absolute paths of every
+// rangeable (enable-rangeable / repair-rangeable) migration tracker
+// directory found under this shard's .migrations/ dir, in ANY
+// lifecycle state (in-flight or already tidied). Returns nil if the
+// .migrations/ dir doesn't exist; the common case, nothing to scan.
+//
+// Shared by [seedRangeableLocalReadyFromMigrationHistory] (must run
+// before FinalizeCompletedMigrations, sees tidied dirs too) and
+// [markInFlightRangeableMigrationsNotReady] (must run after, so
+// tidied dirs are already gone and everything this returns is
+// genuinely in-flight).
+func rangeableMigrationTrackerDirs(s *Shard) []string {
+	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		return nil
+	}
+	const prefix = MigrationDirPrefixFilterableToRangeable + "_"
+	var dirs []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		base, _, ok := parseMigrationDirName(name)
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(base, prefix) {
+			continue
+		}
+		dirs = append(dirs, filepath.Join(migrationsDir, name))
+	}
+	return dirs
+}
+
+// seedRangeableLocalReadyFromMigrationHistory scans this shard's
+// .migrations/ directory for EVERY rangeable migration tracker,
+// tidied or not, and optimistically marks each tracker's properties
+// "locally ready" (true) in Shard.rangeableLocalReady.
+//
+// MUST run before FinalizeCompletedMigrations, which deletes a tidied
+// tracker's directory once it promotes the migration to canonical;
+// the only on-disk evidence that this shard EVER completed a
+// rangeable migration disappears at that point. Without this
+// pre-scan, a shard that restarts after its local swap tidied but
+// before the cluster-wide schema flip lands comes up with an empty
+// rangeableLocalReady map for that property. IsRangeableLocallyReady's
+// bucket-existence fallback still answers correctly in that case (the
+// bucket physically exists on disk), but
+// [Shard.rangeableForceIndexOverlay]'s len(rangeableLocalReady)==0
+// fast exit (shard_write_inverted.go) would then unsafely skip the
+// overlay for exactly the write-loss window GH
+// weaviate/weaviate#12189 opened (weaviate/0-weaviate-issues#319,
+// rangeable instance).
+//
+// markInFlightRangeableMigrationsNotReady, called AFTER
+// FinalizeCompletedMigrations, is the authoritative pass for
+// still-in-flight properties: it overwrites this function's
+// optimistic `true` with `false` wherever a non-tidied tracker
+// survives the finalize pass. Order matters: this function first,
+// FinalizeCompletedMigrations second, markInFlightRangeableMigrationsNotReady
+// third; all three run during NewShard before NotifyReady, so no
+// reader ever observes the transient true-then-corrected-to-false
+// window.
+//
+// A tracker whose payload.mig can't be parsed disables the fast exit
+// for the whole shard (Shard.rangeableLocalReadyHistoryUnknown)
+// instead of guessing at property names, matching how
+// markInFlightRangeableMigrationsNotReady already tolerates an
+// unreadable payload by falling back to IsRangeableLocallyReady's
+// bucket-existence default; the fast exit must be at least as
+// conservative as that fallback.
+func seedRangeableLocalReadyFromMigrationHistory(s *Shard) {
+	for _, dirPath := range rangeableMigrationTrackerDirs(s) {
+		propNames, ok := readRecoveryPropertyNames(dirPath)
+		if !ok {
+			s.rangeableLocalReadyHistoryUnknown.Store(true)
+			continue
+		}
+		for _, propName := range propNames {
+			s.setRangeableLocallyReady(propName, true)
+		}
+	}
+}
+
 // markInFlightRangeableMigrationsNotReady scans this shard's
 // .migrations/ directory for rangeable-related tracker dirs whose
 // `tidied.mig` sentinel is not present, and flips the corresponding
@@ -249,31 +343,16 @@ func (s *Shard) NotifyReady() {
 // Properties that don't have a tracker dir, or whose dir has
 // `tidied.mig` (FinalizeCompletedMigrations promoted them to canonical
 // in this same startup), are left untouched — the default-true policy
-// in [Shard.IsRangeableLocallyReady] applies to them.
+// in [Shard.IsRangeableLocallyReady] applies to them. Runs AFTER
+// FinalizeCompletedMigrations, so [rangeableMigrationTrackerDirs] only
+// returns genuinely in-flight trackers here; the tidied ones
+// [seedRangeableLocalReadyFromMigrationHistory] captured earlier are
+// already gone from disk.
 func markInFlightRangeableMigrationsNotReady(s *Shard) {
-	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		// No .migrations dir is the common case: nothing to do.
-		return
-	}
-	const prefix = MigrationDirPrefixFilterableToRangeable + "_"
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		base, _, ok := parseMigrationDirName(name)
-		if !ok {
-			continue
-		}
-		if !strings.HasPrefix(base, prefix) {
-			continue
-		}
+	for _, dirPath := range rangeableMigrationTrackerDirs(s) {
 		// tidied.mig present means FinalizeCompletedMigrations either
 		// promoted the migration or will at the next call site; the
 		// query-side fallback isn't needed for these.
-		dirPath := filepath.Join(migrationsDir, name)
 		if fileExistsInDir(dirPath, "tidied.mig") {
 			continue
 		}

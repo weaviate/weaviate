@@ -177,7 +177,28 @@ func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]invert
 //   - Never fires for a property that was never migrated: its rangeable
 //     bucket doesn't exist, so IsRangeableLocallyReady's bucket-existence
 //     fallback returns false.
+//
+// Steady-state fast exit: for a shard that has never had a rangeable
+// migration touch it (the common case), every write would otherwise
+// pay a per-prop IsRangeableLocallyReady call (a bucket-name string
+// build + store.Bucket lookup) for zero benefit, since the answer is
+// unconditionally "not force-rangeable". len(s.rangeableLocalReady)==0
+// is a safe proxy for "no property on this shard has ever needed
+// forcing" ONLY because shard init unconditionally populates that map
+// (true or false) for every property this shard's on-disk migration
+// history has ever named; see [seedRangeableLocalReadyFromMigrationHistory]
+// and [markInFlightRangeableMigrationsNotReady]. rangeableLocalReadyHistoryUnknown
+// covers the one case that scan can't resolve (an unparseable tracker payload). Measured
+// steady-state cost with the fast exit: see
+// BenchmarkRangeableForceIndexOverlay_SteadyState.
 func (s *Shard) rangeableForceIndexOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+	s.rangeableLocalReadyMu.RLock()
+	noRangeableHistory := len(s.rangeableLocalReady) == 0
+	s.rangeableLocalReadyMu.RUnlock()
+	if noRangeableHistory && !s.rangeableLocalReadyHistoryUnknown.Load() {
+		return nil
+	}
+
 	var out map[string]inverted.PropertyOverlay
 	for _, p := range props {
 		if p == nil || inverted.HasRangeableIndex(p) {

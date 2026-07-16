@@ -411,8 +411,37 @@ type Shard struct {
 	// returns true via IsRangeableLocallyReady — at shard init we
 	// pessimistically set false for any in-flight migration tracker
 	// found on disk, and the post-tidy hook flips it back to true.
+	//
+	// Also seeded (true) at shard init for every ALREADY-tidied
+	// rangeable migration tracker found on disk, before
+	// FinalizeCompletedMigrations deletes the tracker directory, see
+	// [seedRangeableLocalReadyFromMigrationHistory]. Without this, a
+	// shard that restarts after its local swap tidied but before the
+	// cluster-wide schema flip lands would come up with an empty map
+	// for that property (the only on-disk evidence is gone once
+	// FinalizeCompletedMigrations promotes it), relying entirely on
+	// IsRangeableLocallyReady's bucket-existence fallback to answer
+	// `true`. That fallback is still correct on its own, but it made
+	// [Shard.rangeableForceIndexOverlay]'s len(rangeableLocalReady)==0
+	// fast exit unsafe until this seeding was added.
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
+
+	// rangeableLocalReadyHistoryUnknown is set at shard init when
+	// [seedRangeableLocalReadyFromMigrationHistory] finds a rangeable
+	// migration tracker on disk whose payload.mig can't be parsed, so
+	// the properties it names can't be seeded into rangeableLocalReady.
+	// [Shard.rangeableForceIndexOverlay]'s len(rangeableLocalReady)==0
+	// fast exit trusts an empty map as proof this shard was never
+	// touched by a rangeable migration; an unparseable tracker breaks
+	// that proof, so this flag forces the full per-prop path instead
+	// of guessing at property names. Matches the existing tolerance in
+	// markInFlightRangeableMigrationsNotReady, which leaves the same
+	// unparseable case to IsRangeableLocallyReady's bucket-existence
+	// default rather than fail startup; this flag just makes sure the
+	// new fast exit doesn't bypass that default. Sticky for the life
+	// of the shard process; the next restart re-derives it.
+	rangeableLocalReadyHistoryUnknown atomic.Bool
 
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
 	// "what tokenization should query input use on this shard?" override

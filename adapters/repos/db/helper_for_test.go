@@ -351,7 +351,7 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 	return shardName
 }
 
-func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
@@ -529,7 +529,11 @@ func testShardWithMultiTenantSettings(t *testing.T, ctx context.Context, class *
 	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, withAsyncIndexingEnabled, indexOpts...)
 }
 
-func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+// testShardWithSettings accepts testing.TB (not just *testing.T) so
+// benchmarks (e.g. BenchmarkRangeableForceIndexOverlay_SteadyState)
+// can build a real shard through the same setup path tests use,
+// instead of hand-rolling a parallel construction helper.
+func testShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, withAsyncIndexingEnabled, indexOpts...)
