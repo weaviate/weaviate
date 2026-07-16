@@ -229,23 +229,17 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 
 // TestReindexProviderBarrierIntegration_SwapPhase_SentinelFailureAfterFlip_KeepsOverlayArmed
 // pins the adjacent invariant weaviate/0-weaviate-issues#323's fix depends
-// on: runShardSwapPhase's defensive "clear the overlay if every swap
-// failed" backstop (maybeClearTokenizationOverlayOnAllFailed) must NOT
-// clear an overlay that a partially-succeeded swap already armed. Before
-// this fix, that backstop keyed off task-level RunSwapOnShard success
-// (anySwapped) alone - so a single-task, single-prop migration whose
-// bucket pointer flipped and overlay armed, but then failed on the
-// per-prop sentinel fsync (this task's ONLY call, so anySwapped stays
-// false), would have its just-armed overlay INCORRECTLY cleared here,
-// reintroducing the same silent-misroute bug one layer up from the
-// SwapBucketAndSetOverlay fix.
+// on: runShardSwapPhase's "clear the overlay if every swap failed" backstop
+// (maybeClearTokenizationOverlayOnAllFailed) must not clear an overlay that
+// a partially-succeeded swap already armed - task-level anySwapped alone
+// can't detect that (a single-task, single-prop migration whose sentinel
+// fsync fails after a successful flip leaves anySwapped false).
 //
 // Fault injection is a real OS-level failure (the migrations dir made
-// read-only) rather than a code-level seam, so this exercises the
-// production RunSwapOnShard → runtimeSwap → swapPropAtomic →
-// rt.markSwappedProp call chain end to end, including the real on-disk
-// reindexTracker (which cannot be substituted here - RunSwapOnShard builds
-// its own via newReindexTrackerGuarded).
+// read-only) so this exercises the production RunSwapOnShard →
+// runtimeSwap → swapPropAtomic → rt.markSwappedProp chain end to end,
+// including the real on-disk reindexTracker (RunSwapOnShard builds its own
+// via newReindexTrackerGuarded, so it can't be substituted here).
 func TestReindexProviderBarrierIntegration_SwapPhase_SentinelFailureAfterFlip_KeepsOverlayArmed(t *testing.T) {
 	ctx := testCtx()
 	fx := setupTwoTokenizationShard(t, ctx, "BarrierIntegOverlayPartialFail")
@@ -258,7 +252,7 @@ func TestReindexProviderBarrierIntegration_SwapPhase_SentinelFailureAfterFlip_Ke
 		className, lsmkv.StrategyInverted, className, 1,
 	)
 
-	// Stage 1: drive iteration to the barrier point (IsReindexed).
+	// Drive iteration to the barrier point (IsReindexed).
 	task.skipSwapOnFinish.Store(true)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
@@ -269,8 +263,8 @@ func TestReindexProviderBarrierIntegration_SwapPhase_SentinelFailureAfterFlip_Ke
 		}
 	}
 
-	// Stage 2: PREP - advances IsReindexed → IsMerged, producing the real
-	// ingest bucket the atomic flip needs.
+	// PREP advances IsReindexed → IsMerged, producing the real ingest
+	// bucket the atomic flip needs.
 	p, _ := barrierIntegrationProvider(t)
 	ok, prepRes := p.runShardPrepPhase(ctx, "unit-1", shard,
 		[]*ShardReindexTaskGeneric{task}, false, p.logger)
@@ -283,8 +277,8 @@ func TestReindexProviderBarrierIntegration_SwapPhase_SentinelFailureAfterFlip_Ke
 	ingestBucket := shard.store.Bucket(task.ingestBucketName(fieldProp))
 	require.NotNil(t, ingestBucket, "PREP must produce a real ingest bucket for the FIELD prop")
 
-	// Stage 3: make the per-prop sentinel write fail with a genuine OS-level
-	// fault - the migrations dir becomes non-writable, so markSwappedProp's
+	// Make the per-prop sentinel write fail with a genuine OS-level fault -
+	// the migrations dir becomes non-writable, so markSwappedProp's
 	// os.O_CREATE|os.O_EXCL open fails with a permission error, while
 	// IsSwappedProp's os.Stat (read-only) keeps working normally, and the
 	// dir remains readable+executable so nothing else in the read path

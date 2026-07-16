@@ -45,13 +45,12 @@
 // bucket. The live path (swapPropAtomic / Shard.SwapBucketAndSetOverlay)
 // flips the pointer and arms the overlay as one critical section, with
 // the per-prop sentinel fsync (markSwappedProp) deliberately OUTSIDE that
-// section and run AFTER it returns (see [maybeWirePerPropOverlaySet]) -
-// a failed fsync must never be able to leave the pointer flipped without
-// the overlay armed (weaviate/0-weaviate-issues#323). The legacy
-// fallback instead fires [onPropSwapped] per-flip, BEFORE that prop's
-// sentinel fsync, keeping the overlay≠bucket window to one in-memory
-// write with no file I/O inside it - same invariant, different
-// mechanism (no separate critical section to move the fsync out of).
+// section and run AFTER it returns (see [maybeWirePerPropOverlaySet]): a
+// failed fsync must never leave the pointer flipped without the overlay
+// armed (weaviate/0-weaviate-issues#323). The legacy fallback instead
+// fires [onPropSwapped] per-flip, BEFORE that prop's sentinel fsync,
+// keeping the overlay≠bucket window to one in-memory write with no file
+// I/O inside it.
 //
 // 2b — post-atomic inline tidy (slow but correctness-safe):
 // oldMainBucket.Shutdown(ctx) + os.Rename(oldMainDir, backupDir) per
@@ -290,22 +289,9 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 //     tokenizationOverlayMu and arms the overlay itself right after flip()
 //     returns, so firing onPropSwapped here would re-enter that lock and
 //     deadlock, and it's skipped. markSwappedProp is ALSO skipped here:
-//     the swapPropAtomic closure writes the sentinel itself, AFTER
-//     SwapBucketAndSetOverlay returns, i.e. strictly after the pointer
-//     flip and the overlay are already committed as one critical section.
-//     This is the atomic-path fix for weaviate/0-weaviate-issues#323:
-//     previously markSwappedProp ran INSIDE the flip callback, so a
-//     sentinel-fsync failure made SwapBucketAndSetOverlay return an error
-//     BEFORE arming the overlay, even though SwapBucketPointer (a few
-//     lines above, irreversible in-process; see its doc) had already
-//     succeeded. That left the bucket pointer on NEW content with the
-//     overlay still on OLD, silently misrouting live queries until the
-//     process restarted and recovery re-derived a consistent pair from
-//     on-disk state. Moving the sentinel fsync outside the critical
-//     section removes fsync latency/failure from ever being able to
-//     split the flip and the overlay: they always move together now, and
-//     a subsequent fsync failure is a pure durability concern (crash
-//     recovery, not query correctness).
+//     the swapPropAtomic closure writes the sentinel itself, strictly
+//     after the pointer flip and overlay are already committed together
+//     as one critical section (weaviate/0-weaviate-issues#323).
 func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store *lsmkv.Store, rt reindexTracker, _ int, propName string) (*lsmkv.Bucket, error) {
 	if rt.IsSwappedProp(propName) {
 		// Resumed swap: re-arm the overlay so bucket≡overlay alignment is

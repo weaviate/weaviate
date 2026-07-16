@@ -1212,19 +1212,16 @@ func (p *ReindexProvider) runShardSwapPhase(
 		}
 	}
 
-	// A task can return an error AFTER at least one prop's bucket pointer
-	// already flipped and its tokenization overlay armed together (e.g.
-	// per-prop sentinel fsync fails on a LATER prop in the same task, or
-	// on this prop right after SwapBucketAndSetOverlay's critical section
-	// already committed both - see processOneSwapProp / swapPropAtomic).
-	// task-level anySwapped above only reflects "RunSwapOnShard returned
-	// nil", so it stays false in that case, and clearing the overlay below
-	// would strand the already-flipped prop pointing at NEW bucket content
-	// under an OLD-schema overlay - reintroducing the exact misroute
-	// weaviate/0-weaviate-issues#323 fixed at the flip site, just one
-	// layer up. The live tokenization overlay (not the on-disk sentinel,
-	// which a failed fsync may never have reached) is the authoritative
-	// signal for "did any prop actually flip in this attempt".
+	// A task can fail AFTER a prop's bucket pointer already flipped and its
+	// overlay armed together (e.g. the sentinel fsync fails on a LATER
+	// prop, or right after this prop's own critical section committed both
+	// - see processOneSwapProp / swapPropAtomic). anySwapped above only
+	// reflects "RunSwapOnShard returned nil", so it stays false here, and
+	// clearing the overlay below would strand the flipped prop on NEW
+	// bucket content under an OLD-schema overlay
+	// (weaviate/0-weaviate-issues#323, one layer up). The live overlay -
+	// not the on-disk sentinel, which a failed fsync may never have
+	// reached - is the authoritative "did anything flip" signal.
 	if !anySwapped && overlayWasSet && setShard != nil &&
 		len(setShard.SnapshotTokenizationOverlay(payload.Properties)) > 0 {
 		anySwapped = true
@@ -2240,17 +2237,13 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 				return nil, nil
 			}
 			// The pointer flip AND the overlay are now both armed together
-			// as one critical section (SwapBucketAndSetOverlay above) -
-			// consistent regardless of what happens next. Write the durable
-			// per-prop sentinel LAST, outside that critical section: it is a
+			// as one critical section (SwapBucketAndSetOverlay above), so
+			// they're consistent regardless of what happens next. Write the
+			// durable per-prop sentinel LAST, outside that section: it's a
 			// pure crash-recovery marker (see the file-level Phase 2
 			// contract), never observed directly by a live query, so a
-			// failure here cannot un-arm an already-consistent
-			// (bucket, overlay) pair. This is the atomic-path fix for
-			// weaviate/0-weaviate-issues#323 - see processOneSwapProp's
-			// godoc for the full mechanism and why the old ordering (mark
-			// INSIDE the flip callback) could leave the overlay unset
-			// against an already-flipped bucket.
+			// failure here can't un-arm an already-consistent pair
+			// (weaviate/0-weaviate-issues#323; see processOneSwapProp's godoc).
 			if err := rt.markSwappedProp(propName); err != nil {
 				return oldMainBucket, fmt.Errorf("marking swapped prop %q: %w", propName, err)
 			}

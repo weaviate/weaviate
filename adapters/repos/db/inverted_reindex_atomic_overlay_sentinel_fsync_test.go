@@ -47,26 +47,20 @@ func (f *sentinelFsyncFailTracker) markSwappedProp(propName string) error {
 // TestAtomicOverlaySwap_SentinelFsyncFailure_OverlayStaysConsistentWithBucket
 // pins weaviate/0-weaviate-issues#323: on the LIVE (swapPropAtomic) Phase 2a
 // path, a markSwappedProp sentinel-fsync failure that happens AFTER
-// SwapBucketPointer has already succeeded must NOT be able to leave the
-// bucket pointer on NEW content while the per-shard tokenization overlay
-// still reflects OLD - that pair is exactly the silent-misroute bug: a live
-// BM25/keyword query tokenizes with the OLD analyzer against the NEW
-// bucket's content and returns wrong (frequently zero) results until the
-// process restarts and crash recovery re-derives a consistent pair.
+// SwapBucketPointer has already succeeded must NOT leave the bucket pointer
+// on NEW content while the tokenization overlay still reflects OLD - that
+// mismatch is the silent-misroute bug: a live query tokenizes with the OLD
+// analyzer against the NEW bucket's content and returns wrong (frequently
+// zero) results until a restart lets crash recovery re-derive a consistent
+// pair.
 //
-// Mechanism this test observes: it drives the PRODUCTION swapPropAtomic
-// closure installed by [maybeWirePerPropOverlaySet] (not a hand-rolled
-// substitute) against a real on-disk reindexTracker whose markSwappedProp
-// is made to fail for exactly this prop. It asserts that even though the
-// call returns an error (the fsync genuinely failed - that must still be
-// reported so the migration is marked failed and retried after restart),
-// the shard's (bucket, overlay) pair for the prop is left CONSISTENT:
-// both on NEW, matching what SwapBucketPointer already committed
-// irreversibly in-process. Before the fix, SwapBucketAndSetOverlay's flip
-// callback ran markSwappedProp itself and returned the error BEFORE
-// arming the overlay, so this same scenario left bucket=NEW / overlay
-// unset=OLD - the exact case TestAtomicOverlaySwap_SentinelFsyncFailure_PreFixOrderingWouldMisroute
-// reproduces test-side to prove the old ordering was unsafe.
+// Drives the PRODUCTION swapPropAtomic closure installed by
+// [maybeWirePerPropOverlaySet] against a real on-disk reindexTracker whose
+// markSwappedProp is made to fail for exactly this prop, and asserts the
+// error still propagates (so the migration is marked failed and retried)
+// while the shard's (bucket, overlay) pair for the prop stays CONSISTENT.
+// TestAtomicOverlaySwap_SentinelFsyncFailure_PreFixOrderingWouldMisroute
+// proves the fixture can actually expose the bug under the old ordering.
 func TestAtomicOverlaySwap_SentinelFsyncFailure_OverlayStaysConsistentWithBucket(t *testing.T) {
 	ctx := testCtx()
 	fx := setupTwoTokenizationShard(t, ctx, "SentinelFsyncFailShard")
@@ -98,9 +92,8 @@ func TestAtomicOverlaySwap_SentinelFsyncFailure_OverlayStaysConsistentWithBucket
 
 	oldBucket, swapErr := task.swapPropAtomic(ctx, shard.store, failingRT, 0, fieldProp)
 
-	// The fsync failure must still surface - this is what marks the
-	// migration failed and routes it to restart-based recovery. It must
-	// NOT be silently swallowed.
+	// The fsync failure must still surface: it's what marks the migration
+	// failed and routes it to restart-based recovery.
 	require.Error(t, swapErr, "the injected sentinel fsync failure must propagate to the caller")
 	assert.ErrorIs(t, swapErr, injectedErr)
 	assert.True(t, failingRT.failed, "markSwappedProp must have been invoked and failed")
@@ -109,8 +102,7 @@ func TestAtomicOverlaySwap_SentinelFsyncFailure_OverlayStaysConsistentWithBucket
 	// THE ASSERTION: despite the error, bucket pointer and overlay must be
 	// CONSISTENT - both already moved to the NEW (WORD) side, together,
 	// because SwapBucketAndSetOverlay armed them as one critical section
-	// BEFORE the (now-failed) sentinel write ran. This is what prevents
-	// the silent misroute.
+	// BEFORE the (now-failed) sentinel write ran.
 	tokPost, bktPost, releasePost := shard.PinTokenizationAndSearchableBucket(fieldProp, models.PropertyTokenizationField)
 	defer releasePost()
 	assert.Equal(t, models.PropertyTokenizationWord, tokPost,
@@ -191,20 +183,16 @@ func TestAtomicOverlaySwap_SentinelFsyncFailure_PreFixOrderingWouldMisroute(t *t
 // rt.markSwappedProp or onPropSwapped when swapPropAtomic is wired (the
 // live/atomic path) - both become the CALLER's responsibility, run AFTER
 // SwapBucketAndSetOverlay's critical section (see
-// [maybeWirePerPropOverlaySet]). Without this guard, processOneSwapProp
-// would still fsync the sentinel INSIDE the flip() callback even after the
-// reindex_provider.go caller was fixed to mark the sentinel itself
-// afterward - reintroducing bug #323 through the DEFAULT wiring, which the
-// other two tests in this file don't exercise (they substitute a
-// hand-rolled processOneSwapPropFn, matching this package's established
-// test convention for the two-tokenization fixture).
+// [maybeWirePerPropOverlaySet]). The other two tests in this file
+// substitute a hand-rolled processOneSwapPropFn and so don't exercise this
+// DEFAULT-wiring guard.
 //
-// This test drives processOneSwapProp directly (not through runtimeSwap)
-// against REAL ingest/main buckets produced by a real runtimePrepare, with
+// Drives processOneSwapProp directly (not through runtimeSwap) against
+// REAL ingest/main buckets produced by a real runtimePrepare, with
 // swapPropAtomic set to a non-nil sentinel value (only its nilness matters
 // to the guard) and a tracker that panics if markSwappedProp is ever
-// called - proving the guard, not just its absence of a side effect that
-// might coincidentally not fire.
+// called - proving the guard fires, not just that no side effect
+// happened to occur.
 func TestProcessOneSwapProp_AtomicPath_LeavesSentinelAndOverlayToCaller(t *testing.T) {
 	ctx := testCtx()
 	className := "ProcessOneSwapPropAtomicGuard"
