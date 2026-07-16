@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // -----------------------------------------------------------------------------
@@ -125,7 +126,13 @@ type fileReindexTrackerConfig struct {
 
 func (t *fileReindexTracker) init() error {
 	mkdir := func() error {
-		return os.MkdirAll(t.config.migrationPath, 0o777)
+		if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
+			return err
+		}
+		// Make the freshly created .migrations/<dir>/ tree durable so a
+		// later sentinel's parent-dir fsync persists an already-linked
+		// directory rather than an entry that can vanish on power loss.
+		return diskio.Fsync(filepath.Dir(t.config.migrationPath))
 	}
 
 	if t.mkdirGuard != nil {
@@ -216,7 +223,18 @@ func (t *fileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 		return nil, nil, err
 	}
 
+	// A torn checkpoint (zero-length or truncated below the 4-line format,
+	// e.g. a crash between create and the durable write of a pre-fsync
+	// build) must never be indexed into or misparsed into a stale resume
+	// key — that would silently skip every object <= the bogus key. Treat
+	// it as no progress: resume from scratch (safe redo) and advance the
+	// counter past it so the next markProgress does not collide.
 	split := strings.Split(string(content), "\n")
+	if len(split) < 4 {
+		t.progressCheckpoint = checkpoint + 1
+		return t.keyParser.FromBytes(nil), nil, nil
+	}
+
 	key, err := t.keyParser.FromString(split[1])
 	if err != nil {
 		return nil, nil, err
@@ -444,28 +462,24 @@ func (t *fileReindexTracker) fileExists(filename string) bool {
 	return err == nil
 }
 
+// createFile writes a sentinel durably: fsync the file, then fsync the
+// parent dir, so both content and directory entry survive a power loss
+// before the state machine advances to the next phase.
 func (t *fileReindexTracker) createFile(filename string, content []byte) error {
-	path := t.filepath(filename)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	if len(content) > 0 {
-		_, err = file.Write(content)
-		return err
-	}
-	return nil
+	return diskio.WriteFileSync(t.filepath(filename), content,
+		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
 }
 
+// removeFile fsyncs the parent dir after a successful unlink so the removal
+// is durable and cannot effectively reappear after a crash.
 func (t *fileReindexTracker) removeFile(filename string) error {
 	if err := os.Remove(t.filepath(filename)); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return err
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
 		}
+		return err
 	}
-	return nil
+	return diskio.Fsync(t.config.migrationPath)
 }
 
 func (t *fileReindexTracker) encodeTimeNow() string {

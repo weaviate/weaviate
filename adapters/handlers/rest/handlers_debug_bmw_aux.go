@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -88,32 +89,17 @@ func changeFile(filename string, delete bool, content []byte, logger *logrus.Ent
 							alreadyDid = true
 						} else if err != nil {
 							return fmt.Errorf("failed to delete %s: %w", filenameShard, err)
+						} else if syncErr := diskio.Fsync(shardPath); syncErr != nil {
+							return fmt.Errorf("failed to fsync dir after deleting %s: %w", filenameShard, syncErr)
 						}
 					} else {
-						// check if the file already exists
-						_, err = os.Stat(filenameShard)
-						if err == nil {
+						// A pure marker that already exists needs no rewrite;
+						// anything with content is (over)written durably.
+						if _, statErr := os.Stat(filenameShard); statErr == nil && content == nil {
 							alreadyDid = true
-						} else {
-							file, err := os.Create(filenameShard)
-							if os.IsExist(err) {
-								alreadyDid = true
-							} else if err != nil {
-								return fmt.Errorf("failed to create %s: %w", filenameShard, err)
-							}
-							file.Close()
-						}
-
-						if content != nil {
-							file, err := os.Create(filenameShard)
-							if err != nil {
-								return fmt.Errorf("failed to create %s: %w", filenameShard, err)
-							}
-							_, err = file.Write(content)
-							if err != nil {
-								return fmt.Errorf("failed to write to %s: %w", filenameShard, err)
-							}
-							file.Close()
+						} else if err := diskio.WriteFileSync(filenameShard, content,
+							os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err != nil {
+							return fmt.Errorf("failed to create %s: %w", filenameShard, err)
 						}
 					}
 					response[shardName] = map[string]string{

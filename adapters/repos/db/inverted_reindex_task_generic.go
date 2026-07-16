@@ -139,6 +139,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -339,7 +340,13 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 	if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, payload) {
 		return nil
 	}
-	return os.WriteFile(target, payload, 0o600)
+	// Make the migration dir entry durable, then the payload: the orphan
+	// audit relies on payload.mig landing durably before started.mig, so it
+	// can tell a pre-start tracker from a lost record after power loss.
+	if err := diskio.Fsync(filepath.Dir(migDir)); err != nil {
+		return fmt.Errorf("fsync migrations dir for %q: %w", migDir, err)
+	}
+	return diskio.WriteFileSync(target, payload, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 }
 
 // RunOnShard runs the full reindex lifecycle on a live shard: OnAfterLsmInit

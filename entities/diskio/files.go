@@ -67,6 +67,33 @@ func Fsync(path string) error {
 	return f.Sync()
 }
 
+// WriteFileSync writes data to path (opened with the given flag and perm),
+// fsyncs the file, then fsyncs the parent directory, so both the contents
+// and the directory entry are durable and ordered before it returns. Use it
+// for crash-recovery marker/sentinel files whose presence and content a
+// restart path trusts as ground truth. The OpenFile error is returned
+// unwrapped so callers can still branch on os.IsExist (O_EXCL).
+func WriteFileSync(path string, data []byte, flag int, perm os.FileMode) error {
+	f, err := os.OpenFile(path, flag, perm)
+	if err != nil {
+		return err
+	}
+	if len(data) > 0 {
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			return err
+		}
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return Fsync(filepath.Dir(path))
+}
+
 // GetFileWithSizes gets all files in a directory including their filesize
 func GetFileWithSizes(dirPath string) (map[string]int64, []string, error) {
 	dir, err := os.Open(dirPath)
