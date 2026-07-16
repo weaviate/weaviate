@@ -851,10 +851,9 @@ func (s *Store) FinalizeBucketSwapLive(ctx context.Context, bucketName, canonica
 			ErrAlreadyClosed, bucketName, s.dir)
 	}
 
-	// Resolve the bucket under the map lock, then RELEASE it: the reader drain
-	// below must never run under bucketAccessLock (store-teardown deadlock — see
-	// AcquireBucketForRead). The canonical→bucket map entry is unchanged by this
-	// swap, so the map is never mutated here.
+	// Release the map lock before the reader drain below — holding
+	// bucketAccessLock during it deadlocks against store teardown (see
+	// AcquireBucketForRead). Safe: this swap never mutates the map.
 	s.bucketAccessLock.RLock()
 	bucket := s.bucketsByName[bucketName]
 	s.bucketAccessLock.RUnlock()
@@ -891,18 +890,17 @@ func (s *Store) FinalizeBucketSwapLive(ctx context.Context, bucketName, canonica
 	bucket.lifetimeLock.Lock()
 	defer bucket.lifetimeLock.Unlock()
 
-	// Serialize against any other FlushAndSwitch caller (flushAndSwitchMu BEFORE
-	// flushLock), then freeze writers: a by-name writer now blocks at
-	// getActiveMemtableForWrite's flushLock.RLock instead of writing into the
-	// active memtable this swap is about to retire.
+	// Lock order: flushAndSwitchMu before flushLock, serializing against other
+	// FlushAndSwitch callers and freezing writers before this swap retires the
+	// active memtable.
 	bucket.flushAndSwitchMu.Lock()
 	defer bucket.flushAndSwitchMu.Unlock()
 	bucket.flushLock.Lock()
 	defer bucket.flushLock.Unlock()
 
 	// Writers that grabbed the active pointer before the freeze hold a writer
-	// count but not flushLock; wait for them to finish before flushing. No
-	// timeout: a stuck writer is a symptom to surface, not to paper over.
+	// count, not flushLock; wait for them before flushing. No timeout — a stuck
+	// writer should surface as a symptom, not be papered over.
 	bucket.waitForZeroWriters(bucket.active)
 
 	// Make the buffered writes durable in a segment (still under the CURRENT/
@@ -924,10 +922,9 @@ func (s *Store) FinalizeBucketSwapLive(ctx context.Context, bucketName, canonica
 	}
 	bucket.active = mt
 
-	// Registry fixup: the ingest path was already released at stage time
-	// (SwapBucketPointer), so claim the canonical path for this live bucket to
-	// de-dup a same-process reload. Non-fatal if it races: the rename is durable
-	// and the bucket already serves from the canonical dir.
+	// Registry fixup: ingest path was released at stage time (SwapBucketPointer);
+	// claim the canonical path here to de-dup a same-process reload. Non-fatal
+	// if it races — the rename is durable and the bucket already serves canonically.
 	GlobalBucketRegistry.Remove(currentDir)
 	if err := GlobalBucketRegistry.TryAdd(canonicalDir); err != nil {
 		s.logger.WithField("bucket", bucketName).WithField("dir", canonicalDir).

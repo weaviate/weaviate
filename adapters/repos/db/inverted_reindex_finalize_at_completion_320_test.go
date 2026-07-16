@@ -21,21 +21,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-// This file covers weaviate/0-weaviate-issues#320: after a runtime reindex
-// task FINISHES (CommitSwapOnShard), the live post-swap searchable bucket must
-// serve from the CANONICAL on-disk dir with NO restart, not from its
-// ..._ingest_<N> sidecar. Before the fix the rename was deferred to the next
-// restart, so between task completion and that restart the canonical dir did
-// not exist on disk — the root cause behind the weaviate/weaviate#11987
-// downgrade gap (v1.37 opens the canonical name, finds no dir, and BM25
-// silently returns 0 hits).
-//
-// TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart drives a
-// shard through STAGE → COMMIT with no restart. It reuses the fix/220
-// staged-swap harness; the sibling CommitSingleShardDegenerate drives the same
-// path but asserts only the in-memory pointer + backup trim, so this closes the
-// on-disk-durability gap that test leaves open. Assertions carry their own
-// rationale below.
+// TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart pins
+// 0-wi#320: CommitSwapOnShard must finalize the ingest→canonical rename live,
+// not defer it to restart (root cause of the weaviate/weaviate#11987 downgrade
+// gap).
 func TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
@@ -44,22 +33,14 @@ func TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart(t *testin
 	shard, task, _, _ := prepShardToSwapBoundaryRFC220(t, ctx, "CommitFinalize320_"+uuid.NewString()[:8])
 	defer shard.Shutdown(ctx)
 
-	// STAGE (pointer flip + OLD→backup rename; nothing destroyed), then COMMIT
-	// (OnMigrationComplete + tidied + trim) — the full task-completion path,
-	// with NO restart. This is exactly the drive
-	// TestReindexStagedSwap_CommitSingleShardDegenerate uses.
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 	require.NoError(t, task.CommitSwapOnShard(ctx, shard))
 
 	lsmPath := shard.pathLSM()
-	// SourceBucketName(prop) is the canonical (gen-0, unsuffixed) searchable
-	// bucket name; ingestBucketName(prop) is the ..._ingest_<gen> sidecar the
-	// live data physically occupies until finalization.
 	canonicalDir := filepath.Join(lsmPath, task.strategy.SourceBucketName(propName))
 	ingestDir := filepath.Join(lsmPath, task.ingestBucketName(propName))
 
-	// PIN 0-wi#320 (a): the canonical searchable dir must exist on disk after
-	// the task FINISHED — a downgrade opens this name and must find the data.
+	// PIN 0-wi#320 (a): canonical dir must exist on disk after the task finishes.
 	require.True(t, dirExists(canonicalDir),
 		"0-wi#320: canonical searchable dir %q must exist on disk after task FINISHED (no restart); "+
 			"currently the ingest→canonical rename is deferred to restart, so a v1.38→v1.37 downgrade "+
@@ -71,31 +52,16 @@ func TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart(t *testin
 		ingestDir)
 
 	// PIN 0-wi#320: the in-memory bucket must serve from the canonical dir, not
-	// the ingest sidecar — i.e. the reopen/rename must have rewritten the
-	// bucket's on-disk path atomically (like SwapBucketPointer keeps the
-	// pointer valid), so live queries keep hitting valid mmap'd segments.
+	// the ingest sidecar.
 	require.Equal(t, canonicalDir, shard.store.Bucket(searchBucketName).GetDir(),
 		"0-wi#320: live searchable bucket must serve from the canonical dir after task FINISHED, "+
 			"not the ingest sidecar")
 }
 
 // TestReindexStagedSwap_CrashAfterLiveFinalize_ConvergesOnNextBoot pins
-// 0-wi#320 crash-safety (b) for the NEW intermediate state the live finalize
-// introduces: after CommitSwapOnShard has already promoted the ingest sidecar
-// to the canonical dir, the migration tracker (tidied.mig/swapped.mig) still
-// lingers until a restart sweeps it. A crash here (process dies before the
-// tracker is retired) must converge on next boot: the startup finalize
-// (FinalizeCompletedMigrations / finalizeMigrationDir) must be a NO-OP on the
-// already-promoted data — never resurrecting the ingest sidecar or clobbering
-// the canonical dir — and simply retire the tracker.
-//
-// The pre-rename crash window (ingest still present, canonical absent, verdict
-// COMMIT) is the mirror case, covered by
-// TestReindexStagedSwap_RestartDuringStagedWindow_TaskCommits, which promotes
-// ingest→canonical at boot. Together they cover a kill before OR after the
-// single atomic ingest→canonical rename. No test-only seam is used: the state
-// is produced by the real STAGE→COMMIT drive and reconciled by the real boot
-// entry point.
+// 0-wi#320 crash safety (b): a crash after the live finalize has promoted
+// ingest→canonical but before the tracker is retired must converge on next
+// boot without resurrecting the ingest sidecar or clobbering the canonical dir.
 func TestReindexStagedSwap_CrashAfterLiveFinalize_ConvergesOnNextBoot(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
@@ -110,18 +76,14 @@ func TestReindexStagedSwap_CrashAfterLiveFinalize_ConvergesOnNextBoot(t *testing
 	ingestDir := filepath.Join(lsmPath, task.ingestBucketName(propName))
 	migDir := filepath.Join(lsmPath, ".migrations", task.strategy.MigrationDirName())
 
-	// Post-commit state: the live finalize has already renamed ingest→canonical;
-	// the tracker dir lingers until the next-boot sweep.
 	require.True(t, dirExists(canonicalDir), "canonical dir promoted live at commit")
 	require.False(t, dirExists(ingestDir), "ingest sidecar already renamed away at commit")
 	require.True(t, dirExists(migDir), "tracker dir lingers post-commit until the next-boot sweep")
 
-	// Tag the live-finalized dir so we can prove the boot sweep leaves it intact
-	// (does not delete + re-promote from a now-absent sidecar).
+	// Tag so we can confirm the boot sweep leaves this dir untouched.
 	tagDirRFC220(t, canonicalDir, "FINALIZED")
 
-	// Crash + reboot: the startup finalize runs against the already-promoted
-	// data. It must converge without touching the canonical data.
+	// Simulate a crash + reboot.
 	require.NoError(t, shard.Shutdown(ctx))
 	FinalizeCompletedMigrationsWithVerdict(lsmPath, task.logger,
 		func(payload *ReindexTaskPayload) (bool, bool) { return true, true })
