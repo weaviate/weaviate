@@ -486,16 +486,11 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 }
 
 // TestSegmentInMemoryFoldOrderValueIntegrity pins INV-RANGEABLE-REP-EQUALS-DISK
-// at the value level (not just membership). The rep is a flattened fold whose
-// correctness depends on applying segments oldest->newest: each segment's
-// presence-node Deletions wipe every touched docID from all 65 bitmaps before
-// its Additions re-add them, so the LAST (newest) segment to touch a docID wins.
-//
-// This is the primary tripwire for the rejected option (a) (GH#12199): the
-// enable-rangeable backfill segments are timestamp-shifted to be logically
-// OLDEST, so folding them incrementally on top of a rep that already holds newer
-// live values makes the OLD value win - a wrong VALUE, not a missing member.
-// Membership assertions cannot catch this because the docID stays present.
+// at the value level: the rep is a flattened fold correct only when applied
+// oldest->newest (each segment's Deletions wipe stale bitmaps before its
+// Additions). Folding an older segment onto a newer one lets a stale value win
+// silently - a wrong VALUE with the docID still present, so membership checks
+// alone can't catch it (GH#12199, the rejected option-(a) merge shape).
 func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	bufPool := roaringset.NewBitmapBufPoolNoop()
@@ -508,14 +503,12 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 		valStable = uint64(42)
 	)
 
-	// olderSegment sets docX = valOld and docStable = valStable.
 	olderSegment := func() SegmentCursor {
 		mt := NewMemtable(logger)
 		mt.Insert(valOld, []uint64{docX})
 		mt.Insert(valStable, []uint64{docStable})
 		return newFakeSegmentCursor(mt)
 	}
-	// newerSegment sets docX = valNew (a mid-migration live update of docX).
 	newerSegment := func() SegmentCursor {
 		mt := NewMemtable(logger)
 		mt.Insert(valNew, []uint64{docX})
@@ -538,7 +531,6 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 		require.NoError(t, seg.MergeSegmentByCursor(olderSegment()))
 		require.NoError(t, seg.MergeSegmentByCursor(newerSegment()))
 
-		// docX serves the NEW value; the old value returns nothing for docX.
 		assert.Equal(t, []uint64{docX}, equalDocIDs(t, seg, valNew))
 		assert.NotContains(t, equalDocIDs(t, seg, valOld), docX)
 		// The untouched docID keeps its value (membership + value backstop).
@@ -546,15 +538,12 @@ func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 	})
 
 	t.Run("trap: incremental older-onto-newer fold corrupts the value (old wins)", func(t *testing.T) {
-		// This is exactly what an option-(a) incremental merge of the
-		// timestamp-older prepended backfill onto a rep already holding newer
-		// live values produces. It is why option (a) is rejected and the
-		// PrependSegmentsFromBucket guard exists.
+		// This is exactly what a rejected option-(a) incremental merge of the
+		// timestamp-older backfill onto a live rep would produce - why the guard exists.
 		seg := NewSegmentInMemory(logger)
 		require.NoError(t, seg.MergeSegmentByCursor(newerSegment()))
 		require.NoError(t, seg.MergeSegmentByCursor(olderSegment()))
 
-		// The OLD value now wrongly wins for docX; the new value is gone.
 		assert.Equal(t, []uint64{docX}, equalDocIDs(t, seg, valOld))
 		assert.NotContains(t, equalDocIDs(t, seg, valNew), docX)
 	})

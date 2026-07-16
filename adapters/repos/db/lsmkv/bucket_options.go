@@ -302,10 +302,8 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 }
 
 // WithRangeableInMemoryDeferred marks a RoaringSetRange bucket whose in-memory
-// representation was intentionally deferred: keepSegmentsInMemory was forced off
-// while the global INDEX_RANGEABLE_IN_MEMORY knob is on (the reindex ingest path,
-// GH#12199). The marker only enables a query-time diagnostic log line; it never
-// selects a read path. Set exclusively by the reindex ingest-bucket load path.
+// rep was intentionally left unbuilt (reindex ingest path, GH#12199). It only
+// enables a diagnostic log line and never affects read-path selection.
 func WithRangeableInMemoryDeferred(deferred bool) BucketOption {
 	return func(b *Bucket) error {
 		b.rangeableInMemoryDeferred = deferred
