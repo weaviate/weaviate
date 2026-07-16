@@ -169,6 +169,27 @@ func (t *JsonShardMetaData) Clear() {
 	t.lockFreeFlush()
 }
 
+// ResetProperty zeroes out the tally (Sum/Count/BucketedData) for a single
+// property, leaving every other property's tally untouched. Used to rebuild
+// one property's tally from scratch (reset, then rescan) without discarding
+// the rest of the shard's BM25 statistics the way Clear() would - see
+// Shard.recomputeSearchableTallyForProp in shard_write_inverted_lsm.go.
+// Does not flush; callers recompute the tally and flush once at the end.
+func (t *JsonShardMetaData) ResetProperty(propName string) {
+	if t == nil {
+		return
+	}
+	t.Lock()
+	defer t.Unlock()
+	if t.closed {
+		return
+	}
+
+	delete(t.data.SumData, propName)
+	delete(t.data.CountData, propName)
+	delete(t.data.BucketedData, propName)
+}
+
 // Path to the file on disk
 func (t *JsonShardMetaData) FileName() string {
 	if t == nil {
