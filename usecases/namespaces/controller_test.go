@@ -346,35 +346,70 @@ func TestController_RestoreNormalizesEmptyState(t *testing.T) {
 	assert.Equal(t, cmd.NamespaceStateActive, got[0].State)
 }
 
-// TestController_RestoreRejectsUnknownState locks in fail-loud behaviour
-// for snapshots that carry a State value the current binary does not
-// know. Silently coercing would mis-classify the namespace; the
-// startup-time error forces the operator to investigate.
 func TestController_RestoreRestoresKnownStates(t *testing.T) {
 	c := newTestController(t)
 	snap := []byte(`{
 		"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"active"},
-		"customer2":{"Name":"customer2","HomeNodes":["node-1"],"State":"deleting"}
+		"customer2":{"Name":"customer2","HomeNodes":["node-1"],"State":"deleting"},
+		"customer3":{"Name":"customer3","HomeNodes":["node-1"],"State":"suspended"},
+		"customer4":{"Name":"customer4","HomeNodes":["node-1"],"State":"resuming"}
 	}`)
 	require.NoError(t, c.Restore(snap))
 
-	assert.True(t, c.IsActive("customer1"))
-	assert.False(t, c.IsActive("customer2"))
+	want := map[string]cmd.NamespaceState{
+		"customer1": cmd.NamespaceStateActive,
+		"customer2": cmd.NamespaceStateDeleting,
+		"customer3": cmd.NamespaceStateSuspended,
+		"customer4": cmd.NamespaceStateResuming,
+	}
+	for name, state := range want {
+		got, ok := c.GetNamespace(name)
+		require.True(t, ok, name)
+		assert.Equal(t, state, got.State, name)
+		// Only active is usable: every other restored state must be denied.
+		assert.Equal(t, state == cmd.NamespaceStateActive, c.IsActive(name), name)
+	}
 	assert.Equal(t, []string{"customer2"}, c.ListDeleting())
 }
 
+// TestController_RestoreRejectsUnknownState locks in fail-loud behaviour
+// for snapshots that carry a State value the current binary does not
+// know. Silently coercing would mis-classify the namespace; the
+// startup-time error forces the operator to investigate. Rejection is
+// all-or-nothing: a valid entry alongside a bad one is not restored
+// either.
 func TestController_RestoreRejectsUnknownState(t *testing.T) {
-	c := newTestController(t)
-	// HomeNodes is required by Restore; include it so this case actually
-	// exercises the unknown-state rejection rather than the
+	// HomeNodes is required by Restore; every fixture carries one so these
+	// cases exercise the unknown-state rejection rather than the
 	// missing-HomeNodes one.
-	snap := []byte(`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"suspended"}}`)
-	err := c.Restore(snap)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown state")
-	// The controller must remain unchanged on rejection so that the
-	// caller (RAFT FSM) can fail startup cleanly.
-	assert.Equal(t, 0, c.Count())
+	tests := []struct {
+		name string
+		snap string
+	}{
+		{
+			name: "single unknown entry",
+			snap: `{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"not-a-state"}}`,
+		},
+		{
+			name: "known entry alongside an unknown one",
+			snap: `{
+				"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"suspended"},
+				"customer2":{"Name":"customer2","HomeNodes":["node-1"],"State":"not-a-state"}
+			}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestController(t)
+			err := c.Restore([]byte(tc.snap))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "unknown state")
+			// The controller must remain unchanged on rejection so that the
+			// caller (RAFT FSM) can fail startup cleanly.
+			assert.Equal(t, 0, c.Count())
+		})
+	}
 }
 
 func TestController_Get(t *testing.T) {

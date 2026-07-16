@@ -382,9 +382,7 @@ func (c *Controller) Restore(snapshot []byte) error {
 			ns.State = cmd.NamespaceStateActive
 			continue
 		}
-		switch ns.State {
-		case cmd.NamespaceStateActive, cmd.NamespaceStateDeleting:
-		default:
+		if !isKnownState(ns.State) {
 			return fmt.Errorf("namespace %q has unknown state %q in snapshot", name, ns.State)
 		}
 	}
