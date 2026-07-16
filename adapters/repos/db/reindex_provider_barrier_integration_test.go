@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -224,6 +225,109 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 	require.NotNil(t, postBucket, "post-SWAP: searchable bucket must still exist")
 	assert.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy(),
 		"post-SWAP: searchable bucket strategy must be Inverted")
+}
+
+// TestReindexProviderBarrierIntegration_SwapPhase_SentinelFailureAfterFlip_KeepsOverlayArmed
+// pins the adjacent invariant weaviate/0-weaviate-issues#323's fix depends
+// on: runShardSwapPhase's defensive "clear the overlay if every swap
+// failed" backstop (maybeClearTokenizationOverlayOnAllFailed) must NOT
+// clear an overlay that a partially-succeeded swap already armed. Before
+// this fix, that backstop keyed off task-level RunSwapOnShard success
+// (anySwapped) alone - so a single-task, single-prop migration whose
+// bucket pointer flipped and overlay armed, but then failed on the
+// per-prop sentinel fsync (this task's ONLY call, so anySwapped stays
+// false), would have its just-armed overlay INCORRECTLY cleared here,
+// reintroducing the same silent-misroute bug one layer up from the
+// SwapBucketAndSetOverlay fix.
+//
+// Fault injection is a real OS-level failure (the migrations dir made
+// read-only) rather than a code-level seam, so this exercises the
+// production RunSwapOnShard → runtimeSwap → swapPropAtomic →
+// rt.markSwappedProp call chain end to end, including the real on-disk
+// reindexTracker (which cannot be substituted here - RunSwapOnShard builds
+// its own via newReindexTrackerGuarded).
+func TestReindexProviderBarrierIntegration_SwapPhase_SentinelFailureAfterFlip_KeepsOverlayArmed(t *testing.T) {
+	ctx := testCtx()
+	fx := setupTwoTokenizationShard(t, ctx, "BarrierIntegOverlayPartialFail")
+	shard, idx := fx.shard, fx.idx
+	className, fieldProp := fx.className, fx.fieldProp
+	originalFieldBucket := fx.fieldBucket
+
+	task := NewRuntimeSearchableRetokenizeTask(
+		idx.logger, fieldProp, models.PropertyTokenizationWord,
+		className, lsmkv.StrategyInverted, className, 1,
+	)
+
+	// Stage 1: drive iteration to the barrier point (IsReindexed).
+	task.skipSwapOnFinish.Store(true)
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	for {
+		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+
+	// Stage 2: PREP - advances IsReindexed → IsMerged, producing the real
+	// ingest bucket the atomic flip needs.
+	p, _ := barrierIntegrationProvider(t)
+	ok, prepRes := p.runShardPrepPhase(ctx, "unit-1", shard,
+		[]*ShardReindexTaskGeneric{task}, false, p.logger)
+	require.True(t, ok, "PREP must succeed: %v", prepRes.Errs)
+
+	// Capture the real ingest bucket PREP produced - this is what the flip
+	// is expected to move the FIELD prop's searchable-bucket name onto.
+	// (Not fx.wordBucket: that belongs to the *other* prop in this fixture
+	// and is unrelated to this task's own reindex→merge→ingest pipeline.)
+	ingestBucket := shard.store.Bucket(task.ingestBucketName(fieldProp))
+	require.NotNil(t, ingestBucket, "PREP must produce a real ingest bucket for the FIELD prop")
+
+	// Stage 3: make the per-prop sentinel write fail with a genuine OS-level
+	// fault - the migrations dir becomes non-writable, so markSwappedProp's
+	// os.O_CREATE|os.O_EXCL open fails with a permission error, while
+	// IsSwappedProp's os.Stat (read-only) keeps working normally, and the
+	// dir remains readable+executable so nothing else in the read path
+	// breaks.
+	migDir := filepath.Join(shard.pathLSM(), ".migrations", task.MigrationDirName())
+	require.NoError(t, os.Chmod(migDir, 0o555))
+	restoreChmod := func() { _ = os.Chmod(migDir, 0o777) }
+	defer restoreChmod()
+
+	payload := &ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         className,
+		Properties:         []string{fieldProp},
+		TargetTokenization: models.PropertyTokenizationWord,
+		UnitToShard:        map[string]string{"unit-1": shard.Name()},
+		UnitToNode:         map[string]string{"unit-1": "node1"},
+	}
+	swapRes := p.runShardSwapPhase(ctx, payload, "unit-1", shard.Name(), shard,
+		[]*ShardReindexTaskGeneric{task}, p.logger)
+	require.NotEmpty(t, swapRes.Errs,
+		"the sentinel write must fail against the read-only migrations dir")
+
+	// Restore write permission before any further disk access (e.g. the
+	// fixture's shard.Shutdown cleanup) so unrelated teardown I/O doesn't
+	// fail on the still-locked-down dir.
+	restoreChmod()
+
+	// THE ASSERTION: despite the SWAP call failing, the bucket pointer DID
+	// flip (SwapBucketPointer succeeded before the sentinel write) and the
+	// per-shard tokenization overlay must still be armed to match it - the
+	// defensive all-failed clear must NOT have fired.
+	tokPost := shard.TokenizationFor(fieldProp, models.PropertyTokenizationField)
+	assert.Equal(t, models.PropertyTokenizationWord, tokPost,
+		"BUG #323 regression (outer aggregation): a partially-succeeded swap's overlay must survive "+
+			"runShardSwapPhase's all-failed clear backstop - task-level RunSwapOnShard failure alone must "+
+			"not be treated as 'nothing flipped'")
+	bktName := helpers.BucketSearchableFromPropNameLSM(fieldProp)
+	bktPost := shard.store.Bucket(bktName)
+	assert.Same(t, ingestBucket, bktPost,
+		"the FIELD prop's searchable bucket must already resolve to the (real, PREP-produced) ingest "+
+			"bucket - SwapBucketPointer succeeded and is irreversible in-process")
+	assert.NotSame(t, originalFieldBucket, bktPost,
+		"the FIELD prop's searchable bucket must no longer be the original pre-swap bucket")
 }
 
 // TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord
