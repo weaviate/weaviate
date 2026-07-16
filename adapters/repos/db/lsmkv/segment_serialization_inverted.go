@@ -359,6 +359,8 @@ func convertFromBlocksReusable(blockEntries []*terms.BlockEntry, encodedBlocks [
 	neededArena := int(objectCount) * 16
 	if cap(kvArena) < neededArena {
 		kvArena = make([]byte, neededArena)
+	} else {
+		kvArena = kvArena[:neededArena] // reslice so len tracks content, like out above
 	}
 	arenaOff := 0
 
@@ -403,6 +405,8 @@ func decodeAndConvertFromBlocksReusable(data []byte, mapPairBuf []MapPair, kvAre
 		neededArena := int(collectionSize) * 16
 		if cap(kvArena) < neededArena {
 			kvArena = make([]byte, neededArena)
+		} else {
+			kvArena = kvArena[:neededArena] // reslice so len tracks content, like mapPairBuf below
 		}
 		if cap(mapPairBuf) < int(collectionSize) {
 			mapPairBuf = make([]MapPair, 0, collectionSize)

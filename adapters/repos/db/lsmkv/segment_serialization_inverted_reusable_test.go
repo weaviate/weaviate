@@ -84,3 +84,19 @@ func TestDecodeAndConvertFromBlocksReusable_BufferReuse(t *testing.T) {
 	require.Equal(t, wantA, copyA, "first node intact after copy-out")
 	require.Equal(t, wantB, copyB, "second node correct after buffer reuse")
 }
+
+// A caller may pass a pre-sized but zero-length buffer, e.g. make([]byte, 0, N);
+// the reusable decoders must reslice it rather than index past len. Covers both
+// the full-bytes and multi-block arena paths.
+func TestReusableDecodeAcceptsZeroLenPresizedBuffers(t *testing.T) {
+	for _, count := range []int{1, 200} { // full-bytes path, then multi-block path
+		t.Run(fmt.Sprintf("count=%d", count), func(t *testing.T) {
+			data := encodeInvertedNode(t, count, 0)
+			want, _ := decodeAndConvertFromBlocks(data)
+			got, _, _ := decodeAndConvertFromBlocksReusable(data,
+				make([]MapPair, 0, count), make([]byte, 0, count*16),
+				&varenc.VarIntDeltaEncoder{}, &varenc.VarIntEncoder{})
+			assert.Equal(t, want, got)
+		})
+	}
+}
