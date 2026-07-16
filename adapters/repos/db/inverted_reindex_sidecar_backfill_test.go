@@ -1135,3 +1135,146 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyHandlesInPlaceEditWithout
 			"net word-count change (1 word -> 3 words = +2) even though the double-write callback only ever sees "+
 			"an item-level delta, not the object's full value - got sum=%d after first=%d", secondSum, firstSum)
 }
+
+// TestSidecarBackfill_EnableSearchable_CallbackTallyOffByOneOnEmptyValueEdit
+// pins a known residual in trackMigratingPropLength / untrackMigratingPropLength
+// (inverted_reindex_strategy_enable_searchable.go): an in-place edit that
+// transitions the migrating prop's value to (or from) the empty string
+// during the callbacks-active window is off by one Count relative to the
+// live write path's semantics.
+//
+// The live path (shard_write_put.go:548 subtractPropLengths(prevProps) +
+// :562 SetPropertyLengths(props)) tracks every searchable prop's FULL
+// analyzed value unconditionally, including an empty one:
+// TrackProperty(propName, 0) still does Count+1/Sum+0. So a live edit
+// oldValue->"" nets Count 0 (subtract the old non-empty value, track the
+// new empty one) and a live edit ""->newValue also nets Count 0
+// (symmetric).
+//
+// Our callback only ever sees inverted.DeltaSkipSearchable's item-level
+// delta output, where a GENUINE empty-value side of an edit -
+// {Items: [], Length: 0} for the ToAdd entry of an edit to "", or for the
+// ToDelete entry of an edit from "" - is byte-identical to
+// DeltaSkipSearchable's SYNTHETIC "this side doesn't apply" placeholder
+// (delta_analyzer.go lines 62-69, 175-182), which trackMigratingPropLength's
+// Length<=0 gate correctly must skip (see that function's godoc - skipping
+// the placeholder is what keeps a newly-appearing/disappearing prop's Count
+// change at exactly the correct ±1). The gate can't tell the two apart:
+// both have Length==0. So an edit to "" incorrectly skips the Track half
+// (net Count -1 instead of live's 0), and an edit from "" incorrectly
+// skips the Untrack half (net Count +1 instead of live's 0).
+//
+// Distinguishing them exactly would need a shard-level force-searchable
+// overlay registry - the migrating prop's OWN AnalyzerOverlay, threaded
+// into the live write path's analysis the way PR weaviate/weaviate#12211's
+// force-index overlay machinery does for its surface - not something this
+// PR's callback-tally fix should duplicate. Pinned here instead, per this
+// repo's "no bug is ever out of scope, pair an accepted residual with a
+// committed failing test" rule and this PR's own precedent
+// (TestSidecarBackfill_EnableSearchable_TallyDoubleCountsOnCrashMidTickResume,
+// since superseded by the post-swap recompute fix and removed, but same
+// skip-guard shape).
+//
+// Divergence is exactly ±1 Count per empty-value transition landing during
+// the callbacks-active window; it converges on any recompute re-entry
+// (ResetProperty + full rescan reads the object's true current value,
+// independent of what the callback tallied). The exact fix belongs to the
+// force-index overlay registry surface (12211-style composition), not to
+// this callback.
+//
+// Causal link: this test catches the residual because it edits an
+// already-recompute-tracked object's value to "" while the double-write
+// callbacks are active (same post-recompute-active-callbacks arrangement
+// as TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWindow
+// above), then compares against a control shard that performs the exact
+// same edit through the live, always-searchable write path. Confirmed
+// genuinely RED (migratedCount = controlCount-1) before this skip was
+// added - see the commit message for the exact numbers.
+func TestSidecarBackfill_EnableSearchable_CallbackTallyOffByOneOnEmptyValueEdit(t *testing.T) {
+	t.Skip("RED pin for weaviate/0-weaviate-issues#322's callback-tally-vs-empty-value-edit residual: " +
+		"trackMigratingPropLength's Length<=0 gate cannot distinguish inverted.DeltaSkipSearchable's " +
+		"synthetic \"this side doesn't apply\" placeholder (Items:[], Length:0 - correctly skipped, keeps " +
+		"newly-appearing/disappearing props exactly right) from a GENUINE edit to/from the empty string " +
+		"(also Items:[], Length:0 on the affected side) - both look identical to the gate. Net effect: " +
+		"Count is off by -1 for an in-place edit TO empty (vs the live write path's net-zero) and +1 for an " +
+		"edit FROM empty, for any such transition landing while this task's double-write callbacks are " +
+		"active. Confirmed genuinely RED (migratedCount = controlCount-1, deterministic) before this skip " +
+		"was added. Converges on any recompute re-entry (ResetProperty + full rescan reads the object's " +
+		"true current value). Exact fix needs a shard-level force-searchable overlay registry threaded into " +
+		"the live write path's analysis (the surface PR weaviate/weaviate#12211's force-index overlay " +
+		"machinery builds for its own callers) - wrong to duplicate that machinery here. Un-skip once that " +
+		"surface (or an equivalent fix) lands; the assertion below then goes green.")
+
+	const numObjects = 20
+	ctx := testCtx()
+
+	// Same class shape as the two CallbackTally tests above: filterable
+	// already live, searchable not yet live, so the double-write callback
+	// machinery actually engages for "title" (see those tests' comments).
+	className := "SidecarBackfillCallbackTallyEmptyEdit_" + uuid.NewString()[:8]
+	vFalse, vTrue := false, true
+	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	objects := sidecarBackfillTextObjects(className, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	defer task.disableCallbacks()
+
+	// Arrange the migration with callbacks active POST-recompute - the
+	// exact primitive runtimeSwap's completeMigrationOnShard invokes -
+	// without going through RunPrepareOnShard/RunSwapOnShard, so the
+	// callbacks stay active for the edit below.
+	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
+	require.NoError(t, shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
+
+	// THE EMPTY-VALUE EDIT: clears objects[0]'s title to "" in place while
+	// callbacks are active. Both the old value ("alpha") and the new value
+	// ("") are non-empty/empty respectively but the property key itself is
+	// present on both sides, so DeltaSkipSearchable computes an item-level
+	// delta with a genuine Length:0 entry on the ToAdd side - identical in
+	// shape to its synthetic placeholder.
+	edited := objects[0]
+	edited.Object.Properties = map[string]interface{}{sidecarBackfillTextProp: ""}
+	require.NoError(t, shard.PutObject(ctx, edited))
+
+	// Control: identical n objects, searchable from class creation (always
+	// live), then the SAME edit through the live write path
+	// (subtractPropLengths + SetPropertyLengths on the full analyzed
+	// value) - the ground truth this shard's tally must converge to.
+	controlClassName := "SidecarBackfillCallbackTallyEmptyEditControl_" + uuid.NewString()[:8]
+	controlClass := newSidecarBackfillTextClass(controlClassName, &vFalse, &vTrue)
+	controlShd, _ := testShardWithSettings(t, ctx, controlClass, enthnsw.UserConfig{Skip: true}, false, false, false)
+	controlShard := controlShd.(*Shard)
+	t.Cleanup(func() { controlShard.Shutdown(ctx) })
+
+	controlObjects := sidecarBackfillTextObjects(controlClassName, numObjects, 0)
+	for _, obj := range controlObjects {
+		require.NoError(t, controlShard.PutObject(ctx, obj))
+	}
+	controlEdited := controlObjects[0]
+	controlEdited.Object.Properties = map[string]interface{}{sidecarBackfillTextProp: ""}
+	require.NoError(t, controlShard.PutObject(ctx, controlEdited))
+
+	_, controlCount, _, err := controlShard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+	require.EqualValues(t, numObjects, controlCount,
+		"sanity: the live write path must net Count unchanged across an edit-to-empty (subtract the old "+
+			"non-empty value, track the new empty one - SetPropertyLengths tracks every searchable prop "+
+			"unconditionally, including zero-length values)")
+
+	_, migratedCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+
+	// THE PIN.
+	assert.Equal(t, controlCount, migratedCount,
+		"BUG (gh#322 residual, pinned not fixed - see the skip message above): BM25 tally COUNT must match "+
+			"the live write path's semantics across an in-place edit to the empty string - got %d, want %d "+
+			"(control)", migratedCount, controlCount)
+}
