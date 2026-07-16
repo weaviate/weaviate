@@ -36,8 +36,9 @@ func HTTPStatusForNamespaceErr(err error) (status int, ok bool) {
 		errors.Is(err, namespaces.ErrNamespaceSuspended),
 		errors.Is(err, namespaces.ErrCollectionSuspended):
 		return http.StatusUnprocessableEntity, true
+	default:
+		return 0, false
 	}
-	return 0, false
 }
 
 // ErrPayloadFromSingleErr builds a single-message ErrorResponse with the
