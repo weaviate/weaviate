@@ -143,7 +143,8 @@ func (c *compactorInverted) do(ctx context.Context) error {
 		return errors.Wrap(err, "get property lengths")
 	}
 
-	c.propLengthIds, c.propLengthLens = mergePropLenPairs(ids1, lens1, ids2, lens2)
+	// drop the property lengths of docs cleanupValues removes from the older segment
+	c.propLengthIds, c.propLengthLens = mergePropLenPairs(ids1, lens1, ids2, lens2, c.tombstonesToClean)
 
 	tombstones := c.computeTombstones()
 
