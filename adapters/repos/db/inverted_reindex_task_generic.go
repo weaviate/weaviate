@@ -222,6 +222,16 @@ type ShardReindexTaskGeneric struct {
 	// drop()-vs-MkdirAll race deterministic. Always set — no test-only
 	// branch runs in production.
 	trackerMkdirGuard func(shard ShardLike) func(func() error) error
+
+	// newReindexTrackerGuardedFn is the dispatch function for
+	// newReindexTrackerGuarded. Defaults to the guarded
+	// NewFileReindexTracker construction (mkdirGuard wired before init(),
+	// matching newReindexTrackerGuarded's own godoc); tests substitute a
+	// wrapper that intercepts one specific tracker method call (e.g.
+	// markProgress) while delegating every other call to a real,
+	// correctly-guarded tracker. Same shape as processOneSwapPropFn /
+	// swapPropAtomic above. No test-only branch runs in production.
+	newReindexTrackerGuardedFn func(shard ShardLike) (reindexTracker, error)
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -253,6 +263,14 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	t.processOneTidyPropFn = t.processOneTidyProp
 	t.trackerMkdirGuard = func(shard ShardLike) func(func() error) error {
 		return shard.Index().withCloseRLockGuard
+	}
+	t.newReindexTrackerGuardedFn = func(shard ShardLike) (reindexTracker, error) {
+		rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
+		rt.mkdirGuard = t.trackerMkdirGuard(shard)
+		if err := rt.init(); err != nil {
+			return nil, err
+		}
+		return rt, nil
 	}
 	return t
 }
@@ -1241,12 +1259,7 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 // hold closeLock.RLock, and a nested RLock (sync.RWMutex is non-reentrant)
 // deadlocks against a queued drop() writer.
 func (t *ShardReindexTaskGeneric) newReindexTrackerGuarded(shard ShardLike) (reindexTracker, error) {
-	rt := NewFileReindexTracker(shard.pathLSM(), t.strategy.MigrationDirName(), t.keyParser)
-	rt.mkdirGuard = t.trackerMkdirGuard(shard)
-	if err := rt.init(); err != nil {
-		return nil, err
-	}
-	return rt, nil
+	return t.newReindexTrackerGuardedFn(shard)
 }
 
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
