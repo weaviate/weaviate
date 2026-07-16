@@ -33,6 +33,7 @@ UpdateNamespaceOK Namespace updated successfully.
 swagger:response updateNamespaceOK
 */
 type UpdateNamespaceOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type UpdateNamespaceOK struct {
 
 // NewUpdateNamespaceOK creates UpdateNamespaceOK with default headers values
 func NewUpdateNamespaceOK() *UpdateNamespaceOK {
+
 	return &UpdateNamespaceOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *UpdateNamespaceOK) SetPayload(payload *models.Namespace) {
 
 // WriteResponse to the client
 func (o *UpdateNamespaceOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ UpdateNamespaceUnauthorized Unauthorized or invalid credentials.
 
 swagger:response updateNamespaceUnauthorized
 */
-type UpdateNamespaceUnauthorized struct{}
+type UpdateNamespaceUnauthorized struct {
+}
 
 // NewUpdateNamespaceUnauthorized creates UpdateNamespaceUnauthorized with default headers values
 func NewUpdateNamespaceUnauthorized() *UpdateNamespaceUnauthorized {
+
 	return &UpdateNamespaceUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *UpdateNamespaceUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ UpdateNamespaceForbidden Forbidden
 swagger:response updateNamespaceForbidden
 */
 type UpdateNamespaceForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type UpdateNamespaceForbidden struct {
 
 // NewUpdateNamespaceForbidden creates UpdateNamespaceForbidden with default headers values
 func NewUpdateNamespaceForbidden() *UpdateNamespaceForbidden {
+
 	return &UpdateNamespaceForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *UpdateNamespaceForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *UpdateNamespaceForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -139,6 +148,7 @@ UpdateNamespaceNotFound Not Found - Namespace does not exist, or the namespaces 
 swagger:response updateNamespaceNotFound
 */
 type UpdateNamespaceNotFound struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type UpdateNamespaceNotFound struct {
 
 // NewUpdateNamespaceNotFound creates UpdateNamespaceNotFound with default headers values
 func NewUpdateNamespaceNotFound() *UpdateNamespaceNotFound {
+
 	return &UpdateNamespaceNotFound{}
 }
 
@@ -163,6 +174,7 @@ func (o *UpdateNamespaceNotFound) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *UpdateNamespaceNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -181,6 +193,7 @@ UpdateNamespaceUnprocessableEntity The request syntax is correct, but the server
 swagger:response updateNamespaceUnprocessableEntity
 */
 type UpdateNamespaceUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -189,6 +202,7 @@ type UpdateNamespaceUnprocessableEntity struct {
 
 // NewUpdateNamespaceUnprocessableEntity creates UpdateNamespaceUnprocessableEntity with default headers values
 func NewUpdateNamespaceUnprocessableEntity() *UpdateNamespaceUnprocessableEntity {
+
 	return &UpdateNamespaceUnprocessableEntity{}
 }
 
@@ -205,6 +219,7 @@ func (o *UpdateNamespaceUnprocessableEntity) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *UpdateNamespaceUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -223,6 +238,7 @@ UpdateNamespaceInternalServerError An error has occurred while trying to fulfill
 swagger:response updateNamespaceInternalServerError
 */
 type UpdateNamespaceInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -231,6 +247,7 @@ type UpdateNamespaceInternalServerError struct {
 
 // NewUpdateNamespaceInternalServerError creates UpdateNamespaceInternalServerError with default headers values
 func NewUpdateNamespaceInternalServerError() *UpdateNamespaceInternalServerError {
+
 	return &UpdateNamespaceInternalServerError{}
 }
 
@@ -247,6 +264,7 @@ func (o *UpdateNamespaceInternalServerError) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *UpdateNamespaceInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload
