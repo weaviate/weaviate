@@ -217,20 +217,42 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 // rescan cursor. CursorOnDisk only ever sees segment-resident data (see
 // lsmkv/cursor_bucket_replace.go), so without this flush any object whose
 // write is still sitting in the active/flushing objects memtable at the
-// moment this function runs would be invisible to the rescan even though
-// it is already live-searchable (the double-write callback during the
-// migration window mirrors postings into the searchable bucket
-// unconditionally, and SetPropertyLengths on the normal write path only
-// tracks props that are ALREADY live-searchable, which the migrating prop
-// is not until this recompute flips it) - producing a permanently
-// under-counted avgdl for every concurrent write that lands in memory
-// during the backfill-to-recompute window (weaviate/0-weaviate-issues#322).
-// A write that races in between this flush and the cursor open is not
-// lost: it lands in the new active memtable, and because every invocation
-// of this function flushes before its own rescan (and the recompute is
-// idempotent by construction, see above), any future invocation converges
-// the tally - e.g. a resume through the recovery path re-entering
-// completeMigrationOnShard.
+// moment this function runs would be invisible to the rescan.
+//
+// Three windows matter for the migrating prop's tally, and only one of
+// them is a real residual:
+//
+//  1. Any write to the migrating prop that reaches this task's
+//     double-write callbacks (registered before backfill starts,
+//     disabled only after runtimeSwap returns) is tallied incrementally
+//     by EnableSearchableStrategy.MakeAddCallback / MakeDeleteCallback -
+//     see trackMigratingPropLength's godoc for how that stays correct
+//     even though SetPropertyLengths on the normal write path can't see
+//     this prop yet (HasSearchableIndex is still false on the live,
+//     not-yet-flipped schema). This only covers a write that reaches the
+//     callbacks at all: a property with NO other live index (the common
+//     from-scratch enable-searchable starting state) never reaches them
+//     for a brand-new value - Shard.AnalyzeObject gates it out of
+//     analysis entirely before the callback machinery is ever in play.
+//     Window 2 below is what covers that write instead.
+//  2. This function's own flush-then-rescan covers every write that
+//     landed in the objects bucket before the flush, REGARDLESS of
+//     whether window 1's callbacks ever saw it: the rescan re-derives
+//     the migrating prop straight from each object's raw stored JSON via
+//     AnalyzeObjectForMigrationWithOverlay, not through the live write
+//     path's secondary-index bookkeeping. For any write window 1 DID
+//     tally incrementally, ResetProperty first discards that increment,
+//     so the rescan's rebuild is exactly-once, not double-counted.
+//  3. The sole remaining residual is a write racing strictly between this
+//     function's FlushAndSwitch call and its cursor open: window 1's
+//     callback (when it applies) already tallied it incrementally, but
+//     ResetProperty (run before the flush completes its effect on the
+//     cursor's view) drops that increment, and the write is not yet on
+//     disk for the rescan to pick back up either. It is not lost, only
+//     delayed: it lands in the new active memtable, and because every
+//     invocation of this function is idempotent by construction (see
+//     above), any future invocation converges the tally - e.g. a resume
+//     through the recovery path re-entering completeMigrationOnShard.
 func (s *Shard) recomputeSearchableTallyForProp(ctx context.Context, propName string,
 	overlay map[string]inverted.PropertyOverlay,
 ) error {

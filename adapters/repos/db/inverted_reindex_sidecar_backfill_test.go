@@ -933,3 +933,186 @@ func TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindow
 		"a second recompute's SUM must equal the first plus exactly the residual object's 3-word contribution "+
 			"(no double-count of the original n objects) - got sum=%d after first=%d", secondSum, firstSum)
 }
+
+// -----------------------------------------------------------------------------
+// weaviate/0-weaviate-issues#322 post-swap residual window: the double-write
+// callback (registered before backfill starts, disabled only after
+// runtimeSwap returns - see the deferred disableCallbacks call) mirrors
+// POSTINGS for the migrating searchable prop unconditionally, but never fed
+// the BM25 prop-length tally. A write landing anywhere between
+// recomputeSearchableTallyForProp's rescan and disableCallbacks actually
+// firing was therefore searchable (postings present) but permanently
+// excluded from avgdl, because no further recompute is guaranteed to ever
+// run for this prop on this shard absent a crash-recovery re-entry.
+// trackMigratingPropLength / untrackMigratingPropLength
+// (inverted_reindex_strategy_enable_searchable.go) close this by feeding
+// the tracker from inside the callbacks themselves.
+// -----------------------------------------------------------------------------
+
+// TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWindow
+// is the RED/GREEN regression test for the residual above.
+//
+// Causal link: this test catches the bug because it (1) runs only the
+// backfill phase (RunReindexOnlyOnShard) - not the shared
+// newSidecarBackfillSearchableFixture, see the class-shape comment below -
+// so the double-write callbacks stay registered for the rest of the test;
+// it never calls RunPrepareOnShard/RunSwapOnShard, which is what would
+// otherwise disable them; (2) calls recomputeSearchableTallyForProp
+// directly, the exact primitive runtimeSwap's completeMigrationOnShard
+// would have invoked, to establish the "recompute already ran" baseline;
+// then (3) writes an (n+1)th object and asserts the tally already reflects
+// it with NO further recompute call. Pre-fix, EnableSearchableStrategy's
+// add callback only mirrors postings (blockmaxSearchableAddCallback), so
+// the tally stays at n instead of n+1. Post-fix, trackMigratingPropLength's
+// TrackProperty call inside the add callback closes the gap synchronously
+// on write - no second recompute needed, unlike
+// TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindowWrite
+// above, whose residual write lands strictly AFTER callbacks are disabled.
+func TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWindow(t *testing.T) {
+	const numObjects = 20
+	const residualObjText = "alpha bravo charlie delta" // 4 words
+	ctx := testCtx()
+
+	// Unlike newSidecarBackfillSearchableFixture's from-absolute-zero class
+	// (filterable AND searchable both false), this test needs the prop to
+	// already carry a live FILTERABLE index before the searchable-enable
+	// migration starts. That's not cosmetic: Shard.AnalyzeObject (the
+	// normal write path) gates a property out of analysis entirely via
+	// inverted.HasAnyInvertedIndex when none of its index flags are live -
+	// an enable-searchable migration never flips that gate for ordinary
+	// writes (only IsTokenizationChangingMigration wires the per-shard
+	// overlay AnalyzeObject consults), so a prop with ZERO live indexes
+	// never reaches the double-write callback machinery for a brand-new
+	// object at all, and the callback-tally fix under test would never
+	// fire. A pre-existing filterable index keeps HasAnyInvertedIndex true
+	// throughout the migration, which is exactly the shape the post-swap
+	// residual window above targets.
+	className := "SidecarBackfillCallbackTally_" + uuid.NewString()[:8]
+	vFalse, vTrue := false, true
+	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	objects := sidecarBackfillTextObjects(className, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	defer task.disableCallbacks()
+
+	// Establish the "recompute already ran" baseline directly - the exact
+	// primitive runtimeSwap's completeMigrationOnShard invokes - without
+	// going through RunPrepareOnShard/RunSwapOnShard, so the double-write
+	// callbacks registered by the fixture's RunReindexOnlyOnShard call
+	// stay active for the rest of this test.
+	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
+	require.NoError(t, shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
+
+	firstSum, firstCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+	require.EqualValues(t, numObjects, firstCount, "sanity: recompute must land on exactly the n pre-existing objects")
+
+	// THE RESIDUAL-STRANDING WRITE: lands strictly after the recompute
+	// above, while the migration's double-write callbacks are still
+	// registered and active (RunSwapOnShard - and its deferred
+	// disableCallbacks - never runs in this test).
+	residualObj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: className,
+			Properties: map[string]interface{}{
+				sidecarBackfillTextProp: residualObjText,
+			},
+		},
+	}
+	require.NoError(t, shard.PutObject(ctx, residualObj))
+
+	// THE CLOSURE CHECK: the tally must already include the residual write
+	// with NO further recompute call - proving the double-write callback
+	// itself, not just a future rescan, keeps avgdl current.
+	secondSum, secondCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+
+	assert.EqualValues(t, numObjects+1, secondCount,
+		"BUG regression check (gh#322 / PR#12221 post-swap residual): the BM25 tally COUNT must include a write landing "+
+			"after the recompute while the double-write callbacks are still active, with NO further recompute - "+
+			"got %d, want %d", secondCount, numObjects+1)
+	assert.Equal(t, firstSum+4, secondSum,
+		"BUG regression check (gh#322 / PR#12221 post-swap residual): the BM25 tally SUM must include exactly the "+
+			"residual write's 4-word contribution with NO further recompute - got sum=%d after first=%d", secondSum, firstSum)
+}
+
+// TestSidecarBackfill_EnableSearchable_CallbackTallyHandlesInPlaceEditWithoutInflatingCount
+// pins the trickiest edge trackMigratingPropLength's godoc documents: an
+// in-place edit of an object that ALREADY contributes to the tally (via the
+// swap-time recompute) must leave COUNT unchanged and adjust SUM by exactly
+// the net word-count delta - even though inverted.DeltaSkipSearchable hands
+// the double-write callback an ITEM-LEVEL delta (only the changed tokens),
+// not the object's full value, whenever the migrating prop already carries
+// another live index (filterable here) alongside the not-yet-live
+// searchable one.
+//
+// Causal link: this test catches a naive implementation that calls
+// TrackProperty on every add-callback invocation unconditionally (Count+1
+// every edit, permanently inflating COUNT for objects that were already
+// tracked) or one that uses property.Length instead of len(property.Items)
+// as the tracked magnitude (wrong unit - Length is a rune count, not a
+// token count, so SUM would drift from the control's token-count-based
+// value). It edits objects[0] (recompute-tracked, 1-word value "alpha")
+// to a 3-word value in place, then asserts COUNT is unchanged (net
+// Track+Untrack cancels) and SUM moved by exactly +2 (3 words - 1 word).
+func TestSidecarBackfill_EnableSearchable_CallbackTallyHandlesInPlaceEditWithoutInflatingCount(t *testing.T) {
+	const numObjects = 20
+	ctx := testCtx()
+
+	// Same class shape as TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWindow
+	// (filterable already live) for the same reason: HasAnyInvertedIndex
+	// must stay true for "title" throughout the migration for the
+	// double-write callback to engage at all.
+	className := "SidecarBackfillCallbackTallyEdit_" + uuid.NewString()[:8]
+	vFalse, vTrue := false, true
+	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	objects := sidecarBackfillTextObjects(className, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	defer task.disableCallbacks()
+
+	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
+	require.NoError(t, shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
+
+	firstSum, firstCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+	require.EqualValues(t, numObjects, firstCount, "sanity: recompute must land on exactly the n pre-existing objects")
+
+	// objects[0] has wordCount=(0%5)+1=1 -> text "alpha" (sidecarBackfillTextObjects).
+	// Both the old and new values are non-empty, so DeltaSkipSearchable
+	// computes an item-level delta for "title" (see trackMigratingPropLength's
+	// godoc) rather than a full swap.
+	edited := objects[0]
+	edited.Object.Properties = map[string]interface{}{sidecarBackfillTextProp: "alpha bravo charlie"}
+	require.NoError(t, shard.PutObject(ctx, edited))
+
+	secondSum, secondCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+
+	assert.EqualValues(t, numObjects, secondCount,
+		"BUG regression check (gh#322 / PR#12221 post-swap residual): an in-place edit of an ALREADY-tracked object must "+
+			"not inflate the BM25 tally COUNT (the paired Track/Untrack calls must net to zero) - got %d, want %d (unchanged)",
+		secondCount, numObjects)
+	assert.Equal(t, firstSum+2, secondSum,
+		"BUG regression check (gh#322 / PR#12221 post-swap residual): an in-place edit's SUM delta must equal exactly the "+
+			"net word-count change (1 word -> 3 words = +2) even though the double-write callback only ever sees "+
+			"an item-level delta, not the object's full value - got sum=%d after first=%d", secondSum, firstSum)
+}
