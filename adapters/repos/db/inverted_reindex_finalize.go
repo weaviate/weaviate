@@ -13,6 +13,7 @@ package db
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -599,6 +600,22 @@ func restoreStagedDirsToOld(lsmPath, migDir, dirName, namespace string, logger l
 			}
 		}
 	}
+
+	// Durably record that THIS gen reached merged-only via the boot-revert
+	// path (0-weaviate-issues#220). The flip-apply re-resolve hook requires
+	// this positive evidence before re-driving a merged-only gen: a gen that
+	// reached merged-only by failing mid-swap is on-disk identical in every
+	// other sentinel but never ran this revert, so it lacks the marker and
+	// the hook leaves it (and its OLD backup) untouched. Written last and
+	// fsync-durable so a crash before it lands simply re-runs this revert on
+	// the next boot (idempotent) rather than mis-classifying the gen. A
+	// failure to persist it is non-fatal: the hook then declines to re-drive
+	// (the gen converges on the next restart's finalize instead), which is
+	// strictly no worse than the pre-hook status quo.
+	if err := createFileDurableAt(migDir, reindexRevertedMarkerFile, nil); err != nil {
+		logger.WithField("migration", dirName).
+			Warnf("reindex finalize: staged restore: failed to write revert marker %s; flip-apply re-resolve will defer to the next restart: %v", reindexRevertedMarkerFile, err)
+	}
 }
 
 // restoreRolledBackStagedSwap completes the on-disk half of an
@@ -819,6 +836,52 @@ func readMigrationProps(migDir string) ([]string, error) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// reindexRevertedMarkerFile is the durable "boot-revert evidence" sentinel
+// written by [restoreStagedDirsToOld] when it reverts a staged semantic-swap
+// gen back to merged (0-weaviate-issues#220). It is the discriminator the
+// flip-apply re-resolve hook ([Shard.reResolveStagedSwapsOnSchemaFlip] via
+// [isRevertedMergedStagedGen]) requires before re-driving a merged-only gen:
+// a gen that reached merged-only by FAILING mid-swap (Phase 2b) is on-disk
+// identical in every other sentinel, but never went through the revert path,
+// so it lacks this marker and is left untouched — its OLD backup survives.
+const reindexRevertedMarkerFile = "reverted.mig"
+
+// createFileDurableAt writes a sentinel file crash-durably: content fsync'd
+// before close, parent dir fsync'd after, so the file survives a power cut
+// once this returns nil. Package-level twin of
+// [fileReindexTracker.createFileDurable] for the free-function finalize path
+// (which has no tracker). Idempotent for sentinel use: an already-present
+// marker (O_EXCL EEXIST) is treated as success.
+func createFileDurableAt(dirPath, filename string, content []byte) error {
+	path := filepath.Join(dirPath, filename)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil
+		}
+		return err
+	}
+	if len(content) > 0 {
+		if _, err := file.Write(content); err != nil {
+			file.Close()
+			return err
+		}
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	dir, err := os.Open(dirPath)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 // migrationBucketSuffixes maps a migration dir name to its bucket naming scheme.

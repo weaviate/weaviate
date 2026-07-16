@@ -70,7 +70,12 @@ func TestMultiNode_ReindexSwapFailure_ClusterRollsBackToOld(t *testing.T) {
 			IndexFilterable: &falseVal, IndexSearchable: &trueVal,
 		},
 	})
-	defer deleteCollection(t, restURI, className)
+	// Re-fetch node 1's URI at cleanup time: this test performs a rolling
+	// restart below, after which testcontainers reassigns node 1's mapped
+	// host port, so the restURI captured above is stale by the time the
+	// deferred delete runs. (Every in-test assertion already re-fetches a
+	// fresh per-node URI; only this cleanup used the captured one.)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	// Import a few hundred objects so the reindex window is comfortably wide.
 	docs := make([]string, 0, len(testDocuments)*12)

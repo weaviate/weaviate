@@ -166,16 +166,29 @@ func (s *Shard) driveStagedSwapReResolve(
 }
 
 // isRevertedMergedStagedGen reports whether a migration tracker dir is in the
-// reverted-to-merged state produced by [restoreStagedDirsToOld]: merged.mig
-// present, and none of the swap/stage/commit/rollback sentinels. A gen that
-// was never swapped (fresh merged) matches the same on-disk shape, but at
-// flip-apply time that is indistinguishable from — and treated identically
-// to — a reverted gen: the ack barrier only lets the flip commit after every
-// unit staged, so a merged (unswapped) gen on this node at flip-apply means
-// this node reverted. Re-driving either to NEW under an already-flipped
-// schema is correct.
+// boot-reverted-to-merged state produced by [restoreStagedDirsToOld]:
+// merged.mig present, none of the swap/stage/commit/rollback sentinels, AND
+// the durable reverted.mig marker that the revert path writes.
+//
+// The reverted.mig marker is load-bearing (0-weaviate-issues#220, QA
+// finding 5). Without it, a gen that reached merged-only by FAILING mid-swap
+// — Phase 2b of [ShardReindexTaskGeneric.runtimeSwap] errors AFTER markMerged
+// but BEFORE markSwapped/markStaged — is byte-for-byte identical in every
+// other sentinel to a genuinely boot-reverted gen. The earlier premise here
+// ("the ack barrier only lets the flip commit after every unit staged, so a
+// merged gen at flip-apply means this node reverted") does NOT hold: a
+// follower's Phase 2b failure can coincide with the cluster-wide flip landing
+// (the failing node's flip-vs-rollback dispatch is fixed in the scheduler +
+// provider, but this hook must not depend on that being perfect). Re-driving
+// a failed-mid-swap gen would commit the failed swap and TRIM its OLD backup —
+// unrecoverable data loss. Requiring positive revert evidence makes the hook
+// fail safe: a merged-only gen WITHOUT the marker is left untouched (it
+// converges on the next restart's finalize via the schema-backed verdict,
+// strictly no worse than the pre-hook status quo), so only a gen we can prove
+// was reverted is ever re-driven.
 func isRevertedMergedStagedGen(migDir string) bool {
 	return fileExists(filepath.Join(migDir, "merged.mig")) &&
+		fileExists(filepath.Join(migDir, reindexRevertedMarkerFile)) &&
 		!fileExists(filepath.Join(migDir, "staged.mig")) &&
 		!fileExists(filepath.Join(migDir, "swapped.mig")) &&
 		!fileExists(filepath.Join(migDir, "tidied.mig")) &&
