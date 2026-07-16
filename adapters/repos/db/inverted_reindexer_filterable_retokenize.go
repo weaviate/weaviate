@@ -12,8 +12,6 @@
 package db
 
 import (
-	"time"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -39,34 +37,9 @@ func NewRuntimeFilterableRetokenizeTask(
 		generation:         generation,
 	}
 
-	selectedProps := map[string]struct{}{
-		propName: {},
-	}
-
-	cfg := reindexTaskConfig{
-		swapBuckets: true,
-		tidyBuckets: true,
-		// Semantic migration: terminal swap effects are gated on the
-		// cluster-wide task verdict (weaviate/0-weaviate-issues#220).
-		stagedSwapCommit:              true,
-		concurrency:                   2,
-		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
-		processingDuration:            10 * time.Minute,
-		pauseDuration:                 1 * time.Second,
-		checkProcessingEveryNoObjects: 1000,
-
-		selectionEnabled: true,
-		selectedPropsByCollection: map[string]map[string]struct{}{
-			collectionName: selectedProps,
-		},
-		selectedShardsByCollection: map[string]map[string]struct{}{
-			collectionName: nil, // nil = all shards
-		},
-	}
-
 	return NewShardReindexTaskGeneric(
-		"FilterableRetokenize", logger, strategy, cfg,
+		"FilterableRetokenize", logger, strategy,
+		semanticSwapTaskConfig([]string{propName}, collectionName),
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
 }

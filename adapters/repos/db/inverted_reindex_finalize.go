@@ -501,6 +501,30 @@ func resolveStagedSwapAtStartup(
 	return false
 }
 
+// migrationDirCoords resolves the two silently-guarded per-property inputs
+// every finalize/restore walk needs from a migration dir name: the strategy's
+// bucket-name suffixes and the `_<gen>` dir-name tail. ok=false (caller bails
+// silently, matching pre-refactor behavior) when the strategy prefix is
+// unknown or the name carries no gen suffix — both defensive guards against
+// dirs this branch never writes. The gen tail is reconstructed by re-appending
+// `_<N>` rather than asking the strategy instance (finalize does not have one),
+// which is exact because every strategy's suffix methods compose the on-disk
+// name as `<base>_<N>`. Safe to run before the properties.mig read: at every
+// real call site parseMigrationDirName already succeeded upstream in
+// [FinalizeCompletedMigrationsWithVerdict]'s grouping, so this re-parse never
+// fails and cannot reorder an observable early return.
+func migrationDirCoords(dirName string) (suffixes *migrationBucketSuffixes, genTail string, ok bool) {
+	suffixes = migrationSuffixes(dirName)
+	if suffixes == nil {
+		return nil, "", false
+	}
+	_, gen, ok := parseMigrationDirName(dirName)
+	if !ok {
+		return nil, "", false
+	}
+	return suffixes, "_" + strconv.Itoa(gen), true
+}
+
 // restoreStagedDirsToOld restores the OLD data to the canonical bucket
 // dir for every prop of a staged gen and clears the swap/staged
 // sentinels, reverting the tracker to the "merged" state. Handles both
@@ -511,8 +535,8 @@ func resolveStagedSwapAtStartup(
 // Presence-checked and idempotent: a crash mid-restore re-converges on
 // the next pass.
 func restoreStagedDirsToOld(lsmPath, migDir, dirName, namespace string, logger logrus.FieldLogger) {
-	suffixes := migrationSuffixes(dirName)
-	if suffixes == nil {
+	suffixes, genTail, ok := migrationDirCoords(dirName)
+	if !ok {
 		return
 	}
 	props, err := readMigrationProps(migDir)
@@ -521,11 +545,6 @@ func restoreStagedDirsToOld(lsmPath, migDir, dirName, namespace string, logger l
 			Errorf("reindex finalize: staged restore: properties.mig unreadable; leaving dirs untouched: %v", err)
 		return
 	}
-	_, gen, ok := parseMigrationDirName(dirName)
-	if !ok {
-		return
-	}
-	genTail := "_" + strconv.Itoa(gen)
 
 	for _, propName := range props {
 		mainDir := filepath.Join(lsmPath, suffixes.sourceBucketName(propName))
@@ -590,8 +609,8 @@ func restoreStagedDirsToOld(lsmPath, migDir, dirName, namespace string, logger l
 // remaining sidecar dirs and removes the tracker — the task is terminal,
 // nothing re-drives this gen.
 func restoreRolledBackStagedSwap(lsmPath, migDir, dirName, namespace string, logger logrus.FieldLogger) {
-	suffixes := migrationSuffixes(dirName)
-	if suffixes == nil {
+	suffixes, genTail, ok := migrationDirCoords(dirName)
+	if !ok {
 		return
 	}
 	props, err := readMigrationProps(migDir)
@@ -600,11 +619,6 @@ func restoreRolledBackStagedSwap(lsmPath, migDir, dirName, namespace string, log
 			Errorf("reindex finalize: rollback restore: properties.mig unreadable; leaving dirs untouched: %v", err)
 		return
 	}
-	_, gen, ok := parseMigrationDirName(dirName)
-	if !ok {
-		return
-	}
-	genTail := "_" + strconv.Itoa(gen)
 
 	for _, propName := range props {
 		mainDir := filepath.Join(lsmPath, suffixes.sourceBucketName(propName))
@@ -679,8 +693,8 @@ func writeRecoveryTidiedSentinels(migDir string) error {
 // latter is defensive against partial pre-migration state).
 func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus.FieldLogger) {
 	migDir := filepath.Join(lsmPath, ".migrations", dirName)
-	suffixes := migrationSuffixes(dirName)
-	if suffixes == nil {
+	suffixes, genTail, ok := migrationDirCoords(dirName)
+	if !ok {
 		return
 	}
 	props, err := readMigrationProps(migDir)
@@ -689,15 +703,6 @@ func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus
 			Debugf("reindex finalize: stale-gen cleanup: properties.mig missing/unreadable; sidecars (if any) will be left as orphans: %v", err)
 		return
 	}
-	// The gen suffix is implicit in `dirName`'s trailing `_<N>`; the
-	// strategy's suffix methods compute IngestSuffix/etc. as
-	// `<base>_<N>`. We don't have the strategy instance here, so emulate
-	// by appending the same gen to each suffix base.
-	_, gen, ok := parseMigrationDirName(dirName)
-	if !ok {
-		return
-	}
-	genTail := "_" + strconv.Itoa(gen)
 	for _, propName := range props {
 		main := suffixes.sourceBucketName(propName)
 		for _, suff := range []string{suffixes.ingestSuffix, suffixes.backupSuffix, reindexSuffixForFinalize(namespace)} {
@@ -759,16 +764,10 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// the strategy's IngestSuffix / BackupSuffix methods on the writer
 	// side appended the same gen to the suffix base. Reproduce that here
 	// to find the matching on-disk sidecar dirs.
-	suffixes := migrationSuffixes(migName)
-	if suffixes == nil {
-		return
-	}
-	_, gen, ok := parseMigrationDirName(migName)
+	suffixes, genTail, ok := migrationDirCoords(migName)
 	if !ok {
-		// Defensive — every dir on disk should carry the gen suffix.
 		return
 	}
-	genTail := "_" + strconv.Itoa(gen)
 
 	logger = logger.WithField("migration", migName)
 

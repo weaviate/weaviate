@@ -477,11 +477,15 @@ type dtmPhaseEntry struct {
 	rt     reindexTracker
 }
 
-// enterDTMPhase unwraps the shard, opens the guarded tracker (DTM callbacks
-// run under no closeLock; see newReindexTrackerGuarded), and — if on-disk
-// state trails RAFT ("started but not reindexed" after a rolling restart) —
-// resumes the iteration before returning.
-func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
+// openShardPhase unwraps the shard, builds the method-scoped logger, and opens
+// the guarded reindex tracker (DTM callbacks run under no closeLock; see
+// newReindexTrackerGuarded). This is the identical entry preamble of every
+// DTM-driven phase callback. It deliberately does NOT run the
+// iteration-resume ladder: [enterDTMPhase] layers that on top for the phases
+// (Prepare/Swap) that require an already-reindexed shard, while the terminal
+// [CommitSwapOnShard] / [RollbackSwapOnShard] callbacks use this bare form and
+// gate on their own sentinels.
+func (t *ShardReindexTaskGeneric) openShardPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
@@ -498,12 +502,25 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 		return nil, fmt.Errorf("creating reindex tracker: %w", err)
 	}
 
+	return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt}, nil
+}
+
+// enterDTMPhase opens the phase (see [openShardPhase]) and — if on-disk state
+// trails RAFT ("started but not reindexed" after a rolling restart) — resumes
+// the iteration before returning.
+func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard ShardLike, method string) (*dtmPhaseEntry, error) {
+	entry, err := t.openShardPhase(ctx, shard, method)
+	if err != nil {
+		return nil, err
+	}
+	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
+
 	// MUST stay ahead of the iteration-resume ladder below: merged implies
 	// the iteration completed, so on a torn sentinel state (IsMerged &&
 	// !IsReindexed) resuming would re-run the iteration against an
 	// already-merged migration. Both callers handle merged downstream.
 	if rt.IsMerged() {
-		return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt}, nil
+		return entry, nil
 	}
 
 	if !rt.IsReindexed() {
@@ -522,9 +539,10 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 		if !rt.IsReindexed() {
 			return nil, fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
 		}
+		entry.rt = rt
 	}
 
-	return &dtmPhaseEntry{shard: concreteShard, logger: logger, rt: rt}, nil
+	return entry, nil
 }
 
 // RunSwapOnShard runs the swap+tidy+OnMigrationComplete phase.
@@ -759,19 +777,11 @@ func (t *ShardReindexTaskGeneric) afterStagedSwap(ctx context.Context,
 // schema; after markTidied is the legacy tidied-but-untrimmed state the
 // startup finalize already sweeps.
 func (t *ShardReindexTaskGeneric) CommitSwapOnShard(ctx context.Context, shard ShardLike) error {
-	concreteShard, err := unwrapShard(ctx, shard)
+	entry, err := t.openShardPhase(ctx, shard, "CommitSwapOnShard")
 	if err != nil {
-		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+		return err
 	}
-	logger := t.logger.WithFields(map[string]any{
-		"collection": concreteShard.Index().Config.ClassName.String(),
-		"shard":      concreteShard.Name(),
-		"method":     "CommitSwapOnShard",
-	})
-	rt, err := t.newReindexTrackerGuarded(concreteShard)
-	if err != nil {
-		return fmt.Errorf("creating reindex tracker: %w", err)
-	}
+	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 	if rt.IsTidied() {
 		logger.Debug("commit swap: already committed (tidied); no-op")
 		return nil
@@ -827,19 +837,11 @@ func (t *ShardReindexTaskGeneric) CommitSwapOnShard(ctx context.Context, shard S
 // backup-named dir and live dirs must never be renamed. Discarded NEW
 // buckets are shut down and removed. Idempotent.
 func (t *ShardReindexTaskGeneric) RollbackSwapOnShard(ctx context.Context, shard ShardLike) error {
-	concreteShard, err := unwrapShard(ctx, shard)
+	entry, err := t.openShardPhase(ctx, shard, "RollbackSwapOnShard")
 	if err != nil {
-		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+		return err
 	}
-	logger := t.logger.WithFields(map[string]any{
-		"collection": concreteShard.Index().Config.ClassName.String(),
-		"shard":      concreteShard.Name(),
-		"method":     "RollbackSwapOnShard",
-	})
-	rt, err := t.newReindexTrackerGuarded(concreteShard)
-	if err != nil {
-		return fmt.Errorf("creating reindex tracker: %w", err)
-	}
+	concreteShard, logger, rt := entry.shard, entry.logger, entry.rt
 	if rt.IsTidied() {
 		// Terminal contradiction: the shard already committed (OLD data is
 		// gone) but the task verdict is FAILED. Reachable only if a commit
