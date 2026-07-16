@@ -1186,10 +1186,6 @@ func TestIdentifyIntegration(t *testing.T) {
 // TestMapTracker_TrackThenDrainingRead_NoUndercount pins the drain-before-serve
 // race in mapTracker.run, where a random select pick could serve a draining read
 // before an already-buffered Track event (weaviate/weaviate#12201).
-//
-// The getChan (Get) and resetChan (GetAndReset) drain paths are pinned
-// independently: each read mode is its own subtree, so dropping only one path's
-// drainTrackChan reds that mode's subtests while the other mode stays green.
 func TestMapTracker_TrackThenDrainingRead_NoUndercount(t *testing.T) {
 	// GOMAXPROCS=1 never triggers the race; pin to 2 for a stable repro
 	// regardless of the host's core count.
@@ -1197,8 +1193,6 @@ func TestMapTracker_TrackThenDrainingRead_NoUndercount(t *testing.T) {
 
 	const iterations = 100000
 
-	// Each tracker flavor exposes one draining-read closure selected by getReset:
-	// false → Get (getChan drain), true → GetAndReset (resetChan drain).
 	trackers := []struct {
 		name  string
 		build func() (track func(), count func(getReset bool) int64, stop func())
@@ -1245,15 +1239,13 @@ func TestMapTracker_TrackThenDrainingRead_NoUndercount(t *testing.T) {
 		wantCount func(iteration int) int64
 	}{
 		{
-			// Get never resets, so after i sequential Tracks the tracked key
-			// must read back exactly i.
+			// Get never resets: count accumulates across iterations.
 			name:      "Get",
 			getReset:  false,
 			wantCount: func(i int) int64 { return int64(i) },
 		},
 		{
-			// GetAndReset clears after returning, so each single-Track iteration
-			// must read back exactly 1.
+			// GetAndReset clears on read: count is always 1.
 			name:      "GetAndReset",
 			getReset:  true,
 			wantCount: func(int) int64 { return 1 },
