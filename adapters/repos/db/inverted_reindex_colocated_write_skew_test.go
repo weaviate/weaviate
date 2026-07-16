@@ -30,11 +30,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// colocatedSkewClass builds a class with three co-located properties: a
-// searchable text prop (the reindex target), a filterable-only text prop, and
-// a self-reference. MapToBlockmax targets only the searchable prop; the other
-// two stand in for "co-located data a concurrent write touches while the
-// searchable prop is being reindexed".
+// colocatedSkewClass has a searchable reindex-target prop plus a
+// filterable prop and a self-reference, standing in for co-located data a
+// concurrent write touches during reindexing.
 func colocatedSkewClass(className string) *models.Class {
 	return &models.Class{
 		Class:             className,
@@ -102,29 +100,10 @@ func colocatedBatchRefTo(className, sourceID, targetID string, updateTime int64)
 	}
 }
 
-// TestReindexColocatedWrite_TimestampBumpDoesNotDropScannedProp covers the
-// co-located-property leg of the batch-references / delta-merge
-// mirror-coverage hole (weaviate/0-weaviate-issues#318, flagged on the
-// weaviate/weaviate#11996 review): the batch-reference and merge write paths
-// bump an object's LastUpdateTimeUnix WITHOUT firing the double-write
-// callbacks for its unchanged co-located properties. Under the pre-fix
-// timestamp-cutoff scan (weaviate/weaviate#11692) the bump pushed the object
-// past the watermark, so it was neither scanned nor mirrored — its searchable
-// title silently vanished from the migrated index.
-//
-// The skew-immune scan closes this leg by construction: the backfill analyzes
-// every object it sees regardless of the bumped timestamp, so the unchanged
-// co-located value is always captured from the on-disk row. (Mutations of the
-// REF property's own buckets by post-cursor batch-ref writes remain outside
-// the double-write tee, but no migration can target ref-property buckets:
-// repair-filterable rejects non-primitive data types —
-// TestValidateRebuildFilterableDataType. weaviate/weaviate#12210 adds the
-// full-prop-set mirror on main.)
-//
-// Each case seeds a "victim" whose searchable title is unique, starts a
-// MapToBlockmax reindex of title, performs a concurrent timestamp-bumping
-// write against the victim, drives the reindex to swap, and asserts the
-// victim's title posting survived.
+// TestReindexColocatedWrite_TimestampBumpDoesNotDropScannedProp pins that a
+// batch-ref/merge write bumping LastUpdateTimeUnix without touching a
+// co-located searchable prop must not drop that prop's posting from the
+// migrated index (weaviate/0-weaviate-issues#318, weaviate/weaviate#11692).
 func TestReindexColocatedWrite_TimestampBumpDoesNotDropScannedProp(t *testing.T) {
 	const (
 		pastTS         = int64(1_000)
@@ -135,9 +114,7 @@ func TestReindexColocatedWrite_TimestampBumpDoesNotDropScannedProp(t *testing.T)
 
 	cases := []struct {
 		name string
-		// preloadRef adds a reference before the reindex starts so the
-		// concurrent batch write bumps ref-count 1->2, exercising the
-		// batch-ref delete leg alongside the add leg.
+		// preloadRef exercises the batch-ref delete leg by bumping ref-count 1->2.
 		preloadRef bool
 		mutate     func(t *testing.T, ctx context.Context, shard *Shard, className, victimID string, updateTime int64)
 	}{
@@ -219,16 +196,12 @@ func TestReindexColocatedWrite_TimestampBumpDoesNotDropScannedProp(t *testing.T)
 				}
 			}
 
-			// Start the reindex: registers the double-write callbacks and
-			// stamps reindexStarted = now (>> pastTS).
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTask(idx.logger, strategy)
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
-			// The concurrent write bumps the victim's LastUpdateTimeUnix an
-			// hour past the watermark without firing the callbacks for the
-			// unchanged title. Pre-fix, the backfill skipped the victim and
-			// the title was lost.
+			// Bumps LastUpdateTimeUnix an hour past the watermark without
+			// mirroring the unchanged title.
 			futureTS := time.Now().UnixMilli() + int64(time.Hour/time.Millisecond)
 			tc.mutate(t, ctx, shard, className, victimID, futureTS)
 

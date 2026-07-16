@@ -28,38 +28,21 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// This file pins the convergence invariant that lets the backfill scan analyze
-// EVERY object unconditionally (the skew-immune fix for
-// weaviate/weaviate#11692): a posting the scan writes into the reindex bucket
-// is always shadowed by a newer ingest-bucket mirror write for the same key.
-// That holds because
-//
-//  1. runtimeSwap prepends reindex segments BEFORE ingest segments
-//     ([lsmkv.SegmentGroup.PrependSegmentsFromBucket]), so ingest writes are
-//     strictly newer in LSM merge order, and
-//  2. ingest buckets keep tombstones until the merge
-//     (loadIngestBuckets is called with keepTombstones=!isMerged), so a
-//     mirror-side delete survives as a tombstone that kills the prepended
-//     posting at read time and across compaction.
-//
-// The journey per strategy: the victim object is scanned into the reindex
-// bucket (RunReindexOnlyOnShard completes the iteration), THEN deleted or
-// updated while the double-write callbacks are still armed, then the swap
-// runs. If either invariant breaks, the victim's stale posting resurrects in
-// the migrated bucket: a filter/search on the old value false-positives. Each
-// migration-target bucket strategy (RoaringSetRange, RoaringSet,
-// MapCollection, Inverted) has its own tombstone semantics, so each gets a
-// case.
-//
-// The lsmkv-level companion (TestSegmentGroup_PrependedAddShadowedByNewerDelete)
-// pins the same ordering in isolation, including explicit compaction.
+// Pins the invariant that lets the backfill scan analyze every object
+// unconditionally (weaviate/weaviate#11692): a reindex-bucket posting is
+// always shadowed by the ingest bucket's newer mirror write/tombstone for
+// the same key, because runtimeSwap prepends reindex segments before ingest
+// segments and ingest buckets keep tombstones until merged
+// (loadIngestBuckets, keepTombstones=!isMerged). One case per
+// migration-target bucket strategy, since each has its own tombstone
+// semantics. Companion: TestSegmentGroup_PrependedAddShadowedByNewerDelete
+// (lsmkv), same invariant in isolation with explicit compaction.
 
 // deleteConvergenceHarness abstracts one strategy's setup and probes.
 type deleteConvergenceHarness struct {
 	// propName is the migrated property; used to resolve the ingest bucket.
 	propName string
 	// prepare creates class+shard+corpus+victim and the migration task.
-	// oldMarker/newMarker presence is checked via probe after the swap.
 	prepare func(t *testing.T, ctx context.Context) (shard *Shard, task *ShardReindexTaskGeneric,
 		victimID strfmt.UUID, update func(t *testing.T), probe func(t *testing.T, marker string) bool)
 }
@@ -80,10 +63,7 @@ func runDeleteConvergence(t *testing.T, h deleteConvergenceHarness, op string) {
 		update(t)
 	}
 
-	// Force the mirror write out of the ingest memtable into a segment so
-	// the tombstone must survive a flush — this makes the ingest bucket's
-	// keepTombstones=!isMerged option (loadIngestBuckets) load-bearing in
-	// this test rather than incidentally covered by memtable reads.
+	// Flush so the tombstone must survive on disk, not just in the memtable.
 	ingest := shard.store.Bucket(task.ingestBucketName(h.propName))
 	require.NotNil(t, ingest, "ingest bucket must exist while callbacks are armed")
 	require.NoError(t, ingest.FlushAndSwitch())
@@ -181,9 +161,7 @@ func TestReindexDeleteConvergence_IngestTombstoneShadowsScannedPosting(t *testin
 			) {
 				return prepareTitleTokenHarness(t, ctx, "DelConvMap_",
 					func(t *testing.T, shard *Shard, idx *Index, className string) *ShardReindexTaskGeneric {
-						// WORD→WORD keeps tokens comparable across scan and
-						// mirror; the case under test is tombstone shadowing,
-						// not retokenization.
+						// WORD→WORD: the case under test is tombstone shadowing, not retokenization.
 						preStrategy := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM("title")).Strategy()
 						task, _ := newSearchableRetokenizeTask(t, idx, className, "title",
 							models.PropertyTokenizationWord, preStrategy)
@@ -217,12 +195,9 @@ func TestReindexDeleteConvergence_IngestTombstoneShadowsScannedPosting(t *testin
 	}
 }
 
-// mapBucketHasTerm probes term presence via MapList — the tombstone-applying
-// read path shared by MapCollection and Inverted buckets. Deliberately NOT the
-// raw MapCursor (fingerprintInvertedBucket): that cursor does not apply
-// inverted docID tombstones across segments, so it would report a
-// tombstone-shadowed posting from a prepended reindex segment as present even
-// though every query path (MapList, WAND, BlockMax) correctly hides it.
+// mapBucketHasTerm uses MapList, not the raw MapCursor: the cursor doesn't
+// apply cross-segment tombstones, so it would report a shadowed posting as
+// present.
 func mapBucketHasTerm(t *testing.T, b *lsmkv.Bucket, term string) bool {
 	t.Helper()
 	pairs, err := b.MapList(context.Background(), []byte(term))
@@ -230,11 +205,9 @@ func mapBucketHasTerm(t *testing.T, b *lsmkv.Bucket, term string) bool {
 	return len(pairs) > 0
 }
 
-// roaringSetHasTerm probes term presence via the roaringset cursor
-// (fingerprintRoaringSetBucket), which merges additions and deletions across
-// segments — unlike the raw inverted MapCursor, it is deletion-accurate.
-// (RoaringSetGet would be the query path but requires the shard's bitmap
-// buffer pool, which the test shard does not wire up.)
+// roaringSetHasTerm uses the roaringset cursor, which merges deletions
+// across segments (RoaringSetGet would be the query path, but needs a
+// bitmap buffer pool the test shard doesn't wire up).
 func roaringSetHasTerm(t *testing.T, b *lsmkv.Bucket, term string) bool {
 	t.Helper()
 	fp := fingerprintRoaringSetBucket(t, b)

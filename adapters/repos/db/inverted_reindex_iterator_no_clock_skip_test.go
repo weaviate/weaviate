@@ -27,20 +27,10 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestUuidObjectsIterator_AnalyzesEveryObjectRegardlessOfTimestamp is the
-// unit-level pin for the skew-immune backfill decision
-// (weaviate/weaviate#11692). [uuidObjectsIteratorAsync] must analyze every
-// object the on-disk cursor yields and must NOT consult LastUpdateTimeUnix:
-// that stamp comes from the write coordinator's clock, so any comparison
-// against a locally-captured watermark misclassifies under multi-node clock
-// skew. The pre-fix iterator skipped objects timestamped at/after the task's
-// reindexStarted watermark (yielding a migrationData with empty props), which
-// silently dropped unmirrored pre-registration writes from the migrated index.
-//
-// The table spans the timestamp classes that straddled the old cutoff: far
-// past, present, and far future (a coordinator a day ahead). If anyone
-// reintroduces a wall-clock skip, the future-timestamp row fails here in
-// milliseconds instead of in a multi-node acceptance run.
+// TestUuidObjectsIterator_AnalyzesEveryObjectRegardlessOfTimestamp pins that
+// uuidObjectsIteratorAsync must not gate analysis on LastUpdateTimeUnix (a
+// coordinator-clock stamp) vs. the locally-captured watermark, which
+// misclassifies under multi-node clock skew (weaviate/weaviate#11692).
 func TestUuidObjectsIterator_AnalyzesEveryObjectRegardlessOfTimestamp(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"

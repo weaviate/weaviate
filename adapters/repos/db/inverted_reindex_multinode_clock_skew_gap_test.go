@@ -55,70 +55,13 @@ func readRangeableDocIDs(t *testing.T, b *lsmkv.Bucket, value int64) []uint64 {
 	return ids
 }
 
-// TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap is the regression pin
-// for weaviate/weaviate#11692 — the multi-node residual that the single-clock
-// fix (weaviate/weaviate#11688, capture reindexStarted after registration,
-// ms-ceiled) did NOT close. It went red against the pre-fix code (the backfill
-// skipped any object whose LastUpdateTimeUnix was at/after the replica-local
-// reindexStarted watermark) and is green since [uuidObjectsIteratorAsync]
-// analyzes every scanned object unconditionally.
-//
-// # The bug this pins
-//
-// The pre-fix backfill iterator classified every object it scanned by one
-// comparison:
-//
-//	obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli()  → backfill (analyze)
-//	obj.LastUpdateTimeUnix() >= reindexStarted.UnixMilli() → skip (assume mirrored)
-//
-// The "skip" branch was only sound if every object with a timestamp at/after
-// reindexStarted was in fact captured by the double-write callbacks. That holds
-// under a SINGLE clock: reindexStarted is captured after callback registration,
-// so any write timestamped >= reindexStarted physically happened after the
-// callbacks were live and was mirrored.
-//
-// It does NOT hold across nodes. LastUpdateTimeUnix is stamped on the
-// coordinator that received the write (usecases/objects/*.go: `LastUpdateTimeUnix
-// = m.timeSource.Now()`), and the replica preserves that stamp verbatim
-// (no re-stamp on the shard write path). reindexStarted is stamped on the
-// replica's own clock (markStarted(time.Now())). With the coordinator's clock
-// ahead of the replica's, a write could:
-//
-//   - arrive at the replica BEFORE callback registration (so it is NOT
-//     mirrored), yet
-//   - carry a coordinator timestamp >= reindexStarted (so the backfill SKIPPED
-//     it, assuming it was mirrored).
-//
-// Skipped AND unmirrored ⇒ the row was permanently missing from the migrated
-// index after the migration reported FINISHED.
-//
-// # How this test models the skew, and what it does NOT show
-//
-// A replica preserves whatever LastUpdateTimeUnix the coordinator stamped, so a
-// coordinator whose clock is ahead is modeled exactly by putting an object with
-// a future LastUpdateTimeUnix on a single shard. The skip decision was a pure
-// local timestamp comparison, so this stand-in is faithful for the
-// classification leg. It deliberately does NOT demonstrate the reachability
-// leg — a replicated write racing callback registration under real replication
-// timing; that ordering claim rests on the code reading of the
-// markStarted-after-registration sequence (weaviate/weaviate#11688), not on
-// this test.
-//
-// Probes (all written BEFORE the migration starts, i.e. before callback
-// registration — so none is mirrored; the double-write path cannot save any of
-// them; the ONLY variable is the coordinator timestamp):
-//
-//   - control (controlValue): honest past timestamp → must be backfilled.
-//     Same journey as the skewed insert minus the skew — proves the harness
-//     covers pre-registration writes when the timestamp is honest.
-//   - skewed insert (skewValue): timestamp a full DAY ahead (so the pin stays
-//     red through #11688's ms-ceil fix — this is the residual, not the
-//     single-clock bug) → pre-fix skipped-and-unmirrored → lost.
-//   - skewed update (updateOldValue → updateNewValue): the delete-side
-//     companion. Pre-fix, the add leg lost updateNewValue the same way; the
-//     migrated bucket must ALSO not resurrect updateOldValue.
-//   - skewed delete (deletedValue): an object deleted pre-registration (with a
-//     future deletion time) must not leave its posting in the migrated bucket.
+// TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap pins the multi-node
+// residual left open by the single-clock fix in weaviate/weaviate#11688:
+// LastUpdateTimeUnix is coordinator-clock, reindexStarted is replica-clock,
+// so a coordinator-ahead write can land pre-registration (unmirrored) yet
+// carry a timestamp >= reindexStarted (skipped by the old cutoff-based
+// backfill) — permanently lost (weaviate/weaviate#11692). Covers the insert,
+// update, and delete legs.
 func TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap(t *testing.T) {
 	const (
 		numCorpus      = 25         // baseline population, all timestamp 0 → all backfilled
@@ -139,10 +82,7 @@ func TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap(t *testing.T) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 
-	// Positive-control corpus: all timestamp 0, all strictly below any
-	// reindexStarted, so the backfill indexes every one. If the bucket ends up
-	// empty the skew assertion would be vacuous, so we assert one corpus value
-	// is present below.
+	// Positive-control corpus, so the skew assertion below isn't vacuous.
 	for _, obj := range makeFilterableToRangeableTestObjects(t, numCorpus, className) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
@@ -160,33 +100,26 @@ func TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap(t *testing.T) {
 		}))
 	}
 
-	// All probes land BEFORE the migration → before callback registration →
-	// none is mirrored. The only variable is the coordinator timestamp.
-	//
-	//   control: an hour in the PAST — the honest-timestamp baseline.
-	//   skewed:  a DAY in the FUTURE, modeling a coordinator clock far ahead
-	//            of this replica; pre-fix this landed at/above the local
-	//            watermark and was skipped by the backfill.
+	// All probes are written before the migration starts, so none is
+	// mirrored; only the coordinator timestamp varies (control: honest
+	// past; skewed: a day ahead, modeling a coordinator-ahead clock).
 	controlTs := time.Now().Add(-time.Hour).UnixMilli()
 	skewTs := time.Now().Add(24 * time.Hour).UnixMilli()
 	putWithTimestamp(uuid.NewString(), controlValue, controlTs)
 	putWithTimestamp(uuid.NewString(), skewValue, skewTs)
 
-	// Skewed UPDATE: created with an honest timestamp, then overwritten
-	// pre-registration by a coordinator-ahead write. The migrated bucket must
-	// carry the NEW value and must not resurrect the OLD one.
+	// Skewed update: honest timestamp, then overwritten pre-registration by
+	// a coordinator-ahead write.
 	updateID := uuid.NewString()
 	putWithTimestamp(updateID, updateOldValue, controlTs)
 	putWithTimestamp(updateID, updateNewValue, skewTs)
 
-	// Skewed DELETE: created with an honest timestamp, then deleted
-	// pre-registration with a coordinator-ahead deletion time. The migrated
-	// bucket must not contain its posting.
+	// Skewed delete: honest timestamp, then deleted pre-registration with a
+	// coordinator-ahead deletion time.
 	deleteID := uuid.NewString()
 	putWithTimestamp(deleteID, deletedValue, controlTs)
 	require.NoError(t, shard.DeleteObject(ctx, strfmt.UUID(deleteID), time.Now().Add(24*time.Hour)))
 
-	// Drive the production migration path to completion.
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
@@ -201,22 +134,16 @@ func TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap(t *testing.T) {
 	rangeBucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
 	require.NotNil(t, rangeBucket, "post-migration rangeable bucket must exist")
 
-	// Positive control 1: a corpus value must be backfilled, else the migration
-	// populated nothing and the skew assertion below would prove nothing.
+	// Positive control: else the skew assertion below would be vacuous.
 	require.NotEmpty(t, readRangeableDocIDs(t, rangeBucket, 0),
 		"positive control: backfilled corpus value 0 must be present")
 
-	// Positive control 2: the un-skewed pre-registration write (past timestamp)
-	// is picked up by the backfill. This is the SAME situation as the skewed
-	// write minus the clock skew — it survives, proving the harness indexes
-	// pre-registration writes when the timestamp is honest.
+	// Control: same situation as the skewed write, minus the skew.
 	assert.Lenf(t, readRangeableDocIDs(t, rangeBucket, controlValue), 1,
 		"control: an unmirrored pre-registration write with an honest (past) "+
 			"timestamp must be backfilled under value %d", controlValue)
 
-	// THE GAP. Same unmirrored pre-registration write, only the timestamp is
-	// coordinator-ahead. Pre-fix the backfill skipped it as "already mirrored"
-	// while the mirror never saw it. The skew-immune scan must index it.
+	// The gap: same write, coordinator-ahead timestamp instead.
 	assert.Lenf(t, readRangeableDocIDs(t, rangeBucket, skewValue), 1,
 		"GAP (weaviate/weaviate#11692): an unmirrored pre-registration write whose "+
 			"coordinator timestamp (%d) is ahead of the replica's reindexStarted is "+
@@ -224,10 +151,8 @@ func TestReindex_MultiNodeClockSkew_ReopensDoubleWriteGap(t *testing.T) {
 			"permanently lost from the migrated index. value %d absent",
 		skewTs, skewValue)
 
-	// Delete-side companions (weaviate/weaviate#11692 has a resurrection
-	// failure mode, not just a loss one): the skewed update's CURRENT value
-	// must be indexed, its OVERWRITTEN value must not resurrect, and the
-	// deleted object must not appear at all.
+	// Resurrection legs: the bug also has a resurrect-stale-value mode, not
+	// just a loss mode.
 	assert.Lenf(t, readRangeableDocIDs(t, rangeBucket, updateNewValue), 1,
 		"GAP (weaviate/weaviate#11692, update add leg): the current value %d of an "+
 			"object overwritten pre-registration by a coordinator-ahead write is "+

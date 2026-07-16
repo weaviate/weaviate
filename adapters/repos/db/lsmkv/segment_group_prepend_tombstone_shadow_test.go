@@ -24,24 +24,11 @@ import (
 )
 
 // TestSegmentGroup_PrependedAddShadowedByNewerDelete pins the convergence
-// invariant the runtime-reindex always-backfill design depends on
-// (weaviate/weaviate#11692): when reindex segments are prepended into the
-// ingest bucket ([SegmentGroup.PrependSegmentsFromBucket]), a DELETE the
-// ingest bucket recorded (mirrored from a live write while the scan was
-// running) must shadow an ADD of the same posting sitting in the prepended
-// (older) segments — at read time AND after compaction. If a strategy's
-// tombstone semantics or the prepend ordering ever regress, a mid-migration
-// delete would resurrect the deleted posting in the migrated index.
-//
-// The ingest bucket is created with keepTombstones=true, mirroring
-// loadIngestBuckets's keepTombstones=!isMerged (the delete must survive as a
-// tombstone until the merged bucket is compacted with the prepended
-// segments). Every migration-target strategy is covered: RoaringSet,
-// RoaringSetRange, MapCollection, Inverted.
-//
-// The db-level companion
-// (TestReindexDeleteConvergence_IngestTombstoneShadowsScannedPosting) drives
-// the same invariant through the production migration lifecycle.
+// invariant unconditional-scan reindexing depends on (weaviate/weaviate#11692):
+// after PrependSegmentsFromBucket, a mirrored ingest-bucket delete must
+// shadow an add sitting in the older prepended segments, at read time and
+// after compaction, for every migration-target strategy. Companion:
+// TestReindexDeleteConvergence_IngestTombstoneShadowsScannedPosting (db).
 func TestSegmentGroup_PrependedAddShadowedByNewerDelete(t *testing.T) {
 	newBucket := func(t *testing.T, ctx context.Context, dir, strategy string, keepTombstones bool) *Bucket {
 		t.Helper()
