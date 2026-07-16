@@ -117,6 +117,15 @@ var stateTransitions = map[cmd.NamespaceState]map[cmd.NamespaceState]struct{}{
 	cmd.NamespaceStateDeleting: {},
 }
 
+// isKnownState reports whether s is a state this binary understands. Every
+// known state keys stateTransitions — including deleting, whose empty target
+// set marks it terminal, not unknown — so a state added to the table is
+// accepted here and by Restore without a second list to keep in step.
+func isKnownState(s cmd.NamespaceState) bool {
+	_, known := stateTransitions[s]
+	return known
+}
+
 // Exister exposes read-only access to namespace state. Exists matches any
 // state; IsActive matches only the active state.
 type Exister interface {
@@ -205,10 +214,7 @@ func (c *Controller) Update(ns cmd.Namespace) error {
 // [ErrInvalidStateTransition] when the transition is forbidden (e.g.
 // deleting back to active).
 func (c *Controller) ChangeState(name string, target cmd.NamespaceState) error {
-	switch target {
-	case cmd.NamespaceStateActive, cmd.NamespaceStateSuspended,
-		cmd.NamespaceStateResuming, cmd.NamespaceStateDeleting:
-	default:
+	if !isKnownState(target) {
 		return fmt.Errorf("%w: unknown namespace state %q", ErrBadRequest, target)
 	}
 
