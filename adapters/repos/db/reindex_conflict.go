@@ -90,8 +90,8 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // Earlier versions allowed parallel migrations as long as they wrote
 // to different bucket types (e.g. enable-filterable + enable-rangeable
 // on the same property). That was a real Sev 1: when one of those
-// migrations completed, its OnMigrationComplete fired an
-// UpdateProperty RAFT command whose MergeProps preserved the
+// migrations completed, its (then per-shard) OnMigrationComplete fired
+// an UpdateProperty RAFT command whose MergeProps preserved the
 // still-false sibling flag (the other migration hasn't flipped its
 // flag yet). On apply, Migrator.UpdateProperty →
 // Shard.updatePropertyBuckets ran cleanStaleMigrationDirs for every
@@ -100,6 +100,16 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // markProgress to fail with "progress.mig.000000001: no such file or
 // directory" → task FAILED. https://github.com/weaviate/weaviate/issues/10675 frontend repro on
 // parallel enable-filterable + enable-rangeable hit this.
+//
+// As of GH weaviate/weaviate#12189, no strategy's OnMigrationComplete
+// issues a RAFT flip anymore (every cluster-wide flip is deferred to
+// OnTaskCompleted.flipSemanticMigrationSchema, once all shards are
+// terminal), so this exact MergeProps interleaving can no longer
+// happen. The submit-time guard below stays regardless: two
+// migrations racing the SAME property's flag through
+// applyPerPropertySchemaUpdate concurrently is still a class of bug
+// this serialization avoids having to reason about, independent of
+// which call site issues the flip.
 //
 // Closing the window at submit time is correct: reject any new task
 // whose property set overlaps an in-flight task's property set, so the

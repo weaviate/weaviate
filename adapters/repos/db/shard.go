@@ -391,15 +391,20 @@ type Shard struct {
 	// False means the rangeable bucket is mid-migration on THIS replica:
 	// a PreReindexHook created an empty main bucket but the per-shard
 	// runtimeSwap that prepends ingest+reindex segments into it hasn't
-	// run yet on this node. During this window the cluster-wide schema
-	// flag may already be true (the first replica to swap fires
-	// strategy.OnMigrationComplete which RAFTs the flip cluster-wide),
-	// so the inverted query path would otherwise route range queries to
-	// the empty bucket and return partial / zero counts. The
-	// IsRangeableLocallyReady callback wired into the Searcher
-	// overrides hasRangeableIndex=false for this prop on this shard,
-	// forcing a fallback to the filterable bucket walk until our local
-	// swap catches up.
+	// run yet on this node. As of GH weaviate/weaviate#12189, the
+	// cluster-wide schema flag stays false for the ENTIRE migration and
+	// only flips once every shard's runtimeSwap has committed (the flip
+	// moved from per-shard OnMigrationComplete to the all-units-terminal
+	// OnTaskCompleted - see [ReindexProvider.OnTaskCompleted] and
+	// [needsClusterWideFlipAtCompletion]), so this window no longer
+	// overlaps the original migration for the replicas that ran it. It
+	// still matters for a replica added AFTER the migration completed
+	// (replica movement copying a bucket whose local swap hasn't
+	// finished applying on this node while the schema flag is already
+	// true cluster-wide) - the IsRangeableLocallyReady callback wired
+	// into the Searcher overrides hasRangeableIndex=false for this prop
+	// on this shard in that case, forcing a fallback to the filterable
+	// bucket walk until the local swap catches up.
 	//
 	// Read on every range-filter query plan, so kept under a fast
 	// RWMutex rather than a sync.Map. Default value (missing key)

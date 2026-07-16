@@ -137,19 +137,6 @@ type MigrationStrategy interface {
 	//     is the equivalent mechanism for tokenization changes; this
 	//     hook is the equivalent for per-shard ready flags.
 	//
-	//   - RAFT calls (per-property schema updates) for non-semantic
-	//     strategies whose schema flip is NOT batched in
-	//     OnTaskCompleted: e.g. [MapToBlockmaxStrategy]'s
-	//     updateToBlockMaxInvertedIndexConfig (class-level
-	//     UsingBlockMaxWAND), [FilterableToRangeableStrategy]'s
-	//     applyPerPropertySchemaUpdate (per-property IndexRangeFilters).
-	//     These are slow (hundreds of ms) — correctness is preserved by
-	//     the overlay covering the per-shard window — but they widen
-	//     the FINALIZING duration beyond what the per-shard atomic
-	//     contract intends. The long-term fix is to split this hook
-	//     into "local-in-memory (atomic-safe)" and "cluster-wide-RAFT
-	//     (outside-atomic)" callbacks.
-	//
 	// Forbidden work in this position:
 	//
 	//   - Heavy disk I/O on the new main bucket (the LIVE post-swap
@@ -159,11 +146,18 @@ type MigrationStrategy interface {
 	//     shut down in Phase 2b) but conventionally also moved to
 	//     Phase 2b.
 	//
+	//   - RAFT calls (cluster-wide schema/property updates) of any kind.
+	//     Every strategy's OnMigrationComplete is local-only; the
+	//     cluster-wide flip lives in
+	//     [ReindexProvider.flipSemanticMigrationSchema], invoked once
+	//     from [ReindexProvider.OnTaskCompleted] after every shard's
+	//     OnMigrationComplete has run (GH weaviate/weaviate#12189: a
+	//     RAFT call here let the first shard to finish flip the flag
+	//     for the whole collection while siblings were still building).
+	//
 	//   - Anything that requires the cluster-wide schema flip to have
-	//     already happened. For semantic migrations the flip lives in
-	//     OnTaskCompleted (after every shard's OnMigrationComplete);
-	//     for non-semantic, this hook may itself drive the flip but
-	//     must not assume it has already propagated to other replicas.
+	//     already happened. The flip always lives in OnTaskCompleted,
+	//     after every shard's OnMigrationComplete.
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 

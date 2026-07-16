@@ -926,7 +926,7 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 	// this, mergeReindexAndIngestBuckets below would either fail loudly with
 	// "bucket not found" (best case) or quietly merge nothing (worst case),
 	// leading to a swap of an empty bucket and a silent data-loss outcome
-	// once OnMigrationComplete flips the schema flag.
+	// once the migration's cluster-wide schema flag flips.
 	//
 	// Only safe to gate on missing dirs in the pre-prepend window — once
 	// markPrepended() has run, the dirs are intentionally removed by
@@ -1334,9 +1334,12 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		// state is the strategy's target bucket existing and populated. If
 		// the bucket is missing now (e.g. a DELETE removed the index between
 		// that previous run and this re-trigger), the on-disk sentinel lies
-		// — calling OnMigrationComplete here would re-flip the schema flag
-		// to true and report success, while the customer's index is in fact
-		// empty. Fail loudly instead.
+		// - calling OnMigrationComplete here would still report local
+		// success (it only marks THIS shard's in-memory ready state; every
+		// strategy's OnMigrationComplete is local-only as of GH
+		// weaviate/weaviate#12189, no cluster-wide schema flag flip lives
+		// here anymore), while the customer's index is in fact empty. Fail
+		// loudly instead.
 		for _, propName := range props {
 			bucketName := t.strategy.SourceBucketName(propName)
 			if shard.Store().Bucket(bucketName) == nil {
@@ -1876,11 +1879,16 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: tidy complete (ingest→main rename deferred to next restart)")
 
-	// OnMigrationComplete: no-op for semantic migrations (the cluster-
-	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).
-	// Per-shard schema-flag flip for blockmax / repair-* strategies.
-	// Either way, runs OUTSIDE the per-shard atomic window because it
-	// doesn't touch bucket pointers.
+	// OnMigrationComplete: local-only for every strategy as of GH
+	// weaviate/weaviate#12189 - no strategy issues a cluster-wide RAFT
+	// schema flip from this hook anymore (that now lives in
+	// OnTaskCompleted.flipSemanticMigrationSchema, gated by
+	// needsClusterWideFlipAtCompletion, once every shard is terminal).
+	// Semantic-migration strategies (enable-filterable, blockmax) and
+	// format-only strategies (repair-*) no-op here; enable-rangeable /
+	// repair-rangeable set this shard's local rangeable-ready state.
+	// Runs OUTSIDE the per-shard atomic window because it doesn't touch
+	// bucket pointers.
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}

@@ -19,9 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // FilterableToRangeableStrategy implements MigrationStrategy for building
@@ -38,8 +35,10 @@ import (
 // from objects".
 //
 // Schema-flag gating. During the backfill scan, IndexRangeFilters is still
-// false on the target property until OnMigrationComplete flips it. Without
-// an AnalyzerOverlay forcing the rangeable flag on, the analyzer would
+// false on the target property - it stays false cluster-wide until
+// [ReindexProvider.flipSemanticMigrationSchema] flips it once every shard's
+// swap has committed (see OnMigrationComplete below). Without an
+// AnalyzerOverlay forcing the rangeable flag on, the analyzer would
 // either drop the property entirely (HasAnyInvertedIndex=false when the
 // property is also IndexFilterable=false) or emit it with
 // HasRangeableIndex=false. Either way the new rangeable bucket would end
@@ -47,9 +46,8 @@ import (
 // data-loss bug pinned by the int__filt=false_range=nil/false matrix
 // cells.
 type FilterableToRangeableStrategy struct {
-	schemaManager *schema.Manager
-	propNames     []string
-	generation    int // see genSuffix godoc
+	propNames  []string
+	generation int // see genSuffix godoc
 }
 
 func (s *FilterableToRangeableStrategy) MigrationDirName() string {
@@ -183,10 +181,10 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 }
 
 // AnalyzerOverlay forces IndexRangeFilters=true on the targeted properties
-// while the backfill iterator scans the objects bucket. Until
-// OnMigrationComplete flips the RAFT-stored schema flag, the analyzer would
-// otherwise emit the property with HasRangeableIndex=false (and skip it
-// entirely via HasAnyInvertedIndex when IndexFilterable is also false),
+// while the backfill iterator scans the objects bucket. Until the
+// cluster-wide flip commits (see OnMigrationComplete below), the analyzer
+// would otherwise emit the property with HasRangeableIndex=false (and skip
+// it entirely via HasAnyInvertedIndex when IndexFilterable is also false),
 // leaving the new rangeable bucket empty — the silent-FINISHED data-loss
 // failure mode pinned by the property-state matrix.
 func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
@@ -200,41 +198,15 @@ func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[stri
 	return out
 }
 
-// OnMigrationComplete updates the schema to set IndexRangeFilters=true on
-// the migrated properties. It uses per-property UpdateProperty RAFT commands
-// instead of UpdateClass, because UpdateClass rejects property field changes
-// via validatePropertiesForUpdate on RAFT replay.
-//
-// Concurrency note: MergeProps in cluster/schema/meta_class.go overwrites ALL
-// FOUR property fields (IndexRangeFilters, IndexFilterable, IndexSearchable,
-// and Tokenization when non-empty) from the incoming message, not just the
-// one this strategy intends to change. If two strategies run concurrently on
-// the same property (e.g. enable-rangeable + enable-filterable), each could
-// read a stale view of the schema and clobber the other's flag on RAFT
-// apply.
-//
-// We cannot simply nil out the flags we don't want to change: the schema
-// handler's setPropertyDefaults fills nil flags with defaults (true for
-// IndexFilterable / IndexSearchable on text properties) before the RAFT
-// message is built, which would clobber a previously committed `false`
-// value. So we re-read the class right before each per-property update to
-// minimize the staleness window, and carry the freshly observed values for
-// the other three fields through unchanged.
-//
-// TODO(fieldmask): the proper long-term fix is a fieldmask on UpdateProperty
-// so only named fields are merged, but that requires changes across
-// cluster/schema/manager.go and meta_class.go.
+// OnMigrationComplete is local-only: it marks each migrated property
+// "locally ready" on THIS shard (Shard.rangeableLocalReady) so the query
+// path stops falling back to the filterable bucket walk. It does NOT
+// touch the schema - the cluster-wide IndexRangeFilters flip lives in
+// [ReindexProvider.flipSemanticMigrationSchema], invoked from
+// [ReindexProvider.OnTaskCompleted] once every shard's swap has committed
+// (GH weaviate/weaviate#12189: this hook used to drive that flip itself,
+// letting the first shard to finish flip it for the whole collection).
 func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
-	// Mark each prop as "locally ready" so the query path stops falling
-	// back to the filterable bucket for this shard. This MUST happen
-	// before the schema-flag flip below — once the schema flip RAFTs
-	// cluster-wide, other replicas may also be at this same point or
-	// just-about-to-swap, but the per-shard ready flag controls THIS
-	// shard's behavior in isolation. Set it before the schema update so
-	// THIS shard's queries that observe the new schema flag also see
-	// ready=true. See GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issue C +
-	// Shard.rangeableLocalReady.
-	//
 	// Unwrap before the assertion: a *LazyLoadShard wraps the concrete
 	// *Shard we need to flip the flag on. unwrapShard returns the
 	// concrete pointer for both *Shard and *LazyLoadShard.
@@ -243,19 +215,5 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 			concrete.setRangeableLocallyReady(propName, true)
 		}
 	}
-
-	className := shard.Index().Config.ClassName.String()
-	trueVal := true
-	// Missing properties are tolerated: a property dropped between
-	// scheduling and completion is the same outcome we'd want anyway.
-	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
-		[]string{api.PropertyFieldIndexRangeFilters},
-		func(prop *models.Property) bool {
-			if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
-				return false // already enabled
-			}
-			prop.IndexRangeFilters = &trueVal
-			return true
-		})
-	return err
+	return nil
 }
