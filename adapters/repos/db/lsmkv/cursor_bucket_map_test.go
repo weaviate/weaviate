@@ -182,7 +182,7 @@ func TestMapCursorConsistentView(t *testing.T) {
 // drops the values from the returned tuple. Regression for a bug where the
 // keyOnly fast-path left state[i].value=nil, the merger saw only empty
 // per-segment results, and every key was skipped (callers like
-// filterableToSearchableMigrator.isEmptyMapBucket then mis-classified
+// filterableToSearchableMigrator.isEmptyMapBucket then misclassified
 // non-empty buckets as empty).
 func TestMapCursorKeyOnly(t *testing.T) {
 	t.Parallel()
@@ -247,4 +247,47 @@ func TestMapCursorKeyOnly_FirstKeyOnNonEmptyBucket(t *testing.T) {
 
 	k, _ := cur.First(ctx)
 	require.Equal(t, []byte("only"), k)
+}
+
+// A key that is live on disk but tombstoned in the newer active memtable must
+// NOT surface from a keyOnly cursor. This guards the merge semantics from the
+// opposite direction of TestMapCursorKeyOnly: capturing values (needed to walk
+// keys) must not resurface deleted keys. The tombstone lives in the memtable
+// because the fake disk segment can't represent one.
+func TestMapCursorKeyOnly_TombstonedKeyDropped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+
+	diskSegments := &SegmentGroup{
+		logger: logger,
+		segments: []Segment{
+			// disk (older): both keys live
+			newFakeMapSegment(map[string][]MapPair{
+				"gone": {{Key: []byte("d1"), Value: []byte("v1")}},
+				"keep": {{Key: []byte("d2"), Value: []byte("v2")}},
+			}),
+		},
+	}
+
+	b := Bucket{
+		// active memtable (newer) tombstones "gone"'s only entry
+		active: newTestMemtableMap(map[string][]MapPair{
+			"gone": {{Key: []byte("d1"), Tombstone: true}},
+		}),
+		disk:     diskSegments,
+		strategy: StrategyMapCollection,
+	}
+
+	cur, err := b.MapCursorKeyOnly()
+	require.NoError(t, err)
+	defer cur.Close()
+
+	var keys []string
+	for k, v := cur.First(ctx); k != nil; k, v = cur.Next(ctx) {
+		assert.Nil(t, v, "keyOnly cursor must not return values")
+		keys = append(keys, string(k))
+	}
+	require.Equal(t, []string{"keep"}, keys, "a fully tombstoned key must not appear")
 }
