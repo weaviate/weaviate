@@ -88,3 +88,57 @@ func TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart(t *testin
 		"0-wi#320: live searchable bucket must serve from the canonical dir after task FINISHED, "+
 			"not the ingest sidecar")
 }
+
+// TestReindexStagedSwap_CrashAfterLiveFinalize_ConvergesOnNextBoot pins
+// 0-wi#320 crash-safety (b) for the NEW intermediate state the live finalize
+// introduces: after CommitSwapOnShard has already promoted the ingest sidecar
+// to the canonical dir, the migration tracker (tidied.mig/swapped.mig) still
+// lingers until a restart sweeps it. A crash here (process dies before the
+// tracker is retired) must converge on next boot: the startup finalize
+// (FinalizeCompletedMigrations / finalizeMigrationDir) must be a NO-OP on the
+// already-promoted data — never resurrecting the ingest sidecar or clobbering
+// the canonical dir — and simply retire the tracker.
+//
+// The pre-rename crash window (ingest still present, canonical absent, verdict
+// COMMIT) is the mirror case, covered by
+// TestReindexStagedSwap_RestartDuringStagedWindow_TaskCommits, which promotes
+// ingest→canonical at boot. Together they cover a kill before OR after the
+// single atomic ingest→canonical rename. No test-only seam is used: the state
+// is produced by the real STAGE→COMMIT drive and reconciled by the real boot
+// entry point.
+func TestReindexStagedSwap_CrashAfterLiveFinalize_ConvergesOnNextBoot(t *testing.T) {
+	ctx := testCtx()
+	const propName = "title"
+
+	shard, task, _, _ := prepShardToSwapBoundaryRFC220(t, ctx, "CrashAfterFinalize320_"+uuid.NewString()[:8])
+
+	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+	require.NoError(t, task.CommitSwapOnShard(ctx, shard))
+
+	lsmPath := shard.pathLSM()
+	canonicalDir := filepath.Join(lsmPath, task.strategy.SourceBucketName(propName))
+	ingestDir := filepath.Join(lsmPath, task.ingestBucketName(propName))
+	migDir := filepath.Join(lsmPath, ".migrations", task.strategy.MigrationDirName())
+
+	// Post-commit state: the live finalize has already renamed ingest→canonical;
+	// the tracker dir lingers until the next-boot sweep.
+	require.True(t, dirExists(canonicalDir), "canonical dir promoted live at commit")
+	require.False(t, dirExists(ingestDir), "ingest sidecar already renamed away at commit")
+	require.True(t, dirExists(migDir), "tracker dir lingers post-commit until the next-boot sweep")
+
+	// Tag the live-finalized dir so we can prove the boot sweep leaves it intact
+	// (does not delete + re-promote from a now-absent sidecar).
+	tagDirRFC220(t, canonicalDir, "FINALIZED")
+
+	// Crash + reboot: the startup finalize runs against the already-promoted
+	// data. It must converge without touching the canonical data.
+	require.NoError(t, shard.Shutdown(ctx))
+	FinalizeCompletedMigrationsWithVerdict(lsmPath, task.logger,
+		func(payload *ReindexTaskPayload) (bool, bool) { return true, true })
+
+	require.True(t, dirExists(canonicalDir), "canonical dir must survive the boot sweep")
+	require.Equal(t, "FINALIZED", readDirTagRFC220(t, canonicalDir),
+		"the live-finalized data must be untouched by the boot sweep")
+	require.False(t, dirExists(ingestDir), "the boot sweep must not resurrect the ingest sidecar")
+	require.False(t, dirExists(migDir), "the tracker dir must be retired by the boot sweep")
+}

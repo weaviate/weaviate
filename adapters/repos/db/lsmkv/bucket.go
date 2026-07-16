@@ -1989,48 +1989,9 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
 
-	switch b.strategy {
-	case StrategyInverted:
-		if !tombstones.IsEmpty() {
-			if err = func() error {
-				// As part of the discussions for
-				// https://github.com/weaviate/weaviate/pull/9104 we disocvered that
-				// there is a potential, non-critical bug in this logic. There can
-				// essentially be a race:
-				//
-				//   1. Imagine two segments A+B.
-				//   2. A compaction is started which merges A+B into AB
-				//   3. A flush happens while the compaction is ongoing, we extend A+B
-				//      with tombstones
-				//   4. The compaction finishes, A+B are replaced with AB, which does
-				//      not have the tombstones
-				//
-				// However, we deem the situation non-critical because any deleted
-				// object would be filtered out at the end of the search, so we're
-				// "only" wasting some CPU cycles on scoring objects that are already
-				// deleted. In addition, on the next restart the tombstones would be
-				// applied in a consistent fashion again, so this does not lead to
-				// permanent data loss; only a temporary non-critical divergence of
-				// in-memory vs on-disk state.
-				//
-				// As part of #9104, we have accepted this bug (as it is independent of
-				// the work done in 9104) and may revisit this logic at a a later
-				// point. #9104 simply changes from a maintenance RLock to a segment
-				// view which does not alter the behavior, but does help reduce lock
-				// contention.
-				segments, release := b.disk.getConsistentViewOfSegments()
-				defer release()
-
-				// add flushing memtable tombstones to all segments
-				for _, seg := range segments {
-					if _, err := seg.MergeTombstones(tombstones); err != nil {
-						return fmt.Errorf("merge tombstones: %w", err)
-					}
-				}
-				return nil
-			}(); err != nil {
-				return fmt.Errorf("add tombstones: %w", err)
-			}
+	if b.strategy == StrategyInverted && !tombstones.IsEmpty() {
+		if err := b.mergeInvertedTombstonesIntoSegments(tombstones); err != nil {
+			return fmt.Errorf("add tombstones: %w", err)
 		}
 	}
 
@@ -2139,6 +2100,107 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		if count > 0 {
 			b.disk.averagePropSum.Add(uint64(avg * float64(count)))
 			b.disk.averagePropCount.Add(count)
+		}
+	}
+
+	return nil
+}
+
+// mergeInvertedTombstonesIntoSegments merges a just-flushed memtable's
+// tombstones into every current on-disk segment. Shared by FlushAndSwitch and
+// flushActiveMemtableInPlace so the accepted #9104 race lives in one place.
+//
+// As part of the discussions for https://github.com/weaviate/weaviate/pull/9104
+// we discovered a potential, non-critical bug in this logic. There can
+// essentially be a race:
+//
+//  1. Imagine two segments A+B.
+//  2. A compaction is started which merges A+B into AB.
+//  3. A flush happens while the compaction is ongoing, we extend A+B with
+//     tombstones.
+//  4. The compaction finishes, A+B are replaced with AB, which does not have
+//     the tombstones.
+//
+// We deem the situation non-critical because any deleted object would be
+// filtered out at the end of the search, so we are "only" wasting some CPU
+// cycles on scoring objects that are already deleted. In addition, on the next
+// restart the tombstones would be applied in a consistent fashion again, so
+// this does not lead to permanent data loss; only a temporary non-critical
+// divergence of in-memory vs on-disk state. As part of #9104 we accepted this
+// bug (it is independent of the work done in 9104) and may revisit it later.
+func (b *Bucket) mergeInvertedTombstonesIntoSegments(tombstones *sroar.Bitmap) error {
+	segments, release := b.disk.getConsistentViewOfSegments()
+	defer release()
+
+	for _, seg := range segments {
+		if _, err := seg.MergeTombstones(tombstones); err != nil {
+			return fmt.Errorf("merge tombstones: %w", err)
+		}
+	}
+	return nil
+}
+
+// flushActiveMemtableInPlace flushes the current active memtable's buffered
+// writes into a new on-disk segment (at the bucket's CURRENT dir) and adds it
+// to the disk segment group WITHOUT switching to a new active memtable.
+//
+// It is the write-frozen counterpart to FlushAndSwitch used only by
+// [Store.FinalizeBucketSwapLive]. The caller MUST already hold b.flushLock.Lock
+// (writers frozen) and have drained in-flight writers (waitForZeroWriters), so
+// b.active is stable and no write can be lost. FlushAndSwitch cannot be reused
+// here because it deliberately releases flushLock to keep writers live, which
+// would let a write land in the memtable this swap discards. The inverted
+// bookkeeping (average property length, #9104 tombstone merge) and the
+// per-strategy post-add updates mirror FlushAndSwitch and MUST stay in sync.
+func (b *Bucket) flushActiveMemtableInPlace() error {
+	if b.active.getStrategy() == StrategyInverted {
+		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()
+		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
+	}
+
+	segmentPath, err := b.active.flush()
+	if err != nil {
+		return fmt.Errorf("flush active memtable: %w", err)
+	}
+	if segmentPath == "" {
+		// Empty memtable: flush() already cleaned its WAL; no segment to add.
+		return nil
+	}
+
+	var tombstones *sroar.Bitmap
+	if b.strategy == StrategyInverted {
+		if tombstones, err = b.active.ReadOnlyTombstones(); err != nil {
+			return fmt.Errorf("get tombstones: %w", err)
+		}
+	}
+
+	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
+	if err != nil {
+		return fmt.Errorf("precompute metadata: %w", err)
+	}
+	if err := b.disk.addInitializedSegment(segment); err != nil {
+		return fmt.Errorf("add segment: %w", err)
+	}
+
+	switch b.strategy {
+	case StrategyReplace:
+		if b.monitorCount {
+			b.metrics.ObjectCount(b.disk.count())
+		}
+	case StrategyRoaringSetRange:
+		if b.keepSegmentsInMemory {
+			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(b.active.extractRoaringSetRange())
+		}
+	case StrategyInverted:
+		inv := segment.getInvertedData()
+		if inv.avgPropertyLengthsCount > 0 {
+			b.disk.averagePropSum.Add(uint64(inv.avgPropertyLengthsAvg * float64(inv.avgPropertyLengthsCount)))
+			b.disk.averagePropCount.Add(inv.avgPropertyLengthsCount)
+		}
+		if !tombstones.IsEmpty() {
+			if err := b.mergeInvertedTombstonesIntoSegments(tombstones); err != nil {
+				return fmt.Errorf("add tombstones: %w", err)
+			}
 		}
 	}
 

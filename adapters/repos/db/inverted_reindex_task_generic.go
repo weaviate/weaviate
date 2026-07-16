@@ -824,9 +824,38 @@ func (t *ShardReindexTaskGeneric) CommitSwapOnShard(ctx context.Context, shard S
 	}
 	if backupsReleased {
 		t.trimOlderGenerationsLocked(logger, shard, rt, props)
+		// weaviate/0-weaviate-issues#320: promote each ingest sidecar to its
+		// canonical dir NOW, live, so the on-disk layout converges at task
+		// completion instead of only at the next restart (the gap behind the
+		// v1.38→v1.37 downgrade). Best-effort — see finalizeCommittedSwapsLive.
+		t.finalizeCommittedSwapsLive(ctx, logger, concreteShard, props)
 	}
-	logger.Info("commit swap: staged swap committed (tidied + OLD backup trimmed); ingest→main rename deferred to next restart")
+	logger.Info("commit swap: staged swap committed (tidied + OLD backup trimmed); ingest→canonical dirs finalized live (restart finalize remains the crash safety net)")
 	return nil
+}
+
+// finalizeCommittedSwapsLive runs the weaviate/0-weaviate-issues#320 live
+// ingest→canonical dir promotion for every committed prop via the write-safe
+// [lsmkv.Store.FinalizeBucketSwapLive], so the on-disk layout converges the
+// moment the task finishes rather than at the next restart.
+//
+// Best-effort by design: a failure on any prop is logged and its ingest sidecar
+// plus tracker sentinels (tidied.mig/swapped.mig) are left in place for the
+// startup finalize (finalizeMigrationDir) to converge. The crash safety net is
+// never removed — this only makes restart non-load-bearing on the happy path.
+func (t *ShardReindexTaskGeneric) finalizeCommittedSwapsLive(ctx context.Context,
+	logger logrus.FieldLogger, shard *Shard, props []string,
+) {
+	lsmPath := shard.pathLSM()
+	store := shard.store
+	for _, propName := range props {
+		mainName := t.strategy.SourceBucketName(propName)
+		canonicalDir := filepath.Join(lsmPath, mainName)
+		if err := store.FinalizeBucketSwapLive(ctx, mainName, canonicalDir); err != nil {
+			logger.WithField("prop", propName).WithField("bucket", mainName).
+				Warnf("commit swap: live ingest→canonical finalize failed; leaving ingest sidecar for next-restart finalize: %v", err)
+		}
+	}
 }
 
 // RollbackSwapOnShard undoes a staged swap after the cluster-wide task
