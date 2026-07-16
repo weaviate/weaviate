@@ -58,6 +58,7 @@ func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRa
 		propertyspecific.Indices{}, a.classSearcher, a.stopwordProvider,
 		a.GetPropertyLengthTracker(), a.logger, a.shardVersion,
 	).WithTokenizationResolver(a.tokResolver).
+		WithSearchableBucketPinningResolver(a.bucketPinResolver).
 		BM25F(ctx, nil, a.params.ClassName, *a.params.ObjectLimit, *kw, additional.Properties{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)

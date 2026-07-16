@@ -92,6 +92,12 @@ type Bucket struct {
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
 	flushLock sync.RWMutex
+
+	// lifetimeLock pins this bucket for a whole read (RLock via
+	// Store.AcquireBucketForRead); Shutdown takes Lock() first, draining all
+	// pins before freeing mmap'd segments (no drain timeout — timeout-then-free
+	// would SEGFAULT a reader). Order: lifetimeLock OUTER, flushLock INNER.
+	lifetimeLock sync.RWMutex
 	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
 	// designed assuming a single triggerer at a time (the periodic flush
 	// callback or a control-plane caller — backup, runtime migration,
@@ -1662,6 +1668,26 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
+	// Drain all in-flight read pins first (see the lifetimeLock doc); the
+	// heartbeat makes a wedged drain diagnosable.
+	drained := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-drained:
+				return
+			case <-t.C:
+				b.logger.WithField("dir", b.dir).
+					Warn("bucket shutdown still draining in-flight read pins")
+			}
+		}
+	}, b.logger)
+	b.lifetimeLock.Lock()
+	close(drained)
+	defer b.lifetimeLock.Unlock()
+
 	defer GlobalBucketRegistry.Remove(b.GetDir())
 
 	start := time.Now()

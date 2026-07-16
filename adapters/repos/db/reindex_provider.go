@@ -2192,8 +2192,19 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 		if task == nil {
 			continue
 		}
+		task := task
+		// onPropSwapped covers the recovery/resume path; the live Phase-2a
+		// loop uses swapPropAtomic (see the field docs on both).
 		task.onPropSwapped = func(propName string) {
 			shard.SetTokenizationOverlay(propName, target)
+		}
+		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
+			rt reindexTracker, propIdx int, propName string,
+		) (*lsmkv.Bucket, error) {
+			return shard.SwapBucketAndSetOverlay(propName, target,
+				func() (*lsmkv.Bucket, error) {
+					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+				})
 		}
 	}
 	return true

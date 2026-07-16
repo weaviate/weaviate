@@ -66,6 +66,17 @@ type Aggregator struct {
 	// prop.Tokenization directly (tests and callers with no in-flight
 	// migration).
 	tokResolver inverted.TokenizationResolver
+	// bucketPinResolver, when non-nil, is propagated to every BM25Searcher
+	// built by this aggregator. See [inverted.SearchableBucketPinningResolver].
+	bucketPinResolver inverted.SearchableBucketPinningResolver
+}
+
+// WithSearchableBucketPinningResolver: nil (the default) keeps non-pinning behavior.
+func (a *Aggregator) WithSearchableBucketPinningResolver(
+	r inverted.SearchableBucketPinningResolver,
+) *Aggregator {
+	a.bucketPinResolver = r
+	return a
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
