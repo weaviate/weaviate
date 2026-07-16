@@ -27,6 +27,19 @@ func newTestReindexTracker(t *testing.T) *fileReindexTracker {
 	return tr
 }
 
+// writeTornProgressFile marks progress once (advancing the real checkpoint
+// to index 1), then overwrites the on-disk checkpoint file with the given
+// (deliberately malformed) content, mirroring a torn/interrupted write.
+// Returns the checkpoint path.
+func writeTornProgressFile(t *testing.T, tr *fileReindexTracker, key indexKey, torn string) string {
+	t.Helper()
+	require.NoError(t, tr.markProgress(key, 10, 5))
+
+	progressPath := filepath.Join(tr.config.migrationPath, "progress.mig.000000001")
+	require.NoError(t, os.WriteFile(progressPath, []byte(torn), 0o600))
+	return progressPath
+}
+
 // Pins: a torn progress checkpoint must resume from scratch, not panic or misparse into a stale key.
 func TestFileReindexTracker_GetProgressTornSentinel(t *testing.T) {
 	parser := &UuidKeyParser{}
@@ -43,10 +56,7 @@ func TestFileReindexTracker_GetProgressTornSentinel(t *testing.T) {
 	for name, torn := range tornVariants {
 		t.Run(name, func(t *testing.T) {
 			tr := newTestReindexTracker(t)
-			require.NoError(t, tr.markProgress(key, 10, 5))
-
-			progressPath := filepath.Join(tr.config.migrationPath, "progress.mig.000000001")
-			require.NoError(t, os.WriteFile(progressPath, []byte(torn), 0o600))
+			writeTornProgressFile(t, tr, key, torn)
 
 			// A fresh tracker mirrors a post-restart read with no in-memory state.
 			tr2 := NewFileReindexTracker(filepath.Dir(filepath.Dir(tr.config.migrationPath)),
@@ -85,10 +95,7 @@ func TestFileReindexTracker_GetMigratedCountTornProgress(t *testing.T) {
 			tr := newTestReindexTracker(t)
 			key, err := parser.FromString(keyStr)
 			require.NoError(t, err)
-			require.NoError(t, tr.markProgress(key, 10, 5))
-
-			progressPath := filepath.Join(tr.config.migrationPath, "progress.mig.000000001")
-			require.NoError(t, os.WriteFile(progressPath, []byte(torn), 0o600))
+			progressPath := writeTornProgressFile(t, tr, key, torn)
 
 			require.NotPanics(t, func() {
 				_, _, allCount, idxCount, perr := tr.parseProgressFile(progressPath)

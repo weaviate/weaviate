@@ -20,9 +20,16 @@ import (
 )
 
 func TestWriteFileSync(t *testing.T) {
+	// tempPath builds a path under a fresh per-call temp dir, so each
+	// subtest below states only the filename (or, for the missing-parent
+	// case, the extra path segment) it cares about.
+	tempPath := func(t *testing.T, elem ...string) string {
+		t.Helper()
+		return filepath.Join(append([]string{t.TempDir()}, elem...)...)
+	}
+
 	t.Run("writes content and is readable", func(t *testing.T) {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "sentinel.mig")
+		path := tempPath(t, "sentinel.mig")
 		require.NoError(t, WriteFileSync(path, []byte("hello"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600))
 
 		got, err := os.ReadFile(path)
@@ -31,8 +38,7 @@ func TestWriteFileSync(t *testing.T) {
 	})
 
 	t.Run("empty content creates an empty file", func(t *testing.T) {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "marker.mig")
+		path := tempPath(t, "marker.mig")
 		require.NoError(t, WriteFileSync(path, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600))
 
 		info, err := os.Stat(path)
@@ -41,8 +47,7 @@ func TestWriteFileSync(t *testing.T) {
 	})
 
 	t.Run("O_EXCL error is os.IsExist-branchable", func(t *testing.T) {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "once.mig")
+		path := tempPath(t, "once.mig")
 		require.NoError(t, WriteFileSync(path, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600))
 
 		err := WriteFileSync(path, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -51,8 +56,7 @@ func TestWriteFileSync(t *testing.T) {
 	})
 
 	t.Run("O_TRUNC overwrites existing content", func(t *testing.T) {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "payload.mig")
+		path := tempPath(t, "payload.mig")
 		require.NoError(t, WriteFileSync(path, []byte("old-and-longer"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600))
 		require.NoError(t, WriteFileSync(path, []byte("new"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600))
 
@@ -62,8 +66,7 @@ func TestWriteFileSync(t *testing.T) {
 	})
 
 	t.Run("missing parent directory returns an error", func(t *testing.T) {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "nope", "sentinel.mig")
+		path := tempPath(t, "nope", "sentinel.mig")
 		require.Error(t, WriteFileSync(path, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600))
 	})
 }
