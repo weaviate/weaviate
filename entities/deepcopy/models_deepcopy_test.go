@@ -69,7 +69,7 @@ func populate(v reflect.Value, depth int) {
 	}
 
 	switch v.Kind() {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if v.IsNil() {
 			v.Set(reflect.New(v.Type().Elem()))
 		}
@@ -102,6 +102,9 @@ func populate(v reflect.Value, depth int) {
 		v.SetUint(1)
 	case reflect.Float32, reflect.Float64:
 		v.SetFloat(1)
+	default:
+		// non-settable or exotic kinds (chan, func, complex, ...) don't occur
+		// in the models structs this walker targets; leave them zero
 	}
 }
 
