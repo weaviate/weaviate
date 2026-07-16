@@ -1363,6 +1363,13 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		return zerotime, false, nil
 	}
 
+	// The started sentinel gates the lifecycle (OnAfterLsmInit must have
+	// registered the double-write callbacks and marked the task started
+	// before any scan pass runs). Its TIMESTAMP is informational only: the
+	// scan analyzes every object unconditionally, because comparing a
+	// coordinator-stamped LastUpdateTimeUnix against a replica-captured
+	// watermark is unsound under multi-node clock skew
+	// (weaviate/weaviate#11692) — see [uuidObjectsIteratorAsync].
 	var reindexStarted time.Time
 	if !rt.IsStarted() {
 		err = fmt.Errorf("missing reindex started")
@@ -1462,7 +1469,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	schemaOverlay := t.strategy.AnalyzerOverlay(props)
 
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
-		propExtraction, reindexStarted, breakCh, schemaOverlay)
+		propExtraction, breakCh, schemaOverlay)
 
 	for md := range mdCh {
 		if md == nil {
@@ -2697,11 +2704,11 @@ type migrationData struct {
 	err   error
 }
 
-type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool, schemaOverlay map[string]inverted.PropertyOverlay,
+type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, breakCh <-chan bool, schemaOverlay map[string]inverted.PropertyOverlay,
 ) (time.Time, <-chan *migrationData)
 
 func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey,
-	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+	propExtraction *storobj.PropertyExtraction, breakCh <-chan bool,
 	schemaOverlay map[string]inverted.PropertyOverlay,
 ) (time.Time, <-chan *migrationData) {
 	startedCh := make(chan time.Time)
@@ -2743,27 +2750,42 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 				break
 			}
 
-			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
-				// The overlay is required by from-scratch strategies whose
-				// target inverted-index flag is still false on the live
-				// schema during backfill. It is nil for retokenize / refresh
-				// strategies. See MigrationStrategy.AnalyzerOverlay.
-				props, _, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
-				if err != nil {
-					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
-					break
-				}
-
-				if <-breakCh {
-					break
-				}
-				mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
-			} else {
-				if <-breakCh {
-					break
-				}
-				mdCh <- &migrationData{key: ik.Clone()}
+			// Every scanned object is analyzed and indexed — deliberately
+			// including objects whose LastUpdateTimeUnix is at/after the
+			// task's reindexStarted watermark. An earlier version skipped
+			// those as "written after the double-write callbacks armed,
+			// hence already mirrored", but that inference compares a
+			// COORDINATOR-stamped write time against a REPLICA-captured
+			// watermark: two different clocks. Under multi-node clock skew
+			// a pre-registration (unmirrored) write can carry a timestamp
+			// past the local watermark, making it skipped AND unmirrored —
+			// silent, permanent loss (weaviate/weaviate#11692).
+			//
+			// Unconditional analysis makes the scan skew-immune by
+			// construction: every write is covered by the scan (if it
+			// predates the on-disk cursor) or by the mirror (if it
+			// postdates callback arming) or both. Overlap converges
+			// because runtimeSwap prepends reindex segments BEFORE ingest
+			// segments, so a mirror write/tombstone always shadows the
+			// scan's posting for the same key, and each strategy's writes
+			// are per-key idempotent. Pinned by
+			// TestSegmentGroup_PrependedAddShadowedByNewerDelete (lsmkv) and
+			// TestReindexDeleteConvergence_IngestTombstoneShadowsScannedPosting.
+			//
+			// The overlay is required by from-scratch strategies whose
+			// target inverted-index flag is still false on the live
+			// schema during backfill. It is nil for retokenize / refresh
+			// strategies. See MigrationStrategy.AnalyzerOverlay.
+			props, _, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
+			if err != nil {
+				mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
+				break
 			}
+
+			if <-breakCh {
+				break
+			}
+			mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
 		}
 		if k == nil {
 			<-breakCh

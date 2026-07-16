@@ -475,11 +475,36 @@ func TestValidateRebuildFilterableDataType(t *testing.T) {
 
 	t.Run("rebuild rejected for reference type", func(t *testing.T) {
 		// Reference (non-primitive) data types have no inverted bucket.
+		// This rejection is ALSO load-bearing for migration correctness:
+		// batch-reference writes update the ref-beacon and __meta_count
+		// buckets directly, bypassing the reindex double-write callbacks —
+		// a migration targeting those buckets would silently miss
+		// post-cursor batch-ref mutations. As long as ref properties can
+		// never be migration targets, that mirror-coverage hole is
+		// unreachable (weaviate/weaviate#11692 review; weaviate/weaviate#12210
+		// adds the full-prop-set mirror on main).
 		prop := &models.Property{Name: "p", DataType: []string{"SomeClass"}}
 		err := validateRebuildFilterableDataType(prop)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not support a filterable inverted index")
 		require.Contains(t, err.Error(), "nothing to rebuild")
+	})
+
+	t.Run("rebuild rejected for object (nested) type", func(t *testing.T) {
+		// object/object[] are Nested data types, not primitives, so
+		// AsPrimitive rejects them. Load-bearing beyond UX: nested-property
+		// buckets (helpers.BucketNestedFromPropNameLSM namespace, written by
+		// shard_write_inverted_lsm_nested.go) never fire the reindex
+		// double-write callbacks, so a migration that could target them
+		// would lose every concurrent nested write. This gate keeps that
+		// path unreachable; if nested migrations ever ship, the tee must
+		// learn to mirror nested writes first.
+		for _, dt := range []string{"object", "object[]"} {
+			prop := &models.Property{Name: "p", DataType: []string{dt}}
+			err := validateRebuildFilterableDataType(prop)
+			require.Errorf(t, err, "data type %q must be rejected", dt)
+			require.Contains(t, err.Error(), "does not support a filterable inverted index")
+		}
 	})
 }
 
@@ -615,6 +640,14 @@ func TestValidateEnableFilterableProperty(t *testing.T) {
 
 		// References are non-primitive.
 		{"reference rejected", &models.Property{Name: "p", DataType: []string{"OtherClass"}}, "does not support"},
+
+		// object/object[] are Nested, not primitive. Nested-property buckets
+		// are outside the reindex double-write tee
+		// (shard_write_inverted_lsm_nested.go fires no callbacks), so this
+		// gate keeps them unreachable as migration targets — see the sibling
+		// note on TestValidateRebuildFilterableDataType.
+		{"object rejected", &models.Property{Name: "p", DataType: []string{"object"}}, "does not support"},
+		{"object[] rejected", &models.Property{Name: "p", DataType: []string{"object[]"}}, "does not support"},
 
 		// Already-filterable rejected.
 		{"already filterable", &models.Property{Name: "p", DataType: []string{"text"}, IndexFilterable: boolPtr(true)}, "already has a filterable index"},
