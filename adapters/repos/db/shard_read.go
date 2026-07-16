@@ -1042,7 +1042,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	}
 	s.AppendChangeLogDelete(idBytes, logTime)
 
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime, logTime); err != nil {
 		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
