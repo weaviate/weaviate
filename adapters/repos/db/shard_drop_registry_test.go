@@ -29,9 +29,9 @@ import (
 
 // failUnregisterCtrl wraps a real CycleCallbackCtrl so IsActive/Activate/
 // Deactivate and the real callback unregistration still run (no leaked cycle,
-// -race clean), but Unregister reports an error. It reproduces a pre-Shutdown
-// step failure in shard.drop (the cycle-callback Unregister at shard_drop.go:99)
-// that early-returns before store.Shutdown — the only step that deregisters the
+// -race clean), but Unregister reports an error. It reproduces a failure in one
+// of shard.drop's pre-Shutdown steps (the cycle-callback Unregister), which
+// early-returns before store.Shutdown — the only step that deregisters the
 // shard's buckets.
 type failUnregisterCtrl struct {
 	cyclemanager.CycleCallbackCtrl
@@ -55,12 +55,13 @@ func injectPreShutdownFailure(t *testing.T, shard *Shard) error {
 	return boom
 }
 
-// T3: shard.drop early-returns on any pre-Shutdown step failure, and
-// store.Shutdown is the only step that deregisters the shard's buckets. Without
-// the deferred best-effort store.Shutdown guard, a pre-Shutdown failure ghosts
-// every bucket of the shard (and leaves a zombie store). The guard must reach
-// store.Shutdown on every exit, so the buckets deregister even when a
-// pre-Shutdown step failed — evidenced independently of the index-level sweep.
+// shard.drop early-returns on any pre-Shutdown step failure, and store.Shutdown
+// is the only step that deregisters the shard's buckets. Without the deferred
+// best-effort store.Shutdown guard, a pre-Shutdown failure ghosts every bucket
+// of the shard (and leaves a zombie store). The guard must reach store.Shutdown
+// on every exit, so the buckets deregister even when a pre-Shutdown step failed.
+// Asserted at shard.drop altitude, where the index-level class sweep cannot mask
+// a missing guard.
 func TestShardDrop_StoreShutdownReachedOnPreShutdownFailure(t *testing.T) {
 	ctx := testCtx()
 	shardLike, _ := testShard(t, ctx, "TestClass")

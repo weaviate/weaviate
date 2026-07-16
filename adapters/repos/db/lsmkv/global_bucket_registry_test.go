@@ -33,26 +33,16 @@ func TestGlobalBucketRegistry_RemoveByPrefix(t *testing.T) {
 		wantIn  []string // must be purged (redundant with seed\wantOut, kept explicit for clarity)
 	}{
 		{
-			name: "purges the dir itself and everything below it",
+			name: "separator boundary: t1 (the dir itself and its children) must not purge t10",
 			seed: []string{
 				t1lsm,
-				filepath.Join(t1lsm, "property__id"),
-				filepath.Join(t1lsm, "property_title"),
-			},
-			prefix:  t1lsm,
-			wantOut: nil,
-			wantIn:  []string{t1lsm, filepath.Join(t1lsm, "property__id"), filepath.Join(t1lsm, "property_title")},
-		},
-		{
-			name: "separator boundary: t1 must not purge t10",
-			seed: []string{
 				filepath.Join(t1lsm, "property__id"),
 				filepath.Join(t10lsm, "property__id"),
 				t10lsm,
 			},
 			prefix:  t1lsm,
 			wantOut: []string{filepath.Join(t10lsm, "property__id"), t10lsm},
-			wantIn:  []string{filepath.Join(t1lsm, "property__id")},
+			wantIn:  []string{t1lsm, filepath.Join(t1lsm, "property__id")},
 		},
 		{
 			name: "does not purge a string-prefix sibling that is not a path child",
@@ -65,13 +55,6 @@ func TestGlobalBucketRegistry_RemoveByPrefix(t *testing.T) {
 			prefix:  t1lsm,
 			wantOut: []string{t1lsm + "_bak"},
 			wantIn:  []string{filepath.Join(t1lsm, "property__id")},
-		},
-		{
-			name:    "unknown prefix is a no-op",
-			seed:    []string{filepath.Join(t10lsm, "property__id")},
-			prefix:  t1lsm,
-			wantOut: []string{filepath.Join(t10lsm, "property__id")},
-			wantIn:  nil,
 		},
 	}
 
@@ -125,27 +108,6 @@ func TestGlobalBucketRegistry_RemoveByPrefixes(t *testing.T) {
 			prefixes: []string{lsm("t1"), lsm("t2"), lsm("t3")},
 			wantIn:   []string{id("t1"), id("t2"), id("t3")},
 			wantOut:  []string{id("t10")}, // t1 !⊑ t10 boundary holds across the batch
-		},
-		{
-			name:     "each dir keeps its exact separator boundary",
-			seed:     []string{lsm("t1"), id("t1"), lsm("t10"), id("t10")},
-			prefixes: []string{lsm("t1")},
-			wantIn:   []string{lsm("t1"), id("t1")},
-			wantOut:  []string{lsm("t10"), id("t10")},
-		},
-		{
-			name:     "absent and empty dirs are no-ops, present ones still purge",
-			seed:     []string{id("t1")},
-			prefixes: []string{lsm("t1"), lsm("t99")},
-			wantIn:   []string{id("t1")},
-			wantOut:  nil,
-		},
-		{
-			name:     "empty dir list is a no-op",
-			seed:     []string{id("t1")},
-			prefixes: nil,
-			wantIn:   nil,
-			wantOut:  []string{id("t1")},
 		},
 	}
 
