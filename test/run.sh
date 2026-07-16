@@ -782,7 +782,8 @@ function run_acceptance_reindex_multinode() {
   #   -rm         : TestMultiNode_RestartMatrix             (parametrised restart)
   #   -restart    : TestMultiNode_*Restart* / *Crash* (excl. AJ + Matrix)
   #   -scale      : TestMultiNode_HappyPath, _ConcurrentDifferent*,
-  #                 _EnableRangeable_NoPartialCountsInFlight,
+  #                 _EnableRangeable_* (NoPartialCountsInFlight +
+  #                 ConcurrentUpdatesNoLossNoPanic),
   #                 _RepeatedParallelMigrationJourney_*,
   #                 _PostRestartReapplyMigrations_*
   #   -changetok  : TestMultiNode_ChangeTokenization_* (non-AJ) +
@@ -793,7 +794,7 @@ function run_acceptance_reindex_multinode() {
   # IMPORTANT: when adding a new sub-shard, also add its top-level test
   # prefixes to the SKIP regex below to prevent the catch-all from
   # double-running the same tests.
-  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
+  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
     run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
 }
 
@@ -851,7 +852,7 @@ function run_acceptance_reindex_multinode_scale() {
   # test in the whole package (PostRestartReapplyMigrations_ExactCounts
   # AcrossReplicas, 135s) lives here so it's amortised against the
   # smaller orchestration tests.
-  AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
+  AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
     run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode
 }
 
