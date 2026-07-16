@@ -85,14 +85,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockFSMUpdater.EXPECT().
 			ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(opId)).
 			Return(uint64(0), nil)
-		mockFSMUpdater.EXPECT().
-			SyncShard(mock.Anything, "TestCollection", "shard1", "node1").
-			Return(uint64(0), nil).
-			Times(1)
-		mockFSMUpdater.EXPECT().
-			SyncShard(mock.Anything, "TestCollection", "shard1", "node2").
-			Return(uint64(0), nil).
-			Times(1)
 		mockReplicaCopier.EXPECT().
 			CopyReplicaFiles(
 				mock.Anything,
@@ -391,8 +383,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 				Return(uint64(i), nil)
 			expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
-			mockFSMUpdater.EXPECT().
-				SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 		}
 
 		var (
@@ -692,8 +682,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					ReplicationAddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, mock.Anything, uint64(opID)).
 					Return(uint64(i), nil)
 				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
-				mockFSMUpdater.EXPECT().
-					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 				completionWg.Add(1)
 			} else {
 				require.False(t, opsCache.LoadOrStore(opID), "operation should not be stored twice in cache")
@@ -1154,8 +1142,6 @@ func TestConsumerOpDuplication(t *testing.T) {
 		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 		Return(nil)
 	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.FINALIZING)
@@ -1288,8 +1274,6 @@ func TestConsumerOpSkip(t *testing.T) {
 		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)
 	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.FINALIZING)
 
@@ -1479,14 +1463,6 @@ func TestConsumerCopyIntegratingState(t *testing.T) {
 		StopChangeCapture(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
 		Return(nil)
 	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, "TestCollection", "shard1", "node2").
-		Return(uint64(0), nil).
-		Times(1)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, "TestCollection", "shard1", "node1").
-		Return(uint64(0), nil).
-		Times(1)
-	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, opId, api.READY).
 		Return(nil).
 		Times(1)
@@ -1573,14 +1549,6 @@ func TestConsumerCopyIntegratingRetryAfterSeal(t *testing.T) {
 	mockReplicaCopier.EXPECT().
 		SnapshotChangeLogLSN(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
 		Return(uint64(0), errors.New("snapshot change-log LSN on node1: shard: "+changelog.ErrMsgNoActiveChangeCaptureLog+" for that op-id")).
-		Times(1)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, "TestCollection", "shard1", "node2").
-		Return(uint64(0), nil).
-		Times(1)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, "TestCollection", "shard1", "node1").
-		Return(uint64(0), nil).
 		Times(1)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, opId, api.READY).
