@@ -155,18 +155,24 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			body: `{"searchable":`, wantStatus: http.StatusBadRequest,
 		},
 		{
+			// Several groups present but all verbless: no single disable
+			// target to signpost, so the generic verb list is returned.
 			name:       "no actionable flags",
 			collection: stClass, property: "text_word",
 			body:        `{"searchable":{},"filterable":{},"rangeable":{}}`,
 			wantStatus:  http.StatusBadRequest,
-			wantBodyHas: "no actionable change",
+			wantBodyHas: "no actionable change detected; set one of",
 		},
 		{
+			// A single group present with only false/absent verbs reads as a
+			// "disable" intent. The 400 must signpost the DELETE reversal
+			// endpoint for that index rather than the bare verb list
+			// (0-weaviate-issues#316).
 			name:       "explicitly false flags only",
 			collection: stClass, property: "text_word",
 			body:        `{"searchable":{"enabled":false,"rebuild":false}}`,
 			wantStatus:  http.StatusBadRequest,
-			wantBodyHas: "no actionable change",
+			wantBodyHas: "index/searchable",
 		},
 		{
 			name:       "unknown collection",

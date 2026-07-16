@@ -939,31 +939,45 @@ func TestValidateBodyExclusivity(t *testing.T) {
 		},
 
 		// --- zero verbs --------------------------------------------------------
+		// Empty body or several present-but-verbless groups: no single disable
+		// target to signpost, so the generic verb list is returned.
 		{
 			name:    "reject: empty body (all groups nil)",
 			body:    &models.IndexUpdateRequest{},
-			wantErr: "no actionable change",
+			wantErr: "no actionable change detected; set one of",
 		},
 		{
-			name: "reject: searchable present but no verb set",
+			name: "reject: all three groups present but verbless (generic message)",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{},
+				Filterable: &models.IndexUpdateFilterable{},
+				Rangeable:  &models.IndexUpdateRangeable{},
+			},
+			wantErr: "no actionable change detected; set one of",
+		},
+		// A single present-but-verbless group reads as a "disable" intent. The
+		// PUT has no disable verb, so the 400 must signpost the DELETE reversal
+		// endpoint for that specific index (0-weaviate-issues#316).
+		{
+			name: "reject: searchable present but no verb set — signpost DELETE",
 			body: &models.IndexUpdateRequest{
 				Searchable: &models.IndexUpdateSearchable{},
 			},
-			wantErr: "no actionable change",
+			wantErr: "DELETE /v1/schema/{className}/properties/{propertyName}/index/searchable",
 		},
 		{
-			name: "reject: filterable present but no verb set",
+			name: "reject: filterable present but no verb set — signpost DELETE",
 			body: &models.IndexUpdateRequest{
 				Filterable: &models.IndexUpdateFilterable{},
 			},
-			wantErr: "no actionable change",
+			wantErr: "DELETE /v1/schema/{className}/properties/{propertyName}/index/filterable",
 		},
 		{
-			name: "reject: rangeable present but enabled=false",
+			name: "reject: rangeable present but enabled=false — signpost DELETE",
 			body: &models.IndexUpdateRequest{
 				Rangeable: &models.IndexUpdateRangeable{Enabled: false},
 			},
-			wantErr: "no actionable change",
+			wantErr: "DELETE /v1/schema/{className}/properties/{propertyName}/index/rangeFilters",
 		},
 
 		// --- multiple groups ---------------------------------------------------
@@ -1063,6 +1077,70 @@ func TestValidateBodyExclusivity(t *testing.T) {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
 			}
+		})
+	}
+}
+
+// TestValidateBodyExclusivity_DisableSignpostsReversalEndpoint pins the
+// discoverability fix for 0-weaviate-issues#316: a natural-looking "disable"
+// call — a single index group present with no actionable verb, e.g.
+// {"rangeable":{"enabled":false}} — must not return the bare generic verb
+// list. It must name the exact DELETE endpoint that actually reverses the
+// index, so a caller (human or agent) is not misled into concluding the
+// index is a one-way migration with no rollback path.
+//
+// The reversal endpoint and its indexName enum are defined on
+// DELETE /v1/schema/{className}/properties/{propertyName}/index/{indexName}
+// (indexName one of filterable / searchable / rangeFilters) in
+// openapi-specs/schema.json.
+func TestValidateBodyExclusivity_DisableSignpostsReversalEndpoint(t *testing.T) {
+	cases := []struct {
+		name         string
+		body         *models.IndexUpdateRequest
+		wantEndpoint string // the exact DELETE path the message must name
+		wantVerb     string // an accepted PUT verb the message must still list
+	}{
+		{
+			name: "rangeable enabled=false points at the rangeFilters DELETE",
+			body: &models.IndexUpdateRequest{
+				Rangeable: &models.IndexUpdateRangeable{Enabled: false},
+			},
+			wantEndpoint: "DELETE /v1/schema/{className}/properties/{propertyName}/index/rangeFilters",
+			wantVerb:     "rangeable.enabled=true",
+		},
+		{
+			name: "filterable verbless points at the filterable DELETE",
+			body: &models.IndexUpdateRequest{
+				Filterable: &models.IndexUpdateFilterable{},
+			},
+			wantEndpoint: "DELETE /v1/schema/{className}/properties/{propertyName}/index/filterable",
+			wantVerb:     "filterable.enabled=true",
+		},
+		{
+			name: "searchable verbless points at the searchable DELETE",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{},
+			},
+			wantEndpoint: "DELETE /v1/schema/{className}/properties/{propertyName}/index/searchable",
+			wantVerb:     "searchable.enabled=true",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateBodyExclusivity(tc.body)
+			require.Error(t, err)
+			msg := err.Error()
+			// Still recognisable as the "no actionable change" family.
+			assert.Contains(t, msg, "no actionable change")
+			// Must name the exact DELETE reversal endpoint (the whole point).
+			assert.Contains(t, msg, tc.wantEndpoint,
+				"disable-intent 400 must signpost the DELETE reversal endpoint")
+			// Must not mislead: the reversal is a DELETE, and the PUT verbs
+			// that ARE accepted are listed so the caller knows this endpoint's
+			// real grammar.
+			assert.Contains(t, msg, "DELETE")
+			assert.Contains(t, msg, tc.wantVerb)
 		})
 	}
 }
