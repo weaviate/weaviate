@@ -477,6 +477,21 @@ func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
 			expect:   &users.CreateUserUnprocessableEntity{},
 		},
 		{
+			name:     "ErrNamespaceSuspended returns 422",
+			applyErr: fmt.Errorf("apply: %w", namespaces.ErrNamespaceSuspended),
+			expect:   &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:     "ErrNamespaceNotEmpty returns 422",
+			applyErr: fmt.Errorf("apply: %w", namespaces.ErrNamespaceNotEmpty),
+			expect:   &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:     "ErrInvalidState returns 422",
+			applyErr: fmt.Errorf("apply: %w", namespaces.ErrInvalidState),
+			expect:   &users.CreateUserUnprocessableEntity{},
+		},
+		{
 			name:     "unrelated error returns 500",
 			applyErr: errors.New("disk full"),
 			expect:   &users.CreateUserInternalServerError{},

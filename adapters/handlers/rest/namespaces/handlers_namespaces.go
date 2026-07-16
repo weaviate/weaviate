@@ -128,13 +128,13 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 	}
 	created, _, err := h.raft.AddNamespace(ctx, cmd.Namespace{Name: name, HomeNodes: homeNodes})
 	if err != nil {
+		if status, ok := cerrors.HTTPStatusForNamespaceErr(err); ok && status == http.StatusUnprocessableEntity {
+			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
 		switch {
 		case errors.Is(err, usecasesNamespaces.ErrAlreadyExists):
 			return nsops.NewCreateNamespaceConflict().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q already exists", name)))
-		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
-			return nsops.NewCreateNamespaceConflict().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted; retry after cleanup completes", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
 			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		default:
@@ -180,13 +180,13 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 	}
 
 	if _, err := h.raft.UpdateNamespace(ctx, cmd.Namespace{Name: name, HomeNodes: []string{homeNode}}); err != nil {
+		if status, ok := cerrors.HTTPStatusForNamespaceErr(err); ok && status == http.StatusUnprocessableEntity {
+			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
 		switch {
 		case errors.Is(err, usecasesNamespaces.ErrNotFound):
 			return nsops.NewUpdateNamespaceNotFound().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q not found", name)))
-		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
-			return nsops.NewUpdateNamespaceConflict().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted; home_node cannot be updated", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
 			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		default:

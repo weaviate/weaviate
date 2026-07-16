@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"sync"
 	"time"
@@ -458,9 +459,10 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now()); err != nil {
-		// Apply-time race: surface a deleted/deleting namespace as 422 so
-		// clients can retry against current state.
-		if errors.Is(err, namespaces.ErrNamespaceGone) || errors.Is(err, namespaces.ErrNamespaceDeleting) {
+		// Apply-time race: surface a gone/deleting/suspended namespace as 422
+		// so clients can retry against current state.
+		status, ok := cerrors.HTTPStatusForNamespaceErr(err)
+		if errors.Is(err, namespaces.ErrNamespaceGone) || (ok && status == http.StatusUnprocessableEntity) {
 			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
 		}
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
