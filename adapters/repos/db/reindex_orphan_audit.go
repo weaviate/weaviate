@@ -596,9 +596,7 @@ func partitionOrphansByQuarantine(lsmPath string, orphans []orphanReindexTracker
 // reindexAuditQuarantineWindow.
 func writeQuarantineSentinel(trackerPath string) error {
 	sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
-	// Durable write: the file's mtime is the authoritative age the next
-	// audit compares against the quarantine window, so a lost sentinel
-	// would reset that clock after power loss.
+	// Durable write: a lost sentinel would reset the quarantine clock after power loss.
 	if err := diskio.WriteFileSync(sentinelPath, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
 		// EEXIST is benign — a concurrent audit may have written it.
 		if os.IsExist(err) {

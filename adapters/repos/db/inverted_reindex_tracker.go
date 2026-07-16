@@ -129,9 +129,7 @@ func (t *fileReindexTracker) init() error {
 		if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
 			return err
 		}
-		// Make the freshly created .migrations/<dir>/ tree durable so a
-		// later sentinel's parent-dir fsync persists an already-linked
-		// directory rather than an entry that can vanish on power loss.
+		// Persist the new dir entry so it can't be lost before a sentinel is written into it.
 		return diskio.Fsync(filepath.Dir(t.config.migrationPath))
 	}
 
@@ -223,12 +221,8 @@ func (t *fileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 		return nil, nil, err
 	}
 
-	// A torn checkpoint (zero-length or truncated below the 4-line format,
-	// e.g. a crash between create and the durable write of a pre-fsync
-	// build) must never be indexed into or misparsed into a stale resume
-	// key — that would silently skip every object <= the bogus key. Treat
-	// it as no progress: resume from scratch (safe redo) and advance the
-	// counter past it so the next markProgress does not collide.
+	// A torn (truncated) checkpoint must not be parsed into a stale resume
+	// key, which would silently skip objects — treat it as no progress.
 	split := strings.Split(string(content), "\n")
 	if len(split) < 4 {
 		t.progressCheckpoint = checkpoint + 1
@@ -462,16 +456,14 @@ func (t *fileReindexTracker) fileExists(filename string) bool {
 	return err == nil
 }
 
-// createFile writes a sentinel durably: fsync the file, then fsync the
-// parent dir, so both content and directory entry survive a power loss
-// before the state machine advances to the next phase.
+// createFile durably writes a sentinel (fsync file, then parent dir) so a
+// crash can't lose it before the state machine advances.
 func (t *fileReindexTracker) createFile(filename string, content []byte) error {
 	return diskio.WriteFileSync(t.filepath(filename), content,
 		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
 }
 
-// removeFile fsyncs the parent dir after a successful unlink so the removal
-// is durable and cannot effectively reappear after a crash.
+// removeFile fsyncs the parent dir after unlink so the removal survives a crash.
 func (t *fileReindexTracker) removeFile(filename string) error {
 	if err := os.Remove(t.filepath(filename)); err != nil {
 		if errors.Is(err, os.ErrNotExist) {

@@ -93,8 +93,7 @@ func changeFile(filename string, delete bool, content []byte, logger *logrus.Ent
 							return fmt.Errorf("failed to fsync dir after deleting %s: %w", filenameShard, syncErr)
 						}
 					} else {
-						// A pure marker that already exists needs no rewrite;
-						// anything with content is (over)written durably.
+						// Skip rewrite only for an existing content-less marker; otherwise write durably.
 						if _, statErr := os.Stat(filenameShard); statErr == nil && content == nil {
 							alreadyDid = true
 						} else if err := diskio.WriteFileSync(filenameShard, content,

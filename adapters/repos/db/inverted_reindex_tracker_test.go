@@ -27,12 +27,7 @@ func newTestReindexTracker(t *testing.T) *fileReindexTracker {
 	return tr
 }
 
-// TestFileReindexTracker_GetProgressTornSentinel pins the crash-recovery
-// behavior for a torn (zero-length or truncated) progress checkpoint. A
-// pre-fsync build could leave the most recent progress.mig.<N> empty or
-// partially written after power loss. Reading it MUST NOT panic (the old
-// code indexed split[1] unconditionally) and MUST NOT be misparsed into a
-// stale resume key — it resumes from scratch, which is a safe redo.
+// Pins: a torn progress checkpoint must resume from scratch, not panic or misparse into a stale key.
 func TestFileReindexTracker_GetProgressTornSentinel(t *testing.T) {
 	parser := &UuidKeyParser{}
 	key, err := parser.FromString("11111111-1111-1111-1111-111111111111")
@@ -64,8 +59,7 @@ func TestFileReindexTracker_GetProgressTornSentinel(t *testing.T) {
 				require.Empty(t, gotKey.Bytes(), "torn checkpoint must resume from scratch, not a stale key")
 			})
 
-			// The counter advanced past the torn file, so the next durable
-			// checkpoint does not collide with the exclusive-create.
+			// Counter advanced past the torn checkpoint, so the next write is .000000002.
 			require.NoError(t, tr2.markProgress(key, 20, 10))
 			require.FileExists(t, filepath.Join(tr2.config.migrationPath, "progress.mig.000000002"))
 		})
@@ -88,8 +82,7 @@ func TestFileReindexTracker_GetProgressValidRoundTrip(t *testing.T) {
 	require.Equal(t, key.String(), gotKey.String())
 }
 
-// TestFileReindexTracker_createFileExclusiveAndReadable proves the durable
-// write path preserves O_EXCL semantics and round-trips content.
+// Pins: the durable write path preserves O_EXCL semantics.
 func TestFileReindexTracker_createFileExclusiveAndReadable(t *testing.T) {
 	tr := newTestReindexTracker(t)
 
@@ -105,8 +98,7 @@ func TestFileReindexTracker_createFileExclusiveAndReadable(t *testing.T) {
 	require.WithinDuration(t, started, got, time.Second)
 }
 
-// TestFileReindexTracker_removeFileDurable proves removal clears the
-// sentinel and that removing an absent file is a no-op.
+// Pins: removal clears the sentinel, and removing an absent file is a no-op.
 func TestFileReindexTracker_removeFileDurable(t *testing.T) {
 	tr := newTestReindexTracker(t)
 

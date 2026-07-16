@@ -340,9 +340,8 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 	if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, payload) {
 		return nil
 	}
-	// Make the migration dir entry durable, then the payload: the orphan
-	// audit relies on payload.mig landing durably before started.mig, so it
-	// can tell a pre-start tracker from a lost record after power loss.
+	// Fsync order matters: the orphan audit relies on payload.mig landing
+	// durably before started.mig to distinguish a pre-start tracker from a lost record.
 	if err := diskio.Fsync(filepath.Dir(migDir)); err != nil {
 		return fmt.Errorf("fsync migrations dir for %q: %w", migDir, err)
 	}
