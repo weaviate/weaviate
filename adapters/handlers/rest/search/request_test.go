@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -745,6 +746,332 @@ func TestBm25SharedFields(t *testing.T) {
 			`{"query":"space","target_vector":"nope","certainty":0.9,"distance":0.1,"not_a_field":1}`)
 		require.Nil(t, apiErr)
 		require.NotNil(t, searcher.lastParams.KeywordRanking)
+	})
+}
+
+// decodeHybridModel unmarshals a JSON body into the typed hybrid request
+// model, the way the swagger JSON consumer does (unknown fields ignored, type
+// mismatches fail). A decode failure maps to the 400 the consumer returns
+// live.
+func decodeHybridModel(body string) (*models.SearchHybridRequest, *APIError) {
+	var req models.SearchHybridRequest
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		return nil, newAPIError(http.StatusBadRequest, "invalid request body: %v", err)
+	}
+	return &req, nil
+}
+
+// buildHybrid runs the full hybrid body -> dto.GetParams conversion against
+// the fixture schema, including the reserved-field 422 check that the handler
+// runs before buildHybridParams.
+func buildHybrid(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
+	t.Helper()
+	deps := newTestHandler(t)
+	deps.schemaReader.classes[class.Class] = class
+
+	parsed, apiErr := decodeHybridModel(body)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if apiErr := checkReservedFields(&parsed.SearchCommon); apiErr != nil {
+		return nil, apiErr
+	}
+
+	params, apiErr := deps.handler.buildHybridParams(class, class.Class, parsed, fixtureGetClass(deps), nil)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	deps.searcher.lastParams = params
+	return deps.searcher, nil
+}
+
+func TestHybridParams(t *testing.T) {
+	t.Run("query maps to HybridSearch, not module or keyword params", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space opera"}`)
+		require.Nil(t, apiErr)
+		hybrid := searcher.lastParams.HybridSearch
+		require.NotNil(t, hybrid)
+		assert.Equal(t, "space opera", hybrid.Query)
+		assert.Empty(t, hybrid.Properties)
+		assert.Empty(t, searcher.lastParams.ModuleParams)
+		assert.Nil(t, searcher.lastParams.KeywordRanking)
+	})
+
+	// swagger's required validation rejects an absent or null query with 422
+	// before the handler; the handler's own 400 covers the explicit empty
+	// string (which passes bind) and the direct-call path
+	for name, body := range map[string]string{
+		"empty string": `{"query":""}`,
+		"missing":      `{}`,
+		"null":         `{"query":null}`,
+	} {
+		t.Run(name+" query is a 400", func(t *testing.T) {
+			_, apiErr := buildHybrid(t, movieClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "query")
+		})
+	}
+
+	t.Run("query is string-only: the array form fails decode", func(t *testing.T) {
+		_, apiErr := buildHybrid(t, movieClass(), `{"query":["space"]}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	})
+}
+
+// TestHybridAlpha pins the gRPC/GraphQL-parity alpha semantics: omitted
+// defaults to the shared 0.75, 0 and 1 are valid endpoints of the range, and
+// anything outside [0, 1] is the GraphQL parser's rejection.
+func TestHybridAlpha(t *testing.T) {
+	t.Run("omitted defaults to 0.75", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space"}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, 0.75, searcher.lastParams.HybridSearch.Alpha)
+	})
+
+	for body, want := range map[string]float64{
+		`{"query":"space","alpha":0}`:    0,
+		`{"query":"space","alpha":0.3}`:  0.3,
+		`{"query":"space","alpha":1}`:    1,
+		`{"query":"space","alpha":null}`: 0.75,
+	} {
+		t.Run(body, func(t *testing.T) {
+			searcher, apiErr := buildHybrid(t, movieClass(), body)
+			require.Nil(t, apiErr)
+			assert.Equal(t, want, searcher.lastParams.HybridSearch.Alpha)
+		})
+	}
+
+	for _, body := range []string{
+		`{"query":"space","alpha":-0.1}`,
+		`{"query":"space","alpha":1.1}`,
+	} {
+		t.Run(body+" is a 400", func(t *testing.T) {
+			_, apiErr := buildHybrid(t, movieClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "alpha")
+		})
+	}
+}
+
+// TestHybridFusionType pins the fusion mapping and the shared default:
+// omitted means relative_score (common_filters.HybridFusionDefault, the same
+// default gRPC and GraphQL apply).
+func TestHybridFusionType(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"omitted defaults to relative_score", `{"query":"space"}`, common_filters.HybridRelativeScoreFusion},
+		{"ranked", `{"query":"space","fusion_type":"ranked"}`, common_filters.HybridRankedFusion},
+		{"relative_score", `{"query":"space","fusion_type":"relative_score"}`, common_filters.HybridRelativeScoreFusion},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			searcher, apiErr := buildHybrid(t, movieClass(), tt.body)
+			require.Nil(t, apiErr)
+			assert.Equal(t, tt.want, searcher.lastParams.HybridSearch.FusionAlgorithm)
+		})
+	}
+
+	t.Run("unknown value is a 400", func(t *testing.T) {
+		// the swagger enum rejects it with 422 before the handler; the
+		// handler's 400 is the defensive fallback for the direct-call path
+		_, apiErr := buildHybrid(t, movieClass(), `{"query":"space","fusion_type":"best"}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "fusion_type")
+	})
+}
+
+func TestHybridMaxVectorDistance(t *testing.T) {
+	t.Run("sets the distance cutoff", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space","max_vector_distance":0.4}`)
+		require.Nil(t, apiErr)
+		hybrid := searcher.lastParams.HybridSearch
+		assert.Equal(t, float32(0.4), hybrid.Distance)
+		assert.True(t, hybrid.WithDistance)
+	})
+
+	t.Run("omitted leaves the cutoff off", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space"}`)
+		require.Nil(t, apiErr)
+		assert.False(t, searcher.lastParams.HybridSearch.WithDistance)
+	})
+}
+
+// TestHybridQueryProperties pins the gRPC-parity property handling shared
+// with bm25: names pass through with their first letter lowercased, and a
+// "^boost" suffix is not interpreted here — the searcher parses it.
+func TestHybridQueryProperties(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"pass through", `{"query":"space","query_properties":["title"]}`, []string{"title"}},
+		{"boost suffix passes through", `{"query":"space","query_properties":["title^2"]}`, []string{"title^2"}},
+		{
+			"first letter lowercased (gRPC parity)",
+			`{"query":"space","query_properties":["Title^2","Year"]}`,
+			[]string{"title^2", "year"},
+		},
+		{"omitted searches all searchable properties", `{"query":"space"}`, nil},
+		{"empty searches all searchable properties", `{"query":"space","query_properties":[]}`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			searcher, apiErr := buildHybrid(t, movieClass(), tt.body)
+			require.Nil(t, apiErr)
+			hybrid := searcher.lastParams.HybridSearch
+			require.NotNil(t, hybrid)
+			if tt.want == nil {
+				assert.Empty(t, hybrid.Properties)
+			} else {
+				assert.Equal(t, tt.want, hybrid.Properties)
+			}
+		})
+	}
+}
+
+// TestHybridVectorizerOnlyAboveAlphaZero: the vector leg is skipped entirely
+// at alpha 0 (engine behavior), so a pure keyword hybrid search runs on
+// collections without any vectorizer module; any alpha above 0 needs one.
+func TestHybridVectorizerOnlyAboveAlphaZero(t *testing.T) {
+	noVectorizer := movieClass()
+	noVectorizer.Vectorizer = "none"
+
+	t.Run("alpha 0 needs no vectorizer", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, noVectorizer, `{"query":"space","alpha":0}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, float64(0), searcher.lastParams.HybridSearch.Alpha)
+	})
+
+	for name, body := range map[string]string{
+		"default alpha": `{"query":"space"}`,
+		"explicit":      `{"query":"space","alpha":0.5}`,
+	} {
+		t.Run(name+" above 0 without a vectorizer is a 422", func(t *testing.T) {
+			_, apiErr := buildHybrid(t, noVectorizer, body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "vectorizer")
+			assert.Contains(t, apiErr.Error(), "alpha")
+		})
+	}
+
+	t.Run("named vector with vectorizer none is a 422 above alpha 0", func(t *testing.T) {
+		class := namedVectorsClass("title_vec")
+		class.VectorConfig["title_vec"] = models.VectorConfig{
+			Vectorizer:        map[string]any{"none": map[string]any{}},
+			VectorIndexConfig: hnsw.UserConfig{Distance: "cosine"},
+		}
+		_, apiErr := buildHybrid(t, class, `{"query":"space"}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+
+		_, apiErr = buildHybrid(t, class, `{"query":"space","alpha":0}`)
+		assert.Nil(t, apiErr)
+	})
+}
+
+func TestHybridTargetVectors(t *testing.T) {
+	t.Run("legacy vector collection needs no target", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space"}`)
+		require.Nil(t, apiErr)
+		assert.Empty(t, searcher.lastParams.HybridSearch.TargetVectors)
+	})
+
+	t.Run("sole named vector selected implicitly", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, namedVectorsClass("title_vec"), `{"query":"space"}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.HybridSearch.TargetVectors)
+	})
+
+	t.Run("multiple named vectors require target_vector", func(t *testing.T) {
+		_, apiErr := buildHybrid(t, namedVectorsClass("title_vec", "summary_vec"), `{"query":"space"}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+
+		searcher, apiErr := buildHybrid(t, namedVectorsClass("title_vec", "summary_vec"),
+			`{"query":"space","target_vector":"summary_vec"}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"summary_vec"}, searcher.lastParams.HybridSearch.TargetVectors)
+	})
+
+	t.Run("unknown target_vector is a 400", func(t *testing.T) {
+		_, apiErr := buildHybrid(t, namedVectorsClass("title_vec"), `{"query":"space","target_vector":"nope"}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	})
+}
+
+func TestHybridReturnMetadata(t *testing.T) {
+	t.Run("score and explain_score", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(),
+			`{"query":"space","return_metadata":["score","explain_score"]}`)
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.True(t, addl.ID)
+		assert.True(t, addl.Score)
+		assert.True(t, addl.ExplainScore)
+	})
+
+	t.Run("certainty stays requested on a cosine index", func(t *testing.T) {
+		// hybrid is a vector search: unlike bm25, the certainty flag is NOT
+		// force-cleared (gRPC parity — vectorSearch keeps the flag, subject
+		// only to the cosine-compatibility silent drop)
+		searcher, apiErr := buildHybrid(t, movieClass(),
+			`{"query":"space","return_metadata":["distance","certainty"]}`)
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.True(t, addl.Certainty)
+		assert.True(t, addl.Distance)
+	})
+
+	t.Run("certainty silently dropped on a non-cosine index", func(t *testing.T) {
+		class := movieClass()
+		class.VectorIndexConfig = hnsw.UserConfig{Distance: "l2-squared"}
+		searcher, apiErr := buildHybrid(t, class,
+			`{"query":"space","return_metadata":["distance","certainty"]}`)
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.False(t, addl.Certainty)
+		assert.True(t, addl.Distance)
+	})
+}
+
+// TestHybridSharedFields smoke-tests that the SearchCommon fields flow
+// through the shared parsers for hybrid exactly as they do for near-text and
+// bm25.
+func TestHybridSharedFields(t *testing.T) {
+	t.Run("pagination and consistency", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(),
+			`{"query":"space","limit":3,"offset":6,"auto_limit":2,"consistency_level":"QUORUM"}`)
+		require.Nil(t, apiErr)
+		pagination := searcher.lastParams.Pagination
+		assert.Equal(t, 3, pagination.Limit)
+		assert.Equal(t, 6, pagination.Offset)
+		assert.Equal(t, 2, pagination.Autocut)
+		require.NotNil(t, searcher.lastParams.ReplicationProperties)
+		assert.Equal(t, "QUORUM", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
+	})
+
+	t.Run("where filter", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(),
+			`{"query":"space","where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980}}`)
+		require.Nil(t, apiErr)
+		require.NotNil(t, searcher.lastParams.Filters)
+	})
+
+	t.Run("return_properties subset", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space","return_properties":["title"]}`)
+		require.Nil(t, apiErr)
+		require.Len(t, searcher.lastParams.Properties, 1)
+		assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
 	})
 }
 

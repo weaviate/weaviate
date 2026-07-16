@@ -27,7 +27,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SearchCommon Fields shared by every REST search request (near-text, bm25, and — when built — hybrid, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.
+// SearchCommon Fields shared by every REST search request (near-text, bm25, hybrid, and — when built — near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.
 //
 // swagger:model SearchCommon
 type SearchCommon struct {

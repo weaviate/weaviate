@@ -6,14 +6,18 @@ REST Search API family proposed in the RFC *"REST Search API over
 QUERY/POST"* (Ivan Despot, 2026-07-06).
 
 `POST /v1/search/{collection}/bm25` — keyword (BM25F) search, the second
-endpoint of the family (2026-07-14). hybrid and near-object will follow the
-same `/v1/search/{collection}/…` shape, and aggregate the
+endpoint of the family (2026-07-14).
+
+`POST /v1/search/{collection}/hybrid` — fused keyword + vector search, the
+third endpoint (2026-07-16). near-object will follow the same
+`/v1/search/{collection}/…` shape, and aggregate the
 `/v1/aggregate/{collection}` shape, when built.
 
 > **Status:** draft, POST-only, part of the swagger surface
-> (`openapi-specs/schema.json`, operations `search.nearText` and
-> `search.bm25`). Experimental and **off by default**; enable it per node
-> with `EXPERIMENTAL_REST_SEARCH_ENABLED=true` (gates every search endpoint).
+> (`openapi-specs/schema.json`, operations `search.nearText`, `search.bm25`
+> and `search.hybrid`). Experimental and **off by default**; enable it per
+> node with `EXPERIMENTAL_REST_SEARCH_ENABLED=true` (gates every search
+> endpoint).
 
 ---
 
@@ -376,19 +380,79 @@ Decision log for the three settled points:
    bm25 metadata keys are `score` and `explain_score`; `explain_score` also
    switches on `KeywordRanking.AdditionalExplanations` (gRPC parity).
 
+### 2026-07-16 — third endpoint: hybrid (fused keyword + vector search)
+
+`POST /v1/search/{collection}/hybrid` — the bm25 recipe applied again: a new
+`SearchHybridRequest = allOf[SearchCommon, {query (required), alpha,
+fusion_type, max_vector_distance, query_properties, target_vector}]`
+definition + regen, a `buildHybridParams`/`parseHybrid` pair that fills
+`dto.GetParams.HybridSearch` (`searchparams.HybridSearch`, the struct the
+gRPC and GraphQL parsers fill), and a thin `Handler.Hybrid` wrapper over the
+generic `execute()`. Everything shared (envelope, one-shape errors,
+authz-before-schema, reserved 422s, the experimental gate, op-mode read
+classification) comes from the shared machinery, pinned by tests.
+
+hybrid-specific fields (all in the hybrid `allOf` extension):
+
+| Field | Type | Behavior |
+|---|---|---|
+| `query` | `string` (required) | one string feeds both legs: scored with BM25F and vectorized server-side. Absent or `null` → 422 (swagger required); explicit `""` → 400 (the bm25 split) |
+| `alpha` | `*float64` (ptr) | weight of the vector leg. Omitted → **0.75** (`common_filters.DefaultAlpha`, the gRPC/GraphQL default); outside [0,1] → 400 (the GraphQL parser's validation — gRPC accepts any float, a known upstream drift we do not copy); `0` = pure keyword search, `1` = pure vector search |
+| `fusion_type` | `string` (enum) | `ranked` \| `relative_score`; other value → 422 (swagger enum; handler keeps a 400 fallback for the direct-call path). Omitted → **relative_score** (`common_filters.HybridFusionDefault`, the gRPC/GraphQL default-when-omitted) |
+| `max_vector_distance` | `*float64` (ptr) | vector-distance cutoff (gRPC `Hybrid_VectorDistance` threshold): objects farther than this are dropped from the fused result, including their keyword ranking. Maps to `HybridSearch.Distance` (float32) + `WithDistance` |
+| `query_properties` | `[]string` | keyword-leg property subset; same gRPC-parity handling as bm25 (first-letter lowercasing, `^boost` pass-through, non-searchable property → typed 422 from the searcher) |
+| `target_vector` | `string` | same semantics as near-text (required on multi-named-vector collections → else 422; unknown name → 400) |
+
+Decision log for the settled points:
+
+1. **Defaults are the platform defaults.** Omitted `alpha` → 0.75 and
+   omitted `fusion_type` → relative_score, both read from
+   `adapters/handlers/graphql/local/common_filters` (`DefaultAlpha`,
+   `HybridFusionDefault`) — the same constants the gRPC parser applies for
+   `FUSION_TYPE_UNSPECIFIED`/unset alpha, so the three APIs cannot drift
+   apart silently.
+2. **The vectorizer pre-check is alpha-gated.** The engine skips the vector
+   leg entirely at `alpha: 0` (`explorer_hybrid.go` only runs it for
+   alpha > 0), so a pure keyword hybrid search works on collections without
+   any vectorizer module. The deterministic no-vectorizer 422 pre-check
+   (near-text's `checkVectorizer`, message now parametrized per search kind)
+   therefore only runs when alpha > 0.
+3. **hybrid declares 502** (bm25 deliberately does not): the vector leg
+   embeds the query server-side, so an embedding-provider failure is real.
+   The engine's hybrid vectorize-input path returned untyped errors (unlike
+   the near-text path), so the two `VectorFromInput`/`MultiVectorFromInput`
+   call sites in `explorer_hybrid.go` now wrap failures in the typed
+   `ErrQueryVectorization` (message unchanged — the type is transparent);
+   a drift guard in `usecases/traverser` pins the attachment. Without a
+   vectorizer module configured the deterministic pre-check answers 422
+   before the engine ever runs.
+4. **No `vector`, no subsearches, no `bm25_search_operator`.** gRPC hybrid
+   accepts a client-supplied query vector and nearText/nearVector
+   sub-searches; the REST draft ships without them (the RFC scope), and the
+   bm25 `search_operator` deferral (2026-07-14) applies to the hybrid
+   keyword leg identically. All are safe widenings later (b6ef0eed
+   asymmetry rule).
+5. **`return_metadata` certainty is NOT force-cleared** (unlike bm25):
+   hybrid is a vector search, so gRPC keeps the certainty flag
+   (`extractTargetVectors` marks hybrid `vectorSearch`), subject only to
+   the shared cosine-compatibility silent drop. Distance metadata comes
+   back from the vector leg.
+
 ---
 
 ## 2. Implementation
 
 ### Files
 
-- `openapi-specs/schema.json` — paths `/search/{collection}/near-text` and
-  `/search/{collection}/bm25` (POST, tag `search`, operationIds
-  `search.nearText` / `search.bm25`, per-op
-  `consumes: [application/json]`), definitions `SearchCommon` (shared base),
-  `SearchNearTextRequest` (= `allOf[SearchCommon, near-text-specific]`),
-  `SearchBm25Request` (= `allOf[SearchCommon, {query, query_properties}]`),
-  `SearchResponse`, `SearchResultObject` (the typed
+- `openapi-specs/schema.json` — paths `/search/{collection}/near-text`,
+  `/search/{collection}/bm25` and `/search/{collection}/hybrid` (POST, tag
+  `search`, operationIds `search.nearText` / `search.bm25` / `search.hybrid`,
+  per-op `consumes: [application/json]`), definitions `SearchCommon` (shared
+  base), `SearchNearTextRequest` (= `allOf[SearchCommon,
+  near-text-specific]`), `SearchBm25Request` (= `allOf[SearchCommon, {query,
+  query_properties}]`), `SearchHybridRequest` (= `allOf[SearchCommon, {query,
+  alpha, fusion_type, max_vector_distance, query_properties,
+  target_vector}]`), `SearchResponse`, `SearchResultObject` (the typed
   `{id, properties, references, metadata}` envelope; `properties`/
   `references` are free-form maps) and `SearchResultMetadata` (all-optional
   typed metadata). The spec declares the always-present parts required:
@@ -436,7 +500,11 @@ Decision log for the three settled points:
   where via `filterext.Parse` + `filters.ValidateFilters` (same parser as
   GraphQL/batch-delete), pagination (`auto_limit` → autocut, `*int64` →
   `int`), `return_metadata` → `additional.Properties`, `return_properties`
-  incl. one-hop dot-path refs.
+  incl. one-hop dot-path refs. `buildHybridParams` (+ `parseHybrid`) fills
+  `dto.GetParams.HybridSearch` in behavior-sync with the gRPC parser's
+  hybrid handling (alpha/fusion defaults from `common_filters`,
+  `max_vector_distance` → distance cutoff, property lowercasing, alpha-gated
+  vectorizer pre-check).
 - `adapters/handlers/rest/search/reply.go` — traverser output →
   `models.SearchResponse` (shared): per hit the `{id, properties,
   references, metadata}` envelope — `id` always present, the selected
@@ -495,7 +563,7 @@ enforced by the generated model at bind time; the rest are the handler's.
 |---|---|---|
 | malformed JSON body; `query` string form (array-only); wrong field type (incl. a `where` value of the wrong JSON type, e.g. a string for `valueInt`, or `path` as a string) | 400 | `ErrorResponse` |
 | missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; bad `where` `operator` enum | 422 | `ErrorResponse` |
-| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; both certainty+distance; semantically-invalid `where` (unknown property); unknown property in `return_properties` | 400 | `ErrorResponse` |
+| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; hybrid `alpha` outside [0,1]; both certainty+distance; semantically-invalid `where` (unknown property); unknown property in `return_properties` | 400 | `ErrorResponse` |
 | invalid credentials (bad key/token, via the swagger security layer) | 401 | `ErrorResponse` |
 | no/malformed credentials (anonymous-access middleware, above the swagger layer) | 401 | legacy `{"code","message"}` (parity with existing endpoints) |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
@@ -666,6 +734,13 @@ curl -s -X POST -H 'Content-Type: application/json' \
        "return_properties":["title"],"return_metadata":["score","explain_score"]}' \
   http://127.0.0.1:8091/v1/search/Movie/bm25
 # -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"score":1.5,"explain_score":"..."}}],"took_ms":3}
+
+# hybrid fuses both (alpha weights the vector leg; alpha 0 needs no vectorizer):
+curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"query":"spaceship galaxy","alpha":0.6,"fusion_type":"relative_score",
+       "return_properties":["title"],"return_metadata":["score"]}' \
+  http://127.0.0.1:8091/v1/search/Movie/hybrid
+# -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"score":0.95}}],"took_ms":9}
 ```
 
 If you have the local harnesses, run them against the running instance
@@ -691,18 +766,18 @@ re-issue the same request:
   `search.Handler` (the 2026-07-06 draft on tag
   `rest-search-querypost-snapshot` is the reference implementation:
   middleware placement, CORS/415/405 handling, op-mode carve-outs).
-- **hybrid / near-object** endpoints per the RFC. After the 2026-07-09
-  refactor each one is: a new request definition
-  (`allOf[SearchCommon, {type-specific fields}]`) in `schema.json` + regen, a
-  small `buildXParams` (the shared parsers on `SearchCommon` are already
-  reusable), and a thin `Handler.X` wrapper over the generic `execute()` that
-  returns the shared `SearchResponse` — no copy-paste of the auth/resolve/
-  reply flow (bm25, 2026-07-14, is the proof: spec + `buildBm25Params` +
-  `Handler.Bm25`). Aggregate follows the same shape under `/v1/aggregate/
-  {collection}`.
-- **bm25 `search_operator`** (`and`/`or` + `minimum_or_tokens_match`) — the
-  deferred gRPC-parity gap from the 2026-07-14 decision log; adding it later
-  is a non-breaking widening.
+- **near-object** endpoint per the RFC. After the 2026-07-09 refactor it is:
+  a new request definition (`allOf[SearchCommon, {type-specific fields}]`)
+  in `schema.json` + regen, a small `buildXParams` (the shared parsers on
+  `SearchCommon` are already reusable), and a thin `Handler.X` wrapper over
+  the generic `execute()` that returns the shared `SearchResponse` — no
+  copy-paste of the auth/resolve/reply flow (bm25 2026-07-14 and hybrid
+  2026-07-16 are the proof). Aggregate follows the same shape under
+  `/v1/aggregate/{collection}`.
+- **`search_operator`** (`and`/`or` + `minimum_or_tokens_match`) on bm25 and
+  the hybrid keyword leg — the deferred gRPC-parity gap from the 2026-07-14
+  decision log; adding it later is a non-breaking widening. Likewise the
+  hybrid `vector` / sub-search params (2026-07-16 entry).
 - **RAG params** (`single_prompt`/`grouped_task`): currently 422; needs
   `Cache-Control: no-store` (or equivalent) when implemented, since
   generation re-invokes paid LLM calls.

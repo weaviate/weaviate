@@ -75,6 +75,11 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 		assert.True(t, next.called, "POST bm25 search must pass in READ_ONLY")
 	})
 
+	t.Run("READ_ONLY lets hybrid search through", func(t *testing.T) {
+		next, _ := run(t, searchTestAppState(true, config.READ_ONLY), http.MethodPost, "/v1/search/Movie/hybrid")
+		assert.True(t, next.called, "POST hybrid search must pass in READ_ONLY")
+	})
+
 	t.Run("READ_ONLY still blocks real writes", func(t *testing.T) {
 		next, rec := run(t, searchTestAppState(true, config.READ_ONLY), http.MethodPost, "/v1/objects")
 		assert.False(t, next.called)
@@ -109,6 +114,12 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 	t.Run("WRITE_ONLY blocks bm25 search", func(t *testing.T) {
 		next, rec := run(t, searchTestAppState(true, config.WRITE_ONLY), http.MethodPost, "/v1/search/Movie/bm25")
 		assert.False(t, next.called, "POST bm25 search must be blocked in WRITE_ONLY")
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	})
+
+	t.Run("WRITE_ONLY blocks hybrid search", func(t *testing.T) {
+		next, rec := run(t, searchTestAppState(true, config.WRITE_ONLY), http.MethodPost, "/v1/search/Movie/hybrid")
+		assert.False(t, next.called, "POST hybrid search must be blocked in WRITE_ONLY")
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	})
 

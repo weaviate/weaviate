@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -169,6 +170,122 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	return out, nil
 }
 
+// buildHybridParams converts the hybrid request into the dto.GetParams
+// consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
+// parser's hybrid handling (adapters/handlers/grpc/v1/parse_search_request.go).
+// Shared fields are read from the embedded SearchCommon, hybrid fields off
+// the body.
+func (h *Handler) buildHybridParams(class *models.Class, className string, body *models.SearchHybridRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
+
+	replProps, apiErr := parseConsistencyLevel(common.ConsistencyLevel)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.ReplicationProperties = replProps
+
+	pagination, apiErr := h.parsePagination(common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.Pagination = pagination
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	hybrid, apiErr := parseHybrid(class, body, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.HybridSearch = hybrid
+
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.AdditionalProperties = addProps
+
+	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.Properties = props
+	if len(out.Properties) == 0 {
+		out.AdditionalProperties.NoProps = true
+	}
+
+	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.Filters = filter
+
+	return out, nil
+}
+
+// parseHybrid builds the hybrid search params, mirroring the gRPC parser:
+// the query feeds both the keyword and the vector leg, alpha weights the
+// vector leg (omitted defaults to the shared 0.75; outside [0, 1] rejected,
+// GraphQL parity), fusion_type maps onto the fusion algorithms (omitted
+// defaults to the shared relative_score), max_vector_distance becomes the
+// distance cutoff, and query_properties get the same first-letter
+// lowercasing with "^boost" pass-through as bm25. The vector leg vectorizes
+// the query server-side but is skipped entirely at alpha 0, so a vectorizer
+// module is only required above 0.
+func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVectors []string) (*searchparams.HybridSearch, *APIError) {
+	// an absent (or null) query is already rejected upstream by swagger's
+	// required validation; an explicit empty string reaches the handler
+	if body.Query == nil || *body.Query == "" {
+		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+	}
+
+	alpha := common_filters.DefaultAlpha
+	if body.Alpha != nil {
+		alpha = *body.Alpha
+	}
+	if alpha < 0 || alpha > 1 {
+		return nil, newAPIError(http.StatusBadRequest, "alpha should be between 0.0 and 1.0, got %v", alpha)
+	}
+
+	fusion := common_filters.HybridFusionDefault
+	switch body.FusionType {
+	case "":
+	case "ranked":
+		fusion = common_filters.HybridRankedFusion
+	case "relative_score":
+		fusion = common_filters.HybridRelativeScoreFusion
+	default:
+		// enum-validated at bind time; fallback for the direct-call path
+		return nil, newAPIError(http.StatusBadRequest,
+			"fusion_type must be one of ranked, relative_score, got %q", body.FusionType)
+	}
+
+	params := &searchparams.HybridSearch{
+		Query:           *body.Query,
+		Properties:      schema.LowercaseFirstLetterOfStrings(body.QueryProperties),
+		Alpha:           alpha,
+		FusionAlgorithm: fusion,
+		TargetVectors:   targetVectors,
+	}
+	if body.MaxVectorDistance != nil {
+		params.Distance = float32(*body.MaxVectorDistance)
+		params.WithDistance = true
+	}
+
+	if alpha > 0 {
+		if apiErr := checkVectorizer(class, targetVectors, "hybrid with alpha > 0"); apiErr != nil {
+			return nil, apiErr
+		}
+	}
+
+	return params, nil
+}
+
 // parseBm25 builds the keyword-ranking params for a bm25 search, mirroring
 // the gRPC parser: the first letter of each property name is lowercased and
 // a "^boost" suffix (e.g. "title^2") passes through untouched — the searcher
@@ -313,7 +430,7 @@ func parseNearText(class *models.Class, body *models.SearchNearTextRequest, targ
 		params.WithDistance = true
 	}
 
-	if apiErr := checkVectorizer(class, targetVectors); apiErr != nil {
+	if apiErr := checkVectorizer(class, targetVectors, "near-text"); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -336,14 +453,15 @@ func parseQuery(query []string) ([]string, *APIError) {
 	return query, nil
 }
 
-// checkVectorizer rejects near-text on collections whose (target) vector has
-// no vectorizer module configured — deterministic counterpart of the
-// modules provider's "could not vectorize input ..." runtime error.
-func checkVectorizer(class *models.Class, targetVectors []string) *APIError {
+// checkVectorizer rejects searches that need server-side vectorization on
+// collections whose (target) vector has no vectorizer module configured —
+// deterministic counterpart of the modules provider's "could not vectorize
+// input ..." runtime error. searchKind names the rejected search in the 422.
+func checkVectorizer(class *models.Class, targetVectors []string, searchKind string) *APIError {
 	noVectorizer := func(target string) *APIError {
 		return newAPIError(http.StatusUnprocessableEntity,
-			"near-text is not supported: collection %s has no vectorizer module configured for target vector %q",
-			class.Class, target)
+			"%s is not supported: collection %s has no vectorizer module configured for target vector %q",
+			searchKind, class.Class, target)
 	}
 
 	for _, target := range targetVectors {

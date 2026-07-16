@@ -314,12 +314,22 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 								searchVectors.TargetVectors[i] = targetVector
 								searchVector, err := e.modulesProvider.MultiVectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
 								searchVectors.Vectors[i] = searchVector
-								return err
+								if err != nil {
+									// typed (message unchanged) so API handlers can classify
+									// the vectorization failure
+									return enterrors.NewErrQueryVectorization(err)
+								}
+								return nil
 							}
 							searchVectors.TargetVectors[i] = targetVector
 							searchVector, err := e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
 							searchVectors.Vectors[i] = searchVector
-							return err
+							if err != nil {
+								// typed (message unchanged) so API handlers can classify
+								// the vectorization failure
+								return enterrors.NewErrQueryVectorization(err)
+							}
+							return nil
 						})
 					}
 					if err := eg2.Wait(); err != nil {

@@ -71,6 +71,8 @@ func TestRESTSearchBm25(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
+		// the endpoint is experimental and off by default; enable it
+		WithWeaviateEnv("EXPERIMENTAL_REST_SEARCH_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

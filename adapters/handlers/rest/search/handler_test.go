@@ -841,6 +841,132 @@ func TestBm25HandlerTenantAuthorization(t *testing.T) {
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
+// mustHybridModel is mustModel for the hybrid request model.
+func mustHybridModel(t *testing.T, body string) *models.SearchHybridRequest {
+	t.Helper()
+	var req models.SearchHybridRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doHybrid runs the hybrid handler the way the generated operation wiring
+// does, with the typed, already-decoded request model.
+func doHybrid(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.Hybrid(context.Background(), principal, collection, mustHybridModel(t, body))
+}
+
+// TestHybridHandlerHappyPath: the hybrid wrapper drives the same execute()
+// flow as near-text and bm25, with HybridSearch params instead of module or
+// keyword params, and the envelope carries score metadata.
+func TestHybridHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"score": float32(0.9),
+			},
+		},
+	}
+
+	payload, apiErr := doHybrid(t, deps, nil, "Movie",
+		`{"query":"space opera","limit":5,"alpha":0.6,"fusion_type":"ranked","return_properties":["title"],"return_metadata":["score"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Score)
+	assert.Equal(t, float32(0.9), *obj.Metadata.Score)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with hybrid params, no module or keyword params
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.HybridSearch)
+	assert.Equal(t, "space opera", params.HybridSearch.Query)
+	assert.Equal(t, 0.6, params.HybridSearch.Alpha)
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+}
+
+func TestHybridHandlerDisabled(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.handler.enabled = runtime.NewDynamicValue(false)
+
+	_, apiErr := doHybrid(t, deps, nil, "Movie", `{"query":"space"}`)
+	require.NotNil(t, apiErr)
+	// mirrors DISABLE_GRAPHQL: the operation stays registered and rejects
+	// requests with 422
+	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+	assert.Contains(t, apiErr.Error(), "not enabled")
+	assert.Contains(t, apiErr.Error(), "EXPERIMENTAL_REST_SEARCH_ENABLED")
+}
+
+// TestHybridReservedFieldsRejected: the shared reserved-field 422 gate in
+// execute() fires for hybrid exactly as for near-text and bm25.
+func TestHybridReservedFieldsRejected(t *testing.T) {
+	reserved := map[string]string{
+		"single_prompt":     `"x"`,
+		"grouped_task":      `"x"`,
+		"group_by":          `"x"`,
+		"number_of_groups":  `2`,
+		"objects_per_group": `2`,
+		"rerank_property":   `"x"`,
+		"rerank_query":      `"x"`,
+	}
+	for field, value := range reserved {
+		t.Run(field, func(t *testing.T) {
+			deps := newTestHandler(t)
+			_, apiErr := doHybrid(t, deps, nil, "Movie",
+				fmt.Sprintf(`{"query":"space","%s":%s}`, field, value))
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "not yet supported")
+			assert.Contains(t, apiErr.Error(), field)
+		})
+	}
+}
+
+func TestHybridHandlerAuthorizesBeforeSchemaAccess(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Unknown"))
+
+	// unknown collection AND unauthorized: authz runs first, so the caller
+	// must not learn whether the collection exists
+	_, apiErr := doHybrid(t, deps, nil, "Unknown", `{"query":"space"}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+func TestHybridHandlerUnknownCollection(t *testing.T) {
+	deps := newTestHandler(t)
+
+	_, apiErr := doHybrid(t, deps, nil, "Unknown", `{"query":"space"}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+	assert.Contains(t, apiErr.Error(), "could not find collection")
+}
+
+func TestHybridHandlerTenantAuthorization(t *testing.T) {
+	deps := newTestHandler(t)
+
+	_, apiErr := doHybrid(t, deps, nil, "Movie", `{"query":"space","tenant":"tenantA"}`)
+	require.Nil(t, apiErr)
+
+	calls := deps.authorizer.Calls()
+	require.NotEmpty(t, calls)
+	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
+}
+
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
 	deps.handler.namespacesEnabled = true

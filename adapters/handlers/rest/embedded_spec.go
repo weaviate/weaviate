@@ -6581,6 +6581,99 @@ func init() {
         }
       }
     },
+    "/search/{collection}/hybrid": {
+      "post": {
+        "description": "Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the ` + "`" + `query_properties` + "`" + ` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per ` + "`" + `fusion_type` + "`" + `, weighted by ` + "`" + `alpha` + "`" + `) and the best objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with hybrid",
+        "operationId": "search.hybrid",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The hybrid search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchHybridRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, target_vector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/search/{collection}/near-text": {
       "post": {
         "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
@@ -10455,7 +10548,7 @@ func init() {
       ]
     },
     "SearchCommon": {
-      "description": "Fields shared by every REST search request (near-text, bm25, and — when built — hybrid, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "description": "Fields shared by every REST search request (near-text, bm25, hybrid, and — when built — near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
       "type": "object",
       "properties": {
         "auto_limit": {
@@ -10553,6 +10646,57 @@ func init() {
           "$ref": "#/definitions/WhereFilter"
         }
       }
+    },
+    "SearchHybridRequest": {
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusion_type` + "`" + `, ` + "`" + `max_vector_distance` + "`" + `, ` + "`" + `query_properties` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "alpha": {
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "fusion_type": {
+              "description": "The algorithm that fuses the keyword and vector rankings: ` + "`" + `ranked` + "`" + ` (reciprocal-rank fusion) or ` + "`" + `relative_score` + "`" + ` (normalized-score fusion). Omitted defaults to ` + "`" + `relative_score` + "`" + `.",
+              "type": "string",
+              "enum": [
+                "ranked",
+                "relative_score"
+              ]
+            },
+            "max_vector_distance": {
+              "description": "The maximum vector distance of a match: objects farther than this from the query vector are excluded, from the keyword ranking too.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "type": "string"
+            },
+            "query_properties": {
+              "description": "The properties the keyword part of the search scores against, each optionally weighted with a ` + "`" + `^boost` + "`" + ` suffix (e.g. ` + "`" + `title^2` + "`" + `). Omitted or empty searches every searchable text property. A property without a searchable index is rejected with 422.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "target_vector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "SearchNearTextRequest": {
       "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
@@ -18109,6 +18253,99 @@ func init() {
         }
       }
     },
+    "/search/{collection}/hybrid": {
+      "post": {
+        "description": "Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the ` + "`" + `query_properties` + "`" + ` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per ` + "`" + `fusion_type` + "`" + `, weighted by ` + "`" + `alpha` + "`" + `) and the best objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with hybrid",
+        "operationId": "search.hybrid",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The hybrid search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchHybridRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, alpha outside [0, 1], negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, target_vector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/search/{collection}/near-text": {
       "post": {
         "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
@@ -22358,7 +22595,7 @@ func init() {
       ]
     },
     "SearchCommon": {
-      "description": "Fields shared by every REST search request (near-text, bm25, and — when built — hybrid, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "description": "Fields shared by every REST search request (near-text, bm25, hybrid, and — when built — near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
       "type": "object",
       "properties": {
         "auto_limit": {
@@ -22456,6 +22693,57 @@ func init() {
           "$ref": "#/definitions/WhereFilter"
         }
       }
+    },
+    "SearchHybridRequest": {
+      "description": "Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the hybrid-specific ` + "`" + `query` + "`" + `, ` + "`" + `alpha` + "`" + `, ` + "`" + `fusion_type` + "`" + `, ` + "`" + `max_vector_distance` + "`" + `, ` + "`" + `query_properties` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "alpha": {
+              "description": "The weight of the vector part of the search, between 0 and 1. ` + "`" + `0` + "`" + ` is a pure keyword search, ` + "`" + `1` + "`" + ` a pure vector search. Omitted defaults to ` + "`" + `0.75` + "`" + `. With ` + "`" + `0` + "`" + ` the query is never vectorized, so a collection without a vectorizer module is searchable.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "fusion_type": {
+              "description": "The algorithm that fuses the keyword and vector rankings: ` + "`" + `ranked` + "`" + ` (reciprocal-rank fusion) or ` + "`" + `relative_score` + "`" + ` (normalized-score fusion). Omitted defaults to ` + "`" + `relative_score` + "`" + `.",
+              "type": "string",
+              "enum": [
+                "ranked",
+                "relative_score"
+              ]
+            },
+            "max_vector_distance": {
+              "description": "The maximum vector distance of a match: objects farther than this from the query vector are excluded, from the keyword ranking too.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.",
+              "type": "string"
+            },
+            "query_properties": {
+              "description": "The properties the keyword part of the search scores against, each optionally weighted with a ` + "`" + `^boost` + "`" + ` suffix (e.g. ` + "`" + `title^2` + "`" + `). Omitted or empty searches every searchable text property. A property without a searchable index is rejected with 422.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "target_vector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "SearchNearTextRequest": {
       "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
