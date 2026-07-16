@@ -22,16 +22,16 @@ import (
 )
 
 // HTTPStatusForNamespaceErr maps a namespace/collection lifecycle sentinel
-// to its REST status: the terminal family (deleting, not-empty,
-// invalid-state, suspended) renders 422, a resuming namespace renders 503.
-// ok is false for anything else, so the caller falls through to its own
-// default.
+// to its REST status: the terminal family (not-empty, invalid-state,
+// suspended) renders 422, a resuming namespace renders 503. A deleting
+// namespace is deliberately excluded — callers render it as a 409 state
+// conflict. ok is false for anything else, so the caller falls through to
+// its own default.
 func HTTPStatusForNamespaceErr(err error) (status int, ok bool) {
 	switch {
 	case errors.Is(err, namespaces.ErrNamespaceResuming):
 		return http.StatusServiceUnavailable, true
-	case errors.Is(err, namespaces.ErrNamespaceDeleting),
-		errors.Is(err, namespaces.ErrNamespaceNotEmpty),
+	case errors.Is(err, namespaces.ErrNamespaceNotEmpty),
 		errors.Is(err, namespaces.ErrInvalidState),
 		errors.Is(err, namespaces.ErrNamespaceSuspended),
 		errors.Is(err, namespaces.ErrCollectionSuspended):

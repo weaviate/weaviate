@@ -459,8 +459,12 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now()); err != nil {
-		// Apply-time race: surface a gone/deleting/suspended namespace as 422
-		// so clients can retry against current state.
+		// Apply-time race against a namespace lifecycle change. A deleting
+		// namespace is a transient state conflict (409); a gone/suspended/
+		// invalid-state namespace renders 422.
+		if errors.Is(err, namespaces.ErrNamespaceDeleting) {
+			return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
+		}
 		status, ok := cerrors.HTTPStatusForNamespaceErr(err)
 		if errors.Is(err, namespaces.ErrNamespaceGone) || (ok && status == http.StatusUnprocessableEntity) {
 			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))

@@ -244,21 +244,40 @@ func TestCreateNamespace_UnprocessableEntity(t *testing.T) {
 	}
 }
 
-// TestCreateNamespace_Conflict checks that create returns 409 with an
-// "already exists" message when the name belongs to an existing namespace.
+// TestCreateNamespace_Conflict checks the 409 paths: an existing name and a
+// namespace mid-deletion both return Conflict with a distinguishing message.
 func TestCreateNamespace_Conflict(t *testing.T) {
 	principal := &models.Principal{}
-	h, authz, raft := newHandler(t)
-	authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
-	raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1"}).Return(
-		nil, 0, fmt.Errorf("%w: %q", usecasesNamespaces.ErrAlreadyExists, "customer1"))
+	cases := []struct {
+		name       string
+		raftErr    error
+		wantSubstr string
+	}{
+		{
+			name:       "already exists",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrAlreadyExists, "customer1"),
+			wantSubstr: "already exists",
+		},
+		{
+			name:       "being deleted",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, "customer1"),
+			wantSubstr: "being deleted",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, authz, raft := newHandler(t)
+			authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
+			raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1"}).Return(nil, 0, tc.raftErr)
 
-	res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
-	parsed, ok := res.(*nsops.CreateNamespaceConflict)
-	require.True(t, ok, "expected 409, got %T", res)
-	require.NotNil(t, parsed.Payload)
-	require.Len(t, parsed.Payload.Error, 1)
-	assert.Contains(t, parsed.Payload.Error[0].Message, "already exists")
+			res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			parsed, ok := res.(*nsops.CreateNamespaceConflict)
+			require.True(t, ok, "expected 409, got %T", res)
+			require.NotNil(t, parsed.Payload)
+			require.Len(t, parsed.Payload.Error, 1)
+			assert.Contains(t, parsed.Payload.Error[0].Message, tc.wantSubstr)
+		})
+	}
 }
 
 // TestCreateNamespace_LifecycleErrorsReturn422 checks that the namespace
@@ -270,11 +289,6 @@ func TestCreateNamespace_LifecycleErrorsReturn422(t *testing.T) {
 		raftErr    error
 		wantSubstr string
 	}{
-		{
-			name:       "being deleted",
-			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, "customer1"),
-			wantSubstr: "being deleted",
-		},
 		{
 			name:       "namespace suspended",
 			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceSuspended, "customer1"),
@@ -473,9 +487,9 @@ func TestUpdateNamespace_RaftErrorMapping(t *testing.T) {
 			wantTyped: &nsops.UpdateNamespaceNotFound{},
 		},
 		{
-			name:      "ErrNamespaceDeleting → 422",
+			name:      "ErrNamespaceDeleting → 409",
 			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, "customer1"),
-			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
+			wantTyped: &nsops.UpdateNamespaceConflict{},
 		},
 		{
 			name:      "ErrNamespaceSuspended → 422",

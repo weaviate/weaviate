@@ -452,13 +452,13 @@ func TestCreateUser_Namespaces(t *testing.T) {
 	}
 }
 
-// TestCreateUser_MapsApplyNamespaceErrorsTo422 asserts the createUser
-// handler classifies apply-layer namespace sentinels as retryable client
-// errors (422) and everything else as 500. The handler's pre-flight
-// Exists check can race with a concurrent namespace delete, so a 500
-// would be misleading: the request is well-formed, the namespace just
-// vanished underneath it.
-func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
+// TestCreateUser_MapsApplyNamespaceErrors asserts the createUser handler
+// classifies apply-layer namespace sentinels: a deleting namespace is a
+// transient state conflict (409), the rest of the lifecycle family renders
+// 422, and everything else is 500. The handler's pre-flight Exists check can
+// race with a concurrent namespace delete, so a 500 would be misleading: the
+// request is well-formed, the namespace just changed state underneath it.
+func TestCreateUser_MapsApplyNamespaceErrors(t *testing.T) {
 	const userID = "ns1:user"
 
 	tests := []struct {
@@ -472,9 +472,9 @@ func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
 			expect:   &users.CreateUserUnprocessableEntity{},
 		},
 		{
-			name:     "ErrNamespaceDeleting returns 422",
+			name:     "ErrNamespaceDeleting returns 409",
 			applyErr: fmt.Errorf("apply: %w", namespaces.ErrNamespaceDeleting),
-			expect:   &users.CreateUserUnprocessableEntity{},
+			expect:   &users.CreateUserConflict{},
 		},
 		{
 			name:     "ErrNamespaceSuspended returns 422",

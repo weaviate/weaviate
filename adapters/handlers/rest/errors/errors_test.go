@@ -68,7 +68,7 @@ func TestHTTPStatusForNamespaceErr(t *testing.T) {
 		wantStatus int
 		wantOK     bool
 	}{
-		{name: "deleting → 422", err: namespaces.ErrNamespaceDeleting, wantStatus: http.StatusUnprocessableEntity, wantOK: true},
+		{name: "deleting is not in the family (callers render 409)", err: namespaces.ErrNamespaceDeleting, wantStatus: 0, wantOK: false},
 		{name: "not-empty → 422", err: namespaces.ErrNamespaceNotEmpty, wantStatus: http.StatusUnprocessableEntity, wantOK: true},
 		{name: "invalid-state → 422", err: namespaces.ErrInvalidState, wantStatus: http.StatusUnprocessableEntity, wantOK: true},
 		{name: "namespace-suspended → 422", err: namespaces.ErrNamespaceSuspended, wantStatus: http.StatusUnprocessableEntity, wantOK: true},
