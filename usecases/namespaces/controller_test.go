@@ -504,6 +504,13 @@ func TestController_Restore(t *testing.T) {
 			snap:    []byte(`{"customer1":{"Name":"customer1","HomeNodes":[""],"State":"active"}}`),
 			wantErr: true,
 		},
+		{
+			// A truncated or hand-edited snapshot unmarshals a null entry to
+			// a nil pointer; it must be rejected rather than dereferenced.
+			name:    "null entry is rejected",
+			snap:    []byte(`{"customer1":null}`),
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range tests {

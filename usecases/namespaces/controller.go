@@ -364,6 +364,9 @@ func (c *Controller) Restore(snapshot []byte) error {
 		return err
 	}
 	for name, ns := range restored {
+		if ns == nil {
+			return fmt.Errorf("namespace %q in snapshot is null", name)
+		}
 		if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
 			return fmt.Errorf("namespace %q in snapshot is missing home_node; "+
 				"namespaces require a single home_node and have no migration path "+
