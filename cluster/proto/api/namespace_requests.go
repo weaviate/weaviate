@@ -43,6 +43,12 @@ const (
 	// NamespaceStateDeleting rejects create-like operations; the entity is
 	// removed once cleanup empties it.
 	NamespaceStateDeleting NamespaceState = "deleting"
+	// NamespaceStateSuspended rejects create-like operations; the entity and
+	// everything it owns are retained.
+	NamespaceStateSuspended NamespaceState = "suspended"
+	// NamespaceStateResuming rejects create-like operations while the
+	// namespace is on its way back to active.
+	NamespaceStateResuming NamespaceState = "resuming"
 )
 
 // AddNamespaceRequest is the RAFT apply payload for creating a namespace.

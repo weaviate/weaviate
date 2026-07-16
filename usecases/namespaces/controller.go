@@ -94,8 +94,31 @@ var reservedNames = map[string]struct{}{
 	"public":   {},
 }
 
+// stateTransitions maps a namespace's current state to the states it may flip
+// to. A pair absent from the table is refused with [ErrInvalidStateTransition].
+// deleting is terminal: re-entry only via RemoveEntity + fresh Create. Every
+// other state may reach deleting, so a namespace whose home node died mid-flip
+// can still be deleted.
+var stateTransitions = map[cmd.NamespaceState]map[cmd.NamespaceState]struct{}{
+	cmd.NamespaceStateActive: {
+		cmd.NamespaceStateSuspended: {},
+		cmd.NamespaceStateDeleting:  {},
+	},
+	cmd.NamespaceStateSuspended: {
+		cmd.NamespaceStateResuming: {},
+		cmd.NamespaceStateActive:   {},
+		cmd.NamespaceStateDeleting: {},
+	},
+	cmd.NamespaceStateResuming: {
+		cmd.NamespaceStateActive:    {},
+		cmd.NamespaceStateSuspended: {},
+		cmd.NamespaceStateDeleting:  {},
+	},
+	cmd.NamespaceStateDeleting: {},
+}
+
 // Exister exposes read-only access to namespace state. Exists matches any
-// state; IsActive excludes the deleting state.
+// state; IsActive matches only the active state.
 type Exister interface {
 	Exists(name string) bool
 	IsActive(name string) bool
@@ -183,7 +206,8 @@ func (c *Controller) Update(ns cmd.Namespace) error {
 // deleting back to active).
 func (c *Controller) ChangeState(name string, target cmd.NamespaceState) error {
 	switch target {
-	case cmd.NamespaceStateActive, cmd.NamespaceStateDeleting:
+	case cmd.NamespaceStateActive, cmd.NamespaceStateSuspended,
+		cmd.NamespaceStateResuming, cmd.NamespaceStateDeleting:
 	default:
 		return fmt.Errorf("%w: unknown namespace state %q", ErrBadRequest, target)
 	}
@@ -197,8 +221,7 @@ func (c *Controller) ChangeState(name string, target cmd.NamespaceState) error {
 	if ns.State == target {
 		return nil
 	}
-	// deleting is terminal: re-entry only via RemoveEntity + fresh Create.
-	if ns.State == cmd.NamespaceStateDeleting {
+	if _, legal := stateTransitions[ns.State][target]; !legal {
 		return fmt.Errorf("%w: %q is %s, cannot transition to %s",
 			ErrInvalidStateTransition, name, ns.State, target)
 	}

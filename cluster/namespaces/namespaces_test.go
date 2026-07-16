@@ -75,9 +75,14 @@ func seedNamespace(t *testing.T, m *Manager, name string, seedState cmd.Namespac
 		return
 	}
 	require.NoError(t, m.Add(addCmd(t, name)))
-	if seedState == cmd.NamespaceStateDeleting {
-		require.NoError(t, m.ChangeState(changeStateCmd(t, name, cmd.NamespaceStateDeleting)))
+	if seedState == cmd.NamespaceStateActive {
+		return
 	}
+	if seedState == cmd.NamespaceStateResuming {
+		// resuming is only reachable from suspended.
+		require.NoError(t, m.ChangeState(changeStateCmd(t, name, cmd.NamespaceStateSuspended)))
+	}
+	require.NoError(t, m.ChangeState(changeStateCmd(t, name, seedState)))
 }
 
 func TestNewManager_RequiredArgsPanic(t *testing.T) {

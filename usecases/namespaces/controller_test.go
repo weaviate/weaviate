@@ -39,9 +39,14 @@ func seedNamespace(t *testing.T, c *Controller, name string, seedState cmd.Names
 		return
 	}
 	require.NoError(t, c.Create(cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}}))
-	if seedState == cmd.NamespaceStateDeleting {
-		require.NoError(t, c.ChangeState(name, cmd.NamespaceStateDeleting))
+	if seedState == cmd.NamespaceStateActive {
+		return
 	}
+	if seedState == cmd.NamespaceStateResuming {
+		// resuming is only reachable from suspended.
+		require.NoError(t, c.ChangeState(name, cmd.NamespaceStateSuspended))
+	}
+	require.NoError(t, c.ChangeState(name, seedState))
 }
 
 func TestValidateName(t *testing.T) {
@@ -179,11 +184,30 @@ func TestController_ChangeState(t *testing.T) {
 		target    cmd.NamespaceState
 		wantErr   error
 	}{
-		{name: "active -> deleting flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateDeleting},
+		// from active
 		{name: "active -> active is idempotent", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateActive},
-		{name: "deleting -> deleting is idempotent", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateDeleting},
+		{name: "active -> suspended flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateSuspended},
+		{name: "active -> resuming is forbidden", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateResuming, wantErr: ErrInvalidStateTransition},
+		{name: "active -> deleting flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateDeleting},
+		// from suspended
+		{name: "suspended -> active flips state", seedState: cmd.NamespaceStateSuspended, target: cmd.NamespaceStateActive},
+		{name: "suspended -> suspended is idempotent", seedState: cmd.NamespaceStateSuspended, target: cmd.NamespaceStateSuspended},
+		{name: "suspended -> resuming flips state", seedState: cmd.NamespaceStateSuspended, target: cmd.NamespaceStateResuming},
+		{name: "suspended -> deleting flips state", seedState: cmd.NamespaceStateSuspended, target: cmd.NamespaceStateDeleting},
+		// from resuming
+		{name: "resuming -> active flips state", seedState: cmd.NamespaceStateResuming, target: cmd.NamespaceStateActive},
+		{name: "resuming -> suspended flips state", seedState: cmd.NamespaceStateResuming, target: cmd.NamespaceStateSuspended},
+		{name: "resuming -> resuming is idempotent", seedState: cmd.NamespaceStateResuming, target: cmd.NamespaceStateResuming},
+		{name: "resuming -> deleting flips state", seedState: cmd.NamespaceStateResuming, target: cmd.NamespaceStateDeleting},
+		// from deleting: terminal
 		{name: "deleting -> active is forbidden", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateActive, wantErr: ErrInvalidStateTransition},
+		{name: "deleting -> suspended is forbidden", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateSuspended, wantErr: ErrInvalidStateTransition},
+		{name: "deleting -> resuming is forbidden", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateResuming, wantErr: ErrInvalidStateTransition},
+		{name: "deleting -> deleting is idempotent", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateDeleting},
+
 		{name: "unknown target state is rejected", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceState("not-a-state"), wantErr: ErrBadRequest},
+		// What a payload with no TargetState unmarshals to.
+		{name: "empty target state is rejected", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceState(""), wantErr: ErrBadRequest},
 		{name: "missing namespace returns ErrNotFound", target: cmd.NamespaceStateDeleting, wantErr: ErrNotFound},
 	}
 
@@ -196,11 +220,17 @@ func TestController_ChangeState(t *testing.T) {
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.wantErr)
+				if tc.seedState != "" {
+					got, ok := c.GetNamespace("customer1")
+					require.True(t, ok)
+					assert.Equal(t, tc.seedState, got.State, "rejected ChangeState must not mutate the stored state")
+				}
 				return
 			}
 			require.NoError(t, err)
-			assert.True(t, c.Exists("customer1"))
-			assert.Equal(t, tc.target == cmd.NamespaceStateActive, c.IsActive("customer1"))
+			got, ok := c.GetNamespace("customer1")
+			require.True(t, ok)
+			assert.Equal(t, tc.target, got.State)
 		})
 	}
 }
