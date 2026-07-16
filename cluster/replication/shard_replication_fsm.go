@@ -252,16 +252,23 @@ func (s *ShardReplicationFSM) HasActiveReplicationForCollection(collection strin
 	return false
 }
 
-func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, shard, replica string) bool {
-	ops, ok := s.GetOpsForTargetNode(replica)
-	if !ok {
-		return false
-	}
-	for _, o := range ops {
-		if o.Op.TargetShard.CollectionId != collection || o.Op.TargetShard.ShardId != shard {
+// HasActiveTargetReplicationForShard is an eventually-consistent hint read from this
+// node's local FSM (bounded by RAFT apply lag), not a synchronization barrier. It is
+// polled on every hashbeat cycle of every shard and must stay allocation-free.
+func (s *ShardReplicationFSM) HasActiveTargetReplicationForShard(collection, shard, targetNode string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	for _, op := range s.opsByCollectionAndShard[collection][shard] {
+		if op.TargetShard.NodeId != targetNode ||
+			op.TargetShard.CollectionId != collection || op.TargetShard.ShardId != shard {
 			continue
 		}
-		switch o.Status.GetCurrentState() {
+		status, ok := s.statusById[op.ID]
+		if !ok {
+			continue
+		}
+		switch status.GetCurrentState() {
 		case api.READY, api.CANCELLED:
 			// terminal — does not block async-repl gating
 		default:

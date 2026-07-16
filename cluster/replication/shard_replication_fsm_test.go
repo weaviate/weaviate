@@ -12,11 +12,14 @@
 package replication_test
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
@@ -286,4 +289,259 @@ func TestShardReplicationFSM_RemoveOneOfTwoTargetOps(t *testing.T) {
 	require.Empty(t, fsm.GetOpsForTarget("node2"))
 	require.Equal(t, []string{"node2"}, fsm.FilterOneShardReplicasRead(coll, shard, replicas))
 	require.Equal(t, []string{"node2"}, fsm.FilterOneShardReplicasWrite(coll, shard, replicas))
+}
+
+func TestShardReplicationFSM_HasActiveTargetReplicationForShard(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+
+	cases := []struct {
+		name     string
+		seed     func(t *testing.T, fsm *replication.ShardReplicationFSM)
+		replica  string
+		expected bool
+	}{
+		{name: "empty fsm", seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {}, replica: "node2", expected: false},
+		{
+			name: "op targets another node",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node3", coll, shard, api.COPY)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "op on another collection",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", "OtherClass", shard, api.COPY)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "op on another shard",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, "other-shard", api.COPY)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "op is REGISTERED",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+			},
+			replica: "node2", expected: true,
+		},
+		{
+			name: "op is HYDRATING",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.HYDRATING)
+			},
+			replica: "node2", expected: true,
+		},
+		{
+			name: "op is FINALIZING",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.FINALIZING)
+			},
+			replica: "node2", expected: true,
+		},
+		{
+			name: "op is INTEGRATING",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.INTEGRATING)
+			},
+			replica: "node2", expected: true,
+		},
+		{
+			name: "op is DEHYDRATING",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.MOVE)
+				driveToState(t, fsm, 1, api.DEHYDRATING)
+			},
+			replica: "node2", expected: true,
+		},
+		{
+			name: "op is READY",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.READY)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "op is CANCELLED",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToCancelled(t, fsm, 1)
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "op is READY and marked for deletion",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				uuid := seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.READY)
+				require.NoError(t, fsm.DeleteReplication(&api.ReplicationDeleteRequest{
+					Version: api.ReplicationCommandVersionV0,
+					Uuid:    uuid,
+				}))
+			},
+			replica: "node2", expected: false,
+		},
+		{
+			name: "queried replica is the source node",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+			},
+			replica: "node1", expected: false,
+		},
+		{
+			name: "active op beside terminal ops on same shard",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToCancelled(t, fsm, 1)
+				seedOpFull(t, fsm, 2, "node1", "node3", coll, shard, api.COPY)
+				driveToState(t, fsm, 2, api.READY)
+				seedOpFull(t, fsm, 3, "node3", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 3, api.HYDRATING)
+			},
+			replica: "node2", expected: true,
+		},
+		{
+			name: "op removed",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				require.NoError(t, fsm.RemoveReplicationOp(&api.ReplicationRemoveOpRequest{
+					Version: api.ReplicationCommandVersionV0,
+					Id:      1,
+				}))
+			},
+			replica: "node2", expected: false,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			tt.seed(t, fsm)
+			assert.Equal(t, tt.expected, fsm.HasActiveTargetReplicationForShard(coll, shard, tt.replica))
+		})
+	}
+}
+
+func TestShardReplicationFSM_HasActiveTargetReplicationForShardDoesNotAllocate(t *testing.T) {
+	const (
+		coll   = "TestClass"
+		target = "node2"
+	)
+	fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+	for i := range 10_000 {
+		seedOpFull(t, fsm, uint64(i+1), "node1", target, coll, fmt.Sprintf("shard-%d", i), api.COPY)
+	}
+
+	require.Zero(t, testing.AllocsPerRun(100, func() {
+		fsm.HasActiveTargetReplicationForShard(coll, "shard-0", target)
+	}))
+	require.Zero(t, testing.AllocsPerRun(100, func() {
+		fsm.HasActiveTargetReplicationForShard(coll, "shard-0", "node3")
+	}))
+	require.Zero(t, testing.AllocsPerRun(100, func() {
+		fsm.HasActiveTargetReplicationForShard(coll, "no-such-shard", target)
+	}))
+}
+
+func TestShardReplicationFSM_HasActiveTargetReplicationForShardConcurrent(t *testing.T) {
+	const (
+		coll       = "TestClass"
+		writers    = 4
+		readers    = 4
+		iterations = 500
+	)
+	fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+
+	var eg errgroup.Group
+	for w := range writers {
+		eg.Go(func() error {
+			for i := range iterations {
+				id := uint64(w*iterations + i + 1)
+				shard := fmt.Sprintf("shard-%d-%d", w, i)
+				if err := fsm.Replicate(id, &api.ReplicationReplicateShardRequest{
+					Version:          api.ReplicationCommandVersionV0,
+					Uuid:             strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", id)),
+					SourceNode:       "node1",
+					SourceCollection: coll,
+					SourceShard:      shard,
+					TargetNode:       "node2",
+					TransferType:     api.COPY.String(),
+				}); err != nil {
+					return err
+				}
+				if err := fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+					Version: api.ReplicationCommandVersionV0,
+					Id:      id,
+					State:   api.HYDRATING,
+				}); err != nil {
+					return err
+				}
+				if i%2 == 0 {
+					if err := fsm.RemoveReplicationOp(&api.ReplicationRemoveOpRequest{
+						Version: api.ReplicationCommandVersionV0,
+						Id:      id,
+					}); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		})
+	}
+	for r := range readers {
+		eg.Go(func() error {
+			for i := range iterations * writers {
+				shard := fmt.Sprintf("shard-%d-%d", (r+i)%writers, i%iterations)
+				fsm.HasActiveTargetReplicationForShard(coll, shard, "node2")
+				fsm.HasActiveReplicationForShard(coll, shard)
+			}
+			return nil
+		})
+	}
+	require.NoError(t, eg.Wait())
+}
+
+func BenchmarkHasActiveTargetReplicationForShard(b *testing.B) {
+	const (
+		coll   = "TestClass"
+		target = "node2"
+	)
+	for _, n := range []int{10_000, 100_000} {
+		fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+		for i := range n {
+			id := uint64(i + 1)
+			require.NoError(b, fsm.Replicate(id, &api.ReplicationReplicateShardRequest{
+				Version:          api.ReplicationCommandVersionV0,
+				Uuid:             strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", id)),
+				SourceNode:       "node1",
+				SourceCollection: coll,
+				SourceShard:      fmt.Sprintf("shard-%d", i),
+				TargetNode:       target,
+				TransferType:     api.COPY.String(),
+			}))
+		}
+		b.Run(fmt.Sprintf("ops-%d/hit", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				fsm.HasActiveTargetReplicationForShard(coll, "shard-0", target)
+			}
+		})
+		b.Run(fmt.Sprintf("ops-%d/miss", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				fsm.HasActiveTargetReplicationForShard(coll, "no-such-shard", target)
+			}
+		})
+	}
 }
