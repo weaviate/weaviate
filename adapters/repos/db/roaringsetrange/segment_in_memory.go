@@ -124,6 +124,40 @@ func (s *SegmentInMemory) countPendingMemtables() int {
 	return len(s.memtables)
 }
 
+// IsUnpopulated reports whether the representation would return no rows for any
+// query: its presence set (bitmaps[0], the base every reader clones) is empty
+// AND it has no pending flushed-memtables queued for merge. This is the correct
+// emptiness discriminant for the disk-fallback decision (GH#12199).
+//
+// Two subtleties this encodes:
+//   - Size() is NOT usable, because an unpopulated rep still allocates 65 bitmap
+//     skeletons with non-zero byte size.
+//   - The pending-memtable check excludes the transient window right after a
+//     flush where bitmaps[0] is briefly empty but the data is already readable
+//     via the pending-memtable queue (Readers() serves it). Without this, the
+//     read path would needlessly fall back to disk on the first flush of a fresh
+//     bucket. A genuine rep desync (the prepend-bypass bug, or a mass-delete
+//     after its deletes merged) has an empty presence set AND no pending
+//     memtables, so this still detects it.
+//
+// It acquires bitmapsLock then memtablesLock, the same order Readers() uses, so
+// no new lock-order edge is introduced. Callers must never hold either lock
+// simultaneously with the segment group's maintenanceLock (read the disk-segment
+// count in a separate step).
+func (s *SegmentInMemory) IsUnpopulated() bool {
+	s.bitmapsLock.RLock()
+	defer s.bitmapsLock.RUnlock()
+
+	if !s.bitmaps[0].IsEmpty() {
+		return false
+	}
+
+	s.memtablesLock.Lock()
+	defer s.memtablesLock.Unlock()
+
+	return len(s.memtables) == 0
+}
+
 func (s *SegmentInMemory) Size() int {
 	size := 0
 	for i := range s.bitmaps {
