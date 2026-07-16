@@ -69,10 +69,13 @@ function release() {
     else
       tag_preview_semver="${DOCKER_REPO}:${weaviate_version}-${git_revision}"
     fi
-    pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g')"
+    # Cap slug at 80 chars: Docker's tag limit is 128 and preview tags append a
+    # sha/arch suffix. Re-strip after cut, since it can leave a new trailing dash.
+    pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g' | cut -c1-80 | sed 's/-$//g')"
     if [ "$pr_title" == "" ]; then
       git_branch="$GITHUB_REF_NAME"
-      branch_name="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g')"
+      # Same 80-char cap as pr_title above (Docker tag limit).
+      branch_name="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g' | cut -c1-80 | sed 's/-$//g')"
       tag_preview="${DOCKER_REPO}:${branch_name}-${git_revision}"
       weaviate_version="${branch_name}-${git_revision}"
       git_branch="$GITHUB_HEAD_REF"
