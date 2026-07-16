@@ -35,6 +35,7 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 		roleNames                    []string
 		policyResources              []string
 		groupingSubjects             []string
+		staticAPIKeyUsers            []string
 		wantErr                      bool
 		errSubstr                    string
 	}{
@@ -211,6 +212,23 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			groupingSubjects: []string{"oidc:foo:bar"},
 		},
 		{
+			// A static API-key user is global but reaches casbin under the db
+			// prefix, and its name may contain ':' when namespaces are off, so
+			// its subject must not be read as a namespaced principal.
+			name:              "disabled, colon-bearing static API-key subject is fine",
+			enabled:           false,
+			staticAPIKeyUsers: []string{"customer1:carol"},
+			groupingSubjects:  []string{"db:customer1:carol"},
+		},
+		{
+			name:              "disabled, namespaced principal still caught alongside a static API-key user",
+			enabled:           false,
+			staticAPIKeyUsers: []string{"customer1:carol"},
+			groupingSubjects:  []string{"db:customer1:carol", "db:tenant1:bob"},
+			wantErr:           true,
+			errSubstr:         "namespace-qualified principal",
+		},
+		{
 			name:       "disabled, multiple violation kinds still fails",
 			enabled:    false,
 			roleNames:  []string{qualified("tenant1", "editor")},
@@ -383,7 +401,7 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount, tt.roleNames, tt.policyResources, tt.groupingSubjects)
+			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount, tt.roleNames, tt.policyResources, tt.groupingSubjects, tt.staticAPIKeyUsers)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errSubstr)

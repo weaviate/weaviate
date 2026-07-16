@@ -945,6 +945,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			groupingSubjects = subjects
 		}
+		// Static API-key users are global; their names may carry ':' when
+		// namespaces are disabled, so the db-subject check must not read them
+		// as namespaced principals.
+		var staticAPIKeyUsers []string
+		if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
+			staticAPIKeyUsers = appState.ServerConfig.Config.Authentication.APIKey.Users
+		}
 		if err := enforceNamespaceStartupInvariants(
 			appState.ServerConfig.Config.Namespaces.Enabled,
 			appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
@@ -954,6 +961,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			roleNames,
 			policyResources,
 			groupingSubjects,
+			staticAPIKeyUsers,
 		); err != nil {
 			l.Fatal(err)
 		}
@@ -1222,7 +1230,7 @@ func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogg
 // A class name is considered namespace-qualified iff it contains
 // entschema.NamespaceSeparator (":"), which is forbidden in plain class names
 // by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
-func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, policyResources []string, groupingSubjects []string) error {
+func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, policyResources []string, groupingSubjects []string, staticAPIKeyUsers []string) error {
 	var nonNamespacedCount, namespacedCount int
 	var nonNamespacedExample, namespacedExample string
 	for _, name := range classNames {
@@ -1312,9 +1320,18 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		// Only a colon in a direct db user (e.g. db:customer1:alice) is a namespace
 		// qualifier — db names forbid ':'. OIDC names may contain ':', so oidc:
 		// subjects are ambiguous and skipped; groups are global regardless of name.
+		// A static API-key user is global but also reaches casbin under the db
+		// prefix, and its name may carry ':' here, so those subjects are exempt.
+		staticAPIKeyUser := make(map[string]struct{}, len(staticAPIKeyUsers))
+		for _, u := range staticAPIKeyUsers {
+			staticAPIKeyUser[u] = struct{}{}
+		}
 		if n, ex := countQualified(groupingSubjects, func(s string) bool {
 			user, prefix, err := conv.GetUserAndPrefix(s)
 			if err != nil || prefix != string(authentication.AuthTypeDb) {
+				return false
+			}
+			if _, ok := staticAPIKeyUser[user]; ok {
 				return false
 			}
 			return conv.ContainsNamespaceSeparator(user)

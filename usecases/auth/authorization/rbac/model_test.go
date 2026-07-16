@@ -1141,6 +1141,47 @@ func TestApplyPredefinedRoles_RejectsNamespaceSeparatorInBootstrapUsers(t *testi
 	}
 }
 
+// TestApplyPredefinedRoles_ColonUsersSupportedOnNSDisabled pins that a colon in
+// a statically configured user name stays a plain name character when
+// namespaces are off: the name reaches casbin verbatim, keeps its built-in
+// role, and enforces cluster-wide.
+func TestApplyPredefinedRoles_ColonUsersSupportedOnNSDisabled(t *testing.T) {
+	const user = "customer1:carol"
+
+	tests := []struct {
+		name     string
+		conf     rbacconf.Config
+		wantRole string
+	}{
+		{"root", rbacconf.Config{Enabled: true, RootUsers: []string{user}}, authorization.Root},
+		{"admin", rbacconf.Config{Enabled: true, AdminUsers: []string{user}}, authorization.Admin},
+		{"viewer", rbacconf.Config{Enabled: true, ViewerUsers: []string{user}}, authorization.Viewer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+			authNconf := config.Authentication{
+				APIKey: config.StaticAPIKey{Enabled: true, Users: []string{user}},
+			}
+
+			enforcer, err := Init(tt.conf, dir, authNconf, false)
+			require.NoError(t, err)
+
+			subject := conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb)
+			require.Equal(t, "db:customer1:carol", subject)
+
+			roles, err := enforcer.GetRolesForUser(subject)
+			require.NoError(t, err)
+			require.Contains(t, roles, conv.PrefixRoleName(tt.wantRole))
+
+			allowed, err := enforcer.Enforce(subject,
+				authorization.CollectionsMetadata("Movies")[0], authorization.READ, "*")
+			require.NoError(t, err)
+			require.True(t, allowed, "colon-named %s user must enforce with namespaces disabled", tt.wantRole)
+		})
+	}
+}
+
 // TestEnforce_GlobalRoleAssignedToNamespacedSubject drives the full Enforce
 // path to pin that a global built-in role assigned to a `<ns>:` subject is
 // enforced namespace-scoped: the caller reaches only its own namespace.
