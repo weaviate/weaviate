@@ -186,6 +186,40 @@ func TestIsSemanticMigration(t *testing.T) {
 	}
 }
 
+// TestNeedsClusterWideFlipAtCompletion pins GH weaviate/weaviate#12189:
+// enable-rangeable/repair-rangeable defer their schema flip to
+// OnTaskCompleted without being reclassified as semantic.
+func TestNeedsClusterWideFlipAtCompletion(t *testing.T) {
+	deferred := []ReindexMigrationType{
+		ReindexTypeChangeTokenization,
+		ReindexTypeChangeTokenizationFilterable,
+		ReindexTypeEnableFilterable,
+		ReindexTypeEnableSearchable,
+		ReindexTypeChangeAlgorithm,
+		ReindexTypeEnableRangeable,
+		ReindexTypeRepairRangeable,
+	}
+	noFlip := []ReindexMigrationType{
+		ReindexTypeRebuildSearchable,
+		ReindexTypeRepairFilterable,
+	}
+	for _, mt := range deferred {
+		t.Run(string(mt)+" → deferred to OnTaskCompleted", func(t *testing.T) {
+			require.True(t, needsClusterWideFlipAtCompletion(mt))
+		})
+	}
+	for _, mt := range noFlip {
+		t.Run(string(mt)+" → no schema flag to flip", func(t *testing.T) {
+			require.False(t, needsClusterWideFlipAtCompletion(mt))
+		})
+	}
+	// Confirm rangeable stays non-semantic (no PREP/SWAP barrier).
+	require.False(t, IsSemanticMigration(ReindexTypeEnableRangeable),
+		"enable-rangeable's cluster-wide flip is now deferred, but it must stay a non-barrier (format-only-execution) migration type")
+	require.False(t, IsSemanticMigration(ReindexTypeRepairRangeable),
+		"repair-rangeable's cluster-wide flip is now deferred, but it must stay a non-barrier (format-only-execution) migration type")
+}
+
 // TestSemanticMigrationIndexTypes pins the migration-type → index-type
 // mapping. Format-only migrations (repair-*, enable-rangeable) MUST
 // return nil here — they don't go through the swap barrier, so

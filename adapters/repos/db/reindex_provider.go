@@ -707,7 +707,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
+			NewRuntimeFilterableToRangeableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
@@ -1599,8 +1599,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		// An unparsable payload never becomes parsable — permanent.
 		return fmt.Errorf("load payload for schema flip: %w: %w", payloadErr, distributedtask.ErrTaskCompletionPermanent)
 	}
-	if !IsSemanticMigration(payload.MigrationType) {
-		// Format-only migrations flip their metadata inside RunSwapOnShard.
+	if !needsClusterWideFlipAtCompletion(payload.MigrationType) {
+		// Truly format-only migrations (rebuild-searchable, repair-filterable,
+		// same-strategy roaring-set refresh) flip no schema flag at all - the
+		// bucket swap alone is the whole cutover.
 		return nil
 	}
 
@@ -1608,11 +1610,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// scheduler tick fires OnTaskCompleted).
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
-		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
+		logger.Errorf("reindex provider: task-completion: %s schema flip failed for %q; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state) - re-issue the original reindex request to retry (idempotent; no-ops if already applied): %v",
+			payload.MigrationType, payload.Collection, err)
 		// Leave the overlay in place: buckets are NEW-tokenized but the
 		// schema is still pre-flip on this node — the overlay keeps queries
 		// aligned until either a retry lands or TokenizationFor self-clears.
-		return fmt.Errorf("schema flip: %w", err)
+		return fmt.Errorf("%s schema flip: %w", payload.MigrationType, err)
 	}
 
 	if IsTokenizationChangingMigration(payload.MigrationType) {
@@ -2106,9 +2109,37 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		logger.Info("reindex provider: change-algorithm cutover committed")
 		return nil
 
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		// See needsClusterWideFlipAtCompletion for why this runs here.
+		// repair-rangeable's flag is already true before it starts (the
+		// submit-time validator enforces that), so the mutate callback
+		// below is a no-op skip for it; only enable-rangeable's first
+		// successful run actually flips anything. A missing property is
+		// tolerated (same as every other arm above): the mutator's
+		// applyPerPropertySchemaUpdate silently skips it, so this never
+		// returns [distributedtask.ErrTaskCompletionPermanent] - a
+		// rangeable flip failure is always transient for the scheduler's
+		// retry classification (weaviate/0-weaviate-issues#297).
+		trueVal := true
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+			[]string{api.PropertyFieldIndexRangeFilters},
+			func(prop *models.Property) bool {
+				if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+					return false // already enabled
+				}
+				prop.IndexRangeFilters = &trueVal
+				return true
+			})
+		if err != nil {
+			return fmt.Errorf("flip indexRangeFilters: %w", err)
+		}
+		logger.Info("reindex provider: enable-rangeable/repair-rangeable cutover committed")
+		return nil
+
 	default:
-		// IsSemanticMigration above gates this; reaching here is a programming error.
-		return fmt.Errorf("unexpected semantic migration type %q in task-completion", payload.MigrationType)
+		// needsClusterWideFlipAtCompletion above gates this; reaching here
+		// is a programming error.
+		return fmt.Errorf("unexpected migration type %q in task-completion schema flip", payload.MigrationType)
 	}
 }
 
@@ -2150,16 +2181,39 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	return false, nil
 }
 
-// IsSemanticMigration returns true for migration types that change query
-// behavior and therefore require the cross-replica swap barrier + cluster-
-// wide schema flip after every node has acknowledged. enable-rangeable is
-// intentionally NOT semantic — predates the barrier family.
+// IsSemanticMigration returns true for migration types that require the
+// cross-replica swap barrier (PREP/SWAP split, NeedsPreparationBarrier,
+// OnGroupCompleted/OnSwapRequested dispatch). enable-rangeable/
+// repair-rangeable are NOT semantic by this definition - they run the
+// full per-shard lifecycle inline (RunOnShard, no barrier). See
+// [needsClusterWideFlipAtCompletion] for the separate question of when
+// a type's schema flip lands.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
 		mt == ReindexTypeEnableSearchable ||
 		mt == ReindexTypeChangeAlgorithm
+}
+
+// needsClusterWideFlipAtCompletion returns true for migration types whose
+// schema flag flip must wait for [ReindexProvider.OnTaskCompleted] (all
+// units terminal) rather than happening inline per-shard: every
+// [IsSemanticMigration] type, plus enable-rangeable/repair-rangeable
+// (GH weaviate/weaviate#12189: moved here to stop the first shard to
+// finish from flipping the flag for the whole collection).
+//
+// Kept separate from IsSemanticMigration because that predicate also
+// gates the PREP/SWAP barrier dispatch, and rangeable's per-shard
+// execution model (no barrier) must not change - only where its flip
+// lands.
+//
+// Types not covered here (rebuild-searchable, repair-filterable,
+// same-strategy roaring-set refresh) flip no schema flag at all.
+func needsClusterWideFlipAtCompletion(mt ReindexMigrationType) bool {
+	return IsSemanticMigration(mt) ||
+		mt == ReindexTypeEnableRangeable ||
+		mt == ReindexTypeRepairRangeable
 }
 
 // IsTokenizationChangingMigration is true for migrations that flip a
