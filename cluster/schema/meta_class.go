@@ -227,6 +227,11 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 				// and silently returns 0 hits (0-weaviate-issues#238). Native
 				// v1.37 never mutates an existing property's tokenization, so the
 				// incoming value equals the stored one here and this is a no-op.
+				// Downgrade envelope: this assumes v1.38.x persists reindexed
+				// data at the unsuffixed canonical bucket path (true today — no
+				// live BucketGeneration producer); a release that activates
+				// generation-suffixed bucket paths re-breaks the v1.37 downgrade
+				// and must re-evaluate this backport.
 				mergedProps[oldIdx].Tokenization = new[idx].Tokenization
 			}
 
