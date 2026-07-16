@@ -32,6 +32,12 @@ func NewRuntimeEnableSearchableTask(
 	tokenization string,
 	generation int,
 ) *ShardReindexTaskGeneric {
+	cfg := blockmaxSearchableTaskConfig(propNames, collectionName)
+	// Semantic migration: terminal swap effects are gated on the
+	// cluster-wide task verdict (weaviate/0-weaviate-issues#220).
+	// RebuildSearchable shares blockmaxSearchableTaskConfig but is
+	// format-only, so the flag is set here rather than in the helper.
+	cfg.stagedSwapCommit = true
 	return NewShardReindexTaskGeneric(
 		"EnableSearchable", logger,
 		&EnableSearchableStrategy{
@@ -39,7 +45,7 @@ func NewRuntimeEnableSearchableTask(
 			tokenization: tokenization,
 			generation:   generation,
 		},
-		blockmaxSearchableTaskConfig(propNames, collectionName),
+		cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
 }

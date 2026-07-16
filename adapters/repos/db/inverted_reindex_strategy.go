@@ -256,9 +256,23 @@ func applyPerPropertySchemaUpdate(
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
 // Renamed from mapToBlockmaxConfig to be strategy-agnostic.
 type reindexTaskConfig struct {
-	swapBuckets                   bool
-	unswapBuckets                 bool
-	tidyBuckets                   bool
+	swapBuckets   bool
+	unswapBuckets bool
+	tidyBuckets   bool
+	// stagedSwapCommit gates the pre-commit staging protocol
+	// (weaviate/0-weaviate-issues#220) for semantic migrations run under
+	// the DTM ack barrier. When true, [ShardReindexTaskGeneric.runtimeSwap]
+	// STOPS after the reversible work (pointer flip, old→backup rename,
+	// swapped.mig) and records staged.mig; the destructive terminal work
+	// (OnMigrationComplete, tidied.mig, current-gen backup trim) runs only
+	// via [ShardReindexTaskGeneric.CommitSwapOnShard] once the cluster-wide
+	// task verdict is COMMIT, and [ShardReindexTaskGeneric.RollbackSwapOnShard]
+	// undoes the swap on FAILED/CANCELLED. Restart recovery for the staged
+	// window lives in [FinalizeCompletedMigrationsWithVerdict]. Set by the
+	// semantic-task constructors only; format-only migrations keep the
+	// legacy inline commit (their schema effects are per-shard, so a
+	// sibling failure cannot produce a cluster-level inversion).
+	stagedSwapCommit              bool
 	rollback                      bool
 	conditionalStart              bool
 	concurrency                   int

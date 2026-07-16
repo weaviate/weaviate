@@ -41,8 +41,11 @@ func NewRuntimeMapToBlockmaxTask(
 	}
 
 	cfg := reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
+		swapBuckets: true,
+		tidyBuckets: true,
+		// Semantic migration: terminal swap effects are gated on the
+		// cluster-wide task verdict (weaviate/0-weaviate-issues#220).
+		stagedSwapCommit:              true,
 		concurrency:                   2,
 		memtableOptFactor:             4,
 		backupMemtableOptFactor:       1,
