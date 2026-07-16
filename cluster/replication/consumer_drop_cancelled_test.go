@@ -14,6 +14,7 @@ package replication
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -95,8 +96,9 @@ func TestDropCancelledOpTargetShard(t *testing.T) {
 		setupStatus    func(s *ShardReplicationOpStatus)
 		dropErr        error
 		wantDrop       bool
+		wantErr        string // non-empty: returned error must contain this (retryable); empty: must return nil (terminal)
 		wantLevel      logrus.Level
-		wantMessage    string
+		wantMessage    string // empty: the branch logs nothing itself (error is surfaced to the caller)
 		wantExtraField string // field key that must be present (e.g. target_node)
 	}{
 		{
@@ -160,6 +162,25 @@ func TestDropCancelledOpTargetShard(t *testing.T) {
 			wantMessage:    "op target node is not this node",
 			wantExtraField: "target_node",
 		},
+		{
+			name:           "drop failure returns a retryable error",
+			opCollection:   "TestCollection",
+			targetNode:     self,
+			belongsToNodes: []string{other},
+			setupStatus:    func(s *ShardReplicationOpStatus) { s.TriggerCancellation() },
+			dropErr:        errors.New("disk full"),
+			wantDrop:       true,
+			wantErr:        "failed to drop cancelled-op target shard",
+		},
+		{
+			name:           "shard replicas read error fails closed",
+			opCollection:   "MissingCollection", // not in the schema, so the membership read errors
+			targetNode:     self,
+			belongsToNodes: []string{other},
+			setupStatus:    func(s *ShardReplicationOpStatus) { s.TriggerCancellation() },
+			wantDrop:       false,
+			wantErr:        "failed to read shard replicas",
+		},
 	}
 
 	for _, tc := range cases {
@@ -184,18 +205,86 @@ func TestDropCancelledOpTargetShard(t *testing.T) {
 			status := NewShardReplicationStatus(api.HYDRATING)
 			tc.setupStatus(&status)
 
-			c.dropCancelledOpTargetShard(context.Background(), NewShardReplicationOpAndStatus(op, status),
+			err := c.dropCancelledOpTargetShard(context.Background(), NewShardReplicationOpAndStatus(op, status),
 				logrus.NewEntry(logger))
 
-			entry := requireLogEntry(t, hook, tc.wantLevel, tc.wantMessage)
-			// Every branch must name the op/shard/node so an operator can see why
-			// residue persisted or what was deleted.
-			require.EqualValues(t, uint64(1), entry.Data["op_id"])
-			require.Equal(t, tc.opCollection, entry.Data["collection"])
-			require.Equal(t, "shard1", entry.Data["shard"])
-			require.Equal(t, self, entry.Data["node"])
-			if tc.wantExtraField != "" {
-				require.Contains(t, entry.Data, tc.wantExtraField)
+			// nil-vs-error is the retry contract: terminal refusals and successes
+			// return nil, transient failures surface for the caller to retry on.
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			if tc.wantMessage != "" {
+				entry := requireLogEntry(t, hook, tc.wantLevel, tc.wantMessage)
+				// Every logging branch must name the op/shard/node so an operator can
+				// see why residue persisted or what was deleted.
+				require.EqualValues(t, uint64(1), entry.Data["op_id"])
+				require.Equal(t, tc.opCollection, entry.Data["collection"])
+				require.Equal(t, "shard1", entry.Data["shard"])
+				require.Equal(t, self, entry.Data["node"])
+				if tc.wantExtraField != "" {
+					require.Contains(t, entry.Data, tc.wantExtraField)
+				}
+			}
+		})
+	}
+}
+
+// TestProcessCancelledOpDropGatesRemoval pins the delete-path ordering: the
+// guarded drop runs before the FSM removal, a drop failure blocks the removal
+// (the op record stays behind as the retry driver, so residue can never
+// silently outlive its op), and a successful drop lets the removal proceed.
+func TestProcessCancelledOpDropGatesRemoval(t *testing.T) {
+	const (
+		self  = "node2"
+		other = "node1"
+	)
+
+	cases := []struct {
+		name    string
+		dropErr error
+	}{
+		{name: "drop failure blocks the FSM removal and surfaces the error", dropErr: errors.New("disk full")},
+		{name: "drop success removes the op", dropErr: nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+
+			mockCopier := types.NewMockReplicaCopier(t)
+			mockCopier.EXPECT().StopChangeCapture(mock.Anything, other, "TestCollection", "shard1", "1").Return(nil)
+			mockCopier.EXPECT().ReleaseReplicaSnapshot(mock.Anything, other, "TestCollection", "1").Return(nil)
+			mockCopier.EXPECT().DropLocalShard(mock.Anything, "TestCollection", "shard1").Return(tc.dropErr)
+
+			// Strict mock: on drop failure no removal expectation is registered, so
+			// a removal that fires anyway fails the test.
+			leader := types.NewMockFSMUpdater(t)
+			if tc.dropErr == nil {
+				leader.EXPECT().ReplicationRemoveReplicaOp(mock.Anything, uint64(1)).Return(nil)
+			}
+
+			c := &CopyOpConsumer{
+				logger:        logrus.NewEntry(logger),
+				nodeId:        self,
+				schemaReader:  newGuardSchemaReader(t, "TestCollection", []string{other}),
+				replicaCopier: mockCopier,
+				leaderClient:  leader,
+			}
+
+			op := NewShardReplicationOp(1, other, self, "TestCollection", "shard1", api.COPY)
+			status := NewShardReplicationStatus(api.CANCELLED)
+			status.TriggerDeletion()
+
+			state, err := c.processCancelledOp(context.Background(), NewShardReplicationOpAndStatus(op, status))
+			if tc.dropErr != nil {
+				require.ErrorContains(t, err, "failed to drop cancelled-op target shard")
+				require.Equal(t, api.ShardReplicationState(""), state)
+			} else {
+				require.NoError(t, err)
+				require.EqualValues(t, DELETED, state)
 			}
 		})
 	}
