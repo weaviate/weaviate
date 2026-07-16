@@ -341,6 +341,18 @@ func Test_FlatUserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "cannot enable multiple quantization methods at the same time",
 		},
+		{
+			// https://github.com/weaviate/weaviate/issues/12035
+			name: "bq enabled with hamming distance is rejected",
+			input: map[string]interface{}{
+				"distance": common.DistanceHamming,
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "binary quantization (bq) is not compatible with the \"hamming\" distance metric",
+		},
 	}
 
 	for _, test := range tests {

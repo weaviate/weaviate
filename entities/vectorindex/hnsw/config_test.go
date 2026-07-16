@@ -792,6 +792,18 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "invalid hnsw config: more than a single compression methods enabled",
 		},
 		{
+			// https://github.com/weaviate/weaviate/issues/12035
+			name: "bq enabled with hamming distance is rejected",
+			input: map[string]interface{}{
+				"distance": "hamming",
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "binary quantization (bq) is not compatible with the \"hamming\" distance metric",
+		},
+		{
 			name: "with invalid filter strategy",
 			input: map[string]interface{}{
 				"filterStrategy": "chestnut",

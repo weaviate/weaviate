@@ -126,6 +126,10 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 		return uc, err
 	}
 
+	if err := vectorindexcommon.ValidateBQCompatibility(uc.Distance, uc.BQ.Enabled); err != nil {
+		return uc, err
+	}
+
 	return uc, nil
 }
 

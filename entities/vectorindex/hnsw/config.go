@@ -306,6 +306,10 @@ func (u *UserConfig) validate() error {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
 	}
 
+	if err := vectorIndexCommon.ValidateBQCompatibility(u.Distance, u.BQ.Enabled); err != nil {
+		return err
+	}
+
 	if err := ValidatePQConfig(u.PQ); err != nil {
 		return err
 	}
