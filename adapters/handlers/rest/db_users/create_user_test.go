@@ -453,11 +453,12 @@ func TestCreateUser_Namespaces(t *testing.T) {
 }
 
 // TestCreateUser_MapsApplyNamespaceErrors asserts the createUser handler
-// classifies apply-layer namespace sentinels: a deleting namespace is a
-// transient state conflict (409), the rest of the lifecycle family renders
-// 422, and everything else is 500. The handler's pre-flight Exists check can
+// classifies apply-layer namespace sentinels: the lifecycle family renders
+// 422 and everything else is 500. The handler's pre-flight Exists check can
 // race with a concurrent namespace delete, so a 500 would be misleading: the
 // request is well-formed, the namespace just changed state underneath it.
+// Deleting matches the pre-check's own 422 so the race cannot flip the
+// status a client sees.
 func TestCreateUser_MapsApplyNamespaceErrors(t *testing.T) {
 	const userID = "ns1:user"
 
@@ -472,9 +473,9 @@ func TestCreateUser_MapsApplyNamespaceErrors(t *testing.T) {
 			expect:   &users.CreateUserUnprocessableEntity{},
 		},
 		{
-			name:     "ErrNamespaceDeleting returns 409",
+			name:     "ErrNamespaceDeleting returns 422",
 			applyErr: fmt.Errorf("apply: %w", namespaces.ErrNamespaceDeleting),
-			expect:   &users.CreateUserConflict{},
+			expect:   &users.CreateUserUnprocessableEntity{},
 		},
 		{
 			name:     "ErrNamespaceSuspended returns 422",

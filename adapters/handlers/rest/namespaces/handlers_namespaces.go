@@ -189,8 +189,9 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 			return nsops.NewUpdateNamespaceNotFound().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q not found", name)))
 		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
-			// Deleting is a transient state conflict — 409 to retry after
-			// cleanup, not the terminal-family 422.
+			// 409 rather than the family's 422: the delete is a state conflict
+			// on the namespace this request addresses. Not retryable — once
+			// cleanup finishes the namespace is gone and this returns 404.
 			return nsops.NewUpdateNamespaceConflict().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted; home_node cannot be updated", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
