@@ -761,9 +761,50 @@ jobs:
           max_attempts: ${{ env.retry_max_attempts }}
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  # Build the -race weaviate/test-server image ONCE per run and hand it to the
+  # reindex matrix shards below. Previously every reindex shard rebuilt the same
+  # image inside its own job (~175s of duplicate work per shard, 12 shards), and
+  # the build-cache variance made the ~10-minute per-shard budget a coin flip
+  # (see 0-weaviate-issues#330). This job builds the image, exports it as a
+  # gzipped docker-save tarball, and uploads it as a run-scoped artifact; the
+  # shards download + `docker load` it and set TEST_WEAVIATE_IMAGE so
+  # build_weaviate_test_image (test/run.sh) skips the local build entirely.
+  # Artifact (not registry) keeps this fork-safe and portable across branches:
+  # no registry secrets, no Docker Hub tag pollution, works the same on main.
+  Build-Reindex-Test-Image:
+    name: reindex (build -race image)
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Login to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      # Must run WITHOUT TEST_WEAVIATE_IMAGE set, otherwise build_weaviate_test_image
+      # early-returns and never builds. This builds & tags weaviate/test-server (-race).
+      - name: Build the -race weaviate/test-server image
+        run: ./test/run.sh --build-test-image
+      - name: Export image to a tarball
+        run: docker save weaviate/test-server | gzip > /tmp/weaviate-test-server.tar.gz
+      - name: Upload image artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: reindex-race-test-image
+          path: /tmp/weaviate-test-server.tar.gz
+          retention-days: 1
+
   Acceptance-Reindex-Tests:
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    needs: [Build-Reindex-Test-Image]
+    # Shared -race image built once by Build-Reindex-Test-Image above. Setting
+    # this makes build_weaviate_test_image (test/run.sh) skip the per-shard build
+    # and reuse the loaded image, collapsing shard wall-clock to test time only.
+    env:
+      TEST_WEAVIATE_IMAGE: weaviate/test-server
     strategy:
       fail-fast: false
       matrix:
@@ -802,6 +843,13 @@ jobs:
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Download shared -race test image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: reindex-race-test-image
+          path: /tmp
+      - name: Load shared -race test image
+        run: docker load < /tmp/weaviate-test-server.tar.gz
       - name: Acceptance tests reindex
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
