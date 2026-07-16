@@ -21,31 +21,21 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-// This file pins weaviate/0-weaviate-issues#320: after a runtime reindex
-// task FINISHES (its swap is committed via CommitSwapOnShard), the live
-// post-swap searchable bucket must serve from the CANONICAL on-disk dir
-// (property_<name>_searchable), NOT from its ..._ingest_<N> sidecar.
+// This file covers weaviate/0-weaviate-issues#320: after a runtime reindex
+// task FINISHES (CommitSwapOnShard), the live post-swap searchable bucket must
+// serve from the CANONICAL on-disk dir with NO restart, not from its
+// ..._ingest_<N> sidecar. Before the fix the rename was deferred to the next
+// restart, so between task completion and that restart the canonical dir did
+// not exist on disk — the root cause behind the weaviate/weaviate#11987
+// downgrade gap (v1.37 opens the canonical name, finds no dir, and BM25
+// silently returns 0 hits).
 //
-// On current code the ingest→canonical dir rename is deferred to the next
-// process restart (OnBeforeLsmInit → recoverRuntimeSwapBuckets /
-// FinalizeCompletedMigrations). Between task completion and that restart the
-// canonical dir does not exist on disk at all: the data sits in the ingest
-// sidecar and the in-memory bucket pointer covers the gap. That makes
-// "restart before you downgrade" a load-bearing operational precondition for
-// on-disk convergence, and it is the root cause behind the weaviate/weaviate#11987
-// downgrade gap (v1.38→v1.37: v1.37 opens the canonical name, finds no dir,
-// creates an empty bucket, and BM25 on the property silently returns 0 hits).
-//
-// TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart is the
-// RED pin: it drives a shard through STAGE (RunSwapOnShard) → COMMIT
-// (CommitSwapOnShard) with NO restart in between and asserts that the
-// canonical dir exists, the ingest sidecar is gone, and the in-memory bucket
-// points at the canonical dir. It fails on current code (the rename is still
-// deferred to restart) and will pass once finalization runs at task
-// completion. It reuses the fix/220 staged-swap harness verbatim; the sibling
-// TestReindexStagedSwap_CommitSingleShardDegenerate drives the identical
-// STAGE→COMMIT path but asserts only the in-memory pointer + backup trim, so
-// this pin closes the on-disk-durability gap that test leaves open.
+// TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart drives a
+// shard through STAGE → COMMIT with no restart. It reuses the fix/220
+// staged-swap harness; the sibling CommitSingleShardDegenerate drives the same
+// path but asserts only the in-memory pointer + backup trim, so this closes the
+// on-disk-durability gap that test leaves open. Assertions carry their own
+// rationale below.
 func TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"

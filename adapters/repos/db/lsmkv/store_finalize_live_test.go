@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"sync"
@@ -20,27 +21,44 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 // stageIngestBucketAtCanonicalName reproduces the on-disk + in-memory state a
 // runtime reindex leaves at COMMIT time (weaviate/0-weaviate-issues#320): the
 // live bucket is registered under its CANONICAL name but physically served from
 // its ..._ingest_<gen> sidecar dir, and the canonical dir has been trimmed away.
-// It returns the canonical name and the (absent) canonical dir that a live
-// finalize must promote the sidecar to.
+// It returns the (absent) canonical dir that a live finalize must promote the
+// sidecar to. Replace-strategy convenience wrapper around the opts variant.
 func stageIngestBucketAtCanonicalName(t *testing.T, ctx context.Context, store *Store,
 	canonicalName string, seed map[string]string,
+) (canonicalDir, ingestDir string) {
+	t.Helper()
+	return stageIngestBucketAtCanonicalNameOpts(t, ctx, store, canonicalName,
+		func(b *Bucket) {
+			for k, v := range seed {
+				require.NoError(t, b.Put([]byte(k), []byte(v)))
+			}
+		}, WithStrategy(StrategyReplace))
+}
+
+// stageIngestBucketAtCanonicalNameOpts is [stageIngestBucketAtCanonicalName]
+// for any bucket strategy: opts configure both buckets, seedIngest writes the
+// pre-swap data into the ingest bucket.
+func stageIngestBucketAtCanonicalNameOpts(t *testing.T, ctx context.Context, store *Store,
+	canonicalName string, seedIngest func(b *Bucket), opts ...BucketOption,
 ) (canonicalDir, ingestDir string) {
 	t.Helper()
 	ingestName := canonicalName + "__ingest_0"
 
 	// OLD canonical bucket (its dir is what a downgrade will open), and the NEW
 	// ingest bucket that holds the reindexed data.
-	require.NoError(t, store.CreateOrLoadBucket(ctx, canonicalName, WithStrategy(StrategyReplace)))
-	require.NoError(t, store.CreateOrLoadBucket(ctx, ingestName, WithStrategy(StrategyReplace)))
+	require.NoError(t, store.CreateOrLoadBucket(ctx, canonicalName, opts...))
+	require.NoError(t, store.CreateOrLoadBucket(ctx, ingestName, opts...))
 
-	for k, v := range seed {
-		require.NoError(t, store.Bucket(ingestName).Put([]byte(k), []byte(v)))
+	if seedIngest != nil {
+		seedIngest(store.Bucket(ingestName))
 	}
 
 	canonicalDir = store.Bucket(canonicalName).GetDir()
@@ -123,9 +141,12 @@ func TestFinalizeBucketSwapLive_FlushesBufferedActiveMemtable(t *testing.T) {
 }
 
 // TestFinalizeBucketSwapLive_ConcurrentReadsReturnCorrectResults pins 0-wi#320
-// (c): readers hammering the bucket via the query-path pin (AcquireBucketForRead)
-// throughout a live finalize must always see correct data — never a nil result,
-// a stale/empty bucket, or a torn segment path. Run with -race.
+// (c) for PINNED readers (AcquireBucketForRead → lifetimeLock.RLock, the
+// tokenization-pin path): they must always see correct data throughout a live
+// finalize — never nil, stale, or torn. Most production query paths (BM25,
+// filters) read UN-pinned via bare Store.Bucket();
+// TestFinalizeBucketSwapLive_ConcurrentUnpinnedReadsInverted covers that shape.
+// Run with -race.
 func TestFinalizeBucketSwapLive_ConcurrentReadsReturnCorrectResults(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStoreForDrain(t)
@@ -151,8 +172,8 @@ func TestFinalizeBucketSwapLive_ConcurrentReadsReturnCorrectResults(t *testing.T
 			for !stop.Load() {
 				key := fmt.Sprintf("k%04d", (r*37+i)%nKeys)
 				want := "v" + key[1:]
-				// Pin exactly like the query path so the finalize reader-drain
-				// (lifetimeLock) is exercised.
+				// Pin like the shard's tokenization-pin path so the finalize
+				// reader-drain (lifetimeLock) is exercised.
 				b, release := store.AcquireBucketForRead(name)
 				if b == nil {
 					release()
@@ -249,4 +270,159 @@ func TestFinalizeBucketSwapLive_ConcurrentWritesNotLost(t *testing.T) {
 		}
 	}
 	require.Positive(t, total, "expected writers to have acknowledged at least one write")
+}
+
+// TestFinalizeBucketSwapLive_InvertedStrategy exercises the StrategyInverted
+// branches of flushActiveMemtableInPlace — the ones the production searchable
+// buckets actually hit: avg-property-length seeding, the flushed memtable's
+// tombstones merged into the pre-existing disk segments (#9104 path), and the
+// buffered postings surviving the rename.
+func TestFinalizeBucketSwapLive_InvertedStrategy(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStoreForDrain(t)
+	t.Cleanup(func() { _ = store.Shutdown(ctx) })
+
+	const name = "property_title_searchable"
+	term := []byte("term")
+	canonicalDir, ingestDir := stageIngestBucketAtCanonicalNameOpts(t, ctx, store, name,
+		func(b *Bucket) {
+			// Pre-swap reindexed data: docs 10..29 in a flushed disk segment, so
+			// the finalize-time tombstone merge has an existing segment to hit.
+			for id := uint64(10); id < 30; id++ {
+				require.NoError(t, b.MapSet(term, NewMapPairFromDocIdAndTf(id, float32(id), 1, false)))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+		}, WithStrategy(StrategyInverted))
+
+	// Post-swap live writes, buffered ONLY in the active memtable: new docs plus
+	// a tombstone for a doc that lives in the flushed segment.
+	b := store.Bucket(name)
+	for id := uint64(100); id < 105; id++ {
+		require.NoError(t, b.MapSet(term, NewMapPairFromDocIdAndTf(id, float32(id), 1, false)))
+	}
+	tomb := NewMapPairFromDocIdAndTf(15, 1, 1, true)
+	require.NoError(t, b.MapSet(term, tomb))
+	require.NoError(t, b.MapDeleteKey(term, tomb.Key))
+
+	require.NoError(t, store.FinalizeBucketSwapLive(ctx, name, canonicalDir))
+	require.DirExists(t, canonicalDir)
+	require.NoDirExists(t, ingestDir)
+
+	pairs, err := store.Bucket(name).MapList(ctx, term)
+	require.NoError(t, err)
+	got := make(map[uint64]bool, len(pairs))
+	for _, p := range pairs {
+		got[binary.BigEndian.Uint64(p.Key)] = true
+	}
+	for id := uint64(10); id < 30; id++ {
+		if id == 15 {
+			require.False(t, got[id],
+				"doc 15 was tombstoned in the buffered memtable; the finalize flush must merge that tombstone into the disk segments")
+			continue
+		}
+		require.True(t, got[id], "pre-swap doc %d must survive the live finalize", id)
+	}
+	for id := uint64(100); id < 105; id++ {
+		require.True(t, got[id], "LOST WRITE: buffered posting for doc %d gone after live finalize", id)
+	}
+}
+
+// TestFinalizeBucketSwapLive_RoaringSetStrategy exercises the roaringset
+// branches (the filterable-bucket shape): buffered additions and removals in
+// the active memtable must survive the finalize flush + rename.
+func TestFinalizeBucketSwapLive_RoaringSetStrategy(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStoreForDrain(t)
+	t.Cleanup(func() { _ = store.Shutdown(ctx) })
+
+	const name = "property_category"
+	key := []byte("filter-key")
+	canonicalDir, ingestDir := stageIngestBucketAtCanonicalNameOpts(t, ctx, store, name,
+		func(b *Bucket) {
+			for v := uint64(1); v <= 10; v++ {
+				require.NoError(t, b.RoaringSetAddOne(key, v))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+		}, WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+
+	// Buffered-only post-swap mutations: new values + a removal of a flushed one.
+	b := store.Bucket(name)
+	for v := uint64(100); v < 105; v++ {
+		require.NoError(t, b.RoaringSetAddOne(key, v))
+	}
+	require.NoError(t, b.RoaringSetRemoveOne(key, 5))
+
+	require.NoError(t, store.FinalizeBucketSwapLive(ctx, name, canonicalDir))
+	require.DirExists(t, canonicalDir)
+	require.NoDirExists(t, ingestDir)
+
+	bm, release, err := store.Bucket(name).RoaringSetGet(ctx, key)
+	require.NoError(t, err)
+	defer release()
+	for v := uint64(1); v <= 10; v++ {
+		if v == 5 {
+			require.False(t, bm.Contains(v), "buffered removal of value 5 must survive the live finalize")
+			continue
+		}
+		require.True(t, bm.Contains(v), "pre-swap value %d must survive the live finalize", v)
+	}
+	for v := uint64(100); v < 105; v++ {
+		require.True(t, bm.Contains(v), "LOST WRITE: buffered value %d gone after live finalize", v)
+	}
+}
+
+// TestFinalizeBucketSwapLive_ConcurrentUnpinnedReadsInverted pins 0-wi#320 (c)
+// for the shape production actually uses: BM25/filter readers reach the bucket
+// via bare Store.Bucket() with NO lifetimeLock pin, so they are NOT drained by
+// the finalize. They stay correct because non-Replace query paths never read
+// segment.path (see the FinalizeBucketSwapLive godoc); this test hammers that
+// un-pinned path across the finalize under -race to keep the invariant honest.
+func TestFinalizeBucketSwapLive_ConcurrentUnpinnedReadsInverted(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStoreForDrain(t)
+	t.Cleanup(func() { _ = store.Shutdown(ctx) })
+
+	const name = "property_unpinned_searchable"
+	term := []byte("term")
+	const nDocs = 50
+	canonicalDir, _ := stageIngestBucketAtCanonicalNameOpts(t, ctx, store, name,
+		func(b *Bucket) {
+			for id := uint64(0); id < nDocs; id++ {
+				require.NoError(t, b.MapSet(term, NewMapPairFromDocIdAndTf(id, float32(id+1), 1, false)))
+			}
+			require.NoError(t, b.FlushAndSwitch())
+		}, WithStrategy(StrategyInverted))
+
+	var stop atomic.Bool
+	var wg sync.WaitGroup
+	const readers = 8
+	errCh := make(chan error, readers)
+	for r := 0; r < readers; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for !stop.Load() {
+				pairs, err := store.Bucket(name).MapList(ctx, term)
+				if err != nil {
+					errCh <- fmt.Errorf("unpinned MapList: %w", err)
+					return
+				}
+				if len(pairs) != nDocs {
+					errCh <- fmt.Errorf("unpinned MapList: got %d postings, want %d", len(pairs), nDocs)
+					return
+				}
+			}
+		}()
+	}
+
+	require.NoError(t, store.FinalizeBucketSwapLive(ctx, name, canonicalDir))
+	stop.Store(true)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
+	}
+
+	require.Equal(t, canonicalDir, store.Bucket(name).GetDir())
 }

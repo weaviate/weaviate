@@ -82,21 +82,27 @@
 //     [MigrationStrategy.OnMigrationComplete] for the per-strategy
 //     contract.
 //
-// Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup, BEFORE
-// LSM init reloads any buckets)
+// Phase 3 — INGEST→CANONICAL RENAME (live at task completion, with a
+// next-startup crash safety net)
 // ---------------------------------------------------------------------
-// Implemented by [FinalizeCompletedMigrations] (which scans
-// .migrations/ for tracker dirs with merged.mig — recovery promotes
-// merged-but-not-tidied gens — and tidied.mig, then renames each
-// gen's __ingest_<N>/ dir to its canonical name).
+// The ingest bucket is the LIVE post-swap main bucket: its mmaps are
+// open and its segment registry holds the ingest_<N> path as its dir.
+// A naive rename of that dir while the bucket is in-memory would
+// corrupt the segment registry and any subsequent write that resolves
+// paths from the bucket's stored dir. Two paths promote it safely:
 //
-// Why deferred: the ingest bucket is the LIVE post-swap main bucket.
-// Its mmaps are open, its segment registry holds the ingest_<N> path
-// as its dir. Renaming that dir while the bucket is in-memory would
-// corrupt the segment registry and any subsequent write that
-// resolves paths from the bucket's stored dir. At next startup,
-// before LSM init touches the canonical name, no bucket is mmapping
-// anything — the rename is safe.
+//   - Live, at task completion (weaviate/0-weaviate-issues#320):
+//     [CommitSwapOnShard] calls [lsmkv.Store.FinalizeBucketSwapLive],
+//     which drains readers, freezes writers, flushes the active
+//     memtable into a durable segment, renames the dir, and rewrites
+//     the in-memory segment paths + a fresh active memtable at the
+//     canonical name — so no read tears a path and no write is lost.
+//     On-disk state converges without a restart.
+//   - At next startup, before LSM init touches the canonical name, no
+//     bucket is mmapping anything: [FinalizeCompletedMigrations] scans
+//     .migrations/ (merged.mig recovery + tidied.mig) and renames each
+//     gen's __ingest_<N>/ dir. This remains the crash safety net for a
+//     live finalize that failed or a node that died mid-commit.
 //
 // Crash safety: every phase transition is preceded by a tracker
 // sentinel fsync (markPrepended, markMerged, markSwappedProp,

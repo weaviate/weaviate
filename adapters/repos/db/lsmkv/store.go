@@ -820,12 +820,21 @@ func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir
 //
 //   - pauseCompaction + flushCallbackCtrl.Deactivate quiesce background
 //     maintenance (both wait for in-flight work to finish),
-//   - lifetimeLock.Lock drains in-flight readers and blocks new read-pins so
-//     updateBucketDir's unsynchronized segment.setPath cannot race a reader,
+//   - lifetimeLock.Lock drains in-flight read-pins (AcquireBucketForRead) and
+//     blocks new ones for the duration of the path rewrite,
 //   - flushLock.Lock freezes writers, then the active memtable's buffered
 //     writes are flushed into a durable segment BEFORE the rename, so no write
 //     is lost, and finally a fresh active memtable is opened at the canonical
 //     path.
+//
+// Torn-read safety for UN-pinned readers: most query paths (BM25, filters)
+// reach the bucket via bare Store.Bucket() without a lifetimeLock pin, so the
+// drain above does NOT cover them across updateBucketDir's unsynchronized
+// segment.setPath. They stay safe because no non-Replace query path ever reads
+// segment.path — getPath is only consulted by the StrategyReplace-gated error
+// branches in segment_group.go, and the reindex buckets this method targets
+// (searchable/filterable/rangeable) are never Replace. Do NOT point this at a
+// StrategyReplace bucket until segment.path access is made race-safe.
 //
 // Idempotent: a bucket already at canonicalDir returns nil.
 //
