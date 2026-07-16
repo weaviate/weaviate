@@ -428,8 +428,7 @@ func TestCompaction(t *testing.T) {
 				WithStrategy(StrategyRoaringSetRange),
 			},
 		},
-		// Inverted. Sizes shrank (was 8627 / 8931) because compaction now drops
-		// deleted docs' per-doc property lengths instead of carrying them forever.
+		// Inverted
 		{
 			name: "compactionInvertedStrategy",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
