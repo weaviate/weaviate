@@ -1183,112 +1183,98 @@ func TestIdentifyIntegration(t *testing.T) {
 	}
 }
 
-// TestMapTracker_TrackThenGet_NoUndercount pins the drain-before-serve race in
-// mapTracker.run, where a random select pick could serve Get before an
-// already-buffered Track event (weaviate/weaviate#12201).
-func TestMapTracker_TrackThenGet_NoUndercount(t *testing.T) {
+// TestMapTracker_TrackThenDrainingRead_NoUndercount pins the drain-before-serve
+// race in mapTracker.run, where a random select pick could serve a draining read
+// before an already-buffered Track event (weaviate/weaviate#12201).
+//
+// The getChan (Get) and resetChan (GetAndReset) drain paths are pinned
+// independently: each read mode is its own subtree, so dropping only one path's
+// drainTrackChan reds that mode's subtests while the other mode stays green.
+func TestMapTracker_TrackThenDrainingRead_NoUndercount(t *testing.T) {
 	// GOMAXPROCS=1 never triggers the race; pin to 2 for a stable repro
 	// regardless of the host's core count.
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(2))
 
 	const iterations = 100000
 
-	tests := []struct {
+	// Each tracker flavor exposes one draining-read closure selected by getReset:
+	// false → Get (getChan drain), true → GetAndReset (resetChan drain).
+	trackers := []struct {
 		name  string
-		build func() (track func(), count func() int64, stop func())
+		build func() (track func(), count func(getReset bool) int64, stop func())
 	}{
 		{
 			name: "IntegrationTracker",
-			build: func() (func(), func() int64, func()) {
+			build: func() (func(), func(bool) int64, func()) {
 				logger, _ := test.NewNullLogger()
 				tracker := NewIntegrationTracker(logger)
 				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
 				req.Header.Set(integrationHeaderKey, testMyIntegration)
 				return func() { tracker.Track(req) },
-					func() int64 { return tracker.Get()[testMyIntegration]["unknown"] },
+					func(getReset bool) int64 {
+						if getReset {
+							return tracker.GetAndReset()[testMyIntegration]["unknown"]
+						}
+						return tracker.Get()[testMyIntegration]["unknown"]
+					},
 					tracker.Stop
 			},
 		},
 		{
 			name: "ClientTracker",
-			build: func() (func(), func() int64, func()) {
+			build: func() (func(), func(bool) int64, func()) {
 				logger, _ := test.NewNullLogger()
 				tracker := NewClientTracker(logger)
 				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
 				req.Header.Set("X-Weaviate-Client", "weaviate-client-python/4.10.0")
 				return func() { tracker.Track(req) },
-					func() int64 { return tracker.Get()[ClientTypePython]["4.10.0"] },
+					func(getReset bool) int64 {
+						if getReset {
+							return tracker.GetAndReset()[ClientTypePython]["4.10.0"]
+						}
+						return tracker.Get()[ClientTypePython]["4.10.0"]
+					},
 					tracker.Stop
 			},
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			track, count, stop := tc.build()
-			defer stop()
-
-			for i := 1; i <= iterations; i++ {
-				track()
-				require.Equalf(t, int64(i), count(),
-					"Get undercounted at iteration %d: a Track event queued before "+
-						"the Get was still buffered when the counts were copied", i)
-			}
-		})
-	}
-}
-
-// TestMapTracker_TrackThenGetAndReset_NoUndercount pins the same race on the
-// resetChan drain, independently of the getChan case above
-// (weaviate/weaviate#12201).
-func TestMapTracker_TrackThenGetAndReset_NoUndercount(t *testing.T) {
-	// GOMAXPROCS=1 never triggers the race; pin to 2 for a stable repro
-	// regardless of the host's core count.
-	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(2))
-
-	const iterations = 100000
-
-	tests := []struct {
-		name  string
-		build func() (track func(), count func() int64, stop func())
+	reads := []struct {
+		name      string
+		getReset  bool
+		wantCount func(iteration int) int64
 	}{
 		{
-			name: "IntegrationTracker",
-			build: func() (func(), func() int64, func()) {
-				logger, _ := test.NewNullLogger()
-				tracker := NewIntegrationTracker(logger)
-				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
-				req.Header.Set(integrationHeaderKey, testMyIntegration)
-				return func() { tracker.Track(req) },
-					func() int64 { return tracker.GetAndReset()[testMyIntegration]["unknown"] },
-					tracker.Stop
-			},
+			// Get never resets, so after i sequential Tracks the tracked key
+			// must read back exactly i.
+			name:      "Get",
+			getReset:  false,
+			wantCount: func(i int) int64 { return int64(i) },
 		},
 		{
-			name: "ClientTracker",
-			build: func() (func(), func() int64, func()) {
-				logger, _ := test.NewNullLogger()
-				tracker := NewClientTracker(logger)
-				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
-				req.Header.Set("X-Weaviate-Client", "weaviate-client-python/4.10.0")
-				return func() { tracker.Track(req) },
-					func() int64 { return tracker.GetAndReset()[ClientTypePython]["4.10.0"] },
-					tracker.Stop
-			},
+			// GetAndReset clears after returning, so each single-Track iteration
+			// must read back exactly 1.
+			name:      "GetAndReset",
+			getReset:  true,
+			wantCount: func(int) int64 { return 1 },
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			track, count, stop := tc.build()
-			defer stop()
+	for _, read := range reads {
+		t.Run(read.name, func(t *testing.T) {
+			for _, tc := range trackers {
+				t.Run(tc.name, func(t *testing.T) {
+					track, count, stop := tc.build()
+					defer stop()
 
-			for i := 1; i <= iterations; i++ {
-				track()
-				require.Equalf(t, int64(1), count(),
-					"GetAndReset undercounted at iteration %d: a Track event queued "+
-						"before the GetAndReset was still buffered when the counts "+
-						"were copied", i)
+					for i := 1; i <= iterations; i++ {
+						track()
+						require.Equalf(t, read.wantCount(i), count(read.getReset),
+							"%s undercounted at iteration %d: a Track event queued "+
+								"before the draining read was still buffered when the "+
+								"counts were copied", read.name, i)
+					}
+				})
 			}
 		})
 	}
