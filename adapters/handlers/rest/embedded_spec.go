@@ -3016,14 +3016,8 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-          "409": {
-            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13982,14 +13976,8 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-          "409": {
-            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

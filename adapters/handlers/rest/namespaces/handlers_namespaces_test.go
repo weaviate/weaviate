@@ -487,9 +487,11 @@ func TestUpdateNamespace_RaftErrorMapping(t *testing.T) {
 			wantTyped: &nsops.UpdateNamespaceNotFound{},
 		},
 		{
-			name:      "ErrNamespaceDeleting → 409",
+			// No retry can succeed: cleanup removes the namespace, so a
+			// later update 404s.
+			name:      "ErrNamespaceDeleting → 422",
 			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, "customer1"),
-			wantTyped: &nsops.UpdateNamespaceConflict{},
+			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
 		},
 		{
 			name:      "ErrNamespaceSuspended → 422",
