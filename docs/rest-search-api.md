@@ -9,15 +9,18 @@ QUERY/POST"* (Ivan Despot, 2026-07-06).
 endpoint of the family (2026-07-14).
 
 `POST /v1/search/{collection}/hybrid` — fused keyword + vector search, the
-third endpoint (2026-07-16). near-object will follow the same
-`/v1/search/{collection}/…` shape, and aggregate the
-`/v1/aggregate/{collection}` shape, when built.
+third endpoint (2026-07-16).
+
+`POST /v1/search/{collection}/near-object` — similarity search anchored at
+an existing object's stored vector, the fourth endpoint (2026-07-16).
+aggregate will follow under the `/v1/aggregate/{collection}` shape, when
+built.
 
 > **Status:** draft, POST-only, part of the swagger surface
-> (`openapi-specs/schema.json`, operations `search.nearText`, `search.bm25`
-> and `search.hybrid`). Experimental and **off by default**; enable it per
-> node with `EXPERIMENTAL_REST_SEARCH_ENABLED=true` (gates every search
-> endpoint).
+> (`openapi-specs/schema.json`, operations `search.nearText`, `search.bm25`,
+> `search.hybrid` and `search.nearObject`). Experimental and **off by
+> default**; enable it per node with `EXPERIMENTAL_REST_SEARCH_ENABLED=true`
+> (gates every search endpoint).
 
 ---
 
@@ -438,6 +441,65 @@ Decision log for the settled points:
    the shared cosine-compatibility silent drop. Distance metadata comes
    back from the vector leg.
 
+### 2026-07-16 — fourth endpoint: near-object (search anchored at an object)
+
+`POST /v1/search/{collection}/near-object` — the recipe once more: a new
+`SearchNearObjectRequest = allOf[SearchCommon, {id (required), certainty,
+distance, target_vector}]` definition + regen, a
+`buildNearObjectParams`/`parseNearObject` pair that fills
+`dto.GetParams.NearObject` (`searchparams.NearObject`, the struct the gRPC
+parser fills), and a thin `Handler.NearObject` wrapper over `execute()`. The
+source object's **stored vector anchors the search** — nothing is vectorized
+— so collections without any vectorizer module (client-supplied vectors) are
+fully searchable, and the source object itself comes back as the closest hit
+(distance 0), matching GraphQL/gRPC.
+
+near-object-specific fields (all in the near-object `allOf` extension):
+
+| Field | Type | Behavior |
+|---|---|---|
+| `id` | `strfmt.UUID` (required) | the source object's UUID. Absent or `null` → 422 (swagger required); structurally invalid (incl. explicit `""`) → 422 (swagger `format: uuid` at bind); well-formed but matching no object → **400** from the engine (typed `ErrSourceObjectNotFound`). The handler keeps an empty-id 400 for the direct-call path |
+| `certainty` | `*float64` (ptr) | cosine-only (else 422, deterministic handler check — near-text parity); mutually exclusive with `distance` (else 400, the gRPC rule); outside [0,1] → 400 |
+| `distance` | `*float64` (ptr) | max vector distance from the source object |
+| `target_vector` | `string` | which named vector anchors the search (the source object must carry it); same resolution as near-text (missing on multi-named-vector collection → 422; unknown name → 400) |
+
+Decision log for the settled points:
+
+1. **Unknown id is a 400, not a 404.** The engine/gRPC produce only an
+   opaque `"vector not found"` error here (gRPC surfaces it as a generic
+   failure — there is no status parity to copy), so REST had to pick a
+   tier: 404 stays reserved for the *addressing* context (unknown
+   collection/tenant, as everywhere else in the table), while a body value
+   that names a nonexistent thing is a 400 — exactly the unknown
+   `target_vector` precedent. **Tier note:** a *structurally* bad UUID never
+   reaches the engine — `format: uuid` rejects it at bind → 422 (the
+   request-schema tier), while a well-formed-but-unknown UUID is the
+   handler/engine tier → 400.
+2. **No 502 is declared, and none can occur.** No vectorizer is ever
+   invoked. The engine wraps every near-object vector-resolution failure in
+   `ErrQueryVectorization` (`explorer.searchForTargets` does it for all
+   search types), which the shared `statusFromError` maps to 502 — so the
+   producers in `usecases/traverser/near_params_vector.go` now attach two
+   new typed errors (messages unchanged, drift-guarded):
+   `ErrSourceObjectNotFound` (object missing → 400) and
+   `ErrSourceObjectNoVector` (object exists but has no usable vector for
+   the request — no vector at all, none for the target, or several vectors
+   with no target specified → 422, the data-state tier). Both checks sit
+   **above** the `ErrQueryVectorization` case in `statusFromError` (same
+   ordering constraint as `ErrNoVectorizerModule`).
+3. **`certainty`/`distance` mirror near-text**, per the gRPC parser's
+   near-object block: mutual exclusion is the gRPC rule verbatim; the
+   certainty [0,1] range check and the deterministic cosine-only 422
+   (`CheckCertaintyCompatibility` in the handler, `ErrCertaintyIncompatible`
+   parity with the traverser's own `validateGetDistanceParams`) are the
+   near-text handler precedents applied unchanged.
+4. **No `beacon`.** gRPC near-object also accepts a beacon reference; the
+   REST draft ships id-only (the RFC scope) — adding `beacon` later is a
+   safe widening. `searchparams.NearObject.Beacon` stays empty.
+5. **`return_metadata` certainty is NOT force-cleared** (vector search,
+   same rationale as hybrid); distance/certainty metadata are computed
+   against the source object's vector.
+
 ---
 
 ## 2. Implementation
@@ -445,14 +507,17 @@ Decision log for the settled points:
 ### Files
 
 - `openapi-specs/schema.json` — paths `/search/{collection}/near-text`,
-  `/search/{collection}/bm25` and `/search/{collection}/hybrid` (POST, tag
-  `search`, operationIds `search.nearText` / `search.bm25` / `search.hybrid`,
+  `/search/{collection}/bm25`, `/search/{collection}/hybrid` and
+  `/search/{collection}/near-object` (POST, tag `search`, operationIds
+  `search.nearText` / `search.bm25` / `search.hybrid` / `search.nearObject`,
   per-op `consumes: [application/json]`), definitions `SearchCommon` (shared
   base), `SearchNearTextRequest` (= `allOf[SearchCommon,
   near-text-specific]`), `SearchBm25Request` (= `allOf[SearchCommon, {query,
   query_properties}]`), `SearchHybridRequest` (= `allOf[SearchCommon, {query,
   alpha, fusion_type, max_vector_distance, query_properties,
-  target_vector}]`), `SearchResponse`, `SearchResultObject` (the typed
+  target_vector}]`), `SearchNearObjectRequest` (= `allOf[SearchCommon, {id,
+  certainty, distance, target_vector}]`), `SearchResponse`,
+  `SearchResultObject` (the typed
   `{id, properties, references, metadata}` envelope; `properties`/
   `references` are free-form maps) and `SearchResultMetadata` (all-optional
   typed metadata). The spec declares the always-present parts required:
@@ -504,7 +569,10 @@ Decision log for the settled points:
   `dto.GetParams.HybridSearch` in behavior-sync with the gRPC parser's
   hybrid handling (alpha/fusion defaults from `common_filters`,
   `max_vector_distance` → distance cutoff, property lowercasing, alpha-gated
-  vectorizer pre-check).
+  vectorizer pre-check). `buildNearObjectParams` (+ `parseNearObject`) fills
+  `dto.GetParams.NearObject` in behavior-sync with the gRPC parser's
+  near-object handling (certainty/distance exclusivity, cosine-only 422,
+  target-vector resolution; no vectorizer pre-check — none is needed).
 - `adapters/handlers/rest/search/reply.go` — traverser output →
   `models.SearchResponse` (shared): per hit the `{id, properties,
   references, metadata}` envelope — `id` always present, the selected
@@ -563,13 +631,13 @@ enforced by the generated model at bind time; the rest are the handler's.
 |---|---|---|
 | malformed JSON body; `query` string form (array-only); wrong field type (incl. a `where` value of the wrong JSON type, e.g. a string for `valueInt`, or `path` as a string) | 400 | `ErrorResponse` |
 | missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; bad `where` `operator` enum | 422 | `ErrorResponse` |
-| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; hybrid `alpha` outside [0,1]; both certainty+distance; semantically-invalid `where` (unknown property); unknown property in `return_properties` | 400 | `ErrorResponse` |
+| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; hybrid `alpha` outside [0,1]; both certainty+distance; near-object `id` matching no object (typed `ErrSourceObjectNotFound`); semantically-invalid `where` (unknown property); unknown property in `return_properties` | 400 | `ErrorResponse` |
 | invalid credentials (bad key/token, via the swagger security layer) | 401 | `ErrorResponse` |
 | no/malformed credentials (anonymous-access middleware, above the swagger layer) | 401 | legacy `{"code","message"}` (parity with existing endpoints) |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
 | unknown collection; unknown tenant | 404 | `ErrorResponse` |
-| no vectorizer / missing `target_vector` on multi-vector collection / certainty on non-cosine / reserved param present / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / experimental feature not enabled (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) | 422 | `ErrorResponse` |
-| embedding provider failure | 502 | `ErrorResponse` |
+| no vectorizer (near-text, hybrid above alpha 0) / missing `target_vector` on multi-vector collection / certainty on non-cosine / near-object source object without a usable vector (typed `ErrSourceObjectNoVector`) / reserved param present / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / experimental feature not enabled (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) | 422 | `ErrorResponse` |
+| embedding provider failure (near-text, hybrid — the only endpoints that declare 502; bm25 and near-object never vectorize) | 502 | `ErrorResponse` |
 | rate limited (traverser) | 429 | `ErrorResponse` — only the traverser's own typed `ErrRateLimit` maps here; an embedding provider's rate-limit error is an ordinary vectorization failure and maps to 502 |
 | other method on the route | 405 + `Allow: POST` | `ErrorResponse` |
 | non-JSON or absent Content-Type | 415 | `ErrorResponse` |
@@ -590,15 +658,18 @@ called out in `TestParseWhere` / `TestParseConsistencyLevel`.
 `statusFromError` matches typed errors (`errors.Is`/`errors.As`) attached at
 the producers: `ErrNoVectorizerModule` (usecases/modules),
 `ErrQueryVectorization` (vectorize wrap sites in usecases/traverser +
-usecases/modules), `ErrCertaintyIncompatible`
-(entities/schema/configvalidation), the tenant sentinels
+usecases/modules, incl. the hybrid vector leg), `ErrCertaintyIncompatible`
+(entities/schema/configvalidation), `ErrSourceObjectNotFound` /
+`ErrSourceObjectNoVector` (usecases/traverser/near_params_vector.go, the
+near-object source-object resolution), the tenant sentinels
 (adapters/repos/db/multitenancy), `objects.ErrMultiTenancy`, and the
 handler's own collection-not-found sentinel. **Case order is still
-load-bearing** in one place: a no-vectorizer config error surfaces wrapped
-inside an `ErrQueryVectorization`, so the 422 check precedes the 502 check —
-see the comment on the function. The single remaining substring fallback is
-the upstream "could not find class ... in schema" (many producers, no
-sentinel yet; reachable when a collection is deleted mid-request).
+load-bearing**: a no-vectorizer config error and both source-object errors
+surface wrapped inside an `ErrQueryVectorization`, so their checks precede
+the 502 check — see the comment on the function. The single remaining
+substring fallback is the upstream "could not find class ... in schema"
+(many producers, no sentinel yet; reachable when a collection is deleted
+mid-request).
 
 ### EXPERIMENTAL_REST_SEARCH_ENABLED
 
@@ -741,6 +812,14 @@ curl -s -X POST -H 'Content-Type: application/json' \
        "return_properties":["title"],"return_metadata":["score"]}' \
   http://127.0.0.1:8091/v1/search/Movie/hybrid
 # -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"score":0.95}}],"took_ms":9}
+
+# near-object anchors at a stored object's vector (no vectorizer involved;
+# the source object returns as the closest hit):
+curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"id":"<uuid-of-an-object>","limit":3,
+       "return_properties":["title"],"return_metadata":["distance"]}' \
+  http://127.0.0.1:8091/v1/search/Movie/near-object
+# -> {"results":[{"id":"<uuid-of-an-object>","properties":{"title":"..."},"metadata":{"distance":0}},...],"took_ms":2}
 ```
 
 If you have the local harnesses, run them against the running instance
@@ -766,18 +845,15 @@ re-issue the same request:
   `search.Handler` (the 2026-07-06 draft on tag
   `rest-search-querypost-snapshot` is the reference implementation:
   middleware placement, CORS/415/405 handling, op-mode carve-outs).
-- **near-object** endpoint per the RFC. After the 2026-07-09 refactor it is:
-  a new request definition (`allOf[SearchCommon, {type-specific fields}]`)
-  in `schema.json` + regen, a small `buildXParams` (the shared parsers on
-  `SearchCommon` are already reusable), and a thin `Handler.X` wrapper over
-  the generic `execute()` that returns the shared `SearchResponse` — no
-  copy-paste of the auth/resolve/reply flow (bm25 2026-07-14 and hybrid
-  2026-07-16 are the proof). Aggregate follows the same shape under
-  `/v1/aggregate/{collection}`.
+- **aggregate** per the RFC, under its own `/v1/aggregate/{collection}`
+  shape (not `/v1/search/…`). The four search types are done (near-text,
+  bm25, hybrid, near-object — each was: request definition in `schema.json`
+  + regen, a `buildXParams`, a thin `Handler.X` over `execute()`).
 - **`search_operator`** (`and`/`or` + `minimum_or_tokens_match`) on bm25 and
   the hybrid keyword leg — the deferred gRPC-parity gap from the 2026-07-14
   decision log; adding it later is a non-breaking widening. Likewise the
-  hybrid `vector` / sub-search params (2026-07-16 entry).
+  hybrid `vector` / sub-search params and the near-object `beacon`
+  (2026-07-16 entries).
 - **RAG params** (`single_prompt`/`grouped_task`): currently 422; needs
   `Cache-Control: no-store` (or equivalent) when implemented, since
   generation re-invokes paid LLM calls.

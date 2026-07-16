@@ -239,6 +239,19 @@ func (h *Handler) Bm25(ctx context.Context, principal *models.Principal,
 	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
+// NearObject executes a similarity search over collection anchored at an
+// existing object's stored vector, supplying execute with the near-object
+// params builder. It returns the 200 payload or an APIError carrying the
+// HTTP status.
+func (h *Handler) NearObject(ctx context.Context, principal *models.Principal,
+	collection string, body *models.SearchNearObjectRequest,
+) (*models.SearchResponse, *APIError) {
+	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
+		return h.buildNearObjectParams(class, className, body, getClass, principal)
+	}
+	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+}
+
 // Hybrid executes a hybrid (keyword + vector) search over collection,
 // supplying execute with the hybrid params builder. It returns the 200
 // payload or an APIError carrying the HTTP status.
@@ -297,8 +310,9 @@ const errClassNotFoundMarker = "could not find class"
 // errors.Is/As. This relies on the wrap chain staying %w/Wrapf (never
 // %v/%s), or the typed matches silently degrade to 500.
 //
-// ORDERING: ErrNoVectorizerModule (422) must precede ErrQueryVectorization
-// (502) — the former arrives wrapped inside the latter.
+// ORDERING: ErrNoVectorizerModule (422), ErrSourceObjectNotFound (400) and
+// ErrSourceObjectNoVector (422) must precede ErrQueryVectorization (502) —
+// each arrives wrapped inside the latter.
 func statusFromError(err error) *APIError {
 	var forbidden autherrs.Forbidden
 	if errors.As(err, &forbidden) {
@@ -321,6 +335,14 @@ func statusFromError(err error) *APIError {
 		return &APIError{Status: http.StatusNotFound, Err: err}
 	case errors.As(err, &enterrors.ErrNoVectorizerModule{}):
 		// must stay above ErrQueryVectorization (see func doc)
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	case errors.As(err, &enterrors.ErrSourceObjectNotFound{}):
+		// near-object: the id names no object — a bad body value, like an
+		// unknown target_vector (must stay above ErrQueryVectorization)
+		return &APIError{Status: http.StatusBadRequest, Err: err}
+	case errors.As(err, &enterrors.ErrSourceObjectNoVector{}):
+		// near-object: the object exists but its stored vectors cannot
+		// anchor this search (must stay above ErrQueryVectorization)
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &enterrors.ErrCertaintyIncompatible{}):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}

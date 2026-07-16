@@ -841,6 +841,183 @@ func TestBm25HandlerTenantAuthorization(t *testing.T) {
 	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
+// mustNearObjectModel is mustModel for the near-object request model.
+func mustNearObjectModel(t *testing.T, body string) *models.SearchNearObjectRequest {
+	t.Helper()
+	var req models.SearchNearObjectRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doNearObject runs the near-object handler the way the generated operation
+// wiring does, with the typed, already-decoded request model.
+func doNearObject(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.NearObject(context.Background(), principal, collection, mustNearObjectModel(t, body))
+}
+
+// TestNearObjectHandlerHappyPath: the near-object wrapper drives the same
+// execute() flow as the other search types, with NearObject params instead
+// of module, keyword or hybrid params.
+func TestNearObjectHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"distance": float32(0.12),
+			},
+		},
+	}
+
+	payload, apiErr := doNearObject(t, deps, nil, "Movie",
+		`{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247","limit":5,"return_properties":["title"],"return_metadata":["distance"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Distance)
+	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with near-object params, nothing else
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.NearObject)
+	assert.Equal(t, "73f2eb5f-5abf-447a-81ca-74b1dd168247", params.NearObject.ID)
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+	assert.Nil(t, params.HybridSearch)
+}
+
+func TestNearObjectHandlerDisabled(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.handler.enabled = runtime.NewDynamicValue(false)
+
+	_, apiErr := doNearObject(t, deps, nil, "Movie", `{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247"}`)
+	require.NotNil(t, apiErr)
+	// mirrors DISABLE_GRAPHQL: the operation stays registered and rejects
+	// requests with 422
+	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+	assert.Contains(t, apiErr.Error(), "not enabled")
+	assert.Contains(t, apiErr.Error(), "EXPERIMENTAL_REST_SEARCH_ENABLED")
+}
+
+// TestNearObjectReservedFieldsRejected: the shared reserved-field 422 gate
+// in execute() fires for near-object exactly as for the other search types.
+func TestNearObjectReservedFieldsRejected(t *testing.T) {
+	reserved := map[string]string{
+		"single_prompt":     `"x"`,
+		"grouped_task":      `"x"`,
+		"group_by":          `"x"`,
+		"number_of_groups":  `2`,
+		"objects_per_group": `2`,
+		"rerank_property":   `"x"`,
+		"rerank_query":      `"x"`,
+	}
+	for field, value := range reserved {
+		t.Run(field, func(t *testing.T) {
+			deps := newTestHandler(t)
+			_, apiErr := doNearObject(t, deps, nil, "Movie",
+				fmt.Sprintf(`{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247","%s":%s}`, field, value))
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "not yet supported")
+			assert.Contains(t, apiErr.Error(), field)
+		})
+	}
+}
+
+func TestNearObjectHandlerAuthorizesBeforeSchemaAccess(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Unknown"))
+
+	// unknown collection AND unauthorized: authz runs first, so the caller
+	// must not learn whether the collection exists
+	_, apiErr := doNearObject(t, deps, nil, "Unknown", `{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247"}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+func TestNearObjectHandlerUnknownCollection(t *testing.T) {
+	deps := newTestHandler(t)
+
+	_, apiErr := doNearObject(t, deps, nil, "Unknown", `{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247"}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+	assert.Contains(t, apiErr.Error(), "could not find collection")
+}
+
+func TestNearObjectHandlerTenantAuthorization(t *testing.T) {
+	deps := newTestHandler(t)
+
+	_, apiErr := doNearObject(t, deps, nil, "Movie",
+		`{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247","tenant":"tenantA"}`)
+	require.Nil(t, apiErr)
+
+	calls := deps.authorizer.Calls()
+	require.NotEmpty(t, calls)
+	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
+}
+
+// TestNearObjectSourceObjectErrorMapping builds the source-object errors via
+// their real producer types and the real explorer wrap chain (the explorer
+// wraps every vector-resolution failure in ErrQueryVectorization): the typed
+// matches must win over the 502 mapping, or an unknown id would surface as
+// an embedding-provider failure.
+func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{
+			name: "unknown source object id",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNotFound(fmt.Errorf("vector not found")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "source object has no vector",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNoVector(
+						fmt.Errorf("nearObject search-object with id 73f2eb5f-5abf-447a-81ca-74b1dd168247 has no vector")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "source object has no vector for the target",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNoVector(
+						fmt.Errorf("vector not found for target: title_vec")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := newTestHandler(t)
+			deps.searcher.err = tt.err
+
+			_, apiErr := doNearObject(t, deps, nil, "Movie", `{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247"}`)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tt.wantStatus, apiErr.Status, apiErr.Error())
+		})
+	}
+}
+
 // mustHybridModel is mustModel for the hybrid request model.
 func mustHybridModel(t *testing.T, body string) *models.SearchHybridRequest {
 	t.Helper()

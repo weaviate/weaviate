@@ -170,6 +170,104 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	return out, nil
 }
 
+// buildNearObjectParams converts the near-object request into the
+// dto.GetParams consumed by traverser.GetClass. Behavior must stay in sync
+// with the gRPC parser's near-object handling
+// (adapters/handlers/grpc/v1/parse_search_request.go). Shared fields are
+// read from the embedded SearchCommon, near-object fields off the body.
+func (h *Handler) buildNearObjectParams(class *models.Class, className string, body *models.SearchNearObjectRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
+
+	replProps, apiErr := parseConsistencyLevel(common.ConsistencyLevel)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.ReplicationProperties = replProps
+
+	pagination, apiErr := h.parsePagination(common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.Pagination = pagination
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	nearObject, apiErr := parseNearObject(class, body, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.NearObject = nearObject
+
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.AdditionalProperties = addProps
+
+	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.Properties = props
+	if len(out.Properties) == 0 {
+		out.AdditionalProperties.NoProps = true
+	}
+
+	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.Filters = filter
+
+	return out, nil
+}
+
+// parseNearObject builds the near-object search params, mirroring the gRPC
+// parser: the source object's stored vector anchors the search, so no
+// vectorizer module is required (unlike near-text — a "none" vectorizer
+// collection with client-supplied vectors is fully searchable). Whether the
+// id resolves to an object is the engine's to decide (a typed
+// ErrSourceObjectNotFound, mapped to 400).
+func parseNearObject(class *models.Class, body *models.SearchNearObjectRequest, targetVectors []string) (*searchparams.NearObject, *APIError) {
+	// an absent (or null) id is already rejected upstream by swagger's
+	// required validation, a structurally invalid one by its uuid format;
+	// this covers the direct-call path
+	if body.ID == nil || *body.ID == "" {
+		return nil, newAPIError(http.StatusBadRequest, "id must not be empty")
+	}
+
+	if body.Certainty != nil && body.Distance != nil {
+		return nil, newAPIError(http.StatusBadRequest, "near_object: cannot provide both distance and certainty")
+	}
+	if body.Certainty != nil && (*body.Certainty < 0 || *body.Certainty > 1) {
+		return nil, newAPIError(http.StatusBadRequest,
+			"certainty must be between 0 and 1, got %v", *body.Certainty)
+	}
+
+	params := &searchparams.NearObject{
+		ID:            body.ID.String(),
+		TargetVectors: targetVectors,
+	}
+	if body.Certainty != nil {
+		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+			return nil, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+		}
+		params.Certainty = *body.Certainty
+	}
+	if body.Distance != nil {
+		params.Distance = *body.Distance
+		params.WithDistance = true
+	}
+
+	return params, nil
+}
+
 // buildHybridParams converts the hybrid request into the dto.GetParams
 // consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
 // parser's hybrid handling (adapters/handlers/grpc/v1/parse_search_request.go).

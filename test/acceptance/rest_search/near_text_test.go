@@ -501,4 +501,10 @@ func TestRESTSearchDisabled(t *testing.T) {
 	})
 	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 	assert.Contains(t, errMessage(t, out), "not enabled")
+
+	status, out = postNearObject(t, "Anything", map[string]interface{}{
+		"id": "dd44bbee-ca5f-4db7-a412-5fc6a2300001",
+	})
+	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+	assert.Contains(t, errMessage(t, out), "not enabled")
 }

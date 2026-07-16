@@ -25,11 +25,11 @@ import (
 )
 
 // setupSearchHandlers wires the REST search API (operations search.nearText,
-// search.bm25 and search.hybrid, POST
-// /v1/search/{collection}/{near-text,bm25,hybrid}). The handler logic lives
-// in adapters/handlers/rest/search. The endpoint is experimental and off by
-// default; EXPERIMENTAL_REST_SEARCH_ENABLED=true enables it. When disabled it
-// rejects requests with 422.
+// search.bm25, search.hybrid and search.nearObject, POST
+// /v1/search/{collection}/{near-text,bm25,hybrid,near-object}). The handler
+// logic lives in adapters/handlers/rest/search. The endpoint is experimental
+// and off by default; EXPERIMENTAL_REST_SEARCH_ENABLED=true enables it. When
+// disabled it rejects requests with 422.
 func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := restsearch.NewHandler(restsearch.HandlerConfig{
 		Traverser:         appState.Traverser,
@@ -81,6 +81,15 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 				return searchHybridErrResponder(apiErr)
 			}
 			return searchops.NewSearchHybridOK().WithPayload(payload)
+		})
+
+	api.SearchSearchNearObjectHandler = searchops.SearchNearObjectHandlerFunc(
+		func(params searchops.SearchNearObjectParams, principal *models.Principal) middleware.Responder {
+			payload, apiErr := h.NearObject(params.HTTPRequest.Context(), principal, params.Collection, params.Body)
+			if apiErr != nil {
+				return searchNearObjectErrResponder(apiErr)
+			}
+			return searchops.NewSearchNearObjectOK().WithPayload(payload)
 		})
 }
 
@@ -137,6 +146,32 @@ func searchHybridErrResponder(apiErr *restsearch.APIError) middleware.Responder 
 		return searchops.NewSearchHybridBadGateway().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return searchops.NewSearchHybridInternalServerError().WithPayload(payload)
+	default:
+		// statuses without a declared response
+		return middleware.Error(apiErr.Status, payload)
+	}
+}
+
+// searchNearObjectErrResponder translates a search APIError into the
+// generated responder for its status, keeping the standard REST error shape.
+// near-object declares no 502 — the source object's stored vector anchors
+// the search, so no embedding provider is ever called.
+func searchNearObjectErrResponder(apiErr *restsearch.APIError) middleware.Responder {
+	payload := searchErrPayload(apiErr)
+
+	switch apiErr.Status {
+	case http.StatusBadRequest:
+		return searchops.NewSearchNearObjectBadRequest().WithPayload(payload)
+	case http.StatusForbidden:
+		return searchops.NewSearchNearObjectForbidden().WithPayload(payload)
+	case http.StatusNotFound:
+		return searchops.NewSearchNearObjectNotFound().WithPayload(payload)
+	case http.StatusUnprocessableEntity:
+		return searchops.NewSearchNearObjectUnprocessableEntity().WithPayload(payload)
+	case http.StatusTooManyRequests:
+		return searchops.NewSearchNearObjectTooManyRequests().WithPayload(payload)
+	case http.StatusInternalServerError:
+		return searchops.NewSearchNearObjectInternalServerError().WithPayload(payload)
 	default:
 		// statuses without a declared response
 		return middleware.Error(apiErr.Status, payload)
