@@ -242,15 +242,22 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
 		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
+	// A property that was never tracked has nothing to subtract — no-op
+	// rather than error. This happens legitimately after an enable-searchable
+	// migration: pre-migration objects were written while the property had no
+	// searchable index (nothing tracked), yet their post-flip delete/update
+	// analyzes them as searchable and tries to untrack. Erroring here failed
+	// the user's delete; decrementing Sum/Count before the check corrupted
+	// the tally negative (weaviate/0-weaviate-issues#319 adjacent finding).
+	if _, ok := t.data.BucketedData[propName]; !ok {
+		return nil
+	}
+
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
 
 	bucketId := t.bucketFromValue(value)
-	if _, ok := t.data.BucketedData[propName]; ok {
-		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
-	} else {
-		return errors.New("property not found")
-	}
+	t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
 
 	return nil
 }

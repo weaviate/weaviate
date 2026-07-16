@@ -570,6 +570,47 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	)
 }
 
+// ensureNullLengthBucketsForMigration creates the per-prop null/length
+// buckets that initPropertyBuckets skips for a property with no enabled
+// inverted index. An enable-* migration makes such a property analyzable
+// (force-index overlay during the swap-vs-flip window, live flag after the
+// flip), and extendInvertedIndicesLSM / deleteFromInvertedIndicesLSM write
+// length/null entries for every analyzed property when the class config
+// enables them — without these buckets the first such write fails with
+// "no bucket for prop ... found". Idempotent (CreateOrLoadBucket); errors
+// are logged, matching the value-bucket creation in the PreReindexHooks.
+func (s *Shard) ensureNullLengthBucketsForMigration(ctx context.Context, propName string) {
+	if !s.index.invertedIndexConfig.IndexNullState && !s.index.invertedIndexConfig.IndexPropertyLength {
+		return
+	}
+	class := s.index.getSchema.ReadOnlyClass(s.index.Config.ClassName.String())
+	if class == nil {
+		return
+	}
+	var prop *models.Property
+	for _, p := range class.Properties {
+		if p.Name == propName {
+			prop = p
+			break
+		}
+	}
+	if prop == nil || len(prop.DataType) == 0 {
+		return
+	}
+	if s.index.invertedIndexConfig.IndexNullState {
+		if err := s.createPropertyNullIndex(ctx, prop, s.makeDefaultBucketOptions); err != nil {
+			s.index.logger.WithField("prop", propName).
+				Errorf("ensureNullLengthBucketsForMigration: failed to create null bucket: %v", err)
+		}
+	}
+	if s.index.invertedIndexConfig.IndexPropertyLength {
+		if err := s.createPropertyLengthIndex(ctx, prop, s.makeDefaultBucketOptions); err != nil {
+			s.index.logger.WithField("prop", propName).
+				Errorf("ensureNullLengthBucketsForMigration: failed to create length bucket: %v", err)
+		}
+	}
+}
+
 func (s *Shard) addIDProperty(ctx context.Context) error {
 	if err := s.isReadOnly(); err != nil {
 		return err

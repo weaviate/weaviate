@@ -789,6 +789,21 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt reindexTracker, props []string,
 ) error {
+	// Re-fire the overlay hook for every prop: the IsTidied / IsSwapped
+	// recovery branches skip both per-prop loops that normally fire it
+	// (runtimeSwap Phase 2a and recoverRuntimeSwapBuckets), and the
+	// pre-restart process's in-memory overlays are gone. Without this, a
+	// node replaying OnGroupCompleted after a restart inside the
+	// swap-vs-flip window serves the swapped bucket with no overlay:
+	// queries mis-tokenize (tokenization overlay) and writes drop the
+	// migrating property (force-index overlay,
+	// weaviate/0-weaviate-issues#319). Idempotent map writes — a re-fire
+	// after recoverRuntimeSwapBuckets already fired is harmless.
+	for _, propName := range props {
+		if t.onPropSwapped != nil {
+			t.onPropSwapped(propName)
+		}
+	}
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}

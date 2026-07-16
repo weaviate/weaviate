@@ -98,20 +98,49 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	}
 
 	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
-	// Mirror the query-path overlay handling (BM25Searcher.effectiveTokenization)
-	// so writes during a change-tokenization SWAPPING window land in the
-	// canonical bucket with TARGET-tokenized keys. weaviate/0-weaviate-issues#240.
-	if overlay := s.tokenizationAnalyzerOverlay(c.Properties); overlay != nil {
+	if overlay := s.writeAnalyzerOverlay(c.Properties); overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
 	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, nestedProps, err
 }
 
+// writeAnalyzerOverlay merges the two per-shard migration overlays into the
+// analyzer's PropertyOverlay shape for the write path:
+//
+//   - tokenization overlay: writes during a change-tokenization SWAPPING
+//     window land in the canonical bucket with TARGET-tokenized keys
+//     (weaviate/0-weaviate-issues#240).
+//   - force-index overlay: writes during an enable-* post-swap pre-flip
+//     window are analyzed with the target index flag on, so they reach the
+//     just-swapped canonical bucket instead of being dropped by
+//     HasAnyInvertedIndex (weaviate/0-weaviate-issues#319).
+//
+// The two never target the same property (the submit-time conflict guard
+// serializes overlapping migrations); the merge below keeps both defensively.
+func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+	overlay := s.tokenizationAnalyzerOverlay(props)
+	forced := s.SnapshotForceIndexOverlay(props)
+	if len(forced) == 0 {
+		return overlay
+	}
+	if overlay == nil {
+		return forced
+	}
+	for name, f := range forced {
+		if t, ok := overlay[name]; ok && f.Tokenization == "" {
+			f.Tokenization = t.Tokenization
+		}
+		overlay[name] = f
+	}
+	return overlay
+}
+
 // tokenizationAnalyzerOverlay projects the per-shard tokenization
 // overlay onto the inverted-analyzer PropertyOverlay shape. Only
-// `Tokenization` is populated — the Force* flags are owned by
-// from-scratch backfill strategies and must not affect ordinary writes.
+// `Tokenization` is populated — the Force* flags live in the separate
+// force-index overlay (see [Shard.SnapshotForceIndexOverlay]) and are
+// merged in by [Shard.writeAnalyzerOverlay].
 func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

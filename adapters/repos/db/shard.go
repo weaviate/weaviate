@@ -456,6 +456,44 @@ type Shard struct {
 	tokenizationOverlayMu sync.RWMutex
 	tokenizationOverlay   map[string]string
 
+	// forceIndexOverlayMu guards forceIndexOverlay. Holds the per-prop
+	// "analyze writes on this shard as if the target index flag were
+	// already enabled" override that closes the post-swap pre-flip
+	// WRITE-loss window of an enable-* migration
+	// (weaviate/0-weaviate-issues#319).
+	//
+	// Mechanism: an enable-filterable / enable-searchable migration's
+	// per-shard runtimeSwap flips the canonical bucket pointer to the
+	// backfilled bucket AND tears down the double-write callbacks BEFORE
+	// the cluster-wide schema flip in
+	// OnTaskCompleted.flipSemanticMigrationSchema commits via RAFT.
+	// During that window on each replica the analyzer still sees the
+	// pre-flip schema (index flag false), so analyzeProps drops the
+	// migrating property (inverted/objects.go HasAnyInvertedIndex) and a
+	// write in the window never reaches the just-swapped bucket: fresh
+	// inserts are silently missing after the flip, updates leave a stale
+	// ghost. This overlay is the write-side sibling of
+	// [tokenizationOverlay] (which fixes the read side for tokenization
+	// migrations): it carries the Force* flags (and, for
+	// enable-searchable, the target tokenization) into the write path's
+	// [Shard.AnalyzeObject] so in-window writes are analyzed under the
+	// TARGET schema and land in the canonical (post-swap) bucket via the
+	// ordinary inline path.
+	//
+	// Lifecycle mirrors tokenizationOverlay:
+	//   1. SET: per prop, atomic with each bucket-pointer flip (the
+	//      onPropSwapped hook wired by maybeWirePerPropOverlaySet), plus
+	//      the recovery/replay re-arm in finalizeMigrationAfterRecovery.
+	//   2. CLEAR (success): OnTaskCompleted clears per-shard after
+	//      flipSemanticMigrationSchema returns — the flip waits for
+	//      local FSM apply, so the live schema is already visible here.
+	//   3. CLEAR (all-failed): maybeClearMigrationOverlaysOnAllFailed.
+	//   4. Backstop: SnapshotForceIndexOverlay skips (and self-clears)
+	//      entries the live schema already satisfies, so a missed clear
+	//      can never force stale analysis after the flip is visible.
+	forceIndexOverlayMu sync.RWMutex
+	forceIndexOverlay   map[string]inverted.PropertyOverlay
+
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
@@ -927,6 +965,114 @@ func (s *Shard) SnapshotTokenizationOverlay(propNames []string) map[string]strin
 		}
 	}
 	return out
+}
+
+// SetForceIndexOverlay records that writes to propName on this shard must be
+// analyzed as if overlay's Force* flags (and target tokenization, when set)
+// were already committed to the live schema. Set per-prop atomically with the
+// bucket-pointer flip (see the [forceIndexOverlay] field godoc for the full
+// lifecycle); a zero-value overlay is a no-op so cleanup paths don't need to
+// guard the call.
+func (s *Shard) SetForceIndexOverlay(propName string, overlay inverted.PropertyOverlay) {
+	if propName == "" || (!overlay.ForceFilterable && !overlay.ForceSearchable && !overlay.ForceRangeable) {
+		return
+	}
+	s.forceIndexOverlayMu.Lock()
+	defer s.forceIndexOverlayMu.Unlock()
+	if s.forceIndexOverlay == nil {
+		s.forceIndexOverlay = map[string]inverted.PropertyOverlay{}
+	}
+	s.forceIndexOverlay[propName] = overlay
+}
+
+// ClearForceIndexOverlay removes any force-index-overlay entry for propName.
+// Idempotent — called by OnTaskCompleted once flipSemanticMigrationSchema has
+// applied locally, and by the all-failed cleanup path.
+func (s *Shard) ClearForceIndexOverlay(propName string) {
+	if propName == "" {
+		return
+	}
+	s.forceIndexOverlayMu.Lock()
+	defer s.forceIndexOverlayMu.Unlock()
+	if s.forceIndexOverlay == nil {
+		return
+	}
+	delete(s.forceIndexOverlay, propName)
+}
+
+// SnapshotForceIndexOverlay returns the active force-index-overlay entries for
+// the supplied properties, skipping entries the live schema already satisfies
+// (the flip has applied locally; forcing would be a no-op and keeping the
+// entry live past the flip risks masking a later index DELETE). Satisfied
+// entries are also self-cleared, mirroring [Shard.TokenizationFor]'s
+// catch-up backstop, so the per-write map lookup disappears once the flip
+// lands even if the explicit OnTaskCompleted clear was missed.
+//
+// The returned map is owned by the caller. Nil when no entry applies — the
+// analyzer's fast path.
+func (s *Shard) SnapshotForceIndexOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+	if len(props) == 0 {
+		return nil
+	}
+	s.forceIndexOverlayMu.RLock()
+	if len(s.forceIndexOverlay) == 0 {
+		s.forceIndexOverlayMu.RUnlock()
+		return nil
+	}
+	var out map[string]inverted.PropertyOverlay
+	var satisfied []*models.Property
+	for _, prop := range props {
+		if prop == nil {
+			continue
+		}
+		overlay, ok := s.forceIndexOverlay[prop.Name]
+		if !ok {
+			continue
+		}
+		if forceOverlaySatisfiedByLiveSchema(overlay, prop) {
+			satisfied = append(satisfied, prop)
+			continue
+		}
+		if out == nil {
+			out = make(map[string]inverted.PropertyOverlay, len(props))
+		}
+		out[prop.Name] = overlay
+	}
+	s.forceIndexOverlayMu.RUnlock()
+
+	for _, prop := range satisfied {
+		// Re-verify under the write lock so the self-clear can't race a
+		// concurrent re-arm (a newer migration generation on the same prop)
+		// between the RUnlock above and this delete.
+		s.forceIndexOverlayMu.Lock()
+		if current, ok := s.forceIndexOverlay[prop.Name]; ok && forceOverlaySatisfiedByLiveSchema(current, prop) {
+			delete(s.forceIndexOverlay, prop.Name)
+		}
+		s.forceIndexOverlayMu.Unlock()
+	}
+	return out
+}
+
+// forceOverlaySatisfiedByLiveSchema reports whether every flag (and the
+// tokenization) the overlay would force is already present on the live
+// property — i.e. the cluster-wide schema flip has applied on this node and
+// the overlay entry is obsolete.
+func forceOverlaySatisfiedByLiveSchema(overlay inverted.PropertyOverlay, prop *models.Property) bool {
+	if overlay.ForceFilterable && !inverted.HasFilterableIndex(prop) {
+		return false
+	}
+	if overlay.ForceSearchable {
+		if !inverted.HasSearchableIndex(prop) {
+			return false
+		}
+		if overlay.Tokenization != "" && prop.Tokenization != overlay.Tokenization {
+			return false
+		}
+	}
+	if overlay.ForceRangeable && !inverted.HasRangeableIndex(prop) {
+		return false
+	}
+	return true
 }
 
 func (s *Shard) tenant() string {
