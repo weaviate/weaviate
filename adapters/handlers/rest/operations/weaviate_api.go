@@ -47,6 +47,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/tokenize"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
@@ -388,6 +389,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsVectorsDeleteHandler: schema.SchemaObjectsVectorsDeleteHandlerFunc(func(params schema.SchemaObjectsVectorsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsVectorsDelete has not yet been implemented")
 		}),
+		SearchSearchNearTextHandler: search.SearchNearTextHandlerFunc(func(params search.SearchNearTextParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchNearText has not yet been implemented")
+		}),
 		SchemaTenantExistsHandler: schema.TenantExistsHandlerFunc(func(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantExists has not yet been implemented")
 		}),
@@ -682,6 +686,8 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
 	// SchemaSchemaObjectsVectorsDeleteHandler sets the operation handler for the schema objects vectors delete operation
 	SchemaSchemaObjectsVectorsDeleteHandler schema.SchemaObjectsVectorsDeleteHandler
+	// SearchSearchNearTextHandler sets the operation handler for the search near text operation
+	SearchSearchNearTextHandler search.SearchNearTextHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
 	SchemaTenantExistsHandler schema.TenantExistsHandler
 	// SchemaTenantsCreateHandler sets the operation handler for the tenants create operation
@@ -1099,6 +1105,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsVectorsDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsVectorsDeleteHandler")
+	}
+	if o.SearchSearchNearTextHandler == nil {
+		unregistered = append(unregistered, "search.SearchNearTextHandler")
 	}
 	if o.SchemaTenantExistsHandler == nil {
 		unregistered = append(unregistered, "schema.TenantExistsHandler")
@@ -1647,6 +1656,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/{className}/vectors/{vectorIndexName}/index"] = schema.NewSchemaObjectsVectorsDelete(o.context, o.SchemaSchemaObjectsVectorsDeleteHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/near-text"] = search.NewSearchNearText(o.context, o.SearchSearchNearTextHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}
