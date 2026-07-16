@@ -783,6 +783,7 @@ function run_acceptance_reindex_multinode() {
   #   -restart    : TestMultiNode_*Restart* / *Crash* (excl. AJ + Matrix)
   #   -scale      : TestMultiNode_HappyPath, _ConcurrentDifferent*,
   #                 _EnableRangeable_NoPartialCountsInFlight,
+  #                 _EnableRangeable_FilterableFalseCompletes,
   #                 _RepeatedParallelMigrationJourney_*,
   #                 _PostRestartReapplyMigrations_*
   #   -changetok  : TestMultiNode_ChangeTokenization_* (non-AJ) +
@@ -793,7 +794,7 @@ function run_acceptance_reindex_multinode() {
   # IMPORTANT: when adding a new sub-shard, also add its top-level test
   # prefixes to the SKIP regex below to prevent the catch-all from
   # double-running the same tests.
-  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
+  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|EnableRangeable_FilterableFalseCompletes|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
     run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
 }
 
@@ -851,7 +852,13 @@ function run_acceptance_reindex_multinode_scale() {
   # test in the whole package (PostRestartReapplyMigrations_ExactCounts
   # AcrossReplicas, 135s) lives here so it's amortised against the
   # smaller orchestration tests.
-  AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
+  #
+  # TestMultiNode_EnableRangeable_FilterableFalseCompletes (GH
+  # weaviate/0-weaviate-issues#325) was added here rather than to the
+  # `reindex-multinode` catch-all: the catch-all measured 10m52s
+  # (budget 10m) after picking it up, while -scale had ~8m21s + ~60s
+  # of headroom under the same budget.
+  AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|EnableRangeable_FilterableFalseCompletes|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
     run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode
 }
 
