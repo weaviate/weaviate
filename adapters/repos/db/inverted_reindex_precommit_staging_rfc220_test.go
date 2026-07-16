@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -601,4 +602,228 @@ func readDirTagRFC220(t *testing.T, dir string) string {
 	data, err := os.ReadFile(filepath.Join(dir, ".rfc220_tag"))
 	require.NoError(t, err)
 	return string(data)
+}
+
+// TestReindexStagedSwap_RealLaggingFollowerOrdering_ReResolvesOnFlip drives
+// the REAL lagging-follower ordering QA finding 2 named — NOT the
+// injected-verdict shortcut. A node stages + acks its swap, then crashes
+// before the cluster-wide schema flip applies on it. It boots against the
+// still-PRE-flip schema, so the production shard-init verdict
+// ([FinalizeCompletedMigrationsWithVerdict] reading the real getSchema) is a
+// false-negative and reverts the staged swap to merged (serving OLD under the
+// soon-to-be-flipped schema). No DTM re-drives it (Noop reindexer). Then the
+// flip UPDATE_PROPERTY entry applies — modelled by flipping the class the
+// getSchema returns — and the real schema-apply hook
+// [Shard.updatePropertyBuckets] fires [Shard.reResolveStagedSwapsOnSchemaFlip],
+// which must converge the node to NEW WITHOUT a restart, using the real
+// resolution functions (RunSwapOnShard + CommitSwapOnShard).
+func TestReindexStagedSwap_RealLaggingFollowerOrdering_ReResolvesOnFlip(t *testing.T) {
+	ctx := testCtx()
+	const propName = "title"
+	const numObjects = 25
+	className := "ReResolveOnFlip_" + uuid.NewString()[:8]
+	// Word tokenization is the PRE-flip schema; the migration retokenizes to
+	// field.
+	class := newTestClassWithProps(className, []string{propName})
+	canonicalBucket := helpers.BucketFromPropNameLSM(propName)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	shardName := shard.Name()
+	lsmPath := shard.pathLSM()
+
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+	oldFP := fingerprintRoaringSetBucket(t, shard.store.Bucket(canonicalBucket))
+
+	// Stage the swap through the real filterable-retokenize path (staged
+	// mode). After this the canonical bucket serves the NEW field-tokenized
+	// data and the OLD data survives as the backup, awaiting the verdict.
+	stageTask := NewRuntimeFilterableRetokenizeTask(idx.logger, propName,
+		models.PropertyTokenizationField, className, className, 1)
+	require.NoError(t, stageTask.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, stageTask.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, stageTask.RunSwapOnShard(ctx, shard))
+
+	rt, err := stageTask.newReindexTracker(lsmPath)
+	require.NoError(t, err)
+	require.True(t, rt.IsStaged(), "swap must be staged (awaiting the cluster-wide verdict)")
+	require.False(t, rt.IsTidied(), "staged swap must not be committed yet")
+	newFP := fingerprintRoaringSetBucket(t, shard.store.Bucket(canonicalBucket))
+	require.NotEqual(t, oldFP, newFP,
+		"field tokenization must produce a different inverted fingerprint than word")
+
+	// Persist the payload.mig recovery record the boot reconciler and the
+	// flip-apply re-resolve both consult.
+	rec := reindexRecoveryRecord{
+		TaskID: "reresolve-test", TaskVersion: 1, UnitID: "unit-0",
+		Payload: ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenizationFilterable,
+			Collection:         className,
+			Properties:         []string{propName},
+			TargetTokenization: models.PropertyTokenizationField,
+		},
+	}
+	encoded, err := json.Marshal(rec)
+	require.NoError(t, err)
+	require.NoError(t, stageTask.SaveRecoveryPayload(lsmPath, encoded))
+
+	// --- Crash before the flip applied on this node. ---
+	require.NoError(t, shard.Shutdown(ctx))
+
+	// --- Boot with the still-PRE-flip schema. Shard init consults the
+	// schema-backed verdict; it is a false-negative and reverts to merged. A
+	// Noop reindexer guarantees NOTHING re-drives the swap — the only
+	// convergence driver under test is the flip-apply re-resolve. ---
+	require.Equal(t, models.PropertyTokenizationWord, class.Properties[0].Tokenization,
+		"precondition: the schema must still be pre-flip at boot")
+	idx.shardReindexer = NewShardReindexerV3Noop()
+	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	require.NoError(t, err)
+	shard2 := shd2.(*Shard)
+	idx.shards.Store(shardName, shd2)
+
+	rt2, err := stageTask.newReindexTracker(lsmPath)
+	require.NoError(t, err)
+	require.True(t, rt2.IsMerged(), "boot must revert the staged swap to merged")
+	require.False(t, rt2.IsStaged(), "staged sentinel must be cleared on revert")
+	require.False(t, rt2.IsTidied(), "revert must not commit")
+	require.Equal(t, oldFP, fingerprintRoaringSetBucket(t, shard2.store.Bucket(canonicalBucket)),
+		"the bug state: the node serves OLD data under the soon-to-be-flipped schema")
+
+	// --- The flip UPDATE_PROPERTY entry now applies on this node. The
+	// fakeSchemaGetter returns the class pointer, so flipping its tokenization
+	// IS the applied schema flip. ---
+	class.Properties[0].Tokenization = models.PropertyTokenizationField
+
+	// --- Drive the REAL schema-apply hook (updatePropertyBuckets), which
+	// fires the corrective re-resolve. ---
+	eg := enterrors.NewErrorGroupWrapper(idx.logger)
+	shard2.updatePropertyBuckets(ctx, eg, class.Properties[0])
+	require.NoError(t, eg.Wait())
+
+	rt3, err := stageTask.newReindexTracker(lsmPath)
+	require.NoError(t, err)
+	require.True(t, rt3.IsTidied(), "the flip-apply re-resolve must commit the staged swap (tidied)")
+	require.False(t, rt3.IsStaged(), "the staged sentinel must be retired on commit")
+	require.Equal(t, newFP, fingerprintRoaringSetBucket(t, shard2.store.Bucket(canonicalBucket)),
+		"convergence: the canonical bucket serves NEW (field-tokenized) data WITHOUT a restart")
+	backupDir := filepath.Join(lsmPath, stageTask.backupBucketName(propName))
+	require.False(t, dirExists(backupDir), "commit must trim the OLD backup")
+
+	// Idempotency: a re-fired flip-apply must be a no-op.
+	eg2 := enterrors.NewErrorGroupWrapper(idx.logger)
+	shard2.updatePropertyBuckets(ctx, eg2, class.Properties[0])
+	require.NoError(t, eg2.Wait())
+	require.Equal(t, newFP, fingerprintRoaringSetBucket(t, shard2.store.Bucket(canonicalBucket)),
+		"a second flip-apply must not disturb the converged bucket")
+
+	require.NoError(t, shard2.Shutdown(ctx))
+}
+
+// TestReindexStagedSwap_ReResolve_PreservesRevertWindowWrites is the
+// weaviate/weaviate#12211 verification (QA finding 4). It proves that a
+// write accepted DURING the revert-to-merged window survives the flip-apply
+// re-resolve — i.e. the re-drive is convergent, not a promotion of a stale
+// frozen NEW bucket.
+//
+// The mechanism (all pre-existing machinery, no new code): on restart the
+// recovery reindexer fires OnAfterLsmInit, whose merged-state branch re-arms
+// the ingest double-write callbacks (task_generic.go:1480 — no staged gate).
+// So while the reverted node serves OLD, every write ALSO lands in the NEW
+// ingest bucket under the target tokenization. The flip-apply re-resolve then
+// promotes that ingest bucket, which already contains the window writes. This
+// is why "revert-to-merged collapses the write window and the re-drive is
+// convergent": 12211's residual closes without a dedicated write overlay.
+func TestReindexStagedSwap_ReResolve_PreservesRevertWindowWrites(t *testing.T) {
+	ctx := testCtx()
+	const propName = "title"
+	const numObjects = 25
+	// A single-token value so word and field tokenization agree on the term,
+	// keeping the assertion about capture (not tokenization) unambiguous.
+	const windowTerm = "quokka"
+	className := "ReResolveWindowWrite_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{propName})
+	canonicalBucket := helpers.BucketFromPropNameLSM(propName)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	shardName := shard.Name()
+	lsmPath := shard.pathLSM()
+
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	// Stage the swap.
+	stageTask := NewRuntimeFilterableRetokenizeTask(idx.logger, propName,
+		models.PropertyTokenizationField, className, className, 1)
+	require.NoError(t, stageTask.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, stageTask.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, stageTask.RunSwapOnShard(ctx, shard))
+
+	rec := reindexRecoveryRecord{
+		TaskID: "reresolve-window-test", TaskVersion: 1, UnitID: "unit-0",
+		Payload: ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenizationFilterable,
+			Collection:         className,
+			Properties:         []string{propName},
+			TargetTokenization: models.PropertyTokenizationField,
+		},
+	}
+	encoded, err := json.Marshal(rec)
+	require.NoError(t, err)
+	require.NoError(t, stageTask.SaveRecoveryPayload(lsmPath, encoded))
+
+	// --- Crash before the flip applied. ---
+	require.NoError(t, shard.Shutdown(ctx))
+
+	// --- Boot: revert to merged against the pre-flip schema. Model the
+	// production recovery reindexer, which fires OnAfterLsmInit to re-install
+	// the ingest double-write callbacks. ---
+	idx.shardReindexer = NewShardReindexerV3Noop()
+	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	require.NoError(t, err)
+	shard2 := shd2.(*Shard)
+	idx.shards.Store(shardName, shd2)
+
+	rt2, err := stageTask.newReindexTracker(lsmPath)
+	require.NoError(t, err)
+	require.True(t, rt2.IsMerged(), "boot must revert the staged swap to merged")
+
+	// The recovery reindexer's OnAfterLsmInit re-arms the ingest double-writes
+	// for the merged tracker (production restart behavior).
+	rearmTask := NewRuntimeFilterableRetokenizeTask(idx.logger, propName,
+		models.PropertyTokenizationField, className, className, 1)
+	require.NoError(t, rearmTask.OnAfterLsmInit(ctx, shard2))
+
+	// --- A write accepted DURING the revert window. It lands in the OLD
+	// canonical bucket AND double-writes into the NEW ingest bucket. ---
+	windowObj := createTestObjectWithText(className, windowTerm)
+	require.NoError(t, shard2.PutObject(ctx, windowObj))
+
+	// --- Flip applies; the re-resolve promotes the ingest bucket. ---
+	class.Properties[0].Tokenization = models.PropertyTokenizationField
+	eg := enterrors.NewErrorGroupWrapper(idx.logger)
+	shard2.updatePropertyBuckets(ctx, eg, class.Properties[0])
+	require.NoError(t, eg.Wait())
+
+	rt3, err := stageTask.newReindexTracker(lsmPath)
+	require.NoError(t, err)
+	require.True(t, rt3.IsTidied(), "the flip-apply re-resolve must commit the swap")
+
+	// Convergence including the window write: the term of the object written
+	// during the revert window MUST be present in the promoted NEW bucket.
+	convergedFP := fingerprintRoaringSetBucket(t, shard2.store.Bucket(canonicalBucket))
+	require.Contains(t, convergedFP, windowTerm,
+		"weaviate/weaviate#12211: a write accepted during the revert window must survive "+
+			"the flip-apply re-resolve — the ingest double-write captured it into NEW and "+
+			"the re-resolve promoted NEW, so no restart-residual write overlay is needed")
+	require.NotEmpty(t, convergedFP[windowTerm],
+		"the window write's term must have a non-empty postings list in the converged NEW bucket")
+
+	require.NoError(t, shard2.Shutdown(ctx))
 }
