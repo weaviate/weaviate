@@ -31,6 +31,23 @@ func newTestController(t *testing.T) *Controller {
 	return NewController(logger)
 }
 
+// seedIndex is the RAFT index the seed helper records; flipIndex is the one
+// the test under it passes. Distinct so an assertion cannot confuse them.
+const (
+	seedIndex uint64 = 1
+	flipIndex uint64 = 42
+)
+
+// seededIndex is the index seedNamespace leaves on a namespace: Create
+// records nothing, every other seed state is reached by a flip recorded at
+// seedIndex.
+func seededIndex(seedState cmd.NamespaceState) uint64 {
+	if seedState == "" || seedState == cmd.NamespaceStateActive {
+		return 0
+	}
+	return seedIndex
+}
+
 // seedNamespace creates name and transitions it to seedState. An empty
 // seedState seeds nothing.
 func seedNamespace(t *testing.T, c *Controller, name string, seedState cmd.NamespaceState) {
@@ -44,9 +61,9 @@ func seedNamespace(t *testing.T, c *Controller, name string, seedState cmd.Names
 	}
 	if seedState == cmd.NamespaceStateResuming {
 		// resuming is only reachable from suspended.
-		require.NoError(t, c.ChangeState(name, cmd.NamespaceStateSuspended))
+		require.NoError(t, c.ChangeState(name, cmd.NamespaceStateSuspended, seedIndex))
 	}
-	require.NoError(t, c.ChangeState(name, seedState))
+	require.NoError(t, c.ChangeState(name, seedState, seedIndex))
 }
 
 func TestValidateName(t *testing.T) {
@@ -157,18 +174,26 @@ func TestController_Create(t *testing.T) {
 
 func TestController_Create_StoresActiveState(t *testing.T) {
 	c := newTestController(t)
-	// Caller-provided State is ignored: stored entries are always active.
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}, State: cmd.NamespaceStateDeleting}))
+	// Caller-provided State and StateChangeIndex are ignored: a caller
+	// cannot store a non-active namespace, nor claim a state change that
+	// never happened.
+	require.NoError(t, c.Create(cmd.Namespace{
+		Name:             "customer1",
+		HomeNodes:        []string{"node-1"},
+		State:            cmd.NamespaceStateDeleting,
+		StateChangeIndex: flipIndex,
+	}))
 	got := c.Get("customer1")
 	require.Len(t, got, 1)
 	assert.Equal(t, cmd.NamespaceStateActive, got[0].State)
+	assert.Zero(t, got[0].StateChangeIndex)
 	assert.True(t, c.IsActive("customer1"))
 }
 
 func TestController_Create_RejectsDeletingWithDistinctSentinel(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
-	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
 
 	err := c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}})
 	require.Error(t, err)
@@ -216,7 +241,7 @@ func TestController_ChangeState(t *testing.T) {
 			c := newTestController(t)
 			seedNamespace(t, c, "customer1", tc.seedState)
 
-			err := c.ChangeState("customer1", tc.target)
+			err := c.ChangeState("customer1", tc.target, flipIndex)
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.wantErr)
@@ -224,6 +249,8 @@ func TestController_ChangeState(t *testing.T) {
 					got, ok := c.GetNamespace("customer1")
 					require.True(t, ok)
 					assert.Equal(t, tc.seedState, got.State, "rejected ChangeState must not mutate the stored state")
+					assert.Equal(t, seededIndex(tc.seedState), got.StateChangeIndex,
+						"rejected ChangeState must not record an index")
 				}
 				return
 			}
@@ -231,6 +258,13 @@ func TestController_ChangeState(t *testing.T) {
 			got, ok := c.GetNamespace("customer1")
 			require.True(t, ok)
 			assert.Equal(t, tc.target, got.State)
+
+			wantIndex := flipIndex
+			if tc.target == tc.seedState {
+				wantIndex = seededIndex(tc.seedState)
+			}
+			assert.Equal(t, wantIndex, got.StateChangeIndex,
+				"only an accepted flip records the index; a same-state re-apply leaves it alone")
 		})
 	}
 }
@@ -283,7 +317,7 @@ func TestController_Update(t *testing.T) {
 			if tc.seedState != "" {
 				require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
 				if tc.seedState == cmd.NamespaceStateDeleting {
-					require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+					require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
 				}
 			}
 			err := c.Update(tc.input)
@@ -309,7 +343,7 @@ func TestController_Update(t *testing.T) {
 func TestController_RecreateAfterRemoval(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
-	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
 	require.NoError(t, c.RemoveEntity("customer1"))
 
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
@@ -321,8 +355,8 @@ func TestController_IsActiveAndListDeleting(t *testing.T) {
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer3", HomeNodes: []string{"node-1"}}))
-	require.NoError(t, c.ChangeState("customer3", cmd.NamespaceStateDeleting))
-	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+	require.NoError(t, c.ChangeState("customer3", cmd.NamespaceStateDeleting, seedIndex))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
 
 	assert.True(t, c.IsActive("customer2"))
 	assert.False(t, c.IsActive("customer1"))
@@ -453,7 +487,7 @@ func TestController_Exists(t *testing.T) {
 	assert.True(t, c.Exists("customer1"))
 	assert.False(t, c.Exists("never-existed"))
 
-	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
 	require.NoError(t, c.RemoveEntity("customer1"))
 	assert.False(t, c.Exists("customer1"))
 }
@@ -474,6 +508,7 @@ func TestController_SnapshotRestoreRoundtrip(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-a"}}))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-b"}}))
+	require.NoError(t, c.ChangeState("customer2", cmd.NamespaceStateSuspended, flipIndex))
 
 	snap, err := c.Snapshot()
 	require.NoError(t, err)
@@ -489,9 +524,14 @@ func TestController_SnapshotRestoreRoundtrip(t *testing.T) {
 	// HomeNodes must survive a snapshot/restore round-trip.
 	got := restored.Get("customer1", "customer2")
 	require.Len(t, got, 2)
-	byName := map[string]string{got[0].Name: got[0].Primary(), got[1].Name: got[1].Primary()}
-	assert.Equal(t, "node-a", byName["customer1"])
-	assert.Equal(t, "node-b", byName["customer2"])
+	byName := map[string]cmd.Namespace{got[0].Name: got[0], got[1].Name: got[1]}
+	assert.Equal(t, "node-a", byName["customer1"].Primary())
+	assert.Equal(t, "node-b", byName["customer2"].Primary())
+
+	// So must the state and the index of the flip that set it.
+	assert.Equal(t, cmd.NamespaceStateSuspended, byName["customer2"].State)
+	assert.Equal(t, flipIndex, byName["customer2"].StateChangeIndex)
+	assert.Zero(t, byName["customer1"].StateChangeIndex, "a never-flipped namespace round-trips as 0")
 }
 
 func TestController_Restore(t *testing.T) {

@@ -156,8 +156,9 @@ func NewController(logger logrus.FieldLogger) *Controller {
 }
 
 // Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
-// input's State is ignored. HomeNodes must contain exactly one non-empty
-// entry — downstream placement and counters rely on that invariant.
+// input's State and StateChangeIndex are ignored, so a caller cannot choose
+// either. HomeNodes must contain exactly one non-empty entry — downstream
+// placement and counters rely on that invariant.
 // Returns [ErrBadRequest] for invalid names or HomeNodes,
 // [ErrAlreadyExists] when the name maps to an active namespace, and
 // [ErrNamespaceDeleting] when the name is currently being torn down.
@@ -180,13 +181,15 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 	}
 
 	ns.State = cmd.NamespaceStateActive
+	ns.StateChangeIndex = 0
 	c.namespaces[ns.Name] = &ns
 	return nil
 }
 
 // Update overwrites the stored HomeNodes for an existing namespace.
-// HomeNodes must contain exactly one non-empty entry; Name and State are
-// immutable here. Returns [ErrBadRequest] for an invalid HomeNodes,
+// HomeNodes must contain exactly one non-empty entry; Name, State and
+// StateChangeIndex are immutable here. Returns [ErrBadRequest] for an
+// invalid HomeNodes,
 // [ErrNotFound] when the namespace does not exist, and
 // [ErrNamespaceDeleting] when the namespace is being torn down.
 func (c *Controller) Update(ns cmd.Namespace) error {
@@ -208,12 +211,15 @@ func (c *Controller) Update(ns cmd.Namespace) error {
 	return nil
 }
 
-// ChangeState transitions a namespace into target. Same-state transitions
-// are idempotent and return nil. Returns [ErrBadRequest] when target is not
-// a recognized state, [ErrNotFound] when the namespace does not exist, and
+// ChangeState transitions a namespace into target and records raftIndex as
+// the index of that flip. Pass the RAFT log index of the applied command,
+// never a command policy version. Same-state transitions are idempotent,
+// return nil, and leave the recorded index alone, so re-applying a command
+// cannot advance it. Returns [ErrBadRequest] when target is not a recognized
+// state, [ErrNotFound] when the namespace does not exist, and
 // [ErrInvalidStateTransition] when the transition is forbidden (e.g.
 // deleting back to active).
-func (c *Controller) ChangeState(name string, target cmd.NamespaceState) error {
+func (c *Controller) ChangeState(name string, target cmd.NamespaceState, raftIndex uint64) error {
 	if !isKnownState(target) {
 		return fmt.Errorf("%w: unknown namespace state %q", ErrBadRequest, target)
 	}
@@ -232,6 +238,7 @@ func (c *Controller) ChangeState(name string, target cmd.NamespaceState) error {
 			ErrInvalidStateTransition, name, ns.State, target)
 	}
 	ns.State = target
+	ns.StateChangeIndex = raftIndex
 	return nil
 }
 

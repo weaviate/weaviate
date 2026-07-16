@@ -24,6 +24,10 @@ type Namespace struct {
 	Name      string
 	HomeNodes []string
 	State     NamespaceState
+	// StateChangeIndex is the RAFT log index of the last accepted State flip.
+	// Treat 0 as unknown, not "never flipped": an older binary re-writing a
+	// snapshot drops the field silently.
+	StateChangeIndex uint64
 }
 
 // Primary returns the namespace's home node, or "" if unset.
