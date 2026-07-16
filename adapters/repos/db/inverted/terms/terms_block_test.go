@@ -33,13 +33,34 @@ func TestBlockEntryEncodeInto(t *testing.T) {
 		}
 	})
 
+	// pin the exact on-disk layout independently of Encode/Decode
+	t.Run("golden bytes", func(t *testing.T) {
+		e := BlockEntry{MaxId: 1, Offset: 2, MaxImpactTf: 3, MaxImpactPropLength: 4}
+		buf := make([]byte, e.Size())
+		e.EncodeInto(buf)
+		assert.Equal(t, []byte{
+			1, 0, 0, 0, 0, 0, 0, 0, // MaxId (uint64)
+			2, 0, 0, 0, // Offset (uint32)
+			3, 0, 0, 0, // MaxImpactTf (uint32)
+			4, 0, 0, 0, // MaxImpactPropLength (uint32)
+		}, buf)
+	})
+
 	t.Run("packs contiguously and round-trips", func(t *testing.T) {
-		buf := make([]byte, len(entries)*20)
+		total := 0
 		for i := range entries {
-			entries[i].EncodeInto(buf[i*20:])
+			total += entries[i].Size()
+		}
+		buf := make([]byte, total)
+		offsets := make([]int, len(entries))
+		off := 0
+		for i := range entries {
+			offsets[i] = off
+			entries[i].EncodeInto(buf[off:])
+			off += entries[i].Size()
 		}
 		for i := range entries {
-			got := DecodeBlockEntry(buf[i*20 : (i+1)*20])
+			got := DecodeBlockEntry(buf[offsets[i]:])
 			assert.Equal(t, entries[i], *got, "entry %d survived neighbouring writes", i)
 		}
 	})
@@ -58,6 +79,19 @@ func TestBlockDataEncodeInto(t *testing.T) {
 			datas[i].EncodeInto(buf)
 			assert.Equal(t, datas[i].Encode(), buf)
 		}
+	})
+
+	// pin the exact on-disk layout: two uint16 lengths then the raw slices
+	t.Run("golden bytes", func(t *testing.T) {
+		d := BlockData{DocIds: []byte{1, 2, 3}, Tfs: []byte{4, 5}}
+		buf := make([]byte, d.Size())
+		d.EncodeInto(buf)
+		assert.Equal(t, []byte{
+			3, 0, // len(DocIds) (uint16)
+			2, 0, // len(Tfs) (uint16)
+			1, 2, 3, // DocIds
+			4, 5, // Tfs
+		}, buf)
 	})
 
 	t.Run("packs contiguously and round-trips", func(t *testing.T) {

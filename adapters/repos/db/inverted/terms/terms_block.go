@@ -34,12 +34,12 @@ func (b BlockEntry) Size() int {
 }
 
 func (b *BlockEntry) Encode() []byte {
-	out := make([]byte, 20)
+	out := make([]byte, b.Size())
 	b.EncodeInto(out)
 	return out
 }
 
-// EncodeInto writes the BlockEntry into buf (must be >= 20 bytes), without allocating.
+// EncodeInto writes the BlockEntry into buf (must be >= b.Size() bytes), without allocating.
 func (b *BlockEntry) EncodeInto(buf []byte) {
 	binary.LittleEndian.PutUint64(buf, b.MaxId)
 	binary.LittleEndian.PutUint32(buf[8:], b.Offset)
