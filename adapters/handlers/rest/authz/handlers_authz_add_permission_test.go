@@ -430,8 +430,9 @@ func TestValidateNoQualifiedNamespaceInPolicies(t *testing.T) {
 			wantErr: true,
 		},
 		// users/<id> and groups/<...> ids may contain ':' — opaque, not a
-		// qualifier. Allowed for a global caller, rejected for a namespaced one
-		// (must submit the short form).
+		// qualifier. A user id is accepted for either caller; a namespaced
+		// caller's is prefixed with its own namespace on write. A colon-bearing
+		// group id stays global-only.
 		{
 			name:              "global: colon-bearing user id accepted",
 			namespacesEnabled: true,
@@ -445,10 +446,22 @@ func TestValidateNoQualifiedNamespaceInPolicies(t *testing.T) {
 			policies:          []authorization.Policy{{Resource: "groups/oidc/team:eng"}},
 		},
 		{
-			name:              "namespaced: colon-bearing user id rejected",
+			name:              "namespaced: colon-bearing user id accepted",
+			namespacesEnabled: true,
+			principal:         namespaced,
+			policies:          []authorization.Policy{{Resource: "users/foo:bar"}},
+		},
+		{
+			name:              "namespaced: qualified-looking user id accepted (prefixed on write)",
 			namespacesEnabled: true,
 			principal:         namespaced,
 			policies:          []authorization.Policy{{Resource: "users/customer2:bob"}},
+		},
+		{
+			name:              "namespaced: colon-bearing group id rejected",
+			namespacesEnabled: true,
+			principal:         namespaced,
+			policies:          []authorization.Policy{{Resource: "groups/oidc/team:eng"}},
 			wantErr:           true,
 		},
 		{

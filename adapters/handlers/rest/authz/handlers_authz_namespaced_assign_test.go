@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // nsAssignRoles is the role fixture for assignment tests: a namespaced caller's
@@ -197,6 +198,115 @@ func TestRevokeRoleFromUserNamespaced(t *testing.T) {
 	}, principal)
 	_, ok := res.(*authz.RevokeRoleFromUserOK)
 	require.True(t, ok, "got %T", res)
+}
+
+// TestAssignRoleToUserNamespacedOIDCQualified pins that a namespaced caller
+// assigning a role to a bare OIDC id builds the qualified subject
+// oidc:customer1:carol — the empty namespace prefix is for global OIDC users only.
+func TestAssignRoleToUserNamespacedOIDCQualified(t *testing.T) {
+	h, controller := nsAssignHandler(t, "customer1")
+	h.oidcConfigs = config.OIDC{Enabled: true}
+	principal := &models.Principal{Username: "customer1:admin", UserType: "oidc", Namespace: "customer1"}
+	res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+		HTTPRequest: req,
+		ID:          "carol",
+		Body:        authz.AssignRoleToUserBody{Roles: []string{"editor"}, UserType: models.UserTypeInputOidc},
+	}, principal)
+	_, ok := res.(*authz.AssignRoleToUserOK)
+	require.True(t, ok, "got %T", res)
+	controller.AssertCalled(t, "AddRolesForUser", "oidc:customer1:carol", []string{"customer1:editor"})
+}
+
+// TestAssignRoleToUserNamespacedOIDCColonInName pins the id shape this branch
+// exists to allow: an OIDC short name may itself contain ':', so a namespaced
+// caller assigning to "carol:x" builds oidc:customer1:carol:x. The namespace is
+// the segment before the FIRST separator, so the name keeps its own.
+func TestAssignRoleToUserNamespacedOIDCColonInName(t *testing.T) {
+	h, controller := nsAssignHandler(t, "customer1")
+	h.oidcConfigs = config.OIDC{Enabled: true}
+	principal := &models.Principal{Username: "customer1:admin", UserType: "oidc", Namespace: "customer1"}
+	res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+		HTTPRequest: req,
+		ID:          "carol:x",
+		Body:        authz.AssignRoleToUserBody{Roles: []string{"editor"}, UserType: models.UserTypeInputOidc},
+	}, principal)
+	_, ok := res.(*authz.AssignRoleToUserOK)
+	require.True(t, ok, "got %T", res)
+	controller.AssertCalled(t, "AddRolesForUser", "oidc:customer1:carol:x", []string{"customer1:editor"})
+}
+
+// TestRevokeRoleFromUserNamespacedOIDCQualified mirrors the assign-side subject
+// check on the revoke path: a namespaced caller's bare OIDC id resolves to the
+// qualified subject oidc:customer1:carol.
+func TestRevokeRoleFromUserNamespacedOIDCQualified(t *testing.T) {
+	h, controller := nsAssignHandler(t, "customer1")
+	h.oidcConfigs = config.OIDC{Enabled: true}
+	principal := &models.Principal{Username: "customer1:admin", UserType: "oidc", Namespace: "customer1"}
+	res := h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{
+		HTTPRequest: req,
+		ID:          "carol",
+		Body:        authz.RevokeRoleFromUserBody{Roles: []string{"editor"}, UserType: models.UserTypeInputOidc},
+	}, principal)
+	_, ok := res.(*authz.RevokeRoleFromUserOK)
+	require.True(t, ok, "got %T", res)
+	controller.AssertCalled(t, "RevokeRolesForUser", "oidc:customer1:carol", "customer1:editor")
+}
+
+// TestAssignRevokeGlobalCallerNamespacedOIDCTarget hard-pins the target-side
+// global-ness decision on the write paths: a GLOBAL caller addressing a NAMESPACED
+// OIDC target by its qualified id ("customer1:carol") must build the
+// namespaced subject oidc:customer1:carol — the subject that principal enforces
+// as. A caller-based decision would wrongly write oidc::customer1:carol, so the
+// grant/revoke would silently miss the user's roles.
+func TestAssignRevokeGlobalCallerNamespacedOIDCTarget(t *testing.T) {
+	newHandler := func() (*authZHandlers, *MockControllerAndGetUsers) {
+		authorizer := authorization.NewMockAuthorizer(t)
+		authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		controller := NewMockControllerAndGetUsers(t)
+		controller.On("GetRoles", mock.Anything).Return(map[string][]authorization.Policy{"customRole": {}}, nil).Maybe()
+		controller.On("GetRoles", mock.Anything, mock.Anything).Return(map[string][]authorization.Policy{"customRole": {}}, nil).Maybe()
+		controller.On("AddRolesForUser", mock.Anything, mock.Anything).Return(nil).Maybe()
+		controller.On("RevokeRolesForUser", mock.Anything, mock.Anything).Return(nil).Maybe()
+		logger, _ := test.NewNullLogger()
+		h := &authZHandlers{
+			authorizer:        authorizer,
+			controller:        controller,
+			logger:            logger,
+			rbacconfig:        rbacconf.Config{Enabled: true},
+			oidcConfigs:       config.OIDC{Enabled: true},
+			namespacesEnabled: true,
+		}
+		return h, controller
+	}
+
+	// A global caller has no namespace, so QualifyUserIDForLookup passes the id
+	// through and global-ness keys off the target's own namespace (customer1).
+	global := &models.Principal{Username: "admin"}
+
+	t.Run("assign", func(t *testing.T) {
+		h, controller := newHandler()
+		res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+			HTTPRequest: req,
+			ID:          "customer1:carol",
+			Body:        authz.AssignRoleToUserBody{Roles: []string{"customRole"}, UserType: models.UserTypeInputOidc},
+		}, global)
+		_, ok := res.(*authz.AssignRoleToUserOK)
+		require.True(t, ok, "got %T", res)
+		controller.AssertCalled(t, "AddRolesForUser", "oidc:customer1:carol", []string{"customRole"})
+	})
+
+	t.Run("revoke", func(t *testing.T) {
+		h, controller := newHandler()
+		res := h.revokeRoleFromUser(authz.RevokeRoleFromUserParams{
+			HTTPRequest: req,
+			ID:          "customer1:carol",
+			Body:        authz.RevokeRoleFromUserBody{Roles: []string{"customRole"}, UserType: models.UserTypeInputOidc},
+		}, global)
+		_, ok := res.(*authz.RevokeRoleFromUserOK)
+		require.True(t, ok, "got %T", res)
+		controller.AssertCalled(t, "RevokeRolesForUser", "oidc:customer1:carol", "customRole")
+	})
 }
 
 func TestAssignRoleToGroupNamespacedDenied(t *testing.T) {

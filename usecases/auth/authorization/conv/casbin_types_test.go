@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type innerTest struct {
@@ -1341,6 +1342,195 @@ func TestSubjectNamespace(t *testing.T) {
 			require.Equal(t, tt.wantUser, user)
 			require.Equal(t, tt.wantAuthType, authType)
 			require.Equal(t, tt.wantNamespace, namespace)
+		})
+	}
+}
+
+// TestSubjectForTarget pins the empty namespace prefix encoding for an addressed
+// user id: only a global OIDC subject gets the leading ':', and the prefix is
+// derived from the id's own namespace rather than supplied by the caller. Every
+// row round-trips back to its (namespace, name) through
+// SubjectNamespace/NamespaceFromQualified, and StripEmptyNamespace inverts the
+// an empty namespace for global OIDC rows. Global OIDC names are colon-free — a namespaced
+// name is the only one that may carry ':'.
+func TestSubjectForTarget(t *testing.T) {
+	tests := []struct {
+		name               string
+		authType           authentication.AuthType
+		user               string // resolved id (already qualified for namespaced rows)
+		namespacesEnabled  bool
+		wantErr            string
+		wantSubject        string
+		wantEmptyNamespace bool // subject carries the global empty namespace prefix
+		wantNamespace      string
+		wantName           string // original name recovered from the subject
+	}{
+		{
+			name:               "global oidc bare name gets an empty namespace",
+			authType:           authentication.AuthTypeOIDC,
+			user:               "carol",
+			namespacesEnabled:  true,
+			wantSubject:        "oidc::carol",
+			wantEmptyNamespace: true,
+			wantNamespace:      "",
+			wantName:           "carol",
+		},
+		{
+			name:              "namespaced oidc carol",
+			authType:          authentication.AuthTypeOIDC,
+			user:              "customer1:carol",
+			namespacesEnabled: true,
+			wantSubject:       "oidc:customer1:carol",
+			wantNamespace:     "customer1",
+			wantName:          "carol",
+		},
+		{
+			name:              "namespaced oidc colon-bearing short name",
+			authType:          authentication.AuthTypeOIDC,
+			user:              "customer1:foo:bar",
+			namespacesEnabled: true,
+			wantSubject:       "oidc:customer1:foo:bar",
+			wantNamespace:     "customer1",
+			wantName:          "foo:bar",
+		},
+		{
+			name:              "same short name in another namespace does not collide",
+			authType:          authentication.AuthTypeOIDC,
+			user:              "customer2:carol",
+			namespacesEnabled: true,
+			wantSubject:       "oidc:customer2:carol",
+			wantNamespace:     "customer2",
+			wantName:          "carol",
+		},
+		{
+			name:              "global db row: no empty namespace",
+			authType:          authentication.AuthTypeDb,
+			user:              "bob",
+			namespacesEnabled: true,
+			wantSubject:       "db:bob",
+			wantNamespace:     "",
+			wantName:          "bob",
+		},
+		{
+			name:          "ns-disabled oidc row: no empty namespace",
+			authType:      authentication.AuthTypeOIDC,
+			user:          "carol",
+			wantSubject:   "oidc:carol",
+			wantNamespace: "",
+			wantName:      "carol",
+		},
+		{
+			name:          "ns-disabled db row: no empty namespace",
+			authType:      authentication.AuthTypeDb,
+			user:          "bob",
+			wantSubject:   "db:bob",
+			wantNamespace: "",
+			wantName:      "bob",
+		},
+		{
+			name:              "namespaced db row: no empty namespace",
+			authType:          authentication.AuthTypeDb,
+			user:              "customer1:bob",
+			namespacesEnabled: true,
+			wantSubject:       "db:customer1:bob",
+			wantNamespace:     "customer1",
+			wantName:          "bob",
+		},
+		{
+			name:              "oidc id with leading separator is rejected",
+			authType:          authentication.AuthTypeOIDC,
+			user:              ":carol",
+			namespacesEnabled: true,
+			wantErr:           "must not begin with",
+		},
+		{
+			name:          "ns-disabled oidc id with leading separator passes through",
+			authType:      authentication.AuthTypeOIDC,
+			user:          ":carol",
+			wantSubject:   "oidc::carol",
+			wantNamespace: "",
+			wantName:      ":carol",
+		},
+		{
+			name:              "db id with leading separator is not prefixed",
+			authType:          authentication.AuthTypeDb,
+			user:              ":bob",
+			namespacesEnabled: true,
+			wantSubject:       "db::bob",
+			wantNamespace:     "",
+			wantName:          ":bob",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subject, err := SubjectForTarget(tt.namespacesEnabled, tt.authType, tt.user)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantSubject, subject)
+
+			userPortion, authType, namespace, err := SubjectNamespace(subject)
+			require.NoError(t, err)
+			require.Equal(t, tt.authType, authType)
+			require.Equal(t, tt.wantNamespace, namespace)
+			require.Equal(t, tt.wantNamespace, namespacing.NamespaceFromQualified(userPortion))
+
+			switch {
+			case tt.wantEmptyNamespace:
+				require.Equal(t, tt.wantName, StripEmptyNamespace(userPortion))
+			case tt.wantNamespace != "":
+				require.Equal(t, tt.wantName, namespacing.StripQualification(userPortion))
+			default:
+				require.Equal(t, tt.wantName, userPortion)
+			}
+		})
+	}
+}
+
+// TestUserNameWithTypeFromPrincipal pins the enforcement-side subject: a global
+// OIDC principal (IsGlobalOperator) gets the empty namespace prefix; namespaced
+// OIDC, any DB, and NS-disabled principals are unchanged. It also pins that
+// SubjectUserFromPrincipal — the single caller-subject derivation both the
+// authn and authz self-read paths route through — yields the same subject's
+// user-portion, keyed off IsGlobalOperator rather than an empty namespace.
+func TestUserNameWithTypeFromPrincipal(t *testing.T) {
+	tests := []struct {
+		name            string
+		principal       *models.Principal
+		wantSubject     string
+		wantUserPortion string
+	}{
+		{
+			name:            "global oidc bare name gets an empty namespace",
+			principal:       &models.Principal{UserType: models.UserTypeInputOidc, Username: "carol", IsGlobalOperator: true},
+			wantSubject:     "oidc::carol",
+			wantUserPortion: ":carol",
+		},
+		{
+			name:            "namespaced oidc: no empty namespace",
+			principal:       &models.Principal{UserType: models.UserTypeInputOidc, Username: "customer1:carol", IsGlobalOperator: false},
+			wantSubject:     "oidc:customer1:carol",
+			wantUserPortion: "customer1:carol",
+		},
+		{
+			name:            "global db: no empty namespace",
+			principal:       &models.Principal{UserType: models.UserTypeInputDb, Username: "bob", IsGlobalOperator: true},
+			wantSubject:     "db:bob",
+			wantUserPortion: "bob",
+		},
+		{
+			name:            "ns-disabled oidc empty namespace is not global: no empty namespace",
+			principal:       &models.Principal{UserType: models.UserTypeInputOidc, Username: "carol", IsGlobalOperator: false},
+			wantSubject:     "oidc:carol",
+			wantUserPortion: "carol",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.wantSubject, UserNameWithTypeFromPrincipal(tt.principal))
+			require.Equal(t, tt.wantUserPortion, SubjectUserFromPrincipal(tt.principal))
 		})
 	}
 }

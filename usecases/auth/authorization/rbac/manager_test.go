@@ -12,6 +12,7 @@
 package rbac
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -245,8 +246,15 @@ func TestManager_CountNamespaceLocalRBAC(t *testing.T) {
 	// A namespace-named group is still a global assignment: it must not count,
 	// else the namespace could never be removed (the cascade leaves it).
 	require.NoError(t, m.AddRolesForUser(conv.PrefixGroupName("customer1:team"), []string{"auditor"}))
+	// A global OIDC subject carries an empty namespace prefix, so the segment
+	// before the first separator is empty and it belongs to no namespace. The
+	// second holds a name that looks namespaced: the empty prefix still wins.
+	// Neither may count, else customer1 could never be removed.
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(":dave", authentication.AuthTypeOIDC), []string{"auditor"}))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(":customer1:erin", authentication.AuthTypeOIDC), []string{"auditor"}))
 
-	// 1 local role + 2 namespaced assignments (alice, carol); auditor + bob + group excluded.
+	// 1 local role + 2 namespaced assignments (alice, carol); auditor + bob +
+	// group + both global OIDC subjects excluded.
 	got, err := m.CountNamespaceLocalRBAC("customer1")
 	require.NoError(t, err)
 	assert.Equal(t, 3, got)
@@ -294,6 +302,59 @@ func TestManager_NamespaceLocalRBAC_FailsClosedOnUnparseableRow(t *testing.T) {
 
 	_, err = m.CountNamespaceLocalRBAC("customer1")
 	require.Error(t, err)
+}
+
+// TestManager_OIDCGlobalNamespacedNoBleed pins that a global OIDC subject and a
+// namespaced OIDC subject sharing one short name do not collide: each holds only
+// its own role, both at the grouping table and under enforcement.
+func TestManager_OIDCGlobalNamespacedNoBleed(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	const shortName = "carol"
+	const nsQualified = "customer1:" + shortName
+
+	// Distinct permissions so a bleed between the two subjects is observable:
+	// roleGlobal grants data READ, roleNs grants backups READ.
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("roleGlobal"), conv.CasbinData("*", "*", "*"), authorization.READ, authorization.DataDomain)
+	require.NoError(t, err)
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("roleNs"), conv.CasbinBackups("*"), authorization.READ, authorization.BackupsDomain)
+	require.NoError(t, err)
+
+	globalSubject, err := conv.SubjectForTarget(true, authentication.AuthTypeOIDC, shortName)
+	require.NoError(t, err)
+	nsSubject, err := conv.SubjectForTarget(true, authentication.AuthTypeOIDC, nsQualified)
+	require.NoError(t, err)
+	require.Equal(t, "oidc::carol", globalSubject)
+	require.Equal(t, "oidc:customer1:carol", nsSubject)
+
+	require.NoError(t, m.AddRolesForUser(globalSubject, []string{"roleGlobal"}))
+	require.NoError(t, m.AddRolesForUser(nsSubject, []string{"roleNs"}))
+
+	// Grouping table: each subject holds only its own role.
+	globalSubjectUser, err := conv.SubjectUserForTarget(true, authentication.AuthTypeOIDC, shortName)
+	require.NoError(t, err)
+	globalRoles, err := m.GetRolesForUserOrGroup(globalSubjectUser, authentication.AuthTypeOIDC, false)
+	require.NoError(t, err)
+	require.Contains(t, globalRoles, "roleGlobal")
+	require.NotContains(t, globalRoles, "roleNs")
+
+	nsSubjectUser, err := conv.SubjectUserForTarget(true, authentication.AuthTypeOIDC, nsQualified)
+	require.NoError(t, err)
+	nsRoles, err := m.GetRolesForUserOrGroup(nsSubjectUser, authentication.AuthTypeOIDC, false)
+	require.NoError(t, err)
+	require.Contains(t, nsRoles, "roleNs")
+	require.NotContains(t, nsRoles, "roleGlobal")
+
+	// Enforcement: the global principal has roleGlobal (data) and not roleNs
+	// (backups); the namespaced principal must not inherit the global's role.
+	globalPrincipal := &models.Principal{Username: shortName, UserType: models.UserTypeInputOidc, IsGlobalOperator: true}
+	nsPrincipal := &models.Principal{Username: nsQualified, Namespace: "customer1", UserType: models.UserTypeInputOidc}
+
+	require.NoError(t, m.Authorize(context.Background(), globalPrincipal, authorization.READ, authorization.ShardsData("Movies", "*")...))
+	require.Error(t, m.Authorize(context.Background(), globalPrincipal, authorization.READ, authorization.Backups("Movies")...))
+	require.Error(t, m.Authorize(context.Background(), nsPrincipal, authorization.READ, authorization.ShardsData("customer1:Movies", "*")...))
 }
 
 func TestSnapshotNilCasbin(t *testing.T) {

@@ -14,6 +14,7 @@ package authz
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -775,8 +776,9 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed(t *testing.T) {
 }
 
 // TestUserIDNamespacePrefixRequiredOnNSEnabled asserts assign/revoke/read
-// reject bare `params.ID` for OIDC and dynamic-DB users on NS-enabled
-// clusters. Static API-key users pass through.
+// reject bare `params.ID` for dynamic-DB users on NS-enabled clusters. Bare OIDC
+// ids name a global OIDC user (subject oidc::<name>) and are accepted; static
+// API-key users pass through.
 func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 	type op string
 	const (
@@ -799,17 +801,54 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 		userType          string
 		staticAPIKeyUsers []string
 		want              wantStatus
+		// wantSubject is the literal casbin subject the handler must build.
+		// Spelled out rather than derived, so an encoding change fails here.
+		wantSubject string
+		// wantErrSubstr, when set, overrides the default bad-request message
+		// assertion ("namespace-prefixed").
+		wantErrSubstr string
 	}{
 		{
-			name:              "assign, NS-enabled, oidc, bare ID — 400",
+			name:              "assign, NS-enabled, oidc, bare ID — 200 (global OIDC user)",
+			wantSubject:       "oidc::alice",
 			operation:         opAssign,
 			namespacesEnabled: true,
 			userID:            "alice",
 			userType:          string(models.UserTypeInputOidc),
+			want:              wantOK,
+		},
+		{
+			// A leading ':' reads as an empty namespace and
+			// would persist an oidc:::carol subject that bricks the next boot.
+			name:              "assign, NS-enabled, oidc, leading-colon ID — 400",
+			operation:         opAssign,
+			namespacesEnabled: true,
+			userID:            ":carol",
+			userType:          string(models.UserTypeInputOidc),
 			want:              wantBadRequest,
+			wantErrSubstr:     "oidc user id must not begin with",
+		},
+		{
+			name:              "revoke, NS-enabled, oidc, leading-colon ID — 400",
+			operation:         opRevoke,
+			namespacesEnabled: true,
+			userID:            ":carol",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantBadRequest,
+			wantErrSubstr:     "oidc user id must not begin with",
+		},
+		{
+			name:              "getRolesForUser, NS-enabled, oidc, leading-colon ID — 400",
+			operation:         opGetRolesUser,
+			namespacesEnabled: true,
+			userID:            ":carol",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantBadRequest,
+			wantErrSubstr:     "oidc user id must not begin with",
 		},
 		{
 			name:              "assign, NS-enabled, oidc, prefixed ID — 200",
+			wantSubject:       "oidc:customer1:alice",
 			operation:         opAssign,
 			namespacesEnabled: true,
 			userID:            "customer1:alice",
@@ -818,6 +857,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 		},
 		{
 			name:              "assign, NS-disabled, oidc, bare ID — 200 (backward compat)",
+			wantSubject:       "oidc:alice",
 			operation:         opAssign,
 			namespacesEnabled: false,
 			userID:            "alice",
@@ -834,6 +874,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 		},
 		{
 			name:              "assign, NS-enabled, db, prefixed ID — 200",
+			wantSubject:       "db:customer1:alice",
 			operation:         opAssign,
 			namespacesEnabled: true,
 			userID:            "customer1:alice",
@@ -842,6 +883,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 		},
 		{
 			name:              "assign, NS-enabled, static API-key bare ID — 200 (intentionally global)",
+			wantSubject:       "db:static-user",
 			operation:         opAssign,
 			namespacesEnabled: true,
 			userID:            "static-user",
@@ -851,6 +893,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 		},
 		{
 			name:              "revoke, NS-enabled, oidc, prefixed ID — 200",
+			wantSubject:       "oidc:customer1:alice",
 			operation:         opRevoke,
 			namespacesEnabled: true,
 			userID:            "customer1:alice",
@@ -858,12 +901,13 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 			want:              wantOK,
 		},
 		{
-			name:              "revoke, NS-enabled, oidc, bare ID — 400",
+			name:              "revoke, NS-enabled, oidc, bare ID — 200 (global OIDC user)",
+			wantSubject:       "oidc::alice",
 			operation:         opRevoke,
 			namespacesEnabled: true,
 			userID:            "alice",
 			userType:          string(models.UserTypeInputOidc),
-			want:              wantBadRequest,
+			want:              wantOK,
 		},
 		{
 			name:              "revoke, NS-enabled, db, bare ID — 400",
@@ -874,12 +918,13 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 			want:              wantBadRequest,
 		},
 		{
-			name:              "getRolesForUser, NS-enabled, oidc, bare ID — 400",
+			name:              "getRolesForUser, NS-enabled, oidc, bare ID — 200 (global OIDC user)",
+			wantSubject:       "oidc::alice",
 			operation:         opGetRolesUser,
 			namespacesEnabled: true,
 			userID:            "alice",
 			userType:          string(models.UserTypeInputOidc),
-			want:              wantBadRequest,
+			want:              wantOK,
 		},
 		{
 			name:              "getRolesForUser, NS-enabled, db, bare ID — 400",
@@ -908,6 +953,11 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 				logger:            logger,
 			}
 
+			wantErrSubstr := tt.wantErrSubstr
+			if wantErrSubstr == "" {
+				wantErrSubstr = "namespace-prefixed"
+			}
+
 			isStatic := slices.Contains(tt.staticAPIKeyUsers, tt.userID)
 
 			switch tt.operation {
@@ -918,7 +968,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 					if tt.userType == string(models.UserTypeInputDb) && !isStatic {
 						controller.On("GetUsers", tt.userID).Return(map[string]apikey.UserView{tt.userID: {}}, nil)
 					}
-					controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthType(tt.userType)), []string{"customRole"}).Return(nil)
+					controller.On("AddRolesForUser", tt.wantSubject, []string{"customRole"}).Return(nil)
 				}
 				params := authz.AssignRoleToUserParams{
 					ID:          tt.userID,
@@ -933,7 +983,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 				case wantBadRequest:
 					br, ok := res.(*authz.AssignRoleToUserBadRequest)
 					require.True(t, ok, "expected BadRequest, got %T", res)
-					assert.Contains(t, br.Payload.Error[0].Message, "namespace-prefixed")
+					assert.Contains(t, br.Payload.Error[0].Message, wantErrSubstr)
 				case wantOK:
 					_, ok := res.(*authz.AssignRoleToUserOK)
 					assert.True(t, ok, "expected OK, got %T", res)
@@ -945,7 +995,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 					if tt.userType == string(models.UserTypeInputDb) && !isStatic {
 						controller.On("GetUsers", tt.userID).Return(map[string]apikey.UserView{tt.userID: {}}, nil)
 					}
-					controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthType(tt.userType)), "customRole").Return(nil)
+					controller.On("RevokeRolesForUser", tt.wantSubject, "customRole").Return(nil)
 				}
 				params := authz.RevokeRoleFromUserParams{
 					ID:          tt.userID,
@@ -960,22 +1010,33 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 				case wantBadRequest:
 					br, ok := res.(*authz.RevokeRoleFromUserBadRequest)
 					require.True(t, ok, "expected BadRequest, got %T", res)
-					assert.Contains(t, br.Payload.Error[0].Message, "namespace-prefixed")
+					assert.Contains(t, br.Payload.Error[0].Message, wantErrSubstr)
 				case wantOK:
 					_, ok := res.(*authz.RevokeRoleFromUserOK)
 					assert.True(t, ok, "expected OK, got %T", res)
 				}
 			case opGetRolesUser:
+				if tt.want == wantOK {
+					authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.userID)[0]).Return(nil)
+					// wantSubject is the full subject; the read path keys off the
+					// user-portion, so drop the "<type>:" prefix.
+					userPortion := strings.TrimPrefix(tt.wantSubject, tt.userType+":")
+					controller.On("GetRolesForUserOrGroup", userPortion, authentication.AuthType(tt.userType), false).Return(map[string][]authorization.Policy{}, nil)
+				}
 				params := authz.GetRolesForUserParams{
 					ID:          tt.userID,
 					UserType:    tt.userType,
 					HTTPRequest: req,
 				}
 				res := h.getRolesForUser(params, principal)
-				if tt.want == wantBadRequest {
+				switch tt.want {
+				case wantBadRequest:
 					br, ok := res.(*authz.GetRolesForUserBadRequest)
 					require.True(t, ok, "expected BadRequest, got %T", res)
-					assert.Contains(t, br.Payload.Error[0].Message, "namespace-prefixed")
+					assert.Contains(t, br.Payload.Error[0].Message, wantErrSubstr)
+				case wantOK:
+					_, ok := res.(*authz.GetRolesForUserOK)
+					require.True(t, ok, "expected OK, got %T", res)
 				}
 			}
 		})

@@ -800,7 +800,7 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		}
 	}
 
-	if err := h.validateUserIDForNamespaces(internalID); err != nil {
+	if err := h.validateUserIDForNamespaces(internalID, params.Body.UserType); err != nil {
 		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -854,7 +854,11 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	}
 
 	for _, userType := range userTypes {
-		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(internalID, userType), roleNames); err != nil {
+		subject, err := conv.SubjectForTarget(h.namespacesEnabled, userType, internalID)
+		if err != nil {
+			return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		if err := h.controller.AddRolesForUser(subject, roleNames); err != nil {
 			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("AddRolesForUser: %w", err)))
 		}
 	}
@@ -1061,15 +1065,36 @@ func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *m
 	return roles, authErrs, nil
 }
 
+// isSelfSubject reports whether a target of userType resolves to the caller's
+// own casbin subject, so reading it needs no per-user authorization. Comparing
+// subjects rather than ids keeps a global caller from matching a namespaced
+// target whose id looks the same.
+func isSelfSubject(principal *models.Principal, userType authentication.AuthType, subject string) bool {
+	if string(userType) != string(principal.UserType) {
+		return false
+	}
+	return subject == conv.SubjectUserFromPrincipal(principal)
+}
+
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
 
-	if err := h.validateUserIDForNamespaces(internalID); err != nil {
+	if err := h.validateUserIDForNamespaces(internalID, models.UserTypeInput(params.UserType)); err != nil {
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	ownUser := internalID == principal.Username && params.UserType == string(principal.UserType)
+	userType, err := validateUserTypeInput(params.UserType)
+	if err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("unknown userType: %v", params.UserType)))
+	}
+
+	subjectUser, err := conv.SubjectUserForTarget(h.namespacesEnabled, userType, internalID)
+	if err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	ownUser := isSelfSubject(principal, userType, subjectUser)
 
 	if !ownUser {
 		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Users(internalID)...); err != nil {
@@ -1079,11 +1104,6 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 
 	includeFullRoles := params.IncludeFullRoles != nil && *params.IncludeFullRoles
 
-	userType, err := validateUserTypeInput(params.UserType)
-	if err != nil {
-		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("unknown userType: %v", params.UserType)))
-	}
-
 	exists, err := h.userExists(internalID, userType)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user existence: %w", err)))
@@ -1092,7 +1112,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserNotFound()
 	}
 
-	existingRoles, err := h.controller.GetRolesForUserOrGroup(internalID, userType, false)
+	existingRoles, err := h.controller.GetRolesForUserOrGroup(subjectUser, userType, false)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupsWithRoles: %w", err)))
 	}
@@ -1148,14 +1168,21 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		}
 
 		filteredUsers := make([]string, 0, len(users))
-		for _, userName := range users {
-			if userName == principal.Username {
-				// own username
-				filteredUsers = append(filteredUsers, userName)
+		for _, stored := range users {
+			// A global (":carol") and a namespaced ("customer1:carol") OIDC
+			// subject share a display id, so match on the stored subject; the
+			// authz resource and response body use the display id.
+			displayName := stored
+			if userType == authentication.AuthTypeOIDC && h.namespacesEnabled {
+				displayName = conv.StripEmptyNamespace(stored)
+			}
+
+			if isSelfSubject(principal, userType, stored) {
+				filteredUsers = append(filteredUsers, displayName)
 				continue
 			}
-			if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Users(userName)...); err == nil {
-				filteredUsers = append(filteredUsers, userName)
+			if err := h.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Users(displayName)...); err == nil {
+				filteredUsers = append(filteredUsers, displayName)
 			}
 		}
 		slices.Sort(filteredUsers)
@@ -1318,7 +1345,7 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		}
 	}
 
-	if err := h.validateUserIDForNamespaces(internalID); err != nil {
+	if err := h.validateUserIDForNamespaces(internalID, params.Body.UserType); err != nil {
 		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
@@ -1363,7 +1390,11 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("username to revoke role from doesn't exist")))
 	}
 	for _, userType := range userTypes {
-		if err := h.controller.RevokeRolesForUser(conv.UserNameWithTypeFromId(internalID, userType), roleNames...); err != nil {
+		subject, err := conv.SubjectForTarget(h.namespacesEnabled, userType, internalID)
+		if err != nil {
+			return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		if err := h.controller.RevokeRolesForUser(subject, roleNames...); err != nil {
 			return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("RevokeRolesForUser: %w", err)))
 		}
 	}
@@ -1597,12 +1628,17 @@ func validateEnvVarRoles(name string) error {
 	return nil
 }
 
-// validateUserIDForNamespaces rejects bare-form user IDs on
-// namespace-enabled clusters. Static API-key users are intentionally bare
-// and global; they pass through unchanged.
-func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
+// validateUserIDForNamespaces rejects bare-form DB user IDs on
+// namespace-enabled clusters. Static API-key users are intentionally bare and
+// global; they pass through unchanged. A bare OIDC id names a global OIDC user,
+// so OIDC targets skip the prefix requirement and are only checked for a
+// leading separator.
+func (h *authZHandlers) validateUserIDForNamespaces(userID string, userType models.UserTypeInput) error {
 	if !h.namespacesEnabled {
 		return nil
+	}
+	if userType == models.UserTypeInputOidc {
+		return conv.ValidateOIDCUserID(h.namespacesEnabled, userID)
 	}
 	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID) {
 		return nil
@@ -1652,11 +1688,11 @@ func (h *authZHandlers) resolveAssignableRoles(principal *models.Principal, role
 // them at enforce time. No-op when namespaces are disabled.
 //
 // A ':' in a users/<id> or groups/<...> id is part of the opaque id (e.g. an
-// OIDC username), not a qualifier, so a global caller may use it. Namespaced
-// callers must still submit short, unqualified forms — symmetric with the
-// class-name rule that forbids them typing any "<namespace>:" prefix. So a
-// namespaced caller cannot express a colon-bearing group id; acceptable while
-// group grants are global-only. Revisit if namespaced callers gain them.
+// OIDC username), not a qualifier. Any caller may name a colon-bearing user id:
+// a namespaced caller's id is prefixed with its own namespace on write, so it
+// still cannot reach another namespace's user. A namespaced caller cannot
+// express a colon-bearing group id, because group ids are not namespace-bearing
+// and would match literally; acceptable while group grants are global-only.
 //
 // allowGlobalQualified lifts the restriction for a global caller, used by the
 // hasPermission read path so an operator can name a namespace-local role's
@@ -1671,6 +1707,9 @@ func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(principal *models
 	}
 	for _, p := range policies {
 		if !conv.ContainsNamespaceSeparator(p.Resource) {
+			continue
+		}
+		if conv.IsUserResource(p.Resource) {
 			continue
 		}
 		if global && conv.IsOpaqueIDResource(p.Resource) {

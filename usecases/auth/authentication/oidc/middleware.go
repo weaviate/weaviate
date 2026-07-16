@@ -174,15 +174,31 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	groups := c.extractGroups(claims)
 
-	namespace, isGlobal, err := c.classifyPrincipal(claims, username)
+	namespace, isGlobal, err := c.classifyPrincipal(claims)
 	if err != nil {
 		return nil, err
+	}
+
+	// A global OIDC principal's name must not contain the namespace separator:
+	// the role-assignment API reads such an id as namespace-qualified and grants
+	// to the namespaced subject instead, so the principal could authenticate but
+	// never hold a role. Namespaced principals may carry ':' in their name.
+	if c.namespacesEnabled && isGlobal && strings.Contains(username, schema.NamespaceSeparator) {
+		return nil, errors.New(401, "unauthorized: a global OIDC principal's username must not contain '%s' on a namespace-enabled cluster", schema.NamespaceSeparator)
 	}
 
 	qualifiedUsername := namespacing.QualifiedName(namespace, username)
 
 	if err := c.rejectNamespacedRoot(namespace, qualifiedUsername, groups); err != nil {
 		return nil, err
+	}
+
+	// IsGlobalOperator must equal (Namespace == ""): assignment and enforcement
+	// each decide global-ness from one of the two fields, so a mismatch stores a
+	// grant enforcement never finds. TestClassifyPrincipal pins the invariant at
+	// its source; this only catches a later edit.
+	if c.namespacesEnabled && isGlobal != (namespace == "") {
+		return nil, errors.New(500, "oidc: inconsistent principal: global-operator=%t but namespace=%q", isGlobal, namespace)
 	}
 
 	return &models.Principal{
@@ -209,9 +225,10 @@ func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, group
 
 // classifyPrincipal resolves the namespace and global-operator flag for an
 // OIDC token's claims. On namespace-disabled clusters it short-circuits to
-// the legacy "global, no namespace" shape — startup validation guarantees
-// the claim env vars are empty in that case, so the classifier has nothing
-// to inspect.
+// the "no namespace, not global" shape — startup validation guarantees the
+// claim env vars are empty in that case, so the classifier has nothing to
+// inspect. An empty namespace is not global: on namespace-disabled clusters
+// every principal has one.
 //
 // On namespace-enabled clusters the rule matrix is:
 //
@@ -229,16 +246,9 @@ func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, group
 // bool) return 401 — a malformed claim is a token the server cannot
 // interpret, which is an authentication failure from the caller's
 // perspective.
-//
-// On namespace-enabled clusters, the resolved username must not contain
-// ':' (the namespace separator); reject with 401.
-func (c *Client) classifyPrincipal(claims map[string]interface{}, username string) (namespace string, isGlobal bool, err error) {
+func (c *Client) classifyPrincipal(claims map[string]interface{}) (namespace string, isGlobal bool, err error) {
 	if !c.namespacesEnabled {
 		return "", false, nil
-	}
-
-	if strings.Contains(username, schema.NamespaceSeparator) {
-		return "", false, errors.New(401, "unauthorized: OIDC username '%s' must not contain ':' on a namespace-enabled cluster", username)
 	}
 
 	nsClaimKey := ""

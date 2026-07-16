@@ -959,6 +959,43 @@ func TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart(t *t
 		"read-only group assignment removed from config must be gone after restart")
 }
 
+// TestApplyPredefinedRoles_OIDCEnvUsersEmptyNamespace asserts env-var root/admin/viewer
+// OIDC users are stored under the namespace-prefixed subject (oidc::alice) on NS-enabled
+// clusters and bare (oidc:alice) on NS-disabled ones, matching the
+// enforcement subject built by UserNameWithTypeFromPrincipal for a global OIDC
+// operator.
+func TestApplyPredefinedRoles_OIDCEnvUsersEmptyNamespace(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		namespacesEnabled bool
+		user              string
+		wantSubject       string
+	}{
+		{"NS-disabled bare: no prefix", false, "alice", conv.UserNameWithTypeFromId("alice", authentication.AuthTypeOIDC)},
+		{"NS-enabled bare: namespace-prefixed", true, "alice", "oidc::alice"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+			conf := rbacconf.Config{
+				Enabled:     true,
+				RootUsers:   []string{tc.user},
+				AdminUsers:  []string{tc.user},
+				ViewerUsers: []string{tc.user},
+			}
+			authNconf := config.Authentication{OIDC: config.OIDC{Enabled: true}}
+
+			enforcer, err := Init(conf, dir, authNconf, tc.namespacesEnabled)
+			require.NoError(t, err)
+
+			roles, err := enforcer.GetRolesForUser(tc.wantSubject)
+			require.NoError(t, err)
+			require.Contains(t, roles, conv.PrefixRoleName(authorization.Root))
+			require.Contains(t, roles, conv.PrefixRoleName(authorization.Admin))
+			require.Contains(t, roles, conv.PrefixRoleName(authorization.Viewer))
+		})
+	}
+}
+
 // TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate asserts
 // env-var add-only behaviour for admin/viewer: removing the env var between
 // boots does not revoke the grouping (Casbin rows aren't tagged by source,
@@ -1055,31 +1092,92 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testin
 		"env-var read-only group must still have read-only role after restart")
 }
 
-// TestApplyPredefinedRoles_RejectsNamespacedRootUser pins the static-bootstrap
-// reject: a namespace-qualified root user fails startup on NS clusters so a
-// namespaced principal can't inherit root. NS-disabled is unaffected.
-func TestApplyPredefinedRoles_RejectsNamespacedRootUser(t *testing.T) {
+// TestApplyPredefinedRoles_RejectsNamespaceSeparatorInBootstrapUsers pins the
+// static-user reject: a root/admin/viewer or static API-key user whose name
+// contains the namespace separator fails startup on NS clusters. Root guards
+// against a namespaced principal inheriting cluster-wide root; admin/viewer
+// guard against a colon-bearing global OIDC name that would produce an
+// un-authenticatable subject the startup invariants reject. A static API-key
+// name is global but reaches casbin with no prefix of its own, so a separator there produces the
+// same subject as a namespaced DB user of that name. NS-disabled is unaffected.
+func TestApplyPredefinedRoles_RejectsNamespaceSeparatorInBootstrapUsers(t *testing.T) {
+	apiKeys := func(users ...string) config.Authentication {
+		return config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: users}}
+	}
 	tests := []struct {
 		name              string
-		rootUsers         []string
+		conf              rbacconf.Config
+		authNconf         config.Authentication
 		namespacesEnabled bool
 		wantErr           bool
 	}{
-		{"namespaced root user on NS cluster rejected", []string{"customer1:alice"}, true, true},
-		{"bare root user on NS cluster allowed", []string{"alice"}, true, false},
-		{"mixed list with one namespaced on NS cluster rejected", []string{"alice", "customer1:bob"}, true, true},
-		{"namespaced root user on NS-disabled allowed", []string{"customer1:alice"}, false, false},
+		{"namespaced root user on NS cluster rejected", rbacconf.Config{Enabled: true, RootUsers: []string{"customer1:alice"}}, config.Authentication{}, true, true},
+		{"colon admin user on NS cluster rejected", rbacconf.Config{Enabled: true, AdminUsers: []string{"customer1:carol"}}, config.Authentication{}, true, true},
+		{"leading-colon admin user on NS cluster rejected", rbacconf.Config{Enabled: true, AdminUsers: []string{":carol"}}, config.Authentication{}, true, true},
+		{"colon viewer user on NS cluster rejected", rbacconf.Config{Enabled: true, ViewerUsers: []string{"customer1:carol"}}, config.Authentication{}, true, true},
+		{"bare users on NS cluster allowed", rbacconf.Config{Enabled: true, RootUsers: []string{"alice"}, AdminUsers: []string{"bob"}, ViewerUsers: []string{"carol"}}, config.Authentication{}, true, false},
+		{"mixed list with one namespaced on NS cluster rejected", rbacconf.Config{Enabled: true, RootUsers: []string{"alice", "customer1:bob"}}, config.Authentication{}, true, true},
+		{"colon admin user on NS-disabled allowed", rbacconf.Config{Enabled: true, AdminUsers: []string{"customer1:carol"}}, config.Authentication{}, false, false},
+
+		// A static API-key user is global and its subject is never namespace-prefixed, so a
+		// separator aliases it onto a namespaced DB user's subject.
+		{"colon static API-key user on NS cluster rejected", rbacconf.Config{Enabled: true}, apiKeys("customer1:carol"), true, true},
+		{"leading-colon static API-key user on NS cluster rejected", rbacconf.Config{Enabled: true}, apiKeys(":carol"), true, true},
+		{"mixed static API-key list with one colon on NS cluster rejected", rbacconf.Config{Enabled: true}, apiKeys("alice", "customer1:bob"), true, true},
+		{"bare static API-key users on NS cluster allowed", rbacconf.Config{Enabled: true}, apiKeys("alice", "bob"), true, false},
+		{"colon static API-key user on NS-disabled allowed", rbacconf.Config{Enabled: true}, apiKeys("customer1:carol"), false, false},
+		{"colon static API-key user with API keys disabled allowed", rbacconf.Config{Enabled: true}, config.Authentication{APIKey: config.StaticAPIKey{Enabled: false, Users: []string{"customer1:carol"}}}, true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := freshPolicyDir(t)
-			conf := rbacconf.Config{Enabled: true, RootUsers: tt.rootUsers}
-			_, err := Init(conf, dir, config.Authentication{}, tt.namespacesEnabled)
+			_, err := Init(tt.conf, dir, tt.authNconf, tt.namespacesEnabled)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+// TestApplyPredefinedRoles_ColonUsersSupportedOnNSDisabled pins that a colon in
+// a statically configured user name stays a plain name character when
+// namespaces are off: the name reaches casbin verbatim, keeps its built-in
+// role, and enforces cluster-wide.
+func TestApplyPredefinedRoles_ColonUsersSupportedOnNSDisabled(t *testing.T) {
+	const user = "customer1:carol"
+
+	tests := []struct {
+		name     string
+		conf     rbacconf.Config
+		wantRole string
+	}{
+		{"root", rbacconf.Config{Enabled: true, RootUsers: []string{user}}, authorization.Root},
+		{"admin", rbacconf.Config{Enabled: true, AdminUsers: []string{user}}, authorization.Admin},
+		{"viewer", rbacconf.Config{Enabled: true, ViewerUsers: []string{user}}, authorization.Viewer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+			authNconf := config.Authentication{
+				APIKey: config.StaticAPIKey{Enabled: true, Users: []string{user}},
+			}
+
+			enforcer, err := Init(tt.conf, dir, authNconf, false)
+			require.NoError(t, err)
+
+			subject := conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb)
+			require.Equal(t, "db:customer1:carol", subject)
+
+			roles, err := enforcer.GetRolesForUser(subject)
+			require.NoError(t, err)
+			require.Contains(t, roles, conv.PrefixRoleName(tt.wantRole))
+
+			allowed, err := enforcer.Enforce(subject,
+				authorization.CollectionsMetadata("Movies")[0], authorization.READ, "*")
+			require.NoError(t, err)
+			require.True(t, allowed, "colon-named %s user must enforce with namespaces disabled", tt.wantRole)
 		})
 	}
 }

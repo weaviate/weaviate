@@ -226,11 +226,17 @@ func ContainsNamespaceSeparator(resource string) bool {
 	return strings.IndexByte(resource, schema.NamespaceSeparator[0]) >= 0
 }
 
+// IsUserResource reports whether resource addresses a users/<id> shape, whose
+// id may legitimately contain ':' (e.g. an OIDC username).
+func IsUserResource(resource string) bool {
+	return strings.HasPrefix(resource, authorization.UsersDomain+"/")
+}
+
 // IsOpaqueIDResource reports whether resource addresses a users/<id> or
 // groups/<type>/<name> shape, whose id may legitimately contain ':' (e.g. an
 // OIDC username) as part of the id rather than a namespace qualifier.
 func IsOpaqueIDResource(resource string) bool {
-	return strings.HasPrefix(resource, authorization.UsersDomain+"/") ||
+	return IsUserResource(resource) ||
 		strings.HasPrefix(resource, authorization.GroupsDomain+"/")
 }
 
@@ -578,11 +584,73 @@ func NameHasPrefix(name string) bool {
 }
 
 func UserNameWithTypeFromPrincipal(principal *models.Principal) string {
-	return fmt.Sprintf("%s:%s", principal.UserType, principal.Username)
+	return UserNameWithTypeFromId(SubjectUserFromPrincipal(principal), authentication.AuthType(principal.UserType))
+}
+
+// SubjectUserFromPrincipal returns the caller's own grouping-subject
+// user-portion. Global-ness comes from IsGlobalOperator, never from the shape
+// of the name, so the subject can't differ from one field read to the next.
+func SubjectUserFromPrincipal(principal *models.Principal) string {
+	return subjectUser(authentication.AuthType(principal.UserType), principal.Username, principal.IsGlobalOperator)
 }
 
 func UserNameWithTypeFromId(username string, authType authentication.AuthType) string {
 	return fmt.Sprintf("%s:%s", authType, username)
+}
+
+// subjectUser returns the grouping-subject user-portion for a user. A global
+// OIDC user is prefixed with an empty namespace (a leading PREFIX_SEPARATOR) so
+// it cannot collide with a namespaced one: global ":customer1:carol" against
+// namespaced "customer1:carol". Every other case is returned unchanged.
+func subjectUser(authType authentication.AuthType, user string, isGlobal bool) string {
+	if isGlobal && authType == authentication.AuthTypeOIDC {
+		return PREFIX_SEPARATOR + user
+	}
+	return user
+}
+
+// ValidateOIDCUserID rejects an OIDC user id with a leading PREFIX_SEPARATOR:
+// it would read as an empty namespace and produce a subject that can never
+// authenticate.
+func ValidateOIDCUserID(namespacesEnabled bool, internalID string) error {
+	if namespacesEnabled && strings.HasPrefix(internalID, PREFIX_SEPARATOR) {
+		return fmt.Errorf("oidc user id must not begin with %q", PREFIX_SEPARATOR)
+	}
+	return nil
+}
+
+// SubjectUserForTarget returns the grouping-subject user-portion for a resolved
+// user id that a request addresses. Use this — not the caller's principal —
+// whenever the subject being written or read is someone other than the caller,
+// so a write produces the same subject the target will later present.
+//
+// internalID must already be resolved through QualifyUserIDForLookup; a raw id
+// from a namespaced caller would read as global.
+func SubjectUserForTarget(namespacesEnabled bool, authType authentication.AuthType, internalID string) (string, error) {
+	if authType == authentication.AuthTypeOIDC {
+		if err := ValidateOIDCUserID(namespacesEnabled, internalID); err != nil {
+			return "", err
+		}
+	}
+	return subjectUser(authType, internalID, namespacing.IsGlobalTarget(namespacesEnabled, internalID)), nil
+}
+
+// SubjectForTarget builds the full casbin subject for a resolved user id a
+// request addresses (see SubjectUserForTarget).
+func SubjectForTarget(namespacesEnabled bool, authType authentication.AuthType, internalID string) (string, error) {
+	user, err := SubjectUserForTarget(namespacesEnabled, authType, internalID)
+	if err != nil {
+		return "", err
+	}
+	return UserNameWithTypeFromId(user, authType), nil
+}
+
+// StripEmptyNamespace removes one leading PREFIX_SEPARATOR from an OIDC
+// user-portion, turning a global subject back into a display id. Apply only to
+// OIDC user-portions on namespace-enabled clusters, where a leading ':' is
+// unambiguously an empty namespace.
+func StripEmptyNamespace(user string) string {
+	return strings.TrimPrefix(user, PREFIX_SEPARATOR)
 }
 
 func TrimRoleNamePrefix(name string) string {

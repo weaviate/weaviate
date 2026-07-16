@@ -921,26 +921,36 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				classNames = append(classNames, c.Class)
 			}
 		}
-		// RBAC rows feed only the NS-disabled checks, so fetch them solely on
-		// that path — a read error then means we can't verify the invariant and
-		// must fail closed, rather than crashing an NS-enabled node that never
-		// inspects this data.
+		// Grouping subjects feed both the NS-disabled db-qualifier check and the
+		// NS-enabled OIDC namespace check, so fetch them on either flag. Role
+		// names and policy resources feed only the NS-disabled checks.
+		// A read error means we can't verify the invariant and must fail closed.
 		var roleNames, policyResources, groupingSubjects []string
-		if !appState.ServerConfig.Config.Namespaces.Enabled && appState.RBAC != nil {
-			roles, err := appState.RBAC.GetRoles()
-			if err != nil {
-				l.Fatalf("namespace startup invariants: GetRoles: %v", err)
-			}
-			for name, policies := range roles {
-				roleNames = append(roleNames, name)
-				for _, p := range policies {
-					policyResources = append(policyResources, p.Resource)
+		if appState.RBAC != nil {
+			if !appState.ServerConfig.Config.Namespaces.Enabled {
+				roles, err := appState.RBAC.GetRoles()
+				if err != nil {
+					l.Fatalf("namespace startup invariants: GetRoles: %v", err)
+				}
+				for name, policies := range roles {
+					roleNames = append(roleNames, name)
+					for _, p := range policies {
+						policyResources = append(policyResources, p.Resource)
+					}
 				}
 			}
-			groupingSubjects, err = appState.RBAC.ListGroupingSubjects()
+			subjects, err := appState.RBAC.ListGroupingSubjects()
 			if err != nil {
 				l.Fatalf("namespace startup invariants: ListGroupingSubjects: %v", err)
 			}
+			groupingSubjects = subjects
+		}
+		// Static API-key users are global; their names may carry ':' when
+		// namespaces are disabled, so the db-subject check must not read them
+		// as namespaced principals.
+		var staticAPIKeyUsers []string
+		if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
+			staticAPIKeyUsers = appState.ServerConfig.Config.Authentication.APIKey.Users
 		}
 		if err := enforceNamespaceStartupInvariants(
 			appState.ServerConfig.Config.Namespaces.Enabled,
@@ -951,6 +961,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			roleNames,
 			policyResources,
 			groupingSubjects,
+			staticAPIKeyUsers,
 		); err != nil {
 			l.Fatal(err)
 		}
@@ -1219,7 +1230,7 @@ func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogg
 // A class name is considered namespace-qualified iff it contains
 // entschema.NamespaceSeparator (":"), which is forbidden in plain class names
 // by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
-func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, policyResources []string, groupingSubjects []string) error {
+func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, policyResources []string, groupingSubjects []string, staticAPIKeyUsers []string) error {
 	var nonNamespacedCount, namespacedCount int
 	var nonNamespacedExample, namespacedExample string
 	for _, name := range classNames {
@@ -1252,10 +1263,48 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
 	}
 
+	// A subject that cannot be parsed cannot be checked against the invariants
+	// below, and skipping it would report a clean cluster while the row it could
+	// not read stays live.
+	if n, ex := countQualified(groupingSubjects, func(s string) bool {
+		_, _, err := conv.GetUserAndPrefix(s)
+		return err != nil
+	}); n > 0 {
+		return fmt.Errorf("cluster has %d unparseable role assignment subject(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
+	}
+
+	// With namespaces enabled every OIDC subject's user-portion is either
+	// namespaced ("customer1:carol") or globally prefixed with an empty namespace
+	// (":carol"). An authenticated global OIDC user presents "oidc::carol", so a
+	// stored "oidc:carol" row is never matched.
+	if enabled {
+		if n, ex := countQualified(groupingSubjects, func(s string) bool {
+			user, prefix, err := conv.GetUserAndPrefix(s)
+			if err != nil || prefix != string(authentication.AuthTypeOIDC) {
+				return false
+			}
+			return !conv.ContainsNamespaceSeparator(user)
+		}); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d OIDC role assignment(s) whose subject has no namespace (e.g. %q); every OIDC subject must carry a namespace, or a leading %q if the user is global", n, ex, entschema.NamespaceSeparator)
+		}
+		// Reject global OIDC subjects whose name contains ':'. Authentication
+		// refuses such a principal, so the grant could never be exercised.
+		if n, ex := countQualified(groupingSubjects, func(s string) bool {
+			user, prefix, err := conv.GetUserAndPrefix(s)
+			if err != nil || prefix != string(authentication.AuthTypeOIDC) {
+				return false
+			}
+			name := conv.StripEmptyNamespace(user)
+			return name != user && conv.ContainsNamespaceSeparator(name)
+		}); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d global OIDC role assignment(s) whose name contains ':' (e.g. %q); a global OIDC principal's name must not contain the namespace separator", n, ex)
+		}
+	}
+
 	// Role names, policy resources (what a role's permissions grant access to)
 	// and grouping subjects (who a role assignment binds) may each be
 	// namespace-qualified when NAMESPACES_ENABLED=true. With namespaces disabled
-	// they would be misinterpreted, so the rows are only inspected in that case.
+	// they would be misinterpreted, so these rows are only inspected in that case.
 	if !enabled {
 		if n, ex := countQualified(roleNames, conv.ContainsNamespaceSeparator); n > 0 {
 			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
@@ -1271,9 +1320,18 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		// Only a colon in a direct db user (e.g. db:customer1:alice) is a namespace
 		// qualifier — db names forbid ':'. OIDC names may contain ':', so oidc:
 		// subjects are ambiguous and skipped; groups are global regardless of name.
+		// A static API-key user is global but also reaches casbin under the db
+		// prefix, and its name may carry ':' here, so those subjects are exempt.
+		staticAPIKeyUser := make(map[string]struct{}, len(staticAPIKeyUsers))
+		for _, u := range staticAPIKeyUsers {
+			staticAPIKeyUser[u] = struct{}{}
+		}
 		if n, ex := countQualified(groupingSubjects, func(s string) bool {
 			user, prefix, err := conv.GetUserAndPrefix(s)
 			if err != nil || prefix != string(authentication.AuthTypeDb) {
+				return false
+			}
+			if _, ok := staticAPIKeyUser[user]; ok {
 				return false
 			}
 			return conv.ContainsNamespaceSeparator(user)

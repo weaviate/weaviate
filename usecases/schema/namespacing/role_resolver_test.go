@@ -187,6 +187,31 @@ func TestRoleResolverQualifyPoliciesForCreate(t *testing.T) {
 			wantErr:   true,
 		},
 		{
+			// A users/<id> id may be an OIDC username containing ':'. The prefix
+			// is prepended unconditionally, so a colon-bearing id — including one
+			// that names another namespace — still resolves inside the caller's.
+			name:      "namespaced prefixes colon-bearing user ids",
+			principal: namespaced("customer1"),
+			nsEnabled: true,
+			in: []authorization.Policy{
+				{Resource: "users/foo:bar"},
+				{Resource: "users/customer2:eve"},
+			},
+			want: []string{
+				"users/customer1:foo:bar",
+				"users/customer1:customer2:eve",
+			},
+		},
+		{
+			// The colon carve-out is scoped to users/: a role name must stay
+			// colon-free.
+			name:      "namespaced already-qualified role rejected",
+			principal: namespaced("customer1"),
+			nsEnabled: true,
+			in:        []authorization.Policy{{Resource: "roles/customer1:reader"}},
+			wantErr:   true,
+		},
+		{
 			// Atomicity: a later policy's error must leave the earlier,
 			// qualifiable policy unmutated.
 			name:      "namespaced error leaves earlier policy untouched",

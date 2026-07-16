@@ -156,7 +156,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 // local config
 func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
 	if namespacesEnabled {
-		if err := rejectNamespacedRootSubjects(conf); err != nil {
+		if err := rejectNamespaceSeparatorInBootstrapUsers(conf, authNconf); err != nil {
 			return err
 		}
 	}
@@ -207,56 +207,26 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	for i := range conf.RootUsers {
-		if strings.TrimSpace(conf.RootUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.RootUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Root)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
+	for _, list := range bootstrapRoleUsers(conf) {
+		for _, user := range list.users {
+			if strings.TrimSpace(user) == "" {
+				continue
 			}
-		}
 
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Root)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
+			if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, user) {
+				if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb), conv.PrefixRoleName(list.role)); err != nil {
+					return fmt.Errorf("add role for user: %w", err)
+				}
 			}
-		}
-	}
 
-	// temporary to enable import of existing keys to WCD (Admin + readonly)
-	for i := range conf.AdminUsers {
-		if strings.TrimSpace(conf.AdminUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.AdminUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Admin)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
+			if !authNconf.OIDC.Enabled {
+				continue
 			}
-		}
-
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Admin)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
+			subject, err := conv.SubjectForTarget(namespacesEnabled, authentication.AuthTypeOIDC, user)
+			if err != nil {
+				return fmt.Errorf("%s user subject: %w", list.role, err)
 			}
-		}
-	}
-
-	for i := range conf.ViewerUsers {
-		if strings.TrimSpace(conf.ViewerUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.ViewerUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], authentication.AuthTypeDb), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-				return fmt.Errorf("add role for user: %w", err)
-			}
-		}
-
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], authentication.AuthTypeOIDC), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+			if _, err := enforcer.AddRoleForUser(subject, conv.PrefixRoleName(list.role)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
@@ -297,14 +267,46 @@ var (
 	groupsPrefix     = authorization.GroupsDomain + "/"
 )
 
-// rejectNamespacedRootSubjects fails startup when a namespace-qualified subject
-// is configured for the root role: a namespaced principal must never inherit
-// cluster-wide root. read-only has no static user list (groups only, deferred
-// to namespaced groups), so root users are the only static subject to guard.
-func rejectNamespacedRootSubjects(conf rbacconf.Config) error {
-	for _, u := range conf.RootUsers {
+type bootstrapUserList struct {
+	role  string
+	users []string
+}
+
+// bootstrapRoleUsers pairs each built-in role with the users the local config
+// registers for it. Read-only is absent: it has no static user list (groups
+// only). Admin/viewer are temporary, to enable import of existing keys to WCD.
+func bootstrapRoleUsers(conf rbacconf.Config) []bootstrapUserList {
+	return []bootstrapUserList{
+		{authorization.Root, conf.RootUsers},
+		{authorization.Admin, conf.AdminUsers},
+		{authorization.Viewer, conf.ViewerUsers},
+	}
+}
+
+// rejectNamespaceSeparatorInBootstrapUsers fails startup when a statically
+// configured user name (root/admin/viewer or static API-key) contains the
+// namespace separator on a namespace-enabled cluster. These names are always
+// registered as global subjects, and a separator makes that impossible to hold:
+// an OIDC name produces a subject that can never authenticate, a namespaced
+// principal must never inherit a cluster-wide role, and a static API-key name
+// produces the same subject as a namespaced DB user of that name. Read-only has
+// no static user list (groups only), so it needs no guard.
+func rejectNamespaceSeparatorInBootstrapUsers(conf rbacconf.Config, authNconf config.Authentication) error {
+	for _, list := range bootstrapRoleUsers(conf) {
+		if err := rejectNamespaceSeparator("RBAC "+list.role, list.users); err != nil {
+			return err
+		}
+	}
+	if authNconf.APIKey.Enabled {
+		return rejectNamespaceSeparator("static API-key", authNconf.APIKey.Users)
+	}
+	return nil
+}
+
+func rejectNamespaceSeparator(source string, users []string) error {
+	for _, u := range users {
 		if strings.Contains(u, schema.NamespaceSeparator) {
-			return fmt.Errorf("RBAC root user %q is namespace-qualified; a namespaced principal cannot inherit the root role", u)
+			return fmt.Errorf("%s user %q contains the namespace separator %q; statically configured users are global and their names must not contain it", source, u, schema.NamespaceSeparator)
 		}
 	}
 	return nil

@@ -35,6 +35,7 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 		roleNames                    []string
 		policyResources              []string
 		groupingSubjects             []string
+		staticAPIKeyUsers            []string
 		wantErr                      bool
 		errSubstr                    string
 	}{
@@ -211,6 +212,23 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			groupingSubjects: []string{"oidc:foo:bar"},
 		},
 		{
+			// A static API-key user is global but reaches casbin under the db
+			// prefix, and its name may contain ':' when namespaces are off, so
+			// its subject must not be read as a namespaced principal.
+			name:              "disabled, colon-bearing static API-key subject is fine",
+			enabled:           false,
+			staticAPIKeyUsers: []string{"customer1:carol"},
+			groupingSubjects:  []string{"db:customer1:carol"},
+		},
+		{
+			name:              "disabled, namespaced principal still caught alongside a static API-key user",
+			enabled:           false,
+			staticAPIKeyUsers: []string{"customer1:carol"},
+			groupingSubjects:  []string{"db:customer1:carol", "db:tenant1:bob"},
+			wantErr:           true,
+			errSubstr:         "namespace-qualified principal",
+		},
+		{
 			name:       "disabled, multiple violation kinds still fails",
 			enabled:    false,
 			roleNames:  []string{qualified("tenant1", "editor")},
@@ -226,11 +244,164 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			policyResources:              []string{"data/collections/tenant1:Movies/shards/*/objects/*"},
 			groupingSubjects:             []string{"db:tenant1:bob"},
 		},
+		{
+			// A bare "oidc:carol" enforces as ":carol" (namespace-prefixed) on an NS-enabled
+			// cluster, so the grant would be silently missed — reject it at boot.
+			name:                         "enabled, OIDC grouping subject with no namespace is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:carol"},
+			wantErr:                      true,
+			errSubstr:                    "whose subject has no namespace",
+		},
+		{
+			// A single subject with no namespace among otherwise-valid ones is still
+			// rejected, and the error names the offender (not the valid siblings).
+			name:                         "enabled, no-namespace OIDC subject among valid ones is named",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc::carol", "oidc:customer1:dave", "oidc:bob"},
+			wantErr:                      true,
+			errSubstr:                    `(e.g. "oidc:bob")`,
+		},
+		{
+			// Every subject with no namespace is counted, not just the first.
+			name:                         "enabled, multiple no-namespace OIDC subjects are counted",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:bob", "oidc:dave"},
+			wantErr:                      true,
+			errSubstr:                    "2 OIDC role assignment",
+		},
+		{
+			name:                         "enabled, namespace-prefixed global OIDC subject is fine",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc::carol"},
+		},
+		{
+			// A global OIDC subject (empty namespace prefix) whose name contains ':'
+			// is ambiguous with a namespaced subject and cannot authenticate, so it
+			// is rejected — global OIDC names must be colon-free.
+			name:                         "enabled, namespace-prefixed global colon-name OIDC subject is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc::customer1:carol"},
+			wantErr:                      true,
+			errSubstr:                    "name contains ':'",
+		},
+		{
+			// A colon-name global among otherwise-valid subjects is still caught
+			// and named; the plain global and namespaced subjects are fine.
+			name:                         "enabled, colon-name global among valid subjects is named",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc::carol", "oidc:customer1:dave", "oidc::team:carol"},
+			wantErr:                      true,
+			errSubstr:                    `(e.g. "oidc::team:carol")`,
+		},
+		{
+			name:                         "enabled, namespaced OIDC subject is fine",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:customer1:carol"},
+		},
+		{
+			// The OIDC namespace check must not fire on db users or groups.
+			name:                         "enabled, bare db and group subjects are fine",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"db:alice", "group:engineers"},
+		},
+		{
+			// Two leading separators would strip to ":carol", an id
+			// ValidateOIDCUserID rejects on write.
+			name:                         "enabled, doubled empty namespace prefix is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:::carol"},
+			wantErr:                      true,
+			errSubstr:                    "name contains ':'",
+		},
+		{
+			name:                         "enabled, no grouping subjects at all",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{},
+		},
+		{
+			// RBAC disabled leaves the slice nil; the invariants must pass
+			// rather than panic.
+			name:                         "enabled, nil grouping subjects",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             nil,
+		},
+		// A subject the invariants cannot parse must fail startup rather than be
+		// skipped: GetUserAndPrefix errors on a missing separator, an empty
+		// prefix, or an empty user.
+		{
+			name:                         "enabled, subject without a separator is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"carol"},
+			wantErr:                      true,
+			errSubstr:                    "1 unparseable role assignment subject",
+		},
+		{
+			name:                         "enabled, subject with an empty user is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc:"},
+			wantErr:                      true,
+			errSubstr:                    `(e.g. "oidc:")`,
+		},
+		{
+			name:                         "enabled, subject with an empty prefix is rejected",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{":carol"},
+			wantErr:                      true,
+			errSubstr:                    "1 unparseable role assignment subject",
+		},
+		{
+			// The guard runs on both flags — an unreadable row is not an
+			// NS-enabled-only concern.
+			name:                         "disabled, unparseable subject is rejected",
+			enabled:                      false,
+			lsmSkipWriteClassNameEnabled: false,
+			groupingSubjects:             []string{"carol"},
+			wantErr:                      true,
+			errSubstr:                    "1 unparseable role assignment subject",
+		},
+		{
+			name:                         "enabled, unparseable subjects are all counted",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"carol", "oidc:", "oidc::valid"},
+			wantErr:                      true,
+			errSubstr:                    "2 unparseable role assignment subject",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount, tt.roleNames, tt.policyResources, tt.groupingSubjects)
+			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount, tt.roleNames, tt.policyResources, tt.groupingSubjects, tt.staticAPIKeyUsers)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errSubstr)
