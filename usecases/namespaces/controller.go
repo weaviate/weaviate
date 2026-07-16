@@ -66,6 +66,18 @@ var (
 	// ErrInvalidStateTransition is returned by ChangeState when the target
 	// state is unreachable from the namespace's current state.
 	ErrInvalidStateTransition = errors.New("invalid namespace state transition")
+
+	// ErrNamespaceSuspended is returned when an operation targets a suspended
+	// namespace.
+	ErrNamespaceSuspended = errors.New("namespace is suspended")
+
+	// ErrCollectionSuspended is returned when an operation targets a suspended
+	// collection.
+	ErrCollectionSuspended = errors.New("collection is suspended")
+
+	// ErrNamespaceResuming is returned when an operation targets a namespace
+	// that is resuming.
+	ErrNamespaceResuming = errors.New("namespace is resuming")
 )
 
 // reservedNames are refused at Create time. Kept as a package variable (not a

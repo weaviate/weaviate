@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -195,6 +196,23 @@ func (s *Shard) updateMultiVectorIndex(ctx context.Context, vector [][]float32,
 	return updateVectorInVectorIndex(ctx, s, targetVector, vector, status)
 }
 
+// localIsNewer reports whether the shard's stored state for idBytes, the live
+// object, or a tombstone's deletion time so an older entry can't resurrect a
+// deleted object, is strictly newer than incoming. Callers hold the docIdLock.
+func (s *Shard) localIsNewer(bucket *lsmkv.Bucket, idBytes []byte, prevObj *storobj.Object, incoming int64) (bool, error) {
+	if prevObj != nil {
+		return prevObj.LastUpdateTimeUnix() > incoming, nil
+	}
+	deleted, deletionTime, err := bucket.WasDeleted(idBytes)
+	if err != nil {
+		return false, err
+	}
+	if !deleted || deletionTime.IsZero() {
+		return false, nil
+	}
+	return deletionTime.UnixMilli() > incoming, nil
+}
+
 func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) {
 	objBytes, err := bucket.Get(idBytes)
 	if err != nil {
@@ -278,6 +296,17 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return err
 		}
 
+		if fromChangeLogReplay(ctx) {
+			lIsNewer, err := s.localIsNewer(bucket, idBytes, prevObj, obj.LastUpdateTimeUnix())
+			if err != nil {
+				return err
+			}
+			if lIsNewer {
+				status = objectInsertStatus{skipUpsert: true}
+				return nil
+			}
+		}
+
 		status, err = s.determineInsertStatus(prevObj, obj)
 		if err != nil {
 			return err
@@ -351,16 +380,29 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	var objectDigest [16 + 8]byte
 	copy(objectDigest[:], uuidBytes)
 
+	// Update the live tree first so a checkpoint-fold error can never leave a torn leaf.
 	if status.oldUpdateTime > 0 {
 		// Given only latest object version is maintained, previous registration is erased
 		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
 		s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 	}
-
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
-	return nil
+	// Fold ≤cutoff changes into the checkpoint so it converges; >cutoff writes leave it frozen.
+	cpht := s.asyncCheckpointHashtree
+	if cpht == nil || object.Object.LastUpdateTimeUnix > s.asyncCheckpointCutoff {
+		return nil
+	}
+	// Erase old only if the clone holds it (old ≤ cutoff); erasing a >cutoff version injects a phantom.
+	if status.oldUpdateTime > 0 && status.oldUpdateTime <= s.asyncCheckpointCutoff {
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
+		if err := cpht.AggregateLeafWith(leaf, objectDigest[:]); err != nil {
+			return err
+		}
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
+	}
+	return cpht.AggregateLeafWith(leaf, objectDigest[:])
 }
 
 func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {

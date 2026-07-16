@@ -13,10 +13,13 @@ package lsmkv
 
 import (
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func newSegmentReplacer(sg *SegmentGroup, oldLeftPos, oldRightPos int, newSeg Segment) *segmentReplacer {
@@ -53,13 +56,37 @@ func (sr *segmentReplacer) switchOnDisk() (Segment, Segment, error) {
 	rightSegment = sr.sg.segments[sr.oldRightPos]
 	sr.sg.maintenanceLock.RUnlock()
 
-	if !sr.replaceSingleSegment {
-		if err := leftSegment.markForDeletion(); err != nil {
-			return nil, nil, errors.Wrap(err, "drop disk segment")
+	if sr.replaceSingleSegment {
+		// In-place cleanup switch: the rewritten segment has the same canonical
+		// name as the old one, so stripTmpExtensions renames the new .db.tmp
+		// atomically onto the old .db — the canonical .db always names a complete
+		// segment, so a crash can never leave it missing. Only the old sidecars
+		// are marked for deletion (they no longer match the cleaned data); the
+		// fsync makes those marks durable before the overwrite so a stale bloom
+		// filter can't survive paired with the new .db. The old inode stays alive
+		// for active readers via mmap/fd and is freed on close().
+		if err := rightSegment.markForDeletionExceptSegment(); err != nil {
+			return nil, nil, errors.Wrap(err, "mark old sidecars for deletion")
 		}
-		sr.oldLeftPath = leftSegment.getPath()
-		leftSegID = segmentID(sr.oldLeftPath)
+		sr.oldRightPath = rightSegment.getPath()
+		rightSegID = segmentID(sr.oldRightPath)
+
+		if err := diskio.Fsync(filepath.Dir(sr.oldRightPath)); err != nil {
+			return nil, nil, fmt.Errorf("fsync segment dir before in-place swap: %w", err)
+		}
+
+		if err := sr.newSeg.stripTmpExtensions(leftSegID, rightSegID); err != nil {
+			return nil, nil, fmt.Errorf("strip .tmp extensions of new segment: %w", err)
+		}
+
+		return leftSegment, rightSegment, nil
 	}
+
+	if err := leftSegment.markForDeletion(); err != nil {
+		return nil, nil, errors.Wrap(err, "drop disk segment")
+	}
+	sr.oldLeftPath = leftSegment.getPath()
+	leftSegID = segmentID(sr.oldLeftPath)
 
 	if err := rightSegment.markForDeletion(); err != nil {
 		return nil, nil, errors.Wrap(err, "drop disk segment")

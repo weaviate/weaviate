@@ -226,7 +226,7 @@ func TestShardCallbacks_DualWriteMigration(t *testing.T) {
 		t.Helper()
 		b := store.Bucket(bucketName)
 		require.NotNil(t, b, "bucket %q must exist", bucketName)
-		bm, release, err := b.RoaringSetGet([]byte(term))
+		bm, release, err := b.RoaringSetGet(t.Context(), []byte(term))
 		require.NoError(t, err)
 		defer release()
 		if bm == nil {
