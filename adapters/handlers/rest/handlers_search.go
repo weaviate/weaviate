@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	aggregateops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/aggregate"
 	searchops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/search"
 	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -26,10 +27,12 @@ import (
 
 // setupSearchHandlers wires the REST search API (operations search.nearText,
 // search.bm25, search.hybrid and search.nearObject, POST
-// /v1/search/{collection}/{near-text,bm25,hybrid,near-object}). The handler
-// logic lives in adapters/handlers/rest/search. The endpoint is experimental
-// and off by default; EXPERIMENTAL_REST_SEARCH_ENABLED=true enables it. When
-// disabled it rejects requests with 422.
+// /v1/search/{collection}/{near-text,bm25,hybrid,near-object}) and its
+// sibling aggregate API (operation aggregate, POST
+// /v1/aggregate/{collection}). The handler logic lives in
+// adapters/handlers/rest/search. The endpoints are experimental and off by
+// default; EXPERIMENTAL_REST_SEARCH_ENABLED=true enables them. When disabled
+// they reject requests with 422.
 func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := restsearch.NewHandler(restsearch.HandlerConfig{
 		Traverser:         appState.Traverser,
@@ -43,13 +46,13 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	})
 
 	// swagger-layer errors (bind validation, security, routing) on search
-	// routes use the same ErrorResponse shape as handler errors
+	// and aggregate routes use the same ErrorResponse shape as handler errors
 	defaultServeError := api.ServeError
 	if defaultServeError == nil {
 		defaultServeError = openapierrors.ServeError
 	}
 	api.ServeError = func(rw http.ResponseWriter, r *http.Request, err error) {
-		if r != nil && restsearch.IsSearchRoute(r.URL.Path) {
+		if r != nil && (restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)) {
 			restsearch.ServeError(rw, r, err)
 			return
 		}
@@ -90,6 +93,15 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 				return searchNearObjectErrResponder(apiErr)
 			}
 			return searchops.NewSearchNearObjectOK().WithPayload(payload)
+		})
+
+	api.AggregateAggregateHandler = aggregateops.AggregateHandlerFunc(
+		func(params aggregateops.AggregateParams, principal *models.Principal) middleware.Responder {
+			payload, apiErr := h.Aggregate(params.HTTPRequest.Context(), principal, params.Collection, params.Body)
+			if apiErr != nil {
+				return aggregateErrResponder(apiErr)
+			}
+			return aggregateops.NewAggregateOK().WithPayload(payload)
 		})
 }
 
@@ -172,6 +184,30 @@ func searchNearObjectErrResponder(apiErr *restsearch.APIError) middleware.Respon
 		return searchops.NewSearchNearObjectTooManyRequests().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return searchops.NewSearchNearObjectInternalServerError().WithPayload(payload)
+	default:
+		// statuses without a declared response
+		return middleware.Error(apiErr.Status, payload)
+	}
+}
+
+// aggregateErrResponder translates an aggregate APIError into the generated
+// responder for its status, keeping the standard REST error shape. aggregate
+// declares neither 502 (nothing is ever vectorized) nor 429 (the traverser's
+// aggregate path is not rate limited).
+func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
+	payload := searchErrPayload(apiErr)
+
+	switch apiErr.Status {
+	case http.StatusBadRequest:
+		return aggregateops.NewAggregateBadRequest().WithPayload(payload)
+	case http.StatusForbidden:
+		return aggregateops.NewAggregateForbidden().WithPayload(payload)
+	case http.StatusNotFound:
+		return aggregateops.NewAggregateNotFound().WithPayload(payload)
+	case http.StatusUnprocessableEntity:
+		return aggregateops.NewAggregateUnprocessableEntity().WithPayload(payload)
+	case http.StatusInternalServerError:
+		return aggregateops.NewAggregateInternalServerError().WithPayload(payload)
 	default:
 		// statuses without a declared response
 		return middleware.Error(apiErr.Status, payload)

@@ -32,6 +32,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/aggregate"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
@@ -88,6 +89,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
+		}),
+		AggregateAggregateHandler: aggregate.AggregateHandlerFunc(func(params aggregate.AggregateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation aggregate.Aggregate has not yet been implemented")
 		}),
 		SchemaAliasesCreateHandler: schema.AliasesCreateHandlerFunc(func(params schema.AliasesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.AliasesCreate has not yet been implemented")
@@ -495,6 +499,8 @@ type WeaviateAPI struct {
 	UsersActivateUserHandler users.ActivateUserHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
+	// AggregateAggregateHandler sets the operation handler for the aggregate operation
+	AggregateAggregateHandler aggregate.AggregateHandler
 	// SchemaAliasesCreateHandler sets the operation handler for the aliases create operation
 	SchemaAliasesCreateHandler schema.AliasesCreateHandler
 	// SchemaAliasesDeleteHandler sets the operation handler for the aliases delete operation
@@ -820,6 +826,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
+	}
+	if o.AggregateAggregateHandler == nil {
+		unregistered = append(unregistered, "aggregate.AggregateHandler")
 	}
 	if o.SchemaAliasesCreateHandler == nil {
 		unregistered = append(unregistered, "schema.AliasesCreateHandler")
@@ -1280,6 +1289,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/authz/roles/{id}/add-permissions"] = authz.NewAddPermissions(o.context, o.AuthzAddPermissionsHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/aggregate/{collection}"] = aggregate.NewAggregate(o.context, o.AggregateAggregateHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

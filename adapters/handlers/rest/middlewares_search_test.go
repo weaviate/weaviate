@@ -85,6 +85,19 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 		assert.True(t, next.called, "POST near-object search must pass in READ_ONLY")
 	})
 
+	t.Run("READ_ONLY lets aggregate through", func(t *testing.T) {
+		// /v1/aggregate/{collection} shares the search family's read
+		// carve-out: an aggregation is semantically a read
+		next, _ := run(t, searchTestAppState(true, config.READ_ONLY), http.MethodPost, "/v1/aggregate/Movie")
+		assert.True(t, next.called, "POST aggregate must pass in READ_ONLY")
+	})
+
+	t.Run("READ_ONLY with the feature disabled has no aggregate carve-out", func(t *testing.T) {
+		next, rec := run(t, searchTestAppState(false, config.READ_ONLY), http.MethodPost, "/v1/aggregate/Movie")
+		assert.False(t, next.called)
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	})
+
 	t.Run("READ_ONLY still blocks real writes", func(t *testing.T) {
 		next, rec := run(t, searchTestAppState(true, config.READ_ONLY), http.MethodPost, "/v1/objects")
 		assert.False(t, next.called)
@@ -105,6 +118,11 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 	t.Run("SCALE_OUT lets bm25 search through", func(t *testing.T) {
 		next, _ := run(t, searchTestAppState(true, config.SCALE_OUT), http.MethodPost, "/v1/search/Movie/bm25")
 		assert.True(t, next.called, "POST bm25 search must pass in SCALE_OUT")
+	})
+
+	t.Run("SCALE_OUT lets aggregate through", func(t *testing.T) {
+		next, _ := run(t, searchTestAppState(true, config.SCALE_OUT), http.MethodPost, "/v1/aggregate/Movie")
+		assert.True(t, next.called, "POST aggregate must pass in SCALE_OUT")
 	})
 
 	t.Run("WRITE_ONLY blocks search", func(t *testing.T) {
@@ -134,6 +152,12 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	})
 
+	t.Run("WRITE_ONLY blocks aggregate", func(t *testing.T) {
+		next, rec := run(t, searchTestAppState(true, config.WRITE_ONLY), http.MethodPost, "/v1/aggregate/Movie")
+		assert.False(t, next.called, "POST aggregate must be blocked in WRITE_ONLY")
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	})
+
 	t.Run("WRITE_ONLY blocks search even when the feature is disabled", func(t *testing.T) {
 		// a search is a read → 503 regardless of whether the feature is
 		// enabled; the op-mode block takes precedence over the handler's
@@ -151,5 +175,13 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 	t.Run("only the static search namespace is a search route", func(t *testing.T) {
 		assert.True(t, restsearch.IsSearchRoute("/v1/search/Movie/near-text"))
 		assert.False(t, restsearch.IsSearchRoute("/v1/Movie/search/near-text"))
+	})
+
+	t.Run("only the static aggregate namespace is an aggregate route", func(t *testing.T) {
+		assert.True(t, restsearch.IsAggregateRoute("/v1/aggregate/Movie"))
+		assert.False(t, restsearch.IsAggregateRoute("/v1/Movie/aggregate"))
+		// the two namespaces do not classify each other's routes
+		assert.False(t, restsearch.IsAggregateRoute("/v1/search/Movie/near-text"))
+		assert.False(t, restsearch.IsSearchRoute("/v1/aggregate/Movie"))
 	})
 }

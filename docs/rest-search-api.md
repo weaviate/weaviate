@@ -13,14 +13,17 @@ third endpoint (2026-07-16).
 
 `POST /v1/search/{collection}/near-object` — similarity search anchored at
 an existing object's stored vector, the fourth endpoint (2026-07-16).
-aggregate will follow under the `/v1/aggregate/{collection}` shape, when
-built.
+
+`POST /v1/aggregate/{collection}` — counts aggregation (total or per group),
+the fifth endpoint and the first under the sibling `/v1/aggregate/` root
+(2026-07-16, phase 1: counts only).
 
 > **Status:** draft, POST-only, part of the swagger surface
 > (`openapi-specs/schema.json`, operations `search.nearText`, `search.bm25`,
-> `search.hybrid` and `search.nearObject`). Experimental and **off by
-> default**; enable it per node with `EXPERIMENTAL_REST_SEARCH_ENABLED=true`
-> (gates every search endpoint).
+> `search.hybrid`, `search.nearObject` and `aggregate`). Experimental and
+> **off by default**; enable it per node with
+> `EXPERIMENTAL_REST_SEARCH_ENABLED=true` (gates every endpoint of the
+> family, aggregate included).
 
 ---
 
@@ -490,7 +493,15 @@ Decision log for the settled points:
    the request — no vector at all, none for the target, or several vectors
    with no target specified → 422, the data-state tier). Both checks sit
    **above** the `ErrQueryVectorization` case in `statusFromError` (same
-   ordering constraint as `ErrNoVectorizerModule`).
+   ordering constraint as `ErrNoVectorizerModule`). *Review residual
+   (2026-07-16, documentation-completeness — not fixed by design): a
+   near-object resolution failure that is neither typed error (e.g. an
+   exotic vector-type-assert failure inside `classFindVector`) would still
+   surface through the `ErrQueryVectorization` wrap (`explorer.go`
+   `vectorFromParamsForTarget` call site) as a 502 the near-object spec
+   does not declare — realistically unreachable because
+   `findVectorForNearObject` tries the multi-vector path first, and the
+   responder's default branch emits the undeclared status correctly.*
 3. **`certainty`/`distance` mirror near-text**, per the gRPC parser's
    near-object block: mutual exclusion is the gRPC rule verbatim; the
    certainty [0,1] range check and the deterministic cosine-only 422
@@ -504,17 +515,102 @@ Decision log for the settled points:
    same rationale as hybrid); distance/certainty metadata are computed
    against the source object's vector.
 
----
+### 2026-07-16 — fifth endpoint: aggregate (phase 1: counts)
 
-## 2. Implementation
+`POST /v1/aggregate/{collection}` — the family's first non-search endpoint,
+under its own static root (per the 2026-07-08 path decision). Phase 1
+supports **counts only**: the number of matching objects, in total (flat
+`{count, took_ms}` response) or per group of a `group_by` property
+(`{groups: [{grouped_by, count}], took_ms}`). A new typed `AggregateRequest`
+definition + regen, a `buildAggregateParams` that fills `aggregation.Params`
+(the struct the gRPC and GraphQL aggregate parsers fill,
+behavior-sync with `parse_aggregate_request.go`), a `Handler.Aggregate`
+over the same prologue as `execute()` (extracted as
+`resolveAuthorizedClass`: reserved-fields 422 first, alias/namespace
+resolve, **authz before schema**, experimental gate **after authz**,
+namespace-stripped errors), and a `buildAggregateResponse` in behavior-sync
+with the gRPC replier (`prepare_aggregate_reply.go`). The op-mode read
+carve-out and the `ServeError` reshaping extend to the new root via
+`IsAggregateRoute` (an aggregation is semantically a read; WRITE_ONLY →
+503, no carve-out when the feature is off).
+
+**Own request model — deliberately NOT `allOf[SearchCommon]`.**
+`SearchCommon`'s `limit` means max *objects* while aggregate's means max
+*groups*; `offset`/`auto_limit`/`return_properties`/`return_metadata` do
+not apply to an aggregation; and `SearchCommon` *reserves* `group_by` (for
+grouped search) which aggregate uses functionally. Sharing the base would
+have frozen wrong semantics into the spec.
+
+Request fields (typed, unknown fields ignored — the option-2 contract):
+
+| Field | Type | Behavior |
+|---|---|---|
+| `group_by` | `string` | bare property name; each distinct value forms a group (array-valued properties count toward each element's group; a ref property groups by beacon URI). Omitted or `""` → ungrouped. First letter lowercased to the canonical spelling (the grouper matches names exactly). Unknown property → **400** (the engine would silently return zero groups — rejected deterministically instead); dotted path → **422 "not yet supported"** (the engine's grouper rejects cross-ref grouping outright) |
+| `return_metrics` | `[]string` | omitted, `[]` and `["count"]` are equivalent — count is phase 1's only metric and is always computed. An entry with a colon (the `property:statistic` grammar, e.g. `"price:mean"`) → **422 "not yet supported"** (phase 2's per-property stats, presence = demand signal); any other entry → **422 unknown** (the tier bad enum values get everywhere else in the family — no swagger enum, so the handler owns both messages) |
+| `where` | `*models.WhereFilter` | same parser + tiers as search (`filterext.Parse` + `ValidateFilters`; unknown property → 400, bad operator enum → 422 at bind, wrong value type → 400 at decode) |
+| `limit` | `*int64` (ptr) | max number of **groups**, largest first. Requires `group_by` → else **400** (without grouping there is nothing to limit; accepting-and-ignoring would also silently defeat the count-star fast path). Must be positive → else **400** (`insertOrdered` in the engine's grouper degenerates at 0 — order-dependent truncation). Omitted → the engine default (100 groups, `grouped.go`) |
+| `tenant` | `string` | tenant-scoped authz (`ShardsData`), same as search |
+| reserved | `over` (object), `object_limit` (`*int64`) | the aggregate-over-search pair (aggregating vector/keyword/hybrid search results) — declared x-nullable, present → **422 "not yet supported"**, checked before authz like every reserved field |
+
+**`consistency_level` is deliberately absent** (unlike `SearchCommon`):
+the engine's aggregate path has no consistency knob — `Index.aggregate`
+hardcodes `ConsistencyLevelOne` for shard routing (and the count-star fast
+path reads counts at `ConsistencyLevelAll`), and neither
+`aggregation.Params` nor the gRPC `AggregateRequest` carries one. Declaring
+the field would mean accepting-and-ignoring it; adding it later, if the
+engine grows the knob, is a safe widening (b6ef0eed asymmetry rule).
+
+Decision log for the settled points:
+
+1. **An empty body `{}` is valid and returns the collection's total
+   count.** The engine has a dedicated fast path for exactly this
+   (`aggregation.IsCountStar` → per-shard object counts, no scan); the
+   handler always sets `IncludeMetaCount` (count is the only phase-1
+   metric — the ungrouped aggregators populate the count only when asked,
+   grouped ones always count) and a unit test pins that `{}` builds
+   count-star-shaped params so the fast path stays reachable.
+2. **Response shapes are one definition, `AggregateResponse`, with exactly
+   one of `count`/`groups` present** (Swagger 2.0 has no `oneOf`).
+   Ungrouped → `count` (always, including `0` — a non-nil pointer with
+   `omitempty` still serializes zero); grouped → `groups` ordered by
+   descending count (engine order). A grouped aggregation that produced
+   **no groups** (nothing matched, or no matching object carries the
+   property) omits `groups` entirely (go-swagger `omitempty`, same
+   convention as the search envelope's `references`); the shapes stay
+   distinguishable because ungrouped always carries `count`.
+3. **`grouped_by` is `{path, value}`** — the shape both GraphQL
+   (`groupedBy {path value}`) and gRPC (`AggregateReply_Group_GroupedBy`)
+   expose. `path` is the one-element property path (engine-produced);
+   `value` is deliberately untyped in the spec and carries the property's
+   **native JSON type** (string/number/boolean) — gRPC's typed oneof
+   parity rather than GraphQL's everything-is-a-String coercion.
+4. **Grouping by a reference property yields beacon URIs, own-namespace
+   stripped.** gRPC replier parity (`groupedByText`): a `weaviate://`
+   beacon's embedded class drops the *caller's own* `<ns>:` prefix
+   (foreign prefixes stay, non-beacon values pass through untouched, the
+   scheme guard prevents `crossref.Parse` from mangling non-beacon
+   strings). Ref-ness is keyed on the schema (`IsRefDataType`, which is
+   namespace-aware), not the value's Go type.
+5. **No 429 and no 502 are declared, and neither can occur.** The
+   traverser's aggregate path has no rate limiter (`ErrRateLimit` is
+   produced only in `Traverser.GetClass`), and a counts aggregation never
+   vectorizes anything. The tenant sentinels arrive through the router's
+   read-routing-plan errors (`cluster/router/router.go` attaches the same
+   `ErrTenantNotFound`/`ErrTenantNotActive` the search path gets), so the
+   shared `statusFromError` mapping applies unchanged: unknown tenant →
+   404, inactive tenant / MT misuse → 422.
 
 ### Files
 
 - `openapi-specs/schema.json` — paths `/search/{collection}/near-text`,
-  `/search/{collection}/bm25`, `/search/{collection}/hybrid` and
+  `/search/{collection}/bm25`, `/search/{collection}/hybrid`,
   `/search/{collection}/near-object` (POST, tag `search`, operationIds
   `search.nearText` / `search.bm25` / `search.hybrid` / `search.nearObject`,
-  per-op `consumes: [application/json]`), definitions `SearchCommon` (shared
+  per-op `consumes: [application/json]`) and `/aggregate/{collection}`
+  (POST, tag `aggregate`, operationId `aggregate`; definitions
+  `AggregateRequest`, `AggregateResponse`, `AggregateGroup`,
+  `AggregateGroupedBy` — see the 2026-07-16 aggregate entry; declares
+  200/400/401/403/404/422/500/503, deliberately no 429/502), definitions `SearchCommon` (shared
   base), `SearchNearTextRequest` (= `allOf[SearchCommon,
   near-text-specific]`), `SearchBm25Request` (= `allOf[SearchCommon, {query,
   query_properties}]`), `SearchHybridRequest` (= `allOf[SearchCommon, {query,
@@ -535,9 +631,12 @@ Decision log for the settled points:
   `SearchResultMetadata` are shared by all search endpoints.
 - generated (never hand-edited; `tools/gen-code-from-swagger.sh`, pinned
   go-swagger v0.30.4): `adapters/handlers/rest/operations/search/*`,
+  `adapters/handlers/rest/operations/aggregate/*`,
   `entities/models/search_common.go`, `search_near_text_request.go`,
   `search_bm25_request.go`, `search_response.go`, `search_result_object.go`,
-  `search_result_metadata.go`, `client/search/*`,
+  `search_result_metadata.go`, `aggregate_request.go`,
+  `aggregate_response.go`, `aggregate_group.go`, `aggregate_grouped_by.go`,
+  `client/search/*`, `client/aggregate/*`,
   `adapters/handlers/rest/embedded_spec.go`.
 - `adapters/handlers/rest/handlers_search.go` — wires the generated
   operations to the handler; maps `APIError` statuses onto the generated
@@ -553,7 +652,19 @@ Decision log for the settled points:
   delegates the `dto.GetParams` build to a per-type `buildParamsFunc`.
   `NearText` and `Bm25` are thin wrappers passing `&body.SearchCommon` +
   their params builder. `IsSearchRoute` classifies any
-  `/v1/search/{collection}/{type}` as a read.
+  `/v1/search/{collection}/{type}` as a read. The resolve→authz→gate
+  prologue is extracted as `resolveAuthorizedClass`, shared with aggregate.
+- `adapters/handlers/rest/search/aggregate.go` — the aggregate endpoint in
+  the same package (it reuses the family's unexported machinery):
+  `IsAggregateRoute`, `Handler.Aggregate` (same pipeline order via
+  `resolveAuthorizedClass`), `checkAggregateReservedFields` (over /
+  object_limit / non-count return_metrics, before authz),
+  `buildAggregateParams` (`aggregation.Params` in behavior-sync with the
+  gRPC `parse_aggregate_request.go`: group_by → single-segment
+  `filters.Path`, limit → max groups, where via the shared `parseWhere`,
+  `IncludeMetaCount` always on) and `buildAggregateResponse` (flat count vs
+  groups, `grouped_by` `{path, value}`, ref-beacon namespace strip — gRPC
+  `prepare_aggregate_reply.go` parity).
 - `adapters/handlers/rest/search/request.go` — the shared parsers
   (`checkReservedFields`/`parsePagination` on `*SearchCommon`, plus
   `parseConsistencyLevel`/`parseWhere`/`parseReturnMetadata`/
@@ -635,14 +746,14 @@ enforced by the generated model at bind time; the rest are the handler's.
 |---|---|---|
 | malformed JSON body; `query` string form (array-only); wrong field type (incl. a `where` value of the wrong JSON type, e.g. a string for `valueInt`, or `path` as a string) | 400 | `ErrorResponse` |
 | missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; bad `where` `operator` enum | 422 | `ErrorResponse` |
-| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; hybrid `alpha` outside [0,1]; both certainty+distance; near-object `id` matching no object (typed `ErrSourceObjectNotFound`); semantically-invalid `where` (unknown property); unknown property in `return_properties` | 400 | `ErrorResponse` |
+| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; hybrid `alpha` outside [0,1]; both certainty+distance; near-object `id` matching no object (typed `ErrSourceObjectNotFound`); semantically-invalid `where` (unknown property); unknown property in `return_properties`; aggregate: unknown `group_by` property, `limit` without `group_by`, non-positive `limit` | 400 | `ErrorResponse` |
 | invalid credentials (bad key/token, via the swagger security layer) | 401 | `ErrorResponse` |
 | no/malformed credentials (anonymous-access middleware, above the swagger layer) | 401 | legacy `{"code","message"}` (parity with existing endpoints) |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
 | unknown collection; unknown tenant | 404 | `ErrorResponse` |
-| no vectorizer (near-text, hybrid above alpha 0) / missing `target_vector` on multi-vector collection / certainty on non-cosine / near-object source object without a usable vector (typed `ErrSourceObjectNoVector`) / reserved param present / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / experimental feature not enabled (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) | 422 | `ErrorResponse` |
-| embedding provider failure (near-text, hybrid — the only endpoints that declare 502; bm25 and near-object never vectorize) | 502 | `ErrorResponse` |
-| rate limited (traverser) | 429 | `ErrorResponse` — only the traverser's own typed `ErrRateLimit` maps here; an embedding provider's rate-limit error is an ordinary vectorization failure and maps to 502 |
+| no vectorizer (near-text, hybrid above alpha 0) / missing `target_vector` on multi-vector collection / certainty on non-cosine / near-object source object without a usable vector (typed `ErrSourceObjectNoVector`) / reserved param present (incl. aggregate's `over`/`object_limit` and non-count `return_metrics`) / aggregate dotted `group_by` / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / experimental feature not enabled (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) | 422 | `ErrorResponse` |
+| embedding provider failure (near-text, hybrid — the only endpoints that declare 502; bm25, near-object and aggregate never vectorize) | 502 | `ErrorResponse` |
+| rate limited (traverser) | 429 | `ErrorResponse` — only the traverser's own typed `ErrRateLimit` maps here (search endpoints only: the traverser's aggregate path has no rate limiter, so aggregate declares no 429); an embedding provider's rate-limit error is an ordinary vectorization failure and maps to 502 |
 | other method on the route | 405 + `Allow: POST` | `ErrorResponse` |
 | non-JSON or absent Content-Type | 415 | `ErrorResponse` |
 
@@ -689,10 +800,11 @@ file (`rest_search_enabled`) can toggle it without a restart.
 
 ### Operational modes
 
-Search requests are POSTs (an HTTP "write" method) but semantically reads.
-`addOperationalMode` classifies them by the static `/v1/search/` prefix
-(`search.IsSearchRoute`, a pure shape check — routing itself is the
-router's job):
+Search and aggregate requests are POSTs (an HTTP "write" method) but
+semantically reads. `addOperationalMode` classifies them by their static
+prefixes (`search.IsSearchRoute` for `/v1/search/{collection}/{type}`,
+`search.IsAggregateRoute` for `/v1/aggregate/{collection}` — pure shape
+checks; routing itself is the router's job):
 
 - **READ_ONLY / SCALE_OUT**: allowed (parity with `/v1/graphql`).
 - **WRITE_ONLY**: blocked with 503 — a deliberate divergence from
@@ -824,6 +936,17 @@ curl -s -X POST -H 'Content-Type: application/json' \
        "return_properties":["title"],"return_metadata":["distance"]}' \
   http://127.0.0.1:8091/v1/search/Movie/near-object
 # -> {"results":[{"id":"<uuid-of-an-object>","properties":{"title":"..."},"metadata":{"distance":0}},...],"took_ms":2}
+
+# aggregate needs no vectorizer either; an empty body is the total count:
+curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
+  http://127.0.0.1:8091/v1/aggregate/Movie
+# -> {"count":2,"took_ms":1}
+
+curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"group_by":"year","limit":10,
+       "where":{"operator":"GreaterThan","path":["year"],"valueInt":1990}}' \
+  http://127.0.0.1:8091/v1/aggregate/Movie
+# -> {"groups":[{"grouped_by":{"path":["year"],"value":1999},"count":2},...],"took_ms":3}
 ```
 
 If you have the local harnesses, run them against the running instance
@@ -849,10 +972,14 @@ re-issue the same request:
   `search.Handler` (the 2026-07-06 draft on tag
   `rest-search-querypost-snapshot` is the reference implementation:
   middleware placement, CORS/415/405 handling, op-mode carve-outs).
-- **aggregate** per the RFC, under its own `/v1/aggregate/{collection}`
-  shape (not `/v1/search/…`). The four search types are done (near-text,
-  bm25, hybrid, near-object — each was: request definition in `schema.json`
-  + regen, a `buildXParams`, a thin `Handler.X` over `execute()`).
+- **aggregate phase 2+**: the reserved `over`/`object_limit`
+  (aggregate-over-search — the gRPC AggregateRequest's near/hybrid search
+  oneof), the `property:statistic` `return_metrics` grammar (mean, median,
+  mode, sum, min/max, top-occurrences, boolean percentages — all already in
+  `aggregation.Params.Properties`), dotted `group_by` (needs engine support:
+  the grouper rejects cross-ref grouping), and `consistency_level` if the
+  engine's aggregate path ever grows a consistency knob (it hardcodes ONE
+  today). All are additive widenings of the phase-1 counts contract.
 - **`search_operator`** (`and`/`or` + `minimum_or_tokens_match`) on bm25 and
   the hybrid keyword leg — the deferred gRPC-parity gap from the 2026-07-14
   decision log; adding it later is a non-breaking widening. Likewise the
