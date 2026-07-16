@@ -23,13 +23,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestReindexTracker_GetProcessedObjectCount_SumsCheckpoints pins the
-// contract getProcessedObjectCount relies on: the cumulative processed
-// count is the SUM of every checkpoint's per-chunk "all N" count, not the
-// last checkpoint's count. markProgress writes one file per chunk with that
-// chunk's local count (it resets to 0 each OnAfterLsmInitAsync invocation),
-// so summing is the only way to recover cumulative progress after a resume.
-// weaviate/0-weaviate-issues#317.
+// Pins getProcessedObjectCount's contract: sum per-chunk counts, not just the last checkpoint's.
 func TestReindexTracker_GetProcessedObjectCount_SumsCheckpoints(t *testing.T) {
 	keyParser := &UuidKeyParser{}
 	newKey := func() indexKey {
@@ -46,8 +40,7 @@ func TestReindexTracker_GetProcessedObjectCount_SumsCheckpoints(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, got, "no checkpoints must report zero processed objects")
 
-	// Chunk 1 processed 40 objects; chunk 2 processed a further 8. Each
-	// markProgress records that chunk's LOCAL count (40, then 8).
+	// Two checkpoints (40, then 8) to verify summation, not last-value.
 	require.NoError(t, tr.markProgress(newKey(), 40, 40))
 	require.NoError(t, tr.markProgress(newKey(), 8, 8))
 
@@ -58,47 +51,14 @@ func TestReindexTracker_GetProcessedObjectCount_SumsCheckpoints(t *testing.T) {
 			"return the last chunk's count (8); got %d", got)
 }
 
-// TestReindexResumeProgress_AdvancesFromCheckpoint is the regression test
-// for weaviate/0-weaviate-issues#317: after a crash mid-reindex, the
-// resumed scan restarts from the persisted checkpoint key, but the live
-// /v1/tasks progress used to freeze at the pre-crash checkpoint value and
-// then jump to completion in one step.
-//
-// Root cause: the reindex loop reports progress as
-// (this-invocation processedCount) / totalObjects, and processedCount
-// resets to 0 every time OnAfterLsmInitAsync is (re-)entered. On resume the
-// emitted fraction therefore restarts near 0; because the FSM stores unit
-// progress monotonically (cluster/distributedtask.Manager.UpdateUnitProgress
-// drops regressions), the displayed value sticks at the checkpoint until the
-// resumed scan re-crosses it — which, for a late checkpoint, never happens
-// before completion. Operators cannot distinguish this freeze from a hang.
-//
-// The fix makes the numerator cumulative (baseline from prior checkpoints +
-// this invocation's processedCount), so the resumed scan reports at the same
-// granularity as a fresh scan.
-//
-// This test drives a real RoaringSetRefresh migration on an in-memory shard:
-//
-//	Phase 1 processes ~checkpointPct of the objects and stops WITHOUT
-//	        finishing (processingDuration=1ns forces a break at the first
-//	        checkProcessingEveryNoObjects boundary), persisting a checkpoint
-//	        — exactly the on-disk state a SIGKILL mid-build leaves behind.
-//	Phase 2 installs a progress callback and drives the resumed scan to
-//	        completion, capturing every emitted fraction.
-//
-// The captured sequence pins the operator-visible invariant: resumed progress
-// is monotonic AND never regresses below the pre-crash checkpoint fraction.
-// Pre-fix, phase 2's first emission is ~1/N (near zero), so both assertions
-// fail — precisely the "frozen then jump" symptom from the issue.
+// Regression test for weaviate/0-weaviate-issues#317: resumed reindex
+// progress must not restart near 0 / freeze at the pre-crash checkpoint.
 func TestReindexResumeProgress_AdvancesFromCheckpoint(t *testing.T) {
 	const numObjects = 100
 
 	cases := []struct {
 		name string
-		// checkpointEvery is checkProcessingEveryNoObjects for phase 1; the
-		// scan breaks at the first multiple of it, so the checkpoint lands at
-		// ~checkpointEvery objects. Chosen to mirror the two crash points the
-		// issue reported (R2b ≈ 0.48, R2c ≈ 0.89).
+		// checkProcessingEveryNoObjects for phase 1; checkpoint lands at ~checkpointEvery objects.
 		checkpointEvery int
 	}{
 		{name: "checkpoint_at_~48pct_R2b", checkpointEvery: 48},
@@ -120,16 +80,13 @@ func TestReindexResumeProgress_AdvancesFromCheckpoint(t *testing.T) {
 			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
-			// Flush objects to disk so ObjectCountAsync (the progress
-			// denominator) sees all of them; it reads on-disk segments only.
+			// Flush so ObjectCountAsync (reads on-disk segments only) sees all objects.
 			require.NoError(t, shard.store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch())
 
 			task, _ := newRoaringSetRefreshTask(t, idx)
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
-			// --- Phase 1: pre-crash. Process ~checkpointEvery objects, then
-			// break without finishing, persisting a checkpoint. No callback
-			// installed — we only care about the resumed emissions.
+			// --- Phase 1: process ~checkpointEvery objects, then break (persists a checkpoint).
 			task.config.checkProcessingEveryNoObjects = tc.checkpointEvery
 			task.config.processingDuration = time.Nanosecond
 			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -150,8 +107,7 @@ func TestReindexResumeProgress_AdvancesFromCheckpoint(t *testing.T) {
 			t.Logf("phase 1 checkpoint: %d/%d objects (fraction %.4f)",
 				baseline, numObjects, checkpointFraction)
 
-			// --- Phase 2: resume. Emit progress for every object and run to
-			// completion, capturing the fractions.
+			// --- Phase 2: resume; emit and capture progress for every object to completion.
 			task.config.checkProcessingEveryNoObjects = 1
 			task.config.processingDuration = 10 * time.Minute
 
@@ -173,24 +129,19 @@ func TestReindexResumeProgress_AdvancesFromCheckpoint(t *testing.T) {
 
 			require.NotEmpty(t, got, "resumed scan must emit progress")
 
-			// Invariant 1: progress is monotonic non-decreasing — the operator
-			// never sees the bar go backwards.
+			// Invariant 1: progress never regresses (monotonic).
 			for i := 1; i < len(got); i++ {
 				require.GreaterOrEqualf(t, got[i], got[i-1],
 					"progress regressed at emission %d: %v", i, got)
 			}
 
-			// Invariant 2 (the fix): the FIRST resumed emission already reflects
-			// the pre-crash checkpoint — it does not restart near zero. Pre-fix
-			// got[0] ≈ 1/N, far below checkpointFraction, so this fails.
+			// Invariant 2: the first resumed emission already reflects the pre-crash checkpoint.
 			require.GreaterOrEqualf(t, got[0], checkpointFraction,
 				"resumed progress restarted below the pre-crash checkpoint "+
 					"(got[0]=%.4f, checkpoint=%.4f) — the /v1/tasks freeze-then-jump bug. "+
 					"full sequence: %v", got[0], checkpointFraction, got)
 
-			// Invariant 3 ("verified not a hang"): progress visibly advances
-			// during the resumed work and climbs to near-complete. Pre-fix, for
-			// the late (89%) checkpoint the emitted max never exceeds ~0.11.
+			// Invariant 3: progress advances and climbs to near-complete (not a hang).
 			last := got[len(got)-1]
 			require.Greaterf(t, last, got[0],
 				"resumed progress did not advance during the rebuild (stuck at %.4f) — "+
