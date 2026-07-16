@@ -65,6 +65,11 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		return nil
 	}
 
+	// Names are segment-<unix-nano>.wal (fixed-width, so lexicographic == chronological).
+	// Recovery relies on order: only the last WAL is kept as the active memtable, the
+	// rest are flushed to segments. The source is a map, whose iteration order is random.
+	sort.Strings(walFileNames)
+
 	logOnceWhenRecoveringFromWAL.Do(func() {
 		b.logger.WithField("action", "lsm_recover_from_active_wal").
 			WithField("path", b.dir).
@@ -131,7 +136,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 			if errRecovery != nil {
 				b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
 					WithField("path", filepath.Join(b.dir, fname)).
-					Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
+					Error(errors.Wrap(errRecovery, "write-ahead-log ended abruptly, some elements may not have been recovered"))
 			}
 
 			if mt.strategy == StrategyInverted {

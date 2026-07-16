@@ -137,6 +137,18 @@ type Memtable struct {
 	writesSinceLastSync bool
 
 	tombstones *sroar.Bitmap
+	// tombstonesSnapshot is an immutable copy of tombstones published for lock-free
+	// reads. SetTombstone clears it to nil to mark it stale; ReadOnlyTombstones
+	// rebuilds it lazily when it loads nil. It is never mutated in place, so readers
+	// share it without cloning or locking, and the read fast path is a single atomic
+	// load that touches neither the memtable RWMutex nor a copy.
+	tombstonesSnapshot atomic.Pointer[sroar.Bitmap]
+	// invMu guards the inverted-strategy delete/prop-length state (tombstones,
+	// propLengthExists, currPropLength*) independently of the tree RWMutex, so
+	// SetTombstone does not take the exclusive lock that getMap readers wait on.
+	// GetPropLengths only reads, so it takes the read lock.
+	// Lock order when both are held: the tree lock first, then invMu (appendMapSorted).
+	invMu sync.RWMutex
 
 	enableChecksumValidation bool
 
@@ -585,10 +597,14 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	if m.strategy == StrategyInverted && !pair.Tombstone {
 		docID := binary.LittleEndian.Uint64(pair.Key)
 		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
+		// propLengthExists + currPropLength* are shared with SetTombstone, which no
+		// longer holds the tree lock; guard them with invMu (nested inside m.Lock).
+		m.invMu.Lock()
 		if m.propLengthExists.Set(docID) {
 			m.currPropLengthSum += uint64(fieldLength)
 			m.currPropLengthCount++
 		}
+		m.invMu.Unlock()
 	}
 
 	return nil
@@ -658,19 +674,35 @@ func (m *Memtable) writeWAL() error {
 	return m.commitlog.flushBuffers()
 }
 
+// ReadOnlyTombstones returns a shared, immutable snapshot of the memtable's tombstones.
+// Returned bitmap must not be mutated: concurrent readers hold the same instance.
 func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	if err := m.checkStrategy(StrategyInverted); err != nil {
 		return nil, fmt.Errorf("Memtable::ReadOnlyTombstones(): %w", err)
 	}
+	// checkStrategy passing implies the inverted constructor ran, which sets
+	// m.tombstones to a non-nil bitmap, so the Clone below never nil-derefs.
 
-	m.RLock()
-	defer m.RUnlock()
-
-	if m.tombstones != nil {
-		return m.tombstones.Clone(), nil
+	// Lock-free fast path: an already-published snapshot is served without touching
+	// the memtable RWMutex. SetTombstone clears the snapshot to nil only after mutating
+	// the bitmap, so a non-nil snapshot always reflects every tombstone set before it
+	// was published. A tombstone set concurrently with this load may not yet be visible,
+	// which is within consistent-view semantics — the query fixes its tombstone view at
+	// setup, and a delete racing the query may order either way.
+	if snap := m.tombstonesSnapshot.Load(); snap != nil {
+		return snap, nil
 	}
 
-	return nil, lsmkv.NotFound
+	// Rebuild under invMu (the same lock SetTombstone takes), re-checking after locking
+	// in case another reader already republished the snapshot.
+	m.invMu.Lock()
+	defer m.invMu.Unlock()
+	if snap := m.tombstonesSnapshot.Load(); snap != nil {
+		return snap, nil
+	}
+	snap := m.tombstones.Clone()
+	m.tombstonesSnapshot.Store(snap)
+	return snap, nil
 }
 
 func (m *Memtable) SetTombstone(docId uint64) error {
@@ -678,16 +710,20 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 		return fmt.Errorf("Memtable::SetTombstone(): %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	m.invMu.Lock()
+	defer m.invMu.Unlock()
 
 	m.tombstones.Set(docId)
+	m.tombstonesSnapshot.Store(nil)
 	m.propLengthExists.Remove(docId)
 
 	return nil
 }
 
 func (m *Memtable) GetPropLengths() (uint64, uint64) {
+	m.invMu.RLock()
+	defer m.invMu.RUnlock()
+
 	return m.currPropLengthSum, m.currPropLengthCount
 }
 
