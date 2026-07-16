@@ -59,12 +59,50 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
 	if b.keepSegmentsInMemory {
+		// (c) GH#12199: if the in-memory rep is unpopulated but disk segments
+		// exist, the rep is out of sync with disk (a rep-population gap such as a
+		// mass-delete, or a future segment-splice bug). Serve from the
+		// always-correct disk reader and WARN once per bucket-open. Check rep
+		// emptiness FIRST and short-circuit, so the populated hot path pays only
+		// one IsEmpty() under the rep's own RLock and never touches
+		// maintenanceLock. The two locks are never held simultaneously.
+		if b.disk.roaringSetRangeSegmentInMemory.IsUnpopulated() {
+			if n := b.disk.roaringSetRangeDiskSegmentCount(); n > 0 {
+				b.rangeableFallbackWarnOnce.Do(func() {
+					b.logger.WithField("bucket", b.dir).Warnf(
+						"rangeable in-memory representation is empty but %d disk segment(s) "+
+							"exist; falling back to the disk range reader "+
+							"(INV-RANGEABLE-REP-EQUALS-DISK). Results remain correct. This may "+
+							"indicate a mass deletion of the indexed property or a rep-population "+
+							"gap; restart the node or reload the shard to rebuild the in-memory "+
+							"representation (GH#12199).", n)
+				})
+				// The TOCTOU between this emptiness check and the reader build
+				// below is benign: the rep only empties via mass-delete and the
+				// disk path is a correct superset either way.
+				return b.readerRoaringSetRangeFromSegments()
+			}
+		}
 		return b.readerRoaringSetRangeFromSegmentInMemo()
 	}
 	return b.readerRoaringSetRangeFromSegments()
 }
 
 func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
+	// GH#12199: a bucket marked deferred was opened with keepSegmentsInMemory
+	// forced off while the global knob is on (the reindex ingest path). Emit a
+	// durable, query-time signal once per bucket-open at the first range read so
+	// an operator investigating slow range filters can find the reason and the
+	// remedy. The marker gates only this log line; it never selects a read path.
+	if b.rangeableInMemoryDeferred {
+		b.rangeableDeferredLogOnce.Do(func() {
+			b.logger.WithField("bucket", b.dir).Info(
+				"rangeable property serving from disk; in-memory knob deferred until next " +
+					"reload (GH#12199). Restart the node or reload the shard to rebuild the " +
+					"in-memory representation and resume in-memory acceleration.")
+		})
+	}
+
 	view := b.GetConsistentView()
 
 	readers := make([]roaringsetrange.InnerReader, len(view.Disk))
