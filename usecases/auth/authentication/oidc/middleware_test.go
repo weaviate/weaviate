@@ -253,10 +253,11 @@ func tokenWithNamespace(t *testing.T, subject, issuer, aud, namespace string, gl
 	return token
 }
 
-// Test_Middleware_ColonUsername pins that a ':' in the OIDC username is accepted
-// on a namespace-enabled cluster: a namespaced token's username is qualified
-// with its namespace, and a global token keeps its raw colon-bearing name with
-// the operator flag set.
+// Test_Middleware_ColonUsername pins how a ':' in the OIDC username is handled on
+// a namespace-enabled cluster: a namespaced token's username is qualified with
+// its namespace and accepted, while a global token whose name contains ':' is
+// rejected (a global name must be colon-free, so its empty-namespace slot subject
+// stays unambiguous).
 func Test_Middleware_ColonUsername(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -264,6 +265,7 @@ func Test_Middleware_ColonUsername(t *testing.T) {
 		namespace    string // namespace claim; also the expected principal.Namespace
 		global       bool   // global claim; also the expected principal.IsGlobalOperator
 		wantUsername string
+		wantErr      bool
 	}{
 		{
 			name:         "namespaced colon username is qualified",
@@ -272,10 +274,16 @@ func Test_Middleware_ColonUsername(t *testing.T) {
 			wantUsername: "customer1:foo:bar",
 		},
 		{
-			name:         "global colon username stays raw, operator flag set",
-			subject:      "customer1:carol",
+			name:    "global colon username is rejected",
+			subject: "customer1:carol",
+			global:  true,
+			wantErr: true,
+		},
+		{
+			name:         "global colon-free username accepted",
+			subject:      "carol",
 			global:       true,
-			wantUsername: "customer1:carol",
+			wantUsername: "carol",
 		},
 	}
 
@@ -304,6 +312,11 @@ func Test_Middleware_ColonUsername(t *testing.T) {
 			require.NoError(t, err)
 
 			principal, err := client.ValidateAndExtract(tok, []string{})
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "must not contain")
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantUsername, principal.Username)
 			assert.Equal(t, tt.namespace, principal.Namespace)

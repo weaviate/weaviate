@@ -156,7 +156,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 // local config
 func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
 	if namespacesEnabled {
-		if err := rejectNamespacedRootSubjects(conf); err != nil {
+		if err := rejectNamespaceSeparatorInBootstrapUsers(conf); err != nil {
 			return err
 		}
 	}
@@ -297,14 +297,26 @@ var (
 	groupsPrefix     = authorization.GroupsDomain + "/"
 )
 
-// rejectNamespacedRootSubjects fails startup when a namespace-qualified subject
-// is configured for the root role: a namespaced principal must never inherit
-// cluster-wide root. read-only has no static user list (groups only, deferred
-// to namespaced groups), so root users are the only static subject to guard.
-func rejectNamespacedRootSubjects(conf rbacconf.Config) error {
-	for _, u := range conf.RootUsers {
-		if strings.Contains(u, schema.NamespaceSeparator) {
-			return fmt.Errorf("RBAC root user %q is namespace-qualified; a namespaced principal cannot inherit the root role", u)
+// rejectNamespaceSeparatorInBootstrapUsers fails startup when a static
+// bootstrap user (root/admin/viewer) name contains the namespace separator on
+// a namespace-enabled cluster. These names are always registered as global
+// subjects: a separator in an OIDC name re-slots into a subject that can never
+// authenticate and that the startup invariants reject, and a namespaced
+// principal must never inherit a cluster-wide role. Read-only has no static
+// user list (groups only), so it needs no guard.
+func rejectNamespaceSeparatorInBootstrapUsers(conf rbacconf.Config) error {
+	for _, list := range []struct {
+		role  string
+		users []string
+	}{
+		{authorization.Root, conf.RootUsers},
+		{authorization.Admin, conf.AdminUsers},
+		{authorization.Viewer, conf.ViewerUsers},
+	} {
+		for _, u := range list.users {
+			if strings.Contains(u, schema.NamespaceSeparator) {
+				return fmt.Errorf("RBAC %s user %q contains the namespace separator %q; static bootstrap users are global and their names must not contain it", list.role, u, schema.NamespaceSeparator)
+			}
 		}
 	}
 	return nil

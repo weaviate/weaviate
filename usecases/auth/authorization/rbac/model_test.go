@@ -973,22 +973,14 @@ func TestApplyPredefinedRoles_OIDCEnvUsersSlotted(t *testing.T) {
 	}{
 		{"NS-disabled bare: unslotted", false, "alice", conv.UserNameWithTypeFromId("alice", authentication.AuthTypeOIDC)},
 		{"NS-enabled bare: slotted", true, "alice", "oidc::alice"},
-		// A colon-bearing global OIDC admin/viewer keeps its full name after the
-		// empty-namespace marker (oidc::customer1:carol), so it can't collide with
-		// a namespaced "carol"@customer1 (oidc:customer1:carol). Such a name can
-		// only be granted via AdminUsers/ViewerUsers — RootUsers rejects ':'.
-		{"NS-enabled colon-name: slotted with full name", true, "customer1:carol", "oidc::customer1:carol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := freshPolicyDir(t)
-			isRoot := !strings.Contains(tc.user, ":")
 			conf := rbacconf.Config{
 				Enabled:     true,
+				RootUsers:   []string{tc.user},
 				AdminUsers:  []string{tc.user},
 				ViewerUsers: []string{tc.user},
-			}
-			if isRoot {
-				conf.RootUsers = []string{tc.user}
 			}
 			authNconf := config.Authentication{OIDC: config.OIDC{Enabled: true}}
 
@@ -997,11 +989,9 @@ func TestApplyPredefinedRoles_OIDCEnvUsersSlotted(t *testing.T) {
 
 			roles, err := enforcer.GetRolesForUser(tc.wantSubject)
 			require.NoError(t, err)
+			require.Contains(t, roles, conv.PrefixRoleName(authorization.Root))
 			require.Contains(t, roles, conv.PrefixRoleName(authorization.Admin))
 			require.Contains(t, roles, conv.PrefixRoleName(authorization.Viewer))
-			if isRoot {
-				require.Contains(t, roles, conv.PrefixRoleName(authorization.Root))
-			}
 		})
 	}
 }
@@ -1102,26 +1092,31 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testin
 		"env-var read-only group must still have read-only role after restart")
 }
 
-// TestApplyPredefinedRoles_RejectsNamespacedRootUser pins the static-bootstrap
-// reject: a namespace-qualified root user fails startup on NS clusters so a
-// namespaced principal can't inherit root. NS-disabled is unaffected.
-func TestApplyPredefinedRoles_RejectsNamespacedRootUser(t *testing.T) {
+// TestApplyPredefinedRoles_RejectsNamespaceSeparatorInBootstrapUsers pins the
+// static-bootstrap reject: a root/admin/viewer user whose name contains the
+// namespace separator fails startup on NS clusters. Root guards against a
+// namespaced principal inheriting cluster-wide root; admin/viewer guard against
+// a colon-bearing global OIDC name that would slot into an un-authenticatable
+// subject the startup invariants reject. NS-disabled is unaffected.
+func TestApplyPredefinedRoles_RejectsNamespaceSeparatorInBootstrapUsers(t *testing.T) {
 	tests := []struct {
 		name              string
-		rootUsers         []string
+		conf              rbacconf.Config
 		namespacesEnabled bool
 		wantErr           bool
 	}{
-		{"namespaced root user on NS cluster rejected", []string{"customer1:alice"}, true, true},
-		{"bare root user on NS cluster allowed", []string{"alice"}, true, false},
-		{"mixed list with one namespaced on NS cluster rejected", []string{"alice", "customer1:bob"}, true, true},
-		{"namespaced root user on NS-disabled allowed", []string{"customer1:alice"}, false, false},
+		{"namespaced root user on NS cluster rejected", rbacconf.Config{Enabled: true, RootUsers: []string{"customer1:alice"}}, true, true},
+		{"colon admin user on NS cluster rejected", rbacconf.Config{Enabled: true, AdminUsers: []string{"customer1:carol"}}, true, true},
+		{"leading-colon admin user on NS cluster rejected", rbacconf.Config{Enabled: true, AdminUsers: []string{":carol"}}, true, true},
+		{"colon viewer user on NS cluster rejected", rbacconf.Config{Enabled: true, ViewerUsers: []string{"customer1:carol"}}, true, true},
+		{"bare users on NS cluster allowed", rbacconf.Config{Enabled: true, RootUsers: []string{"alice"}, AdminUsers: []string{"bob"}, ViewerUsers: []string{"carol"}}, true, false},
+		{"mixed list with one namespaced on NS cluster rejected", rbacconf.Config{Enabled: true, RootUsers: []string{"alice", "customer1:bob"}}, true, true},
+		{"colon admin user on NS-disabled allowed", rbacconf.Config{Enabled: true, AdminUsers: []string{"customer1:carol"}}, false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := freshPolicyDir(t)
-			conf := rbacconf.Config{Enabled: true, RootUsers: tt.rootUsers}
-			_, err := Init(conf, dir, config.Authentication{}, tt.namespacesEnabled)
+			_, err := Init(tt.conf, dir, config.Authentication{}, tt.namespacesEnabled)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {

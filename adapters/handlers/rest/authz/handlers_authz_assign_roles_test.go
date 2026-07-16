@@ -801,6 +801,9 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 		userType          string
 		staticAPIKeyUsers []string
 		want              wantStatus
+		// wantErrSubstr, when set, overrides the default bad-request message
+		// assertion ("namespace-prefixed").
+		wantErrSubstr string
 	}{
 		{
 			name:              "assign, NS-enabled, oidc, bare ID — 200 (global OIDC user)",
@@ -809,6 +812,35 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 			userID:            "alice",
 			userType:          string(models.UserTypeInputOidc),
 			want:              wantOK,
+		},
+		{
+			// A leading ':' re-slots into the global empty-namespace slot and
+			// would persist an oidc:::carol subject that bricks the next boot.
+			name:              "assign, NS-enabled, oidc, leading-colon ID — 400",
+			operation:         opAssign,
+			namespacesEnabled: true,
+			userID:            ":carol",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantBadRequest,
+			wantErrSubstr:     "oidc user id must not begin with",
+		},
+		{
+			name:              "revoke, NS-enabled, oidc, leading-colon ID — 400",
+			operation:         opRevoke,
+			namespacesEnabled: true,
+			userID:            ":carol",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantBadRequest,
+			wantErrSubstr:     "oidc user id must not begin with",
+		},
+		{
+			name:              "getRolesForUser, NS-enabled, oidc, leading-colon ID — 400",
+			operation:         opGetRolesUser,
+			namespacesEnabled: true,
+			userID:            ":carol",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantBadRequest,
+			wantErrSubstr:     "oidc user id must not begin with",
 		},
 		{
 			name:              "assign, NS-enabled, oidc, prefixed ID — 200",
@@ -910,6 +942,11 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 				logger:            logger,
 			}
 
+			wantErrSubstr := tt.wantErrSubstr
+			if wantErrSubstr == "" {
+				wantErrSubstr = "namespace-prefixed"
+			}
+
 			isStatic := slices.Contains(tt.staticAPIKeyUsers, tt.userID)
 
 			switch tt.operation {
@@ -938,7 +975,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 				case wantBadRequest:
 					br, ok := res.(*authz.AssignRoleToUserBadRequest)
 					require.True(t, ok, "expected BadRequest, got %T", res)
-					assert.Contains(t, br.Payload.Error[0].Message, "namespace-prefixed")
+					assert.Contains(t, br.Payload.Error[0].Message, wantErrSubstr)
 				case wantOK:
 					_, ok := res.(*authz.AssignRoleToUserOK)
 					assert.True(t, ok, "expected OK, got %T", res)
@@ -965,7 +1002,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 				case wantBadRequest:
 					br, ok := res.(*authz.RevokeRoleFromUserBadRequest)
 					require.True(t, ok, "expected BadRequest, got %T", res)
-					assert.Contains(t, br.Payload.Error[0].Message, "namespace-prefixed")
+					assert.Contains(t, br.Payload.Error[0].Message, wantErrSubstr)
 				case wantOK:
 					_, ok := res.(*authz.RevokeRoleFromUserOK)
 					assert.True(t, ok, "expected OK, got %T", res)
@@ -986,7 +1023,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 				case wantBadRequest:
 					br, ok := res.(*authz.GetRolesForUserBadRequest)
 					require.True(t, ok, "expected BadRequest, got %T", res)
-					assert.Contains(t, br.Payload.Error[0].Message, "namespace-prefixed")
+					assert.Contains(t, br.Payload.Error[0].Message, wantErrSubstr)
 				case wantOK:
 					_, ok := res.(*authz.GetRolesForUserOK)
 					require.True(t, ok, "expected OK, got %T", res)

@@ -1636,6 +1636,12 @@ func (h *authZHandlers) validateUserIDForNamespaces(userID string, userType mode
 		return nil
 	}
 	if userType == models.UserTypeInputOidc {
+		// A leading ':' re-slots into the global empty-namespace slot and
+		// produces a subject that can never authenticate and trips the startup
+		// invariant. Reject exactly what the boot check will later refuse.
+		if strings.HasPrefix(userID, conv.PREFIX_SEPARATOR) {
+			return fmt.Errorf("oidc user id must not begin with %q", conv.PREFIX_SEPARATOR)
+		}
 		return nil
 	}
 	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID) {

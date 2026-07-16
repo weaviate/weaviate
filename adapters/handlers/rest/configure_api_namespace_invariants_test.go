@@ -266,11 +266,27 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			groupingSubjects:             []string{"oidc::carol"},
 		},
 		{
-			name:                         "enabled, slotted global colon-name OIDC subject is fine",
+			// A global OIDC subject (empty-namespace slot) whose name contains ':'
+			// is ambiguous with a namespaced subject and cannot authenticate, so it
+			// is rejected — global OIDC names must be colon-free.
+			name:                         "enabled, slotted global colon-name OIDC subject is rejected",
 			enabled:                      true,
 			lsmSkipWriteClassNameEnabled: true,
 			maxReplicationFac:            1,
 			groupingSubjects:             []string{"oidc::customer1:carol"},
+			wantErr:                      true,
+			errSubstr:                    "name contains ':'",
+		},
+		{
+			// A colon-name global among otherwise-valid subjects is still caught
+			// and named; the plain global and namespaced subjects are fine.
+			name:                         "enabled, colon-name global among valid subjects is named",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			groupingSubjects:             []string{"oidc::carol", "oidc:customer1:dave", "oidc::team:carol"},
+			wantErr:                      true,
+			errSubstr:                    `(e.g. "oidc::team:carol")`,
 		},
 		{
 			name:                         "enabled, namespaced OIDC subject is fine",

@@ -29,6 +29,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
@@ -176,6 +177,14 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	namespace, isGlobal, err := c.classifyPrincipal(claims)
 	if err != nil {
 		return nil, err
+	}
+
+	// A global OIDC principal's name must not contain the namespace separator:
+	// its RBAC subject uses the empty-namespace slot ":<name>", which a colon in
+	// the name would make ambiguous with a namespaced subject. Namespaced
+	// principals may carry ':' in their name.
+	if c.namespacesEnabled && isGlobal && strings.Contains(username, schema.NamespaceSeparator) {
+		return nil, errors.New(401, "unauthorized: a global OIDC principal's username must not contain '%s' on a namespace-enabled cluster", schema.NamespaceSeparator)
 	}
 
 	qualifiedUsername := namespacing.QualifiedName(namespace, username)

@@ -54,10 +54,6 @@ func TestNamespacesOIDC(t *testing.T) {
 		WithDbUsers().
 		WithRBAC().
 		WithRbacRoots(adminUser, "oidc-global").
-		// A colon-named global OIDC user is grantable only via env (not the
-		// assign API): these seed the global side of the collision pairs as
-		// viewers.
-		WithWeaviateEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS", "customer1:carol,colonns:dave").
 		WithMockOIDC().
 		WithMockOIDCNamespacedUsers().
 		WithNamespaces().
@@ -150,6 +146,26 @@ func TestNamespacesOIDC(t *testing.T) {
 		var bad *clauthz.AssignRoleToUserBadRequest
 		require.True(t, errors.As(err, &bad), "expected BadRequest, got %T: %v", err, err)
 		assert.Contains(t, bad.Payload.Error[0].Message, "namespace-prefixed")
+	})
+
+	t.Run("leading-colon OIDC user ID is rejected", func(t *testing.T) {
+		// A leading ':' re-slots into the global empty-namespace slot
+		// (oidc:::carol). That subject can never authenticate and trips the
+		// startup invariant, so a single assign would brick the next boot; the
+		// assign API must reject it up front.
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			clauthz.NewAssignRoleToUserParams().
+				WithID(":carol").
+				WithBody(clauthz.AssignRoleToUserBody{
+					Roles:    []string{authorization.Admin},
+					UserType: models.UserTypeInputOidc,
+				}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var bad *clauthz.AssignRoleToUserBadRequest
+		require.True(t, errors.As(err, &bad), "expected BadRequest, got %T: %v", err, err)
+		assert.Contains(t, bad.Payload.Error[0].Message, "oidc user id must not begin with")
 	})
 
 	t.Run("narrowed admin: namespaced OIDC user has the right shape", func(t *testing.T) {
@@ -438,68 +454,20 @@ func TestNamespacesOIDC(t *testing.T) {
 			"API-granted admin must be visible to the bare global user at its own enforce subject")
 	})
 
-	// No-bleed for the collision pair: a global operator literally named
-	// "customer1:carol" (viewer via env → oidc::customer1:carol) and a namespaced
-	// "carol"@customer1 (admin via API → oidc:customer1:carol) resolve to
-	// distinct casbin subjects, so neither inherits the other's role.
-	t.Run("collision pair global customer1:carol vs namespaced carol@customer1 does not bleed", func(t *testing.T) {
-		const namespacedID = "customer1:carol"
-		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, namespacedID)
-		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Admin, namespacedID)
-
-		globalToken, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "customer1:carol")
-		namespacedToken, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "carol")
-
-		// The global user holds only viewer (env); the namespaced user holds only
-		// admin (API). Neither role crosses to the other subject.
-		globalRoles := helper.GetInfoForOwnUser(t, globalToken).Roles
-		namespacedRoles := helper.GetInfoForOwnUser(t, namespacedToken).Roles
-
-		assert.True(t, hasRoleNamed(globalRoles, authorization.Viewer), "global user must keep its env viewer; got %v", roleNames(globalRoles))
-		assert.False(t, hasRoleNamed(globalRoles, authorization.Admin), "admin on the namespaced user must not bleed to the global user; got %v", roleNames(globalRoles))
-		assert.True(t, hasRoleNamed(namespacedRoles, authorization.Admin), "namespaced user must hold its assigned admin; got %v", roleNames(namespacedRoles))
-		assert.False(t, hasRoleNamed(namespacedRoles, authorization.Viewer), "env viewer on the global user must not bleed to the namespaced user; got %v", roleNames(namespacedRoles))
-
-		// Admin-read (getRolesForUser) by a global operator resolves by TARGET
-		// namespace: reading "customer1:carol" returns the namespaced admin
-		// (oidc:customer1:carol), never the global user's env viewer
-		// (oidc::customer1:carol) — the read path slots by target, not caller.
-		adminRead := roleNames(helper.GetRolesForUserOIDC(t, namespacedID, adminKey))
-		assert.Contains(t, adminRead, authorization.Admin, "admin-read of the namespaced target must return its admin; got %v", adminRead)
-		assert.NotContains(t, adminRead, authorization.Viewer, "admin-read must resolve by target, not surface the global user's viewer; got %v", adminRead)
-
-		// The global slotted OIDC user is listed in the viewer role's membership
-		// de-slotted — "customer1:carol", not the stored ":customer1:carol".
-		var globalListed bool
-		for _, u := range helper.GetUserForRolesBoth(t, authorization.Viewer, adminKey) {
-			assert.False(t, strings.HasPrefix(u.UserID, ":"), "no member id may carry a leading namespace slot: %q", u.UserID)
-			if u.UserType != nil && *u.UserType == models.UserTypeOutputOidc && u.UserID == "customer1:carol" {
-				globalListed = true
-			}
-		}
-		assert.True(t, globalListed, "global slotted OIDC user must be listed de-slotted as customer1:carol in viewer membership")
-
-		// "customer1:carol" is also the global user's own name, but it resolves to
-		// the namespaced subject — a different user sharing the id string. The read
-		// must go through the visibility gate (which hides the namespaced admin the
-		// global viewer isn't allowed to see), not be short-circuited as a self-read
-		// that returns everything.
-		noFull := false
-		selfRead, err := helper.Client(t).Authz.GetRolesForUser(
-			clauthz.NewGetRolesForUserParams().
-				WithID("customer1:carol").
-				WithUserType(string(models.UserTypeInputOidc)).
-				WithIncludeFullRoles(&noFull),
-			helper.CreateAuth(globalToken))
-		require.NoError(t, err)
-		assert.NotContains(t, roleNames(selfRead.Payload), authorization.Admin,
-			"global user's self-read must not disclose the namespaced twin's admin role")
+	// A global OIDC token whose name contains ':' is rejected at authentication;
+	// namespaced tokens may carry ':' (see the "colon in its short name" test).
+	t.Run("global OIDC token with a colon in its name is rejected at auth", func(t *testing.T) {
+		token := mustGlobalToken(t, helperURI, "customer1:carol")
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(token))
+		require.Error(t, err)
+		var unauth *users.GetOwnInfoUnauthorized
+		require.True(t, errors.As(err, &unauth), "expected GetOwnInfoUnauthorized, got %T: %v", err, err)
 	})
 
-	// Namespace-delete cascade honours the slot: a global operator named
-	// "colonns:dave" (viewer via env → oidc::colonns:dave) survives deletion of
-	// namespace "colonns", while the namespaced colon-in-name user
-	// "baz:qux"@colonns (admin via API → oidc:colonns:baz:qux) is cleaned up.
+	// Namespace-delete cascade honours the slot: a global operator "dave"
+	// (viewer via API → oidc::dave) survives deletion of namespace "colonns",
+	// while the namespaced colon-in-name user "baz:qux"@colonns (admin via API →
+	// oidc:colonns:baz:qux) is cleaned up.
 	t.Run("namespace delete keeps the slotted global user and cleans the namespaced one", func(t *testing.T) {
 		const ns = "colonns"
 		const namespacedID = ns + ":baz:qux"
@@ -512,6 +480,8 @@ func TestNamespacesOIDC(t *testing.T) {
 		}()
 
 		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, namespacedID)
+		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Viewer, "dave")
+		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Viewer, "dave")
 
 		// Pre-delete: the namespaced colon-in-name user holds admin and is listed
 		// in the role membership under its qualified id (no leading slot).
@@ -527,16 +497,16 @@ func TestNamespacesOIDC(t *testing.T) {
 		}
 		assert.True(t, listed, "namespaced colon-name user %q must be listed pre-delete", namespacedID)
 
-		// The global operator holds viewer (env) before the delete.
-		require.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, mustGlobalToken(t, helperURI, "colonns:dave")).Roles, authorization.Viewer),
-			"global operator must hold its env viewer role pre-delete")
+		// The global operator holds viewer before the delete.
+		require.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, mustGlobalToken(t, helperURI, "dave")).Roles, authorization.Viewer),
+			"global operator must hold its viewer role pre-delete")
 
 		helper.DeleteNamespace(t, ns, adminKey)
 		nsDeleted = true
 
 		// The global operator STILL holds viewer — its slotted subject
-		// (oidc::colonns:dave) is not part of the deleted namespace's local RBAC.
-		require.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, mustGlobalToken(t, helperURI, "colonns:dave")).Roles, authorization.Viewer),
+		// (oidc::dave) is not part of the deleted namespace's local RBAC.
+		require.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, mustGlobalToken(t, helperURI, "dave")).Roles, authorization.Viewer),
 			"slotted global operator must retain its role after the namespace is deleted")
 
 		// The namespaced user's admin binding is revoked: it no longer appears in

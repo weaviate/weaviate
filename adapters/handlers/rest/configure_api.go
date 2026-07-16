@@ -1269,6 +1269,20 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		}); n > 0 {
 			return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d OIDC role assignment(s) with an unslotted subject (e.g. %q); every OIDC subject must be namespaced or carry the global empty-namespace slot", n, ex)
 		}
+		// Reject global OIDC subjects whose name contains ':'. A global subject
+		// carries the empty-namespace slot (":<name>"); a colon in <name> is
+		// ambiguous with a namespaced subject and can never authenticate, so such
+		// a grant would dangle. Global OIDC names must be colon-free.
+		if n, ex := countQualified(groupingSubjects, func(s string) bool {
+			user, prefix, err := conv.GetUserAndPrefix(s)
+			if err != nil || prefix != string(authentication.AuthTypeOIDC) {
+				return false
+			}
+			name := conv.StripGlobalOIDCSlot(user)
+			return name != user && conv.ContainsNamespaceSeparator(name)
+		}); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d global OIDC role assignment(s) whose name contains ':' (e.g. %q); a global OIDC principal's name must not contain the namespace separator", n, ex)
+		}
 	}
 
 	// Role names, policy resources (what a role's permissions grant access to)
