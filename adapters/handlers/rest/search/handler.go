@@ -68,7 +68,7 @@ type HandlerConfig struct {
 	NamespacesEnabled bool
 	DefaultLimit      int64
 	MaximumResults    int64
-	Disabled          *runtime.DynamicValue[bool]
+	Enabled           *runtime.DynamicValue[bool]
 	Logger            logrus.FieldLogger
 }
 
@@ -81,7 +81,7 @@ type Handler struct {
 	namespacesEnabled bool
 	defaultLimit      int64
 	maximumResults    int64
-	disabled          *runtime.DynamicValue[bool]
+	enabled           *runtime.DynamicValue[bool]
 	logger            logrus.FieldLogger
 }
 
@@ -93,7 +93,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		namespacesEnabled: cfg.NamespacesEnabled,
 		defaultLimit:      cfg.DefaultLimit,
 		maximumResults:    cfg.MaximumResults,
-		disabled:          cfg.Disabled,
+		enabled:           cfg.Enabled,
 		logger:            cfg.Logger,
 	}
 }
@@ -156,16 +156,18 @@ func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		var forbidden autherrs.Forbidden
 		if errors.As(err, &forbidden) {
-			// 403 before the disabled/existence checks, with the alias target hidden
+			// 403 before the not-enabled/existence checks, with the alias target hidden
 			return nil, strip(statusFromError(h.hideAliasTarget(ctx, principal, collection, tenant, aliasUsed != "", err)))
 		}
-		// authorized but not found: fall through so disabled still wins over 404
+		// authorized but not found: fall through so the not-enabled check still wins over 404
 	}
 
-	// after authz, so a denied caller can't learn the endpoint is disabled
-	// (parity with DISABLE_GRAPHQL)
-	if h.disabled.Get() {
-		return nil, newAPIError(http.StatusUnprocessableEntity, "rest search api is disabled")
+	// after authz, so a denied caller can't learn the endpoint is off
+	// (parity with DISABLE_GRAPHQL); the feature is experimental and gated
+	// off by default
+	if !h.enabled.Get() {
+		return nil, newAPIError(http.StatusUnprocessableEntity,
+			"rest search api is experimental and not enabled; set EXPERIMENTAL_REST_SEARCH_ENABLED=true to enable")
 	}
 
 	if err != nil {

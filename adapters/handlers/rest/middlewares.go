@@ -265,7 +265,7 @@ func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// search requests are POSTs (an HTTP write method) but are semantically reads
 		isSearch := restsearch.IsSearchRoute(r.URL.Path)
-		searchReadAllowed := isSearch && !state.ServerConfig.Config.DisableRESTSearch.Get()
+		searchReadAllowed := isSearch && state.ServerConfig.Config.ExperimentalRESTSearchEnabled.Get()
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
 			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) && !searchReadAllowed {

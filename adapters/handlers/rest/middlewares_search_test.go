@@ -25,12 +25,12 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-func searchTestAppState(disabled bool, mode string) *state.State {
+func searchTestAppState(enabled bool, mode string) *state.State {
 	return &state.State{
 		ServerConfig: &config.WeaviateConfig{
 			Config: config.Config{
-				DisableRESTSearch: configRuntime.NewDynamicValue(disabled),
-				OperationalMode:   configRuntime.NewDynamicValue(mode),
+				ExperimentalRESTSearchEnabled: configRuntime.NewDynamicValue(enabled),
+				OperationalMode:               configRuntime.NewDynamicValue(mode),
 			},
 		},
 	}
@@ -64,24 +64,24 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 	}
 
 	t.Run("READ_ONLY lets search through", func(t *testing.T) {
-		next, _ := run(t, searchTestAppState(false, config.READ_ONLY), http.MethodPost, "/v1/search/Movie/near-text")
+		next, _ := run(t, searchTestAppState(true, config.READ_ONLY), http.MethodPost, "/v1/search/Movie/near-text")
 		assert.True(t, next.called, "POST search must pass in READ_ONLY")
 	})
 
 	t.Run("READ_ONLY still blocks real writes", func(t *testing.T) {
-		next, rec := run(t, searchTestAppState(false, config.READ_ONLY), http.MethodPost, "/v1/objects")
+		next, rec := run(t, searchTestAppState(true, config.READ_ONLY), http.MethodPost, "/v1/objects")
 		assert.False(t, next.called)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	})
 
 	t.Run("READ_ONLY with the feature disabled has no carve-out", func(t *testing.T) {
-		next, rec := run(t, searchTestAppState(true, config.READ_ONLY), http.MethodPost, "/v1/search/Movie/near-text")
+		next, rec := run(t, searchTestAppState(false, config.READ_ONLY), http.MethodPost, "/v1/search/Movie/near-text")
 		assert.False(t, next.called)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	})
 
 	t.Run("SCALE_OUT lets search through", func(t *testing.T) {
-		next, _ := run(t, searchTestAppState(false, config.SCALE_OUT), http.MethodPost, "/v1/search/Movie/near-text")
+		next, _ := run(t, searchTestAppState(true, config.SCALE_OUT), http.MethodPost, "/v1/search/Movie/near-text")
 		assert.True(t, next.called)
 	})
 
@@ -89,21 +89,22 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 		// POST is an HTTP "write" so the method-based check alone would
 		// let a search — semantically a read — through write-only mode;
 		// the explicit isSearch block closes that
-		next, rec := run(t, searchTestAppState(false, config.WRITE_ONLY), http.MethodPost, "/v1/search/Movie/near-text")
+		next, rec := run(t, searchTestAppState(true, config.WRITE_ONLY), http.MethodPost, "/v1/search/Movie/near-text")
 		assert.False(t, next.called, "POST search must be blocked in WRITE_ONLY")
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	})
 
 	t.Run("WRITE_ONLY blocks search even when the feature is disabled", func(t *testing.T) {
-		// a search is a read → 503 regardless of DISABLE_REST_SEARCH; the
-		// op-mode block takes precedence over the handler's disabled 422
-		next, rec := run(t, searchTestAppState(true, config.WRITE_ONLY), http.MethodPost, "/v1/search/Movie/near-text")
+		// a search is a read → 503 regardless of whether the feature is
+		// enabled; the op-mode block takes precedence over the handler's
+		// not-enabled 422
+		next, rec := run(t, searchTestAppState(false, config.WRITE_ONLY), http.MethodPost, "/v1/search/Movie/near-text")
 		assert.False(t, next.called, "disabled search in WRITE_ONLY must still be 503")
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	})
 
 	t.Run("WRITE_ONLY keeps whitelisted reads", func(t *testing.T) {
-		next, _ := run(t, searchTestAppState(false, config.WRITE_ONLY), http.MethodGet, "/v1/meta")
+		next, _ := run(t, searchTestAppState(true, config.WRITE_ONLY), http.MethodGet, "/v1/meta")
 		assert.True(t, next.called)
 	})
 

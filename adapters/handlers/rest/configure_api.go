@@ -2685,7 +2685,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
 		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
-		registered.DisableRESTSearch = appState.ServerConfig.Config.DisableRESTSearch
+		registered.ExperimentalRESTSearchEnabled = appState.ServerConfig.Config.ExperimentalRESTSearchEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

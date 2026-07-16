@@ -808,7 +808,7 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 	}
 }
 
-func TestEnvironmentDisableRESTSearch(t *testing.T) {
+func TestEnvironmentExperimentalRESTSearchEnabled(t *testing.T) {
 	factors := []struct {
 		name        string
 		value       []string
@@ -821,12 +821,13 @@ func TestEnvironmentDisableRESTSearch(t *testing.T) {
 		{"Valid: 0", []string{"0"}, false, false},
 		{"Valid: on", []string{"on"}, true, false},
 		{"Valid: off", []string{"off"}, false, false},
+		// experimental feature: unset means disabled (opt-in)
 		{"not given", []string{}, false, false},
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
 			if len(tt.value) == 1 {
-				t.Setenv("DISABLE_REST_SEARCH", tt.value[0])
+				t.Setenv("EXPERIMENTAL_REST_SEARCH_ENABLED", tt.value[0])
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -834,7 +835,7 @@ func TestEnvironmentDisableRESTSearch(t *testing.T) {
 			if tt.expectedErr {
 				require.NotNil(t, err)
 			} else {
-				require.Equal(t, tt.expected, conf.DisableRESTSearch.Get())
+				require.Equal(t, tt.expected, conf.ExperimentalRESTSearchEnabled.Get())
 			}
 		})
 	}

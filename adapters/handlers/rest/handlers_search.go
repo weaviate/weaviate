@@ -26,8 +26,9 @@ import (
 
 // setupSearchHandlers wires the REST search API (search.nearText operation,
 // POST /v1/search/{collection}/near-text). The handler logic lives in
-// adapters/handlers/rest/search. DISABLE_REST_SEARCH rejects requests with
-// 422.
+// adapters/handlers/rest/search. The endpoint is experimental and off by
+// default; EXPERIMENTAL_REST_SEARCH_ENABLED=true enables it. When disabled it
+// rejects requests with 422.
 func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := restsearch.NewHandler(restsearch.HandlerConfig{
 		Traverser:         appState.Traverser,
@@ -36,7 +37,7 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		NamespacesEnabled: appState.ServerConfig.Config.Namespaces.Enabled,
 		DefaultLimit:      appState.ServerConfig.Config.QueryDefaults.Limit,
 		MaximumResults:    appState.ServerConfig.Config.QueryMaximumResults,
-		Disabled:          appState.ServerConfig.Config.DisableRESTSearch,
+		Enabled:           appState.ServerConfig.Config.ExperimentalRESTSearchEnabled,
 		Logger:            appState.Logger,
 	})
 

@@ -8,8 +8,9 @@ follow the same `/v1/search/{collection}/…` shape, and aggregate the
 `/v1/aggregate/{collection}` shape, when built.
 
 > **Status:** draft, POST-only, part of the swagger surface
-> (`openapi-specs/schema.json`, operation `search.nearText`). Enabled by
-> default; opt out with `DISABLE_REST_SEARCH=true`.
+> (`openapi-specs/schema.json`, operation `search.nearText`). Experimental
+> and **off by default**; enable it per node with
+> `EXPERIMENTAL_REST_SEARCH_ENABLED=true`.
 
 ---
 
@@ -72,7 +73,7 @@ unnecessary (the real router disambiguates).
 | Missing body | 400 "query is required" | 422, swagger body `{"code":602,"message":"body in body is required"}` |
 | Body size cap | 10 MiB → 413 | none (parity with the other swagger endpoints, which are uncapped; the prior review's DoS concern is a **known residual** — a cap would have to be server-wide to be meaningful) |
 | `Cache-Control` | `private` on 200, `no-store` on errors | none (parity with the other endpoints; the RFC's caching rule was motivated by QUERY auto-retries, which are gone with QUERY) |
-| `DISABLE_REST_SEARCH` | route not mounted → 404 | operation stays registered → **422** `{"error":[{"message":"rest search api is disabled"}]}` — the exact `DISABLE_GRAPHQL` mechanism |
+| feature gating | route not mounted → 404 | operation stays registered → **422** when the feature is off (`{"error":[{"message":"rest search api is experimental and not enabled; …"}]}`) — the `DISABLE_GRAPHQL` mechanism, gated on `EXPERIMENTAL_REST_SEARCH_ENABLED` |
 
 Handler-level behavior (status table, parsing, reply shape, authz order,
 namespace stripping) is unchanged from the reviewed draft.
@@ -296,6 +297,20 @@ for the direct-call path. Strict-now-widen-later: accepting `id` again
 would be a safe widening, so rejecting it pre-ship is the reversible
 choice.
 
+### 2026-07-15 — experimental, off by default (Ivan)
+
+The REST Search API is experimental and gated **off by default**. It is
+enabled per node with `EXPERIMENTAL_REST_SEARCH_ENABLED=true`, following
+Weaviate's preview-flag convention (previews gate off, cf.
+`WEAVIATE_PREVIEW_NESTED_FILTERING`). When it is off, the operation stays
+registered (the `DISABLE_GRAPHQL` mechanism) and every request is rejected
+with 422 `rest search api is experimental and not enabled; set
+EXPERIMENTAL_REST_SEARCH_ENABLED=true to enable`. The gate is checked
+**after** authorization, so a denied caller cannot learn whether the
+feature is on. The config is a `runtime.DynamicValue[bool]`
+(`ExperimentalRESTSearchEnabled`, runtime-override key `rest_search_enabled`), so it can
+be toggled without a restart.
+
 ---
 
 ## 2. Implementation
@@ -360,7 +375,7 @@ choice.
 - `adapters/handlers/rest/middlewares.go` — operational-mode
   classification only (see below); no custom mount remains.
 - `usecases/config/config_handler.go` + `environment.go` —
-  `DisableRESTSearch` / `DISABLE_REST_SEARCH`.
+  `ExperimentalRESTSearchEnabled` / `EXPERIMENTAL_REST_SEARCH_ENABLED`.
 
 (An end-to-end smoke harness, `rest_search_neartext_smoke.sh`, is used for
 local development but is not committed to the repository — see section 4.)
@@ -408,7 +423,7 @@ enforced by the generated model at bind time; the rest are the handler's.
 | no/malformed credentials (anonymous-access middleware, above the swagger layer) | 401 | legacy `{"code","message"}` (parity with existing endpoints) |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
 | unknown collection; unknown tenant | 404 | `ErrorResponse` |
-| no vectorizer / missing `target_vector` on multi-vector collection / certainty on non-cosine / reserved param present / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / API disabled | 422 | `ErrorResponse` |
+| no vectorizer / missing `target_vector` on multi-vector collection / certainty on non-cosine / reserved param present / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / experimental feature not enabled (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) | 422 | `ErrorResponse` |
 | embedding provider failure | 502 | `ErrorResponse` |
 | rate limited (traverser) | 429 | `ErrorResponse` — only the traverser's own typed `ErrRateLimit` maps here; an embedding provider's rate-limit error is an ordinary vectorization failure and maps to 502 |
 | other method on the route | 405 + `Allow: POST` | `ErrorResponse` |
@@ -440,11 +455,17 @@ see the comment on the function. The single remaining substring fallback is
 the upstream "could not find class ... in schema" (many producers, no
 sentinel yet; reachable when a collection is deleted mid-request).
 
-### DISABLE_REST_SEARCH
+### EXPERIMENTAL_REST_SEARCH_ENABLED
 
-Mirrors `DISABLE_GRAPHQL` exactly: the operation stays registered and every
-request is rejected with 422 `rest search api is disabled`. (The custom
-mount used to 404; the change is deliberate mechanism-parity.)
+The endpoint is experimental and **off by default**, following Weaviate's
+preview-flag convention (previews gate off). Set
+`EXPERIMENTAL_REST_SEARCH_ENABLED=true` on a node to enable it. When off,
+the operation stays registered (the `DISABLE_GRAPHQL` mechanism) and every
+request is rejected with 422 `rest search api is experimental and not
+enabled; set EXPERIMENTAL_REST_SEARCH_ENABLED=true to enable`. The check
+runs **after** authorization, so a denied caller cannot learn whether the
+feature is on. It is a `runtime.DynamicValue[bool]`, so the runtime-override
+file (`rest_search_enabled`) can toggle it without a restart.
 
 ### Operational modes
 
@@ -457,8 +478,9 @@ router's job):
 - **WRITE_ONLY**: blocked with 503 — a deliberate divergence from
   `POST /v1/graphql`, which slips through the method-based check (legacy
   hole we chose not to replicate).
-- With `DISABLE_REST_SEARCH=true` there is no carve-out (503 in read-only
-  modes before the 422 would be reached).
+- When the feature is off (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) there
+  is no read carve-out (503 in read-only modes before the 422 would be
+  reached).
 
 ### Metrics
 
@@ -507,10 +529,11 @@ Items the RFC should settle, discovered while building all three variants.
    segment, so a collection can be named anything (even `objects` or
    `backups`) without any routing ambiguity. Nothing for the RFC to settle
    here anymore.
-7. **Default-ON gating** (`DISABLE_REST_SEARCH` opt-out) inverts the
-   Weaviate preview convention (previews gate OFF, cf.
-   `WEAVIATE_PREVIEW_NESTED_FILTERING`). Implemented as specified;
-   flagged for the eng review.
+7. **Feature gating — resolved (2026-07-15).** The endpoint is experimental
+   and gated **off by default**, enabled per node with
+   `EXPERIMENTAL_REST_SEARCH_ENABLED=true`, matching the Weaviate preview
+   convention (previews gate OFF, cf. `WEAVIATE_PREVIEW_NESTED_FILTERING`).
+   Nothing left for the RFC here.
 8. **Absent-Content-Type residual — closed** by the swagger surface (415).
    The **body-size cap** is the remaining open residual: the swagger
    surface is uncapped (parity), so the pre-authentication allocation
@@ -546,6 +569,7 @@ AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
 DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
 ENABLE_MODULES=text2vec-contextionary DISABLE_TELEMETRY=true \
 PROMETHEUS_MONITORING_ENABLED=false \
+EXPERIMENTAL_REST_SEARCH_ENABLED=true \
 /tmp/wv --scheme http --host 127.0.0.1 --port 8091 &
 ```
 
@@ -568,9 +592,10 @@ status table exercise the endpoint.
 To check the two gated modes, restart the server with the relevant env var and
 re-issue the same request:
 
-- `DISABLE_REST_SEARCH=true` — the search request is rejected with 422.
-- `OPERATIONAL_MODE=WriteOnly` — the search request is blocked with 503
-  (search is a read).
+- with `EXPERIMENTAL_REST_SEARCH_ENABLED` unset — the search request is
+  rejected with 422 (the feature is off by default).
+- `OPERATIONAL_MODE=WriteOnly` (with the feature enabled) — the search
+  request is blocked with 503 (search is a read).
 
 ---
 

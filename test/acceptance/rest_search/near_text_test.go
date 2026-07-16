@@ -142,6 +142,8 @@ func TestRESTSearchNearText(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
+		// the endpoint is experimental and off by default; enable it
+		WithWeaviateEnv("EXPERIMENTAL_REST_SEARCH_ENABLED", "true").
 		WithText2VecContextionary().
 		Start(ctx)
 	require.NoError(t, err)
@@ -470,13 +472,14 @@ func TestRESTSearchNearText(t *testing.T) {
 	})
 }
 
-// TestRESTSearchDisabled pins the DISABLE_REST_SEARCH opt-out: every search
-// answers 422 before any schema access.
+// TestRESTSearchDisabled pins the opt-in default: with
+// EXPERIMENTAL_REST_SEARCH_ENABLED unset, every search answers 422 before
+// any schema access.
 func TestRESTSearchDisabled(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
+		// no EXPERIMENTAL_REST_SEARCH_ENABLED: the feature is off by default
 		WithWeaviate().
-		WithWeaviateEnv("DISABLE_REST_SEARCH", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -490,5 +493,5 @@ func TestRESTSearchDisabled(t *testing.T) {
 		"query": []string{"anything"},
 	})
 	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "disabled")
+	assert.Contains(t, errMessage(t, out), "not enabled")
 }

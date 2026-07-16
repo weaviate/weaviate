@@ -124,8 +124,9 @@ func newTestHandler(t *testing.T) *testDeps {
 		Authorizer:     deps.authorizer,
 		DefaultLimit:   10,
 		MaximumResults: 10000,
-		Disabled:       runtime.NewDynamicValue(false),
-		Logger:         logrus.New(),
+		// happy-path fixture: the experimental feature is enabled
+		Enabled: runtime.NewDynamicValue(true),
+		Logger:  logrus.New(),
 	})
 	return deps
 }
@@ -221,15 +222,15 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 	require.Len(t, payload.Results, 1)
 	assert.Equal(t, "Dune", payload.Results[0].Properties["title"])
 
-	// execute honors the disabled flag and the reserved-field gate, before
-	// ever calling the builder
-	deps.handler.disabled = runtime.NewDynamicValue(true)
+	// execute honors the not-enabled gate and the reserved-field gate,
+	// before ever calling the builder
+	deps.handler.enabled = runtime.NewDynamicValue(false)
 	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
 		&models.SearchCommon{}, build)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 
-	deps.handler.disabled = runtime.NewDynamicValue(false)
+	deps.handler.enabled = runtime.NewDynamicValue(true)
 	rerank := "title"
 	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
 		&models.SearchCommon{RerankProperty: &rerank}, build)
@@ -304,33 +305,49 @@ func TestHandlerIDAlwaysReturned(t *testing.T) {
 
 func TestHandlerDisabled(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.disabled = runtime.NewDynamicValue(true)
+	deps.handler.enabled = runtime.NewDynamicValue(false)
 
 	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
 	require.NotNil(t, apiErr)
 	// mirrors DISABLE_GRAPHQL: the operation stays registered and rejects
 	// requests with 422
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "disabled")
+	assert.Contains(t, apiErr.Error(), "not enabled")
+	assert.Contains(t, apiErr.Error(), "EXPERIMENTAL_REST_SEARCH_ENABLED")
 }
 
-// TestHandlerDisabledMissingCollection: disabled endpoint answers 422 even for
-// a missing collection (disabled check runs after authz, before existence).
+// TestHandlerDefaultDisabled guards the new opt-in default: a handler whose
+// flag is off (the unset-env default, NewDynamicValue(false)) rejects every
+// search with the not-enabled 422.
+func TestHandlerDefaultDisabled(t *testing.T) {
+	deps := newTestHandler(t)
+	// simulate the process default: EXPERIMENTAL_REST_SEARCH_ENABLED unset
+	deps.handler.enabled = runtime.NewDynamicValue(false)
+
+	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+	assert.Contains(t, apiErr.Error(), "not enabled")
+}
+
+// TestHandlerDisabledMissingCollection: a disabled endpoint answers 422 even
+// for a missing collection (the not-enabled check runs after authz, before
+// existence).
 func TestHandlerDisabledMissingCollection(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.disabled = runtime.NewDynamicValue(true)
+	deps.handler.enabled = runtime.NewDynamicValue(false)
 
 	_, apiErr := doNearText(t, deps, nil, "NoSuchCollection", `{"query":["space"]}`)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "disabled")
+	assert.Contains(t, apiErr.Error(), "not enabled")
 }
 
 // TestHandlerDisabledUnauthorized: unauthorized caller gets 403, not the
-// disabled 422 (a denied caller must not learn the endpoint is disabled).
+// not-enabled 422 (a denied caller must not learn the endpoint is off).
 func TestHandlerDisabledUnauthorized(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.disabled = runtime.NewDynamicValue(true)
+	deps.handler.enabled = runtime.NewDynamicValue(false)
 	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Movie"))
 
 	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
