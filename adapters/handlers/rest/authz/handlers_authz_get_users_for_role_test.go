@@ -71,10 +71,10 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 	assert.Equal(t, expectedResponse, parsed.Payload)
 }
 
-// TestGetUsersForRoleDeSlotsGlobalOIDC pins that a global OIDC subject stored
-// with the empty-namespace slot (":carol") is de-slotted to "carol" in the
+// TestGetUsersForRoleStripsEmptyNamespaceGlobalOIDC pins that a global OIDC subject stored
+// with the empty namespace prefix (":carol") is stripped to "carol" in the
 // response on an NS-enabled cluster.
-func TestGetUsersForRoleDeSlotsGlobalOIDC(t *testing.T) {
+func TestGetUsersForRoleStripsEmptyNamespaceGlobalOIDC(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
@@ -98,7 +98,7 @@ func TestGetUsersForRoleDeSlotsGlobalOIDC(t *testing.T) {
 	assert.Equal(t, models.UserTypeOutputOidc, *parsed.Payload[0].UserType)
 }
 
-// TestGetUsersForRoleKeepsColonIDWhenNamespacesDisabled pins that the de-slot
+// TestGetUsersForRoleKeepsColonIDWhenNamespacesDisabled pins that the strip
 // only runs on NS-enabled clusters: with namespaces off, a stored OIDC id that
 // happens to start with ':' is returned verbatim, not stripped to a bare name.
 func TestGetUsersForRoleKeepsColonIDWhenNamespacesDisabled(t *testing.T) {
@@ -124,11 +124,11 @@ func TestGetUsersForRoleKeepsColonIDWhenNamespacesDisabled(t *testing.T) {
 	assert.Equal(t, models.UserTypeOutputOidc, *parsed.Payload[0].UserType)
 }
 
-// TestGetUsersForRoleSelfInclusionGlobalOIDC pins that the slot is stripped
+// TestGetUsersForRoleSelfInclusionGlobalOIDC pins that the empty namespace prefix is stripped
 // before the self-check, so a global OIDC caller stored as ":carol" matches its
 // own principal.Username and appears in its role's member list even without an
 // explicit read on its own user id. AuthorizeSilent is wired to deny, so
-// inclusion can only come from the self-check; if de-slotting ran after it, the
+// inclusion can only come from the self-check; if the strip ran after it, the
 // caller would silently drop from the list and this test would fail.
 func TestGetUsersForRoleSelfInclusionGlobalOIDC(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
@@ -154,13 +154,13 @@ func TestGetUsersForRoleSelfInclusionGlobalOIDC(t *testing.T) {
 	assert.Equal(t, models.UserTypeOutputOidc, *parsed.Payload[0].UserType)
 }
 
-// TestGetUsersForRoleSlotAwareSelfInclusion pins that self-inclusion is
-// slot-aware. After de-slotting, a global OIDC subject (":customer1:carol") and a
+// TestGetUsersForRoleSubjectAwareSelfInclusion pins that self-inclusion is
+// subject-aware. After stripping the empty namespace, a global OIDC subject (":customer1:carol") and a
 // namespaced one ("customer1:carol") share a display id but are different
-// subjects. A global caller must self-include only its own slotted subject, not a
+// subjects. A global caller must self-include only its own namespace-prefixed subject, not a
 // namespaced subject of the same-looking id; AuthorizeSilent is wired to deny, so
 // inclusion can only come from the self-check.
-func TestGetUsersForRoleSlotAwareSelfInclusion(t *testing.T) {
+func TestGetUsersForRoleSubjectAwareSelfInclusion(t *testing.T) {
 	tests := []struct {
 		name       string
 		callerType models.UserTypeInput

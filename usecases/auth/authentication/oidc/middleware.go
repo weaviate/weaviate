@@ -194,8 +194,9 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	}
 
 	// IsGlobalOperator must equal (Namespace == ""): assignment and enforcement
-	// derive the RBAC subject's global slot from each field independently, so a
-	// mismatch stores a grant enforcement never finds. Fail closed.
+	// each decide global-ness from one of the two fields, so a mismatch stores a
+	// grant enforcement never finds. TestClassifyPrincipal pins the invariant at
+	// its source; this only catches a later edit.
 	if c.namespacesEnabled && isGlobal != (namespace == "") {
 		return nil, errors.New(500, "oidc: inconsistent principal: global-operator=%t but namespace=%q", isGlobal, namespace)
 	}
@@ -226,8 +227,8 @@ func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, group
 // OIDC token's claims. On namespace-disabled clusters it short-circuits to
 // the "no namespace, not global" shape — startup validation guarantees the
 // claim env vars are empty in that case, so the classifier has nothing to
-// inspect. An empty namespace is not global: that distinction is what keeps
-// NS-disabled subjects out of the empty-namespace slot.
+// inspect. An empty namespace is not global: on namespace-disabled clusters
+// every principal has one.
 //
 // On namespace-enabled clusters the rule matrix is:
 //

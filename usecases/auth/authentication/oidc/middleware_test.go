@@ -256,7 +256,7 @@ func tokenWithNamespace(t *testing.T, subject, issuer, aud, namespace string, gl
 // Test_Middleware_ColonUsername pins how a ':' in the OIDC username is handled on
 // a namespace-enabled cluster: a namespaced token's username is qualified with
 // its namespace and accepted, while a global token whose name contains ':' is
-// rejected (a global name must be colon-free, so its empty-namespace slot subject
+// rejected (a global name must be colon-free, so its empty namespace prefix subject
 // stays unambiguous).
 func Test_Middleware_ColonUsername(t *testing.T) {
 	tests := []struct {
@@ -691,7 +691,7 @@ func TestClassifyPrincipal(t *testing.T) {
 			assert.Equal(t, tt.want.namespace, ns)
 			assert.Equal(t, tt.want.isGlobal, isGlobal)
 			if tt.namespacesEnabled {
-				// Enforcement slots off IsGlobalOperator, the write path off
+				// Enforcement derives global-ness from IsGlobalOperator, the write path off
 				// the namespace; they agree only when this holds.
 				require.Equal(t, isGlobal, ns == "")
 			}

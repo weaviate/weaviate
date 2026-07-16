@@ -813,7 +813,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 			want:              wantOK,
 		},
 		{
-			// A leading ':' re-slots into the global empty-namespace slot and
+			// A leading ':' reads as an empty namespace and
 			// would persist an oidc:::carol subject that bricks the next boot.
 			name:              "assign, NS-enabled, oidc, leading-colon ID — 400",
 			operation:         opAssign,
@@ -956,7 +956,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 					if tt.userType == string(models.UserTypeInputDb) && !isStatic {
 						controller.On("GetUsers", tt.userID).Return(map[string]apikey.UserView{tt.userID: {}}, nil)
 					}
-					// The subject is slotted iff the target id denotes a global
+					// The subject is namespace-prefixed iff the target id denotes a global
 					// (namespace-less) OIDC subject on an NS-enabled cluster — a
 					// property of the target, not the global caller.
 					subject, err := conv.SubjectForTarget(tt.namespacesEnabled, authentication.AuthType(tt.userType), tt.userID)

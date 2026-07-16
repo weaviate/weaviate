@@ -231,11 +231,11 @@ func TestQualifyUserIDForLookup(t *testing.T) {
 	}
 }
 
-// TestGlobalSubjectTarget pins the target-side slot predicate: a resolved user
-// id is a global (slotted) subject iff it carries no namespace on an
+// TestIsGlobalTarget pins the target-side predicate: a resolved user
+// id is a global (namespace-prefixed) subject iff it carries no namespace on an
 // NS-enabled cluster. A namespace-bearing id — including a global operator's
 // namespaced target — is never global.
-func TestGlobalSubjectTarget(t *testing.T) {
+func TestIsGlobalTarget(t *testing.T) {
 	tests := []struct {
 		name              string
 		namespacesEnabled bool
@@ -250,7 +250,7 @@ func TestGlobalSubjectTarget(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, GlobalSubjectTarget(tc.namespacesEnabled, tc.internalID))
+			assert.Equal(t, tc.want, IsGlobalTarget(tc.namespacesEnabled, tc.internalID))
 		})
 	}
 }

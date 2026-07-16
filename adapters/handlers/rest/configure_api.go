@@ -922,8 +922,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 		}
 		// Grouping subjects feed both the NS-disabled db-qualifier check and the
-		// NS-enabled OIDC empty-namespace-slot check, so fetch them on either
-		// flag. Role names and policy resources feed only the NS-disabled checks.
+		// NS-enabled OIDC namespace check, so fetch them on either flag. Role
+		// names and policy resources feed only the NS-disabled checks.
 		// A read error means we can't verify the invariant and must fail closed.
 		var roleNames, policyResources, groupingSubjects []string
 		if appState.RBAC != nil {
@@ -1265,10 +1265,10 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		return fmt.Errorf("cluster has %d unparseable role assignment subject(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
 	}
 
-	// Reject unslotted OIDC grouping subjects: with namespaces enabled every OIDC
-	// subject's user-portion must be namespaced ("customer1:carol") or carry the
-	// global empty-namespace slot (":carol"). An authenticated global OIDC user
-	// presents "oidc::carol", so a stored "oidc:carol" row is never matched.
+	// With namespaces enabled every OIDC subject's user-portion is either
+	// namespaced ("customer1:carol") or globally prefixed with an empty namespace
+	// (":carol"). An authenticated global OIDC user presents "oidc::carol", so a
+	// stored "oidc:carol" row is never matched.
 	if enabled {
 		if n, ex := countQualified(groupingSubjects, func(s string) bool {
 			user, prefix, err := conv.GetUserAndPrefix(s)
@@ -1277,7 +1277,7 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 			}
 			return !conv.ContainsNamespaceSeparator(user)
 		}); n > 0 {
-			return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d OIDC role assignment(s) with an unslotted subject (e.g. %q); every OIDC subject must be namespaced or carry the global empty-namespace slot", n, ex)
+			return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d OIDC role assignment(s) whose subject has no namespace (e.g. %q); every OIDC subject must carry a namespace, or a leading %q if the user is global", n, ex, entschema.NamespaceSeparator)
 		}
 		// Reject global OIDC subjects whose name contains ':'. Authentication
 		// refuses such a principal, so the grant could never be exercised.
@@ -1286,7 +1286,7 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 			if err != nil || prefix != string(authentication.AuthTypeOIDC) {
 				return false
 			}
-			name := conv.StripGlobalOIDCSlot(user)
+			name := conv.StripEmptyNamespace(user)
 			return name != user && conv.ContainsNamespaceSeparator(name)
 		}); n > 0 {
 			return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d global OIDC role assignment(s) whose name contains ':' (e.g. %q); a global OIDC principal's name must not contain the namespace separator", n, ex)

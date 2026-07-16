@@ -201,8 +201,8 @@ func TestRevokeRoleFromUserNamespaced(t *testing.T) {
 }
 
 // TestAssignRoleToUserNamespacedOIDCQualified pins that a namespaced caller
-// assigning a role to a bare OIDC id builds the qualified (unslotted) subject
-// oidc:customer1:carol — the empty-namespace slot is for global OIDC users only.
+// assigning a role to a bare OIDC id builds the qualified subject
+// oidc:customer1:carol — the empty namespace prefix is for global OIDC users only.
 func TestAssignRoleToUserNamespacedOIDCQualified(t *testing.T) {
 	h, controller := nsAssignHandler(t, "customer1")
 	h.oidcConfigs = config.OIDC{Enabled: true}
@@ -219,7 +219,7 @@ func TestAssignRoleToUserNamespacedOIDCQualified(t *testing.T) {
 
 // TestRevokeRoleFromUserNamespacedOIDCQualified mirrors the assign-side subject
 // check on the revoke path: a namespaced caller's bare OIDC id resolves to the
-// qualified (unslotted) subject oidc:customer1:carol.
+// qualified subject oidc:customer1:carol.
 func TestRevokeRoleFromUserNamespacedOIDCQualified(t *testing.T) {
 	h, controller := nsAssignHandler(t, "customer1")
 	h.oidcConfigs = config.OIDC{Enabled: true}
@@ -235,10 +235,10 @@ func TestRevokeRoleFromUserNamespacedOIDCQualified(t *testing.T) {
 }
 
 // TestAssignRevokeGlobalCallerNamespacedOIDCTarget hard-pins the target-side
-// slot decision on the write paths: a GLOBAL caller addressing a NAMESPACED
-// OIDC target by its qualified id ("customer1:carol") must build the unslotted
-// subject oidc:customer1:carol — the subject that namespaced principal enforces
-// as. A caller-based slot would wrongly write oidc::customer1:carol, so the
+// global-ness decision on the write paths: a GLOBAL caller addressing a NAMESPACED
+// OIDC target by its qualified id ("customer1:carol") must build the
+// namespaced subject oidc:customer1:carol — the subject that principal enforces
+// as. A caller-based decision would wrongly write oidc::customer1:carol, so the
 // grant/revoke would silently miss the user's roles.
 func TestAssignRevokeGlobalCallerNamespacedOIDCTarget(t *testing.T) {
 	newHandler := func() (*authZHandlers, *MockControllerAndGetUsers) {
@@ -263,7 +263,7 @@ func TestAssignRevokeGlobalCallerNamespacedOIDCTarget(t *testing.T) {
 	}
 
 	// A global caller has no namespace, so QualifyUserIDForLookup passes the id
-	// through and the slot keys off the target's own namespace (customer1).
+	// through and global-ness keys off the target's own namespace (customer1).
 	global := &models.Principal{Username: "admin"}
 
 	t.Run("assign", func(t *testing.T) {

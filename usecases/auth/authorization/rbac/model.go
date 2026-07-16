@@ -286,12 +286,11 @@ func bootstrapRoleUsers(conf rbacconf.Config) []bootstrapUserList {
 // rejectNamespaceSeparatorInBootstrapUsers fails startup when a statically
 // configured user name (root/admin/viewer or static API-key) contains the
 // namespace separator on a namespace-enabled cluster. These names are always
-// registered as global subjects: a separator in an OIDC name re-slots into a
-// subject that can never authenticate and that the startup invariants reject, a
-// namespaced principal must never inherit a cluster-wide role, and a static
-// API-key name carrying a separator produces the same subject as a namespaced
-// DB user of that name. Read-only has no static user list (groups only), so it
-// needs no guard.
+// registered as global subjects, and a separator makes that impossible to hold:
+// an OIDC name produces a subject that can never authenticate, a namespaced
+// principal must never inherit a cluster-wide role, and a static API-key name
+// produces the same subject as a namespaced DB user of that name. Read-only has
+// no static user list (groups only), so it needs no guard.
 func rejectNamespaceSeparatorInBootstrapUsers(conf rbacconf.Config, authNconf config.Authentication) error {
 	for _, list := range bootstrapRoleUsers(conf) {
 		if err := rejectNamespaceSeparator("RBAC "+list.role, list.users); err != nil {

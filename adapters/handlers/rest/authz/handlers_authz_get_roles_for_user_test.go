@@ -301,10 +301,10 @@ func TestSortRolesByName(t *testing.T) {
 	}
 }
 
-// TestGetRolesForUser_OIDCSlot pins the read-side subject encoding: a global
-// caller reading a bare OIDC id looks the slotted subject (":carol") up, while a
-// namespaced caller's bare id is qualified ("customer1:carol") — no slot.
-func TestGetRolesForUser_OIDCSlot(t *testing.T) {
+// TestGetRolesForUser_OIDCSubject pins the read-side subject encoding: a global
+// caller reading a bare OIDC id looks itself up under ":carol", while a
+// namespaced caller's bare id is qualified to "customer1:carol".
+func TestGetRolesForUser_OIDCSubject(t *testing.T) {
 	falseP := false
 	roles := map[string][]authorization.Policy{
 		"role1": {{Resource: authorization.Collections("X")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
@@ -315,11 +315,11 @@ func TestGetRolesForUser_OIDCSlot(t *testing.T) {
 		userID           string
 		principalNS      string
 		isGlobalOperator bool
-		authzKey         string // users/<id> resource (never slotted)
+		authzKey         string // users/<id> resource (never namespace-prefixed)
 		groupKey         string // GetRolesForUserOrGroup subject user-portion
 	}{
 		{
-			name:             "global operator bare oidc id → slotted subject",
+			name:             "global operator bare oidc id → namespace-prefixed subject",
 			userID:           "carol",
 			isGlobalOperator: true,
 			authzKey:         "carol",
@@ -334,10 +334,10 @@ func TestGetRolesForUser_OIDCSlot(t *testing.T) {
 		},
 		{
 			// A global operator addressing a namespaced OIDC user by its
-			// qualified id must NOT slot: the subject is the namespaced
-			// user's (oidc:customer1:carol), not a global one — the slot is
-			// a property of the target, not the caller.
-			name:             "global operator namespaced oidc target → qualified subject, no slot",
+			// qualified id keeps that user's subject (oidc:customer1:carol),
+			// not a global one — global-ness is a property of the target, not
+			// the caller.
+			name:             "global operator namespaced oidc target → qualified subject, no empty namespace",
 			userID:           "customer1:carol",
 			isGlobalOperator: true,
 			authzKey:         "customer1:carol",
@@ -584,13 +584,13 @@ func TestGetRolesForUser_OwnUserSelfReadBypass(t *testing.T) {
 	}
 }
 
-// TestGetRolesForUser_GlobalOIDCSlotSelfBypass pins that the self-read bypass is
-// slot-aware. A global OIDC caller whose username looks namespaced
+// TestGetRolesForUser_GlobalOIDCSubjectSelfBypass pins that the self-read bypass is
+// subject-aware. A global OIDC caller whose username looks namespaced
 // ("customer1:carol") must not self-match the namespaced OIDC target of the same
 // id: that target resolves to a different subject, so the read must be
 // authorized. A global OIDC caller reading its own namespace-less id still
 // bypasses.
-func TestGetRolesForUser_GlobalOIDCSlotSelfBypass(t *testing.T) {
+func TestGetRolesForUser_GlobalOIDCSubjectSelfBypass(t *testing.T) {
 	falseP := false
 	roles := map[string][]authorization.Policy{
 		"role1": {{Resource: authorization.Collections("X")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
@@ -657,7 +657,7 @@ func TestGetRolesForUser_GlobalOIDCSlotSelfBypass(t *testing.T) {
 }
 
 // TestGetRolesForUser_GlobalOIDCSelfFlagNoForeignDisclosure pins the disclosure
-// the slot fix actually closes: a global OIDC caller named "customer1:carol"
+// the empty namespace prefix closes: a global OIDC caller named "customer1:carol"
 // legitimately passes the per-user read gate, but reading the namespaced subject
 // of the same id must be a FOREIGN read (own=false) so a role whose permissions
 // the caller does not hold is filtered out — not returned at self visibility.

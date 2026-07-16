@@ -959,20 +959,20 @@ func TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart(t *t
 		"read-only group assignment removed from config must be gone after restart")
 }
 
-// TestApplyPredefinedRoles_OIDCEnvUsersSlotted asserts env-var root/admin/viewer
-// OIDC users are stored under the slotted subject (oidc::alice) on NS-enabled
-// clusters and unslotted (oidc:alice) on NS-disabled ones, matching the
+// TestApplyPredefinedRoles_OIDCEnvUsersEmptyNamespace asserts env-var root/admin/viewer
+// OIDC users are stored under the namespace-prefixed subject (oidc::alice) on NS-enabled
+// clusters and bare (oidc:alice) on NS-disabled ones, matching the
 // enforcement subject built by UserNameWithTypeFromPrincipal for a global OIDC
 // operator.
-func TestApplyPredefinedRoles_OIDCEnvUsersSlotted(t *testing.T) {
+func TestApplyPredefinedRoles_OIDCEnvUsersEmptyNamespace(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
 		namespacesEnabled bool
 		user              string
 		wantSubject       string
 	}{
-		{"NS-disabled bare: unslotted", false, "alice", conv.UserNameWithTypeFromId("alice", authentication.AuthTypeOIDC)},
-		{"NS-enabled bare: slotted", true, "alice", "oidc::alice"},
+		{"NS-disabled bare: no prefix", false, "alice", conv.UserNameWithTypeFromId("alice", authentication.AuthTypeOIDC)},
+		{"NS-enabled bare: namespace-prefixed", true, "alice", "oidc::alice"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := freshPolicyDir(t)
@@ -1096,9 +1096,9 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testin
 // static-user reject: a root/admin/viewer or static API-key user whose name
 // contains the namespace separator fails startup on NS clusters. Root guards
 // against a namespaced principal inheriting cluster-wide root; admin/viewer
-// guard against a colon-bearing global OIDC name that would slot into an
+// guard against a colon-bearing global OIDC name that would produce an
 // un-authenticatable subject the startup invariants reject. A static API-key
-// name is global but reaches casbin unslotted, so a separator there produces the
+// name is global but reaches casbin with no prefix of its own, so a separator there produces the
 // same subject as a namespaced DB user of that name. NS-disabled is unaffected.
 func TestApplyPredefinedRoles_RejectsNamespaceSeparatorInBootstrapUsers(t *testing.T) {
 	apiKeys := func(users ...string) config.Authentication {
@@ -1119,7 +1119,7 @@ func TestApplyPredefinedRoles_RejectsNamespaceSeparatorInBootstrapUsers(t *testi
 		{"mixed list with one namespaced on NS cluster rejected", rbacconf.Config{Enabled: true, RootUsers: []string{"alice", "customer1:bob"}}, config.Authentication{}, true, true},
 		{"colon admin user on NS-disabled allowed", rbacconf.Config{Enabled: true, AdminUsers: []string{"customer1:carol"}}, config.Authentication{}, false, false},
 
-		// A static API-key user is global and its subject is never slotted, so a
+		// A static API-key user is global and its subject is never namespace-prefixed, so a
 		// separator aliases it onto a namespaced DB user's subject.
 		{"colon static API-key user on NS cluster rejected", rbacconf.Config{Enabled: true}, apiKeys("customer1:carol"), true, true},
 		{"leading-colon static API-key user on NS cluster rejected", rbacconf.Config{Enabled: true}, apiKeys(":carol"), true, true},

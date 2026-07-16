@@ -1073,7 +1073,7 @@ func isSelfSubject(principal *models.Principal, userType authentication.AuthType
 	if string(userType) != string(principal.UserType) {
 		return false
 	}
-	return subject == conv.ScopedSubjectUserFromPrincipal(principal)
+	return subject == conv.SubjectUserFromPrincipal(principal)
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
@@ -1174,7 +1174,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 			// authz resource and response body use the display id.
 			displayName := stored
 			if userType == authentication.AuthTypeOIDC && h.namespacesEnabled {
-				displayName = conv.StripGlobalOIDCSlot(stored)
+				displayName = conv.StripEmptyNamespace(stored)
 			}
 
 			if isSelfSubject(principal, userType, stored) {
@@ -1630,10 +1630,9 @@ func validateEnvVarRoles(name string) error {
 
 // validateUserIDForNamespaces rejects bare-form DB user IDs on
 // namespace-enabled clusters. Static API-key users are intentionally bare and
-// global; they pass through unchanged. A bare OIDC id names a global OIDC user
-// (subject oidc::<name>), so OIDC targets skip the prefix requirement: only a
-// global caller can produce a bare id here, a namespaced caller's input is
-// already qualified by QualifyUserIDForLookup.
+// global; they pass through unchanged. A bare OIDC id names a global OIDC user,
+// so OIDC targets skip the prefix requirement and are only checked for a
+// leading separator.
 func (h *authZHandlers) validateUserIDForNamespaces(userID string, userType models.UserTypeInput) error {
 	if !h.namespacesEnabled {
 		return nil

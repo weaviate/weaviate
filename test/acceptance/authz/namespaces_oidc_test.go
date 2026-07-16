@@ -123,7 +123,7 @@ func TestNamespacesOIDC(t *testing.T) {
 		// legitimate.
 		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, "alice")
 
-		// The grant actually landed on the slotted subject: reading it back
+		// The grant actually landed on the namespace-prefixed subject: reading it back
 		// returns admin, and revoking then removes it.
 		assert.Contains(t, roleNames(helper.GetRolesForUserOIDC(t, "alice", adminKey)), authorization.Admin,
 			"bare OIDC id must actually receive the assigned admin role")
@@ -149,7 +149,7 @@ func TestNamespacesOIDC(t *testing.T) {
 	})
 
 	t.Run("leading-colon OIDC user ID is rejected", func(t *testing.T) {
-		// A leading ':' re-slots into the global empty-namespace slot
+		// A leading ':' reads as an empty namespace
 		// (oidc:::carol). That subject can never authenticate and trips the
 		// startup invariant, so a single assign would brick the next boot; the
 		// assign API must reject it up front.
@@ -408,7 +408,7 @@ func TestNamespacesOIDC(t *testing.T) {
 	// A namespaced OIDC user whose short subject itself contains ':' round-trips
 	// through assign, enforcement, and role-membership listing. Its qualified id
 	// is "customer1:foo:bar" — namespace is the segment before the first ':',
-	// name is the rest. No leading slot (that is reserved for global users).
+	// name is the rest. No leading separator (that is reserved for global users).
 	t.Run("namespaced OIDC user with a colon in its short name", func(t *testing.T) {
 		const oidcUserID = "customer1:foo:bar"
 		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, oidcUserID)
@@ -429,11 +429,11 @@ func TestNamespacesOIDC(t *testing.T) {
 		assert.Equal(t, "customer1:Ledger", helper.GetClassAuth(t, "customer1:Ledger", adminKey).Class)
 
 		// The user appears in the role's membership under its qualified id, with
-		// no stray leading ':' — the empty-namespace slot is only for globals.
+		// no stray leading ':' — the empty namespace prefix is only for globals.
 		members := helper.GetUserForRolesBoth(t, authorization.Admin, adminKey)
 		var found bool
 		for _, u := range members {
-			assert.False(t, strings.HasPrefix(u.UserID, ":"), "no member id may carry a leading namespace slot: %q", u.UserID)
+			assert.False(t, strings.HasPrefix(u.UserID, ":"), "no member id may carry a leading separator: %q", u.UserID)
 			if u.UserType != nil && *u.UserType == models.UserTypeOutputOidc && u.UserID == oidcUserID {
 				found = true
 			}
@@ -442,8 +442,8 @@ func TestNamespacesOIDC(t *testing.T) {
 	})
 
 	// A global BARE OIDC user granted a role via the assign API round-trips to
-	// enforcement: the write-side target slot (GlobalSubjectTarget →
-	// oidc::bare-admin) matches the enforce-side operator slot (IsGlobalOperator
+	// enforcement: the write-side target decision (IsGlobalTarget →
+	// oidc::bare-admin) matches the enforce-side operator decision (IsGlobalOperator
 	// → oidc::bare-admin), so the user sees the grant when it authenticates.
 	t.Run("global bare OIDC user granted via API sees it at its enforce subject", func(t *testing.T) {
 		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, "bare-admin")
@@ -464,11 +464,11 @@ func TestNamespacesOIDC(t *testing.T) {
 		require.True(t, errors.As(err, &unauth), "expected GetOwnInfoUnauthorized, got %T: %v", err, err)
 	})
 
-	// Namespace-delete cascade honours the slot: a global operator "dave"
+	// Namespace-delete cascade honours the empty namespace prefix: a global operator "dave"
 	// (viewer via API → oidc::dave) survives deletion of namespace "colonns",
 	// while the namespaced colon-in-name user "baz:qux"@colonns (admin via API →
 	// oidc:colonns:baz:qux) is cleaned up.
-	t.Run("namespace delete keeps the slotted global user and cleans the namespaced one", func(t *testing.T) {
+	t.Run("namespace delete keeps the namespace-prefixed global user and cleans the namespaced one", func(t *testing.T) {
 		const ns = "colonns"
 		const namespacedID = ns + ":baz:qux"
 		helper.CreateNamespace(t, ns, adminKey)
@@ -484,13 +484,13 @@ func TestNamespacesOIDC(t *testing.T) {
 		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Viewer, "dave")
 
 		// Pre-delete: the namespaced colon-in-name user holds admin and is listed
-		// in the role membership under its qualified id (no leading slot).
+		// in the role membership under its qualified id (no leading separator).
 		nsToken, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "baz:qux")
 		require.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, nsToken).Roles, authorization.Admin),
 			"namespaced colon-name user must hold its assigned admin pre-delete")
 		var listed bool
 		for _, u := range helper.GetUserForRolesBoth(t, authorization.Admin, adminKey) {
-			assert.False(t, strings.HasPrefix(u.UserID, ":"), "no member id may carry a leading slot: %q", u.UserID)
+			assert.False(t, strings.HasPrefix(u.UserID, ":"), "no member id may carry a leading separator: %q", u.UserID)
 			if u.UserType != nil && *u.UserType == models.UserTypeOutputOidc && u.UserID == namespacedID {
 				listed = true
 			}
@@ -504,10 +504,10 @@ func TestNamespacesOIDC(t *testing.T) {
 		helper.DeleteNamespace(t, ns, adminKey)
 		nsDeleted = true
 
-		// The global operator STILL holds viewer — its slotted subject
+		// The global operator STILL holds viewer — its namespace-prefixed subject
 		// (oidc::dave) is not part of the deleted namespace's local RBAC.
 		require.True(t, hasRoleNamed(helper.GetInfoForOwnUser(t, mustGlobalToken(t, helperURI, "dave")).Roles, authorization.Viewer),
-			"slotted global operator must retain its role after the namespace is deleted")
+			"namespace-prefixed global operator must retain its role after the namespace is deleted")
 
 		// The namespaced user's admin binding is revoked: it no longer appears in
 		// the role membership.

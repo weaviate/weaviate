@@ -85,12 +85,12 @@ func TestGetOwnInfo(t *testing.T) {
 	}
 }
 
-// TestGetOwnInfo_OIDCSlot pins the two distinct ids in the OIDC self-read: the
-// internal casbin lookup key, which must match how the roles are stored (slotted
+// TestGetOwnInfo_OIDCSubject pins the two distinct ids in the OIDC self-read: the
+// internal casbin lookup key, which must match how the roles are stored (namespace-prefixed
 // ":carol" for a global operator, qualified "customer1:carol" for a namespaced
 // caller — otherwise the self-read misses its own roles), and the user-facing
 // response Username, which is always the short name with the namespace stripped.
-func TestGetOwnInfo_OIDCSlot(t *testing.T) {
+func TestGetOwnInfo_OIDCSubject(t *testing.T) {
 	tests := []struct {
 		name         string
 		principal    *models.Principal
@@ -98,7 +98,7 @@ func TestGetOwnInfo_OIDCSlot(t *testing.T) {
 		wantUsername string // user-facing response username
 	}{
 		{
-			name:         "global oidc operator: slotted lookup, raw username",
+			name:         "global oidc operator: namespace-prefixed lookup, raw username",
 			principal:    &models.Principal{Username: "carol", UserType: "oidc", IsGlobalOperator: true},
 			wantSubject:  ":carol",
 			wantUsername: "carol",
