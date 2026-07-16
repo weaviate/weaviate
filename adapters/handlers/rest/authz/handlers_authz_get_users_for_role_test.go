@@ -36,7 +36,7 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
-	principal := &models.Principal{Username: "user1"}
+	principal := &models.Principal{Username: "user1", UserType: models.UserTypeInputOidc}
 	params := authz.GetUsersForRoleParams{
 		ID:          "testuser",
 		HTTPRequest: req,
@@ -51,6 +51,9 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 	}
 
 	authorizer.On("Authorize", mock.Anything, principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
+	// user1 is the caller: self on the oidc pass, an authorized read on the db
+	// pass, since a same-name user of another type is a different subject.
+	authorizer.On("AuthorizeSilent", mock.Anything, principal, authorization.READ, authorization.Users(expectedUsers...)[0]).Return(nil)
 	authorizer.On("AuthorizeSilent", mock.Anything, principal, authorization.READ, authorization.Users(expectedUsers...)[1]).Return(nil)
 	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeDb, false).Return(expectedUsers, nil)
 	controller.On("GetUsersOrGroupForRole", params.ID, authentication.AuthTypeOIDC, false).Return(expectedUsers, nil)

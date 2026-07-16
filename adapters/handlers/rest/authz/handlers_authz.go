@@ -1065,6 +1065,17 @@ func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *m
 	return roles, authErrs, nil
 }
 
+// isSelfSubject reports whether a target of userType resolves to the caller's
+// own casbin subject, so reading it needs no per-user authorization. Comparing
+// subjects rather than ids keeps a global caller from matching a namespaced
+// target whose id looks the same.
+func isSelfSubject(principal *models.Principal, userType authentication.AuthType, subject string) bool {
+	if string(userType) != string(principal.UserType) {
+		return false
+	}
+	return subject == conv.ScopedSubjectUserFromPrincipal(principal)
+}
+
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 	internalID := namespacing.QualifyUserIDForLookup(principal, h.namespacesEnabled, params.ID)
@@ -1073,14 +1084,17 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	// A self-read skips the per-user authz check only when caller and resolved
-	// target are the same subject — on NS-enabled clusters, the same slot too, so
-	// a global caller can't self-match a namespaced target of a same-looking id.
-	callerGlobal := namespacing.ConfinedNamespace(principal) == ""
-	targetGlobal := namespacing.GlobalSubjectTarget(h.namespacesEnabled, internalID)
-	ownUser := internalID == principal.Username &&
-		params.UserType == string(principal.UserType) &&
-		(!h.namespacesEnabled || callerGlobal == targetGlobal)
+	userType, err := validateUserTypeInput(params.UserType)
+	if err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("unknown userType: %v", params.UserType)))
+	}
+
+	subjectUser, err := conv.SubjectUserForTarget(h.namespacesEnabled, userType, internalID)
+	if err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
+	ownUser := isSelfSubject(principal, userType, subjectUser)
 
 	if !ownUser {
 		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Users(internalID)...); err != nil {
@@ -1090,22 +1104,12 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 
 	includeFullRoles := params.IncludeFullRoles != nil && *params.IncludeFullRoles
 
-	userType, err := validateUserTypeInput(params.UserType)
-	if err != nil {
-		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("unknown userType: %v", params.UserType)))
-	}
-
 	exists, err := h.userExists(internalID, userType)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user existence: %w", err)))
 	}
 	if !exists {
 		return authz.NewGetRolesForUserNotFound()
-	}
-
-	subjectUser, err := conv.SubjectUserForTarget(h.namespacesEnabled, userType, internalID)
-	if err != nil {
-		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	existingRoles, err := h.controller.GetRolesForUserOrGroup(subjectUser, userType, false)
@@ -1163,29 +1167,17 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 			return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetUsersOrGroupForRole: %w", err)))
 		}
 
-		// De-slotting collapses a global (":carol") and a namespaced
-		// ("customer1:carol") OIDC subject to the same display id, so the
-		// self-check compares the caller's own slot-aware subject against the
-		// stored id before that happens; the authz resource and response body use
-		// the de-slotted id.
-		ownTypeMatch := string(userType) == string(principal.UserType)
-		var ownSubject string
-		if ownTypeMatch {
-			ownSubject = conv.ScopedSubjectUserFromPrincipal(principal)
-		}
-
 		filteredUsers := make([]string, 0, len(users))
 		for _, stored := range users {
+			// A global (":carol") and a namespaced ("customer1:carol") OIDC
+			// subject share a display id, so match on the stored subject; the
+			// authz resource and response body use the display id.
 			displayName := stored
 			if userType == authentication.AuthTypeOIDC && h.namespacesEnabled {
 				displayName = conv.StripGlobalOIDCSlot(stored)
 			}
 
-			self := displayName == principal.Username
-			if h.namespacesEnabled {
-				self = ownTypeMatch && stored == ownSubject
-			}
-			if self {
+			if isSelfSubject(principal, userType, stored) {
 				filteredUsers = append(filteredUsers, displayName)
 				continue
 			}

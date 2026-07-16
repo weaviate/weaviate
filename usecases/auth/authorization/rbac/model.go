@@ -207,15 +207,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	for _, list := range []struct {
-		role  string
-		users []string
-	}{
-		{authorization.Root, conf.RootUsers},
-		// admin/viewer are temporary, to enable import of existing keys to WCD
-		{authorization.Admin, conf.AdminUsers},
-		{authorization.Viewer, conf.ViewerUsers},
-	} {
+	for _, list := range bootstrapRoleUsers(conf) {
 		for _, user := range list.users {
 			if strings.TrimSpace(user) == "" {
 				continue
@@ -275,6 +267,22 @@ var (
 	groupsPrefix     = authorization.GroupsDomain + "/"
 )
 
+type bootstrapUserList struct {
+	role  string
+	users []string
+}
+
+// bootstrapRoleUsers pairs each built-in role with the users the local config
+// registers for it. Read-only is absent: it has no static user list (groups
+// only). Admin/viewer are temporary, to enable import of existing keys to WCD.
+func bootstrapRoleUsers(conf rbacconf.Config) []bootstrapUserList {
+	return []bootstrapUserList{
+		{authorization.Root, conf.RootUsers},
+		{authorization.Admin, conf.AdminUsers},
+		{authorization.Viewer, conf.ViewerUsers},
+	}
+}
+
 // rejectNamespaceSeparatorInBootstrapUsers fails startup when a statically
 // configured user name (root/admin/viewer or static API-key) contains the
 // namespace separator on a namespace-enabled cluster. These names are always
@@ -285,23 +293,21 @@ var (
 // DB user of that name. Read-only has no static user list (groups only), so it
 // needs no guard.
 func rejectNamespaceSeparatorInBootstrapUsers(conf rbacconf.Config, authNconf config.Authentication) error {
-	type userList struct {
-		source string
-		users  []string
-	}
-	lists := []userList{
-		{"RBAC " + authorization.Root, conf.RootUsers},
-		{"RBAC " + authorization.Admin, conf.AdminUsers},
-		{"RBAC " + authorization.Viewer, conf.ViewerUsers},
+	for _, list := range bootstrapRoleUsers(conf) {
+		if err := rejectNamespaceSeparator("RBAC "+list.role, list.users); err != nil {
+			return err
+		}
 	}
 	if authNconf.APIKey.Enabled {
-		lists = append(lists, userList{"static API-key", authNconf.APIKey.Users})
+		return rejectNamespaceSeparator("static API-key", authNconf.APIKey.Users)
 	}
-	for _, list := range lists {
-		for _, u := range list.users {
-			if strings.Contains(u, schema.NamespaceSeparator) {
-				return fmt.Errorf("%s user %q contains the namespace separator %q; statically configured users are global and their names must not contain it", list.source, u, schema.NamespaceSeparator)
-			}
+	return nil
+}
+
+func rejectNamespaceSeparator(source string, users []string) error {
+	for _, u := range users {
+		if strings.Contains(u, schema.NamespaceSeparator) {
+			return fmt.Errorf("%s user %q contains the namespace separator %q; statically configured users are global and their names must not contain it", source, u, schema.NamespaceSeparator)
 		}
 	}
 	return nil
