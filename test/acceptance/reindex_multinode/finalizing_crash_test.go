@@ -106,8 +106,8 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	// the FINALIZING window is correspondingly the widest among the
 	// migration types.
 	uri := restURIOf(compose, 1)
-	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, uri, className, "path", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted change-tokenization task %s", taskID)
 
 	// Race the task to FINALIZING. The poll-cadence is 200ms (in the
@@ -271,8 +271,8 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	}
 
 	uri := restURIOf(compose, 1)
-	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, uri, className, "path", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted change-tokenization task %s", taskID)
 
 	observed := awaitReindexReachedFinalizing(t, uri, taskID)

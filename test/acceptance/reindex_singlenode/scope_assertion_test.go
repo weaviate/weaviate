@@ -57,11 +57,18 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 		properties []*models.Property
 		objects    []map[string]interface{}
 		target     string
-		body       string
-		// indexType is the key under which the targeted property's index
-		// entry appears in GET /v1/schema/{class}/indexes. Only that entry
-		// is allowed to leave `ready` during the migration; every other
-		// (property, indexType) pair must stay `ready`.
+		// body is the GA declarative-upsert body (PUT .../index/{indexType});
+		// ignored when rebuild is true.
+		body string
+		// rebuild selects POST .../index/{indexType}/rebuild instead of the
+		// declarative PUT upsert.
+		rebuild bool
+		// indexType is the URL index segment for the submit AND the key under
+		// which the targeted property's index entry appears in GET
+		// /v1/schema/{class}/indexes (the two share the GA canonical spelling,
+		// e.g. "rangeFilters"). Only that entry is allowed to leave `ready`
+		// during the migration; every other (property, indexType) pair must
+		// stay `ready`.
 		indexType string
 	}
 
@@ -156,7 +163,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: searchableScopeProps,
 			objects:    textScopeObjects,
 			target:     "title",
-			body:       `{"searchable":{"algorithm":"blockmax"}}`,
+			body:       `{"algorithm":"blockmax"}`,
 			indexType:  "searchable",
 		},
 		{
@@ -165,7 +172,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: filterableScopeProps,
 			objects:    textScopeObjects,
 			target:     "author",
-			body:       `{"filterable":{"rebuild":true}}`,
+			rebuild:    true,
 			indexType:  "filterable",
 		},
 		{
@@ -174,7 +181,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: tokenizationScopeProps,
 			objects:    textScopeObjects,
 			target:     "description",
-			body:       `{"searchable":{"tokenization":"whitespace"}}`,
+			body:       `{"tokenization":"whitespace"}`,
 			// Tokenization touches both searchable + filterable for the
 			// target property. The assertion on non-target props applies
 			// to both index types: the non-target props' searchable AND
@@ -187,8 +194,8 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: enableRangeableProps,
 			objects:    textScopeObjects,
 			target:     "score",
-			body:       `{"rangeable":{"enabled":true}}`,
-			indexType:  "rangeable",
+			body:       `{}`,
+			indexType:  "rangeFilters",
 		},
 		{
 			name:       "enable-filterable",
@@ -196,7 +203,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: enableFilterableProps,
 			objects:    enableFilterableObjects,
 			target:     "score",
-			body:       `{"filterable":{"enabled":true}}`,
+			body:       `{}`,
 			indexType:  "filterable",
 		},
 		{
@@ -205,7 +212,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: enableSearchableProps,
 			objects:    enableSearchableObjects,
 			target:     "title",
-			body:       `{"searchable":{"enabled":true,"tokenization":"word"}}`,
+			body:       `{"tokenization":"word"}`,
 			indexType:  "searchable",
 		},
 	}
@@ -317,7 +324,12 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			}()
 
 			// Submit the reindex and wait for it to finish.
-			taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, tc.className, tc.target, tc.body)
+			var taskID string
+			if tc.rebuild {
+				taskID = reindexhelpers.RebuildIndex(t, restURI, tc.className, tc.target, tc.indexType)
+			} else {
+				taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, tc.className, tc.target, tc.indexType, tc.body)
+			}
 			t.Logf("submitted reindex task: %s", taskID)
 
 			// Assertion 3: the task ID must encode the targeted property.

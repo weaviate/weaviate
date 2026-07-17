@@ -31,13 +31,13 @@ import (
 )
 
 // TestParallelEnableFilterableAndRangeable mirrors the frontend repro on
-// https://github.com/weaviate/weaviate/issues/10675: parallel enable-filterable + enable-rangeable
+// https://github.com/weaviate/weaviate/issues/10675: parallel enable-filterable + enable-rangeFilters
 // on the same numeric property both end up FAILED with
 // "progress.mig.000000001: no such file or directory".
 //
 // Root cause. Once a property has IndexFilterable=false and
 // IndexRangeFilters=false (e.g. after DELETE filterable + DELETE
-// rangeFilters), submitting both enable-filterable and enable-rangeable in
+// rangeFilters), submitting both enable-filterable and enable-rangeFilters in
 // parallel races on shared on-disk migration state. Whichever migration
 // finishes first calls UpdateProperty; MergeProps preserves the
 // still-false sibling flag (the other migration hasn't flipped it yet),
@@ -176,15 +176,15 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 		defer wg.Done()
 		r := submitResult{label: "enable-filterable", started: time.Now()}
 		r.status, r.taskID, r.body = submitIndexUpdateRaw(t, restURI, collection, propName,
-			`{"filterable":{"enabled":true}}`)
+			"filterable", `{}`)
 		r.finished = time.Now()
 		results[0] = r
 	}()
 	go func() {
 		defer wg.Done()
-		r := submitResult{label: "enable-rangeable", started: time.Now()}
+		r := submitResult{label: "enable-rangeFilters", started: time.Now()}
 		r.status, r.taskID, r.body = submitIndexUpdateRaw(t, restURI, collection, propName,
-			`{"rangeable":{"enabled":true}}`)
+			"rangeFilters", `{}`)
 		r.finished = time.Now()
 		results[1] = r
 	}()
@@ -276,9 +276,9 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 				"FINISHED status alone is not sufficient", acceptedLabel)
 	}
 	for _, r := range rejected {
-		body := `{"filterable":{"enabled":true}}`
-		if strings.Contains(r.label, "rangeable") {
-			body = `{"rangeable":{"enabled":true}}`
+		indexType := "filterable"
+		if strings.Contains(r.label, "rangeFilters") {
+			indexType = "rangeFilters"
 		}
 		// Poll until the retry succeeds (the previous task's FINISHED
 		// status needs to propagate through the DTM scheduler before
@@ -286,7 +286,7 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 		var retryStatus int
 		var retryTaskID, retryBody string
 		require.Eventually(t, func() bool {
-			retryStatus, retryTaskID, retryBody = submitIndexUpdateRaw(t, restURI, collection, propName, body)
+			retryStatus, retryTaskID, retryBody = submitIndexUpdateRaw(t, restURI, collection, propName, indexType, `{}`)
 			return retryStatus == http.StatusAccepted
 		}, 60*time.Second, 50*time.Millisecond,
 			"retry of %s after the in-flight task finished must eventually be accepted; "+
@@ -315,14 +315,14 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 
 	// Step 8: queries against both buckets must return data. The filterable
 	// bucket gives us Equal (served by Aggregate count via the equal index);
-	// the rangeable bucket gives us LessThan via Get with a where filter
+	// the rangeFilters bucket gives us LessThan via Get with a where filter
 	// (Aggregate's LessThan can resolve through the filterable bucket on
-	// some plans, so the rangeable-bucket assertion uses Get + _additional).
+	// some plans, so the rangeFilters-bucket assertion uses Get + _additional).
 	require.Greater(t, countWithEqualFilter(t, restURI, collection, propName, 0), 0,
 		"Equal filter on %s.%s must return >=1 hit; if 0, the filterable bucket is empty "+
 			"(parallel cleanup race left the migration dir torn)", collection, propName)
 	require.Greater(t, getHitsWithLessThan(t, restURI, collection, propName, numObjects), 0,
-		"LessThan filter on %s.%s via Get must return >=1 hit; if 0, the rangeable bucket is empty",
+		"LessThan filter on %s.%s via Get must return >=1 hit; if 0, the rangeFilters bucket is empty",
 		collection, propName)
 }
 
@@ -330,11 +330,12 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 // Helpers specific to this test (others reused from concurrent_test.go).
 // =============================================================================
 
-// submitIndexUpdateRaw is a non-asserting variant of submitIndexUpdate that
-// returns the raw status code + body so the caller can branch on 202 vs 409.
-func submitIndexUpdateRaw(t *testing.T, restURI, collection, property, jsonBody string) (int, string, string) {
+// submitIndexUpdateRaw is a non-asserting PUT to the GA per-index-type
+// upsert endpoint .../properties/{property}/index/{indexType}. It returns the
+// raw status code + taskID + body so the caller can branch on 202 vs 409.
+func submitIndexUpdateRaw(t *testing.T, restURI, collection, property, indexType, jsonBody string) (int, string, string) {
 	t.Helper()
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
+	url := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/%s", restURI, collection, property, indexType)
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -376,7 +377,7 @@ func deleteIndex(t *testing.T, restURI, class, prop, indexName string) {
 
 // getHitsWithLessThan runs a GraphQL Get query with a LessThan filter on
 // a numeric property and returns the number of returned objects.
-// LessThan on int/number/date is served by the rangeable bucket, so a
+// LessThan on int/number/date is served by the rangeFilters bucket, so a
 // non-zero hit count post-migration verifies the bucket has been
 // populated.
 func getHitsWithLessThan(t *testing.T, restURI, collection, propName string, lessThan int) int {

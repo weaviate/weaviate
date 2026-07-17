@@ -135,8 +135,8 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 	// so this task goes through PREPARING -> SWAPPING -> FINISHED
 	// instead of the legacy single-callback STARTED -> FINALIZING ->
 	// FINISHED path.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted change-tokenization task: %s", taskID)
 
 	// Poll task status at fast cadence and collect every distinct

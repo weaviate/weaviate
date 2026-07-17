@@ -12,7 +12,6 @@
 package reindex_singlenode
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -97,7 +96,7 @@ func testCancelThenRetrySearchable(t *testing.T, restURI string) {
 		}))
 	}
 
-	requestBody := `{"searchable":{"enabled":true,"tokenization":"word"}}`
+	requestBody := `{"tokenization":"word"}`
 
 	// Step 1: submit and cancel.
 	cancelInFlightOrSkip(t, restURI, class, "body", "searchable", requestBody)
@@ -105,7 +104,7 @@ func testCancelThenRetrySearchable(t *testing.T, restURI string) {
 	// Step 2: re-submit. Crux of the test — without cleanup of started.mig,
 	// the partial reindex/ingest sidecars, and the progress tracker, this
 	// either fails loudly or worse, "succeeds" with an empty bucket.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body", requestBody)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable", requestBody)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "body")
 
@@ -138,11 +137,11 @@ func testCancelThenRetryFilterable(t *testing.T, restURI string) {
 		}))
 	}
 
-	requestBody := `{"filterable":{"enabled":true}}`
+	requestBody := `{}`
 
 	cancelInFlightOrSkip(t, restURI, class, "name", "filterable", requestBody)
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name", requestBody)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable", requestBody)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireFilterableEnabled(t, class, "name")
 
@@ -178,11 +177,11 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 		}))
 	}
 
-	requestBody := `{"rangeable":{"enabled":true}}`
+	requestBody := `{}`
 
 	cancelInFlightOrSkip(t, restURI, class, "score", "rangeable", requestBody)
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score", requestBody)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "score", "rangeFilters", requestBody)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireRangeableEnabled(t, class, "score")
 
@@ -194,19 +193,25 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 		expected, hits)
 }
 
-// cancelInFlightOrSkip submits an index update, polls /indexes until the
-// task shows pending/indexing, then issues cancel. If the cancel races
-// with task completion (404), the sub-test is logged as fast-completed and
-// the caller falls through to the retry submit — which still exercises a
-// useful adjacent path (re-submit after a same-shape FINISHED task) even
-// though it's not the bug we're after.
+// cancelInFlightOrSkip submits an index upsert, polls /indexes until the
+// task shows pending/indexing, then POSTs the GA cancel sub-resource. The
+// cancel is idempotent and always returns 202; the response status
+// distinguishes a real cancel (CANCELLED) from a raced completion (NO_OP:
+// no STARTED task remained). On a raced completion the caller falls through
+// to the retry submit — which still exercises a useful adjacent path
+// (re-submit after a same-shape FINISHED task) even though it's not the bug
+// we're after.
+//
+// indexType is the test-local label ("searchable"/"filterable"/"rangeable");
+// it is mapped to the canonical GA URL segment before every request.
 //
 // Returns true if cancel actually landed, false if the task finished before
 // we could cancel.
 func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, requestBody string) bool {
 	t.Helper()
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, prop, requestBody)
+	it := canonicalIndexType(indexType)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, prop, it, requestBody)
 	t.Logf("submitted first task %s for cancel", taskID)
 
 	// Wait until the task is observable as pending/indexing on /indexes.
@@ -219,7 +224,7 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 				continue
 			}
 			for _, idx := range p.Indexes {
-				if idx.Type == indexType && (idx.Status == "indexing" || idx.Status == "pending") {
+				if idx.Type == it && (idx.Status == "indexing" || idx.Status == "pending") {
 					return true
 				}
 			}
@@ -228,22 +233,18 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 	}, 30*time.Second, 50*time.Millisecond,
 		"task did not appear as indexing/pending before cancel")
 
-	// Issue cancel.
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, class, prop)
-	body := buildCancelBody(indexType)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(body)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	respBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	// Issue cancel via POST .../index/{indexType}/cancel. Always 202; the
+	// body's status distinguishes a real cancel (CANCELLED) from a raced
+	// completion (NO_OP).
+	resp := reindexhelpers.CancelIndexRaw(t, restURI, class, prop, it)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"cancel must return 202; got %d body: %s", resp.StatusCode, resp.Body)
 
-	switch resp.StatusCode {
-	case http.StatusAccepted:
-		var result map[string]string
-		require.NoError(t, json.Unmarshal(respBody, &result))
-		require.Equal(t, "CANCELLED", result["status"])
+	var result map[string]string
+	require.NoError(t, json.Unmarshal([]byte(resp.Body), &result))
+
+	switch result["status"] {
+	case "CANCELLED":
 		require.Equal(t, taskID, result["taskId"])
 
 		// Wait for the task to reach a terminal CANCELLED/FAILED state in
@@ -273,10 +274,11 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 		t.Logf("first task %s reached terminal state after cancel", taskID)
 		return true
 
-	case http.StatusNotFound:
-		// Cancel raced with task completion. Wait for the now-finished
-		// task to be observable as FINISHED so the retry doesn't 409.
-		t.Logf("cancel raced with completion of task %s; waiting for FINISHED", taskID)
+	case "NO_OP":
+		// Cancel raced with task completion: no STARTED task remained to
+		// cancel. Wait for the now-finished task to be observable as
+		// terminal so the retry doesn't 409.
+		t.Logf("cancel raced with completion of task %s; waiting for a terminal state", taskID)
 		require.Eventually(t, func() bool {
 			tasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 			if err != nil {
@@ -298,23 +300,19 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 		return false
 
 	default:
-		t.Fatalf("unexpected status %d cancelling task %s: %s", resp.StatusCode, taskID, string(respBody))
+		t.Fatalf("unexpected cancel status %q for task %s: %s", result["status"], taskID, resp.Body)
 		return false
 	}
 }
 
-// buildCancelBody returns the cancel JSON body for a given index type. The
-// API expects the same shape as the enable body, but with cancel:true.
-func buildCancelBody(indexType string) string {
-	switch indexType {
-	case "searchable":
-		return `{"searchable":{"cancel":true}}`
-	case "filterable":
-		return `{"filterable":{"cancel":true}}`
-	case "rangeable":
-		return `{"rangeable":{"cancel":true}}`
+// canonicalIndexType maps the test-local index-type label to the GA URL
+// segment: "rangeable" → "rangeFilters"; "searchable" / "filterable" are
+// already canonical.
+func canonicalIndexType(indexType string) string {
+	if indexType == "rangeable" {
+		return "rangeFilters"
 	}
-	return ""
+	return indexType
 }
 
 // TestSuppress ensures this file compiles in isolation. The actual entry

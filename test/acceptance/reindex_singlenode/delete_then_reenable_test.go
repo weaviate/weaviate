@@ -75,8 +75,8 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 
 	// Step 1: first enable via the reindex API — lays down the
 	// .migrations/enable_searchable_body/ tidied sentinel on disk.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
-		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "body")
 	require.GreaterOrEqual(t, bm25Hits(t, class, "fox"), 3,
@@ -89,8 +89,8 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 	// sentinel from step 1 survived the DELETE, OnAfterLsmInitAsync
 	// will short-circuit on rt.IsTidied()=true and re-flip the schema
 	// flag while the freshly-removed bucket stays empty.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
-		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "body")
 
@@ -117,8 +117,8 @@ func testDeleteThenReEnableFilterable(t *testing.T, restURI string) {
 		}))
 	}
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireFilterableEnabled(t, class, "name")
 	require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha"),
@@ -126,8 +126,8 @@ func testDeleteThenReEnableFilterable(t *testing.T, restURI string) {
 
 	deleteIndex(t, restURI, class, "name", "filterable")
 
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"enabled":true}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireFilterableEnabled(t, class, "name")
 
@@ -154,8 +154,8 @@ func testDeleteThenReEnableRangeable(t *testing.T, restURI string) {
 		}))
 	}
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
-		`{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "score", "rangeFilters",
+		`{}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireRangeableEnabled(t, class, "score")
 	require.Equal(t, 2, rangeFilterHits(t, class, "score", 30),
@@ -163,8 +163,8 @@ func testDeleteThenReEnableRangeable(t *testing.T, restURI string) {
 
 	deleteIndex(t, restURI, class, "score", "rangeFilters")
 
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
-		`{"rangeable":{"enabled":true}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "score", "rangeFilters",
+		`{}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireRangeableEnabled(t, class, "score")
 
@@ -174,8 +174,9 @@ func testDeleteThenReEnableRangeable(t *testing.T, restURI string) {
 }
 
 // deleteIndex calls DELETE /v1/schema/{class}/properties/{prop}/index/{indexName}.
-// indexName values: "filterable", "searchable", "rangeFilters" (the URL spelling;
-// the GET-response field is "rangeable" instead — distinct from the URL segment).
+// indexName values: "filterable", "searchable", "rangeFilters" — the same
+// canonical spelling the GA GET /indexes response now reports in its `type`
+// field (the pre-GA API used "rangeable" there instead).
 func deleteIndex(t *testing.T, restURI, class, prop, indexName string) {
 	t.Helper()
 	url := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/%s",

@@ -146,6 +146,15 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testReindexAPIValidation(t, restURI)
 	})
 
+	// --- Subtest 8b: GA API surface contract ---
+	// Pins the v1.39 GA surface: declarative-upsert idempotency (200 NO_OP),
+	// the rangeable→rangeFilters write-path alias + canonical status output,
+	// the POST rebuild / cancel sub-resources, and the removal of the old
+	// Preview PUT /indexes/{prop} route. Cheap: small dataset, no long waits.
+	t.Run("GAApiSurface", func(t *testing.T) {
+		testGAApiSurface(t, restURI)
+	})
+
 	// --- Subtest 9: Cancel verb ---
 	t.Run("CancelReindex", func(t *testing.T) {
 		testCancelReindex(t, restURI)
@@ -318,7 +327,7 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 // Shared helpers
 // =============================================================================
 //
-// HTTP-level reindex helpers (SubmitIndexUpdate, AwaitReindexFinished, etc.)
+// HTTP-level reindex helpers (SubmitIndexUpsert, AwaitReindexFinished, etc.)
 // live in test/acceptance/helpers/reindex and are used as
 // `reindexhelpers.XYZ`. The helpers below are package-local because they
 // reach into single-node–specific surfaces (LSM directory listing on a

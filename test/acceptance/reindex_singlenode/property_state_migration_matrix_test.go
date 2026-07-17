@@ -18,7 +18,9 @@ package reindex_singlenode
 //  2. property pre-state (the meaningful combinations of IndexFilterable /
 //     IndexSearchable / IndexRangeFilters / Tokenization that the schema
 //     manager accepts for that data type), and
-//  3. PUT /v1/schema/{class}/indexes/{prop} request body shape.
+//  3. the GA request shape: PUT
+//     /v1/schema/{class}/properties/{prop}/index/{indexType} with a
+//     declarative body, or a POST .../rebuild sub-resource.
 //
 // For every cell the test asserts a small set of *structural* invariants —
 // the things we never want the server to do regardless of input:
@@ -44,9 +46,13 @@ package reindex_singlenode
 //     wide combinatorial sweep is cheaper than discovering it in
 //     production.
 //
-//   - **No silent 202 on a no-op body.** A body that does not name any
-//     verb (`{"searchable":{"enabled":false}}` etc.) must 4xx — it must
-//     never be silently accepted as a no-op.
+//   - **No silent 202 on an already-satisfied request.** A declarative
+//     upsert whose desired configuration already holds (already enabled,
+//     tokenization already the target, already blockmax) must return 200
+//     with body `{"status":"NO_OP"}` and spawn no task. Pre-GA this was a
+//     400; GA makes it an idempotent 200. A 202 that spawns a no-op reindex
+//     task, or a 200 without the NO_OP status, is the regression pinned
+//     here.
 //
 // The matrix does NOT try to encode the precise validation rules from
 // handlers_reindex.go (which tokenization is rejected, which body shape
@@ -86,7 +92,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
@@ -238,48 +243,84 @@ func matrixPreStatesForSpecial() []matrixPreState {
 	}
 }
 
-// matrixBody describes one PUT body shape.
+// matrixBody describes one GA request: the URL index segment, the verb
+// (declarative PUT upsert, or a POST rebuild/cancel sub-resource), and the
+// PUT body. For the two robustness rows (empty / malformed body) `body`
+// carries the raw bytes sent to the PUT.
 type matrixBody struct {
-	name string
-	body string
+	name      string
+	indexType string // "searchable" / "filterable" / "rangeFilters"
+	verb      string // "put" (declarative upsert), "rebuild", "cancel"
+	body      string // PUT upsert body; ignored for rebuild / cancel
 }
 
-// matrixBodies enumerates the body shapes covered by the test. The set is
-// deliberately compact: every shape exercises a distinct dispatcher arm.
+// matrixBodies enumerates the GA request shapes covered by the test. Each
+// shape exercises a distinct dispatcher arm. Under the GA API the index group
+// moved from the request body into the URL segment (indexType) and the verb
+// became either a declarative PUT body (empty = create, tokenization,
+// algorithm) or a POST .../rebuild sub-resource. The set is deliberately
+// compact.
+//
+// Note on the pre-GA "enabled:false" / "no-verb" rows: those tested rejection
+// of a grouped body that named no actionable verb. The GA body has no
+// `enabled` field (disable is DELETE, not PUT) and an empty body {} is itself
+// the create verb, so those rows have no GA analogue; the empty-body probes
+// below cover the "no config supplied" surface instead, and the
+// already-satisfied → 200 NO_OP invariant (below) covers "must not spawn a
+// no-op task".
 func matrixBodies() []matrixBody {
 	return []matrixBody{
 		// canonical enable-searchable, two tokenizations to exercise both
 		// the "matches stored tok" and "diverges from stored tok" branches
-		// of validateEnableSearchableProperty.
-		{"PUT_searchable_enabled_tok_word", `{"searchable":{"enabled":true,"tokenization":"word"}}`},
-		{"PUT_searchable_enabled_tok_field", `{"searchable":{"enabled":true,"tokenization":"field"}}`},
-		// searchable.enabled=false — not a verb; users try because of the
-		// natural inversion of enabled:true. Must 4xx, not silently 202.
-		{"PUT_searchable_enabled_false", `{"searchable":{"enabled":false}}`},
-		// change-tokenization on searchable. Exercises both
-		// validateTokenizationChange and the early reject for
-		// filterable-only properties.
-		{"PUT_searchable_tokenization_word", `{"searchable":{"tokenization":"word"}}`},
-		{"PUT_searchable_tokenization_field", `{"searchable":{"tokenization":"field"}}`},
-		// searchable algorithm switch (Map → BlockMax).
-		{"PUT_searchable_algorithm_blockmax", `{"searchable":{"algorithm":"blockmax"}}`},
-		// canonical enable-filterable.
-		{"PUT_filterable_enabled", `{"filterable":{"enabled":true}}`},
-		{"PUT_filterable_enabled_false", `{"filterable":{"enabled":false}}`},
+		// of the searchable upsert resolver.
+		{"PUT_searchable_enabled_tok_word", "searchable", "put", `{"tokenization":"word"}`},
+		{"PUT_searchable_enabled_tok_field", "searchable", "put", `{"tokenization":"field"}`},
+		// change-tokenization on searchable. Same GA shape as the enable
+		// rows above (tokenization drives both create and retokenize); the
+		// resolver picks create vs retokenize from the property's state.
+		{"PUT_searchable_tokenization_word", "searchable", "put", `{"tokenization":"word"}`},
+		{"PUT_searchable_tokenization_field", "searchable", "put", `{"tokenization":"field"}`},
+		// searchable algorithm switch (Map/WAND → BlockMax).
+		{"PUT_searchable_algorithm_blockmax", "searchable", "put", `{"algorithm":"blockmax"}`},
+		// empty searchable body: "ensure the searchable index exists with
+		// its current config" — 400 when none exists (tokenization required),
+		// 200 NO_OP when it already does.
+		{"PUT_searchable_empty", "searchable", "put", `{}`},
+		// canonical enable-filterable (empty body = create).
+		{"PUT_filterable_enabled", "filterable", "put", `{}`},
 		// change-tokenization on filterable (the verb that used to be
 		// silently dropped; pinning that it remains a real verb).
-		{"PUT_filterable_tokenization_field", `{"filterable":{"tokenization":"field"}}`},
+		{"PUT_filterable_tokenization_field", "filterable", "put", `{"tokenization":"field"}`},
 		// repair-filterable.
-		{"PUT_filterable_rebuild", `{"filterable":{"rebuild":true}}`},
+		{"PUT_filterable_rebuild", "filterable", "rebuild", ``},
 		// enable / repair rangeable.
-		{"PUT_rangeable_enabled", `{"rangeable":{"enabled":true}}`},
-		{"PUT_rangeable_rebuild", `{"rangeable":{"rebuild":true}}`},
-		// no-verb body — must 4xx.
-		{"PUT_no_verb", `{}`},
-		// truly empty body — handled by go-swagger, expected 4xx.
-		{"PUT_empty_body", ``},
-		// malformed JSON — handler must 4xx, not 500.
-		{"PUT_malformed_json", `{"searchable":`},
+		{"PUT_rangeable_enabled", "rangeFilters", "put", `{}`},
+		{"PUT_rangeable_rebuild", "rangeFilters", "rebuild", ``},
+		// truly empty HTTP body — the handler treats a nil body as an empty
+		// upsert request; must not 5xx.
+		{"PUT_empty_body", "searchable", "put", ``},
+		// malformed JSON — the body binder must 4xx, not 500.
+		{"PUT_malformed_json", "searchable", "put", `{"tokenization":`},
+	}
+}
+
+// issueMatrixRequest issues the GA request described by mb against
+// (className, propName) via the shared reindex helpers and returns the raw
+// status + body. PUT rows (including the empty / malformed robustness rows)
+// go through SubmitIndexUpsertRaw; rebuild / cancel rows POST the matching
+// sub-resource.
+func issueMatrixRequest(t *testing.T, restURI, className, propName string, mb matrixBody) (int, []byte) {
+	t.Helper()
+	switch mb.verb {
+	case "rebuild":
+		r := reindexhelpers.RebuildIndexRaw(t, restURI, className, propName, mb.indexType)
+		return r.StatusCode, []byte(r.Body)
+	case "cancel":
+		r := reindexhelpers.CancelIndexRaw(t, restURI, className, propName, mb.indexType)
+		return r.StatusCode, []byte(r.Body)
+	default: // "put" — declarative upsert
+		r := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, propName, mb.indexType, mb.body)
+		return r.StatusCode, []byte(r.Body)
 	}
 }
 
@@ -393,7 +434,8 @@ func testPropertyStateMigrationMatrix(t *testing.T, restURI string) {
 			}
 			buckets[o.bodyShape]++
 			switch o.bodyShape {
-			case "5xx-panic", "202-finished-empty", "4xx-empty", "4xx-unstructured", "202-failed", "202-no-finish":
+			case "5xx-panic", "202-finished-empty", "4xx-empty", "4xx-unstructured", "202-failed", "202-no-finish",
+				"200-not-noop", "200-malformed", "202-malformed", "202-no-taskid", "202-cancelled-unexpected", "202-finished-no-flag-flip":
 				redLines = append(redLines, fmt.Sprintf("  %s: shape=%s status=%d message=%s",
 					o.name, o.bodyShape, o.status, truncate(o.gotMessage, 200)))
 			}
@@ -505,51 +547,61 @@ func runMatrixCell(t *testing.T, restURI string, dt matrixDataType, ps matrixPre
 		}
 	}
 
-	// Send the PUT.
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
-	var reqBody io.Reader
-	if mb.body != "" {
-		reqBody = bytes.NewReader([]byte(mb.body))
-	}
-	req, err := http.NewRequest(http.MethodPut, url, reqBody)
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	respBytes, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	// Issue the GA request described by this matrix body.
+	statusCode, respBytes := issueMatrixRequest(t, restURI, className, propName, mb)
 	respBody := string(respBytes)
 
-	out.status = resp.StatusCode
+	out.status = statusCode
 	out.gotMessage = respBody
 
 	// ---- Structural invariant 1: no 5xx. ----
-	if resp.StatusCode >= 500 {
+	if statusCode >= 500 {
 		out.bodyShape = "5xx-panic"
-		t.Errorf("STRUCTURAL BUG (5xx): status=%d body=%s", resp.StatusCode, truncate(respBody, 400))
+		t.Errorf("STRUCTURAL BUG (5xx): status=%d body=%s", statusCode, truncate(respBody, 400))
 		return
 	}
 
 	// ---- 4xx path ----
-	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+	if statusCode >= 400 && statusCode < 500 {
 		shape, msg := classify4xxBody(respBody)
 		out.bodyShape = shape
 		out.gotMessage = msg
 		switch shape {
 		case "4xx-empty":
 			t.Errorf("STRUCTURAL BUG (4xx with empty body): status=%d body=%q",
-				resp.StatusCode, respBody)
+				statusCode, respBody)
 		case "4xx-unstructured":
 			t.Errorf("STRUCTURAL BUG (4xx body not in any recognised error envelope): status=%d body=%s",
-				resp.StatusCode, truncate(respBody, 400))
+				statusCode, truncate(respBody, 400))
 		case "4xx-clear":
 			// good — fall through.
 		}
 		return
 	}
 
+	// ---- 200 NO_OP path (declarative upsert already in the desired state) ----
+	// Pre-GA this returned 400 ("already enabled" / "already at tokenization
+	// X" / "already blockmax"); GA returns 200 with {"status":"NO_OP"} and
+	// spawns no task. A 200 without that status, or a 202 that spawns a no-op
+	// task for an already-satisfied request, is the regression we pin here.
+	if statusCode == http.StatusOK {
+		var bodyJSON map[string]string
+		if err := json.Unmarshal(respBytes, &bodyJSON); err != nil {
+			out.bodyShape = "200-malformed"
+			t.Errorf("STRUCTURAL BUG (200 with malformed body): %v body=%s", err, truncate(respBody, 400))
+			return
+		}
+		if bodyJSON["status"] != "NO_OP" {
+			out.bodyShape = "200-not-noop"
+			t.Errorf("STRUCTURAL BUG (200 without NO_OP status): body=%s", truncate(respBody, 400))
+			return
+		}
+		out.bodyShape = "200-noop"
+		return
+	}
+
 	// ---- 202 path ----
-	if resp.StatusCode == http.StatusAccepted {
+	if statusCode == http.StatusAccepted {
 		var bodyJSON map[string]string
 		if err := json.Unmarshal(respBytes, &bodyJSON); err != nil {
 			out.bodyShape = "202-malformed"
@@ -604,8 +656,8 @@ func runMatrixCell(t *testing.T, restURI string, dt matrixDataType, ps matrixPre
 	}
 
 	// Anything else — 1xx, 3xx, etc. — is unexpected.
-	out.bodyShape = fmt.Sprintf("unexpected-status-%d", resp.StatusCode)
-	t.Errorf("unexpected HTTP status %d; body=%s", resp.StatusCode, truncate(respBody, 400))
+	out.bodyShape = fmt.Sprintf("unexpected-status-%d", statusCode)
+	t.Errorf("unexpected HTTP status %d; body=%s", statusCode, truncate(respBody, 400))
 }
 
 // classify4xxBody returns ("4xx-clear", message) when the body contains a

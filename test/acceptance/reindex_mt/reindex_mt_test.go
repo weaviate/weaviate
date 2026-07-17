@@ -136,7 +136,7 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 	}
 
 	// Submit repair-searchable (no tenants param → all tenants).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable", `{"algorithm":"blockmax"}`)
 	t.Logf("repair all tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -179,8 +179,8 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 
 	// Repair only t1 and t2 via enable-rangeable on the int property.
 	targetTenants := []string{"t1", "t2"}
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`, reindexhelpers.WithTenants(targetTenants))
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score",
+		"rangeFilters", `{}`, reindexhelpers.WithTenants(targetTenants))
 	t.Logf("repair specific tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -242,8 +242,8 @@ func testChangeTokenizationMT(t *testing.T, restURI string) {
 	}
 
 	// Change tokenization to field (must target all tenants).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "filepath",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "filepath",
+		"searchable", `{"tokenization":"field"}`)
 	t.Logf("change tokenization MT task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -343,8 +343,8 @@ func testEnableRangeableMT(t *testing.T, restURI string) {
 	}
 
 	// Enable rangeable.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score",
+		"rangeFilters", `{}`)
 	t.Logf("enable rangeable MT task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -409,8 +409,8 @@ func testValidation(t *testing.T, restURI string) {
 	}
 
 	t.Run("NonMT_with_tenants", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, nonMTClass, "text",
-			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"t1"}))
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, nonMTClass, "text",
+			"searchable", `{"algorithm":"blockmax"}`, reindexhelpers.WithTenants([]string{"t1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"non-MT class with tenants should reject as 400: %s", got.Body)
 	})
@@ -431,22 +431,22 @@ func testValidation(t *testing.T, restURI string) {
 	}
 
 	t.Run("ChangeTokenization_with_tenants", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
-			`{"searchable":{"tokenization":"field"}}`, reindexhelpers.WithTenants([]string{"active1"}))
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "text",
+			"searchable", `{"tokenization":"field"}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-tokenization should reject as 400: %s", got.Body)
 	})
 
 	t.Run("ChangeAlgorithm_with_tenants", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
-			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"active1"}))
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "text",
+			"searchable", `{"algorithm":"blockmax"}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-algorithm should reject as 400: %s", got.Body)
 	})
 
 	t.Run("Nonexistent_tenant", func(t *testing.T) {
-		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
-			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"does_not_exist"}))
+		got := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, mtClass, "text",
+			"searchable", `{"algorithm":"blockmax"}`, reindexhelpers.WithTenants([]string{"does_not_exist"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"non-existent tenant should reject as 400: %s", got.Body)
 	})

@@ -232,7 +232,7 @@ func runLiveQueryDuringChangeTokenizationCase(
 	var taskID string
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text", indexUpdateJSON)
+			taskID = reindexhelpers.SubmitIndexUpsert(t, compose.GetWeaviateNode(1).URI(), className, "text", indexType, indexUpdateJSON)
 			t.Logf("submitted change-tokenization-%s task: %s", indexType, taskID)
 			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 			require.Eventually(t, func() bool {
@@ -335,16 +335,17 @@ func maxInt(a, b int) int {
 	return b
 }
 
-// buildTokenizationIndexUpdate produces the index-update request body
-// for a change-tokenization migration. Split out of the test body so
-// the assertion logic above stays readable.
+// buildTokenizationIndexUpdate produces the GA declarative-upsert request
+// body for a change-tokenization migration. The verb wrapper is gone in the
+// GA API; the index type is passed as a path segment, so the body is just
+// the property-level fields regardless of whether the index is searchable
+// or filterable. Split out of the test body so the assertion logic above
+// stays readable.
 func buildTokenizationIndexUpdate(t *testing.T, indexType, targetTok string) string {
 	t.Helper()
 	switch indexType {
-	case "searchable":
-		return fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok)
-	case "filterable":
-		return fmt.Sprintf(`{"filterable":{"tokenization":%q}}`, targetTok)
+	case "searchable", "filterable":
+		return fmt.Sprintf(`{"tokenization":%q}`, targetTok)
 	default:
 		t.Fatalf("unsupported indexType %q", indexType)
 		return ""
@@ -455,8 +456,8 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	var taskID string
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
-				className, "text", `{"searchable":{"tokenization":"field"}}`)
+			taskID = reindexhelpers.SubmitIndexUpsert(t, compose.GetWeaviateNode(1).URI(),
+				className, "text", "searchable", `{"tokenization":"field"}`)
 			t.Logf("submitted change-tokenization task: %s", taskID)
 			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 			require.Eventually(t, func() bool {

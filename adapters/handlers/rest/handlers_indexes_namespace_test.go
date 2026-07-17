@@ -26,12 +26,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// TestUpdateIndex_SubmitLockKeyedOnQualifiedClass pins the PUT side of the shared
+// TestUpsertIndex_SubmitLockKeyedOnQualifiedClass pins the PUT side of the shared
 // submit lock: a namespaced short-name caller must lock on the qualified class,
 // the key DeleteClassPropertyIndex uses. The test pre-holds that lock — a
 // correctly-keyed handler blocks; the buggy raw-keyed one takes a different lock
 // and proceeds.
-func TestUpdateIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
+//
+// The lock must be acquired BEFORE the class read (which panics on the nil
+// SchemaManager here); that ordering is what closes the DELETE race.
+func TestUpsertIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 
@@ -50,27 +53,28 @@ func TestUpdateIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 	held := locks.SubmitLockFor("customer1:Movies", "title")
 	held.Lock()
 
-	params := schema.SchemaObjectsIndexesUpdateParams{
+	params := schema.SchemaObjectsIndexUpsertParams{
 		HTTPRequest:  httptest.NewRequest("PUT", "/", nil),
 		ClassName:    "Movies", // short name; qualifies to customer1:Movies
 		PropertyName: "title",
+		IndexName:    "searchable",
 	}
 	principal := &models.Principal{Username: "customer1:u1", Namespace: "customer1"}
 
 	finished := make(chan struct{})
 	// recover swallows the nil-SchemaManager panic so the test binary survives;
-	// the deferred close fires whether updateIndex returns or panics.
+	// the deferred close fires whether upsertIndex returns or panics.
 	go func() {
 		defer func() {
 			_ = recover()
 			close(finished)
 		}()
-		_ = h.updateIndex(params, principal)
+		_ = h.upsertIndex(params, principal)
 	}()
 
 	select {
 	case <-finished:
-		t.Fatal("updateIndex did not block on the qualified-class lock — submit lock is keyed on the raw class name")
+		t.Fatal("upsertIndex did not block on the qualified-class lock — submit lock is keyed on the raw class name")
 	case <-time.After(200 * time.Millisecond):
 	}
 
@@ -79,6 +83,6 @@ func TestUpdateIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 	select {
 	case <-finished:
 	case <-time.After(2 * time.Second):
-		t.Fatal("updateIndex did not proceed after the qualified-class lock was released")
+		t.Fatal("upsertIndex did not proceed after the qualified-class lock was released")
 	}
 }

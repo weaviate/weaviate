@@ -161,8 +161,8 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 
 	// Submit enable-rangeable. We do this via the same handler the demo
 	// hits, so the on-the-wire shape matches the production failure.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURIOf(compose, 1), className, "score",
-		`{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURIOf(compose, 1), className, "score", "rangeFilters",
+		`{}`)
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 
 	// Block until the migration has fully reached FINISHED. We then keep

@@ -12,7 +12,6 @@
 package reindex_singlenode
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -111,8 +110,8 @@ func testChangeTokBothThenDeleteSearchableThenChangeTokFilterable(t *testing.T, 
 	// Step 1: change-tok-both from word → field via {searchable:{tokenization:field}}.
 	// This goes through ReindexTypeChangeTokenization and retokenizes BOTH
 	// buckets.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "searchable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "field")
 
@@ -123,8 +122,8 @@ func testChangeTokBothThenDeleteSearchableThenChangeTokFilterable(t *testing.T, 
 	// the searchable bucket and its migration sentinels gone (or never
 	// having existed if step 1 collapsed them properly), this should
 	// retokenize only the filterable bucket cleanly.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "word")
 
@@ -168,8 +167,8 @@ func testChangeTokFilterableThenDeleteFilterable(t *testing.T, restURI string) {
 	}
 
 	// Step 1: change-tokenization-filterable from field → word.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "word")
 
@@ -237,8 +236,8 @@ func testChangeTokFilterableThenEnableSearchable(t *testing.T, restURI string) {
 	}
 
 	// Step 1: retokenize filterable from field → word.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "word")
 
@@ -247,8 +246,8 @@ func testChangeTokFilterableThenEnableSearchable(t *testing.T, restURI string) {
 	// tokenization differs from the property's current tokenization
 	// when there is a pre-existing filterable index, so we use the
 	// same tokenization the filterable was just changed to.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "name")
 	requireTokenizationEquals(t, class, "name", "word")
@@ -313,8 +312,8 @@ func testChangeTokBothInFlightDeleteOneIndex(t *testing.T, restURI string) {
 	}
 
 	// Step 1: submit change-tok-both.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted change-tok-both task: %s", taskID)
 
 	// Step 2: wait until the task is observable as indexing, then issue
@@ -428,16 +427,16 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 	}))
 
 	// Step 1: field → word.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "word")
 	require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha"),
 		"after first retokenize (word): Equal('alpha') must hit 1")
 
 	// Step 2: word → field.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"field"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "field")
 
@@ -495,14 +494,14 @@ func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string
 	// as ReindexTypeChangeTokenization which targets BOTH searchable
 	// AND filterable. Cancel with the searchable verb (the natural
 	// shape since the submit used the searchable verb).
-	requestBody := `{"searchable":{"tokenization":"field"}}`
+	requestBody := `{"tokenization":"field"}`
 	cancelInFlightOrSkip(t, restURI, class, "name", "searchable", requestBody)
 
 	// Step 2: submit change-tok-filterable. The cancel left state behind
 	// for the filterable side that was being retokenized. If that state
 	// isn't cleaned up, this submit either short-circuits or fails.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "field")
 
@@ -556,8 +555,8 @@ func testChangeTokFilterableEnableSearchableThenChangeTokBoth(t *testing.T, rest
 	}
 
 	// Step 1: retokenize filterable from word → field.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "field")
 	require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha beta"),
@@ -565,8 +564,8 @@ func testChangeTokFilterableEnableSearchableThenChangeTokBoth(t *testing.T, rest
 
 	// Step 2: enable-searchable with matching field tokenization (must
 	// match because validateEnableSearchableProperty rejects mismatch).
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"searchable":{"enabled":true,"tokenization":"field"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "searchable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "name")
 	requireTokenizationEquals(t, class, "name", "field")
@@ -574,8 +573,8 @@ func testChangeTokFilterableEnableSearchableThenChangeTokBoth(t *testing.T, rest
 	// Step 3: change-tok-both from field → word using
 	// {searchable:{tokenization:word}}. This runs ReindexTypeChangeTokenization
 	// which retokenizes BOTH buckets.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireTokenizationEquals(t, class, "name", "word")
 
@@ -661,35 +660,9 @@ func bm25HitsForProp(t *testing.T, class, prop, query string) int {
 	return len(ids)
 }
 
-// putRawAndExpectStatus issues a PUT request and asserts that the status
-// code is one of the acceptable values. Used in race-y scenarios where
-// either a 4xx (rejected) or a 2xx (raced-through) is acceptable but a
-// 5xx (corruption) is not. Currently unused; kept as a hook for race
-// scenario expansion.
-func putRawAndExpectStatus(t *testing.T, url, jsonBody string, allowed ...int) (int, []byte) {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	for _, ok := range allowed {
-		if resp.StatusCode == ok {
-			return resp.StatusCode, body
-		}
-	}
-	t.Fatalf("unexpected status %d (not in %v); body=%s", resp.StatusCode, allowed, string(body))
-	return resp.StatusCode, body
-}
-
 // TestSuppress_ChangeTokDeleteJourneys ensures this file compiles in
 // isolation. The suite entry point is the t.Run("ChangeTokDeleteJourneys")
 // in suite_test.go.
 func TestSuppress_ChangeTokDeleteJourneys(t *testing.T) {
 	assert.NotNil(t, testChangeTokDeleteJourneys)
-	// Silence unused warnings for helpers that are kept for future
-	// expansion of the journey class.
-	_ = putRawAndExpectStatus
 }
