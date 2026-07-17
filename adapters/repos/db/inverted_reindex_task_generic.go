@@ -780,29 +780,21 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 // completeMigrationOnShard runs the strategy's OnMigrationComplete hook
 // and, for every migrating property whose AnalyzerOverlay forces
 // IndexSearchable on, recomputes that property's BM25 prop-length tally
-// from scratch (weaviate/0-weaviate-issues#322). Called from all
-// three OnMigrationComplete call sites - runtimeSwap's happy path, the
-// already-tidied re-trigger branch in OnAfterLsmInitAsync, and the
-// recovery/rehydrate path in finalizeMigrationAfterRecovery - so the tally
-// is recomputed regardless of which path a given shard's migration
-// actually completes through.
+// from scratch (weaviate/0-weaviate-issues#322). Called from all three
+// OnMigrationComplete call sites so the tally is recomputed regardless of
+// which path a shard's migration completes through.
 //
 // Gating on AnalyzerOverlay's ForceSearchable (not the live schema's
-// HasSearchableIndex, and not a hardcoded strategy-type check) targets the
+// HasSearchableIndex or a hardcoded strategy-type check) targets the
 // migration's own from->to index-shape delta: only a strategy that
-// genuinely transitions a property from "not searchable" to "searchable"
-// (currently only EnableSearchableStrategy) ever sets ForceSearchable in
-// its overlay. Every other strategy (EnableFilterableStrategy,
-// FilterableToRangeableStrategy, MapToBlockmaxStrategy,
-// RebuildSearchableStrategy, the retokenize/refresh strategies) leaves a
-// property's searchable-ness unchanged, so this recompute correctly never
-// runs for them - avoiding the exact double-count regression the earlier
-// per-object incremental tally write caused for those migrations.
+// genuinely adds searchable-ness (currently only EnableSearchableStrategy)
+// ever sets it, so every other strategy correctly never re-triggers the
+// recompute - avoiding the double-count regression a per-object
+// incremental tally write caused for those migrations.
 //
 // Idempotent: recomputeSearchableTallyForProp is a full reset-and-rescan,
-// so invoking this from more than one of the three call sites for the same
-// completed migration (e.g. a recovery re-entry) produces the same end
-// state every time.
+// so invoking this from more than one call site for the same completed
+// migration produces the same end state every time.
 func (t *ShardReindexTaskGeneric) completeMigrationOnShard(ctx context.Context, shard ShardLike, props []string) error {
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return err
@@ -1518,17 +1510,12 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	// schema is unchanged; only the analyzer's per-call view is overlaid.
 	schemaOverlay := t.strategy.AnalyzerOverlay(props)
 
-	// concreteShard is used to backfill the null/length sidecar buckets and
-	// the BM25 prop-length tally for pre-existing objects
-	// (weaviate/0-weaviate-issues#322) - see backfillSidecarsForMigration.
-	// Resolved once (not per-object): unwrapShard is a cheap type
-	// assertion, but there is no reason to repeat it per iteration. A nil
+	// concreteShard backfills the null/length sidecar buckets and BM25
+	// tally for pre-existing objects (weaviate/0-weaviate-issues#322) - see
+	// backfillSidecarsForMigration. Resolved once, not per-object. A nil
 	// concreteShard (unsupported shard type) degrades to "sidecar backfill
-	// skipped, value-index backfill unaffected" rather than failing the
-	// whole migration - sidecars are best-effort until proven otherwise
-	// for the LazyLoadShard/tests-only shard type, mirroring the tolerance
-	// pattern OnTaskCompleted's tokenization-overlay-clear already uses for
-	// an unwrap failure.
+	// skipped" rather than failing the whole migration, mirroring
+	// OnTaskCompleted's tolerance pattern for an unwrap failure.
 	concreteShard, unwrapErr := unwrapShard(ctx, shard)
 	if unwrapErr != nil {
 		logger.Warnf("sidecar backfill skipped (shard unwrap failed, value-index backfill unaffected): %v", unwrapErr)
@@ -2833,10 +2820,9 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 				// schema during backfill. It is nil for retokenize / refresh
 				// strategies. See MigrationStrategy.AnalyzerOverlay.
 				//
-				// nilProps (previously discarded here) feeds the sidecar
-				// backfill's null-state entries for properties that are nil
-				// on this object - see backfillSidecarsForMigration and
-				// weaviate/0-weaviate-issues#322.
+				// nilProps feeds the sidecar backfill's null-state entries
+				// for properties that are nil on this object - see
+				// backfillSidecarsForMigration (weaviate/0-weaviate-issues#322).
 				props, nilProps, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
 				if err != nil {
 					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}

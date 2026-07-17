@@ -169,12 +169,10 @@ func (t *JsonShardMetaData) Clear() {
 	t.lockFreeFlush()
 }
 
-// ResetProperty zeroes out the tally (Sum/Count/BucketedData) for a single
-// property, leaving every other property's tally untouched. Used to rebuild
-// one property's tally from scratch (reset, then rescan) without discarding
-// the rest of the shard's BM25 statistics the way Clear() would - see
-// Shard.recomputeSearchableTallyForProp in shard_write_inverted_lsm.go.
-// Does not flush; callers recompute the tally and flush once at the end.
+// ResetProperty zeroes Sum/Count/BucketedData for one property only (unlike
+// Clear()), so a caller can rebuild one property's tally from scratch
+// without discarding the rest. Does not flush - callers recompute then
+// flush once at the end. See Shard.recomputeSearchableTallyForProp.
 func (t *JsonShardMetaData) ResetProperty(propName string) {
 	if t == nil {
 		return
@@ -246,10 +244,9 @@ func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error 
 	return nil
 }
 
-// Removes a value from the tracker. Presence (BucketedData[propName]) is
-// checked BEFORE any mutation, so a "property not found" error never leaves
-// Sum/Count partially decremented - callers can treat the error as a clean
-// no-op on the tracker's state, not a torn write.
+// Removes a value from the tracker. Presence is checked before any
+// mutation, so a "property not found" error is a clean no-op, never a
+// torn write.
 func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) error {
 	if t == nil {
 		return nil
@@ -275,19 +272,13 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 	return nil
 }
 
-// UnTrackPropertyIfPresent is the atomic, single-lock-acquisition
-// counterpart of calling PropertyTally then UnTrackProperty: it checks
-// presence and removes the value within ONE critical section, returning
-// (false, nil) as a clean no-op when propName is not currently tracked
-// (e.g. concurrently removed by ResetProperty) instead of mutating
-// Sum/Count on a property that isn't there. Two separate lock acquisitions
-// (check-then-act) leave a window for ResetProperty to delete the property
-// between the check and the untrack, which would otherwise decrement
-// Sum/Count on now-absent keys before UnTrackProperty's own presence check
-// (on BucketedData) returns its "property not found" error - corrupting
-// the tally instead of leaving it untouched. See
-// untrackMigratingPropLength (inverted_reindex_strategy_enable_searchable.go)
-// for the production caller this closes the race for.
+// UnTrackPropertyIfPresent checks presence and removes the value within ONE
+// critical section, unlike a separate PropertyTally+UnTrackProperty
+// composition, which leaves a TOCTOU window for a concurrent ResetProperty
+// to delete the property between the check and the untrack and corrupt
+// Sum/Count. Returns (false, nil) as a clean no-op when absent. See
+// untrackMigratingPropLength for the production caller this closes the
+// race for.
 func (t *JsonShardMetaData) UnTrackPropertyIfPresent(propName string, value float32) (removed bool, err error) {
 	if t == nil {
 		return false, nil
@@ -311,10 +302,8 @@ func (t *JsonShardMetaData) UnTrackPropertyIfPresent(propName string, value floa
 	return true, nil
 }
 
-// unTrackPropertyLocked performs the Sum/Count/BucketedData decrement
-// shared by UnTrackProperty and UnTrackPropertyIfPresent. Callers must
-// already hold t's lock and have verified propName is present in
-// BucketedData.
+// unTrackPropertyLocked performs the shared decrement. Callers must already
+// hold t's lock and have verified propName is present in BucketedData.
 func (t *JsonShardMetaData) unTrackPropertyLocked(propName string, value float32) {
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1

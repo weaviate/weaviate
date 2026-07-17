@@ -93,65 +93,36 @@ func (s *Shard) writeLengthNullSidecar(name string, docID uint64, writeLength bo
 // backfillSidecarsForMigration writes the null-state / property-length
 // sidecar entries that an enable-* runtime migration's backfill loop would
 // otherwise skip for pre-existing objects (weaviate/0-weaviate-issues#322).
+// Mirrors extendInvertedIndicesLSM's gating logic, restricted to
+// propsInScope - the set of properties THIS migration targets.
 //
-// The migration's backfill (ShardReindexTaskGeneric.OnAfterLsmInitAsync)
-// already computes both `props` and `nilProps` via
-// Shard.AnalyzeObjectForMigrationWithOverlay for every scanned object - the
-// same two return values a normal PutObject write feeds to
-// extendInvertedIndicesLSM / SetPropertyLengths. This mirrors that gating
-// logic (see extendInvertedIndicesLSM above and the legacy
-// ShardInvertedReindexer.handleProperty/handleNilProperty in
-// inverted_reindexer.go), but restricted to `propsInScope` - the set of
-// properties THIS migration targets.
-//
-// Scoping to propsInScope is load-bearing, not cosmetic: `props`/`nilProps`
-// cover every analyzed property on the object, including ones that already
-// had a live index (and were already correctly backfilled at original
-// write time) long before this migration started. Writing null/length for
-// those again is harmless (RoaringSet Add is idempotent). See
+// Scoping to propsInScope is load-bearing, not cosmetic: props/nilProps
+// cover every analyzed property on the object, including ones already
+// correctly backfilled before this migration started. Re-writing
+// null/length for those is harmless (RoaringSet Add is idempotent), but
+// re-tallying BM25 stats for them is not - see
 // TestSidecarBackfill_ScopedToMigratingPropOnly.
 //
-// Null/length buckets are NOT part of the reindex/ingest/backup swap
-// machinery: they are the same live bucket the normal write path uses
-// (addToPropertyLengthIndex / addToPropertyNullIndex below), so writing
-// into them directly during backfill requires no swap/versioning changes
-// and is safe under the existing pause/resume tick boundary (a paused tick
-// always persists lastProcessedKey for exactly the objects it already
-// wrote - see markProgress in OnAfterLsmInitAsync).
+// Null/length buckets are the same live buckets the normal write path
+// uses, so writing into them here needs no swap/versioning changes and is
+// safe under the existing pause/resume tick boundary.
 //
-// The BM25 prop-length tally is deliberately NOT updated here. Do not add a
-// per-object GetPropertyLengthTracker().TrackProperty call to this loop -
-// two invariants this function must preserve make a per-object,
-// per-tick tally write structurally wrong here (weaviate/0-weaviate-issues#322):
-//
-//  1. This function runs for every generic migration through the same
-//     OnAfterLsmInitAsync loop (map->blockmax, RebuildSearchable,
-//     retokenize, ...), not just enable-* migrations. `prop.HasSearchableIndex`
-//     reads true for any property that was ALREADY searchable before this
-//     migration started (map->blockmax on an existing searchable prop,
-//     RebuildSearchable, enable-filterable over an already-searchable
-//     bystander) - those objects were already tallied once at original
-//     PutObject time, so a per-object tally write here would double
-//     Sum/Count for every pre-existing object on any migration that
-//     doesn't newly add searchable-ness.
-//  2. A per-tick cumulative counter increment is not an idempotent
-//     set-add like the null/length RoaringSet writes above. A hard crash
-//     between this function applying a tick's writes and
-//     OnAfterLsmInitAsync's end-of-tick markProgress call, followed by a
-//     resume that replays the same tick, would double-count the tally for
-//     that tick's objects - and without an explicit flush, a crash
-//     immediately after a completed migration would lose the whole
-//     new-prop tally from memory.
+// The BM25 prop-length tally is deliberately NOT updated here. Do not add
+// a per-object TrackProperty call to this loop:
+//  1. This function runs for every generic migration (map->blockmax,
+//     RebuildSearchable, retokenize, ...), not just enable-*.
+//     prop.HasSearchableIndex is true for any property already searchable
+//     before this migration started, so a per-object tally write would
+//     double Sum/Count for those.
+//  2. A per-tick cumulative counter increment is not idempotent like the
+//     RoaringSet writes above - a crash/resume replaying a tick would
+//     double-count, and without an explicit flush a crash right after
+//     migration completion would lose the tally entirely.
 //
 // The tally is instead recomputed once, from scratch, per migrating
-// property that actually adds a searchable index (AnalyzerOverlay's
-// ForceSearchable), after the migration has fully swapped - see
-// ShardReindexTaskGeneric.completeMigrationOnShard and
-// Shard.recomputeSearchableTallyForProp. That recompute is a full
-// reset-and-rescan (same pattern as Migrator.RecountProperties), so it is
-// idempotent under replay by construction and immune to (1) because it
-// only ever runs for a migration whose overlay actually forces searchable
-// on for the target prop.
+// property whose overlay forces IndexSearchable on, after the migration
+// has fully swapped - see ShardReindexTaskGeneric.completeMigrationOnShard
+// and Shard.recomputeSearchableTallyForProp.
 func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Property,
 	nilProps []inverted.NilProperty, propsInScope map[string]struct{},
 ) error {
@@ -190,69 +161,43 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 }
 
 // recomputeSearchableTallyForProp rebuilds the BM25 prop-length tally for a
-// single property from scratch by scanning every object currently on the
-// shard, following the same clear-then-rescan pattern as
-// Migrator.RecountProperties (migrator.go) - the difference being scope:
-// RecountProperties rebuilds the tally for every searchable property on
-// every shard, this rebuilds it for exactly one migrating property on one
-// shard, without disturbing any other property's tally.
+// single property from scratch by scanning every object on the shard,
+// following the same clear-then-rescan pattern as
+// Migrator.RecountProperties, scoped to one property on one shard.
 //
 // Called once, post-swap, by ShardReindexTaskGeneric.completeMigrationOnShard
 // for a property whose migration overlay forces IndexSearchable on
-// (weaviate/0-weaviate-issues#322). `overlay` must be the same
+// (weaviate/0-weaviate-issues#322). overlay must be the same
 // AnalyzerOverlay the migration used, so objects written before the live
 // schema flag flips still analyze with HasSearchableIndex=true for this
-// property - without it every object would appear non-searchable (the live
-// schema flag is flipped separately, cluster-wide, from
-// ReindexProvider.OnTaskCompleted, strictly after every shard's
-// OnMigrationComplete has already run).
+// property.
 //
 // Idempotent by construction: ResetProperty followed by a full rescan
-// produces the same end state regardless of how many times or from how many
-// crash points it is invoked. Flushes the tracker to disk before returning
-// so the recomputed tally survives a crash immediately after this call
-// returns.
+// produces the same end state from any crash point. Flushes the tracker to
+// disk before returning.
 //
-// Flushes the objects bucket's memtable to segments before opening the
-// rescan cursor. CursorOnDisk only ever sees segment-resident data (see
-// lsmkv/cursor_bucket_replace.go), so without this flush any object whose
-// write is still sitting in the active/flushing objects memtable at the
-// moment this function runs would be invisible to the rescan.
+// Flushes the objects bucket's memtable before opening the rescan cursor -
+// CursorOnDisk only sees segment-resident data, so an unflushed write
+// would otherwise be invisible to the rescan.
 //
-// Three windows matter for the migrating prop's tally, and only one of
-// them is a real residual:
+// Three windows matter for the migrating prop's tally, only one a real
+// residual:
 //
-//  1. Any write to the migrating prop that reaches this task's
-//     double-write callbacks (registered before backfill starts,
-//     disabled only after runtimeSwap returns) is tallied incrementally
-//     by EnableSearchableStrategy.MakeAddCallback / MakeDeleteCallback -
-//     see trackMigratingPropLength's godoc for how that stays correct
-//     even though SetPropertyLengths on the normal write path can't see
-//     this prop yet (HasSearchableIndex is still false on the live,
-//     not-yet-flipped schema). This only covers a write that reaches the
-//     callbacks at all: a property with NO other live index (the common
-//     from-scratch enable-searchable starting state) never reaches them
-//     for a brand-new value - Shard.AnalyzeObject gates it out of
-//     analysis entirely before the callback machinery is ever in play.
-//     Window 2 below is what covers that write instead.
-//  2. This function's own flush-then-rescan covers every write that
-//     landed in the objects bucket before the flush, REGARDLESS of
-//     whether window 1's callbacks ever saw it: the rescan re-derives
-//     the migrating prop straight from each object's raw stored JSON via
-//     AnalyzeObjectForMigrationWithOverlay, not through the live write
-//     path's secondary-index bookkeeping. For any write window 1 DID
-//     tally incrementally, ResetProperty first discards that increment,
-//     so the rescan's rebuild is exactly-once, not double-counted.
-//  3. The sole remaining residual is a write racing strictly between this
-//     function's FlushAndSwitch call and its cursor open: window 1's
-//     callback (when it applies) already tallied it incrementally, but
-//     ResetProperty (run before the flush completes its effect on the
-//     cursor's view) drops that increment, and the write is not yet on
-//     disk for the rescan to pick back up either. It is not lost, only
-//     delayed: it lands in the new active memtable, and because every
-//     invocation of this function is idempotent by construction (see
-//     above), any future invocation converges the tally - e.g. a resume
-//     through the recovery path re-entering completeMigrationOnShard.
+//  1. A write reaching this task's double-write callbacks (registered
+//     before backfill, disabled after runtimeSwap) is tallied
+//     incrementally by EnableSearchableStrategy's callbacks - see
+//     trackMigratingPropLength. A property with no other live index never
+//     reaches them for a brand-new value; window 2 covers that write
+//     instead.
+//  2. This function's flush-then-rescan covers every write that landed in
+//     the objects bucket before the flush, regardless of window 1: the
+//     rescan re-derives the value from raw stored JSON, and ResetProperty
+//     first discards any window-1 increment, so the rebuild is
+//     exactly-once.
+//  3. The sole residual is a write racing strictly between the flush and
+//     the cursor open: it lands in the new active memtable, not lost,
+//     only delayed - any future invocation (idempotent) converges the
+//     tally, e.g. a recovery re-entry into completeMigrationOnShard.
 func (s *Shard) recomputeSearchableTallyForProp(ctx context.Context, propName string,
 	overlay map[string]inverted.PropertyOverlay,
 ) error {

@@ -170,9 +170,8 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 	ctx := context.Background()
 	for _, propName := range props {
 		shard.setRangeableLocallyReady(propName, false)
-		// Null/length buckets: an unindexed property has none (shard init
-		// skips it) - see EnableFilterableStrategy.PreReindexHook for why
-		// this must run before the backfill needs them.
+		// Null/length buckets: an unindexed property has none - see
+		// EnableFilterableStrategy.PreReindexHook for why.
 		shard.ensureNullLengthBucketsForMigration(ctx, propName)
 		bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
 		if shard.store.Bucket(bucketName) != nil {
