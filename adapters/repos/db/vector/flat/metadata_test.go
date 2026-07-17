@@ -213,7 +213,11 @@ func Test_RQDataSerialization(t *testing.T) {
 		originalRQ1Data, err := index.serializeRQ1Data()
 		require.Nil(t, err)
 		require.NotNil(t, originalRQ1Data)
-		require.Equal(t, uint32(256), originalRQ1Data.InputDim)
+		// InputDim must be the true (unpadded) vector dimension, not the
+		// internal padded-to-minCodeBits rotation size (256 here). Persisting
+		// the padded value corrupted BinaryRotationalQuantizer.originalDim on
+		// restore (see BinaryRotationalQuantizer.PersistCompression).
+		require.Equal(t, uint32(4), originalRQ1Data.InputDim)
 		require.Greater(t, originalRQ1Data.OutputDim, uint32(0))
 		require.Greater(t, originalRQ1Data.Rounds, uint32(0))
 

@@ -341,6 +341,7 @@ type BinaryRQDistancer struct {
 	cos       float32
 	l2        float32
 	cq        RQMultiBitCode
+	err       error
 }
 
 func (d *BinaryRQDistancer) QueryCode() RQMultiBitCode {
@@ -356,7 +357,7 @@ func (rq *BinaryRotationalQuantizer) NewDistancer(q []float32) *BinaryRQDistance
 	if rq.distancer.Type() == "l2-squared" {
 		l2 = 1.0
 	}
-	return &BinaryRQDistancer{
+	d := &BinaryRQDistancer{
 		query:     q,
 		distancer: rq.distancer,
 		rq:        rq,
@@ -364,6 +365,16 @@ func (rq *BinaryRotationalQuantizer) NewDistancer(q []float32) *BinaryRQDistance
 		l2:        l2,
 		cq:        rq.encodeQuery(q),
 	}
+	if len(q) != int(rq.originalDim) {
+		// Guard against a dimension-mismatched query vector. encodeQuery()
+		// silently rotates/pads q to the (padded) input dimension, so without
+		// this check a wrong-dimension query would otherwise produce a
+		// validly-shaped (but meaningless) compressed code instead of
+		// erroring, mirroring the equivalent guard in
+		// RotationalQuantizer.NewDistancer / ProductQuantizer.NewDistancer.
+		d.err = fmt.Errorf("%w: %d vs %d", distancer.ErrVectorLength, len(q), rq.originalDim)
+	}
+	return d
 }
 
 func HammingDist(x, y []uint64) int {
@@ -385,6 +396,9 @@ func HammingDistSIMD(x, y []uint64) float32 {
 // if-statement to determine whether to use SIMD also comes at a cost.
 // For binary quantization we always use SIMD, so maybe that is the way to go.
 func (d *BinaryRQDistancer) Distance(x []uint64) (float32, error) {
+	if d.err != nil {
+		return 0, d.err
+	}
 	cx := RQOneBitCode(x)
 	bits := cx.Bits()
 	const hammingDistSIMDThreshold = 512
@@ -510,7 +524,12 @@ func (brq *BinaryRotationalQuantizer) ReturnQuantizerDistancer(distancer quantiz
 
 func (brq *BinaryRotationalQuantizer) PersistCompression(logger CommitLogger) {
 	logger.AddBRQCompression(compression.BRQData{
-		InputDim: brq.inputDim,
+		// originalDim (not inputDim, which is padded up to minCodeBits) is the
+		// true configured vector dimension. Persisting the padded value here
+		// corrupted originalDim on restore (RestoreBinaryRotationalQuantizer
+		// derives originalDim from this field), which this method's own Data()
+		// counterpart already gets right.
+		InputDim: brq.originalDim,
 		Rotation: *brq.rotation,
 		Rounding: brq.rounding,
 	})
