@@ -289,12 +289,10 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 	default:
 		// Empty body: ensure the index exists with its current config.
 		if !exists {
-			// validateEnableSearchableProperty("") reports "not a text type"
-			// for ineligible props and "tokenization required" for text ones.
-			if err := validateEnableSearchableProperty(prop, ""); err != nil {
-				return upsertPlan{}, err
-			}
-			return upsertPlan{}, errors.New("tokenization is required when creating a searchable index")
+			// validateEnableSearchableProperty("") always errors — "not a text
+			// type" for ineligible props, "tokenization required" for text
+			// ones — so creating a searchable index always needs a body.
+			return upsertPlan{}, validateEnableSearchableProperty(prop, "")
 		}
 		return upsertPlan{noop: true}, nil
 	}

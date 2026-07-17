@@ -427,12 +427,13 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	}
 
 	h.appState.Logger.WithFields(logrus.Fields{
-		"audit_event": "reindex_task_cancelled",
-		"taskID":      target.ID,
-		"collection":  collection,
-		"property":    propertyName,
-		"index_type":  indexType,
-		"principal":   principalUsername(principal),
+		"audit_event":    "reindex_task_cancelled",
+		"taskID":         target.ID,
+		"collection":     collection,
+		"property":       propertyName,
+		"index_type":     indexType,
+		"migration_type": targetPayload.MigrationType,
+		"principal":      principalUsername(principal),
 	}).Info("reindex provider: cancelled task")
 
 	return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
@@ -559,13 +560,10 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 	return false, false
 }
 
-// normalizeSearchableAlgorithm maps an explicit searchable.algorithm
-// value to its canonical form ("BlockMaxWAND") or "" if unsupported.
-// The reverse direction (BlockMax→WAND) is not supported: the
 // parsedReindexTask pairs a distributed task with its already-unmarshalled
-// reindex payload. The handler builds a slice of these once per request
-// so mergeReindexStatus doesn't re-unmarshal task.Payload N times where
-// N is the number of properties in the collection.
+// reindex payload. The handler builds a slice of these once per request so
+// mergeReindexStatus doesn't re-unmarshal task.Payload N times where N is the
+// number of properties in the collection.
 type parsedReindexTask struct {
 	task    *distributedtask.Task
 	payload db.ReindexTaskPayload
@@ -642,10 +640,12 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// FAILED attempt that the operator just retried (terminal tasks
 	// deliberately do NOT block fresh submits; see checkReindexConflict).
 	// Pick the most useful one to surface rather than first-in-map-order:
-	//   STARTED  > FAILED ≈ CANCELLED       (in-flight beats terminal)
-	//   newer StartedAt > older StartedAt   (within the same priority)
-	// FINISHED was already skipped by parseReindexTasks (the schema flag
-	// flips and the regular "ready" entry takes over).
+	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
+	//   newer StartedAt > older StartedAt          (within the same priority)
+	// FINISHED tasks are KEPT (parseReindexTasks does not drop them): the
+	// TaskStatusFinished branch below uses a recent one to paint the brief
+	// "indexing@100%" finalize window until the schema flag flips, after
+	// which the base "ready" entry takes over.
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
