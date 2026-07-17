@@ -107,8 +107,11 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+		bucket, bucketName, skip, err := resolveScopedDoubleWriteBucket(shard, property,
 			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if err != nil {
+			return err
+		}
 		if skip {
 			return nil
 		}
@@ -144,8 +147,11 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+		bucket, bucketName, skip, err := resolveScopedDoubleWriteBucket(shard, property,
 			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if err != nil {
+			return err
+		}
 		if skip {
 			return nil
 		}

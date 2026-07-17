@@ -12,6 +12,8 @@
 package db
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
@@ -39,19 +41,34 @@ func resolveDoubleWriteBucket(shard *Shard, sidecarName, swapFallbackName string
 // resolveScopedDoubleWriteBucket is the shared prologue for every strategy's
 // double-write callback: scope-filters the property, then resolves the bucket
 // via [resolveDoubleWriteBucket] (forTargetStrategy arms the swap fallback).
-// skip=true means the callback must no-op.
+// skip=true means the callback must no-op. A non-nil error means the target
+// phase resolved neither the sidecar nor its canonical fallback: an
+// unreachable-by-design data-loss state the caller must surface loudly rather
+// than drop the write on (weaviate/0-weaviate-issues#336).
 func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 	propsByName map[string]struct{}, bucketNamer, sourceBucketName func(string) string,
 	forTargetStrategy bool,
-) (bucket *lsmkv.Bucket, bucketName string, skip bool) {
+) (bucket *lsmkv.Bucket, bucketName string, skip bool, err error) {
 	if _, ok := propsByName[property.Name]; !ok {
-		return nil, "", true
+		return nil, "", true, nil
 	}
 	bucketName = bucketNamer(property.Name)
 	var swapFallback string
 	if forTargetStrategy {
 		swapFallback = sourceBucketName(property.Name)
 	}
-	bucket = resolveDoubleWriteBucket(shard, bucketName, swapFallback)
-	return bucket, bucketName, bucket == nil
+	if bucket = resolveDoubleWriteBucket(shard, bucketName, swapFallback); bucket != nil {
+		return bucket, bucketName, false, nil
+	}
+	// Backup phase (no fallback armed): a gone sidecar is the expected
+	// post-swap teardown, so no-op by design.
+	if !forTargetStrategy {
+		return nil, bucketName, true, nil
+	}
+	// Target phase: neither the ingest sidecar nor its canonical fallback
+	// resolves. The healthy atomic swap never produces this, so a silent skip
+	// would hide genuine data loss — fail the write loudly instead.
+	return nil, bucketName, false, fmt.Errorf(
+		"double-write target resolved no bucket for property %q: neither ingest sidecar %q nor canonical fallback %q exists",
+		property.Name, bucketName, swapFallback)
 }
