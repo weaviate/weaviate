@@ -527,4 +527,10 @@ func TestRESTSearchDisabled(t *testing.T) {
 	})
 	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 	assert.Contains(t, errMessage(t, out), "not enabled")
+
+	status, out = postHybrid(t, "Anything", map[string]interface{}{
+		"query": "anything",
+	})
+	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+	assert.Contains(t, errMessage(t, out), "not enabled")
 }
