@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -308,6 +309,20 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
+			// A role can't be upserted into a namespace that's gone or being
+			// deleted. Permission-only upserts re-mint the role row too, so gate
+			// every name regardless of RoleCreation.
+			req := &api.CreateRolesRequest{}
+			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal upsert-roles subcommand: %w", err)
+				return
+			}
+			for name := range req.Roles {
+				if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
+					ret.Error = err
+					return
+				}
+			}
 			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ROLES:
@@ -320,6 +335,18 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
 		f = func() {
+			// A role can't be assigned to a subject in a namespace that's gone or
+			// being deleted; otherwise a late assignment would leave a grouping row
+			// behind after the cleanup cascade has emptied the namespace.
+			req := &api.AddRolesForUsersRequest{}
+			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
+				return
+			}
+			if err := requireNamespaceActive(st.namespaceManager, subjectNamespace(req.User)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.authZManager.AddRolesForUser(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
@@ -470,6 +497,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.MarkTaskFinalized(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.MarkTaskFailed(&cmd)
+		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK:
 		f = func() {
 			ret.Error = st.distributedTasksManager.RecordPostCompletionAck(&cmd)
@@ -480,8 +511,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 
 	default:
-		// This could occur when a new command has been introduced in a later app version
-		// At this point, we need to panic so that the app undergo an upgrade during restart
+		// A command introduced by a newer app version. Log and no-op rather than
+		// panic: a crash would wedge the FSM on every unknown entry during a
+		// rolling upgrade. The applied index still advances, so the node stays
+		// consistent and skips the command's effect until it upgrades.
 		const msg = "consider upgrading to newer version"
 		st.log.WithFields(logrus.Fields{
 			"type":  cmd.Type,

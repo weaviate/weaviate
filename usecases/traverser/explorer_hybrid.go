@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
@@ -240,7 +239,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: -1,
 	}
 
-	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, params.HybridSearch.TargetVectors)
+	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass, params.ClassName, params.HybridSearch.TargetVectors)
 	if err != nil {
 		return nil, err
 	}
@@ -283,8 +282,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
 				errorText = "nearVectorSubSearch"
 			} else {
-				sch := e.schemaGetter.GetSchemaSkipAuth()
-				class := sch.FindClassByName(schema.ClassName(params.ClassName))
+				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
 				if class == nil {
 					return fmt.Errorf("class %q not found", params.ClassName)
 				}

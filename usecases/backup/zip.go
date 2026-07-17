@@ -322,7 +322,10 @@ func (z *zip) WriteRegular(ctx context.Context, sd *entBackup.ShardDescriptor, r
 		return 0, remainingSplitFile, nil
 	}
 
-	if fileSize >= z.bigFileThreshold {
+	// Only immutable files are tracked for incremental dedup. Mutable files can be
+	// rewritten in place without a reliable size+mtime change signal, so they are
+	// re-uploaded on every incremental rather than deduplicated.
+	if fileSize >= z.bigFileThreshold && entBackup.IsImmutableFile(relPath) {
 		sd.TrackBigFileChunk(relPath, fileSize, info.ModTime(), chunkKey)
 	}
 
@@ -410,8 +413,11 @@ func (z *zip) WriteSplitFile(ctx context.Context, sd *entBackup.ShardDescriptor,
 	splitFile.AlreadyWritten += amountToWrite
 	preCompressionSize.Add(amountToWrite)
 
-	// Track this chunk key in BigFilesChunk
-	sd.TrackBigFileChunk(splitFile.RelPath, splitFile.FileInfo.Size(), splitFile.FileInfo.ModTime(), chunkKey)
+	// Only immutable files are tracked for incremental dedup; a mutable file rewritten
+	// in place has no reliable size+mtime change signal, so it is re-uploaded every time.
+	if entBackup.IsImmutableFile(splitFile.RelPath) {
+		sd.TrackBigFileChunk(splitFile.RelPath, splitFile.FileInfo.Size(), splitFile.FileInfo.ModTime(), chunkKey)
+	}
 
 	if splitFile.AlreadyWritten < splitFile.FileInfo.Size() {
 		return splitFile, nil

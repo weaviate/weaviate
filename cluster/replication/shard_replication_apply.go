@@ -36,7 +36,11 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 		TransferType:    api.ShardReplicationTransferType(c.TransferType),
 		StartTimeUnixMs: time.Now().UnixMilli(),
 	}
-	return s.writeOpIntoFSM(op, NewShardReplicationStatus(api.REGISTERED))
+	if err := s.validateReplicationAdmission(op); err != nil {
+		return err
+	}
+	s.insertOpIntoFSM(op, NewShardReplicationStatus(api.REGISTERED))
+	return nil
 }
 
 func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorRequest) error {
@@ -59,46 +63,57 @@ func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorReque
 	return nil
 }
 
-// writeOpIntoFSM writes the op with status into the FSM. It *does* not holds the lock onto the maps so the callee must make sure the lock
-// is held
-func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status ShardReplicationOpStatus) error {
-	if _, ok := s.opsByTargetFQDN[op.TargetShard]; ok {
-		// First check the status of the existing op. If it's READY or CANCELLED we can accept a new op
-		if existingOpStatus, ok := s.statusById[op.ID]; ok {
-			if existingOpStatus.GetCurrentState() != api.READY && existingOpStatus.GetCurrentState() != api.CANCELLED {
-				return fmt.Errorf("op %s in targetFQDN: %w", op.UUID, ErrShardAlreadyReplicating)
-			}
+// validateReplicationAdmission runs only on the write path (Restore must not re-validate
+// already-admitted state). Callers must hold s.opsLock.
+func (s *ShardReplicationFSM) validateReplicationAdmission(op ShardReplicationOp) error {
+	if err := s.checkNoConflictingOp(op, s.opsByTargetFQDN[op.TargetShard], "target"); err != nil {
+		return err
+	}
+	if err := s.checkNoConflictingOp(op, s.opsBySourceFQDN[op.SourceShard], "source"); err != nil {
+		return err
+	}
+	return s.checkSourceNotInFlightAsTarget(op)
+}
+
+func (s *ShardReplicationFSM) checkSourceNotInFlightAsTarget(op ShardReplicationOp) error {
+	for _, existingOp := range s.opsByTargetFQDN[op.SourceShard] {
+		status, ok := s.statusById[existingOp.ID]
+		if !ok {
+			return fmt.Errorf("could not find op status for op %d", existingOp.ID)
+		}
+		switch status.GetCurrentState() {
+		case api.READY, api.CANCELLED:
+			// settled target, safe to source from (DEHYDRATING is complete too, but we
+			// err closed and wait for READY rather than reason about the drain boundary)
+		default:
+			return fmt.Errorf("op %s sources replica %s, the in-flight target of op %d: %w", op.UUID, op.SourceShard, existingOp.ID, ErrShardAlreadyReplicating)
 		}
 	}
+	return nil
+}
 
-	if existingOps, ok := s.opsBySourceFQDN[op.SourceShard]; ok {
-		for _, existingOp := range existingOps {
-			// First check the status of the existing op. If it's READY or CANCELLED we can accept a new op
-			// If it's ongoing we need to check if it's a move, in which case we can't accept any new op
-			// Otherwise we can accept a copy if the existing op is also a copy
-			if existingOpStatus, ok := s.statusById[existingOp.ID]; !ok {
-				// This should never happen
-				return fmt.Errorf("could not find op status for op %d", existingOp.ID)
-			} else if existingOpStatus.GetCurrentState() == api.CANCELLED {
-				continue
-			} else if existingOpStatus.GetCurrentState() == api.READY && existingOp.TransferType == api.COPY {
-				continue
-			}
-
-			// If any of the ops we're handling is a move we can't accept any new op
-			if existingOp.TransferType == api.MOVE {
-				return fmt.Errorf("existing op %s is a MOVE: %w", op.UUID, ErrShardAlreadyReplicating)
-			}
-
-			// At this point we know the existing op is a copy, if our new op is a move we can't accept it
-			if op.TransferType == api.MOVE {
-				return fmt.Errorf("existing op %s is a COPY, but new op is a MOVE: %w", op.UUID, ErrShardAlreadyReplicating)
-			}
-
-			// Existing op is an ongoing copy, our new op is also a copy, we can accept it
+func (s *ShardReplicationFSM) checkNoConflictingOp(op ShardReplicationOp, existingOps []ShardReplicationOp, scope string) error {
+	for _, existingOp := range existingOps {
+		status, ok := s.statusById[existingOp.ID]
+		if !ok {
+			return fmt.Errorf("could not find op status for op %d", existingOp.ID)
+		}
+		switch {
+		case status.GetCurrentState() == api.CANCELLED:
+			continue
+		case status.GetCurrentState() == api.READY && existingOp.TransferType == api.COPY:
+			continue
+		case existingOp.TransferType == api.MOVE:
+			return fmt.Errorf("existing op %s shares a %s replica and is a MOVE: %w", op.UUID, scope, ErrShardAlreadyReplicating)
+		case op.TransferType == api.MOVE:
+			return fmt.Errorf("existing op %s shares a %s replica (COPY), but new op is a MOVE: %w", op.UUID, scope, ErrShardAlreadyReplicating)
 		}
 	}
+	return nil
+}
 
+// insertOpIntoFSM inserts op into every in-memory index. Callers must hold s.opsLock.
+func (s *ShardReplicationFSM) insertOpIntoFSM(op ShardReplicationOp, status ShardReplicationOpStatus) {
 	s.idsByUuid[op.UUID] = op.ID
 	s.opsBySource[op.SourceShard.NodeId] = append(s.opsBySource[op.SourceShard.NodeId], op)
 	s.opsByTarget[op.TargetShard.NodeId] = append(s.opsByTarget[op.TargetShard.NodeId], op)
@@ -108,14 +123,12 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	}
 	s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId] = append(s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId], op)
 	s.opsByCollection[op.SourceShard.CollectionId] = append(s.opsByCollection[op.SourceShard.CollectionId], op)
-	s.opsByTargetFQDN[op.TargetShard] = op
+	s.opsByTargetFQDN[op.TargetShard] = append(s.opsByTargetFQDN[op.TargetShard], op)
 	s.opsBySourceFQDN[op.SourceShard] = append(s.opsBySourceFQDN[op.SourceShard], op)
 	s.opsById[op.ID] = op
 	s.statusById[op.ID] = status
 
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
-
-	return nil
 }
 
 func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdateOpStateRequest) error {
@@ -483,6 +496,22 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 		s.opsBySourceFQDN[op.SourceShard] = opsReplace
 	}
 
+	// Unlike opsBySourceFQDN above, delete the target key when its slice empties: a
+	// present key is OR-folded by filterOneReplicaReadWrite, so a lingering empty slice
+	// would read (false,false) instead of falling through to the source check.
+	ops, ok = s.opsByTargetFQDN[op.TargetShard]
+	if !ok {
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by target fqdn, this should not happen"))
+	}
+	opsReplace, ok = findAndDeleteOp(op.ID, ops)
+	if ok {
+		if len(opsReplace) == 0 {
+			delete(s.opsByTargetFQDN, op.TargetShard)
+		} else {
+			s.opsByTargetFQDN[op.TargetShard] = opsReplace
+		}
+	}
+
 	shardOps, ok := s.opsByCollectionAndShard[op.SourceShard.CollectionId]
 	if !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op in ops by collection and shard, this should not happen"))
@@ -505,7 +534,6 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	}
 
 	delete(s.idsByUuid, op.UUID)
-	delete(s.opsByTargetFQDN, op.TargetShard)
 	delete(s.opsById, op.ID)
 	delete(s.statusById, op.ID)
 

@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -156,6 +157,9 @@ func TestFromRPCError_NamespaceSentinels(t *testing.T) {
 		{name: "ErrNamespaceDeleting", send: namespaces.ErrNamespaceDeleting},
 		{name: "ErrNamespaceGone", send: namespaces.ErrNamespaceGone},
 		{name: "ErrNamespaceNotEmpty", send: namespaces.ErrNamespaceNotEmpty},
+		{name: "ErrNamespaceSuspended", send: namespaces.ErrNamespaceSuspended},
+		{name: "ErrCollectionSuspended", send: namespaces.ErrCollectionSuspended},
+		{name: "ErrNamespaceResuming", send: namespaces.ErrNamespaceResuming},
 		{name: "ErrNotFound", send: namespaces.ErrNotFound},
 	}
 	for _, tc := range tests {
@@ -184,6 +188,9 @@ func TestClient_Apply_ReChainsNamespaceSentinels(t *testing.T) {
 		{name: "ErrNamespaceDeleting", send: namespaces.ErrNamespaceDeleting},
 		{name: "ErrNamespaceGone", send: namespaces.ErrNamespaceGone},
 		{name: "ErrNamespaceNotEmpty", send: namespaces.ErrNamespaceNotEmpty},
+		{name: "ErrNamespaceSuspended", send: namespaces.ErrNamespaceSuspended},
+		{name: "ErrCollectionSuspended", send: namespaces.ErrCollectionSuspended},
+		{name: "ErrNamespaceResuming", send: namespaces.ErrNamespaceResuming},
 		{name: "ErrNotFound", send: namespaces.ErrNotFound},
 	}
 	for _, tc := range tests {
@@ -236,4 +243,42 @@ func TestFromRPCError_NotFoundDisambiguation(t *testing.T) {
 	parsed = fromRPCError(toRPCError(namespaces.ErrNotFound))
 	require.ErrorIs(t, parsed, namespaces.ErrNotFound)
 	require.NotErrorIs(t, parsed, schemaUC.ErrNotFound)
+}
+
+// TestFromRPCError_SentinelMessagesMutuallyNonSubstring pins that no
+// FailedPrecondition-arm sentinel message is a substring of another, so
+// fromRPCError's substring re-chain can't chain the wrong sentinel.
+func TestFromRPCError_SentinelMessagesMutuallyNonSubstring(t *testing.T) {
+	sentinels := []struct {
+		name string
+		err  error
+	}{
+		{name: "ErrNamespaceSuspended", err: namespaces.ErrNamespaceSuspended},
+		{name: "ErrCollectionSuspended", err: namespaces.ErrCollectionSuspended},
+		{name: "ErrNamespaceResuming", err: namespaces.ErrNamespaceResuming},
+		{name: "ErrNamespaceDeleting", err: namespaces.ErrNamespaceDeleting},
+		{name: "ErrNamespaceNotEmpty", err: namespaces.ErrNamespaceNotEmpty},
+		{name: "ErrInvalidState", err: namespaces.ErrInvalidState},
+		{name: "ErrInvalidStateTransition", err: namespaces.ErrInvalidStateTransition},
+		{name: "ErrMTDisabled", err: schema.ErrMTDisabled},
+	}
+	for _, a := range sentinels {
+		for _, b := range sentinels {
+			if a.name == b.name {
+				continue
+			}
+			require.NotContains(t, a.err.Error(), b.err.Error(),
+				"%s message must not contain %s message", a.name, b.name)
+		}
+	}
+}
+
+// TestNamespaceResuming_NotRetryable checks ErrNamespaceResuming maps to
+// FailedPrecondition and that code is not in the Apply/Query retry set, so
+// a resuming rejection is never silently retried.
+func TestNamespaceResuming_NotRetryable(t *testing.T) {
+	st, ok := status.FromError(toRPCError(namespaces.ErrNamespaceResuming))
+	require.True(t, ok)
+	require.Equal(t, codes.FailedPrecondition, st.Code())
+	require.NotContains(t, serviceConfig, "FAILED_PRECONDITION")
 }

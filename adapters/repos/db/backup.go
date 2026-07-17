@@ -18,21 +18,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/file"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
-	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type BackupState struct {
@@ -45,14 +43,7 @@ var errShardNoLocalData = errors.New("shard has no local data")
 const (
 	lsmDir        = "lsm"
 	migrationsDir = ".migrations"
-	dbExt         = ".db"
-	bloomExt      = ".bloom"
 	tmpExt        = ".tmp"
-	cnaExt        = ".cna"
-	metadataExt   = ".metadata"
-	condensedExt  = ".condensed"
-	snapshotExt   = ".snapshot"
-	sortedExt     = ".sorted"
 )
 
 // Backupable returns whether all given class can be backed up.
@@ -119,12 +110,11 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				}
 				idx.dropIndex.RLock()
 				defer idx.dropIndex.RUnlock()
-				idx.closeLock.RLock()
-				defer idx.closeLock.RUnlock()
-				if idx.closed {
+				if err := idx.enterRead(); err != nil {
 					desc.Error = fmt.Errorf("index for class %v is closed", c)
 					return
 				}
+				defer idx.exitRead()
 				var classBaseDescr []*backup.ClassDescriptor
 				for _, b := range baseDescrs {
 					classbaseDescrTmp := b.GetClassDescriptor(c)
@@ -168,9 +158,13 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) (err error
 	}()
 
 	idx := db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		// a class deleted mid-backup is unpublished before its drop runs, and that
+		// drop parks on backupLock until this call releases it.
+		idx = db.droppingIndex(indexID(schema.ClassName(class)))
+	}
+
 	if idx != nil {
-		idx.closeLock.RLock()
-		defer idx.closeLock.RUnlock()
 		return idx.ReleaseBackup(ctx, bakID)
 	} else {
 		// index has been deleted in the meantime. Cleanup files that were kept to complete backup
@@ -433,7 +427,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 	for _, relPath := range files {
 		src := filepath.Join(i.Config.RootPath, relPath)
 		dst := filepath.Join(stagingRoot, relPath)
-		if isImmutableFile(relPath) {
+		if backup.IsImmutableFile(relPath) {
 			hardlinks = append(hardlinks, file.HardlinkPair{Src: src, Dst: dst})
 			continue
 		}
@@ -443,8 +437,14 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if err := file.CopyFile(src, dst); err != nil {
-			return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
+		if backup.IsImmutableFile(relPath) {
+			if err := os.Link(src, dst); err != nil {
+				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
+			}
+		} else {
+			if err := file.CopyFile(src, dst); err != nil {
+				return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
+			}
 		}
 	}
 	if err := file.HardlinkFiles(hardlinks); err != nil {
@@ -456,40 +456,6 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 	}
 
 	return nil
-}
-
-// isImmutableFile reports whether a backup file (relative path) is guaranteed
-// never to be modified in place after a COLD/INACTIVE shard is activated.
-// Only these files are safe to hard-link during backup; all other files are
-// copied to avoid post-snapshot corruption from in-place writes.
-func isImmutableFile(relPath string) bool {
-	base := filepath.Base(relPath)
-	ext := filepath.Ext(base)
-
-	// LSM segment data files — written once during flush/compaction, never modified.
-	// Excludes meta*.db (flat index BoltDB, mmap writes) and index.db (dynamic index BoltDB).
-	if ext == dbExt && !strings.HasPrefix(base, "meta") && base != "index.db" {
-		return true
-	}
-	// LSM segment companion files — written once during segment init, never modified.
-	// .bloom = bloom filter, .cna = count net additions, .metadata = combined metadata.
-	if ext == bloomExt || ext == cnaExt || ext == metadataExt {
-		return true
-	}
-	// Condensed HNSW commitlogs — produced by compaction, never reopened for writes.
-	if ext == condensedExt {
-		return true
-	}
-	// HNSW snapshots — point-in-time captures, never modified after creation.
-	if ext == snapshotExt {
-		return true
-	}
-	// Compact-v2 sorted commit-log files — produced by compact.SortedWriter via
-	// SafeFileWriter (atomic rename-in), never reopened for writes.
-	if ext == sortedExt {
-		return true
-	}
-	return false
 }
 
 // descriptorWithoutHardlinks is the fallback path for filesystems that don't support
@@ -692,6 +658,14 @@ func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	})
 
 	i.resetBackupState()
+
+	// Releasing backupLock above unblocks a waiting index.drop(), which shuts the
+	// shard stores down. Resuming their cycles now would be a use-after-drop.
+	if err := i.enterRead(); err != nil {
+		return nil
+	}
+	defer i.exitRead()
+
 	// resumeMaintenanceCycles is still called for safety, but is a no-op since
 	// CreateBackupSnapshot already resumed compaction. Handles edge cases where
 	// a snapshot creation failed mid-way.

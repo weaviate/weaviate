@@ -121,6 +121,9 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
+	StartupShardsLoaded prometheus.Gauge
+	StartupShardsToLoad prometheus.Gauge
+
 	ShardsLoaded    prometheus.Gauge
 	ShardsUnloaded  prometheus.Gauge
 	ShardsLoading   prometheus.Gauge
@@ -224,7 +227,7 @@ func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *HTTPServ
 			Namespace: namespace,
 			Name:      "http_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving requests.",
-			Buckets:   LatencyBuckets,
+			Buckets:   RequestLatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
@@ -270,7 +273,7 @@ func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *GRPCServ
 			Namespace: namespace,
 			Name:      "grpc_server_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving requests.",
-			Buckets:   LatencyBuckets,
+			Buckets:   RequestLatencyBuckets,
 		}, []string{"grpc_service", "method", "status"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
@@ -383,6 +386,12 @@ var (
 	// LatencyBuckets is default histogram bucket for response time (in seconds).
 	// It also includes request that served *very* fast and *very* slow
 	LatencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+
+	// RequestLatencyBuckets prepends sub-ms boundaries (down to 100µs) to
+	// LatencyBuckets for the HTTP/gRPC request-duration histograms, so
+	// histogram_quantile resolves sub-5ms requests instead of collapsing them into
+	// one bucket. Derived from LatencyBuckets so the shared tail can't drift.
+	RequestLatencyBuckets = append([]float64{.0001, .00025, .0005, .001, .0025}, LatencyBuckets...)
 
 	// sizeBuckets defines buckets for request/response body sizes (in bytes).
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
@@ -699,6 +708,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "startup_diskio_throughput",
 			Help: "Disk I/O throuhput in bytes per second",
 		}, []string{"operation", "class_name", "shard_name"}),
+		StartupShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_startup_shards_loaded",
+			Help: "Number of eagerly-loaded local shards that have finished loading during startup",
+		}),
+		StartupShardsToLoad: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_startup_shards_to_load",
+			Help: "Number of local shards expected to load eagerly during startup",
+		}),
 		QueryDimensions: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "query_dimensions_total",
 			Help: "The vector dimensions used by any read-query that involves vectors",
@@ -749,7 +766,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "7oaded",
+			Name: "shards_loaded",
 			Help: "Number of shards loaded",
 		}),
 		ShardsUnloaded: promauto.NewGauge(prometheus.GaugeOpts{

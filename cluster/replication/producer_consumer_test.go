@@ -78,9 +78,6 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
-					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
@@ -122,9 +119,6 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
-					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
-					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
@@ -173,9 +167,6 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
-					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
@@ -216,9 +207,6 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
-					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
@@ -256,9 +244,6 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
-					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
-					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).

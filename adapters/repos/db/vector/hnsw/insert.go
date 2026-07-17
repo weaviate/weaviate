@@ -442,6 +442,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	}
 
 	node.markAsMaintenance()
+	defer node.unmarkAsMaintenance()
 
 	h.RLock()
 	// initially use the "global" entrypoint which is guaranteed to be on the
@@ -505,6 +506,9 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.insertMetrics.findAndConnectTotal(before)
 	before = time.Now()
 
+	// Clear maintenance flag before potential entrypoint promotion.
+	// The defer above handles error paths; this explicit call ensures the node
+	// is unmarked before it can become the global entrypoint.
 	node.unmarkAsMaintenance()
 
 	h.RLock()

@@ -23,6 +23,7 @@ excluded_files=(
     # Diagnostic tools with //go:build ignore, only run manually. Linter false-positive on "go tool pprof" strings.
     "adapters/repos/db/vector/hnsw/compact/diagnostics/e2e_compactor_validation.go"
     "adapters/repos/db/vector/hnsw/compact/diagnostics/e2e_validation.go"
+    "entities/concurrency/testinghelpers/goroutines.go" # test-only helper; bare goroutines keep panics loud in tests
 )
 
 # Check if file is in excluded list

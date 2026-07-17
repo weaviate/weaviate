@@ -201,6 +201,15 @@ func (s *switchReplicationClient) CompareDigests(ctx context.Context, host, inde
 	return s.restClient.CompareDigests(ctx, host, index, shard, digests)
 }
 
+func (s *switchReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	if s.useGRPC() {
+		return s.grpcClient.CompareHashTreeRoots(ctx, host, index, roots)
+	}
+	return s.restClient.CompareHashTreeRoots(ctx, host, index, roots)
+}
+
 func (s *switchReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
 	if s.useGRPC() {
 		return s.grpcClient.CountObjects(ctx, host, index, shard)

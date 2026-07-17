@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -268,6 +269,13 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
+	// dropRequestedCtx is cancelled as soon as a drop of this index is requested,
+	// before the drop starts waiting for dropIndex. Long-running readers holding
+	// dropIndex.RLock (e.g. usage scans) watch it to abort promptly and unblock
+	// the drop.
+	dropRequestedCtx    context.Context
+	signalDropRequested context.CancelFunc
+
 	// The other locks in the index should always be called in the given order to prevent deadlocks:
 	// 1. closeLock
 	// 2. backupLock (for a specific shard)
@@ -319,6 +327,10 @@ type Index struct {
 
 	closed bool
 
+	// inflight counts operations admitted by enterRead. beginClose drains it
+	// instead of holding closeLock across teardown.
+	inflight sync.WaitGroup
+
 	shardReindexer ShardReindexerV3
 
 	router         routerTypes.Router
@@ -348,6 +360,17 @@ func (i *Index) path() string {
 
 func (i *Index) snapshotsPath() string {
 	return path.Join(i.path(), lsmkv.SnapshotsRootDir)
+}
+
+func (i *Index) debugLoggingEnabled() bool {
+	switch logger := i.logger.(type) {
+	case *logrus.Logger:
+		return logger.IsLevelEnabled(logrus.DebugLevel)
+	case *logrus.Entry:
+		return logger.Logger.IsLevelEnabled(logrus.DebugLevel)
+	default:
+		return false
+	}
 }
 
 // NewIndex creates an index with the specified amount of shards, using only
@@ -438,6 +461,7 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
+	index.dropRequestedCtx, index.signalDropRequested = context.WithCancel(context.Background())
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
 	getDeletionStrategy := func() string {
@@ -525,6 +549,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	}
 
 	hotShardNames := make([]string, 0, len(localShards))
+
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
@@ -542,6 +567,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.shards.Store(shardName, lazyShard)
 				return nil
 			default:
+				// avoid footprint of empty shards
+				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
+						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
+						i.shardReindexer, false, i.bitmapBufPool))
+					return nil
+				}
 				// default behavior is to load all shards immediately
 				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
 					return fmt.Errorf("acquiring permit to load shard: %w", err)
@@ -560,7 +592,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				return nil
 			}
 		}, shardName)
-
 	}
 
 	if err := eg.Wait(); err != nil {
@@ -621,6 +652,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	return nil
 }
 
+// unloadedShardIsEmpty reports whether a not-yet-loaded tenant shard has never
+// held any objects, read from the persisted index counter without materializing
+// the shard. The counter is incremented on every write, so it also accounts for
+// data still in an unflushed/reused WAL (unlike segment metadata). On any error it
+// returns false so the shard is loaded normally.
+func (i *Index) unloadedShardIsEmpty(shardName string) bool {
+	count, err := indexcounter.Read(shardPath(i.path(), shardName))
+	return err == nil && count == 0
+}
+
 func (i *Index) loadLocalShardIfActive(shardName string) error {
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
@@ -633,6 +674,10 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 
 	lazyShard, ok := shard.(*LazyLoadShard)
 	if ok {
+		// avoid footprint of empty shards
+		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+			return nil
+		}
 		return lazyShard.Load(context.Background())
 	}
 
@@ -746,7 +791,9 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	i.ForEachShard(func(key string, shard ShardLike) error {
+	// Skip cold shards: they'd only be force-loaded to create empty buckets,
+	// which they build from the refreshed class at their next load anyway.
+	i.ForEachLoadedShard(func(key string, shard ShardLike) error {
 		shard.initPropertyBuckets(ctx, eg, false, props...)
 		return nil
 	})
@@ -922,7 +969,9 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) error {
 	cfg := i.Config.AsyncReplicationConfig
 
-	return i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	// iterate concurrently so one shard's fault can't skip the rest (errors are
+	// accumulated, not first-error abort).
+	return i.ForEachLoadedShardConcurrently(func(name string, shard ShardLike) error {
 		// Stop the per-shard walk if the caller's context (e.g. server
 		// shutdown) was cancelled — the apply below does synchronous disk I/O.
 		if err := ctx.Err(); err != nil {
@@ -939,6 +988,11 @@ func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) e
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
 		} else {
+			// An active target-node override (e.g. in-progress movement) forces async
+			// replication on; don't tear it down (removeTargetNodeOverride handles it).
+			if ctrl.hasActiveAsyncReplicationTargetOverrides() {
+				return nil
+			}
 			if err := ctrl.disableAsyncReplication(ctx); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
@@ -995,11 +1049,10 @@ func (db *DB) ReconcileAsyncReplication(ctx context.Context) error {
 		err := func() error {
 			idx.dropIndex.RLock()
 			defer idx.dropIndex.RUnlock()
-			idx.closeLock.RLock()
-			defer idx.closeLock.RUnlock()
-			if idx.closed {
+			if err := idx.enterRead(); err != nil {
 				return nil // index is shutting down; nothing to reconcile
 			}
+			defer idx.exitRead()
 			return idx.reconcileAsyncReplication(ctx)
 		}()
 		if err != nil {
@@ -1063,6 +1116,7 @@ type IndexConfig struct {
 	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
+	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
@@ -1074,12 +1128,13 @@ type IndexConfig struct {
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
 
-	HNSWMaxLogSize            int64
-	HNSWWaitForCachePrefill   bool
-	HNSWFlatSearchConcurrency int
-	HNSWAcornFilterRatio      float64
-	HNSWGeoIndexEF            int
-	VisitedListPoolMaxSize    int
+	HNSWMaxLogSize               int64
+	HNSWWaitForCachePrefill      bool
+	HNSWFlatSearchConcurrency    int
+	HNSWAcornFilterRatio         float64
+	HNSWGeoIndexEF               int
+	VisitedListPoolMaxSize       int
+	BM25FilterTombMergeGateRatio *configRuntime.DynamicValue[float64]
 
 	QuerySlowLogEnabled        *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold      *configRuntime.DynamicValue[time.Duration]
@@ -2915,12 +2970,10 @@ func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitSh
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	// make sure same shard is not inited in parallel
 	i.shardCreateLocks.Lock(shardName)
@@ -2955,12 +3008,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 }
 
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
@@ -3005,12 +3056,10 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
 	shard ShardLike, release func(), err error,
 ) {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return nil, func() {}, errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return nil, func() {}, err
 	}
+	defer i.exitRead()
 
 	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
 	// the shard
@@ -3217,16 +3266,9 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
-	i.closeLock.Lock()
-	defer i.closeLock.Unlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.beginClose(); err != nil {
+		return err
 	}
-
-	i.closed = true
-
-	i.closingCancel()
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
@@ -3274,7 +3316,16 @@ func (i *Index) drop() error {
 
 	if keepFiles {
 		// backup framework expects the DeleteMarkerAdd-prefixed rename
-		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
+		marker := filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID()))
+		if err := os.Rename(i.path(), marker); err != nil {
+			return err
+		}
+		// drop blocks on backupLock until ReleaseBackup runs, so if that already
+		// finished it looked for the marker before this rename created it.
+		if i.lastBackup.Load() == nil {
+			return os.RemoveAll(marker)
+		}
+		return nil
 	}
 
 	// rename sync (must complete even if ctx is expired); RemoveAll async
@@ -3288,13 +3339,27 @@ func (i *Index) drop() error {
 	return nil
 }
 
-func (i *Index) dropShards(names []string) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+// withCloseRLockGuard runs fn only if the index is not closing/closed,
+// returning context.Canceled without running it otherwise. fn must not acquire
+// i.closeLock for writing or any lock drop() holds in an inverting order.
+//
+// Covers whole-index drops only: dropShards never sets i.closed, so tenant
+// deletes are invisible to the guard. Tracked in
+// https://github.com/weaviate/0-weaviate-issues/issues/288.
+func (i *Index) withCloseRLockGuard(fn func() error) error {
+	if err := i.enterRead(); err != nil {
+		return context.Canceled
 	}
+	defer i.exitRead()
+
+	return fn()
+}
+
+func (i *Index) dropShards(names []string) error {
+	if err := i.enterRead(); err != nil {
+		return err
+	}
+	defer i.exitRead()
 
 	ec := errorcompounder.New()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -3333,12 +3398,10 @@ func (i *Index) dropShards(names []string) error {
 }
 
 func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	ec := errorcompounder.New()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -3365,16 +3428,9 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
-	i.closeLock.Lock()
-	defer i.closeLock.Unlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.beginClose(); err != nil {
+		return err
 	}
-
-	i.closed = true
-
-	i.closingCancel()
 
 	// TODO allow every resource cleanup to run, before returning early with error
 	if err := i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
@@ -3906,8 +3962,9 @@ func (i *Index) tenantDirExists(tenantName string) (bool, error) {
 
 func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {
 	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Tenant:           tenantName,
-		ConsistencyLevel: cl,
+		Tenant:                tenantName,
+		ConsistencyLevel:      cl,
+		AllowTenantActivation: true,
 	}
 	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
 	if err != nil {
@@ -3936,5 +3993,37 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 		}
 	}, i.logger)
 
+	return nil
+}
+
+// enterRead admits an operation onto a live index; pair it with exitRead. The
+// Add runs under closeLock.RLock, so it cannot land after beginClose's Wait.
+func (i *Index) enterRead() error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+	i.inflight.Add(1)
+	return nil
+}
+
+func (i *Index) exitRead() { i.inflight.Done() }
+
+// beginClose closes the index and drains in-flight readers. It returns holding
+// no lock: teardown must not exclude readers, or a peer's RPC handler blocks
+// behind it while this node waits on that peer.
+func (i *Index) beginClose() error {
+	i.closeLock.Lock()
+	if i.closed {
+		i.closeLock.Unlock()
+		return errAlreadyShutdown
+	}
+	i.closed = true
+	i.closingCancel()
+	i.closeLock.Unlock()
+
+	i.inflight.Wait()
 	return nil
 }

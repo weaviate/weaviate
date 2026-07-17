@@ -118,14 +118,6 @@ func (s *status) IsUpgrading() bool {
 	return v != nil && *v == upgrading
 }
 
-// Upgrading sets the status to upgrading. This is used to indicate that the index is currently being upgraded from flat to HNSW.
-func (s *status) Upgrading() {
-	if s == nil {
-		return
-	}
-	(*atomic.Pointer[string])(s).Store(&upgrading)
-}
-
 // Reset sets the status to nil. This is used to indicate that the index is neither upgraded nor upgrading.
 func (s *status) Reset() {
 	if s == nil {
@@ -140,6 +132,15 @@ func (s *status) Upgraded() {
 		return
 	}
 	(*atomic.Pointer[string])(s).Store(&upgraded)
+}
+
+// TryUpgrading claims the upgrade attempt; only the winning caller gets true,
+// so a Reset after a failed attempt lets a later call retry.
+func (s *status) TryUpgrading() bool {
+	if s == nil {
+		return false
+	}
+	return (*atomic.Pointer[string])(s).CompareAndSwap(nil, &upgrading)
 }
 
 type dynamic struct {
@@ -160,7 +161,6 @@ type dynamic struct {
 	threshold                    uint64
 	index                        VectorIndex
 	status                       status
-	upgradeOnce                  sync.Once
 	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
 	uc                           ent.UserConfig
 	db                           *bbolt.DB
@@ -170,6 +170,12 @@ type dynamic struct {
 	AllocChecker                 memwatch.AllocChecker
 	MakeBucketOptions            lsmkv.MakeBucketOptions
 	AsyncIndexingEnabled         bool
+
+	// upgradeFn performs the flat→HNSW rebuild. New wires it to the doUpgrade
+	// method; keeping it as an injected field (like the *Thunk dependencies
+	// above) lets tests substitute a failing or blocking rebuild without a
+	// test-only branch in the production path. Production always runs doUpgrade.
+	upgradeFn func() error
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -221,6 +227,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		MakeBucketOptions:            cfg.MakeBucketOptions,
 		AsyncIndexingEnabled:         cfg.AsyncIndexingEnabled,
 	}
+	index.upgradeFn = index.doUpgrade
 
 	upgraded, err := index.init(&cfg)
 	if err != nil {
@@ -605,7 +612,9 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 
 func (dynamic *dynamic) Upgrade(callback func()) error {
 	if dynamic.ctx.Err() != nil {
-		// already closed
+		// no goroutine will run to fire the callback, so the pause/resume
+		// contract must be resolved synchronously here.
+		callback()
 		return dynamic.ctx.Err()
 	}
 
@@ -613,72 +622,82 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return dynamic.index.(upgradableIndexer).Upgrade(callback)
 	}
 
-	dynamic.upgradeOnce.Do(func() {
-		dynamic.status.Upgrading()
-		enterrors.GoWrapper(func() {
-			defer callback()
-			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
+	if !dynamic.status.TryUpgrading() {
+		// an attempt is already in flight (or just finished) and owns its own
+		// callback; resolve this caller's separately instead of blocking on it.
+		callback()
+		return nil
+	}
 
-			err := dynamic.doUpgrade()
-			if err != nil {
-				dynamic.logger.WithError(err).Error("failed to upgrade index")
+	enterrors.GoWrapper(func() {
+		defer callback()
+		// re-arm on error AND panic (GoWrapper recovers): a later Upgrade call
+		// must be able to retry. doUpgrade flips status only on success.
+		defer func() {
+			if !dynamic.status.IsUpgraded() {
 				dynamic.status.Reset()
-				return
 			}
-			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
-		}, dynamic.logger)
-	})
+		}()
+		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
+
+		err := dynamic.upgradeFn()
+		if err != nil {
+			dynamic.logger.WithError(err).Error("failed to upgrade index")
+			return
+		}
+		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
+	}, dynamic.logger)
 
 	return nil
 }
 
 func (dynamic *dynamic) doUpgrade() error {
-	// Start with a read lock to prevent reading from the index
-	// while it's being dropped or closed.
-	// This allows search operations to continue while the index is being
-	// upgraded.
-	dynamic.RLock()
+	// The read lock keeps the current index alive (not dropped/closed) while
+	// the new one is built; searches continue throughout. Closure so the
+	// unlock is deferred and panic-safe.
+	index, err := func() (*hnsw.HNSW, error) {
+		dynamic.RLock()
+		defer dynamic.RUnlock()
 
-	index, err := hnsw.New(
-		hnsw.Config{
-			Logger:                       dynamic.logger,
-			RootPath:                     dynamic.rootPath,
-			ID:                           dynamic.id,
-			ShardName:                    dynamic.shardName,
-			ClassName:                    dynamic.className,
-			PrometheusMetrics:            dynamic.prometheusMetrics,
-			VectorForIDThunk:             dynamic.vectorForIDThunk,
-			GetViewThunk:                 dynamic.getViewThunk,
-			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
-			DistanceProvider:             dynamic.distanceProvider,
-			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
-			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
-			AllocChecker:                 dynamic.AllocChecker,
-			MakeBucketOptions:            dynamic.MakeBucketOptions,
-			AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
-		},
-		dynamic.uc.HnswUC,
-		dynamic.tombstoneCallbacks,
-		dynamic.store,
-	)
+		index, err := hnsw.New(
+			hnsw.Config{
+				Logger:                       dynamic.logger,
+				RootPath:                     dynamic.rootPath,
+				ID:                           dynamic.id,
+				ShardName:                    dynamic.shardName,
+				ClassName:                    dynamic.className,
+				PrometheusMetrics:            dynamic.prometheusMetrics,
+				VectorForIDThunk:             dynamic.vectorForIDThunk,
+				GetViewThunk:                 dynamic.getViewThunk,
+				TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
+				DistanceProvider:             dynamic.distanceProvider,
+				MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
+				WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
+				AllocChecker:                 dynamic.AllocChecker,
+				MakeBucketOptions:            dynamic.MakeBucketOptions,
+				AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
+			},
+			dynamic.uc.HnswUC,
+			dynamic.tombstoneCallbacks,
+			dynamic.store,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := dynamic.copyToVectorIndex(index); err != nil {
+			return nil, err
+		}
+
+		// Start commit-log maintenance on the new HNSW index. The cache prefill
+		// is a no-op because cachePrefilled was already set during init (fresh
+		// index with no commit-log state) and the cache is populated by AddBatch.
+		index.PostStartup(dynamic.ctx)
+		return index, nil
+	}()
 	if err != nil {
-		dynamic.RUnlock()
 		return err
 	}
-
-	err = dynamic.copyToVectorIndex(index)
-	if err != nil {
-		dynamic.RUnlock()
-		return err
-	}
-
-	// Start commit-log maintenance on the new HNSW index. The cache prefill
-	// is a no-op because cachePrefilled was already set during init (fresh
-	// index with no commit-log state) and the cache is populated by AddBatch.
-	index.PostStartup(dynamic.ctx)
-
-	// end of read-only zone
-	dynamic.RUnlock()
 
 	// Lock the index for writing but check if it was already
 	// closed in the meantime

@@ -100,7 +100,7 @@ func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenant
 	return res, nil
 }
 
-func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -651,6 +651,12 @@ func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 func (c *fakeReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
 	digests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
 	return nil, nil
 }
 

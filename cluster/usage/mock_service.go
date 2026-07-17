@@ -15,10 +15,8 @@ package usage
 
 import (
 	context "context"
-	time "time"
 
 	mock "github.com/stretchr/testify/mock"
-
 	types "github.com/weaviate/weaviate/cluster/usage/types"
 )
 
@@ -35,35 +33,35 @@ func (_m *MockService) EXPECT() *MockService_Expecter {
 	return &MockService_Expecter{mock: &_m.Mock}
 }
 
-// SetJitterInterval provides a mock function with given fields: interval
-func (_m *MockService) SetJitterInterval(interval time.Duration) {
-	_m.Called(interval)
+// SetShardConcurrency provides a mock function with given fields: concurrency
+func (_m *MockService) SetShardConcurrency(concurrency int) {
+	_m.Called(concurrency)
 }
 
-// MockService_SetJitterInterval_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetJitterInterval'
-type MockService_SetJitterInterval_Call struct {
+// MockService_SetShardConcurrency_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetShardConcurrency'
+type MockService_SetShardConcurrency_Call struct {
 	*mock.Call
 }
 
-// SetJitterInterval is a helper method to define mock.On call
-//   - interval time.Duration
-func (_e *MockService_Expecter) SetJitterInterval(interval interface{}) *MockService_SetJitterInterval_Call {
-	return &MockService_SetJitterInterval_Call{Call: _e.mock.On("SetJitterInterval", interval)}
+// SetShardConcurrency is a helper method to define mock.On call
+//   - concurrency int
+func (_e *MockService_Expecter) SetShardConcurrency(concurrency interface{}) *MockService_SetShardConcurrency_Call {
+	return &MockService_SetShardConcurrency_Call{Call: _e.mock.On("SetShardConcurrency", concurrency)}
 }
 
-func (_c *MockService_SetJitterInterval_Call) Run(run func(interval time.Duration)) *MockService_SetJitterInterval_Call {
+func (_c *MockService_SetShardConcurrency_Call) Run(run func(concurrency int)) *MockService_SetShardConcurrency_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(time.Duration))
+		run(args[0].(int))
 	})
 	return _c
 }
 
-func (_c *MockService_SetJitterInterval_Call) Return() *MockService_SetJitterInterval_Call {
+func (_c *MockService_SetShardConcurrency_Call) Return() *MockService_SetShardConcurrency_Call {
 	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockService_SetJitterInterval_Call) RunAndReturn(run func(time.Duration)) *MockService_SetJitterInterval_Call {
+func (_c *MockService_SetShardConcurrency_Call) RunAndReturn(run func(int)) *MockService_SetShardConcurrency_Call {
 	_c.Run(run)
 	return _c
 }

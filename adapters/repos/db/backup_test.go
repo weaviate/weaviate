@@ -276,7 +276,7 @@ func TestIsImmutableFile(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got := isImmutableFile(tc.relPath)
+			got := backup.IsImmutableFile(tc.relPath)
 			assert.Equal(t, tc.want, got, "isImmutableFile(%q)", tc.relPath)
 		})
 	}
@@ -338,7 +338,7 @@ func TestIsImmutableFile_CompactV2(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := isImmutableFile(tc.relPath)
+			got := backup.IsImmutableFile(tc.relPath)
 			if got != tc.want {
 				t.Errorf("isImmutableFile(%q) = %v, want %v\n\twhy it should be %v: %s",
 					tc.relPath, got, tc.want, tc.want, tc.why)

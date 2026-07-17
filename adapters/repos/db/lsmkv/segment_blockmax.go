@@ -32,13 +32,10 @@ var blockMaxBufferSize = 4096
 // free of the counter writes.
 var collectBlockMetrics = false
 
-// deferTombstoneToScore rejects tombstoned (deleted) docs in the DoBlockMax*
-// scoring branch rather than skipping them per advance. Filters stay at advance
-// time because they prune the WAND candidate space; a tombstone does not (the
-// deleted doc still occupies its posting slot and is still visited), so probing it
-// per advanced doc is pure overhead. Bit-identical either way — a doc dropped at
-// scoring affects neither other scores nor the heap threshold.
-var deferTombstoneToScore = true
+// deferTombstoneToScore rejects deleted docs during scoring instead of skipping
+// them per advance. Off by default: deferring walks each deleted pivot one-by-one,
+// a multi-x regression on update-heavy (high-tombstone) segments. Bit-identical either way.
+var deferTombstoneToScore = false
 
 // decodeFuncsFromCodecs resolves the stateless doc-id and tf decode functions for
 // a segment's codecs once, so per-term iterators carry func values instead of
@@ -188,6 +185,16 @@ type SegmentBlockMax struct {
 	memTombstones *sroar.Bitmap
 	filterDocIds  helpers.AllowList
 
+	// Probed at this term's monotonically advancing idPointer — the access
+	// pattern ContainsCursor is built for.
+	tombCur    sroar.ContainsCursor
+	memTombCur sroar.ContainsCursor
+
+	// filterCursored is true when filterDocIds is a *BitmapAllowList probed via
+	// filterCur; other AllowList kinds fall back to the interface.
+	filterCur      sroar.ContainsCursor
+	filterCursored bool
+
 	// stateless reusable-decode functions, resolved once from the segment's
 	// codecs (doc ids and term frequencies). Func values, not an encoder
 	// interface slice, so the query path allocates no per-term decoder buffers.
@@ -272,6 +279,7 @@ func newSegmentBlockMaxFromNode(s *segment, node segmentindex.Node, queryTermInd
 		memTombstones: memTombstones,
 		sectionReader: sectionReader,
 	}
+	output.primeCursors()
 
 	if err := output.reset(); err != nil {
 		return nil
@@ -318,6 +326,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []terms.BlockEntry, bl
 
 	output.decodeBlock()
 
+	output.primeCursors()
 	output.advanceOnTombstoneOrFilter()
 
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
@@ -347,6 +356,7 @@ func NewSegmentBlockMaxDecoded(key []byte, queryTermIndex int, propertyBoost flo
 		freqDecoded:       true,
 		exhausted:         true,
 	}
+	output.primeCursors()
 
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
 	output.Metrics.DocCountTotal += output.docCount
@@ -368,7 +378,7 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 		// read the current doc id once instead of re-indexing the slice in each
 		// of the up-to-three membership checks below
 		docID := s.blockDataDecoded.DocIds[s.blockDataIdx]
-		passes := s.filterDocIds == nil || s.filterDocIds.Contains(docID)
+		passes := s.filterDocIds == nil || s.filterContains(docID)
 		if passes && checkTomb {
 			passes = !s.tombstoned(docID)
 		}
@@ -392,12 +402,40 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 	}
 }
 
+// primeCursors binds the cursors to their bitmaps; every construction path calls
+// it once before the first probe. Reset(nil) is an always-false cursor, so an
+// absent bitmap is a no-op.
+func (s *SegmentBlockMax) primeCursors() {
+	s.tombCur.Reset(s.tombstones)
+	s.memTombCur.Reset(s.memTombstones)
+	if bl, ok := s.filterDocIds.(*helpers.BitmapAllowList); ok {
+		s.filterCur.Reset(bl.Bm)
+		s.filterCursored = true
+	}
+}
+
 // tombstoned reports whether docID is deleted in this iterator's view. All terms
 // in a segment share the same tombstone bitmaps, so any one of them can report
 // tombstone status for a pivot they all align on.
 func (s *SegmentBlockMax) tombstoned(docID uint64) bool {
-	return (s.tombstones != nil && s.tombstones.Contains(docID)) ||
-		(s.memTombstones != nil && s.memTombstones.Contains(docID))
+	return s.tombCur.Contains(docID) || s.memTombCur.Contains(docID)
+}
+
+// setTombstones rebinds tombCur along with the bitmap: the flushing term sets its
+// tombstones after construction, past the primeCursors that bound the cursor to
+// the nil bitmap. memTombCur is untouched — memTombstones never changes.
+func (s *SegmentBlockMax) setTombstones(tombstones *sroar.Bitmap) {
+	s.tombstones = tombstones
+	s.tombCur.Reset(tombstones)
+}
+
+// filterContains reports whether docID passes the filter; the caller guarantees
+// s.filterDocIds != nil.
+func (s *SegmentBlockMax) filterContains(docID uint64) bool {
+	if s.filterCursored {
+		return s.filterCur.Contains(docID)
+	}
+	return s.filterDocIds.Contains(docID)
 }
 
 func (s *SegmentBlockMax) reset() error {
@@ -674,9 +712,11 @@ func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
 	if s.exhausted {
 		return 0
 	}
-	// for the fully decode blocks return the idf
+	// fully-decoded blocks have no per-block max metadata; bound the impact by
+	// idf*propertyBoost (tf<=1). propertyBoost must match Score and the paged
+	// path below, else boosted terms are under-counted and top-K docs pruned.
 	if len(s.blockEntries) == 0 {
-		return float32(s.idf)
+		return float32(s.idf * s.propertyBoost)
 	}
 	freq := float64(s.blockEntries[s.blockEntryIdx].MaxImpactTf)
 	propLength := float64(s.blockEntries[s.blockEntryIdx].MaxImpactPropLength)

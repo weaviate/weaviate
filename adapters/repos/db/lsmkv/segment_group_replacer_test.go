@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -21,24 +22,26 @@ import (
 
 func TestSegmentReplacer_OnDisk(t *testing.T) {
 	logger, _ := test.NewNullLogger()
+	// real directory so the in-place cleanup switch can fsync it
+	dir := t.TempDir()
 
 	createDiskOf4 := func() (*SegmentGroup, *fakeSegment, *fakeSegment, *fakeSegment, *fakeSegment) {
 		segA := newFakeReplaceSegment(map[string][]byte{
 			"keyA": []byte("valueA"),
 		})
-		segA.setPath("directory/segment-0001.db")
+		segA.setPath(filepath.Join(dir, "segment-0001.db"))
 		segB := newFakeReplaceSegment(map[string][]byte{
 			"keyB": []byte("valueB"),
 		})
-		segB.setPath("directory/segment-0002.db")
+		segB.setPath(filepath.Join(dir, "segment-0002.db"))
 		segC := newFakeReplaceSegment(map[string][]byte{
 			"keyC": []byte("valueC"),
 		})
-		segC.setPath("directory/segment-0003.db")
+		segC.setPath(filepath.Join(dir, "segment-0003.db"))
 		segD := newFakeReplaceSegment(map[string][]byte{
 			"keyD": []byte("valueD"),
 		})
-		segD.setPath("directory/segment-0004.db")
+		segD.setPath(filepath.Join(dir, "segment-0004.db"))
 
 		diskSegments := &SegmentGroup{
 			logger:   logger,

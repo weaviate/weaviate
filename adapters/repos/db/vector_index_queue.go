@@ -312,6 +312,9 @@ func (iq *VectorIndexQueue) checkCompressionSettings() (skip bool) {
 		})
 		if err != nil {
 			iq.DiskQueue.Logger.WithError(err).Error("failed to upgrade vector index")
+			// Upgrade can fail without guaranteeing its callback ran; resume here
+			// so the pause never leaks (idempotent if it already did).
+			iq.scheduler.ResumeQueue(iq.DiskQueue.ID())
 		}
 
 		return true

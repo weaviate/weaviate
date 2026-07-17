@@ -12,6 +12,7 @@
 package db
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -126,4 +127,38 @@ func TestDropVectorIndex_RejectObjectVectors(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantTarget)
 		})
 	}
+}
+
+// TestStripDroppedVectors pins the merge carry-over fix: a property-only merge
+// carries the previous version's vectors into the merged object; a dropped one
+// must be removed before it is re-persisted into a post-snapshot segment the
+// cleanup never rewrites. The original maps must stay untouched (they are shared
+// with the previous object version used for the insert-status comparison).
+func TestStripDroppedVectors(t *testing.T) {
+	none := modelsext.VectorIndexTypeNone
+	class := &models.Class{Class: "TestClass", VectorConfig: map[string]models.VectorConfig{
+		"dropped":  {VectorIndexType: none},
+		"live":     {VectorIndexType: "hnsw"},
+		"mdropped": {VectorIndexType: none},
+		"mlive":    {VectorIndexType: "hnsw"},
+	}}
+
+	shared := map[string][]float32{"dropped": {1}, "live": {2}}
+	sharedMulti := map[string][][]float32{"mdropped": {{3}}, "mlive": {{4}}}
+	obj := &storobj.Object{Vectors: shared, MultiVectors: sharedMulti}
+
+	stripDroppedVectors(class, obj)
+
+	require.Equal(t, map[string][]float32{"live": {2}}, obj.Vectors)
+	require.Equal(t, map[string][][]float32{"mlive": {{4}}}, obj.MultiVectors)
+	require.Len(t, shared, 2, "the shared previous-version map must not be mutated")
+	require.Len(t, sharedMulti, 2, "the shared previous-version multi map must not be mutated")
+
+	// Nothing dropped: maps are kept as-is (no rebuild).
+	obj2 := &storobj.Object{Vectors: map[string][]float32{"live": {2}}}
+	before := obj2.Vectors
+	stripDroppedVectors(class, obj2)
+	require.Equal(t, map[string][]float32{"live": {2}}, obj2.Vectors)
+	require.Equal(t, reflect.ValueOf(before).Pointer(), reflect.ValueOf(obj2.Vectors).Pointer(),
+		"nothing dropped: the original map must be kept, not rebuilt")
 }

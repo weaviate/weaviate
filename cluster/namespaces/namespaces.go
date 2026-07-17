@@ -37,22 +37,30 @@ type DynusersNamespaceLister interface {
 	UsersInNamespace(namespace string) []string
 }
 
+// RBACNamespaceLister counts the local roles and role assignments that still
+// belong to a namespace.
+type RBACNamespaceLister interface {
+	CountNamespaceLocalRBAC(namespace string) (int, error)
+}
+
 // Manager is the RAFT FSM adapter. It does not own state.
 type Manager struct {
 	controller *usecasesNamespaces.Controller
 	schema     SchemaNamespaceLister
 	dynusers   DynusersNamespaceLister
+	rbac       RBACNamespaceLister
 	logger     logrus.FieldLogger
 }
 
 // NewManager wraps the controller and the listers RemoveEntity consults
 // to verify the namespace is empty. Panics on a nil controller or nil
-// schema lister. The dynusers lister is optional: deployments without
-// dynamic users pass nil and the user check is skipped.
+// schema lister. The dynusers and rbac listers are optional: deployments
+// without dynamic users or RBAC pass nil and the respective check is skipped.
 func NewManager(
 	controller *usecasesNamespaces.Controller,
 	schema SchemaNamespaceLister,
 	dynusers DynusersNamespaceLister,
+	rbac RBACNamespaceLister,
 	logger logrus.FieldLogger,
 ) *Manager {
 	if controller == nil {
@@ -65,6 +73,7 @@ func NewManager(
 		controller: controller,
 		schema:     schema,
 		dynusers:   dynusers,
+		rbac:       rbac,
 		logger:     logger,
 	}
 }
@@ -111,8 +120,8 @@ func (m *Manager) ChangeState(c *cmd.ApplyRequest) error {
 // [usecasesNamespaces.ErrBadRequest] for malformed payloads,
 // [usecasesNamespaces.ErrNotFound] when the namespace does not exist,
 // [usecasesNamespaces.ErrInvalidState] when called on an active namespace,
-// and [usecasesNamespaces.ErrNamespaceNotEmpty] when classes, aliases, or
-// users still remain in the namespace.
+// and [usecasesNamespaces.ErrNamespaceNotEmpty] when classes, aliases, users,
+// or RBAC rows still remain in the namespace.
 func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 	req := &cmd.RemoveNamespaceEntityRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
@@ -132,6 +141,16 @@ func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 	if m.dynusers != nil {
 		if users := m.dynusers.UsersInNamespace(req.Name); len(users) > 0 {
 			return fmt.Errorf("%w: %d user(s) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(users), req.Name)
+		}
+	}
+	// rbac is nil when RBAC is disabled.
+	if m.rbac != nil {
+		rbacRows, err := m.rbac.CountNamespaceLocalRBAC(req.Name)
+		if err != nil {
+			return fmt.Errorf("count RBAC rows in namespace %q: %w", req.Name, err)
+		}
+		if rbacRows > 0 {
+			return fmt.Errorf("%w: %d RBAC row(s) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, rbacRows, req.Name)
 		}
 	}
 	return m.controller.RemoveEntity(req.Name)

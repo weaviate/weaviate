@@ -168,6 +168,16 @@ func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, task
 	})
 }
 
+func (s *Raft) MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error {
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED, &cmd.MarkTaskFailedRequest{
+		Namespace:          namespace,
+		Id:                 taskID,
+		Version:            taskVersion,
+		Error:              errMsg,
+		FailedAtUnixMillis: time.Now().UnixMilli(),
+	})
+}
+
 // RecordDistributedTaskPostCompletionAck commits one node's SWAP-phase
 // callback result to the FSM (OnGroupCompleted for non-barrier tasks,
 // OnSwapRequested for barrier tasks). The scheduler tick on each node
