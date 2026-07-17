@@ -531,11 +531,11 @@ func (u *uploader) compress(ctx context.Context,
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 
-	// bigFileThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
-	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFileThreshold.
-	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.BigFileThreshold)
-	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFileThreshold)
-	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
+	// bigFilesThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
+	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFilesThreshold.
+	bigFilesThreshold := max(u.cfg.MinChunkSize, filesInShard.BigFilesThreshold)
+	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFilesThreshold)
+	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}
@@ -629,7 +629,7 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 }
 
 // createFileList creates a FileList from a ShardDescriptor with Files copied,
-// FileSizes map populated, and BigFileThreshold calculated.
+// FileSizes map populated, and BigFilesThreshold calculated.
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
 // Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
 func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath string) (*backup.FileList, error) {
@@ -667,16 +667,16 @@ func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath stri
 	return &backup.FileList{
 		Files:     filesCopy,
 		FileSizes: fileSizes,
-		BigFileThreshold: calculateBigFileThreshold(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped,
+		BigFilesThreshold: calculateBigFilesThreshold(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped,
 			maxIndividualFiles, u.cfg.MinChunkSize),
 	}, nil
 }
 
-// calculateBigFileThreshold returns the size of the k-th biggest file, clamped to minSize,
+// calculateBigFilesThreshold returns the size of the k-th biggest file, clamped to minSize,
 // where k is maxIndividualFiles reduced by numSkippedFiles and at least 1. Returns the
 // smallest file's size if there are fewer than k files.
 // Uses a min-heap for O(n) time and O(min(k, n)) space.
-func calculateBigFileThreshold(fileSizes map[string]int64, numSkippedFiles, maxIndividualFiles int, minSize int64) int64 {
+func calculateBigFilesThreshold(fileSizes map[string]int64, numSkippedFiles, maxIndividualFiles int, minSize int64) int64 {
 	k := max(maxIndividualFiles-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
 
 	if len(fileSizes) == 0 {

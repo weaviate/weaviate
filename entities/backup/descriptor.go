@@ -342,11 +342,11 @@ type ShardAndID struct {
 type FileList struct {
 	Files     []string
 	FileSizes map[string]int64 // map of relative file path to file size in bytes
-	// BigFileThreshold is the size of the n-th biggest file, clamped to a minimum chunk size,
+	// BigFilesThreshold is the size of the n-th biggest file, clamped to a minimum chunk size,
 	// where n is the configured number of files that may get their own chunk, minus the files
 	// reused from the base backup.
-	BigFileThreshold int64
-	start            int
+	BigFilesThreshold int64
+	start             int
 }
 
 // Len returns the number of files in the list
