@@ -618,6 +618,39 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	case rt.IsSwapped():
 		// In-memory swap completed (per-prop dirs renamed); just tidy
 		// backups and finalize.
+		//
+		// Disarm callbacks BEFORE tidying, not after. The only callback
+		// reachable in this branch is the backup-window double-write
+		// registered by OnAfterLsmInit's rt.IsSwapped()&&!rt.IsTidied()
+		// branch (registerDoubleWriteCallbacks(..., forTargetStrategy=false)),
+		// which mirrors writes into the backup bucket by name with no
+		// swap fallback: resolveDoubleWriteBucket only returns nil once
+		// the name is gone from the store, and tidyBackupBuckets removes
+		// the on-disk dir WITHOUT unregistering the bucket from the
+		// store first (processOneTidyProp is a bare os.RemoveAll). A
+		// write racing tidyBackupBuckets, or landing after it fails,
+		// therefore still resolves a live *Bucket whose backing files
+		// were just deleted, and the WAL write fails outright
+		// (weaviate/weaviate#12221 finding N1). Disarming here, before
+		// either the removal or a possible tidy error, closes that
+		// window and the tidy-error leak (finding N2) in the same
+		// change: no callback is left to resolve once this line runs.
+		//
+		// The IsMerged/IsPrepended branches below must NOT disarm this
+		// early: OnAfterLsmInit takes them through its other branch,
+		// which registers the ingest-window callback instead
+		// (forTargetStrategy=true, registerDoubleWriteCallbacksFn).
+		// That callback mirrors into t.ingestBucketName with a swap
+		// fallback to the canonical source bucket, so
+		// resolveDoubleWriteBucket always resolves a live bucket;
+		// neither ingestBucketName nor the fallback is ever a target of
+		// tidyBackupBuckets's removal, so no equivalent race exists
+		// there. Those callbacks must instead stay armed until their
+		// own recoverRuntimeSwapBuckets call has fully converged the
+		// on-disk state; disarming before that would stop mirroring
+		// writes into ingest while the swap is still in flight and
+		// lose them.
+		t.disableCallbacks()
 		logger.WithField("props", props).Info("RunSwapOnShard: resuming from swapped state, tidying backups")
 		if err := t.tidyBackupBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery tidy: %w", err)
@@ -649,6 +682,15 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		if err := t.recoverRuntimeSwapBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery swap: %w", err)
 		}
+		// N2 disposition: unlike the IsSwapped branch above, an error here
+		// leaving the ingest-window callback armed past this return is not
+		// a correctness leak. resolveDoubleWriteBucket's swap fallback
+		// means the callback keeps resolving a live bucket (ingest name,
+		// or the canonical source once ingest is gone) regardless of
+		// whether tidyBackupBuckets below succeeds; the worst case is a
+		// redundant mirror write until the next RunSwapOnShard retry
+		// disarms it via finalizeMigrationAfterRecovery's defer, not a
+		// failed write against removed backup segment files.
 		if err := t.tidyBackupBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery tidy after swap: %w", err)
 		}
@@ -670,6 +712,12 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		if err := t.recoverRuntimeSwapBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery swap from prepended: %w", err)
 		}
+		// N2 disposition: same reasoning as the IsMerged branch above; the
+		// callback armed here is the ingest-window one (swap-fallback to
+		// the canonical bucket, never targets what tidyBackupBuckets
+		// removes), so leaving it armed past a tidy error here is a
+		// redundant-mirror inefficiency until the next retry, not a
+		// failed-write leak.
 		if err := t.tidyBackupBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery tidy from prepended: %w", err)
 		}
