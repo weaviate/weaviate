@@ -41,10 +41,8 @@ func resolveDoubleWriteBucket(shard *Shard, sidecarName, swapFallbackName string
 // resolveScopedDoubleWriteBucket is the shared prologue for every strategy's
 // double-write callback: scope-filters the property, then resolves the bucket
 // via [resolveDoubleWriteBucket] (forTargetStrategy arms the swap fallback).
-// skip=true means the callback must no-op. A non-nil error means the target
-// phase resolved neither the sidecar nor its canonical fallback: an
-// unreachable-by-design data-loss state the caller must surface loudly rather
-// than drop the write on (weaviate/0-weaviate-issues#336).
+// skip=true means no-op; a non-nil error means the target phase found no
+// bucket at all and must fail loudly rather than silently drop the write.
 func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 	propsByName map[string]struct{}, bucketNamer, sourceBucketName func(string) string,
 	forTargetStrategy bool,
@@ -60,14 +58,12 @@ func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 	if bucket = resolveDoubleWriteBucket(shard, bucketName, swapFallback); bucket != nil {
 		return bucket, bucketName, false, nil
 	}
-	// Backup phase (no fallback armed): a gone sidecar is the expected
-	// post-swap teardown, so no-op by design.
+	// Backup phase: a gone sidecar is expected post-swap teardown, so no-op.
 	if !forTargetStrategy {
 		return nil, bucketName, true, nil
 	}
-	// Target phase: neither the ingest sidecar nor its canonical fallback
-	// resolves. The healthy atomic swap never produces this, so a silent skip
-	// would hide genuine data loss — fail the write loudly instead.
+	// Target phase: this state is unreachable through a healthy swap, so
+	// error loudly instead of silently dropping the write.
 	return nil, bucketName, false, fmt.Errorf(
 		"double-write target resolved no bucket for property %q: neither ingest sidecar %q nor canonical fallback %q exists",
 		property.Name, bucketName, swapFallback)

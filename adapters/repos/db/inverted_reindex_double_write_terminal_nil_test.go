@@ -22,17 +22,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestReindex_DoubleWriteTargetPhaseNilBucket drives resolveScopedDoubleWriteBucket
-// through the shared searchable double-write callbacks, the one caller that
-// passes both the sidecar and canonical-fallback namers explicitly.
-//
-// The target-phase both-names-nil state is unreachable through the healthy
-// atomic swap, but if another bug ever produces it (e.g. a FAILED-cleanup
-// teardown, weaviate/0-weaviate-issues#336) a silent skip drops the write and
-// hides the data loss, so the callback must error loudly instead
-// (weaviate/weaviate#12206). Reverting the fix turns the "errors loudly" row
-// red; the backup-phase and out-of-scope rows guard the by-design no-op paths
-// and stay green either way.
+// Pins: double-write target phase must error, not silently skip, when
+// neither the sidecar nor canonical fallback bucket resolves
+// (weaviate/0-weaviate-issues#336).
 func TestReindex_DoubleWriteTargetPhaseNilBucket(t *testing.T) {
 	ctx := testCtx()
 	className := "DoubleWriteTerminalNil_" + uuid.NewString()[:8]
@@ -47,14 +39,11 @@ func TestReindex_DoubleWriteTargetPhaseNilBucket(t *testing.T) {
 		missingSidecar   = "dw_terminal_missing_ingest_sidecar"
 		missingCanonical = "dw_terminal_missing_canonical"
 	)
-	// Names for buckets that were never created, so every store lookup resolves
-	// nil — the resolver's terminal case.
 	sidecarNamer := func(string) string { return missingSidecar }
 	canonicalNamer := func(string) string { return missingCanonical }
 	inScope := map[string]struct{}{propName: {}}
 
-	// A non-nil swap-fallback namer arms the target phase; nil selects the
-	// backup phase (see blockmaxSearchableAddCallback).
+	// A non-nil fallback namer arms the target phase; nil selects backup phase.
 	type callback func(*Shard, uint64, *inverted.Property) error
 
 	tests := []struct {
