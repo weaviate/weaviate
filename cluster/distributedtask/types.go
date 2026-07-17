@@ -46,17 +46,22 @@ type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
-// TaskFinalizer is an interface for issuing a request to transition a task
-// from [TaskStatusSwapping] to [TaskStatusFinished]. The [Scheduler] calls
-// this from its tick after [Provider.OnTaskCompleted] returns successfully so
-// the FSM-level FINISHED state lines up with "every post-completion callback
-// committed cluster-wide" (not just "every unit terminal"). Idempotent at the
-// FSM layer — every node's scheduler issues this independently after its
-// local OnTaskCompleted returns; only the first commit actually flips the
-// status. See the godoc on [TaskStatusSwapping] for the underlying race
-// this discipline fixes.
+// TaskFinalizer is how the [Scheduler] transitions a task out of
+// [TaskStatusSwapping] once local [UnitAwareProvider.OnTaskCompleted] has
+// returned. Both methods are idempotent at the FSM layer: only the first
+// commit flips the status.
 type TaskFinalizer interface {
+	// MarkDistributedTaskFinalized transitions SWAPPING → FINISHED after
+	// OnTaskCompleted returns nil, so FINISHED means "every post-completion
+	// callback committed cluster-wide," not just "every unit terminal." See
+	// [TaskStatusSwapping] for the race this fixes.
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+
+	// MarkDistributedTaskFailed transitions SWAPPING → FAILED when
+	// OnTaskCompleted returns a terminal error: permanent
+	// ([ErrTaskCompletionPermanent]) or retry-exhausted transient. errMsg is
+	// recorded on the task (weaviate/0-weaviate-issues#297).
+	MarkDistributedTaskFailed(ctx context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error
 }
 
 // PostCompletionAckRecorder is the RAFT-apply hook the [Scheduler] uses
@@ -325,7 +330,14 @@ type UnitAwareProvider interface {
 	// twice, etc.). Today's concrete provider (db/reindex_provider.go's
 	// OnTaskCompleted → autoCleanupAfterTerminal) already is; new
 	// implementations MUST preserve this contract.
-	OnTaskCompleted(task *Task)
+	//
+	// Return value (weaviate/0-weaviate-issues#297): a non-nil error on the
+	// SWAPPING path withholds finalize and retries next tick. Wrap in
+	// [ErrTaskCompletionPermanent] for a deterministically-unrecoverable
+	// failure to fail the task immediately; a plain error is transient and
+	// retried up to a bounded count before failing. Errors on terminal-status
+	// invocations are best-effort and must not reopen the task (return nil).
+	OnTaskCompleted(task *Task) error
 }
 
 type UnitStatus string

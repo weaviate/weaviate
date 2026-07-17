@@ -198,6 +198,15 @@ type ShardReindexTaskGeneric struct {
 	// method; tests substitute a wrapper.
 	processOneTidyPropFn func(propIdx int, propName, lsmPath string) error
 
+	// registerDoubleWriteCallbacksFn dispatches OnAfterLsmInit's ingest-window
+	// double-write registration. Defaults to [registerDoubleWriteCallbacks] in
+	// [NewShardReindexTaskGeneric]; tests wrap it to drive a write into the
+	// markStarted→register window the production ordering must not lose
+	// (weaviate/weaviate#11688). Always set — no test-only branch runs in
+	// production.
+	registerDoubleWriteCallbacksFn func(shard *Shard, props []string,
+		bucketNamer func(string) string, forTargetStrategy bool) func()
+
 	// onPropSwapped runs inside the Phase 2a tight loop right after each
 	// bucket-pointer flip, so a query never observes overlay≠bucket for
 	// longer than one in-memory map write. Runs on the swap goroutine, so
@@ -254,6 +263,7 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	t.trackerMkdirGuard = func(shard ShardLike) func(func() error) error {
 		return shard.Index().withCloseRLockGuard
 	}
+	t.registerDoubleWriteCallbacksFn = t.registerDoubleWriteCallbacks
 	return t
 }
 
@@ -1134,12 +1144,9 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 		return nil
 	}
 
-	if !isStarted {
-		if err = rt.markStarted(time.Now()); err != nil {
-			err = fmt.Errorf("marking reindex started: %w", err)
-			return err
-		}
-	}
+	// markStarted is deferred until after the double-write callbacks are
+	// registered below — capturing it earlier opens a lost-write gap
+	// (weaviate/weaviate#11688).
 
 	// Torn-state recovery: if rt.IsReindexed() is true but the reindex
 	// bucket dirs that markReindexed() must have populated are missing on
@@ -1226,7 +1233,25 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitWithTracker(ctx context.Context,
 			err = fmt.Errorf("starting ingest buckets:%w", err)
 			return err
 		}
-		t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true)
+		disableJustRegistered := t.registerDoubleWriteCallbacksFn(shard, props, t.ingestBucketName, true)
+
+		// Captured only after callbacks are live, so every write the iterator
+		// skips (LastUpdateTimeUnix >= reindexStarted) is guaranteed mirrored
+		// into ingest. Ceiled up one ms: LastUpdateTimeUnix has ms resolution
+		// and the skip predicate is `<`, so a write sharing the truncated ms
+		// could otherwise land before registration. Overlap writes converge
+		// because reindex segments precede ingest in merge order and writes
+		// are per-key idempotent.
+		if !isStarted {
+			startedAt := time.Now().Truncate(time.Millisecond).Add(time.Millisecond)
+			if err = rt.markStarted(startedAt); err != nil {
+				// Disable only the pair registered above; the task may hold
+				// live registrations for other shards.
+				disableJustRegistered()
+				err = fmt.Errorf("marking reindex started: %w", err)
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -1758,11 +1783,11 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// Always disable the double-write callbacks registered by this task
 	// instance, regardless of whether the swap completes successfully.
 	//
-	// On the happy path this runs after the in-memory pointer flip:
-	// the main bucket pointer has already been swapped, so any callback
-	// invocations between markSwappedProp and this defer would have been
-	// harmless redundant writes (the ingest bucket is reachable under
-	// both the main and ingest names).
+	// On the happy path this runs after the in-memory pointer flip. Callbacks
+	// stay armed until this defer, so a live write in between still fires
+	// them; [resolveDoubleWriteBucket] falls back to the canonical name once
+	// SwapBucketPointer deletes the ingest-name entry, landing the mirror
+	// write in the surviving bucket instead of dereferencing nil.
 	//
 	// On an error path this is the load-bearing case: without it,
 	// callbacks would keep firing against buckets that may be mid-swap,
@@ -2531,22 +2556,39 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// registerDoubleWriteCallbacks arms the strategy's add/delete mirror callbacks
+// for [disableCallbacks]. The returned func disables only this call's pair
+// (idempotent), for failure paths that must not touch other shards'
+// registrations.
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
 	bucketNamer func(string) string, forTargetStrategy bool,
-) {
+) func() {
 	propsByName := map[string]struct{}{}
 	for i := range props {
 		propsByName[props[i]] = struct{}{}
 	}
 
-	disableAdd := shard.registerAddToPropertyValueIndex(
-		t.strategy.MakeAddCallback(bucketNamer, propsByName, forTargetStrategy))
-	disableDelete := shard.registerDeleteFromPropertyValueIndex(
-		t.strategy.MakeDeleteCallback(bucketNamer, propsByName, forTargetStrategy))
+	addCb := t.strategy.MakeAddCallback(bucketNamer, propsByName, forTargetStrategy)
+	delCb := t.strategy.MakeDeleteCallback(bucketNamer, propsByName, forTargetStrategy)
+
+	var disable func()
+	if forTargetStrategy {
+		// Ingest window: arm the scope atomically with the callbacks, or a
+		// concurrent write gets source-tokenized into the ingest bucket
+		// (weaviate/0-weaviate-issues#298).
+		disable = shard.registerDoubleWriteWithScope(addCb, delCb, props, t.strategy.AnalyzerOverlay(props))
+	} else {
+		// Backup window: mirror source-analyzed writes as-is; no scope.
+		disableAdd := shard.registerAddToPropertyValueIndex(addCb)
+		disableDelete := shard.registerDeleteFromPropertyValueIndex(delCb)
+		disable = func() { disableAdd(); disableDelete() }
+	}
 
 	t.callbackDisableFuncsMu.Lock()
-	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disableAdd, disableDelete)
+	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disable)
 	t.callbackDisableFuncsMu.Unlock()
+
+	return disable
 }
 
 // disableCallbacks calls all stored callback disable functions collected
