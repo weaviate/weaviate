@@ -765,9 +765,8 @@ jobs:
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
     env:
-      # Failure-only forensic dumps from the reindex acceptance tests land here
-      # (e.g. weaviate/0-weaviate-issues#335 shard LSM data dirs). Read by the
-      # tests; uploaded by the "Upload reindex forensic artifacts" step below.
+      # Where reindex acceptance tests write failure-only forensic dumps,
+      # uploaded by the "Upload reindex forensic artifacts" step below.
       REINDEX_FORENSICS_DIR: ${{ github.workspace }}/reindex-forensics
     strategy:
       fail-fast: false
