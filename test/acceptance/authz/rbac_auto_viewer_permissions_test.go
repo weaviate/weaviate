@@ -65,6 +65,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/schema/{className}/properties/{propertyName}/tokenize", // authorizes READ, which a viewer holds
 		"/search/{collection}/near-text",                         // search is a read; a viewer holds data READ
 		"/search/{collection}/bm25",                              // search is a read; a viewer holds data READ
+		"/search/{collection}/hybrid",                            // search is a read; a viewer holds data READ
 	}
 
 	// TODO: these leak status (404 for aliases, 501 for replication) before
@@ -144,6 +145,10 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 			}
 			// same for bm25 (its query is a plain string)
 			if endpoint.path == "/search/{collection}/bm25" && endpoint.method == http.MethodPost {
+				body = []byte(`{"query":"ABC"}`)
+			}
+			// same for hybrid
+			if endpoint.path == "/search/{collection}/hybrid" && endpoint.method == http.MethodPost {
 				body = []byte(`{"query":"ABC"}`)
 			}
 
