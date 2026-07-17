@@ -60,6 +60,10 @@ type compactorInverted struct {
 	// block re-encoding (via a cursor) and serialized directly — never a map.
 	propLengthIds  []uint64
 	propLengthLens []uint32
+	// one view over the arrays above, reused for every node's block re-encoding so
+	// the lookup allocates nothing per term. Its cursor is only a search hint that
+	// get() self-corrects on a backward docID, so no per-node reset is needed.
+	propLenView propLengthsView
 
 	invertedHeader *segmentindex.HeaderInverted
 
@@ -151,6 +155,7 @@ func (c *compactorInverted) do(ctx context.Context) error {
 
 	// drop the property lengths of docs cleanupValues removes from the older segment
 	c.propLengthIds, c.propLengthLens = mergePropLenPairs(ids1, lens1, ids2, lens2, c.tombstonesToClean)
+	c.propLenView = propLengthsView{ids: c.propLengthIds, lens: c.propLengthLens}
 
 	tombstones := c.computeTombstones()
 
@@ -396,14 +401,11 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 	// (https://github.com/weaviate/weaviate/issues/3517).
 	keyCopy := c.arena.CopyKey(key)
 
-	// fresh view per term: its docIDs ascend, so lookups stay amortized O(1)
-	view := propLengthsView{ids: c.propLengthIds, lens: c.propLengthLens}
-
 	return segmentInvertedNode{
 		values:      values,
 		primaryKey:  keyCopy,
 		offset:      offset,
-		propLengths: &view,
+		propLengths: &c.propLenView,
 	}.KeyIndexAndWriteToCompaction(c.segmentFile.BodyWriter(), c.writeBuf[:], &c.encodeBufs,
 		c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
 }
