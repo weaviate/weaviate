@@ -26,6 +26,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
@@ -179,6 +180,17 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// (no migration ever ran, or every prior migration already tidied —
 	// FinalizeCompletedMigrations above promoted them to canonical).
 	markInFlightRangeableMigrationsNotReady(s)
+
+	// Load the rangeable bucket for every property
+	// seedRangeableLocalReadyFromMigrationHistory (and, for still
+	// in-flight migrations, markInFlightRangeableMigrationsNotReady)
+	// just marked "locally ready" but whose bucket the LIVE (pre-flip)
+	// schema wouldn't have loaded on its own. See
+	// [loadRangeableBucketsForCompletedLocalMigrations] for why this
+	// must run exactly here.
+	if err := loadRangeableBucketsForCompletedLocalMigrations(ctx, s); err != nil {
+		return nil, fmt.Errorf("load rangeable buckets for shard %q: %w", s.ID(), err)
+	}
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
@@ -400,4 +412,83 @@ func readRecoveryPropertyNames(migDir string) ([]string, bool) {
 		return nil, false
 	}
 	return rec.Payload.Properties, true
+}
+
+// loadRangeableBucketsForCompletedLocalMigrations loads the rangeable
+// bucket for every property this shard's Shard.rangeableLocalReady map
+// currently says is "locally ready" (true) - the set
+// seedRangeableLocalReadyFromMigrationHistory just seeded from on-disk
+// migration history, corrected by markInFlightRangeableMigrationsNotReady
+// for anything still genuinely in-flight - but that the LIVE (pre-flip)
+// class schema would not load on its own.
+//
+// The gap this closes: createPropertyValueIndex only calls
+// CreateOrLoadBucket for a property's rangeable bucket when
+// inverted.HasRangeableIndex(prop) is true against the LIVE schema
+// (shard_init_properties.go:527), and by construction the live schema
+// is still pre-flip in exactly the window rangeableLocalReady's explicit
+// `true` entries describe (local swap tidied, cluster-wide
+// IndexRangeFilters flip not yet landed). Without this load, every
+// consumer that trusts the explicit-true entry - the write overlay
+// (rangeableForceIndexOverlay forces HasRangeableIndex:true so writes
+// get analyzed as rangeable), addToPropertyValueIndex,
+// deleteFromInvertedIndicesLSM, and the read gate
+// (Searcher.hasUsableRangeableIndex, once the schema flip lands without
+// a further restart) - hits a nil s.store.Bucket(...) and hard-errors,
+// even though the bucket physically exists on disk from the completed
+// local swap.
+//
+// Two load-bearing ordering constraints on the call site in NewShard:
+//
+//  1. MUST run AFTER FinalizeCompletedMigrations, never before. The
+//     canonical rangeable bucket directory (the plain, un-suffixed
+//     property_<prop>_rangeable name CreateOrLoadBucket opens) does not
+//     exist under that name until FinalizeCompletedMigrations' deferred
+//     ingest-dir rename promotes it; loading a bucket at that path any
+//     earlier would create it empty on disk. finalizeMigrationDir's
+//     "remove stale main dir if it exists" step
+//     (inverted_reindex_finalize.go) would then os.RemoveAll that
+//     directory out from under the bucket this function just registered
+//     in s.store - store corruption, not merely a stale read. See
+//     FinalizeCompletedMigrations' own godoc: "CRITICAL: This MUST be
+//     called BEFORE bucket loading, NEVER on live buckets. Renaming
+//     directories while buckets are open would corrupt the store."; this
+//     function is one more instance of a bucket load that rule protects
+//     against.
+//  2. Driven off rangeableLocalReady, not class.Properties. enable-
+//     rangeable supports IndexFilterable=false targets, and
+//     initPropertyBuckets' outer HasAnyInvertedIndex(prop) gate
+//     (shard_init_properties.go:92) never even reaches
+//     createPropertyValueIndex for such a property until the live schema
+//     flip lands - which is exactly the window this function bridges.
+//     Iterating class.Properties instead would silently skip those
+//     targets.
+//
+// Idempotent: a bucket already registered (schema-driven load already
+// ran, or a previous call to this function already loaded it) is left
+// untouched - CreateOrLoadBucket early-returns on an already-registered
+// bucket name without reopening or duplicating it.
+func loadRangeableBucketsForCompletedLocalMigrations(ctx context.Context, s *Shard) error {
+	s.rangeableLocalReadyMu.RLock()
+	propNames := make([]string, 0, len(s.rangeableLocalReady))
+	for propName, ready := range s.rangeableLocalReady {
+		if ready {
+			propNames = append(propNames, propName)
+		}
+	}
+	s.rangeableLocalReadyMu.RUnlock()
+
+	for _, propName := range propNames {
+		bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
+		if s.store.Bucket(bucketName) != nil {
+			continue
+		}
+		if err := s.store.CreateOrLoadBucket(
+			ctx, bucketName,
+			s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSetRange)...,
+		); err != nil {
+			return fmt.Errorf("load rangeable bucket for prop %q: %w", propName, err)
+		}
+	}
+	return nil
 }
