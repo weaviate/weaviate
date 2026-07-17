@@ -58,13 +58,19 @@ import (
 type barrierRecordingProvider struct {
 	*testTaskProvider
 
-	mu             sync.Mutex
-	groupCalls     []string // taskID per OnGroupCompleted fire (PHASE A in barrier mode)
-	swapCalls      []string // taskID per OnSwapRequested fire (PHASE B in barrier mode)
-	taskCalls      []string // taskID per OnTaskCompleted fire
-	swapCallsBy    map[string]int
-	groupCallsBy   map[string]int
-	taskCallsBy    map[string]int
+	mu           sync.Mutex
+	groupCalls   []string // taskID per OnGroupCompleted fire (PHASE A in barrier mode)
+	swapCalls    []string // taskID per OnSwapRequested fire (PHASE B in barrier mode)
+	taskCalls    []string // taskID per OnTaskCompleted fire
+	swapCallsBy  map[string]int
+	groupCallsBy map[string]int
+	taskCallsBy  map[string]int
+	// taskStatusBy records the task.Status this provider OBSERVED on each
+	// OnTaskCompleted fire, per taskID. The real ReindexProvider dispatches
+	// its irreversible flip-vs-rollback decision off exactly this field, so
+	// tests must be able to assert the verdict the provider actually saw —
+	// not merely that the callback fired (0-weaviate-issues#220).
+	taskStatusBy   map[string][]TaskStatus
 	groupCompErr   error
 	swapRequestErr error
 }
@@ -75,6 +81,7 @@ func newBarrierRecordingProvider(t *testing.T) *barrierRecordingProvider {
 		swapCallsBy:      map[string]int{},
 		groupCallsBy:     map[string]int{},
 		taskCallsBy:      map[string]int{},
+		taskStatusBy:     map[string][]TaskStatus{},
 	}
 }
 
@@ -105,6 +112,17 @@ func (p *barrierRecordingProvider) OnTaskCompleted(task *Task) {
 	defer p.mu.Unlock()
 	p.taskCalls = append(p.taskCalls, task.ID)
 	p.taskCallsBy[task.ID]++
+	p.taskStatusBy[task.ID] = append(p.taskStatusBy[task.ID], task.Status)
+}
+
+// completedStatuses returns the task.Status observed on every
+// OnTaskCompleted fire for taskID, in call order.
+func (p *barrierRecordingProvider) completedStatuses(taskID string) []TaskStatus {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]TaskStatus, len(p.taskStatusBy[taskID]))
+	copy(out, p.taskStatusBy[taskID])
+	return out
 }
 
 func (p *barrierRecordingProvider) SetGroupCompletedError(err error) {
@@ -416,11 +434,14 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	// node-2 ticks: SetSwapRequestedError makes OnSwapRequested return
 	// the synthetic error. The scheduler emits the swap-ack with
 	// Success=false. The Manager's RecordPostCompletionAck apply flips
-	// the FSM SWAPPING → FAILED. node-2's local-clone status reflects
-	// FAILED in the same tick (scheduler reflects !success ack to
-	// FAILED on the clone — scheduler.go:669-671), so OnTaskCompleted
-	// fires on FAILED on node-2 in the same tick (per-node cleanup
-	// must run on FAILED).
+	// the FSM SWAPPING → FAILED. In the same tick the scheduler advances
+	// its local effectiveStatus to FAILED and hands OnTaskCompleted a
+	// status-corrected clone (runCompletedCallbackPhase), so node-2's
+	// OnTaskCompleted observes FAILED — NOT the pre-tick SWAPPING clone.
+	// This is load-bearing: the real ReindexProvider dispatches its
+	// flip-vs-rollback decision off task.Status, so a stale SWAPPING here
+	// would flip the cluster-wide schema over node-2's own failed unit
+	// (0-weaviate-issues#220).
 	h.tick(1)
 	task = h.getTask(t, taskID)
 	require.Equal(t, TaskStatusFailed, task.Status,
@@ -435,6 +456,10 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 		"node-2's swap error message must be preserved for forensics")
 	require.GreaterOrEqual(t, h.nodes[1].provider.taskCount(taskID), 1,
 		"node-2: OnTaskCompleted must fire on FAILED for per-node cleanup")
+	for _, seen := range h.nodes[1].provider.completedStatuses(taskID) {
+		require.Equal(t, TaskStatusFailed, seen,
+			"node-2 (the failing node): every OnTaskCompleted must observe FAILED, never the stale SWAPPING clone — else the real provider flips the schema over its own failed unit (0-weaviate-issues#220)")
+	}
 
 	// node-3 ticks: observes FAILED. PHASE B still fires on FAILED
 	// (postStarted=true includes FAILED on scheduler.go:586-588) so the
@@ -468,6 +493,76 @@ func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	}
 	require.Equal(t, 3, total,
 		"OnSwapRequested must fire exactly once per node across the cluster, regardless of success/failure")
+}
+
+// TestBarrier_FailingNodeNeverDispatchesFlipOverOwnFailedUnit is the A-timing
+// companion for the 0-weaviate-issues#220 BLOCKER (QA finding 5). It models
+// the EXACT ordering the multinode journey exercises — a follower's own swap
+// fails at Phase 2b, its post-completion ack lands Success=false, the FSM
+// flips to FAILED — with the REAL scheduler + manager FSM (no injected
+// verdict; the FAILED status is produced only by the real ack→apply path).
+//
+// The invariant it pins: the failing node's OnTaskCompleted must observe the
+// FAILED verdict, never the pre-tick SWAPPING clone. The real
+// ReindexProvider.OnTaskCompleted dispatches its irreversible
+// flip-vs-rollback decision off task.Status — Status==SWAPPING runs
+// flipSemanticMigrationSchema (the cluster-wide word→field flip),
+// Status==FAILED runs rollback. Before the scheduler handed OnTaskCompleted a
+// status-corrected clone, the failing node (which reaches the completed
+// phase with effectiveStatus==FAILED but a clone whose Status was never
+// overwritten) dispatched on SWAPPING and committed the flip over its own
+// failed unit — schema=NEW over data=OLD, the #220 inversion. Stronger
+// invariant asserted below: NO node, on ANY OnTaskCompleted fire, may observe
+// SWAPPING once a failure ack exists on the task.
+func TestBarrier_FailingNodeNeverDispatchesFlipOverOwnFailedUnit(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newBarrierHarness(t, []string{"node-1", "node-2", "node-3"})
+	defer h.close()
+
+	taskID := "barrier-failing-node-no-flip"
+	barrierAddTaskOneUnitPerNode(t, h, taskID)
+	barrierDriveToPreparing(t, h, taskID)
+	barrierDriveAllAcksAndAssertSwapping(t, h, taskID)
+
+	// node-2's swap fails at the atomic phase, exactly like the journey's
+	// ENOTDIR at inverted_reindex_task_generic.go:2111.
+	h.nodes[1].provider.SetSwapRequestedError(fmt.Errorf("synthetic ENOTDIR swap failure on node-2"))
+
+	// Drive every node's swap + completed phases to quiescence. node-2's
+	// tick produces the Success=false ack that flips the FSM to FAILED;
+	// the other nodes then observe FAILED on their next ticks.
+	for round := 0; round < 3; round++ {
+		for i := range h.nodes {
+			h.tick(i)
+		}
+	}
+
+	task := h.getTask(t, taskID)
+	require.Equal(t, TaskStatusFailed, task.Status,
+		"the FSM must be FAILED after node-2's swap-ack failure")
+
+	// The core invariant: the failing node dispatched only FAILED, never the
+	// stale SWAPPING that would have flipped the schema over its own unit.
+	failingSeen := h.nodes[1].provider.completedStatuses(taskID)
+	require.NotEmpty(t, failingSeen,
+		"node-2 must have fired OnTaskCompleted (for per-node rollback/cleanup)")
+	for _, seen := range failingSeen {
+		require.Equal(t, TaskStatusFailed, seen,
+			"node-2 (failing node): OnTaskCompleted must observe FAILED, never SWAPPING (0-weaviate-issues#220)")
+	}
+
+	// The cluster-wide invariant: once a failure ack exists, NO node may ever
+	// see SWAPPING in OnTaskCompleted — that is precisely the state in which
+	// the real provider would commit the flip.
+	require.True(t, task.AnyPostCompletionAckFailed(),
+		"precondition: a failure ack must be recorded on the task")
+	for _, n := range h.nodes {
+		for _, seen := range n.provider.completedStatuses(taskID) {
+			require.NotEqual(t, TaskStatusSwapping, seen,
+				"node %s: no OnTaskCompleted may observe SWAPPING while a failed ack exists — the schema flip must never commit over a failed unit (0-weaviate-issues#220)", n.id)
+		}
+	}
 }
 
 // TestBarrier_G3_LatePrepAckArrivesInSwapping pins gap G3: a late

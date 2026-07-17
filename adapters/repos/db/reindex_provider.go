@@ -1614,6 +1614,25 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 
+	// Defense in depth against a stale-status dispatch
+	// (0-weaviate-issues#220): the scheduler now hands us the per-tick
+	// verdict, so a failed unit arrives on the FAILED branch above. But
+	// never commit the cluster-wide schema flip while ANY unit's
+	// post-completion ack reports failure — even if this callback is ever
+	// handed a task whose Status still reads SWAPPING. The scheduler mirrors
+	// this node's own swap-ack onto the clone before firing this callback, so
+	// a local Phase-2b failure is visible here. Flipping now would strand
+	// schema=NEW over data=OLD and, worse, let the flip-apply re-resolve hook
+	// trim the only recoverable copy of the OLD data. Treat it exactly like
+	// the FAILED terminal branch: operator guidance + rollback of the staged
+	// swaps, preserving the OLD backups.
+	if task.AnyPostCompletionAckFailed() {
+		logger.Warn("reindex provider: task-completion: a post-completion ack reported failure while status still reads SWAPPING; refusing the schema flip and rolling back staged swaps (0-weaviate-issues#220)")
+		logOperatorRepairGuidanceOnFailedSemanticMigration(logger, payload)
+		p.autoCleanupAfterTerminal(task, payload, logger)
+		return
+	}
+
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
 	// scheduler tick fires OnTaskCompleted).
 	ctx := p.serverCtx
