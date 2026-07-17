@@ -25,16 +25,10 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// filterableToRangeableRecoveryPayloadJSON builds the payload.mig
-// content [ShardReindexTaskGeneric.SaveRecoveryPayload] writes in
-// production (via ReindexProvider.persistRecoveryRecord, the
-// RAFT/DTM-driven submission path), the shape
-// [readRecoveryPropertyNames] parses. Driving a migration inline via
-// direct OnAfterLsmInit/OnAfterLsmInitAsync calls (as the recovery-
-// convergence tests and newLiveFilterableToRangeableTask do) never
-// goes through ReindexProvider, so it never writes payload.mig on its
-// own; tests that need a realistic on-disk payload.mig must write it
-// explicitly, same as this helper.
+// filterableToRangeableRecoveryPayloadJSON builds the payload.mig content
+// SaveRecoveryPayload writes in production; tests that drive migrations
+// inline bypass ReindexProvider and must write it explicitly for a
+// realistic on-disk shape.
 func filterableToRangeableRecoveryPayloadJSON(t *testing.T, propNames ...string) []byte {
 	t.Helper()
 	rec := struct {
@@ -48,16 +42,10 @@ func filterableToRangeableRecoveryPayloadJSON(t *testing.T, propNames ...string)
 	return encoded
 }
 
-// newLiveFilterableToRangeableTask is the same wiring as
-// newFilterableToRangeableTask (inverted_reindex_recovery_filterable_to_rangeable_test.go)
-// EXCEPT it uses the real, unwrapped FilterableToRangeableStrategy
-// instead of testFilterableToRangeableStrategyWrapper. That wrapper
-// intentionally skips the production OnMigrationComplete's
-// setRangeableLocallyReady side effect (by design; see its own
-// godoc, it exists for bucket-content fingerprint tests that don't
-// care about the query-path optimization flag). This helper is for
-// tests that specifically DO care about that flag, so it must run
-// the real hook.
+// newLiveFilterableToRangeableTask uses the real, unwrapped
+// FilterableToRangeableStrategy (unlike newFilterableToRangeableTask's
+// testFilterableToRangeableStrategyWrapper), so OnMigrationComplete's
+// setRangeableLocallyReady side effect actually runs.
 func newLiveFilterableToRangeableTask(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
 	t.Helper()
 	strategy := &FilterableToRangeableStrategy{
@@ -70,24 +58,11 @@ func newLiveFilterableToRangeableTask(t *testing.T, idx *Index, className, propN
 	)
 }
 
-// driveFilterableToRangeableMigrationToLocalTidy is the shared restart-
-// fixture arrange step for every test that needs a shard sitting in the
-// tidy-but-not-flipped window: it creates a fresh shard for class, writes
-// numObjects objects, and drives a live FilterableToRangeableStrategy
-// migration for propName (via newLiveFilterableToRangeableTask) to full
-// local completion (tidied.mig on disk, in-process OnMigrationComplete
-// already ran) WITHOUT ever touching the cluster-wide schema flag - that
-// flip is RAFT-level, out of scope for a single-shard test, and is exactly
-// the window GH weaviate/weaviate#12189 defers.
-//
-// Driving the migration inline never goes through ReindexProvider, so it
-// never writes payload.mig on its own; this helper persists a realistic one
-// explicitly via SaveRecoveryPayload so the on-disk shape matches what a
-// real RAFT/DTM-driven migration leaves behind (see
-// filterableToRangeableRecoveryPayloadJSON's godoc).
-//
-// Callers are responsible for shutting the returned shard down (directly,
-// or via [restartShardAfterLocalTidy]).
+// driveFilterableToRangeableMigrationToLocalTidy drives a migration to
+// full local completion (tidied.mig on disk) without touching the
+// cluster-wide schema flag - that flip is RAFT-level and out of scope
+// for a single-shard test (weaviate/weaviate#12189). Callers must shut
+// down the returned shard.
 func driveFilterableToRangeableMigrationToLocalTidy(
 	t *testing.T, ctx context.Context, class *models.Class, propName string, numObjects int,
 ) (shard *Shard, idx *Index) {
@@ -117,25 +92,10 @@ func driveFilterableToRangeableMigrationToLocalTidy(
 	return shard, idx
 }
 
-// restartShardAfterLocalTidy simulates a process restart exactly like a
-// real node restart: idx.initShard builds a brand-new *Shard with an empty
-// in-memory rangeableLocalReady map, and, critically,
-// FinalizeCompletedMigrations deletes the tidied tracker directory as part
-// of that same restart.
-//
-// Deliberately does NOT wire idx.shardReindexer to a task that knows about
-// the migration (it stays the default shardReindexerV3Noop
-// testShardWithSettings set up, see helper_for_test.go). Real node startup
-// initializes shards before RAFT/DTM has necessarily re-synced the active-
-// task list to this node's reindexer, so a write can land on a freshly-
-// initialized shard with NO reindex task driving recovery yet. Wiring a
-// live, matching task here (as the sibling recovery-convergence tests do)
-// would let its OnAfterLsmInit re-discover "not started" (the tracker dir
-// is gone) and re-run the WHOLE migration from scratch, which re-converges
-// regardless of whether the seed fix under test even exists, masking the
-// exact gap these tests are for.
-//
-// The caller owns shutting the returned shard down.
+// restartShardAfterLocalTidy simulates a real restart: a fresh *Shard
+// with an empty rangeableLocalReady map, after FinalizeCompletedMigrations
+// has deleted the tidied tracker dir. Deliberately skips wiring a live
+// reindex task, or it would re-run the migration and mask the gap under test.
 func restartShardAfterLocalTidy(t *testing.T, ctx context.Context, idx *Index, shard *Shard, class *models.Class) *Shard {
 	t.Helper()
 	shardName := shard.Name()
@@ -148,12 +108,9 @@ func restartShardAfterLocalTidy(t *testing.T, ctx context.Context, idx *Index, s
 	return shard2
 }
 
-// TestRangeableForceIndexOverlay pins the write-path overlay that closes
-// the #12189-introduced write-loss window (weaviate/0-weaviate-issues#319,
-// rangeable instance): once a shard is locally ready for a rangeable prop
-// but the live schema flag hasn't flipped yet, writes to that prop must be
-// forced to analyze as rangeable so they land in the already-canonical
-// bucket. See [Shard.rangeableForceIndexOverlay] for the mechanism.
+// TestRangeableForceIndexOverlay pins that once a shard is locally ready
+// for a rangeable prop but the schema flag hasn't flipped yet, writes
+// must be forced to analyze as rangeable (weaviate/weaviate#12189).
 func TestRangeableForceIndexOverlay(t *testing.T) {
 	const propName = "score"
 	ctx := testCtx()
@@ -191,10 +148,8 @@ func TestRangeableForceIndexOverlay(t *testing.T) {
 	})
 
 	t.Run("repair-rangeable analog: flag true from the start, never fires regardless of local-ready", func(t *testing.T) {
-		// repair-rangeable's submit-time validator enforces the flag is
-		// already true before the migration starts, so this is the same
-		// case as "flag already true" above, exercised for both
-		// local-ready states to document the invariant explicitly.
+		// repair-rangeable's submit-time validator requires the flag already
+		// true, so this exercises the same case for both local-ready states.
 		shard.setRangeableLocallyReady(propName, false)
 		require.Nil(t, shard.rangeableForceIndexOverlay([]*models.Property{postFlipProp}))
 		shard.setRangeableLocallyReady(propName, true)
@@ -215,11 +170,9 @@ func TestRangeableForceIndexOverlay(t *testing.T) {
 }
 
 // TestWriteAnalyzerOverlayMergesTokenizationAndRangeable pins that
-// [Shard.writeAnalyzerOverlay] unions the tokenization overlay (text
-// props, weaviate/0-weaviate-issues#240) and the rangeable force overlay
-// (numeric props, weaviate/0-weaviate-issues#319) without either
-// clobbering the other, since a real write can hit both simultaneously
-// during two concurrent-but-disjoint migrations on the same class.
+// writeAnalyzerOverlay unions the tokenization and rangeable-force
+// overlays without either clobbering the other, since a real write can
+// hit both during concurrent, disjoint migrations on the same class.
 func TestWriteAnalyzerOverlayMergesTokenizationAndRangeable(t *testing.T) {
 	const (
 		textProp    = "title"
@@ -254,16 +207,10 @@ func TestWriteAnalyzerOverlayMergesTokenizationAndRangeable(t *testing.T) {
 		"the tokenization overlay entry must not pick up the rangeable Force flag")
 }
 
-// TestRangeableForceIndexOverlay_FastExit_FreshShard pins the
-// steady-state fast exit added to close the +15-allocs/op regression
-// (rangeableForceIndexOverlay running the per-prop
-// IsRangeableLocallyReady bucket-existence lookup unconditionally on
-// every write, even for a shard that has never had a rangeable
-// migration). A brand-new shard's rangeableLocalReady map is empty
-// and rangeableLocalReadyHistoryUnknown is false, so the fast exit
-// must return nil without ever calling IsRangeableLocallyReady; this
-// test only pins the observable output (nil overlay), the allocation
-// claim itself is pinned by BenchmarkRangeableForceIndexOverlay_SteadyState.
+// TestRangeableForceIndexOverlay_FastExit_FreshShard pins that a shard
+// with no migration history takes the zero-alloc fast exit without
+// calling IsRangeableLocallyReady; the allocation claim itself is pinned
+// by BenchmarkRangeableForceIndexOverlay_SteadyState.
 func TestRangeableForceIndexOverlay_FastExit_FreshShard(t *testing.T) {
 	ctx := testCtx()
 	className := "RangeableOverlayFastExit_" + uuid.NewString()[:8]
@@ -284,34 +231,11 @@ func TestRangeableForceIndexOverlay_FastExit_FreshShard(t *testing.T) {
 }
 
 // TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFlip
-// is the regression test for the fast-exit safety edge QA flagged: the
-// bucket-existence fallback in IsRangeableLocallyReady. It reproduces
-// the exact restart timing that makes a naive
-// `len(rangeableLocalReady)==0` fast exit unsafe.
-//
-// Sequence: drive an enable-rangeable migration to full local
-// completion (tidied.mig written) WITHOUT ever touching the
-// cluster-wide schema flag (that flip is RAFT-level, out of scope for
-// a single-shard test, and is exactly the window GH
-// weaviate/weaviate#12189 defers). Then simulate a process restart via
-// idx.initShard, which builds a brand-new *Shard with an empty
-// in-memory rangeableLocalReady map, and, critically,
-// FinalizeCompletedMigrations deletes the tidied tracker directory as
-// part of that same restart, so the only on-disk evidence of the
-// completed migration is gone by the time rangeableForceIndexOverlay
-// could be asked to fast-exit.
-//
-// This test catches the write-loss regression a naive
-// `len(rangeableLocalReady)==0` fast exit (without
-// seedRangeableLocalReadyFromMigrationHistory seeding an explicit
-// `true` entry before FinalizeCompletedMigrations runs) would
-// reintroduce, because it exercises the exact input shape that trips
-// the bug: a restarted shard whose migration history lives only in a
-// tracker directory that gets deleted during the same restart that
-// wipes the in-memory map. Verified red on the pre-fix shape (see the
-// handoff log's stash-revert record); on the shipped code, the
-// explicit `true` seeded before FinalizeCompletedMigrations survives
-// the restart and this test is green.
+// pins that a restart between local-tidy completion and the schema flip
+// (weaviate/weaviate#12189) must not reopen the write-loss window: the
+// on-disk tracker is gone by then, so a naive `len(rangeableLocalReady)==0`
+// fast exit would need seedRangeableLocalReadyFromMigrationHistory to have
+// already seeded `true`.
 func TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFlip(t *testing.T) {
 	ctx := testCtx()
 	className := "RangeableOverlayRestart_" + uuid.NewString()[:8]
@@ -323,9 +247,6 @@ func TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFli
 	falseVal := false
 	preFlipProp := &models.Property{Name: propName, DataType: []string{"int"}, IndexRangeFilters: &falseVal}
 
-	// Sanity: migration fully tidied locally (in-process
-	// OnMigrationComplete already ran), cluster-wide schema flag still
-	// false. The overlay must already be forcing rangeable.
 	overlay := shard.rangeableForceIndexOverlay([]*models.Property{preFlipProp})
 	require.NotNil(t, overlay, "sanity: pre-restart overlay should already force rangeable")
 	require.True(t, overlay[propName].ForceRangeable)
@@ -341,15 +262,9 @@ func TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFli
 	require.True(t, overlay2[propName].ForceRangeable)
 }
 
-// newSeedHistoryTestShardWithTracker builds a fresh shard for a
-// TestSeedRangeableLocalReadyFromMigrationHistory sub-test and drives a
-// single rangeable migration far enough to leave exactly one tracker
-// dir on disk with a parseable payload.mig (SaveRecoveryPayload'd
-// explicitly, since driving the migration inline never goes through
-// ReindexProvider - see filterableToRangeableRecoveryPayloadJSON's
-// godoc). namePrefix keeps each sub-test's class name distinct;
-// t.Cleanup shuts the shard down when the sub-test returns, so callers
-// don't need their own defer.
+// newSeedHistoryTestShardWithTracker leaves exactly one tracker dir on
+// disk with a parseable payload.mig (written explicitly since driving the
+// migration inline bypasses ReindexProvider).
 func newSeedHistoryTestShardWithTracker(t *testing.T, ctx context.Context, namePrefix, propName string) *Shard {
 	t.Helper()
 	className := namePrefix + uuid.NewString()[:8]
@@ -366,10 +281,8 @@ func newSeedHistoryTestShardWithTracker(t *testing.T, ctx context.Context, nameP
 }
 
 // TestSeedRangeableLocalReadyFromMigrationHistory unit-tests
-// [seedRangeableLocalReadyFromMigrationHistory] directly against a
-// hand-built on-disk tracker, isolating it from the full
-// migration/restart/task-machinery integration (covered end-to-end by
-// TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFlip).
+// seedRangeableLocalReadyFromMigrationHistory against a hand-built
+// on-disk tracker, isolated from full migration/restart integration.
 func TestSeedRangeableLocalReadyFromMigrationHistory(t *testing.T) {
 	ctx := testCtx()
 
@@ -391,7 +304,6 @@ func TestSeedRangeableLocalReadyFromMigrationHistory(t *testing.T) {
 	t.Run("in-flight (non-tidied) tracker with parseable payload also seeds true (markInFlightRangeableMigrationsNotReady corrects it later)", func(t *testing.T) {
 		const propName = "score"
 		shard := newSeedHistoryTestShardWithTracker(t, ctx, "SeedHistoryInFlight_", propName)
-		// No tidied.mig written: this tracker is still in-flight.
 
 		seedRangeableLocalReadyFromMigrationHistory(shard)
 		require.Equal(t, map[string]bool{propName: true}, shard.rangeableLocalReady,
@@ -424,9 +336,8 @@ func TestSeedRangeableLocalReadyFromMigrationHistory(t *testing.T) {
 			"no property name could be recovered, so nothing should be guessed into the map")
 		require.True(t, shard.rangeableLocalReadyHistoryUnknown.Load())
 
-		// The fast exit must be disabled for the WHOLE shard by this,
-		// not just the affected property: rangeableForceIndexOverlay
-		// has no way to know in advance which properties an
+		// Disabled shard-wide, not just for the affected property:
+		// rangeableForceIndexOverlay can't know which properties an
 		// unparseable tracker might have named.
 		require.False(t, len(shard.rangeableLocalReady) == 0 && !shard.rangeableLocalReadyHistoryUnknown.Load(),
 			"fast-exit precondition must be false so rangeableForceIndexOverlay takes the slow path")

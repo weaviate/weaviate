@@ -25,15 +25,11 @@ import (
 )
 
 // TestMultiNode_EnableRangeable_SchemaFlagStaysFalseUntilAllUnitsTerminal
-// pins GH weaviate/weaviate#12189: with staggered shard completion,
-// indexRangeFilters must stay false until every unit is COMPLETED, not
-// flip early on the first shard to finish. The guarantee is unit-level
-// (AllUnitsTerminal, the actual gate the schema flip waits for), not
-// task.Status=="FINISHED": the flip runs while the task is still
-// SWAPPING (a real, non-terminal, externally-visible status - see
-// distributedtask.TaskStatusSwapping), the same brief window every
-// other deferred migration type already has. Requiring FINISHED here
-// would flag that harmless window as a false early-flip.
+// pins weaviate/weaviate#12189: with staggered shard completion,
+// indexRangeFilters must stay false until every unit is COMPLETED
+// (AllUnitsTerminal), not flip early on the first shard to finish. The
+// gate is unit-level, not task.Status=="FINISHED" - the legitimate flip
+// runs during the brief SWAPPING window before finalize-to-FINISHED commits.
 func TestMultiNode_EnableRangeable_SchemaFlagStaysFalseUntilAllUnitsTerminal(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -61,32 +57,10 @@ func TestMultiNode_EnableRangeable_SchemaFlagStaysFalseUntilAllUnitsTerminal(t *
 		`{"rangeable":{"enabled":true}}`)
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 
-	// Schema fetched BEFORE tasks, on purpose (Copilot review round on
-	// PR #12206): unit progress and the schema flag are both monotonic
-	// (non-terminal -> COMPLETED; false -> true), so if the legitimate
-	// flip lands between these two requests, the ordering below can only
-	// under-count violations near that boundary (false negative, safe),
-	// never manufacture one (false positive). Concretely: schema is read
-	// at the EARLIER instant T1, tasks at the LATER instant T2 (T2>T1).
-	// If schema is true at T1 and tasks show not-all-done at T2 (later,
-	// so "more done" if anything), that's a genuine violation - the flag
-	// was already true before the units were done, full stop. The
-	// reverse order (tasks-then-schema, tasks OLDER) can fabricate a
-	// false positive: a legitimate post-completion flip observed at the
-	// later schema read could pair with a stale not-all-done tasks
-	// snapshot taken earlier, before the units actually finished,
-	// falsely looking like an early flip.
-	//
-	// Schema read uses local=true (consistency:false), same-node as the
-	// tasks read below (QA re-verify hardening item on PR #12206): a
-	// leader-linearizable schema read and a node-local tasks read are
-	// two different clocks, opening a theoretical skew window in the T1
-	// monotonicity argument above (a stale-leader schema answer paired
-	// with a fresher local tasks answer, or vice versa, on a node that
-	// isn't the leader). Reading both from this node's own FSM state
-	// closes that window: T1 and T2 are now both this node's local
-	// clock, so the "T2 can only be more done than T1" ordering argument
-	// holds without cross-clock skew.
+	// Schema is read before tasks: both are monotonic (false->true,
+	// non-terminal->COMPLETED), so any ordering skew can only under-count
+	// violations, never fabricate one. Both reads use this node's local
+	// state to avoid a leader-vs-local clock skew between the two calls.
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 		wg.Add(1)
 		uri := restURIOf(compose, nodeIdx)
@@ -142,21 +116,10 @@ func TestMultiNode_EnableRangeable_SchemaFlagStaysFalseUntilAllUnitsTerminal(t *
 						allCompleted = false
 					}
 				}
-				// The guarantee this test enforces is "the flag stays
-				// false while ANY unit is non-terminal, and flips only
-				// once ALL units are COMPLETED" - that is the actual
-				// gate OnTaskCompleted's flip waits for (AllUnitsTerminal),
-				// not task.Status=="FINISHED". task.Status legitimately
-				// reaches SWAPPING (a real, non-terminal, externally-
-				// visible status - see distributedtask.TaskStatusSwapping's
-				// own godoc) after every unit is COMPLETED but before the
-				// separate finalize-to-FINISHED RAFT write commits; the
-				// flip runs during that SWAPPING window by design, same
-				// as every other deferred migration type (see
-				// needsClusterWideFlipAtCompletion). Requiring FINISHED
-				// here would flag that harmless, bounded window as a
-				// false "early flip" (observed in practice: all units
-				// COMPLETED, status SWAPPING, flag already true).
+				// Gate is unit-level (AllUnitsTerminal), not
+				// task.Status=="FINISHED": the flip legitimately runs
+				// during the SWAPPING window before finalize-to-FINISHED
+				// commits (see needsClusterWideFlipAtCompletion).
 				allUnitsDone := allCompleted
 				if anyCompleted && anyInProgress {
 					sawStaggeredCompletion.Store(true)
@@ -171,13 +134,9 @@ func TestMultiNode_EnableRangeable_SchemaFlagStaysFalseUntilAllUnitsTerminal(t *
 			}
 		}()
 	}
-	// Registered after the goroutines start (and, since defers run LIFO,
-	// AFTER the cluster cleanup()/dumpContainerLogs() defers above) so
-	// this one fires FIRST on every exit path - including an early
-	// require.* failure below, which would otherwise leave these 3
-	// polling goroutines running against the cluster during its
-	// teardown. A success-only close(stopCh)/wg.Wait() before the
-	// cluster stopped covering that path; this covers all of them.
+	// LIFO: fires before the cluster-teardown defers, so an early exit
+	// doesn't leave these polling goroutines running against a
+	// tearing-down cluster.
 	defer func() {
 		close(stopCh)
 		wg.Wait()
@@ -213,8 +172,8 @@ func TestMultiNode_EnableRangeable_SchemaFlagStaysFalseUntilAllUnitsTerminal(t *
 
 	require.True(t, sawStaggeredCompletion.Load(),
 		"test fixture should produce a genuine staggered window (some units COMPLETED while "+
-			"others still IN_PROGRESS/PENDING) - otherwise this test can't distinguish the fix "+
-			"from the pre-fix bug; increase totalObjects or reduce concurrency if this flakes")
+			"others still IN_PROGRESS/PENDING) - without one the deferred-flip assertion is vacuous; "+
+			"increase totalObjects or reduce concurrency if this flakes")
 
 	assert.False(t, sawSchemaTrueBeforeAllUnitsDone.Load(),
 		"GH #12189: indexRangeFilters must stay false until every unit is COMPLETED. Any "+

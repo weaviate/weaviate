@@ -30,42 +30,15 @@ import (
 )
 
 // TestMultiNode_EnableRangeable_FilterableFalseCompletes pins
-// https://github.com/weaviate/0-weaviate-issues/issues/325: enable-rangeable on
-// a property with IndexFilterable=false previously failed on any RF>1
-// cluster because the per-shard OnMigrationComplete hook RAFted the
-// IndexRangeFilters=true flip once per replica (up to 9 concurrent
-// same-property UpdateProperty commands on a 3-shard/RF3 collection). Each
-// apply synchronously ran updatePropertyBuckets, which -- because
-// IndexFilterable=false -- called cleanStaleMigrationDirs(prop,
-// "filterable"); migrationDirsForPropertyIndex("filterable") includes the
-// filterable_to_rangeable_<prop> prefix, so a still-in-flight replica's
-// migration dir was os.RemoveAll'd by the first-finishing replica's flip.
-// The DTM retry then wrote its next sentinel into the now-missing dir:
-//
-//	open .../.migrations/filterable_to_rangeable_<prop>_<gen>/{reindexed,
-//	prepended,progress}.mig: no such file or directory
-//
-// with a companion schema-propagation stall:
-//
-//	runtime swap: on migration complete: updating property "score":
-//	deadline exceeded for waiting for update: version got=0 want=<N>
-//
-// weaviate/weaviate#12206 (GH weaviate/weaviate#12189) moved the flip from
-// per-shard OnMigrationComplete to the all-units-terminal OnTaskCompleted
-// gate (needsClusterWideFlipAtCompletion), the same slot semantic
-// migrations already use -- eliminating the concurrent-UpdateProperty
-// storm this issue's mechanism rides on. This test pins that fix at the
-// exact repro shape from the issue (3-shard RF3, IndexFilterable=false,
-// no concurrent writes) and additionally scans every node's logs for the
-// two failure signatures directly, so a regression that reintroduces the
-// storm through a different code path (not just a reverted flip) is also
-// caught.
-//
-// AB verdict (dev, 2026-07-16): reproduced 5/6 (83%) at this exact
-// object count on stable/v1.38 @ 56d9926f7afd23074c93a88acfe9fa63808be23b
-// (the SHA the issue itself cites), 0/10 clean on the #12206+#11986
-// convergence branch @ cc412837a8. See
-// Conversations/2026-07/2026-07-16-1927-investigate-0-weaviate-issues-325-a-b-on-pr-12206-does-the-d__ab-brief.md.
+// weaviate/0-weaviate-issues#325: on RF>1, enable-rangeable on an
+// IndexFilterable=false property failed because each replica's
+// OnMigrationComplete RAFted its own IndexRangeFilters flip, and each
+// apply's cleanStaleMigrationDirs os.RemoveAll'd a still-in-flight
+// sibling replica's migration dir. Deferring the flip to the
+// all-units-terminal OnTaskCompleted gate
+// (needsClusterWideFlipAtCompletion) eliminates the storm; this test
+// also scans node logs for the two failure signatures directly, so a
+// regression via a different code path is still caught.
 func TestMultiNode_EnableRangeable_FilterableFalseCompletes(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -74,12 +47,9 @@ func TestMultiNode_EnableRangeable_FilterableFalseCompletes(t *testing.T) {
 
 	const (
 		className = "GH325Regression"
-		// 30_000 matches the object count that reliably reproduced the
-		// bug pre-fix (5/6 runs); the issue's own 3_000-object repro was
-		// only ~57% and is too flaky for a CI regression gate. The issue
-		// itself notes the race window widens with data volume -- this
-		// is a deliberate over-provision so the test stays a faithful
-		// adversary of the fixed code path rather than a coin flip.
+		// Larger than the issue's own repro count: the race window
+		// widens with data volume, so this stays a reliable regression
+		// gate rather than a flaky coin flip.
 		totalObjects = 30_000
 	)
 	falseVal := false
@@ -131,12 +101,10 @@ func TestMultiNode_EnableRangeable_FilterableFalseCompletes(t *testing.T) {
 	}
 }
 
-// pollReindexToTerminalGH325Regression polls /v1/tasks until the named task
-// reaches FAILED or FINISHED, returning the terminal status and (if FAILED)
-// the task's error string. A local poll rather than
-// reindexhelpers.AwaitReindexFinished so the caller can run the log-signature
-// scan before asserting, giving a FAILED run full forensic output instead of
-// just "should reach FINISHED".
+// pollReindexToTerminalGH325Regression polls until the task reaches a
+// terminal state, returning the status and any error. A local poll
+// (rather than reindexhelpers.AwaitReindexFinished) so the caller can
+// run the log-signature scan before asserting.
 func pollReindexToTerminalGH325Regression(t *testing.T, restURI, taskID string, timeout time.Duration) (status, errStr string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -203,9 +171,7 @@ func scanClusterLogsForGH325SignaturesRegression(ctx context.Context, t *testing
 
 // batchImportNumericGH325Regression posts `total` objects in 200-object
 // batches, consistency_level=ALL so the migration starts from a
-// fully-replicated baseline (matches the issue's "no concurrent writes
-// needed" repro -- the storm comes purely from the per-replica flip
-// fan-out, not from write traffic racing the migration).
+// fully-replicated baseline.
 func batchImportNumericGH325Regression(
 	t *testing.T, restURI, className string, total int, scoreFor func(i int) int,
 ) {

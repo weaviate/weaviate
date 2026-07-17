@@ -57,7 +57,7 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 				// not added to the inverted index
 				continue
 			case schema.DataTypeObject, schema.DataTypeObjectArray:
-				// nested types use dedicated nested buckets — no flat null/length buckets are created for them
+				// nested types use dedicated nested buckets - no flat null/length buckets are created for them
 				continue
 			default:
 			}
@@ -105,23 +105,12 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	return props, nilProps, nestedProps, err
 }
 
-// writeAnalyzerOverlay merges the per-shard write-path overlays:
-//   - tokenization overlay: SWAPPING-window writes use TARGET-tokenized
-//     keys so they land in the canonical bucket (weaviate/0-weaviate-issues#240).
-//   - rangeable force overlay: post-swap pre-flip writes to an
-//     enable-rangeable/repair-rangeable property are analyzed with
-//     IndexRangeFilters forced on, closing the write-loss window GH
-//     weaviate/weaviate#12189's deferred flip opened
-//     (weaviate/0-weaviate-issues#319, rangeable instance; see
-//     [Shard.rangeableForceIndexOverlay]).
-//
-// The two never target the same property in practice (tokenization only
-// ever carries text tokenization targets; rangeable only ever targets
-// int/number/date properties), but the merge is a plain union regardless,
-// tokenization taking precedence on the pathological case where both
-// hooks somehow name the same property (its ForceRangeable would still
-// be lost, but that combination cannot occur: CheckConflict rejects two
-// migrations racing the same property's flag concurrently).
+// writeAnalyzerOverlay unions the tokenization overlay
+// (weaviate/0-weaviate-issues#240) and the rangeable force overlay
+// (see [Shard.rangeableForceIndexOverlay]). The two never target the
+// same property in practice; on the union, tokenization would win if
+// they did, but CheckConflict rejects two migrations racing the same
+// property's flag concurrently, so that case can't occur.
 func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	overlay := s.tokenizationAnalyzerOverlay(props)
 	forced := s.rangeableForceIndexOverlay(props)
@@ -140,57 +129,35 @@ func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]invert
 }
 
 // rangeableForceIndexOverlay closes the post-swap pre-flip write-loss
-// window that GH weaviate/weaviate#12189's deferred schema flip opened for
-// enable-rangeable/repair-rangeable (weaviate/0-weaviate-issues#319,
-// rangeable instance).
+// window opened by the deferred schema flip (weaviate/weaviate#12189):
+// once a property is locally ready ([Shard.IsRangeableLocallyReady]) but
+// the cluster-wide IndexRangeFilters flag hasn't flipped, a write
+// analyzed under the pre-flip schema would miss the already-canonical
+// rangeable bucket (the migration's double-write callbacks are torn
+// down at swap). This overlay forces the property to analyze as
+// rangeable in that window.
 //
-// Mechanism: once this shard's rangeable bucket is locally ready
-// ([Shard.IsRangeableLocallyReady]) but the cluster-wide schema flag
-// (IndexRangeFilters) hasn't flipped yet, a live write to the property is
-// analyzed under the pre-flip schema (HasRangeableIndex=false) and never
-// reaches the already-canonical rangeable bucket - the double-write
-// callbacks that covered writes during the active migration are torn down
-// per shard at swap, and the schema-flag path doesn't cover them either
-// until the cluster-wide flip lands. This overlay forces the property to
-// analyze as rangeable in that window, same as the ordinary inline write
-// path once the flag is genuinely true.
-//
-// Symmetric to the read-side gate (IsRangeableLocallyReady, wired into
-// query planning in shard_read.go / shard_aggregate.go /
-// shard_write_batch_delete.go): reads fall back to filterable until
-// local-ready; writes force the target flag on once local-ready, until the
-// schema catches up. No new per-shard state is needed - local-ready
-// already tracks exactly this window (set true by
-// FilterableToRangeableStrategy.OnMigrationComplete on this shard's swap,
-// reset false by markInFlightRangeableMigrationsNotReady on restart
-// mid-migration).
+// Symmetric to the read-side gate (IsRangeableLocallyReady): reads fall
+// back to filterable until local-ready; writes force the flag on once
+// local-ready, until the schema catches up.
 //
 // Self-limiting:
-//   - Stops firing the instant the cluster flag flips: HasRangeableIndex(p)
-//     becomes true and the loop below skips the property.
-//   - Never fires on a not-yet-swapped replica: IsRangeableLocallyReady is
-//     false there, so that replica's own double-write callbacks / backfill
-//     scan (not this overlay) are the active write coverage.
+//   - Stops the instant the cluster flag flips (HasRangeableIndex
+//     becomes true and the loop skips the property).
+//   - Never fires pre-swap: IsRangeableLocallyReady is false, so
+//     double-write/backfill covers writes instead.
 //   - Never fires for repair-rangeable: its flag is already true before
-//     the migration starts (submit-time validator), so HasRangeableIndex
-//     is already true and the loop skips it on every call.
-//   - Never fires for a property that was never migrated: its rangeable
-//     bucket doesn't exist, so IsRangeableLocallyReady's bucket-existence
-//     fallback returns false.
+//     the migration starts.
+//   - Never fires for a never-migrated property: its bucket doesn't
+//     exist, so the bucket-existence fallback returns false.
 //
-// Steady-state fast exit: for a shard that has never had a rangeable
-// migration touch it (the common case), every write would otherwise
-// pay a per-prop IsRangeableLocallyReady call (a bucket-name string
-// build + store.Bucket lookup) for zero benefit, since the answer is
-// unconditionally "not force-rangeable". len(s.rangeableLocalReady)==0
-// is a safe proxy for "no property on this shard has ever needed
-// forcing" ONLY because shard init unconditionally populates that map
-// (true or false) for every property this shard's on-disk migration
-// history has ever named; see [seedRangeableLocalReadyFromMigrationHistory]
-// and [markInFlightRangeableMigrationsNotReady]. rangeableLocalReadyHistoryUnknown
-// covers the one case that scan can't resolve (an unparseable tracker payload). Measured
-// steady-state cost with the fast exit: see
-// BenchmarkRangeableForceIndexOverlay_SteadyState.
+// Fast exit: len(s.rangeableLocalReady)==0 is a safe "never needs
+// forcing" proxy only because shard init unconditionally populates that
+// map for every property the on-disk migration history ever named (see
+// [seedRangeableLocalReadyFromMigrationHistory] and
+// [markInFlightRangeableMigrationsNotReady]); rangeableLocalReadyHistoryUnknown
+// covers the one case that scan can't resolve. See
+// BenchmarkRangeableForceIndexOverlay_SteadyState for the measured cost.
 func (s *Shard) rangeableForceIndexOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	s.rangeableLocalReadyMu.RLock()
 	noRangeableHistory := len(s.rangeableLocalReady) == 0

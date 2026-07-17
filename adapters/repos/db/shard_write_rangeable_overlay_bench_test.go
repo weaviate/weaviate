@@ -21,20 +21,11 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// BenchmarkRangeableForceIndexOverlay_SteadyState reproduces QA's
-// re-verify measurement on PR #12206 (5 props, steady state, no
-// active migration): rangeableForceIndexOverlay running on every
-// AnalyzeObject call for a shard that has never had a rangeable
-// migration touch it (the common case for the vast majority of
-// collections, which never use enable-rangeable/repair-rangeable).
-//
-// QA's numbers on the pre-fast-exit shape: 85ns/80B/1 alloc per op
-// pre-#12206, 568ns/360B/16 allocs post; +15 allocs/op unconditional
-// steady-state regression. The fast exit in this benchmark's target
-// function should restore per-op cost close to the pre-#12206
-// baseline for this shard shape: it returns nil before ever calling
-// IsRangeableLocallyReady, so none of the per-prop bucket-name-build +
-// store.Bucket lookups run.
+// BenchmarkRangeableForceIndexOverlay_SteadyState measures the fast-exit
+// cost for the common case (no rangeable migration has ever touched
+// this shard): rangeableForceIndexOverlay must return nil before ever
+// calling IsRangeableLocallyReady, so no per-prop bucket-name-build +
+// store.Bucket lookup runs.
 func BenchmarkRangeableForceIndexOverlay_SteadyState(b *testing.B) {
 	ctx := testCtx()
 	className := "RangeableOverlayBench_" + uuid.NewString()[:8]
@@ -71,12 +62,9 @@ func BenchmarkRangeableForceIndexOverlay_SteadyState(b *testing.B) {
 }
 
 // BenchmarkRangeableForceIndexOverlay_MidMigration is the companion
-// measurement for the OTHER steady state: a shard mid-migration
-// (locally ready, cluster flag not yet flipped), so the fast exit's
-// cost isn't accidentally read as "the overlay got cheaper for
-// everyone": this state must still pay the per-prop
-// IsRangeableLocallyReady check, by design (the write-loss fix this
-// overlay exists for only works because it keeps checking).
+// measurement for a shard mid-migration (locally ready, cluster flag
+// not yet flipped): this state must still pay the per-prop
+// IsRangeableLocallyReady check, by design.
 func BenchmarkRangeableForceIndexOverlay_MidMigration(b *testing.B) {
 	ctx := testCtx()
 	className := "RangeableOverlayBenchMid_" + uuid.NewString()[:8]

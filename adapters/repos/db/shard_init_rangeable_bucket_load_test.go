@@ -29,18 +29,9 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// restartShardIntoTidyButNotFlippedRangeableWindow is the write/read pin
-// analog of the restart fixture in
-// TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFlip
-// (shard_write_rangeable_overlay_test.go): it composes
-// driveFilterableToRangeableMigrationToLocalTidy and
-// restartShardAfterLocalTidy (shard_write_rangeable_overlay_test.go) to
-// land propName in the tidy-but-not-flipped window.
-//
-// The returned shard lands in the tidy-but-not-flipped window:
-// rangeableLocalReady[propName] is seeded true by
-// seedRangeableLocalReadyFromMigrationHistory from the on-disk migration
-// history, but the live class schema's IndexRangeFilters is still
+// restartShardIntoTidyButNotFlippedRangeableWindow returns a shard whose
+// rangeableLocalReady[propName] is seeded true from on-disk migration
+// history, but whose live class schema IndexRangeFilters is still
 // nil/false - the caller decides whether and when to flip it.
 func restartShardIntoTidyButNotFlippedRangeableWindow(
 	t *testing.T, ctx context.Context, propName string, numObjects int,
@@ -58,20 +49,12 @@ func restartShardIntoTidyButNotFlippedRangeableWindow(
 	return shard2, idx, class
 }
 
-// TestRangeableBucketLoadAfterRestartBeforeSchemaFlip pins the bug QA
-// found in variant-b of 0-weaviate-issues#335:
-// seedRangeableLocalReadyFromMigrationHistory (shard_init.go) seeds an
-// explicit rangeableLocalReady[prop]=true without the canonical
-// rangeable bucket ever being loaded into s.store, because
-// createPropertyValueIndex's load is gated on the LIVE (pre-flip)
-// schema's inverted.HasRangeableIndex(prop), still false in this
-// window. Every consumer of the explicit-true entry then hits a nil
-// s.store.Bucket(...) and hard-errors: the write overlay
-// (rangeableForceIndexOverlay forces HasRangeableIndex:true, but
-// addToPropertyValueIndex's bucket lookup at shard_write_inverted_lsm.go:117-120
-// is nil), and the read gate (Searcher.hasUsableRangeableIndex, once the
-// cluster-wide schema flip lands without a further restart, at
-// prop_value_pairs.go:371-375).
+// TestRangeableBucketLoadAfterRestartBeforeSchemaFlip pins
+// weaviate/0-weaviate-issues#335 (variant b): seeding
+// rangeableLocalReady[prop]=true from migration history without also
+// loading the canonical bucket into s.store leaves every consumer of
+// that entry (write overlay, read gate) hitting a nil
+// s.store.Bucket(...) and hard-erroring.
 func TestRangeableBucketLoadAfterRestartBeforeSchemaFlip(t *testing.T) {
 	const propName = filterableToRangeablePropName
 	const numObjects = 10
@@ -115,12 +98,9 @@ func TestRangeableBucketLoadAfterRestartBeforeSchemaFlip(t *testing.T) {
 		shard2, _, class := restartShardIntoTidyButNotFlippedRangeableWindow(t, ctx, propName, numObjects)
 		defer shard2.Shutdown(ctx)
 
-		// Simulate the cluster-wide RAFT flip landing on this node without
-		// a further restart: mutate the SAME *models.Class pointer
-		// registered with idx.getSchema's fakeSchemaGetter (its
-		// schema.Objects.Classes slice holds this exact pointer - see
-		// setupTestShardWithSettings and fakeSchemaGetter,
-		// fakes_for_tests.go:42-53).
+		// Simulate the cluster-wide RAFT flip landing without a further
+		// restart: mutate the same *models.Class pointer the fake schema
+		// getter holds.
 		trueVal := true
 		for _, p := range class.Properties {
 			if p.Name == propName {

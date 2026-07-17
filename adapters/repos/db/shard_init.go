@@ -157,12 +157,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
-	// Capture which properties this shard's on-disk migration history
-	// says have a locally-ready rangeable bucket, BEFORE
-	// FinalizeCompletedMigrations deletes a tidied tracker's directory
-	// (the only on-disk evidence for the "completed but not yet
-	// cluster-flipped" case). See
-	// [seedRangeableLocalReadyFromMigrationHistory].
+	// Must run before FinalizeCompletedMigrations deletes the on-disk
+	// evidence; see seedRangeableLocalReadyFromMigrationHistory godoc.
 	seedRangeableLocalReadyFromMigrationHistory(s)
 
 	// Finalize any completed migrations whose directory renames were deferred
@@ -177,17 +173,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
 	// flips on another node. See [Shard.rangeableLocalReady] for the
 	// full rationale. Props not found in this scan default to "ready"
-	// (no migration ever ran, or every prior migration already tidied —
+	// (no migration ever ran, or every prior migration already tidied  -
 	// FinalizeCompletedMigrations above promoted them to canonical).
 	markInFlightRangeableMigrationsNotReady(s)
 
-	// Load the rangeable bucket for every property
-	// seedRangeableLocalReadyFromMigrationHistory (and, for still
-	// in-flight migrations, markInFlightRangeableMigrationsNotReady)
-	// just marked "locally ready" but whose bucket the LIVE (pre-flip)
-	// schema wouldn't have loaded on its own. See
-	// [loadRangeableBucketsForCompletedLocalMigrations] for why this
-	// must run exactly here.
+	// Must run exactly here; see
+	// loadRangeableBucketsForCompletedLocalMigrations godoc.
 	if err := loadRangeableBucketsForCompletedLocalMigrations(ctx, s); err != nil {
 		return nil, fmt.Errorf("load rangeable buckets for shard %q: %w", s.ID(), err)
 	}
@@ -245,16 +236,12 @@ func (s *Shard) NotifyReady() {
 }
 
 // rangeableMigrationTrackerDirs returns the absolute paths of every
-// rangeable (enable-rangeable / repair-rangeable) migration tracker
-// directory found under this shard's .migrations/ dir, in ANY
-// lifecycle state (in-flight or already tidied). Returns nil if the
-// .migrations/ dir doesn't exist; the common case, nothing to scan.
-//
-// Shared by [seedRangeableLocalReadyFromMigrationHistory] (must run
-// before FinalizeCompletedMigrations, sees tidied dirs too) and
-// [markInFlightRangeableMigrationsNotReady] (must run after, so
-// tidied dirs are already gone and everything this returns is
-// genuinely in-flight).
+// rangeable migration tracker directory under this shard's
+// .migrations/ dir, in any lifecycle state. Shared by
+// [seedRangeableLocalReadyFromMigrationHistory] (runs before
+// FinalizeCompletedMigrations, sees tidied dirs too) and
+// [markInFlightRangeableMigrationsNotReady] (runs after, so only
+// genuinely in-flight dirs remain).
 func rangeableMigrationTrackerDirs(s *Shard) []string {
 	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
@@ -281,53 +268,26 @@ func rangeableMigrationTrackerDirs(s *Shard) []string {
 }
 
 // seedRangeableLocalReadyFromMigrationHistory scans this shard's
-// .migrations/ directory for EVERY rangeable migration tracker,
-// tidied or not, and optimistically marks each tracker's properties
-// "locally ready" (true) in Shard.rangeableLocalReady.
+// .migrations/ directory for every rangeable migration tracker, tidied
+// or not, and optimistically marks each tracker's properties "locally
+// ready" (true) in Shard.rangeableLocalReady.
 //
 // MUST run before FinalizeCompletedMigrations, which deletes a tidied
-// tracker's directory once it promotes the migration to canonical;
-// the only on-disk evidence that this shard EVER completed a
-// rangeable migration disappears at that point. Without this
-// pre-scan, a shard that restarts after its local swap tidied but
-// before the cluster-wide schema flip lands comes up with an empty
-// rangeableLocalReady map for that property. IsRangeableLocallyReady's
-// bucket-existence fallback does NOT self-heal that case: bucket
-// loading at shard init is schema-driven
-// (createPropertyValueIndex only calls CreateOrLoadBucket for the
-// rangeable bucket when inverted.HasRangeableIndex(prop) is true
-// against the LIVE class schema - see shard_init_properties.go:527),
-// and the live schema is still pre-flip here by definition. So the
-// bucket, though physically present on disk from the completed swap,
-// is never registered in s.store, and s.store.Bucket(...) returns
-// nil. The fallback therefore answers `false`, not `true`, in exactly
-// this window. That makes this seed a fix for a real pre-existing
-// single-restart write-loss window, not just a safety net for the
-// len(rangeableLocalReady)==0 fast exit added below:
-// [Shard.rangeableForceIndexOverlay]'s
-// `if !s.IsRangeableLocallyReady(p.Name) { continue }` guard
-// (shard_write_inverted.go) would skip forcing rangeable on the slow
-// path too, for exactly the write-loss window GH
-// weaviate/weaviate#12189 opened (weaviate/0-weaviate-issues#319,
-// rangeable instance).
+// tracker's directory - the only on-disk evidence a shard ever
+// completed a rangeable migration. Without this seed, a shard that
+// restarts after its local swap tidied but before the cluster-wide
+// schema flip lands loses that fact: bucket loading is schema-driven
+// off the still-pre-flip live schema, so IsRangeableLocallyReady's
+// bucket-existence fallback can't self-heal it either
+// (weaviate/weaviate#12189).
 //
-// markInFlightRangeableMigrationsNotReady, called AFTER
-// FinalizeCompletedMigrations, is the authoritative pass for
-// still-in-flight properties: it overwrites this function's
-// optimistic `true` with `false` wherever a non-tidied tracker
-// survives the finalize pass. Order matters: this function first,
-// FinalizeCompletedMigrations second, markInFlightRangeableMigrationsNotReady
-// third; all three run during NewShard before NotifyReady, so no
-// reader ever observes the transient true-then-corrected-to-false
-// window.
+// markInFlightRangeableMigrationsNotReady runs AFTER
+// FinalizeCompletedMigrations and is the authoritative correction pass
+// for still-in-flight properties; the ordering (seed, finalize,
+// correct) happens entirely within NewShard before NotifyReady.
 //
-// A tracker whose payload.mig can't be parsed disables the fast exit
-// for the whole shard (Shard.rangeableLocalReadyHistoryUnknown)
-// instead of guessing at property names, matching how
-// markInFlightRangeableMigrationsNotReady already tolerates an
-// unreadable payload by falling back to IsRangeableLocallyReady's
-// bucket-existence default; the fast exit must be at least as
-// conservative as that fallback.
+// An unparseable payload.mig disables the fast exit for the whole
+// shard rather than guessing at property names.
 func seedRangeableLocalReadyFromMigrationHistory(s *Shard) {
 	for _, dirPath := range rangeableMigrationTrackerDirs(s) {
 		propNames, ok := readRecoveryPropertyNames(dirPath)
@@ -352,11 +312,11 @@ func seedRangeableLocalReadyFromMigrationHistory(s *Shard) {
 // inside each tracker dir). Parsing them out of the dir name would be
 // fragile for props whose names themselves contain `_` (e.g.
 // `price_cents`), because [migrationDirWithProps] joins multiple props
-// with `_` — the dir-name decoder can't tell `price_cents` (one prop)
+// with `_` - the dir-name decoder can't tell `price_cents` (one prop)
 // from `[price, cents]` (two props).
 //
 // Tracker dirs whose payload.mig is unreadable or missing are skipped
-// — they are either stale (operator surgery, partial-init crash) or
+// - they are either stale (operator surgery, partial-init crash) or
 // from an old build before payload persistence. We accept the
 // default-true policy in [Shard.IsRangeableLocallyReady] for those
 // edge cases; the bucket-existence fallback inside
@@ -365,12 +325,11 @@ func seedRangeableLocalReadyFromMigrationHistory(s *Shard) {
 //
 // Properties that don't have a tracker dir, or whose dir has
 // `tidied.mig` (FinalizeCompletedMigrations promoted them to canonical
-// in this same startup), are left untouched — the default-true policy
+// in this same startup), are left untouched - the default-true policy
 // in [Shard.IsRangeableLocallyReady] applies to them. Runs AFTER
-// FinalizeCompletedMigrations, so [rangeableMigrationTrackerDirs] only
-// returns genuinely in-flight trackers here; the tidied ones
-// [seedRangeableLocalReadyFromMigrationHistory] captured earlier are
-// already gone from disk.
+// FinalizeCompletedMigrations, so only genuinely in-flight trackers
+// remain here - [seedRangeableLocalReadyFromMigrationHistory] already
+// captured the tidied ones.
 func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	for _, dirPath := range rangeableMigrationTrackerDirs(s) {
 		// tidied.mig present means FinalizeCompletedMigrations either
@@ -393,7 +352,7 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 // migration tracker dir's payload.mig sentinel file (see
 // ShardReindexTaskGeneric.SaveRecoveryPayload). Returns (nil, false)
 // when the file is missing, unreadable, or doesn't parse as a
-// ReindexTaskPayload-shaped JSON — those edge cases are tolerated by
+// ReindexTaskPayload-shaped JSON - those edge cases are tolerated by
 // the caller, which falls back to the default-true readiness policy.
 func readRecoveryPropertyNames(migDir string) ([]string, bool) {
 	data, err := os.ReadFile(filepath.Join(migDir, reindexRecoveryPayloadFile))
@@ -415,59 +374,32 @@ func readRecoveryPropertyNames(migDir string) ([]string, bool) {
 }
 
 // loadRangeableBucketsForCompletedLocalMigrations loads the rangeable
-// bucket for every property this shard's Shard.rangeableLocalReady map
-// currently says is "locally ready" (true) - the set
-// seedRangeableLocalReadyFromMigrationHistory just seeded from on-disk
-// migration history, corrected by markInFlightRangeableMigrationsNotReady
-// for anything still genuinely in-flight - but that the LIVE (pre-flip)
-// class schema would not load on its own.
+// bucket for every property marked "locally ready" in
+// Shard.rangeableLocalReady but that the LIVE (pre-flip) class schema
+// wouldn't load on its own: createPropertyValueIndex only loads a
+// rangeable bucket when HasRangeableIndex(prop) is true against the
+// live schema, which by construction is still pre-flip in exactly this
+// window. Without this load, every consumer that trusts the
+// explicit-true entry (write overlay, addToPropertyValueIndex,
+// deleteFromInvertedIndicesLSM, the read gate once the flip lands) hits
+// a nil s.store.Bucket(...) and hard-errors, even though the bucket
+// physically exists on disk.
 //
-// The gap this closes: createPropertyValueIndex only calls
-// CreateOrLoadBucket for a property's rangeable bucket when
-// inverted.HasRangeableIndex(prop) is true against the LIVE schema
-// (shard_init_properties.go:527), and by construction the live schema
-// is still pre-flip in exactly the window rangeableLocalReady's explicit
-// `true` entries describe (local swap tidied, cluster-wide
-// IndexRangeFilters flip not yet landed). Without this load, every
-// consumer that trusts the explicit-true entry - the write overlay
-// (rangeableForceIndexOverlay forces HasRangeableIndex:true so writes
-// get analyzed as rangeable), addToPropertyValueIndex,
-// deleteFromInvertedIndicesLSM, and the read gate
-// (Searcher.hasUsableRangeableIndex, once the schema flip lands without
-// a further restart) - hits a nil s.store.Bucket(...) and hard-errors,
-// even though the bucket physically exists on disk from the completed
-// local swap.
+// Two ordering constraints on the NewShard call site:
+//  1. MUST run AFTER FinalizeCompletedMigrations: the canonical bucket
+//     directory doesn't exist under its un-suffixed name until that
+//     rename runs. Loading here first would create it empty, and
+//     finalizeMigrationDir's stale-dir removal would then os.RemoveAll
+//     it out from under an already-registered bucket - store
+//     corruption, not just a stale read.
+//  2. Driven off rangeableLocalReady, not class.Properties: enable-
+//     rangeable supports IndexFilterable=false targets that
+//     initPropertyBuckets' HasAnyInvertedIndex gate skips until the
+//     live schema flip lands, so iterating class.Properties would
+//     silently miss them.
 //
-// Two load-bearing ordering constraints on the call site in NewShard:
-//
-//  1. MUST run AFTER FinalizeCompletedMigrations, never before. The
-//     canonical rangeable bucket directory (the plain, un-suffixed
-//     property_<prop>_rangeable name CreateOrLoadBucket opens) does not
-//     exist under that name until FinalizeCompletedMigrations' deferred
-//     ingest-dir rename promotes it; loading a bucket at that path any
-//     earlier would create it empty on disk. finalizeMigrationDir's
-//     "remove stale main dir if it exists" step
-//     (inverted_reindex_finalize.go) would then os.RemoveAll that
-//     directory out from under the bucket this function just registered
-//     in s.store - store corruption, not merely a stale read. See
-//     FinalizeCompletedMigrations' own godoc: "CRITICAL: This MUST be
-//     called BEFORE bucket loading, NEVER on live buckets. Renaming
-//     directories while buckets are open would corrupt the store."; this
-//     function is one more instance of a bucket load that rule protects
-//     against.
-//  2. Driven off rangeableLocalReady, not class.Properties. enable-
-//     rangeable supports IndexFilterable=false targets, and
-//     initPropertyBuckets' outer HasAnyInvertedIndex(prop) gate
-//     (shard_init_properties.go:92) never even reaches
-//     createPropertyValueIndex for such a property until the live schema
-//     flip lands - which is exactly the window this function bridges.
-//     Iterating class.Properties instead would silently skip those
-//     targets.
-//
-// Idempotent: a bucket already registered (schema-driven load already
-// ran, or a previous call to this function already loaded it) is left
-// untouched - CreateOrLoadBucket early-returns on an already-registered
-// bucket name without reopening or duplicating it.
+// Idempotent: CreateOrLoadBucket early-returns on an already-registered
+// bucket name.
 func loadRangeableBucketsForCompletedLocalMigrations(ctx context.Context, s *Shard) error {
 	s.rangeableLocalReadyMu.RLock()
 	propNames := make([]string, 0, len(s.rangeableLocalReady))

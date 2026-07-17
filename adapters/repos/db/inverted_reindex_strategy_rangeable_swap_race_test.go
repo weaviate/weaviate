@@ -29,31 +29,12 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Regression pin: nil-bucket panic race in FilterableToRangeableStrategy's
-// double-write callbacks (GH weaviate/weaviate#12206, CI run 29553875773).
-//
-// Mechanism: ShardReindexTaskGeneric.registerDoubleWriteCallbacks wires the
-// add/delete callbacks with bucketNamer = t.ingestBucketName. Those
-// callbacks stay registered until runtimeSwap's `defer t.disableCallbacks()`
-// fires - i.e. AFTER every property's Store.SwapBucketPointer call, the
-// old-bucket shutdown+rename loop, markSwapped, markTidied,
-// OnMigrationComplete, and trim. Store.SwapBucketPointer(mainName,
-// ingestName) atomically re-registers bucketsByName[mainName] to what
-// ingestName used to resolve to and DELETES bucketsByName[ingestName] - so
-// from the moment a property's pointer is swapped until the whole
-// runtimeSwap call returns, any live write hitting that property's
-// double-write callback resolves shard.store.Bucket(ingestName) to nil.
-// The pre-fix code passed that nil straight into
-// shard.addToPropertyRangeBucket, which called bucket.Strategy() on the nil
-// receiver - bucket.go's Strategy() does `return b.strategy`, an
-// unconditional nil-pointer dereference.
-//
-// These tests arrange that exact swap-window state directly (create both
-// buckets, call the real Store.SwapBucketPointer to move the ingest name's
-// registry entry onto the canonical name, exactly like processOneSwapProp
-// does) and fire the callback the way a concurrent live write would.
-// -----------------------------------------------------------------------------
+// Regression pin: a live write landing between Store.SwapBucketPointer
+// (which deletes bucketsByName[ingestName]) and runtimeSwap's
+// disableCallbacks resolved the ingest bucket to nil and panicked on
+// bucket.Strategy() (weaviate/weaviate#12206). These tests arrange that
+// exact swap-window state directly and fire the callback as a concurrent
+// live write would.
 
 // setupRangeableSwapRaceShard builds a throwaway shard for the swap-race
 // tests below. Returns the shard and a cleanup func.
@@ -205,20 +186,10 @@ func TestFilterableToRangeableStrategy_MakeDeleteCallback_SurvivesSwapWindow(t *
 }
 
 // TestFilterableToRangeableStrategy_MakeAddCallback_BothBucketsMissing pins
-// the nil-hardening half of the fix: when NEITHER the ingest name nor the
-// canonical name resolves (a genuine bug - never-registered bucket, or a
-// closing store - not the ordinary swap race), the callback must not panic.
-//
-// Post weaviate/weaviate#11985 convergence: resolveScopedDoubleWriteBucket
-// (inverted_reindex_double_write.go) treats "bucket unresolvable" as an
-// ordinary skip for EVERY strategy - the callback returns nil, not an
-// error, so a client write is never failed by a migration housekeeping
-// gap. That merged contract superseded this test's original expectation
-// (an error return); the loss-free requirement is now satisfied by
-// resolveDoubleWriteBucket logging a Warn at the exact absorption point
-// instead (see resolveDoubleWriteBucket), so the gap stays visible to
-// operators without failing the write. This test now pins BOTH halves of
-// that contract: no panic, no error, and the Warn fires.
+// that when neither the ingest nor canonical bucket resolves, the callback
+// skips without panicking or erroring (resolveScopedDoubleWriteBucket's
+// uniform skip contract), and resolveDoubleWriteBucket logs a Warn so the
+// gap stays visible to operators.
 func TestFilterableToRangeableStrategy_MakeAddCallback_BothBucketsMissing(t *testing.T) {
 	shard, _ := setupRangeableSwapRaceShard(t)
 	logger, ok := shard.index.logger.(*logrus.Logger)

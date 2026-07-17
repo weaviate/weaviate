@@ -104,7 +104,7 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 
 	// Capture baseline: every replica must agree on the count BEFORE the
 	// migration starts. If they don't, this isn't an Issue C repro, the
-	// import-replication path is broken — fail loudly.
+	// import-replication path is broken - fail loudly.
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 		count, err := rangeCount(restURIOf(compose, nodeIdx), className, "score", rangeLo, rangeHi)
 		require.NoError(t, err, "pre-migration baseline query on node %d failed", nodeIdx)
@@ -166,7 +166,7 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 
 	// Block until the migration has fully reached FINISHED. We then keep
-	// polling for a settle window — the schema flip RAFT can land on
+	// polling for a settle window - the schema flip RAFT can land on
 	// other nodes a moment after FINISHED.
 	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
 
@@ -229,12 +229,10 @@ func restURIOf(compose *docker.DockerCompose, nodeIdx int) string {
 	return compose.GetWeaviateNode(nodeIdx).URI()
 }
 
-// createPreMigrationScoreCollection is the shared enable-rangeable arrange
-// step for PR #12206's staggered-flip/write-during-tail tests: a
-// `name`+`propName` collection with propName pre-migration
-// (IndexFilterable=true, IndexRangeFilters=false), sequentially imported
-// with totalObjects objects via batchImportNumeric(i => i). Returns the
-// deleteCollection cleanup, which the caller must defer.
+// createPreMigrationScoreCollection creates a name+propName collection
+// with propName pre-migration (IndexFilterable=true,
+// IndexRangeFilters=false) and imports totalObjects objects. Returns
+// the deleteCollection cleanup, which the caller must defer.
 func createPreMigrationScoreCollection(t *testing.T, compose *docker.DockerCompose, className, propName string, totalObjects int) func() {
 	t.Helper()
 	trueVal, falseVal := true, false
@@ -255,7 +253,7 @@ func createPreMigrationScoreCollection(t *testing.T, compose *docker.DockerCompo
 // a unique `name` and a `score` produced by scoreFor(i). consistency_level=
 // ALL ensures the cluster is in a fully-replicated baseline state before
 // the migration starts (a pre-migration baseline that flaps across nodes
-// is a different bug, not Issue C — fail loudly above).
+// is a different bug, not Issue C - fail loudly above).
 func batchImportNumeric(
 	t *testing.T, restURI, className string, total int, scoreFor func(i int) int,
 ) {

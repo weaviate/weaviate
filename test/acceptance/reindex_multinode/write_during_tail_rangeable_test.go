@@ -29,34 +29,12 @@ import (
 )
 
 // TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex pins
-// the architect-escalated blocker on PR #12206 (see the design-position
-// doc in Conversations/2026-07/): deferring the rangeable flip to
-// OnTaskCompleted (GH weaviate/weaviate#12189) reopens a per-shard
-// write-loss window that the old per-shard early flip inadvertently
-// closed for every shard after the first (weaviate/0-weaviate-issues#319,
-// rangeable instance).
-//
-// Mechanism under test: a shard's double-write callbacks (the only write
-// coverage during the active migration) are torn down at that shard's
-// local swap. With the flip deferred to all-units-terminal, the schema
-// flag is still false at that point, so a live write to the property in
-// the window [this-shard-swap, cluster-flip] is analyzed under the
-// pre-flip schema (HasRangeableIndex=false) and never reaches the
-// already-canonical rangeable bucket - silently and permanently, since
-// the bucket has already been swapped in. On a staggered multi-shard
-// migration this window is minutes per early-completing shard.
-//
-// The fix (Shard.rangeableForceIndexOverlay, see shard_write_inverted.go)
-// forces the write path to treat the property as rangeable while this
-// shard is locally ready but the cluster flag hasn't flipped. This test
-// writes continuously (not a single well-timed shot) from right after
-// task submission until the task finishes, so it doesn't depend on
-// catching one exact instant: as long as the staggered window is open for
-// a non-trivial duration (the sibling
-// TestMultiNode_EnableRangeable_SchemaFlagStaysFalseUntilAllUnitsTerminal
-// test already establishes it is, on the same fixture size), several
-// writes land inside it with overwhelming probability, and ANY of them
-// missing from the post-migration rangeable index fails the test.
+// weaviate/0-weaviate-issues#319 (rangeable instance): deferring the
+// cluster-wide schema flip to OnTaskCompleted (weaviate/weaviate#12189)
+// reopens a per-shard write-loss window between that shard's local swap
+// and the cluster flip, since double-write coverage is torn down at
+// swap. Writes continuously through the migration (rather than a single
+// well-timed shot) so it doesn't depend on catching one exact instant.
 func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -65,14 +43,11 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 
 	const className = "RangeableWriteDuringTail"
 	const propName = "score"
-	// Matches the staggered-flip sibling test's fixture size: large
-	// enough that the COMPLETED+IN_PROGRESS overlap window is measured in
-	// seconds, giving the continuous writer below many opportunities to
-	// land a write inside it.
+	// Large enough that the COMPLETED+IN_PROGRESS overlap window is
+	// measured in seconds, giving the writer below room to land in it.
 	const totalObjects = 50_000
-	// Sentinel band disjoint from the main import's [0, totalObjects)
-	// range, so a plain range query over the band counts exactly (and
-	// only) the writes this test injected.
+	// Disjoint from the main import's [0, totalObjects) range, so a range
+	// query over the band counts only the writes this test injected.
 	const tailSentinelBase = 9_000_000
 
 	defer createPreMigrationScoreCollection(t, compose, className, propName, totalObjects)()
@@ -81,26 +56,15 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 		`{"rangeable":{"enabled":true}}`)
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 
-	// Continuous single-object writer: fires every 100ms against node 1,
-	// round-robin-independent (single node is enough - the object routes
-	// to whichever shard its ID hashes to, and with dozens of writes
-	// across 3 shards at least one lands on an already-completed shard
-	// with overwhelming probability). Runs until stopCh closes.
+	// Fires every 100ms against node 1; a single node is enough since the
+	// object routes by ID hash across all 3 shards. Runs until stopCh closes.
 	//
-	// Score numbering uses a monotonic ATTEMPT counter, not the success
-	// counter: deriving the score from `written` meant a failed injection
-	// (postSingleNumericObject returns false) left the counter unchanged,
-	// so the next tick reused the exact same score. Under partial-
-	// replication commit semantics a request that this test observes as
-	// "failed" (non-2xx / timeout on the ALL-consistency response) can
-	// still have committed on a quorum of replicas - reusing its score for
-	// a brand-new object (different UUID) then creates two genuinely
-	// distinct objects sharing one sentinel score, which the range-count
-	// assertion below cannot distinguish from a single write and either
-	// over- or under-counts. `attempted` guarantees every request -
-	// successful or not - gets its own score, so no two objects can ever
-	// collide on one; `written` still tracks the exact number of
-	// successes the final assertion expects to find.
+	// Score is derived from a monotonic ATTEMPT counter rather than the
+	// success counter: a request this test observes as failed can still
+	// have committed on a quorum under partial-replication semantics, so
+	// reusing its score for a retried object would let two distinct
+	// objects share one sentinel score and desync the range-count
+	// assertion below.
 	var (
 		attempted atomic.Int64
 		written   atomic.Int64
@@ -130,11 +94,8 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 			}
 		}
 	}()
-	// Registered right after the writer starts (LIFO: fires before the
-	// cluster-teardown defers above) so any early require/timeout exit
-	// stops the writer instead of leaving it running against a
-	// tearing-down cluster. stopWriter is safe to call again on the
-	// normal path below (sync.Once guards the channel close).
+	// LIFO: fires before the cluster-teardown defers, so an early exit
+	// doesn't leave the writer running against a tearing-down cluster.
 	defer stopWriter()
 
 	// Guards against a vacuous pass: without this, a too-small fixture
@@ -149,22 +110,16 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 	stopWriter()
 	tailWriteCount := int(written.Load())
 	tailAttemptCount := int(attempted.Load())
-	// The scan band must cover every SCORE the writer could have used
-	// (tailAttemptCount, since scores are attempt-numbered - see the
-	// writer goroutine comment above), even though only tailWriteCount of
-	// those attempts are expected to have succeeded.
+	// Scores are attempt-numbered, so the band must cover every attempt,
+	// not just the successful ones.
 	tailScanUpperBound := tailSentinelBase + tailAttemptCount - 1
 	t.Logf("injected %d successful tail writes (of %d attempts) with sentinel scores in [%d, %d]",
 		tailWriteCount, tailAttemptCount, tailSentinelBase, tailScanUpperBound)
 	require.Greater(t, tailWriteCount, 0,
 		"the continuous writer should have produced at least one successful write during the migration")
 
-	// Every replica must eventually report every tail write via a range
-	// query on the sentinel band. A write silently missing from the
-	// rangeable bucket (the #319 regression this PR closes) shows up
-	// here as a persistent short count, not a transient one, since the
-	// migration has already finished and there is no further
-	// convergence pending once the flag itself has settled cluster-wide.
+	// A write silently missing from the rangeable bucket (#319) shows up
+	// as a persistent short count here, not a transient one.
 	require.Eventually(t, func() bool {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 			count, err := rangeCount(restURIOf(compose, nodeIdx), className, propName,
@@ -190,14 +145,10 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 	}
 }
 
-// postSingleNumericObject creates one object with the given score via a
-// direct (non-batch) POST, consistency_level=ALL so the write is
-// replicated before this call returns. Returns false (without failing the
-// test) on a non-2xx response, since an occasional transient failure
-// during an in-flight migration (e.g. a node briefly unavailable) should
-// shrink the expected count rather than fail the test outright - the
-// assertion is "every ATTEMPTED write that succeeded is present", not
-// "every tick produces a write".
+// postSingleNumericObject creates one object with the given score.
+// Returns false (without failing the test) on a non-2xx response, since
+// an occasional transient failure should shrink the expected count
+// rather than fail the test outright.
 func postSingleNumericObject(t *testing.T, restURI, className string, score int) bool {
 	t.Helper()
 	obj := map[string]interface{}{
