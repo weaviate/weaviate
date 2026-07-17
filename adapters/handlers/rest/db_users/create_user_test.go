@@ -301,8 +301,10 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		isGlobalOperator  bool
 		importUser        bool
 		authzKey          string // resolved users/ key the authorizer is asked for; "" if resolution 422s before authz
+		createUserErr     error  // error the apply returns, after the pre-check has passed
 		wantStatus        any
 		wantMsgContains   string // substring the error payload must name; "" = not asserted
+		wantMsgAbsent     string // substring the error payload must not leak; "" = not asserted
 	}{
 		{
 			name:              "ns-disabled bare name succeeds",
@@ -383,7 +385,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			isGlobalOperator:  true,
 			authzKey:          "ns1:user",
 			wantStatus:        &users.CreateUserUnprocessableEntity{},
-			wantMsgContains:   "being deleted",
+			wantMsgContains:   "this instance is unavailable",
 		},
 		{
 			// No CreateUser mock: the pre-check must reject before apply. The
@@ -396,7 +398,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			isGlobalOperator:  true,
 			authzKey:          "ns1:user",
 			wantStatus:        &users.CreateUserUnprocessableEntity{},
-			wantMsgContains:   "namespace is suspended",
+			wantMsgContains:   "this instance is suspended",
 		},
 		{
 			// HTTPStatusForNamespaceErr doesn't cover ErrNamespaceGone, so
@@ -407,7 +409,34 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			isGlobalOperator:  true,
 			authzKey:          "ns1:user",
 			wantStatus:        &users.CreateUserUnprocessableEntity{},
-			wantMsgContains:   "namespace no longer exists",
+			wantMsgContains:   "this instance is unavailable",
+		},
+		{
+			// resuming has no responder, so it renders 500. The body must
+			// still be neutral: this is the arm a 422-only fix leaks through.
+			name:              "resuming at apply renders a neutral 500",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			userID:            "ns1:user",
+			isGlobalOperator:  true,
+			authzKey:          "ns1:user",
+			createUserErr:     fmt.Errorf("%w: %q", namespaces.ErrNamespaceResuming, "ns1"),
+			wantStatus:        &users.CreateUserInternalServerError{},
+			wantMsgContains:   "this instance is resuming, retry shortly",
+			wantMsgAbsent:     "ns1",
+		},
+		{
+			// Neutralizing lifecycle errors must not swallow a genuine
+			// internal failure's detail.
+			name:              "non-lifecycle apply error keeps its detail",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			userID:            "ns1:user",
+			isGlobalOperator:  true,
+			authzKey:          "ns1:user",
+			createUserErr:     errors.New("raft leader lost"),
+			wantStatus:        &users.CreateUserInternalServerError{},
+			wantMsgContains:   "raft leader lost",
 		},
 		{
 			name:              "import on NS-enabled rejected",
@@ -429,7 +458,8 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			}
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			if _, ok := tt.wantStatus.(*users.CreateUserCreated); ok {
+			_, wantCreated := tt.wantStatus.(*users.CreateUserCreated)
+			if wantCreated || tt.createUserErr != nil {
 				// Expected namespace = authzKey prefix (or "" if no ':').
 				expectedNS := ""
 				if i := strings.Index(tt.authzKey, ":"); i >= 0 {
@@ -437,7 +467,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 				}
 				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{}, nil)
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-				dynUser.On("CreateUser", mock.Anything, tt.authzKey, mock.Anything, mock.Anything, mock.Anything, expectedNS, mock.Anything).Return(nil)
+				dynUser.On("CreateUser", mock.Anything, tt.authzKey, mock.Anything, mock.Anything, mock.Anything, expectedNS, mock.Anything).Return(tt.createUserErr)
 			}
 
 			ns := namespaces.NewMockExister(t)
@@ -482,6 +512,9 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			assert.IsType(t, tt.wantStatus, res)
 			if tt.wantMsgContains != "" {
 				assert.Contains(t, responderErrMessage(t, res), tt.wantMsgContains)
+			}
+			if tt.wantMsgAbsent != "" {
+				assert.NotContains(t, responderErrMessage(t, res), tt.wantMsgAbsent)
 			}
 		})
 	}

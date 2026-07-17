@@ -203,16 +203,18 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 }
 
 // namespaceRejectionMessage returns the 401 body for a namespace state error.
-// Only suspension and resumption are named, because a caller can act on those;
+// Suspension and resumption are told apart because a caller can act on those;
 // every other state reads the same so it leaks nothing.
 func namespaceRejectionMessage(err error) string {
 	switch {
-	case stderrors.Is(err, namespaces.ErrNamespaceSuspended):
-		return "unauthorized: namespace is suspended"
-	case stderrors.Is(err, namespaces.ErrNamespaceResuming):
-		return "unauthorized: namespace is resuming"
+	case stderrors.Is(err, namespaces.ErrNamespaceSuspended),
+		stderrors.Is(err, namespaces.ErrNamespaceResuming):
+		msg, _ := namespaces.PublicMessage(err)
+		return "unauthorized: " + msg
 	default:
-		return "unauthorized: namespace does not exist or is being deleted"
+		// Missing, deleting and unknown states are indistinguishable to the
+		// caller: a bare rejection cannot confirm the namespace exists.
+		return "unauthorized"
 	}
 }
 

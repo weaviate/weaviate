@@ -205,24 +205,24 @@ func TestValidateAndExtract_NamespaceState(t *testing.T) {
 			wantMsg:   "unauthorized: namespaced OIDC principal cannot be granted the root role; remove the namespace claim or remove the principal from RBAC root configuration",
 		},
 		{
-			name:    "suspended is denied, naming suspension",
+			name:    "suspended is denied, distinguishably",
 			state:   api.NamespaceStateSuspended,
-			wantMsg: "unauthorized: namespace is suspended",
+			wantMsg: "unauthorized: this instance is suspended",
 		},
 		{
-			name:    "resuming is denied, naming resumption",
+			name:    "resuming is denied, distinguishably",
 			state:   api.NamespaceStateResuming,
-			wantMsg: "unauthorized: namespace is resuming",
+			wantMsg: "unauthorized: this instance is resuming, retry shortly",
 		},
 		{
 			// deleting must be denied too, not fall through to a default pass.
-			name:    "deleting is denied, vaguely",
+			name:    "deleting is denied without confirming the namespace exists",
 			state:   api.NamespaceStateDeleting,
-			wantMsg: "unauthorized: namespace does not exist or is being deleted",
+			wantMsg: "unauthorized",
 		},
 		{
-			name:    "missing is denied, vaguely",
-			wantMsg: "unauthorized: namespace does not exist or is being deleted",
+			name:    "missing is denied without confirming the namespace exists",
+			wantMsg: "unauthorized",
 		},
 	}
 

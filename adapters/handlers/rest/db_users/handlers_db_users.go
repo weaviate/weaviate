@@ -387,6 +387,21 @@ func namespaceErrRendersUnprocessable(err error) bool {
 	return ok && status == http.StatusUnprocessableEntity
 }
 
+// renderCreateUserNamespaceErr renders err for a caller that must not learn
+// about namespaces. A lifecycle sentinel becomes neutral copy; anything else
+// is a genuine internal failure and keeps its detail.
+func renderCreateUserNamespaceErr(principal *models.Principal, err error) middleware.Responder {
+	msg, lifecycle := namespaces.PublicMessage(err)
+	if !lifecycle {
+		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	public := errors.New(msg)
+	if namespaceErrRendersUnprocessable(err) {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
+	}
+	return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
+}
+
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -438,10 +453,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	// Skip the RAFT round-trip when the namespace is locally known not to be
 	// active; the apply path re-validates authoritatively.
 	if err := namespaces.RequireActive(h.namespaces, ns); err != nil {
-		if namespaceErrRendersUnprocessable(err) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-		}
-		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		return renderCreateUserNamespaceErr(principal, err)
 	}
 
 	if h.staticUserExists(internalKey) {
@@ -472,10 +484,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		// The namespace changed state between the pre-check above and the
 		// apply. Deleting renders 422 like the pre-check does — the namespace
 		// never returns to active, so the create is not retryable.
-		if namespaceErrRendersUnprocessable(err) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
-		}
-		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
+		return renderCreateUserNamespaceErr(principal, fmt.Errorf("creating user: %w", err))
 	}
 
 	return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
