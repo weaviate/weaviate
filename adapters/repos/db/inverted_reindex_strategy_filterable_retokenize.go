@@ -104,31 +104,16 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		analyzer = inverted.NewAnalyzer(nil, s.className)
 	}
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if !property.HasFilterableIndex {
-			return nil
-		}
-		bucket, bucketName, skip, err := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
-		if err != nil {
-			return err
-		}
-		if skip {
-			return nil
-		}
-
-		var items []inverted.Countable
-		if forTargetStrategy && len(property.RawValues) > 0 {
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
-		} else {
-			items = property.Items
-		}
-
-		for _, item := range items {
-			if err := shard.addToPropertySetBucket(bucket, docID, item.Data); err != nil {
-				return fmt.Errorf("filterable retokenize add prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
-			}
-		}
-		return nil
+		return withRetokenizeDoubleWrite(shard, property, property.HasFilterableIndex,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy, analyzer, s.targetTokenization,
+			func(bucket *lsmkv.Bucket, bucketName string, items []inverted.Countable) error {
+				for _, item := range items {
+					if err := shard.addToPropertySetBucket(bucket, docID, item.Data); err != nil {
+						return fmt.Errorf("filterable retokenize add prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
+					}
+				}
+				return nil
+			})
 	}
 }
 
@@ -144,31 +129,16 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 		analyzer = inverted.NewAnalyzer(nil, s.className)
 	}
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if !property.HasFilterableIndex {
-			return nil
-		}
-		bucket, bucketName, skip, err := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
-		if err != nil {
-			return err
-		}
-		if skip {
-			return nil
-		}
-
-		var items []inverted.Countable
-		if forTargetStrategy && len(property.RawValues) > 0 {
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
-		} else {
-			items = property.Items
-		}
-
-		for _, item := range items {
-			if err := shard.deleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
-				return fmt.Errorf("filterable retokenize delete prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
-			}
-		}
-		return nil
+		return withRetokenizeDoubleWrite(shard, property, property.HasFilterableIndex,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy, analyzer, s.targetTokenization,
+			func(bucket *lsmkv.Bucket, bucketName string, items []inverted.Countable) error {
+				for _, item := range items {
+					if err := shard.deleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
+						return fmt.Errorf("filterable retokenize delete prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
+					}
+				}
+				return nil
+			})
 	}
 }
 

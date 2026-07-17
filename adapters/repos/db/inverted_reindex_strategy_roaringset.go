@@ -87,13 +87,10 @@ func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) str
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		bucket, bucketName, skip, err := resolveScopedDoubleWriteBucket(shard, property,
+		bucket, bucketName, err := resolveScopedDoubleWriteBucket(shard, property,
 			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
-		if err != nil {
+		if bucket == nil {
 			return err
-		}
-		if skip {
-			return nil
 		}
 		for _, item := range property.Items {
 			if err := shard.addToPropertySetBucket(bucket, docID, item.Data); err != nil {
@@ -111,13 +108,10 @@ func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) 
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		bucket, bucketName, skip, err := resolveScopedDoubleWriteBucket(shard, property,
+		bucket, bucketName, err := resolveScopedDoubleWriteBucket(shard, property,
 			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
-		if err != nil {
+		if bucket == nil {
 			return err
-		}
-		if skip {
-			return nil
 		}
 		for _, item := range property.Items {
 			if err := shard.deleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
