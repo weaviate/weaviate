@@ -50,11 +50,12 @@ import (
 // If pollInterval is non-zero, it is slept (with a re-check of stop in between) at the top
 // of each iteration so the poller doesn't hammer the debug endpoint.
 //
-// The caller must invoke stop() before the test function returns, not just defer it
-// alongside other cleanup: stop() signals the goroutine to exit and waits for it to finish,
-// so a deferred class/tenant delete cannot race the poller's still-in-flight debug-usage
-// call, and Go's testing.T requirement that a goroutine calling T methods complete before
-// the test returns is satisfied.
+// The caller must `defer stop()` immediately at the call site. Because the class/tenant
+// cleanup defer is registered earlier, LIFO ordering runs stop() first on every exit path
+// including require.FailNow, so the poller is joined before teardown can race its
+// still-in-flight debug-usage call, and Go's testing.T requirement that a goroutine
+// calling T methods complete before the test returns holds even on failure. stop() is
+// idempotent, so tests that need the poller stopped mid-test call it explicitly as well.
 func startUsagePoller(t *testing.T, baselineWait func(ct *assert.CollectT), pollInterval time.Duration, poll func()) (stop func()) {
 	t.Helper()
 
@@ -124,7 +125,8 @@ func TestTenantStatusChanges(t *testing.T) {
 			}).Do(ctx)
 		require.NoError(t, err)
 	}
-	stopPoller := startUsagePoller(t,
+	stopPoller := startUsagePoller(
+		t,
 		func(ct *assert.CollectT) {
 			usage, err := GetDebugUsageForCollection(className)
 			require.NoError(ct, err)
@@ -150,15 +152,18 @@ func TestTenantStatusChanges(t *testing.T) {
 			require.Equal(t, len(names), len(tenants))
 		},
 	)
+	defer stopPoller()
 
 	var eg errgroup.Group
 	for i := range tenants {
 		eg.Go(
 			func() error {
-				require.NoError(t,
+				require.NoError(
+					t,
 					c.Schema().TenantsUpdater().WithClassName(className).WithTenants(models.Tenant{Name: fmt.Sprintf("tenant%d", i), ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx),
 				)
-				require.NoError(t,
+				require.NoError(
+					t,
 					c.Schema().TenantsUpdater().WithClassName(className).WithTenants(models.Tenant{Name: fmt.Sprintf("tenant%d", i), ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx),
 				)
 				return nil
@@ -166,7 +171,6 @@ func TestTenantStatusChanges(t *testing.T) {
 		)
 	}
 	require.NoError(t, eg.Wait())
-	stopPoller()
 }
 
 func TestUsageTenantDelete(t *testing.T) {
@@ -209,7 +213,8 @@ func TestUsageTenantDelete(t *testing.T) {
 
 	deletedTenants := atomic.Int32{}
 
-	stopPoller := startUsagePoller(t,
+	stopPoller := startUsagePoller(
+		t,
 		func(ct *assert.CollectT) {
 			usage, err := GetDebugUsageForCollection(className)
 			require.NoError(ct, err)
@@ -241,13 +246,13 @@ func TestUsageTenantDelete(t *testing.T) {
 			}
 		},
 	)
+	defer stopPoller()
 
 	for i := range tenants {
 		err := c.Schema().TenantsDeleter().WithClassName(className).WithTenants(tenants[i].Name).Do(ctx)
 		require.NoError(t, err)
 		deletedTenants.Add(1)
 	}
-	stopPoller()
 }
 
 func TestCollectionDeletion(t *testing.T) {
@@ -282,7 +287,8 @@ func TestCollectionDeletion(t *testing.T) {
 
 	deletedClasses := atomic.Int32{}
 
-	stopPoller := startUsagePoller(t,
+	stopPoller := startUsagePoller(
+		t,
 		func(ct *assert.CollectT) {
 			usage, err := getDebugUsage()
 			require.NoError(ct, err)
@@ -302,13 +308,13 @@ func TestCollectionDeletion(t *testing.T) {
 			require.GreaterOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesAfterCall)-1)
 		},
 	)
+	defer stopPoller()
 
 	for i := 0; i < numClasses; i++ {
 		className := getClassName(t, i)
 		require.NoError(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
 		deletedClasses.Add(1)
 	}
-	stopPoller()
 }
 
 func TestAlterSchemaDropPropertyIndex(t *testing.T) {
@@ -379,6 +385,7 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 		require.Greater(t, usage.Shards[0].FullShardStorageBytes, uint64(0))
 		assert.Less(t, usage.Shards[0].FullShardStorageBytes, initialStorage)
 	})
+	defer stopPoller()
 
 	// Drop all property indices using the Go client
 	require.NoError(t, c.Schema().PropertyIndexDeleter().
@@ -984,10 +991,12 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		// deactivate and activate to flush data to disk and have it comparable
 		for _, class := range []*models.Class{classDynamic, classFlat, classHnsw} {
-			require.NoError(t,
+			require.NoError(
+				t,
 				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx),
 			)
-			require.NoError(t,
+			require.NoError(
+				t,
 				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx),
 			)
 		}
@@ -1044,10 +1053,12 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		// deactivate and activate to flush data to disk and have it comparable
 		for _, class := range []*models.Class{classDynamic, classFlat, classHnsw} {
-			require.NoError(t,
+			require.NoError(
+				t,
 				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx),
 			)
-			require.NoError(t,
+			require.NoError(
+				t,
 				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx),
 			)
 		}
