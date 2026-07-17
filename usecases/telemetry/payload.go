@@ -28,7 +28,6 @@ var PayloadType = struct {
 
 // Payload is the object transmitted for telemetry purposes
 type Payload struct {
-	// --- existing fields, UNCHANGED ---
 	MachineID        strfmt.UUID                     `json:"machineId"`
 	Type             string                          `json:"type"`
 	Version          string                          `json:"version"`
@@ -41,25 +40,17 @@ type Payload struct {
 	CloudProvider    *string                         `json:"cloudProvider,omitempty"`
 	UniqueID         *string                         `json:"uniqueID,omitempty"`
 
-	// --- NEW: stable identity ---
-	// NodeID is a persisted UUID tied to the data volume. Stable across restarts;
-	// resets only on data-volume wipe. NOT the hostname. Empty means unknown; it
-	// has no meaningful set-but-empty value, so a value type with omitempty is
-	// sufficient (no unknown-vs-known-empty ambiguity).
+	// NodeID is a persisted UUID tied to the data volume (NOT the hostname);
+	// stable across restarts, reset only on volume wipe. Empty means unknown.
 	NodeID string `json:"nodeId,omitempty"`
-	// ClusterID is a UUIDv7 committed once per cluster lifetime via raft, including
-	// single-node deployments (the sole leader still commits it). Empty means the
-	// identity was not yet committed at push time (best-effort; times out after
-	// 30s in Start()); there is no known-empty clusterId, so string+omitempty is
-	// sufficient. Cluster inception time is derived downstream from the UUIDv7
-	// timestamp bits, so it is not sent as a separate field.
+	// ClusterID is a UUIDv7 committed once per cluster lifetime via raft
+	// (including single-node deployments). Empty means not yet committed
+	// (best-effort; 30s timeout in Start()). Inception time is derived from the
+	// UUIDv7 timestamp downstream, so it isn't sent as a separate field.
 	ClusterID string `json:"clusterId,omitempty"`
 
-	// --- NEW: curated signal ---
-	// These are pointers so a successfully-measured zero/false serializes (e.g.
-	// nodeCount:0, replicationEnabled:false) instead of being dropped by omitempty.
-	// A nil pointer means the value could not be determined; the schema-derived
-	// fields below are always measured, so they are always non-nil in practice.
+	// Pointer fields so a measured zero/false (e.g. nodeCount:0) serializes
+	// instead of being dropped by omitempty; nil means unmeasured.
 	NodeCount                  *int           `json:"nodeCount,omitempty"`
 	MaxReplicationFactor       *int           `json:"maxReplicationFactor,omitempty"`
 	ReplicationEnabled         *bool          `json:"replicationEnabled,omitempty"`

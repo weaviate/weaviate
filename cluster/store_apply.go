@@ -410,9 +410,8 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 
 	default:
-		// A command type unknown to this (older) binary, e.g. one introduced in a later
-		// version. We log rather than panic so a forward-incompatible command degrades to
-		// a no-op instead of crash-looping the node; upgrade the binary to apply it.
+		// Unknown command from a newer binary version: log and no-op rather than
+		// panic, so a forward-incompatible command doesn't crash-loop the node.
 		const msg = "consider upgrading to newer version"
 		st.log.WithFields(logrus.Fields{
 			"type":  cmd.Type,

@@ -29,18 +29,15 @@ func TestReadOrCreateNodeID_CreatesAndReads(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, id1)
 
-	// second call reads the same value
 	id2, err := ReadOrCreateNodeID(dir)
 	require.NoError(t, err)
 	assert.Equal(t, id1, id2, "second read must return the same UUID")
 
-	// file on disk contains the UUID
 	b, err := os.ReadFile(filepath.Join(dir, "node-id"))
 	require.NoError(t, err)
 	assert.Equal(t, id1, string(b))
 
-	// the tmp file must not linger: rename consumes it and the deferred cleanup
-	// removes it on any post-write failure path.
+	// tmp file must not linger after a successful write (rename consumes it)
 	_, statErr := os.Stat(filepath.Join(dir, "node-id.tmp"))
 	assert.True(t, os.IsNotExist(statErr), "node-id.tmp must not be left behind")
 }
@@ -65,9 +62,7 @@ func TestNodeIDSurvivesRestart(t *testing.T) {
 	assert.Equal(t, tel1.nodeID, tel2.nodeID, "nodeId must be identical across restarts")
 }
 
-// T-IDENT-3: machineId != nodeId, and the R2/R3 overwrite slip is absent.
-// Two New() calls with the same data dir: machineId differs (fresh per process)
-// while nodeId is identical. This is the key correctness guard.
+// T-IDENT-3: machineId (ephemeral) must never equal nodeId (persisted).
 func TestMachineIDDiffersFromNodeID(t *testing.T) {
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -85,14 +80,11 @@ func TestMachineIDDiffersFromNodeID(t *testing.T) {
 	require.NoError(t, err)
 	tel2 := New(sg2, sm2, logger, Config{NodeID: nodeID2}, nil)
 
-	// nodeId is stable: both telemeters see the same persisted UUID
 	assert.Equal(t, tel1.nodeID, tel2.nodeID, "nodeId must be identical across New() calls")
 
-	// machineId is ephemeral: each New() call gets a fresh UUID
 	assert.NotEqual(t, string(tel1.machineID), string(tel2.machineID),
 		"machineId must differ across New() calls (counts restarts)")
 
-	// machineId must not equal nodeId for either instance
 	assert.NotEqual(t, string(tel1.machineID), tel1.nodeID,
 		"machineId must not overwrite nodeId (slip guard)")
 	assert.NotEqual(t, string(tel2.machineID), tel2.nodeID,
@@ -120,7 +112,6 @@ func TestReadOrCreateNodeID_UnwritableDirReturnsError(t *testing.T) {
 		t.Skip("requires non-root; root bypasses dir perms")
 	}
 	dir := t.TempDir()
-	// Make the directory read-only so writes fail.
 	require.NoError(t, os.Chmod(dir, 0o555))
 	defer os.Chmod(dir, 0o755) //nolint:errcheck
 
@@ -128,7 +119,7 @@ func TestReadOrCreateNodeID_UnwritableDirReturnsError(t *testing.T) {
 	assert.Error(t, err, "expected an error on unwritable dir")
 }
 
-// waitForClusterID timing test: returns immediately once context cancelled.
+// waitForClusterID stub: exercises the injected-waiter code path directly.
 func TestWaitForClusterIDFuncWithStub(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	sg := &fakeNodesStatusGetter{}
@@ -140,9 +131,7 @@ func TestWaitForClusterIDFuncWithStub(t *testing.T) {
 	}
 	tel := New(sg, sm, logger, Config{NodeID: "test-node-id"}, stub)
 
-	// Start sets clusterID from the stub waiter
-	// We call it directly to test the field assignment path (Start itself makes
-	// a network push which we don't want in unit tests).
+	// call the waiter directly; Start() would also push over the network
 	waitCtx := context.Background()
 	clusterID, err := tel.waitForClusterID(waitCtx)
 	require.NoError(t, err)

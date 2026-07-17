@@ -26,8 +26,6 @@ import (
 	api "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// newStoreForClusterIDTests returns a Store with just enough initialized for cluster-id tests:
-// a logger and the clusterIDSet done-channel.
 func newStoreForClusterIDTests(t *testing.T) *Store {
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
@@ -37,7 +35,6 @@ func newStoreForClusterIDTests(t *testing.T) *Store {
 	}
 }
 
-// buildClusterIDApplyRequest constructs a TYPE_CLUSTER_ID_SET ApplyRequest.
 func buildClusterIDApplyRequest(t *testing.T, clusterID string) *api.ApplyRequest {
 	t.Helper()
 	req := &api.SetClusterIDRequest{
@@ -72,12 +69,11 @@ func TestClusterID_IdempotentOnReplay(t *testing.T) {
 	assert.Equal(t, "replay-id", st.ClusterID())
 }
 
-// T-CID-4: survives snapshot Persist→Restore.
-// We use the FSM snapshot struct directly since Store.Persist needs a full raft sink.
+// T-CID-4: survives snapshot Persist→Restore (via the FSM snapshot struct
+// directly, since Store.Persist needs a full raft sink).
 func TestClusterID_SnapshotPersistRestore(t *testing.T) {
 	const testID = "snap-cluster-id"
 
-	// Persist: build a snapshot with the cluster id set.
 	snapWithID := fsm.Snapshot{
 		NodeID:    "node1",
 		ClusterID: testID,
@@ -85,12 +81,10 @@ func TestClusterID_SnapshotPersistRestore(t *testing.T) {
 	b, err := json.Marshal(snapWithID)
 	require.NoError(t, err)
 
-	// Restore: unmarshal into a fresh Snapshot and call setClusterIDFields.
 	var restored fsm.Snapshot
 	require.NoError(t, json.Unmarshal(b, &restored))
 	assert.Equal(t, testID, restored.ClusterID)
 
-	// Apply to a fresh store (simulating the Restore path).
 	st := newStoreForClusterIDTests(t)
 	if restored.ClusterID != "" {
 		st.setClusterIDFields(restored.ClusterID)
@@ -102,14 +96,11 @@ func TestClusterID_SnapshotPersistRestore(t *testing.T) {
 func TestClusterID_RestoreThenReplayIdempotent(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
-	// Simulate snapshot restore
 	st.setClusterIDFields("original-id")
 
-	// Simulate replaying the same log entry (should be a no-op)
 	require.NoError(t, st.applyClusterIDSet(buildClusterIDApplyRequest(t, "original-id")))
 	require.NoError(t, st.applyClusterIDSet(buildClusterIDApplyRequest(t, "other-id")))
 
-	// First value still wins; no panic.
 	assert.Equal(t, "original-id", st.ClusterID())
 }
 
@@ -125,7 +116,6 @@ func TestClusterID_EmptyUUIDGuard(t *testing.T) {
 func TestClusterID_WaitReturnsOnCancel(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
-	// Set the cluster id, which closes clusterIDSet.
 	st.setClusterIDFields("wait-test-id")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -159,12 +149,6 @@ func TestClusterID_OldSnapshotDecode(t *testing.T) {
 }
 
 // T-CID-8: bootstrap loop exits promptly once clusterId is committed on any node.
-//
-// Drives the loop directly (no real raft instance) since setting up a multi-node
-// raft harness for a leadership-churn test is disproportionately expensive for a
-// unit suite. The IsLeader()+maybeCommitClusterID() retry path (a second leader
-// committing the clusterId after the first leader crashes pre-commit) is left to a
-// separate 3-node integration test.
 func TestClusterIDBootstrapLoop_ExitsOnClusterIDSet(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
@@ -177,12 +161,10 @@ func TestClusterIDBootstrapLoop_ExitsOnClusterIDSet(t *testing.T) {
 		st.clusterIDBootstrapLoop(loopCtx)
 	}()
 
-	// Simulate any node (including this one) committing the cluster id via raft apply.
 	st.setClusterIDFields("bootstrap-loop-exit-id")
 
 	select {
 	case <-done:
-		// loop exited as expected
 	case <-time.After(5 * time.Second):
 		t.Fatal("clusterIDBootstrapLoop did not exit within 5s after clusterId set")
 	}
@@ -205,7 +187,6 @@ func TestClusterIDBootstrapLoop_ExitsOnStoreContextCancelled(t *testing.T) {
 
 	select {
 	case <-done:
-		// loop exited as expected
 	case <-time.After(5 * time.Second):
 		t.Fatal("clusterIDBootstrapLoop did not exit within 5s after context cancel")
 	}
@@ -214,7 +195,6 @@ func TestClusterIDBootstrapLoop_ExitsOnStoreContextCancelled(t *testing.T) {
 // T-COMPAT-2: new-snapshot -> old-struct decode (unknown keys ignored).
 func TestClusterID_NewSnapshotToOldStructIgnored(t *testing.T) {
 	newSnap := `{"node_id":"n1","cluster_id":"xyz","cluster_created_at":12345}`
-	// Decode into a struct without the new fields (simulate old binary).
 	type oldSnapshot struct {
 		NodeID string `json:"node_id"`
 	}

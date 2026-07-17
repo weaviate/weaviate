@@ -25,28 +25,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 )
 
-// TestClusterID_CommittedByRealRaftLeader exercises the real bootstrap path that
-// the in-memory unit tests in store_cluster_id_test.go deliberately fake. It
-// stands up a self-electing single-node raft leader and lets clusterIDBootstrapLoop
-// drive the whole chain end to end:
-//
-//	loop tick -> IsLeader() -> maybeCommitClusterID() -> uuid.NewV7() -> Execute()
-//	-> raft consensus -> FSM.Apply -> applyClusterIDSet -> setClusterIDFields
-//	-> close(clusterIDSet)
-//
-// This is the leadership retry path the reviewer flagged as uncovered: the
-// identity is committed through real raft (not poked in-memory), proving that a
-// leader with no clusterId set will commit exactly one, and that the loop wiring,
-// the proto command, and the apply handler all agree.
-//
-// A full 3-node leader-crash-before-commit reproduction (kill the leader inside
-// the 2s commit window and assert a second leader converges) needs a live
-// multi-node consensus harness that does not exist at this layer and is prone to
-// memberlist/election flakiness in CI; it is left to acceptance-level testing.
-// The two properties that path relies on are both covered deterministically:
-// (1) any leader with an unset id commits one via the real loop (this test), and
-// (2) a second commit is a no-op under the set-once guard (asserted below and in
-// TestClusterID_IdempotentOnReplay).
+// TestClusterID_CommittedByRealRaftLeader drives cluster-id commit through a
+// real single-node raft leader end to end (loop -> Execute -> Apply -> commit).
 func TestClusterID_CommittedByRealRaftLeader(t *testing.T) {
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
@@ -65,8 +45,7 @@ func TestClusterID_CommittedByRealRaftLeader(t *testing.T) {
 	require.True(t, tryNTimesWithWait(10, 200*time.Millisecond, srv.Ready),
 		"node did not become ready")
 
-	// The bootstrap loop ticks every 2s; the id is committed via real raft apply
-	// shortly after leadership. 15s is a generous ceiling for a loaded CI runner.
+	// generous ceiling for a loaded CI runner; loop ticks every 2s
 	require.True(t, tryNTimesWithWait(75, 200*time.Millisecond, func() bool {
 		return srv.store.ClusterID() != ""
 	}), "bootstrap loop did not commit a clusterId via real raft within timeout")
@@ -74,7 +53,6 @@ func TestClusterID_CommittedByRealRaftLeader(t *testing.T) {
 	id := srv.store.ClusterID()
 	require.NotEmpty(t, id)
 
-	// WaitForClusterID returns the committed identity without blocking.
 	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	gotID, err := srv.store.WaitForClusterID(waitCtx)

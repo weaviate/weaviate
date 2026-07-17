@@ -602,12 +602,10 @@ func newTestTelemeter(opts ...telemetryOpt,
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	// stubWaiter returns a fixed cluster identity immediately, exercising the
-	// wait path without actual raft. Tests that want no-wait can pass nil.
+	// stubWaiter exercises the wait path without real raft; pass nil for no-wait.
 	stubWaiter := func(ctx context.Context) (string, error) {
 		return "00000000-0000-7000-0000-000000000001", nil
 	}
-	// Empty Config uses defaults; nodeID "" means omitempty in payload.
 	tel := New(sg, sm, logger, Config{}, stubWaiter)
 	for _, opt := range opts {
 		opt(tel)

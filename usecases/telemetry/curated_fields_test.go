@@ -33,7 +33,6 @@ func TestCuratedFields_Extraction(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	tel := New(sg, sm, logger, Config{NodeID: "node-abc", AsyncIndexingEnabled: true}, nil)
 
-	// 3 nodes
 	sm.On("Nodes").Return([]string{"n1", "n2", "n3"})
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{Stats: &models.NodeStats{ObjectCount: 0}},
@@ -41,21 +40,18 @@ func TestCuratedFields_Extraction(t *testing.T) {
 
 	classes := []*models.Class{
 		{
-			// single-vector, hnsw, RF=3, not MT
 			Class:              "A",
 			VectorIndexType:    "hnsw",
 			ReplicationConfig:  &models.ReplicationConfig{Factor: 3},
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
 		},
 		{
-			// single-vector, flat, RF=1, MT enabled
 			Class:              "B",
 			VectorIndexType:    "flat",
 			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		},
 		{
-			// named-vector (dynamic + flat), no RF, MT enabled
 			Class:              "C",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 			VectorConfig: map[string]models.VectorConfig{
@@ -100,25 +96,21 @@ func TestUsedModules_NilModuleConfigFallback(t *testing.T) {
 
 	classes := []*models.Class{
 		{
-			// nil ModuleConfig with a non-"none" Vectorizer → fallback adds the module
 			Class:        "WithVectorizer",
 			ModuleConfig: nil,
 			Vectorizer:   "text2vec-openai",
 		},
 		{
-			// "none" vectorizer should NOT appear
 			Class:        "BYOV",
 			ModuleConfig: nil,
 			Vectorizer:   "none",
 		},
 		{
-			// empty Vectorizer should NOT appear
 			Class:        "EmptyVectorizer",
 			ModuleConfig: nil,
 			Vectorizer:   "",
 		},
 		{
-			// properly configured class (non-nil ModuleConfig) - unchanged behavior
 			Class: "ProperlyConfigured",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-cohere": map[string]interface{}{},
@@ -158,10 +150,8 @@ func TestCuratedFields_NodeCount(t *testing.T) {
 	assert.Equal(t, 2, *payload.NodeCount)
 }
 
-// T-FIELDS-5: pointer fields serialize a measured zero/false rather than being
-// dropped by omitempty, and a nil field is omitted. This is the guard Marcin
-// asked for: with the old value-type fields, nodeCount:0 / replicationEnabled:false
-// were silently dropped and unknown was indistinguishable from known-zero.
+// T-FIELDS-5: pointer fields serialize a measured zero/false instead of being
+// dropped by omitempty; nil means unmeasured.
 func TestPayload_PointerSemantics_JSON(t *testing.T) {
 	t.Run("measured zero/false serialize", func(t *testing.T) {
 		p := Payload{
@@ -188,7 +178,6 @@ func TestPayload_PointerSemantics_JSON(t *testing.T) {
 		p := Payload{
 			ClusterID: "00000000-0000-7000-0000-000000000001",
 			NodeCount: ptrTo(3),
-			// remaining curated pointers nil: not measured.
 		}
 		b, err := json.Marshal(p)
 		require.NoError(t, err)

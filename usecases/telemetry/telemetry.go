@@ -50,7 +50,6 @@ type nodesStatusGetter interface {
 type schemaManager interface {
 	GetSchemaSkipAuth() schema.Schema
 	// Nodes returns a snapshot of the current cluster node names.
-	// concrete *schema.Handler already implements this.
 	Nodes() []string
 }
 
@@ -60,24 +59,21 @@ type Telemeter struct {
 	nodesStatusGetter nodesStatusGetter
 	schemaManager     schemaManager
 	logger            logrus.FieldLogger
-	// shutdown is buffered(1) so Stop() never blocks while Start() is still inside
-	// the clusterId wait. Consequence: on shutdown-during-startup Stop() can send
-	// and push Terminate before Start() pushes Init, so Terminate-before-Init
-	// ordering is not guaranteed.
+	// shutdown is buffered(1) so Stop() never blocks while Start() waits on the
+	// clusterId wait. Consequence: Terminate may push before Init during a
+	// shutdown-during-startup race; ordering is not guaranteed.
 	shutdown        chan struct{}
 	consumer        string
 	pushInterval    time.Duration
 	clientTracker   *ClientTracker
 	cloudInfoHelper *cloudInfoHelper
 
-	// nodeID is the persisted per-node UUID from the data-volume file. NOT the hostname.
-	// machineID stays uuid.NewString() per process (unchanged, counts restarts).
+	// nodeID is the persisted per-node UUID from the data-volume file (NOT the hostname).
 	nodeID               string
 	asyncIndexingEnabled bool
 
-	// mu guards clusterID and failedToStart: both are written by Start() (the
-	// clusterId wait can run for up to 30s) and read by Stop() during shutdown,
-	// so shutdown-during-startup would otherwise race them.
+	// mu guards clusterID and failedToStart, both written by Start() (which can
+	// run up to 30s) and read by Stop(); without it, shutdown-during-startup races them.
 	mu            sync.Mutex
 	failedToStart bool
 	// clusterID is populated in Start() before the Init push.
@@ -117,8 +113,8 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	}
 
 	tel := &Telemeter{
-		// machineID is a fresh UUID each process start - this is intentional and unchanged.
-		// It counts restarts. nodeID (below) is the stable per-node identity.
+		// machineID is a fresh UUID per process (counts restarts); distinct from
+		// the persisted nodeID.
 		machineID:            strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter:    nodesStatusGetter,
 		schemaManager:        schemaManager,
@@ -136,16 +132,14 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 }
 
 // ReadOrCreateNodeID reads the stable per-node UUID from dataPath/node-id.
-// If the file does not exist it generates a new UUID, writes it atomically
-// (tmp+rename mirroring adapters/repos/db/inverted/new_prop_length_tracker.go),
-// and returns it. On any I/O error it returns an error; the caller falls back
-// to an ephemeral UUID so a read-only data dir does not prevent startup.
+// If the file does not exist it generates and atomically persists (tmp+rename)
+// a new UUID. On I/O error it returns an error; the caller falls back to an
+// ephemeral UUID so a read-only data dir doesn't block startup.
 func ReadOrCreateNodeID(dataPath string) (string, error) {
 	// dataPath is trusted operator config (PERSISTENCE_DATA_PATH), not request
 	// input, and the filename is a constant; filepath.Join cleans the result.
 	nodePath := filepath.Join(dataPath, "node-id")
 
-	// happy path: file exists
 	if b, err := os.ReadFile(nodePath); err == nil {
 		id := strings.TrimSpace(string(b))
 		if id != "" {
@@ -155,7 +149,6 @@ func ReadOrCreateNodeID(dataPath string) (string, error) {
 		return "", fmt.Errorf("read node-id: %w", err)
 	}
 
-	// generate a fresh UUID and persist it atomically
 	id := uuid.NewString()
 	tmp := nodePath + ".tmp"
 	// 0o600: the node-id is private per-node state only the server process reads.
@@ -168,7 +161,7 @@ func ReadOrCreateNodeID(dataPath string) (string, error) {
 	if err := os.Rename(tmp, nodePath); err != nil {
 		return "", fmt.Errorf("rename node-id: %w", err)
 	}
-	// re-read to confirm (mirrors new_prop_length_tracker pattern)
+	// re-read to confirm the write landed
 	b, err := os.ReadFile(nodePath)
 	if err != nil {
 		return "", fmt.Errorf("re-read node-id after write: %w", err)
@@ -207,10 +200,9 @@ func (tel *Telemeter) getFailedToStart() bool {
 
 // Start begins telemetry for the node
 func (tel *Telemeter) Start(ctx context.Context) error {
-	// Wait up to 30 s for the raft leader to commit the cluster identity before the
-	// INIT push. On timeout we proceed without clusterId (best-effort; do not block
-	// startup). Single-node Docker typically resolves within ~1-2 s; restarts with a
-	// snapshot have the id restored immediately.
+	// Wait up to 30s for the raft leader to commit the cluster identity before the
+	// INIT push; on timeout, proceed without clusterId (best-effort, does not
+	// block startup).
 	if tel.waitForClusterID != nil {
 		waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
@@ -360,29 +352,24 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 
 	cloudProvider, uniqueID := tel.getCloudInfo()
 
-	// Curated signal fields - one pass over the schema. These are always measured,
-	// so they map to non-nil pointers and a measured 0/false serializes rather than
-	// being dropped by omitempty.
 	nodeCount, maxRF, mtCount, namedVecCount, vectorIndexTypeCounts := tel.getCuratedSchemaFields()
 	replicationEnabled := maxRF > 1
 	asyncIndexingEnabled := tel.asyncIndexingEnabled
 
 	return &Payload{
-		MachineID:        tel.machineID,
-		Type:             payloadType,
-		Version:          config.ServerVersion,
-		ObjectsCount:     objs,
-		OS:               runtime.GOOS,
-		Arch:             runtime.GOARCH,
-		UsedModules:      usedMods,
-		CollectionsCount: cols,
-		ClientUsage:      clientUsage,
-		CloudProvider:    cloudProvider,
-		UniqueID:         uniqueID,
-		// stable identity
-		NodeID:    tel.nodeID,
-		ClusterID: tel.getClusterID(),
-		// curated signal
+		MachineID:                  tel.machineID,
+		Type:                       payloadType,
+		Version:                    config.ServerVersion,
+		ObjectsCount:               objs,
+		OS:                         runtime.GOOS,
+		Arch:                       runtime.GOARCH,
+		UsedModules:                usedMods,
+		CollectionsCount:           cols,
+		ClientUsage:                clientUsage,
+		CloudProvider:              cloudProvider,
+		UniqueID:                   uniqueID,
+		NodeID:                     tel.nodeID,
+		ClusterID:                  tel.getClusterID(),
 		NodeCount:                  &nodeCount,
 		MaxReplicationFactor:       &maxRF,
 		ReplicationEnabled:         &replicationEnabled,
@@ -470,9 +457,8 @@ func (tel *Telemeter) getUsedModules() ([]string, error) {
 					usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
 				}
 			} else if class.Vectorizer != "" && class.Vectorizer != "none" {
-				// Fallback for classes whose ModuleConfig is nil but the class-level
-				// Vectorizer field is set (pre-v1.14 schemas and old-migration gap).
-				// "none" (BYOV) is intentionally excluded - it is not a module.
+				// Fallback for classes with nil ModuleConfig but a set class-level
+				// Vectorizer (pre-v1.14 schemas). "none" (BYOV) is excluded - not a module.
 				usedModulesMap[class.Vectorizer] = struct{}{}
 			}
 			for _, vectorConfig := range class.VectorConfig {

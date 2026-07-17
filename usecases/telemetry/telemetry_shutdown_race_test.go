@@ -27,18 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
-// TestStop_DuringStartupClusterIDWait exercises Stop() while Start() is still
-// blocked inside the clusterId wait window. Start() then writes tel.clusterID
-// (and, on push failure, tel.failedToStart) while the concurrent Stop() reads
-// them via getFailedToStart and push(Terminate) -> buildPayload. Without the
-// mutex those accesses are unsynchronized and `go test -race` reports a data
-// race on tel.clusterID; with the mutex the accesses are ordered and the test
-// passes clean.
-//
-// The wait window is made deterministic with the entered/release channels: the
-// test only proceeds to Stop() once Start() has signaled it is inside the
-// waiter, and only releases the waiter once Stop() is running, so the write and
-// read genuinely overlap.
+// TestStop_DuringStartupClusterIDWait races Stop() against Start()'s in-flight
+// clusterId wait to pin the tel.clusterID/failedToStart data race under -race.
 func TestStop_DuringStartupClusterIDWait(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
