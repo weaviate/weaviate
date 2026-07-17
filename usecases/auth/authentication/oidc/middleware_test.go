@@ -207,12 +207,12 @@ func TestValidateAndExtract_NamespaceState(t *testing.T) {
 		{
 			name:    "suspended is denied, distinguishably",
 			state:   api.NamespaceStateSuspended,
-			wantMsg: "unauthorized: this instance is suspended",
+			wantMsg: "unauthorized: instance suspended",
 		},
 		{
 			name:    "resuming is denied, distinguishably",
 			state:   api.NamespaceStateResuming,
-			wantMsg: "unauthorized: this instance is resuming, retry shortly",
+			wantMsg: "unauthorized: instance resuming, retry shortly",
 		},
 		{
 			// deleting must be denied too, not fall through to a default pass.

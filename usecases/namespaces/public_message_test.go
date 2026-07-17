@@ -114,18 +114,18 @@ func TestPublicMessage(t *testing.T) {
 		wantMsg string
 		wantOK  bool
 	}{
-		{name: "suspended", err: ErrNamespaceSuspended, wantMsg: "this instance is suspended", wantOK: true},
-		{name: "collection suspended", err: ErrCollectionSuspended, wantMsg: "this instance is suspended", wantOK: true},
-		{name: "resuming", err: ErrNamespaceResuming, wantMsg: "this instance is resuming, retry shortly", wantOK: true},
-		{name: "gone", err: ErrNamespaceGone, wantMsg: "this instance is unavailable", wantOK: true},
-		{name: "deleting", err: ErrNamespaceDeleting, wantMsg: "this instance is unavailable", wantOK: true},
-		{name: "invalid state", err: ErrInvalidState, wantMsg: "this instance is unavailable", wantOK: true},
-		{name: "not empty", err: ErrNamespaceNotEmpty, wantMsg: "this instance is unavailable", wantOK: true},
-		{name: "invalid transition", err: ErrInvalidStateTransition, wantMsg: "this instance is unavailable", wantOK: true},
-		{name: "not found", err: ErrNotFound, wantMsg: "this instance is unavailable", wantOK: true},
+		{name: "suspended", err: ErrNamespaceSuspended, wantMsg: "instance suspended", wantOK: true},
+		{name: "collection suspended", err: ErrCollectionSuspended, wantMsg: "instance suspended", wantOK: true},
+		{name: "resuming", err: ErrNamespaceResuming, wantMsg: "instance resuming, retry shortly", wantOK: true},
+		{name: "gone", err: ErrNamespaceGone, wantMsg: "instance unavailable", wantOK: true},
+		{name: "deleting", err: ErrNamespaceDeleting, wantMsg: "instance unavailable", wantOK: true},
+		{name: "invalid state", err: ErrInvalidState, wantMsg: "instance unavailable", wantOK: true},
+		{name: "not empty", err: ErrNamespaceNotEmpty, wantMsg: "instance unavailable", wantOK: true},
+		{name: "invalid transition", err: ErrInvalidStateTransition, wantMsg: "instance unavailable", wantOK: true},
+		{name: "not found", err: ErrNotFound, wantMsg: "instance unavailable", wantOK: true},
 		// A wrapped sentinel must still be recognized: the apply path wraps
 		// the namespace name onto the error.
-		{name: "wrapped sentinel is recognized", err: fmt.Errorf("%w: %q", ErrNamespaceSuspended, "customer1"), wantMsg: "this instance is suspended", wantOK: true},
+		{name: "wrapped sentinel is recognized", err: fmt.Errorf("%w: %q", ErrNamespaceSuspended, "customer1"), wantMsg: "instance suspended", wantOK: true},
 		{name: "nil is not a sentinel", err: nil},
 		{name: "unrecognized error keeps its detail", err: errors.New("disk on fire")},
 		{name: "management-only bad request", err: ErrBadRequest},

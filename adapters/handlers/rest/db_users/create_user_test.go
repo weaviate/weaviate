@@ -385,7 +385,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			isGlobalOperator:  true,
 			authzKey:          "ns1:user",
 			wantStatus:        &users.CreateUserUnprocessableEntity{},
-			wantMsgContains:   "this instance is unavailable",
+			wantMsgContains:   "instance unavailable",
 		},
 		{
 			// No CreateUser mock: the pre-check must reject before apply. The
@@ -398,7 +398,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			isGlobalOperator:  true,
 			authzKey:          "ns1:user",
 			wantStatus:        &users.CreateUserUnprocessableEntity{},
-			wantMsgContains:   "this instance is suspended",
+			wantMsgContains:   "instance suspended",
 		},
 		{
 			// HTTPStatusForNamespaceErr doesn't cover ErrNamespaceGone, so
@@ -409,7 +409,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			isGlobalOperator:  true,
 			authzKey:          "ns1:user",
 			wantStatus:        &users.CreateUserUnprocessableEntity{},
-			wantMsgContains:   "this instance is unavailable",
+			wantMsgContains:   "instance unavailable",
 		},
 		{
 			// resuming has no responder, so it renders 500. The body must
@@ -422,7 +422,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			authzKey:          "ns1:user",
 			createUserErr:     fmt.Errorf("%w: %q", namespaces.ErrNamespaceResuming, "ns1"),
 			wantStatus:        &users.CreateUserInternalServerError{},
-			wantMsgContains:   "this instance is resuming, retry shortly",
+			wantMsgContains:   "instance resuming, retry shortly",
 			wantMsgAbsent:     "ns1",
 		},
 		{

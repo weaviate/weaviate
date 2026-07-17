@@ -375,33 +375,6 @@ func (h *dynUserHandler) resolveUserKeyForCreate(principal *models.Principal, ra
 	return apikey.MakeUserKey(raw, principal.Namespace), principal.Namespace, nil
 }
 
-// namespaceErrRendersUnprocessable reports whether err is a namespace-state
-// error the caller should see as a 422 rather than a 500.
-func namespaceErrRendersUnprocessable(err error) bool {
-	// HTTPStatusForNamespaceErr reports ok=false for ErrNamespaceGone, which
-	// would otherwise fall through to a 500 instead of a 422.
-	if errors.Is(err, namespaces.ErrNamespaceGone) {
-		return true
-	}
-	status, ok := cerrors.HTTPStatusForNamespaceErr(err)
-	return ok && status == http.StatusUnprocessableEntity
-}
-
-// renderCreateUserNamespaceErr renders err for a caller that must not learn
-// about namespaces. A lifecycle sentinel becomes neutral copy; anything else
-// is a genuine internal failure and keeps its detail.
-func renderCreateUserNamespaceErr(principal *models.Principal, err error) middleware.Responder {
-	msg, lifecycle := namespaces.PublicMessage(err)
-	if !lifecycle {
-		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-	}
-	public := errors.New(msg)
-	if namespaceErrRendersUnprocessable(err) {
-		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
-	}
-	return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
-}
-
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -753,4 +726,31 @@ func validateUserName(name string) error {
 		return fmt.Errorf("'%s' is not a valid user name", name)
 	}
 	return nil
+}
+
+// namespaceErrRendersUnprocessable reports whether err is a namespace-state
+// error the caller should see as a 422 rather than a 500.
+func namespaceErrRendersUnprocessable(err error) bool {
+	// HTTPStatusForNamespaceErr reports ok=false for ErrNamespaceGone, which
+	// would otherwise fall through to a 500 instead of a 422.
+	if errors.Is(err, namespaces.ErrNamespaceGone) {
+		return true
+	}
+	status, ok := cerrors.HTTPStatusForNamespaceErr(err)
+	return ok && status == http.StatusUnprocessableEntity
+}
+
+// renderCreateUserNamespaceErr renders err for a caller that must not learn
+// about namespaces. A lifecycle sentinel becomes neutral copy; anything else
+// is a genuine internal failure and keeps its detail.
+func renderCreateUserNamespaceErr(principal *models.Principal, err error) middleware.Responder {
+	msg, lifecycle := namespaces.PublicMessage(err)
+	if !lifecycle {
+		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	public := errors.New(msg)
+	if namespaceErrRendersUnprocessable(err) {
+		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
+	}
+	return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, public))
 }

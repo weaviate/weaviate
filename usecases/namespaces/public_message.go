@@ -21,13 +21,13 @@ import "errors"
 func PublicMessage(err error) (msg string, ok bool) {
 	switch {
 	case errors.Is(err, ErrNamespaceSuspended), errors.Is(err, ErrCollectionSuspended):
-		return "this instance is suspended", true
+		return "instance suspended", true
 	case errors.Is(err, ErrNamespaceResuming):
-		return "this instance is resuming, retry shortly", true
+		return "instance resuming, retry shortly", true
 	case errors.Is(err, ErrNamespaceGone), errors.Is(err, ErrNamespaceDeleting),
 		errors.Is(err, ErrInvalidState), errors.Is(err, ErrNamespaceNotEmpty),
 		errors.Is(err, ErrInvalidStateTransition), errors.Is(err, ErrNotFound):
-		return "this instance is unavailable", true
+		return "instance unavailable", true
 	default:
 		return "", false
 	}
