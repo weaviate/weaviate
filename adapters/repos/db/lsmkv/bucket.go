@@ -1618,6 +1618,35 @@ func (b *Bucket) CountApproximate() (int, error) {
 	return count, nil
 }
 
+// HasAnyData reports whether the bucket currently holds any persisted
+// (on-disk segment) or buffered (memtable) data. It is a cheap
+// O(#segments) structural probe — it never scans or materializes bucket
+// contents — and works for every strategy (unlike Count, which is
+// Replace-only).
+//
+// The intended use is a startup-time check: a promoted-but-empty reindex
+// bucket (a runtime swap that finalized an empty ingest dir) has zero
+// segments and an empty memtable and returns false, so shard init can
+// tell it apart from a populated bucket without a full read. See
+// [github.com/weaviate/weaviate/adapters/repos/db.Shard]'s rangeable
+// readiness reconciliation.
+func (b *Bucket) HasAnyData() bool {
+	if b.disk.Len() > 0 {
+		return true
+	}
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if b.active != nil && b.active.Size() > 0 {
+		return true
+	}
+	if b.flushing != nil && b.flushing.Size() > 0 {
+		return true
+	}
+	return false
+}
+
 func (b *Bucket) memtableNetCount(ctx context.Context, stats *countStats, previousMemtable *countStats,
 	segments []Segment,
 ) (int, error) {

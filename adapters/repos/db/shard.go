@@ -736,6 +736,79 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 	s.rangeableLocalReady[propName] = ready
 }
 
+// hasExplicitRangeableReadyEntry reports whether a migration hook has already
+// seeded a per-prop readiness verdict. Used by
+// [reconcileRangeableReadinessAfterInit] to avoid overriding an in-flight
+// migration's own bookkeeping (e.g. a PreReindexHook that set false).
+func (s *Shard) hasExplicitRangeableReadyEntry(propName string) bool {
+	s.rangeableLocalReadyMu.RLock()
+	defer s.rangeableLocalReadyMu.RUnlock()
+	if s.rangeableLocalReady == nil {
+		return false
+	}
+	_, ok := s.rangeableLocalReady[propName]
+	return ok
+}
+
+// reconcileRangeableReadinessAfterInit closes a silent-zero gap in the
+// restart-recovery path. [Shard.IsRangeableLocallyReady] defaults an
+// un-seeded property to "ready" whenever its rangeable bucket merely
+// EXISTS, not when it is populated (see that method's godoc). The
+// restart-time finalize that promotes a runtime enable-rangeable swap
+// ([finalizeMigrationDir]) is a bare directory rename with no content
+// check: if the swap finalized an empty or torn ingest dir, the promoted
+// rangeable bucket is present-but-empty, and — because the migration
+// tracker is removed in the same startup — no migration hook seeds
+// readiness for it. Served as ready, range queries then return silent
+// zeros with no fallback.
+//
+// For every rangeable property whose local bucket is empty while its
+// filterable bucket still holds data, this seeds readiness=false so the
+// query path falls back to the (correct, if slower) filterable walk
+// instead of silently under-reporting. The "filterable holds data" gate
+// keeps the fix regression-free: a property that is legitimately empty
+// keeps BOTH buckets empty and is left on the existence default (querying
+// its empty rangeable bucket is correct), and a property with no
+// filterable index has nothing to fall back to and is likewise left
+// untouched. Convergent by construction: it re-evaluates from on-disk
+// state on every boot, independent of restart timing or operator action.
+//
+// Runs once per boot after buckets are loaded; O(1) per property via
+// [lsmkv.Bucket.HasAnyData].
+func (s *Shard) reconcileRangeableReadinessAfterInit() {
+	if s.class == nil {
+		return
+	}
+	for _, prop := range s.class.Properties {
+		if prop.IndexRangeFilters == nil || !*prop.IndexRangeFilters {
+			continue
+		}
+		propName := prop.Name
+		// A migration hook already owns this property's readiness (e.g. a
+		// mid-swap PreReindexHook set false); never override it.
+		if s.hasExplicitRangeableReadyEntry(propName) {
+			continue
+		}
+		rangeBucket := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+		if rangeBucket == nil || rangeBucket.HasAnyData() {
+			// Absent (the default-false branch already protects queries) or
+			// populated (the existence default is correct). Nothing to do.
+			continue
+		}
+		filterableBucket := s.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+		if filterableBucket == nil || !filterableBucket.HasAnyData() {
+			// No populated fallback exists: serving the empty rangeable
+			// bucket is the only option and is correct when the property is
+			// genuinely empty.
+			continue
+		}
+		s.setRangeableLocallyReady(propName, false)
+		s.index.logger.WithField("shard", s.name).WithField("property", propName).
+			Warn("rangeable index is empty while the filterable index holds data; " +
+				"routing range queries to the filterable fallback on this shard until the rangeable index is repopulated")
+	}
+}
+
 // SetTokenizationOverlay records that propName's query-time tokenization on
 // this shard should be `target` instead of the schema-stored value until
 // the live schema catches up. Set by the change-tokenization migration's
