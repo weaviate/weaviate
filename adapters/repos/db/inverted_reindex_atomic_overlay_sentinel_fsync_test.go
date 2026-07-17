@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // sentinelFsyncFailTracker wraps a real *fileReindexTracker and injects a
@@ -197,40 +196,14 @@ func TestProcessOneSwapProp_AtomicPath_LeavesSentinelAndOverlayToCaller(t *testi
 	ctx := testCtx()
 	className := "ProcessOneSwapPropAtomicGuard"
 	propNames := []string{"title", "description"}
-	class := newTestClassWithProps(className, propNames)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	for _, obj := range makeMultiPropConvergenceObjects(t, 5, className, propNames) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
-
-	// Drive iteration + runtimePrepare only, exactly like
-	// TestRuntimeSwap_Phase2a_OverlayArmedBeforeSentinel: this produces REAL
-	// ingest buckets under the production-computed names, so
+	// setupPreparedReindexFixture drives iteration + runtimePrepare exactly
+	// like TestRuntimeSwap_Phase2a_OverlayArmedBeforeSentinel: this produces
+	// REAL ingest buckets under the production-computed names, so
 	// processOneSwapProp's internal store.SwapBucketPointer call (unmodified
 	// production code) succeeds for real.
-	task.skipSwapOnFinish.Store(true)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
-	rtIface, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	props, err := task.readPropsToReindex(rtIface)
-	require.NoError(t, err)
-	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rtIface, props))
-	require.NotEmpty(t, props)
+	fx := setupPreparedReindexFixture(t, ctx, className, propNames, 5)
+	shard, task, rtIface, props := fx.shard, fx.task, fx.rt, fx.props
 	targetProp := props[0]
 
 	realRT, ok := rtIface.(*fileReindexTracker)
