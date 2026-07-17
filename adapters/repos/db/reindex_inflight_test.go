@@ -126,7 +126,7 @@ func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
 	assert.Contains(t, err.Error(), "ABC123", "error must name the shard")
 	assert.Contains(t, err.Error(), "JourneyClass", "error must name the collection")
-	assert.Contains(t, err.Error(), "indexes/", "error must include the remediation URL hint")
+	assert.Contains(t, err.Error(), "/index/<indexType>/cancel", "error must include the GA cancel-route remediation hint")
 }
 
 // TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask pins the happy
