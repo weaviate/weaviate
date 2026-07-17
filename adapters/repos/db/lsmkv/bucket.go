@@ -2114,14 +2114,10 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
 	case StrategyInverted:
-		// update property length only on flush
-		// we don't need to do it on compactions,
-		// as it is not currently tracking deletions
-		avg, count := seg.getInvertedData().avgPropertyLengthsAvg, seg.getInvertedData().avgPropertyLengthsCount
-		if count > 0 {
-			b.disk.averagePropSum.Add(uint64(avg * float64(count)))
-			b.disk.averagePropCount.Add(count)
-		}
+		// A flush only adds the new segment's live docs; deletes are subtracted
+		// later at compaction, once the tombstoned docs' lengths drop out of the
+		// merged segment (reconcileAveragePropertyLength).
+		b.disk.countSegmentAveragePropLength(seg)
 	}
 
 	return nil
@@ -2200,11 +2196,12 @@ func (b *Bucket) postFlushBookkeepingInPlace(segment Segment, tombstones *sroar.
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(b.active.extractRoaringSetRange())
 		}
 	case StrategyInverted:
-		inv := segment.getInvertedData()
-		if inv.avgPropertyLengthsCount > 0 {
-			b.disk.averagePropSum.Add(uint64(inv.avgPropertyLengthsAvg * float64(inv.avgPropertyLengthsCount)))
-			b.disk.averagePropCount.Add(inv.avgPropertyLengthsCount)
-		}
+		// A flush only adds the new segment's live docs; deletes are subtracted
+		// later at compaction, once the tombstoned docs' lengths drop out of the
+		// merged segment (reconcileAveragePropertyLength). Every path that makes
+		// a segment live MUST count it or that compaction-time subtraction
+		// underflows; mirrors atomicallyAddDiskSegmentAndRemoveFlushing.
+		b.disk.countSegmentAveragePropLength(segment)
 		if !tombstones.IsEmpty() {
 			if err := b.mergeInvertedTombstonesIntoSegments(tombstones); err != nil {
 				return fmt.Errorf("add tombstones: %w", err)

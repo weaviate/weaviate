@@ -107,12 +107,13 @@ func (p *barrierRecordingProvider) OnSwapRequested(task *Task, _ string, _ []str
 	return nil
 }
 
-func (p *barrierRecordingProvider) OnTaskCompleted(task *Task) {
+func (p *barrierRecordingProvider) OnTaskCompleted(task *Task) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.taskCalls = append(p.taskCalls, task.ID)
 	p.taskCallsBy[task.ID]++
 	p.taskStatusBy[task.ID] = append(p.taskStatusBy[task.ID], task.Status)
+	return nil
 }
 
 // completedStatuses returns the task.Status observed on every

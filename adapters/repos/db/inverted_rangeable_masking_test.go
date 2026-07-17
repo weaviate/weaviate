@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
@@ -33,45 +32,11 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// rangeableDocIDsAtLeast returns docIDs with value >= v in a RoaringSetRange bucket.
-func rangeableDocIDsAtLeast(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
-	t.Helper()
-	reader := b.ReaderRoaringSetRange()
-	defer reader.Close()
-	lex, err := entinverted.LexicographicallySortableInt64(v)
-	require.NoError(t, err)
-	key := binary.BigEndian.Uint64(lex)
-	bm, release, err := reader.Read(context.Background(), key, filters.OperatorGreaterThanEqual)
-	require.NoError(t, err)
-	if release != nil {
-		defer release()
-	}
-	if bm == nil {
-		return nil
-	}
-	return bm.ToArray()
-}
-
-// readRangeableIDs returns docIDs for value v via an OperatorEqual read.
-func readRangeableIDs(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
-	t.Helper()
-	require.Equal(t, lsmkv.StrategyRoaringSetRange, b.Strategy(),
-		"readRangeableIDs requires a RoaringSetRange bucket")
-	reader := b.ReaderRoaringSetRange()
-	defer reader.Close()
-	lex, err := entinverted.LexicographicallySortableInt64(v)
-	require.NoError(t, err)
-	key := binary.BigEndian.Uint64(lex)
-	bm, release, err := reader.Read(context.Background(), key, filters.OperatorEqual)
-	require.NoError(t, err)
-	if release != nil {
-		defer release()
-	}
-	if bm == nil {
-		return nil
-	}
-	return bm.ToArray()
-}
+// rangeableDocIDsAtLeast and readRangeableIDs are shared RoaringSetRange read
+// helpers defined in the reindex write-during-* test files in this package
+// (inverted_reindex_write_during_swap_window_test.go and
+// inverted_reindex_write_during_enable_rangeable_test.go). The masking tests
+// below reuse them rather than redeclaring them.
 
 // rangeableMaskingValue is shared by every test object so a `>= value` filter
 // selects the whole corpus via one key.
