@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Pins weaviate/0-weaviate-issues#322's base-sync finding 1 - window 4 in
+// Pins weaviate/0-weaviate-issues#322's window 4 in
 // db.Shard.recomputeSearchableTallyForProp's godoc: ResetProperty runs
 // BEFORE FlushAndSwitch there, so a writer whose objects-bucket Put lands
 // before the flush (the rescan will independently find and re-track it) but

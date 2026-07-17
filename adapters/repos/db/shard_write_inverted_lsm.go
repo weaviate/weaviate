@@ -181,7 +181,7 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 //
 // Four windows matter for the migrating prop's tally. Windows 1-3 are
 // exactly-once by construction; window 4 is a known, unfixed residual
-// (weaviate/0-weaviate-issues#322 base-sync finding):
+// (weaviate/0-weaviate-issues#322):
 //
 //  1. A write reaching this task's double-write callbacks (registered
 //     before backfill, disabled after runtimeSwap) is tallied
