@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // tidyWindowRaceMarkerWord is outside sidecarBackfillTextObjects' 5-word
@@ -47,29 +46,11 @@ func TestReindex_EnableSearchable_RecoveryTidyWindowRace_DisarmBeforeTidy(t *tes
 	const numObjects = 20
 	ctx := testCtx()
 
-	shard, idx, task, wrapped, _ := newBackfilledEnableSearchableFixture(t, ctx, "EnableSearchableTidyWindowRace", numObjects)
-	className := shard.Index().Config.ClassName.String()
-
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-	require.True(t, wrapped.migrationCompleted)
-
-	// Synthesize a crash between markSwapped and markTidied inside the
-	// ORIGINAL runtimeSwap call - same technique as
-	// synthesizeSwappedNotTidied's other caller
-	// (inverted_reindex_crash_recovery_mid_tidy_tally_test.go).
-	synthesizeSwappedNotTidied(t, shard, task)
-
-	// Simulated restart: a fresh task instance. OnAfterLsmInit sees
-	// IsSwapped()&&!IsTidied() and re-registers the backup-window
-	// double-write callback - the ONLY callback armed for the rest of this
-	// test.
-	task2, wrapped2 := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task2.OnAfterLsmInit(ctx, shard))
-
-	rt2, err := task2.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt2.IsSwapped(), "sanity: must still report swapped")
-	require.False(t, rt2.IsTidied(), "sanity: must still be inside the crash-recovery window this bug targets")
+	// Fresh task2 instance replaying a crash between markSwapped and
+	// markTidied: OnAfterLsmInit sees IsSwapped()&&!IsTidied() and
+	// re-registers the backup-window double-write callback - the ONLY
+	// callback armed for the rest of this test.
+	shard, _, task2, wrapped2, className := replayCrashRecoveryToSwappedNotTidied(t, ctx, "EnableSearchableTidyWindowRace", numObjects)
 
 	racer := newSidecarMarkerObject(className, sidecarBackfillTextProp, tidyWindowRaceMarkerWord)
 	racerID := racer.ID()
