@@ -29,6 +29,7 @@ import (
 //
 // swagger:model SearchRerank
 type SearchRerank struct {
+
 	// The property to rerank on.
 	// Required: true
 	Property *string `json:"property"`
@@ -52,6 +53,7 @@ func (m *SearchRerank) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SearchRerank) validateProperty(formats strfmt.Registry) error {
+
 	if err := validate.Required("property", "body", m.Property); err != nil {
 		return err
 	}
