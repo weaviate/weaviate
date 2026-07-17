@@ -35,6 +35,58 @@ import (
 	"acceptance_tests_with_client/internal/wvhost"
 )
 
+// startUsagePoller spawns a background goroutine that repeatedly calls poll until the
+// returned stop function is invoked. It captures the WaitGroup + poller-goroutine +
+// quiescent-baseline pattern shared by the usage tests below.
+//
+// If baselineWait is non-nil, it is polled via assert.EventuallyWithT before the poller
+// goroutine starts. The debug usage report is populated from db.indices, which lags a
+// class/tenant creation by one local-index-bootstrap cycle after the RAFT schema commit
+// (adapters/repos/db/index_usage.go UsageForIndex: if the local index entry doesn't exist
+// yet, it returns (nil, nil) and the collection is silently dropped from the report).
+// Waiting for that bootstrap window to close before starting the poller means poll's
+// require.* calls only fire once the report is expected to be consistent.
+//
+// If pollInterval is non-zero, it is slept (with a re-check of stop in between) at the top
+// of each iteration so the poller doesn't hammer the debug endpoint.
+//
+// The caller must invoke stop() before the test function returns, not just defer it
+// alongside other cleanup: stop() signals the goroutine to exit and waits for it to finish,
+// so a deferred class/tenant delete cannot race the poller's still-in-flight debug-usage
+// call, and Go's testing.T requirement that a goroutine calling T methods complete before
+// the test returns is satisfied.
+func startUsagePoller(t *testing.T, baselineWait func(ct *assert.CollectT), pollInterval time.Duration, poll func()) (stop func()) {
+	t.Helper()
+
+	if baselineWait != nil {
+		assert.EventuallyWithT(t, baselineWait, 30*time.Second, 500*time.Millisecond)
+	}
+
+	endUsage := atomic.Bool{}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			if endUsage.Load() {
+				return
+			}
+			if pollInterval > 0 {
+				time.Sleep(pollInterval)
+				if endUsage.Load() {
+					return
+				}
+			}
+			poll()
+		}
+	}()
+
+	return func() {
+		endUsage.Store(true)
+		wg.Wait()
+	}
+}
+
 func TestTenantStatusChanges(t *testing.T) {
 	ctx := context.Background()
 	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
@@ -72,37 +124,15 @@ func TestTenantStatusChanges(t *testing.T) {
 			}).Do(ctx)
 		require.NoError(t, err)
 	}
-	endUsage := atomic.Bool{}
-
-	// The debug usage report is populated from db.indices, which lags a class/tenant
-	// creation by one local-index-bootstrap cycle after the RAFT schema commit
-	// (adapters/repos/db/index_usage.go UsageForIndex: if the local index entry
-	// doesn't exist yet, it returns (nil, nil) and the collection is silently
-	// dropped from the report). Wait for that bootstrap window to close and the
-	// report to reach the expected shard count before starting the strict poller
-	// below, so require.* only fires once the report is expected to be consistent.
-	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-		usage, err := GetDebugUsageForCollection(className)
-		require.NoError(ct, err)
-		require.NotNil(ct, usage)
-		require.Equal(ct, len(tenants), len(usage.Shards))
-	}, 30*time.Second, 500*time.Millisecond)
-
-	// pollerWg is waited on below, before the function returns, so the deferred
-	// ClassDeleter above cannot race the poller's still-in-flight
-	// GetDebugUsageForCollection call. Without this, endUsage.Store(true) followed
-	// by an immediate return lets the deferred delete commit while the poller is
-	// mid-read, producing the exact "collection ... not found in debug usage
-	// report" failure independent of any bootstrap-timing window.
-	var pollerWg sync.WaitGroup
-	pollerWg.Add(1)
-	go func() {
-		defer pollerWg.Done()
-		for {
-			if endUsage.Load() {
-				return
-			}
-
+	stopPoller := startUsagePoller(t,
+		func(ct *assert.CollectT) {
+			usage, err := GetDebugUsageForCollection(className)
+			require.NoError(ct, err)
+			require.NotNil(ct, usage)
+			require.Equal(ct, len(tenants), len(usage.Shards))
+		},
+		0,
+		func() {
 			usage, err := GetDebugUsageForCollection(className)
 			require.NoError(t, err)
 			require.NotNil(t, usage)
@@ -118,8 +148,8 @@ func TestTenantStatusChanges(t *testing.T) {
 				names[shard.Name] = struct{}{}
 			}
 			require.Equal(t, len(names), len(tenants))
-		}
-	}()
+		},
+	)
 
 	var eg errgroup.Group
 	for i := range tenants {
@@ -136,8 +166,7 @@ func TestTenantStatusChanges(t *testing.T) {
 		)
 	}
 	require.NoError(t, eg.Wait())
-	endUsage.Store(true)
-	pollerWg.Wait()
+	stopPoller()
 }
 
 func TestUsageTenantDelete(t *testing.T) {
@@ -178,30 +207,17 @@ func TestUsageTenantDelete(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	endUsage := atomic.Bool{}
 	deletedTenants := atomic.Int32{}
 
-	// See the matching comment in TestTenantStatusChanges: wait for the local-index
-	// bootstrap window to close before starting the strict poller below.
-	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-		usage, err := GetDebugUsageForCollection(className)
-		require.NoError(ct, err)
-		require.NotNil(ct, usage)
-		require.Equal(ct, len(tenants), len(usage.Shards))
-	}, 30*time.Second, 500*time.Millisecond)
-
-	// pollerWg is waited on below, before the function returns, so the deferred
-	// ClassDeleter above cannot race the poller's still-in-flight
-	// GetDebugUsageForCollection call. See the matching comment in
-	// TestTenantStatusChanges.
-	var pollerWg sync.WaitGroup
-	pollerWg.Add(1)
-	go func() {
-		defer pollerWg.Done()
-		for {
-			if endUsage.Load() {
-				return
-			}
+	stopPoller := startUsagePoller(t,
+		func(ct *assert.CollectT) {
+			usage, err := GetDebugUsageForCollection(className)
+			require.NoError(ct, err)
+			require.NotNil(ct, usage)
+			require.Equal(ct, len(tenants), len(usage.Shards))
+		},
+		0,
+		func() {
 			deletedTenantsBeforeCall := deletedTenants.Load()
 			usage, err := GetDebugUsageForCollection(className)
 			require.NoError(t, err)
@@ -223,16 +239,15 @@ func TestUsageTenantDelete(t *testing.T) {
 				}
 				names[shard.Name] = struct{}{}
 			}
-		}
-	}()
+		},
+	)
 
 	for i := range tenants {
 		err := c.Schema().TenantsDeleter().WithClassName(className).WithTenants(tenants[i].Name).Do(ctx)
 		require.NoError(t, err)
 		deletedTenants.Add(1)
 	}
-	endUsage.Store(true)
-	pollerWg.Wait()
+	stopPoller()
 }
 
 func TestCollectionDeletion(t *testing.T) {
@@ -265,33 +280,17 @@ func TestCollectionDeletion(t *testing.T) {
 		require.NoError(t, classCreator.WithClass(class).Do(ctx))
 	}
 
-	endUsage := atomic.Bool{}
 	deletedClasses := atomic.Int32{}
 
-	// See the matching comment in TestTenantStatusChanges: wait for the local-index
-	// bootstrap window to close for all numClasses classes before starting the
-	// strict poller below, otherwise the wiggle room below (which is only sized for
-	// in-flight deletions) can be exceeded by classes that simply haven't appeared yet.
-	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-		usage, err := getDebugUsage()
-		require.NoError(ct, err)
-		require.NotNil(ct, usage)
-		require.Equal(ct, numClasses, len(usage.Collections))
-	}, 30*time.Second, 500*time.Millisecond)
-
-	// pollerWg is waited on below, before the function returns. Go's testing.T
-	// requires that a goroutine calling T methods (require.* included) complete
-	// before the outer test function returns; without this, the poller can still
-	// be mid-read (or racing this function's own deferred class cleanup, see
-	// TestTenantStatusChanges) after the test is considered finished.
-	var pollerWg sync.WaitGroup
-	pollerWg.Add(1)
-	go func() {
-		defer pollerWg.Done()
-		for {
-			if endUsage.Load() {
-				return
-			}
+	stopPoller := startUsagePoller(t,
+		func(ct *assert.CollectT) {
+			usage, err := getDebugUsage()
+			require.NoError(ct, err)
+			require.NotNil(ct, usage)
+			require.Equal(ct, numClasses, len(usage.Collections))
+		},
+		0,
+		func() {
 			deletedClassesBeforeCall := deletedClasses.Load()
 			usage, err := getDebugUsage()
 			require.NoError(t, err)
@@ -301,16 +300,15 @@ func TestCollectionDeletion(t *testing.T) {
 			// we add a bit of wiggle room here as the usage endpoint might take a bit to reflect the changes
 			require.LessOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesBeforeCall)+1)
 			require.GreaterOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesAfterCall)-1)
-		}
-	}()
+		},
+	)
 
 	for i := 0; i < numClasses; i++ {
 		className := getClassName(t, i)
 		require.NoError(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
 		deletedClasses.Add(1)
 	}
-	endUsage.Store(true)
-	pollerWg.Wait()
+	stopPoller()
 }
 
 func TestAlterSchemaDropPropertyIndex(t *testing.T) {
@@ -374,26 +372,13 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 	require.Greater(t, initialStorage, uint64(0))
 
 	// Concurrently poll shard usage while dropping property indices
-	endUsage := atomic.Bool{}
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			if endUsage.Load() {
-				return
-			}
-			time.Sleep(500 * time.Millisecond)
-			if endUsage.Load() {
-				return
-			}
-			usage, err := GetDebugUsageForCollection(className)
-			require.NoError(t, err)
-			require.Len(t, usage.Shards, 1)
-			require.Greater(t, usage.Shards[0].FullShardStorageBytes, uint64(0))
-			assert.Less(t, usage.Shards[0].FullShardStorageBytes, initialStorage)
-		}
-	}()
+	stopPoller := startUsagePoller(t, nil, 500*time.Millisecond, func() {
+		usage, err := GetDebugUsageForCollection(className)
+		require.NoError(t, err)
+		require.Len(t, usage.Shards, 1)
+		require.Greater(t, usage.Shards[0].FullShardStorageBytes, uint64(0))
+		assert.Less(t, usage.Shards[0].FullShardStorageBytes, initialStorage)
+	})
 
 	// Drop all property indices using the Go client
 	require.NoError(t, c.Schema().PropertyIndexDeleter().
@@ -405,8 +390,7 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 	require.NoError(t, c.Schema().PropertyIndexDeleter().
 		WithClassName(className).WithPropertyName(numberProp).WithRangeFilters().Do(ctx))
 
-	endUsage.Store(true)
-	wg.Wait()
+	stopPoller()
 
 	// Verify that storage dropped after removing all property indices
 	colUsageAfter, err := GetDebugUsageForCollection(className)
