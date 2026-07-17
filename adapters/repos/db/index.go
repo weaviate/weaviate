@@ -748,7 +748,9 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	i.ForEachShard(func(key string, shard ShardLike) error {
+	// Skip cold shards: they'd only be force-loaded to create empty buckets,
+	// which they build from the refreshed class at their next load anyway.
+	i.ForEachLoadedShard(func(key string, shard ShardLike) error {
 		shard.initPropertyBuckets(ctx, eg, false, props...)
 		return nil
 	})
