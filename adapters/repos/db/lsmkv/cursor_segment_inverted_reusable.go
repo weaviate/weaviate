@@ -16,6 +16,7 @@ import (
 	"io"
 	"math"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/blockenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -252,7 +253,7 @@ func (s *segmentCursorInvertedReusable) decodeBlocksAndConvert(data []byte, coll
 		if i == blockCount-1 {
 			blockSize = int(collectionSize) - terms.BLOCK_SIZE*i
 		}
-		docIds, tfs := packedDecode(&s.blockDataBuf[i], blockSize, s.deltaEnc, s.tfEnc)
+		docIds, tfs := blockenc.PackedDecode(&s.blockDataBuf[i], blockSize, s.deltaEnc, s.tfEnc)
 		for j := 0; j < blockSize; j++ {
 			key := s.kvArena[arenaOff : arenaOff+8]
 			binary.BigEndian.PutUint64(key, docIds[j])
