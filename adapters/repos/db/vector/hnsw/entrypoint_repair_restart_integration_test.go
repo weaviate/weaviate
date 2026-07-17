@@ -75,15 +75,18 @@ func TestEntrypointRepair_DeletedEntrypoints(t *testing.T) {
 		}
 
 		idx, err := New(Config{
-			AllocChecker:          memwatch.NewDummyMonitor(),
-			RootPath:              dirName,
-			ID:                    indexID,
-			Logger:                logger,
-			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer.NewL2SquaredProvider(),
-			VectorForIDThunk:      store.vectorForID,
-			GetViewThunk:          func() common.BucketView { return &searchRepairNoopBucketView{} },
-			MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
+			AllocChecker: memwatch.NewDummyMonitor(),
+			RootPath:     dirName,
+			ID:           indexID,
+			Logger:       logger,
+			MakeCommitLoggerThunk: func(opts ...CommitlogOption) (CommitLogger, error) {
+				return NewCommitLogger(dirName, indexID, logger,
+					cyclemanager.NewCallbackGroupNoop(), opts...)
+			},
+			DistanceProvider:  distancer.NewL2SquaredProvider(),
+			VectorForIDThunk:  store.vectorForID,
+			GetViewThunk:      func() common.BucketView { return &searchRepairNoopBucketView{} },
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
 		require.NoError(t, err)
 		idx.PostStartup(context.Background())
