@@ -52,6 +52,37 @@ func isNumericProperty(prop *models.Property) bool {
 	return ok && (dt == entschema.DataTypeInt || dt == entschema.DataTypeNumber || dt == entschema.DataTypeDate)
 }
 
+// searchableIndexOn reports whether the property currently has a searchable
+// inverted index — i.e. it is a text / text[] property and its
+// IndexSearchable flag is on (nil defaults to on for text types). Non-text
+// properties never have a searchable index. This is the canonical
+// "does the searchable index exist" predicate the upsert/rebuild resolvers
+// diff against, matching the flag-on logic the GET status endpoint uses.
+func searchableIndexOn(prop *models.Property) bool {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok || (dt != entschema.DataTypeText && dt != entschema.DataTypeTextArray) {
+		return false
+	}
+	return prop.IndexSearchable == nil || *prop.IndexSearchable
+}
+
+// filterableIndexOn reports whether the property currently has a filterable
+// inverted index — i.e. its data type supports one (every primitive except
+// blob / geoCoordinates / phoneNumber, and not references) and its
+// IndexFilterable flag is on (nil defaults to on for supported types).
+func filterableIndexOn(prop *models.Property) bool {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok {
+		return false // references
+	}
+	switch dt {
+	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
+		return false
+	default:
+		return prop.IndexFilterable == nil || *prop.IndexFilterable
+	}
+}
+
 // validateRangeableProperties validates that the named properties are
 // eligible for enable-rangeable: numeric type, not already rangeable.
 // Whether the property currently has a filterable index is deliberately
@@ -288,120 +319,6 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	}
 	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
 	return specs
-}
-
-// validateBodyExclusivity guards against ambiguous PUT
-// /v1/schema/{class}/indexes/{prop} request bodies that the switch-based
-// dispatch in updateIndex would otherwise silently misroute.
-//
-// The dispatch is a switch on field truthiness. A request like
-// `{searchable:{rebuild:true}, filterable:{rebuild:true}}` would match the
-// first arm (searchable.rebuild) and silently ignore filterable.rebuild —
-// the user gets a 202 but only half the requested work runs. This helper
-// rejects such bodies up front with a 400 listing the offending fields.
-//
-// Rules:
-//   - At most one group (Searchable / Filterable / Rangeable) may be set.
-//   - Within a group, at most one verb may be set. Verbs:
-//   - Searchable: Enabled, Rebuild, Tokenization (without Enabled)
-//   - Filterable: Enabled, Rebuild
-//   - Rangeable:  Enabled
-//   - Searchable.Tokenization with Searchable.Enabled is allowed:
-//     enable-searchable REQUIRES a tokenization, so they are one verb, not two.
-//   - Zero verbs total is rejected (consistent with the default arm in
-//     updateIndex), so this helper covers that case too.
-func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
-	if body == nil {
-		return fmt.Errorf("request body required")
-	}
-
-	var groupsSet []string
-
-	// Searchable group.
-	if body.Searchable != nil {
-		var verbs []string
-		if body.Searchable.Enabled {
-			verbs = append(verbs, "searchable.enabled")
-		}
-		if body.Searchable.Rebuild {
-			verbs = append(verbs, "searchable.rebuild")
-		}
-		if body.Searchable.Algorithm != "" {
-			verbs = append(verbs, "searchable.algorithm")
-		}
-		// Tokenization is a verb on its own (change-tokenization) ONLY when
-		// Enabled is not set. With Enabled it is part of the enable verb.
-		if body.Searchable.Tokenization != "" && !body.Searchable.Enabled {
-			verbs = append(verbs, "searchable.tokenization")
-		}
-		if body.Searchable.Cancel {
-			verbs = append(verbs, "searchable.cancel")
-		}
-		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in searchable: %v — set exactly one of enabled, rebuild, algorithm, tokenization, or cancel (tokenization combined with enabled is allowed)", verbs)
-		}
-		if len(verbs) == 1 {
-			groupsSet = append(groupsSet, "searchable")
-		}
-	}
-
-	// Filterable group.
-	if body.Filterable != nil {
-		var verbs []string
-		if body.Filterable.Enabled {
-			verbs = append(verbs, "filterable.enabled")
-		}
-		if body.Filterable.Rebuild {
-			verbs = append(verbs, "filterable.rebuild")
-		}
-		// Tokenization is a verb on its own ONLY when Enabled is not set.
-		// Mirrors the searchable.tokenization rule above.
-		if body.Filterable.Tokenization != "" && !body.Filterable.Enabled {
-			verbs = append(verbs, "filterable.tokenization")
-		}
-		if body.Filterable.Cancel {
-			verbs = append(verbs, "filterable.cancel")
-		}
-		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in filterable: %v — set exactly one of enabled, rebuild, tokenization, or cancel", verbs)
-		}
-		if len(verbs) == 1 {
-			groupsSet = append(groupsSet, "filterable")
-		}
-	}
-
-	// Rangeable group.
-	if body.Rangeable != nil {
-		var verbs []string
-		if body.Rangeable.Enabled {
-			verbs = append(verbs, "rangeable.enabled")
-		}
-		if body.Rangeable.Rebuild {
-			verbs = append(verbs, "rangeable.rebuild")
-		}
-		if body.Rangeable.Cancel {
-			verbs = append(verbs, "rangeable.cancel")
-		}
-		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in rangeable: %v — set exactly one of enabled, rebuild, or cancel", verbs)
-		}
-		if len(verbs) == 1 {
-			groupsSet = append(groupsSet, "rangeable")
-		}
-	}
-
-	if len(groupsSet) > 1 {
-		return fmt.Errorf("multiple index groups set in one request (%v) — issue separate requests, one per group", groupsSet)
-	}
-	if len(groupsSet) == 0 {
-		// Keep this verb list in lockstep with the default-case 400
-		// in handlers_indexes.go::updateIndex.
-		return fmt.Errorf("no actionable change detected; set one of: " +
-			"searchable.algorithm, searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
-			"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, " +
-			"rangeable.cancel, rangeable.enabled, rangeable.rebuild")
-	}
-	return nil
 }
 
 // validateTenants checks that all specified tenants exist in the collection's

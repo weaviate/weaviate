@@ -25,19 +25,19 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// NewSchemaObjectsPropertiesDeleteParams creates a new SchemaObjectsPropertiesDeleteParams object
+// NewSchemaObjectsIndexCancelParams creates a new SchemaObjectsIndexCancelParams object
 //
 // There are no default values defined in the spec.
-func NewSchemaObjectsPropertiesDeleteParams() SchemaObjectsPropertiesDeleteParams {
+func NewSchemaObjectsIndexCancelParams() SchemaObjectsIndexCancelParams {
 
-	return SchemaObjectsPropertiesDeleteParams{}
+	return SchemaObjectsIndexCancelParams{}
 }
 
-// SchemaObjectsPropertiesDeleteParams contains all the bound params for the schema objects properties delete operation
+// SchemaObjectsIndexCancelParams contains all the bound params for the schema objects index cancel operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters schema.objects.properties.delete
-type SchemaObjectsPropertiesDeleteParams struct {
+// swagger:parameters schema.objects.index.cancel
+type SchemaObjectsIndexCancelParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -47,12 +47,12 @@ type SchemaObjectsPropertiesDeleteParams struct {
 	  In: path
 	*/
 	ClassName string
-	/*The name of the inverted index to delete from the property. `rangeable` is accepted as a write-path alias for `rangeFilters`.
+	/*The inverted index type whose in-flight task should be cancelled. `rangeable` is accepted as a write-path alias for `rangeFilters`.
 	  Required: true
 	  In: path
 	*/
 	IndexName string
-	/*The name of the property whose inverted index should be deleted.
+	/*The name of the property whose reindex task should be cancelled.
 	  Required: true
 	  In: path
 	*/
@@ -62,8 +62,8 @@ type SchemaObjectsPropertiesDeleteParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewSchemaObjectsPropertiesDeleteParams() beforehand.
-func (o *SchemaObjectsPropertiesDeleteParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewSchemaObjectsIndexCancelParams() beforehand.
+func (o *SchemaObjectsIndexCancelParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
@@ -89,7 +89,7 @@ func (o *SchemaObjectsPropertiesDeleteParams) BindRequest(r *http.Request, route
 }
 
 // bindClassName binds and validates parameter ClassName from path.
-func (o *SchemaObjectsPropertiesDeleteParams) bindClassName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexCancelParams) bindClassName(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -103,7 +103,7 @@ func (o *SchemaObjectsPropertiesDeleteParams) bindClassName(rawData []string, ha
 }
 
 // bindIndexName binds and validates parameter IndexName from path.
-func (o *SchemaObjectsPropertiesDeleteParams) bindIndexName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexCancelParams) bindIndexName(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -121,7 +121,7 @@ func (o *SchemaObjectsPropertiesDeleteParams) bindIndexName(rawData []string, ha
 }
 
 // validateIndexName carries on validations for parameter IndexName
-func (o *SchemaObjectsPropertiesDeleteParams) validateIndexName(formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexCancelParams) validateIndexName(formats strfmt.Registry) error {
 
 	if err := validate.EnumCase("indexName", "path", o.IndexName, []interface{}{"filterable", "searchable", "rangeFilters", "rangeable"}, true); err != nil {
 		return err
@@ -131,7 +131,7 @@ func (o *SchemaObjectsPropertiesDeleteParams) validateIndexName(formats strfmt.R
 }
 
 // bindPropertyName binds and validates parameter PropertyName from path.
-func (o *SchemaObjectsPropertiesDeleteParams) bindPropertyName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexCancelParams) bindPropertyName(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]

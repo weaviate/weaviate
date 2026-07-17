@@ -20,24 +20,26 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
-// NewSchemaObjectsPropertiesDeleteParams creates a new SchemaObjectsPropertiesDeleteParams object
+// NewSchemaObjectsIndexRebuildParams creates a new SchemaObjectsIndexRebuildParams object
 //
 // There are no default values defined in the spec.
-func NewSchemaObjectsPropertiesDeleteParams() SchemaObjectsPropertiesDeleteParams {
+func NewSchemaObjectsIndexRebuildParams() SchemaObjectsIndexRebuildParams {
 
-	return SchemaObjectsPropertiesDeleteParams{}
+	return SchemaObjectsIndexRebuildParams{}
 }
 
-// SchemaObjectsPropertiesDeleteParams contains all the bound params for the schema objects properties delete operation
+// SchemaObjectsIndexRebuildParams contains all the bound params for the schema objects index rebuild operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters schema.objects.properties.delete
-type SchemaObjectsPropertiesDeleteParams struct {
+// swagger:parameters schema.objects.index.rebuild
+type SchemaObjectsIndexRebuildParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -47,26 +49,32 @@ type SchemaObjectsPropertiesDeleteParams struct {
 	  In: path
 	*/
 	ClassName string
-	/*The name of the inverted index to delete from the property. `rangeable` is accepted as a write-path alias for `rangeFilters`.
+	/*The inverted index type to rebuild. `rangeable` is accepted as a write-path alias for `rangeFilters`.
 	  Required: true
 	  In: path
 	*/
 	IndexName string
-	/*The name of the property whose inverted index should be deleted.
+	/*The name of the property whose inverted index should be rebuilt.
 	  Required: true
 	  In: path
 	*/
 	PropertyName string
+	/*Tenant names to target. Allowed for all index types on multi-tenant collections (rebuilds are format-only). Omit to target all tenants.
+	  In: query
+	*/
+	Tenants []string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewSchemaObjectsPropertiesDeleteParams() beforehand.
-func (o *SchemaObjectsPropertiesDeleteParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewSchemaObjectsIndexRebuildParams() beforehand.
+func (o *SchemaObjectsIndexRebuildParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
+
+	qs := runtime.Values(r.URL.Query())
 
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
@@ -82,6 +90,11 @@ func (o *SchemaObjectsPropertiesDeleteParams) BindRequest(r *http.Request, route
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
 	}
+
+	qTenants, qhkTenants, _ := qs.GetOK("tenants")
+	if err := o.bindTenants(qTenants, qhkTenants, route.Formats); err != nil {
+		res = append(res, err)
+	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -89,7 +102,7 @@ func (o *SchemaObjectsPropertiesDeleteParams) BindRequest(r *http.Request, route
 }
 
 // bindClassName binds and validates parameter ClassName from path.
-func (o *SchemaObjectsPropertiesDeleteParams) bindClassName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexRebuildParams) bindClassName(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -103,7 +116,7 @@ func (o *SchemaObjectsPropertiesDeleteParams) bindClassName(rawData []string, ha
 }
 
 // bindIndexName binds and validates parameter IndexName from path.
-func (o *SchemaObjectsPropertiesDeleteParams) bindIndexName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexRebuildParams) bindIndexName(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -121,7 +134,7 @@ func (o *SchemaObjectsPropertiesDeleteParams) bindIndexName(rawData []string, ha
 }
 
 // validateIndexName carries on validations for parameter IndexName
-func (o *SchemaObjectsPropertiesDeleteParams) validateIndexName(formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexRebuildParams) validateIndexName(formats strfmt.Registry) error {
 
 	if err := validate.EnumCase("indexName", "path", o.IndexName, []interface{}{"filterable", "searchable", "rangeFilters", "rangeable"}, true); err != nil {
 		return err
@@ -131,7 +144,7 @@ func (o *SchemaObjectsPropertiesDeleteParams) validateIndexName(formats strfmt.R
 }
 
 // bindPropertyName binds and validates parameter PropertyName from path.
-func (o *SchemaObjectsPropertiesDeleteParams) bindPropertyName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexRebuildParams) bindPropertyName(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -140,6 +153,33 @@ func (o *SchemaObjectsPropertiesDeleteParams) bindPropertyName(rawData []string,
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.PropertyName = raw
+
+	return nil
+}
+
+// bindTenants binds and validates array parameter Tenants from query.
+//
+// Arrays are parsed according to CollectionFormat: "" (defaults to "csv" when empty).
+func (o *SchemaObjectsIndexRebuildParams) bindTenants(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var qvTenants string
+	if len(rawData) > 0 {
+		qvTenants = rawData[len(rawData)-1]
+	}
+
+	// CollectionFormat:
+	tenantsIC := swag.SplitByFormat(qvTenants, "")
+	if len(tenantsIC) == 0 {
+		return nil
+	}
+
+	var tenantsIR []string
+	for _, tenantsIV := range tenantsIC {
+		tenantsI := tenantsIV
+
+		tenantsIR = append(tenantsIR, tenantsI)
+	}
+
+	o.Tenants = tenantsIR
 
 	return nil
 }

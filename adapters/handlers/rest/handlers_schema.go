@@ -254,7 +254,16 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("%s", conflict)))
 	}
 
-	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, params.IndexName)
+	// Normalize the `rangeable` write-path alias to the canonical
+	// `rangeFilters` the schema manager understands (RFC §1.6). The other
+	// accepted values pass through unchanged, so the DELETE contract stays
+	// byte-compatible with its GA v1.36 behavior.
+	indexName := params.IndexName
+	if indexName == "rangeable" {
+		indexName = "rangeFilters"
+	}
+
+	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {

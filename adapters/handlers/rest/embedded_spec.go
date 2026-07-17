@@ -5649,94 +5649,6 @@ func init() {
         }
       }
     },
-    "/schema/{className}/indexes/{propertyName}": {
-      "put": {
-        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
-        "tags": [
-          "schema"
-        ],
-        "summary": "Update index configuration for a property (triggers reindex)",
-        "operationId": "schema.objects.indexes.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
-            "name": "tenants",
-            "in": "query"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/IndexUpdateRequest"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Reindex task submitted.",
-            "schema": {
-              "$ref": "#/definitions/IndexUpdateResponse"
-            }
-          },
-          "400": {
-            "description": "Invalid request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "409": {
-            "description": "Conflicting reindex task already running.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error occurred.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "503": {
-            "description": "Distributed tasks not enabled.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
     "/schema/{className}/properties": {
       "post": {
         "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
@@ -5798,8 +5710,130 @@ func init() {
       }
     },
     "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "put": {
+        "description": "Upserts the inverted index of a property, identified by ` + "`" + `indexName` + "`" + `. The body describes the desired index configuration; the server diffs it against the current state and either creates the index, migrates its configuration, or does nothing. Index-mutating work is asynchronous: a ` + "`" + `202` + "`" + ` with a task ID is returned when a reindex task is submitted, and ` + "`" + `200` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when the desired configuration is already in place. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Declaratively create or migrate a property's inverted index",
+        "operationId": "schema.objects.index.upsert",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be upserted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type to upsert. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only valid on multi-tenant collections and only when the resulting operation is format-only (on PUT that is ` + "`" + `rangeFilters` + "`" + ` creation). Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpsertRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Desired configuration already in place; no task submitted. Body carries ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failure; the message carries an actionable hint.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      },
       "delete": {
-        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + ` (with ` + "`" + `rangeable` + "`" + ` accepted as an alias for ` + "`" + `rangeFilters` + "`" + `).",
         "tags": [
           "schema"
         ],
@@ -5824,10 +5858,11 @@ func init() {
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "rangeable"
             ],
             "type": "string",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the inverted index to delete from the property. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
             "name": "indexName",
             "in": "path",
             "required": true
@@ -5854,6 +5889,199 @@ func init() {
           },
           "500": {
             "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}/cancel": {
+      "post": {
+        "description": "Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a ` + "`" + `202` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when there is nothing to cancel). ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Cancel the in-flight reindex task on a property's inverted index",
+        "operationId": "schema.objects.index.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose reindex task should be cancelled.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type whose in-flight task should be cancelled. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a live task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property. \"Nothing to cancel\" is NOT a 404 — it returns 202 with status NO_OP.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}/rebuild": {
+      "post": {
+        "description": "Rebuilds the inverted index from the stored objects with its current configuration (repair / format refresh). No request body. Index-mutating work is asynchronous: a ` + "`" + `202` + "`" + ` with a task ID is returned. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rebuild a property's inverted index with unchanged configuration",
+        "operationId": "schema.objects.index.rebuild",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be rebuilt.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type to rebuild. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Allowed for all index types on multi-tenant collections (rebuilds are format-only). Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failure; the message carries an actionable hint.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8572,15 +8800,20 @@ func init() {
         "targetTokenization": {
           "type": "string"
         },
+        "taskId": {
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, and the finalize-window override); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "type": "string"
+        },
         "tokenization": {
           "type": "string"
         },
         "type": {
+          "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",
           "type": "string",
           "enum": [
             "filterable",
             "searchable",
-            "rangeable"
+            "rangeFilters"
           ]
         }
       }
@@ -8599,55 +8832,6 @@ func init() {
         }
       }
     },
-    "IndexUpdateFilterable": {
-      "type": "object",
-      "properties": {
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "type": "boolean"
-        },
-        "tokenization": {
-          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
-          "type": "string"
-        }
-      }
-    },
-    "IndexUpdateRangeable": {
-      "type": "object",
-      "properties": {
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
-          "type": "boolean"
-        }
-      }
-    },
-    "IndexUpdateRequest": {
-      "type": "object",
-      "properties": {
-        "filterable": {
-          "$ref": "#/definitions/IndexUpdateFilterable"
-        },
-        "rangeable": {
-          "$ref": "#/definitions/IndexUpdateRangeable"
-        },
-        "searchable": {
-          "$ref": "#/definitions/IndexUpdateSearchable"
-        }
-      }
-    },
     "IndexUpdateResponse": {
       "type": "object",
       "properties": {
@@ -8659,28 +8843,16 @@ func init() {
         }
       }
     },
-    "IndexUpdateSearchable": {
+    "IndexUpsertRequest": {
+      "description": "Desired index configuration for ` + "`" + `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}` + "`" + `. The server diffs the body against the current state and either creates the index, migrates its configuration, or returns a NO_OP. Only fields relevant to the target index type are honored: ` + "`" + `tokenization` + "`" + ` applies to ` + "`" + `searchable` + "`" + `/` + "`" + `filterable` + "`" + `, ` + "`" + `algorithm` + "`" + ` applies to ` + "`" + `searchable` + "`" + `. ` + "`" + `rangeFilters` + "`" + ` takes no config fields. An empty body ` + "`" + `{}` + "`" + ` is valid and means \"ensure the index exists with its current/default config\". At most one configuration change may be requested per call (a body implying both a tokenization and an algorithm change is rejected).",
       "type": "object",
       "properties": {
         "algorithm": {
-          "description": "Switch the BM25 algorithm for this property's searchable index. Currently only ` + "`" + `blockmax` + "`" + ` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported.",
-          "type": "string",
-          "enum": [
-            "blockmax"
-          ]
-        },
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "description": "When true, rebuilds the searchable index for this property from the stored objects. Preserves the current tokenization and BM25 algorithm. Only valid when the property's current algorithm is ` + "`" + `blockmax` + "`" + `; on a WAND property the request is rejected with guidance to use ` + "`" + `algorithm:\"blockmax\"` + "`" + ` first.",
-          "type": "boolean"
+          "description": "Target BM25 algorithm for a ` + "`" + `searchable` + "`" + ` index. Only ` + "`" + `blockmax` + "`" + ` is a valid target (input aliases ` + "`" + `block-max` + "`" + `, ` + "`" + `block_max` + "`" + `, ` + "`" + `blockmaxwand` + "`" + `, ` + "`" + `bmw` + "`" + ` are accepted case-insensitively). From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` index it is a NO_OP. ` + "`" + `wand` + "`" + ` is rejected (deprecated); downgrade is intentionally not supported.",
+          "type": "string"
         },
         "tokenization": {
+          "description": "Target tokenization for a ` + "`" + `searchable` + "`" + ` or ` + "`" + `filterable` + "`" + ` index. Required when creating a ` + "`" + `searchable` + "`" + ` index; optional otherwise (omitted = keep the current value). On ` + "`" + `filterable` + "`" + ` creation it must be omitted or equal the property's current tokenization.",
           "type": "string"
         }
       }
@@ -17057,94 +17229,6 @@ func init() {
         }
       }
     },
-    "/schema/{className}/indexes/{propertyName}": {
-      "put": {
-        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
-        "tags": [
-          "schema"
-        ],
-        "summary": "Update index configuration for a property (triggers reindex)",
-        "operationId": "schema.objects.indexes.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
-            "name": "tenants",
-            "in": "query"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/IndexUpdateRequest"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Reindex task submitted.",
-            "schema": {
-              "$ref": "#/definitions/IndexUpdateResponse"
-            }
-          },
-          "400": {
-            "description": "Invalid request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "409": {
-            "description": "Conflicting reindex task already running.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error occurred.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "503": {
-            "description": "Distributed tasks not enabled.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
     "/schema/{className}/properties": {
       "post": {
         "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
@@ -17206,8 +17290,130 @@ func init() {
       }
     },
     "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "put": {
+        "description": "Upserts the inverted index of a property, identified by ` + "`" + `indexName` + "`" + `. The body describes the desired index configuration; the server diffs it against the current state and either creates the index, migrates its configuration, or does nothing. Index-mutating work is asynchronous: a ` + "`" + `202` + "`" + ` with a task ID is returned when a reindex task is submitted, and ` + "`" + `200` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when the desired configuration is already in place. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Declaratively create or migrate a property's inverted index",
+        "operationId": "schema.objects.index.upsert",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be upserted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type to upsert. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only valid on multi-tenant collections and only when the resulting operation is format-only (on PUT that is ` + "`" + `rangeFilters` + "`" + ` creation). Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpsertRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Desired configuration already in place; no task submitted. Body carries ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failure; the message carries an actionable hint.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      },
       "delete": {
-        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + ` (with ` + "`" + `rangeable` + "`" + ` accepted as an alias for ` + "`" + `rangeFilters` + "`" + `).",
         "tags": [
           "schema"
         ],
@@ -17232,10 +17438,11 @@ func init() {
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "rangeable"
             ],
             "type": "string",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the inverted index to delete from the property. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
             "name": "indexName",
             "in": "path",
             "required": true
@@ -17262,6 +17469,199 @@ func init() {
           },
           "500": {
             "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}/cancel": {
+      "post": {
+        "description": "Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a ` + "`" + `202` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when there is nothing to cancel). ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Cancel the in-flight reindex task on a property's inverted index",
+        "operationId": "schema.objects.index.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose reindex task should be cancelled.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type whose in-flight task should be cancelled. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a live task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property. \"Nothing to cancel\" is NOT a 404 — it returns 202 with status NO_OP.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}/rebuild": {
+      "post": {
+        "description": "Rebuilds the inverted index from the stored objects with its current configuration (repair / format refresh). No request body. Index-mutating work is asynchronous: a ` + "`" + `202` + "`" + ` with a task ID is returned. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rebuild a property's inverted index with unchanged configuration",
+        "operationId": "schema.objects.index.rebuild",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be rebuilt.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type to rebuild. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Allowed for all index types on multi-tenant collections (rebuilds are format-only). Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failure; the message carries an actionable hint.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20165,15 +20565,20 @@ func init() {
         "targetTokenization": {
           "type": "string"
         },
+        "taskId": {
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, and the finalize-window override); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "type": "string"
+        },
         "tokenization": {
           "type": "string"
         },
         "type": {
+          "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",
           "type": "string",
           "enum": [
             "filterable",
             "searchable",
-            "rangeable"
+            "rangeFilters"
           ]
         }
       }
@@ -20192,55 +20597,6 @@ func init() {
         }
       }
     },
-    "IndexUpdateFilterable": {
-      "type": "object",
-      "properties": {
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "type": "boolean"
-        },
-        "tokenization": {
-          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
-          "type": "string"
-        }
-      }
-    },
-    "IndexUpdateRangeable": {
-      "type": "object",
-      "properties": {
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
-          "type": "boolean"
-        }
-      }
-    },
-    "IndexUpdateRequest": {
-      "type": "object",
-      "properties": {
-        "filterable": {
-          "$ref": "#/definitions/IndexUpdateFilterable"
-        },
-        "rangeable": {
-          "$ref": "#/definitions/IndexUpdateRangeable"
-        },
-        "searchable": {
-          "$ref": "#/definitions/IndexUpdateSearchable"
-        }
-      }
-    },
     "IndexUpdateResponse": {
       "type": "object",
       "properties": {
@@ -20252,28 +20608,16 @@ func init() {
         }
       }
     },
-    "IndexUpdateSearchable": {
+    "IndexUpsertRequest": {
+      "description": "Desired index configuration for ` + "`" + `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}` + "`" + `. The server diffs the body against the current state and either creates the index, migrates its configuration, or returns a NO_OP. Only fields relevant to the target index type are honored: ` + "`" + `tokenization` + "`" + ` applies to ` + "`" + `searchable` + "`" + `/` + "`" + `filterable` + "`" + `, ` + "`" + `algorithm` + "`" + ` applies to ` + "`" + `searchable` + "`" + `. ` + "`" + `rangeFilters` + "`" + ` takes no config fields. An empty body ` + "`" + `{}` + "`" + ` is valid and means \"ensure the index exists with its current/default config\". At most one configuration change may be requested per call (a body implying both a tokenization and an algorithm change is rejected).",
       "type": "object",
       "properties": {
         "algorithm": {
-          "description": "Switch the BM25 algorithm for this property's searchable index. Currently only ` + "`" + `blockmax` + "`" + ` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported.",
-          "type": "string",
-          "enum": [
-            "blockmax"
-          ]
-        },
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "description": "When true, rebuilds the searchable index for this property from the stored objects. Preserves the current tokenization and BM25 algorithm. Only valid when the property's current algorithm is ` + "`" + `blockmax` + "`" + `; on a WAND property the request is rejected with guidance to use ` + "`" + `algorithm:\"blockmax\"` + "`" + ` first.",
-          "type": "boolean"
+          "description": "Target BM25 algorithm for a ` + "`" + `searchable` + "`" + ` index. Only ` + "`" + `blockmax` + "`" + ` is a valid target (input aliases ` + "`" + `block-max` + "`" + `, ` + "`" + `block_max` + "`" + `, ` + "`" + `blockmaxwand` + "`" + `, ` + "`" + `bmw` + "`" + ` are accepted case-insensitively). From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` index it is a NO_OP. ` + "`" + `wand` + "`" + ` is rejected (deprecated); downgrade is intentionally not supported.",
+          "type": "string"
         },
         "tokenization": {
+          "description": "Target tokenization for a ` + "`" + `searchable` + "`" + ` or ` + "`" + `filterable` + "`" + ` index. Required when creating a ` + "`" + `searchable` + "`" + ` index; optional otherwise (omitted = keep the current value). On ` + "`" + `filterable` + "`" + ` creation it must be omitted or equal the property's current tokenization.",
           "type": "string"
         }
       }

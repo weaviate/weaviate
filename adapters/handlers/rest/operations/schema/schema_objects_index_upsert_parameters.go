@@ -30,19 +30,19 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewSchemaObjectsIndexesUpdateParams creates a new SchemaObjectsIndexesUpdateParams object
+// NewSchemaObjectsIndexUpsertParams creates a new SchemaObjectsIndexUpsertParams object
 //
 // There are no default values defined in the spec.
-func NewSchemaObjectsIndexesUpdateParams() SchemaObjectsIndexesUpdateParams {
+func NewSchemaObjectsIndexUpsertParams() SchemaObjectsIndexUpsertParams {
 
-	return SchemaObjectsIndexesUpdateParams{}
+	return SchemaObjectsIndexUpsertParams{}
 }
 
-// SchemaObjectsIndexesUpdateParams contains all the bound params for the schema objects indexes update operation
+// SchemaObjectsIndexUpsertParams contains all the bound params for the schema objects index upsert operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters schema.objects.indexes.update
-type SchemaObjectsIndexesUpdateParams struct {
+// swagger:parameters schema.objects.index.upsert
+type SchemaObjectsIndexUpsertParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -51,18 +51,23 @@ type SchemaObjectsIndexesUpdateParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.IndexUpdateRequest
-	/*
+	Body *models.IndexUpsertRequest
+	/*The name of the collection (class) containing the property.
 	  Required: true
 	  In: path
 	*/
 	ClassName string
-	/*
+	/*The inverted index type to upsert. `rangeable` is accepted as a write-path alias for `rangeFilters`.
+	  Required: true
+	  In: path
+	*/
+	IndexName string
+	/*The name of the property whose inverted index should be upserted.
 	  Required: true
 	  In: path
 	*/
 	PropertyName string
-	/*Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.
+	/*Tenant names to target. Only valid on multi-tenant collections and only when the resulting operation is format-only (on PUT that is `rangeFilters` creation). Omit to target all tenants.
 	  In: query
 	*/
 	Tenants []string
@@ -71,8 +76,8 @@ type SchemaObjectsIndexesUpdateParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewSchemaObjectsIndexesUpdateParams() beforehand.
-func (o *SchemaObjectsIndexesUpdateParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewSchemaObjectsIndexUpsertParams() beforehand.
+func (o *SchemaObjectsIndexUpsertParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
@@ -81,7 +86,7 @@ func (o *SchemaObjectsIndexesUpdateParams) BindRequest(r *http.Request, route *m
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.IndexUpdateRequest
+		var body models.IndexUpsertRequest
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body", ""))
@@ -112,6 +117,11 @@ func (o *SchemaObjectsIndexesUpdateParams) BindRequest(r *http.Request, route *m
 		res = append(res, err)
 	}
 
+	rIndexName, rhkIndexName, _ := route.Params.GetOK("indexName")
+	if err := o.bindIndexName(rIndexName, rhkIndexName, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	rPropertyName, rhkPropertyName, _ := route.Params.GetOK("propertyName")
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
@@ -128,7 +138,7 @@ func (o *SchemaObjectsIndexesUpdateParams) BindRequest(r *http.Request, route *m
 }
 
 // bindClassName binds and validates parameter ClassName from path.
-func (o *SchemaObjectsIndexesUpdateParams) bindClassName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexUpsertParams) bindClassName(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -141,8 +151,36 @@ func (o *SchemaObjectsIndexesUpdateParams) bindClassName(rawData []string, hasKe
 	return nil
 }
 
+// bindIndexName binds and validates parameter IndexName from path.
+func (o *SchemaObjectsIndexUpsertParams) bindIndexName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+	o.IndexName = raw
+
+	if err := o.validateIndexName(formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateIndexName carries on validations for parameter IndexName
+func (o *SchemaObjectsIndexUpsertParams) validateIndexName(formats strfmt.Registry) error {
+
+	if err := validate.EnumCase("indexName", "path", o.IndexName, []interface{}{"filterable", "searchable", "rangeFilters", "rangeable"}, true); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // bindPropertyName binds and validates parameter PropertyName from path.
-func (o *SchemaObjectsIndexesUpdateParams) bindPropertyName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexUpsertParams) bindPropertyName(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -158,7 +196,7 @@ func (o *SchemaObjectsIndexesUpdateParams) bindPropertyName(rawData []string, ha
 // bindTenants binds and validates array parameter Tenants from query.
 //
 // Arrays are parsed according to CollectionFormat: "" (defaults to "csv" when empty).
-func (o *SchemaObjectsIndexesUpdateParams) bindTenants(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *SchemaObjectsIndexUpsertParams) bindTenants(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var qvTenants string
 	if len(rawData) > 0 {
 		qvTenants = rawData[len(rawData)-1]

@@ -49,11 +49,14 @@ type IndexStatus struct {
 	// target tokenization
 	TargetTokenization string `json:"targetTokenization,omitempty"`
 
+	// ID of the reindex task driving this index entry. Present on every task-driven entry (`pending`, `indexing`, `failed`, `cancelled`, and the finalize-window override); absent on a plain `ready` entry. A coupled searchable+filterable tokenization migration reports the same `taskId` on both affected entries.
+	TaskID string `json:"taskId,omitempty"`
+
 	// tokenization
 	Tokenization string `json:"tokenization,omitempty"`
 
-	// type
-	// Enum: [filterable searchable rangeable]
+	// Canonical inverted-index type. Always one of `filterable`, `searchable`, `rangeFilters` — never the `rangeable` write-path alias.
+	// Enum: [filterable searchable rangeFilters]
 	Type string `json:"type,omitempty"`
 }
 
@@ -222,7 +225,7 @@ var indexStatusTypeTypePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["filterable","searchable","rangeable"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["filterable","searchable","rangeFilters"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -238,8 +241,8 @@ const (
 	// IndexStatusTypeSearchable captures enum value "searchable"
 	IndexStatusTypeSearchable string = "searchable"
 
-	// IndexStatusTypeRangeable captures enum value "rangeable"
-	IndexStatusTypeRangeable string = "rangeable"
+	// IndexStatusTypeRangeFilters captures enum value "rangeFilters"
+	IndexStatusTypeRangeFilters string = "rangeFilters"
 )
 
 // prop value enum
