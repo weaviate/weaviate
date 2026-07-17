@@ -74,7 +74,30 @@ func TestTenantStatusChanges(t *testing.T) {
 	}
 	endUsage := atomic.Bool{}
 
+	// The debug usage report is populated from db.indices, which lags a class/tenant
+	// creation by one local-index-bootstrap cycle after the RAFT schema commit
+	// (adapters/repos/db/index_usage.go UsageForIndex: if the local index entry
+	// doesn't exist yet, it returns (nil, nil) and the collection is silently
+	// dropped from the report). Wait for that bootstrap window to close and the
+	// report to reach the expected shard count before starting the strict poller
+	// below, so require.* only fires once the report is expected to be consistent.
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		usage, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.NotNil(ct, usage)
+		require.Equal(ct, len(tenants), len(usage.Shards))
+	}, 30*time.Second, 500*time.Millisecond)
+
+	// pollerWg is waited on below, before the function returns, so the deferred
+	// ClassDeleter above cannot race the poller's still-in-flight
+	// GetDebugUsageForCollection call. Without this, endUsage.Store(true) followed
+	// by an immediate return lets the deferred delete commit while the poller is
+	// mid-read, producing the exact "collection ... not found in debug usage
+	// report" failure independent of any bootstrap-timing window.
+	var pollerWg sync.WaitGroup
+	pollerWg.Add(1)
 	go func() {
+		defer pollerWg.Done()
 		for {
 			if endUsage.Load() {
 				return
@@ -114,6 +137,7 @@ func TestTenantStatusChanges(t *testing.T) {
 	}
 	require.NoError(t, eg.Wait())
 	endUsage.Store(true)
+	pollerWg.Wait()
 }
 
 func TestUsageTenantDelete(t *testing.T) {
@@ -156,7 +180,24 @@ func TestUsageTenantDelete(t *testing.T) {
 
 	endUsage := atomic.Bool{}
 	deletedTenants := atomic.Int32{}
+
+	// See the matching comment in TestTenantStatusChanges: wait for the local-index
+	// bootstrap window to close before starting the strict poller below.
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		usage, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.NotNil(ct, usage)
+		require.Equal(ct, len(tenants), len(usage.Shards))
+	}, 30*time.Second, 500*time.Millisecond)
+
+	// pollerWg is waited on below, before the function returns, so the deferred
+	// ClassDeleter above cannot race the poller's still-in-flight
+	// GetDebugUsageForCollection call. See the matching comment in
+	// TestTenantStatusChanges.
+	var pollerWg sync.WaitGroup
+	pollerWg.Add(1)
 	go func() {
+		defer pollerWg.Done()
 		for {
 			if endUsage.Load() {
 				return
@@ -191,6 +232,7 @@ func TestUsageTenantDelete(t *testing.T) {
 		deletedTenants.Add(1)
 	}
 	endUsage.Store(true)
+	pollerWg.Wait()
 }
 
 func TestCollectionDeletion(t *testing.T) {
@@ -225,7 +267,27 @@ func TestCollectionDeletion(t *testing.T) {
 
 	endUsage := atomic.Bool{}
 	deletedClasses := atomic.Int32{}
+
+	// See the matching comment in TestTenantStatusChanges: wait for the local-index
+	// bootstrap window to close for all numClasses classes before starting the
+	// strict poller below, otherwise the wiggle room below (which is only sized for
+	// in-flight deletions) can be exceeded by classes that simply haven't appeared yet.
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		usage, err := getDebugUsage()
+		require.NoError(ct, err)
+		require.NotNil(ct, usage)
+		require.Equal(ct, numClasses, len(usage.Collections))
+	}, 30*time.Second, 500*time.Millisecond)
+
+	// pollerWg is waited on below, before the function returns. Go's testing.T
+	// requires that a goroutine calling T methods (require.* included) complete
+	// before the outer test function returns; without this, the poller can still
+	// be mid-read (or racing this function's own deferred class cleanup, see
+	// TestTenantStatusChanges) after the test is considered finished.
+	var pollerWg sync.WaitGroup
+	pollerWg.Add(1)
 	go func() {
+		defer pollerWg.Done()
 		for {
 			if endUsage.Load() {
 				return
@@ -248,6 +310,7 @@ func TestCollectionDeletion(t *testing.T) {
 		deletedClasses.Add(1)
 	}
 	endUsage.Store(true)
+	pollerWg.Wait()
 }
 
 func TestAlterSchemaDropPropertyIndex(t *testing.T) {
