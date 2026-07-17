@@ -922,11 +922,9 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.AsyncReplicationConfig = config
 
 	asyncEnabled := i.asyncReplicationEnabled()
-	// Unlock before the fan-out: a mid-load shard holds its LazyLoadShard mutex
-	// while reading this config (RLock) and the fan-out wants that mutex — an
-	// ABBA deadlock if the write lock spans it. Safe because loads started after
-	// the unlock read the new config, and isLoaded blocks on in-flight loads, so
-	// the fan-out cannot miss a shard.
+	// Unlock before the fan-out: it takes each LazyLoadShard's mutex, and a
+	// mid-load shard holds that mutex while RLocking this config — ABBA deadlock.
+	// Post-unlock loads read the new config, so no shard misses the update.
 	i.replicationConfigLock.Unlock()
 
 	// unloaded shards fetch the latest config when loaded; iterate concurrently so one shard's fault can't skip the rest (errors are accumulated, not first-error abort).
