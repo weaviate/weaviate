@@ -807,41 +807,28 @@ func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir
 
 // FinalizeBucketSwapLive completes a deferred ingest→canonical bucket-dir swap
 // on a LIVE, query- and write-serving bucket, with no process restart
-// (weaviate/0-weaviate-issues#320). It is the write-safe counterpart to
-// [FinalizeBucketSwap]: after a runtime reindex task commits, the post-swap
-// bucket is registered under its canonical name but still physically served
-// from its ..._ingest_<gen> sidecar dir. This renames the sidecar to the
-// canonical dir and rewrites the in-memory paths so a later downgrade (which
-// opens the canonical name) finds the data on disk instead of an empty bucket.
-//
-// [FinalizeBucketSwap] discards the active memtable and would lose any write
-// that lands during the swap — fatal here because the bucket is live. This
-// method freezes the bucket for the duration of the swap:
+// (weaviate/0-weaviate-issues#320). Write-safe counterpart to
+// [FinalizeBucketSwap], which discards the active memtable — fatal here since
+// the bucket is live. This method freezes the bucket for the swap:
 //
 //   - pauseCompaction + flushCallbackCtrl.Deactivate quiesce background
-//     maintenance (both wait for in-flight work to finish),
+//     maintenance,
 //   - lifetimeLock.Lock drains in-flight read-pins (AcquireBucketForRead) and
-//     blocks new ones for the duration of the path rewrite,
-//   - flushLock.Lock freezes writers, then the active memtable's buffered
-//     writes are flushed into a durable segment BEFORE the rename, so no write
-//     is lost, and finally a fresh active memtable is opened at the canonical
-//     path.
+//     blocks new ones,
+//   - flushLock.Lock freezes writers; the active memtable is flushed to a
+//     durable segment BEFORE the rename, then a fresh active memtable opens
+//     at the canonical path.
 //
-// Torn-read safety for UN-pinned readers: most query paths (BM25, filters)
-// reach the bucket via bare Store.Bucket() without a lifetimeLock pin, so the
-// drain above does NOT cover them across updateBucketDir's unsynchronized
-// segment.setPath. They stay safe because no non-Replace query path ever reads
-// segment.path — getPath is only consulted by the StrategyReplace-gated error
-// branches in segment_group.go, and the reindex buckets this method targets
-// (searchable/filterable/rangeable) are never Replace. Do NOT point this at a
+// Torn-read safety for UN-pinned readers (bare Store.Bucket(), e.g. BM25,
+// filters): they are not covered by the lifetimeLock drain, but stay safe
+// because no non-Replace query path reads segment.path — only the
+// StrategyReplace-gated error branches in segment_group.go do, and this
+// method never targets Replace buckets. Do NOT point this at a
 // StrategyReplace bucket until segment.path access is made race-safe.
 //
-// Idempotent: a bucket already at canonicalDir returns nil.
-//
-// Crash safety: the on-disk move is a single atomic os.Rename and the caller
-// leaves the migration tracker (tidied.mig/swapped.mig) in place, so a crash at
-// any point converges on next boot via [FinalizeCompletedMigrations] /
-// finalizeMigrationDir (a no-op once the ingest dir is already gone).
+// Idempotent. Crash safety: the rename is a single atomic os.Rename with the
+// migration tracker left in place, so a crash converges on next boot via
+// [FinalizeCompletedMigrations] (a no-op once the ingest dir is already gone).
 func (s *Store) FinalizeBucketSwapLive(ctx context.Context, bucketName, canonicalDir string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -890,21 +877,19 @@ func (s *Store) FinalizeBucketSwapLive(ctx context.Context, bucketName, canonica
 	bucket.lifetimeLock.Lock()
 	defer bucket.lifetimeLock.Unlock()
 
-	// Lock order: flushAndSwitchMu before flushLock, serializing against other
-	// FlushAndSwitch callers and freezing writers before this swap retires the
-	// active memtable.
+	// Lock order: flushAndSwitchMu before flushLock, serializing against
+	// other FlushAndSwitch callers.
 	bucket.flushAndSwitchMu.Lock()
 	defer bucket.flushAndSwitchMu.Unlock()
 	bucket.flushLock.Lock()
 	defer bucket.flushLock.Unlock()
 
 	// Writers that grabbed the active pointer before the freeze hold a writer
-	// count, not flushLock; wait for them before flushing. No timeout — a stuck
-	// writer should surface as a symptom, not be papered over.
+	// count, not flushLock; wait for them before flushing. No timeout — a
+	// stuck writer should surface as a symptom, not be papered over.
 	bucket.waitForZeroWriters(bucket.active)
 
-	// Make the buffered writes durable in a segment (still under the CURRENT/
-	// ingest dir) before renaming, so nothing is lost across the swap.
+	// Flush before renaming so nothing is lost across the swap.
 	if err := bucket.flushActiveMemtableInPlace(); err != nil {
 		return fmt.Errorf("flush active memtable before rename: %w", err)
 	}
@@ -922,9 +907,9 @@ func (s *Store) FinalizeBucketSwapLive(ctx context.Context, bucketName, canonica
 	}
 	bucket.active = mt
 
-	// Registry fixup: ingest path was released at stage time (SwapBucketPointer);
-	// claim the canonical path here to de-dup a same-process reload. Non-fatal
-	// if it races — the rename is durable and the bucket already serves canonically.
+	// Registry fixup: claim the canonical path to de-dup a same-process
+	// reload. Non-fatal if it races — the rename is durable and the bucket
+	// already serves canonically.
 	GlobalBucketRegistry.Remove(currentDir)
 	if err := GlobalBucketRegistry.TryAdd(canonicalDir); err != nil {
 		s.logger.WithField("bucket", bucketName).WithField("dir", canonicalDir).

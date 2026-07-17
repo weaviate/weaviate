@@ -750,31 +750,11 @@ func (s *Shard) hasExplicitRangeableReadyEntry(propName string) bool {
 	return ok
 }
 
-// reconcileRangeableReadinessAfterInit closes a silent-zero gap in the
-// restart-recovery path. [Shard.IsRangeableLocallyReady] defaults an
-// un-seeded property to "ready" whenever its rangeable bucket merely
-// EXISTS, not when it is populated (see that method's godoc). The
-// restart-time finalize that promotes a runtime enable-rangeable swap
-// ([finalizeMigrationDir]) is a bare directory rename with no content
-// check: if the swap finalized an empty or torn ingest dir, the promoted
-// rangeable bucket is present-but-empty, and — because the migration
-// tracker is removed in the same startup — no migration hook seeds
-// readiness for it. Served as ready, range queries then return silent
-// zeros with no fallback.
-//
-// For every rangeable property whose local bucket is empty while its
-// filterable bucket still holds data, this seeds readiness=false so the
-// query path falls back to the (correct, if slower) filterable walk
-// instead of silently under-reporting. The "filterable holds data" gate
-// keeps the fix regression-free: a property that is legitimately empty
-// keeps BOTH buckets empty and is left on the existence default (querying
-// its empty rangeable bucket is correct), and a property with no
-// filterable index has nothing to fall back to and is likewise left
-// untouched. Convergent by construction: it re-evaluates from on-disk
-// state on every boot, independent of restart timing or operator action.
-//
-// Runs once per boot after buckets are loaded; O(1) per property via
-// [lsmkv.Bucket.HasAnyData].
+// reconcileRangeableReadinessAfterInit closes a silent-zero gap:
+// [Shard.IsRangeableLocallyReady] defaults an un-seeded property to ready
+// once its bucket merely EXISTS, so a promoted-but-empty rangeable bucket
+// (e.g. from a torn ingest dir) is served as ready while filterable still
+// holds data. This seeds readiness=false in that case; re-evaluated every boot.
 func (s *Shard) reconcileRangeableReadinessAfterInit() {
 	if s.class == nil {
 		return
@@ -790,14 +770,9 @@ func (s *Shard) reconcileRangeableReadinessAfterInit() {
 			continue
 		}
 		// A durable not-ready verdict from a prior boot outlives the HasAnyData
-		// heuristic. Once this shard judged the rangeable index incomplete,
-		// post-gate writes may have since landed SOME postings (writes are
-		// schema+existence gated, not readiness gated), so the bucket now passes
-		// HasAnyData below while its historical postings are still missing.
-		// Trust the persisted verdict until an explicit rebuild clears it
-		// (FilterableToRangeableStrategy.OnMigrationComplete). Without this, the
-		// content heuristic re-serves the partially-populated bucket as ready
-		// and silently under-reports history. weaviate/0-weaviate-issues#335.
+		// heuristic: post-gate writes can make HasAnyData true while history is
+		// still missing. Trust it until an explicit rebuild clears it.
+		// weaviate/0-weaviate-issues#335.
 		if s.rangeableIncompleteSentinelExists(propName) {
 			s.setRangeableLocallyReady(propName, false)
 			continue
@@ -810,17 +785,14 @@ func (s *Shard) reconcileRangeableReadinessAfterInit() {
 		}
 		filterableBucket := s.store.Bucket(helpers.BucketFromPropNameLSM(propName))
 		if filterableBucket == nil || !filterableBucket.HasAnyData() {
-			// No populated fallback exists: serving the empty rangeable
-			// bucket is the only option and is correct when the property is
-			// genuinely empty.
+			// No populated fallback: serving the empty bucket is correct
+			// (property is genuinely empty).
 			continue
 		}
 		s.setRangeableLocallyReady(propName, false)
-		// Persist the verdict so a subsequent boot whose bucket has since been
-		// partially repopulated by new writes still routes to the fallback
-		// instead of being fooled by HasAnyData. Best-effort: the in-memory
-		// verdict above already protects this boot; only cross-boot durability
-		// is at stake if the marker cannot be written.
+		// Persist the verdict so a later partial repopulation doesn't fool
+		// HasAnyData on a subsequent boot. Best-effort: this boot is already
+		// protected by the in-memory verdict above.
 		if err := s.writeRangeableIncompleteSentinel(propName); err != nil {
 			s.index.logger.WithField("shard", s.name).WithField("property", propName).
 				Warnf("failed to persist rangeable-incomplete marker; the not-ready verdict "+

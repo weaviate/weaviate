@@ -22,12 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestBucketHasAnyData pins the cheap structural emptiness probe used by
-// shard-init rangeable-readiness reconciliation: false on a freshly-created
-// bucket, true once data lands in the memtable, and still true after that data
-// is flushed to a disk segment. Covered per strategy since the probe is
-// strategy-agnostic and is applied to both RoaringSet (filterable) and
-// RoaringSetRange (rangeable) buckets.
+// TestBucketHasAnyData pins HasAnyData: false when empty, true once
+// buffered, true after flush — for every strategy.
 func TestBucketHasAnyData(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()

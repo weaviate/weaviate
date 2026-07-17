@@ -26,30 +26,13 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Restart-recovery silent-zero pin for FilterableToRangeable.
-// -----------------------------------------------------------------------------
-//
-// weaviate/weaviate#11985 forensics: a replica that completed an
-// enable-rangeable migration in-process and then restarted served a stable 0
-// on range queries even though the filterable index still held the data. Root
-// cause: [Shard.IsRangeableLocallyReady] defaults an un-seeded property to
-// "ready" whenever its rangeable bucket EXISTS, not when it is populated. The
-// restart-time finalize that promotes a runtime swap ([finalizeMigrationDir])
-// is a bare directory rename with no content check, so a torn/empty ingest dir
-// is promoted to a present-but-empty rangeable bucket, and — because the
-// migration tracker is removed in the same startup — nothing seeds readiness.
-// Served as ready, the empty bucket returns silent zeros with no fallback.
-//
-// weaviate/weaviate#12226's FinalizeBucketSwapLive removes the restart
-// DEPENDENCY on the happy path but keeps this restart finalize as the crash
-// safety net, so the gap survives on that path. These tests pin it.
+// Restart-recovery silent-zero pin (weaviate/weaviate#11985):
+// [Shard.IsRangeableLocallyReady] defaults to ready once the bucket exists,
+// even if promoted empty from a torn ingest dir; these tests pin the gap on
+// the restart-finalize crash-safety path.
 
-// setupRangeableMigratedShard creates a fresh shard, imports 25 cycling-value
-// objects, and drives a full inline FilterableToRangeable migration to
-// completion (through the swap, so the promoted rangeable bucket is live at its
-// deferred ingest dir). The shard is left running; callers that want the
-// tidied-then-shutdown on-disk state use driveRangeableMigrationToTidied.
+// setupRangeableMigratedShard creates a shard and drives a FilterableToRangeable
+// migration through the swap, leaving the shard running.
 func setupRangeableMigratedShard(t *testing.T, ctx context.Context, className string) (*Shard, *Index) {
 	t.Helper()
 	class := newFilterableToRangeableTestClass(className)
@@ -74,10 +57,8 @@ func setupRangeableMigratedShard(t *testing.T, ctx context.Context, className st
 	return shard, idx
 }
 
-// driveRangeableMigrationToTidied runs a full inline FilterableToRangeable
-// migration to the IsTidied state on a throw-away shard, then shuts it down,
-// leaving the on-disk state a subsequent restart recovers from. Returns the
-// index (reused for the restart), the shard's LSM path, and its name.
+// driveRangeableMigrationToTidied drives a migration to IsTidied then shuts
+// the shard down, leaving on-disk state for a restart to recover.
 func driveRangeableMigrationToTidied(t *testing.T, ctx context.Context, className string) (*Index, string, string) {
 	t.Helper()
 	shard, idx := setupRangeableMigratedShard(t, ctx, className)
@@ -87,11 +68,9 @@ func driveRangeableMigrationToTidied(t *testing.T, ctx context.Context, classNam
 	return idx, lsmPath, shardName
 }
 
-// restartWithCompletedRangeableSchema simulates a production post-completion
-// restart: the migration's DTM task is FINISHED (so it does NOT re-drive — a
-// no-op reindexer), and the schema now carries IndexRangeFilters=true (as
-// OnMigrationComplete's RAFT flip left it), which is what makes the promoted
-// rangeable bucket load into the store.
+// restartWithCompletedRangeableSchema simulates a post-completion restart: a
+// FINISHED task (no re-drive) and schema with IndexRangeFilters=true, so the
+// promoted rangeable bucket loads.
 func restartWithCompletedRangeableSchema(t *testing.T, ctx context.Context, idx *Index, shardName, className string) *Shard {
 	t.Helper()
 	class := newFilterableToRangeableTestClass(className)
@@ -108,10 +87,8 @@ func restartWithCompletedRangeableSchema(t *testing.T, ctx context.Context, idx 
 	return shard
 }
 
-// emptyBucketDirInPlace removes every file inside an LSM bucket directory,
-// leaving the directory itself so it reloads as an empty (data-less) bucket.
-// It simulates a swap that finalized an empty/torn ingest dir (the node-3
-// mechanism) or a wiped fallback.
+// emptyBucketDirInPlace empties an LSM bucket dir in place so it reloads as
+// an empty bucket (simulates a swap that finalized a torn ingest dir).
 func emptyBucketDirInPlace(t *testing.T, dir string) {
 	t.Helper()
 	inner, err := os.ReadDir(dir)
@@ -142,26 +119,23 @@ func rangeableReady(t *testing.T, shard *Shard) bool {
 	return shard.IsRangeableLocallyReady(filterableToRangeablePropName)
 }
 
-// TestRangeableRecovery_EmptyPromotedBucket_NotServedAsReady is the core pin:
-// a present-but-EMPTY promoted rangeable bucket must NOT be served as locally
-// ready while the filterable index still holds the data — otherwise range
-// queries silently return zero. Before the fix, IsRangeableLocallyReady
-// defaults to true on bucket existence and this assertion fails.
+// TestRangeableRecovery_EmptyPromotedBucket_NotServedAsReady pins: an empty
+// promoted rangeable bucket must not be served ready while filterable still
+// holds data (weaviate/weaviate#11985).
 func TestRangeableRecovery_EmptyPromotedBucket_NotServedAsReady(t *testing.T) {
 	ctx := testCtx()
 	className := "RangeEmptyPromote_" + uuid.NewString()[:8]
 
 	idx, lsmPath, shardName := driveRangeableMigrationToTidied(t, ctx, className)
 
-	// Node-3 mechanism: the deferred finalize will promote an EMPTY ingest
-	// dir into the canonical rangeable bucket.
+	// The deferred finalize promotes an EMPTY ingest dir into the canonical
+	// rangeable bucket.
 	emptyBucketDirInPlace(t, findRangeableIngestDir(t, lsmPath))
 
 	shard := restartWithCompletedRangeableSchema(t, ctx, idx, shardName, className)
 	defer shard.Shutdown(ctx)
 
-	// Preconditions: the rangeable bucket exists but is empty, and the
-	// filterable bucket still holds all the data.
+	// Preconditions: rangeable bucket empty, filterable bucket populated.
 	rangeBucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(filterableToRangeablePropName))
 	require.NotNil(t, rangeBucket, "promoted rangeable bucket must exist (existence is exactly what the buggy default trusts)")
 	require.False(t, rangeBucket.HasAnyData(), "promoted rangeable bucket must be empty for this repro")
@@ -174,9 +148,8 @@ func TestRangeableRecovery_EmptyPromotedBucket_NotServedAsReady(t *testing.T) {
 			"the filterable index holds data (else range queries silently return zero)")
 }
 
-// TestRangeableRecovery_PopulatedPromotedBucket_StaysReady guards against a
-// regression: a correctly-populated promoted bucket must remain ready (the
-// existence default is correct here) so we don't force an unnecessary fallback.
+// TestRangeableRecovery_PopulatedPromotedBucket_StaysReady guards the
+// regression case: a populated promoted bucket must stay ready.
 func TestRangeableRecovery_PopulatedPromotedBucket_StaysReady(t *testing.T) {
 	ctx := testCtx()
 	className := "RangePopulated_" + uuid.NewString()[:8]
@@ -195,11 +168,8 @@ func TestRangeableRecovery_PopulatedPromotedBucket_StaysReady(t *testing.T) {
 }
 
 // TestRangeableRecovery_EmptyRangeableNoFallbackData_StaysReady guards the
-// regression-free gate: when there is no populated filterable fallback (here:
-// filterable wiped too, e.g. a legitimately empty property), the empty
-// rangeable bucket must stay on the existence default — forcing a fallback
-// that has no data (or, with IndexFilterable=false, no bucket at all) would be
-// pointless or would surface a spurious "not indexed" error.
+// regression case: with no populated filterable fallback, the empty
+// rangeable bucket stays on the existence default.
 func TestRangeableRecovery_EmptyRangeableNoFallbackData_StaysReady(t *testing.T) {
 	ctx := testCtx()
 	className := "RangeNoFallback_" + uuid.NewString()[:8]
@@ -226,12 +196,10 @@ func TestRangeableRecovery_EmptyRangeableNoFallbackData_StaysReady(t *testing.T)
 			"existence default (no forced, pointless fallback)")
 }
 
-// TestRangeableRecovery_EmptyPromotion_ConvergesAcrossRestarts pins the
-// convergence contract: the reconciliation re-evaluates from on-disk content
-// on EVERY boot, so a present-but-empty rangeable bucket keeps routing to the
-// filterable fallback across repeated restarts — independent of restart timing
-// or whether a migration tracker still exists. (After the first restart the
-// tracker is gone, yet the not-ready verdict must persist.)
+// TestRangeableRecovery_EmptyPromotion_ConvergesAcrossRestarts pins: the
+// readiness reconciliation re-evaluates on-disk state every boot, so an
+// empty promoted bucket keeps routing to filterable across restarts, even
+// once the migration tracker is gone.
 func TestRangeableRecovery_EmptyPromotion_ConvergesAcrossRestarts(t *testing.T) {
 	ctx := testCtx()
 	className := "RangeConverge_" + uuid.NewString()[:8]
@@ -243,9 +211,8 @@ func TestRangeableRecovery_EmptyPromotion_ConvergesAcrossRestarts(t *testing.T) 
 	require.False(t, rangeableReady(t, shard1), "first restart: must fall back")
 	require.NoError(t, shard1.Shutdown(ctx))
 
-	// Second restart: no migration tracker remains on disk, so the verdict
-	// must come purely from the (still-empty) bucket vs the populated
-	// filterable index.
+	// Second restart: no tracker remains, so the verdict comes purely from
+	// bucket content.
 	shard2 := restartWithCompletedRangeableSchema(t, ctx, idx, shardName, className)
 	defer shard2.Shutdown(ctx)
 	require.False(t, rangeableReady(t, shard2),

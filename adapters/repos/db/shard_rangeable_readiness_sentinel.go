@@ -19,17 +19,9 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-// rangeableIncompleteSentinelPrefix names the durable per-property markers that
-// record "this shard's rangeable index for this property is known-incomplete".
-// The marker lives beside the migration trackers in the shard's .migrations dir
-// and persists a not-ready verdict across boots. It exists to close the
-// partial-population hole in [Shard.reconcileRangeableReadinessAfterInit]: that
-// gate seeds readiness=false only while the rangeable bucket is EMPTY, but a
-// bucket the client has since partially repopulated (post-gate writes are
-// schema+existence gated, not readiness gated) passes HasAnyData on the next
-// boot and would be served as ready while its history is still missing. The
-// durable marker makes the verdict outlive the fooled heuristic until an
-// explicit rebuild clears it. See weaviate/0-weaviate-issues#335.
+// rangeableIncompleteSentinelPrefix names the durable per-property markers
+// that persist a not-ready verdict across boots, closing the partial-population
+// hole in [Shard.reconcileRangeableReadinessAfterInit]. weaviate/0-weaviate-issues#335.
 const rangeableIncompleteSentinelPrefix = "rangeable_incomplete_"
 
 // rangeableIncompleteSentinelDir is the shard's migration dir, shared with the
@@ -49,8 +41,8 @@ func (s *Shard) rangeableIncompleteSentinelPath(propName string) string {
 		rangeableIncompleteSentinelPrefix+propName+".mig")
 }
 
-// rangeableIncompleteSentinelExists reports whether a durable not-ready verdict
-// was persisted for propName on a prior boot.
+// rangeableIncompleteSentinelExists reports whether propName has a durable
+// not-ready verdict from a prior boot.
 func (s *Shard) rangeableIncompleteSentinelExists(propName string) bool {
 	_, err := os.Stat(s.rangeableIncompleteSentinelPath(propName))
 	return err == nil
@@ -92,7 +84,6 @@ func (s *Shard) removeRangeableIncompleteSentinel(propName string) error {
 		}
 		return err
 	}
-	// fsync the parent dir so the removal is durable and the marker cannot
-	// reappear after a crash.
+	// fsync the parent dir so the removal survives a crash.
 	return diskio.Fsync(s.rangeableIncompleteSentinelDir())
 }

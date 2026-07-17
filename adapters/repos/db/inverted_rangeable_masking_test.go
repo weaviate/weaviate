@@ -33,9 +33,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// rangeableDocIDsAtLeast returns every docID whose value is >= v in a
-// RoaringSetRange bucket, used to count the whole index (v=0 with all-positive
-// data) without per-value cursor iteration.
+// rangeableDocIDsAtLeast returns docIDs with value >= v in a RoaringSetRange bucket.
 func rangeableDocIDsAtLeast(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
 	t.Helper()
 	reader := b.ReaderRoaringSetRange()
@@ -54,8 +52,7 @@ func rangeableDocIDsAtLeast(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
 	return bm.ToArray()
 }
 
-// readRangeableIDs returns docIDs for one int64 value in a RoaringSetRange
-// bucket via an OperatorEqual read — the production range-query read shape.
+// readRangeableIDs returns docIDs for value v via an OperatorEqual read.
 func readRangeableIDs(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
 	t.Helper()
 	require.Equal(t, lsmkv.StrategyRoaringSetRange, b.Strategy(),
@@ -76,33 +73,23 @@ func readRangeableIDs(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
 	return bm.ToArray()
 }
 
-// rangeableMaskingValue is a single in-range int value shared by every test
-// object. A shared value keeps the induced gap trivially addressable (one
-// RoaringSetRange key) while a `>= value` range filter still selects every
-// object — the point under test is the read-SOURCE switch, not range width.
+// rangeableMaskingValue is shared by every test object so a `>= value` filter
+// selects the whole corpus via one key.
 const rangeableMaskingValue = int64(500)
 
-// newRangeableAndFilterableMaskingClass builds the POST-migration steady
-// state: a numeric property carrying BOTH a filterable and a rangeable index.
-// This is the shape a property has once enable-rangeable has FINISHED — the
-// filterable bucket that predated the migration still exists, and the
-// rangeable bucket built by the migration sits beside it. Both buckets are
-// created at shard init, so a normal write lands a posting in each.
+// newRangeableAndFilterableMaskingClass builds a property with both filterable
+// and rangeable indexes enabled — the shape after enable-rangeable completes.
 func newRangeableAndFilterableMaskingClass(className string) *models.Class {
 	c := newFilterableToRangeableTestClass(className)
 	trueVal := true
-	// IndexFilterable is nil in the base helper → defaults to true (bucket
-	// created). Pin it explicit-true for clarity, then add the rangeable
-	// index the migration would have enabled.
 	c.Properties[0].IndexFilterable = &trueVal
 	c.Properties[0].IndexRangeFilters = &trueVal
 	return c
 }
 
-// rangeFilterGTE builds a `prop >= value` range filter on an int property.
-// Inlined instead of reusing filters_integration_test.go's buildFilter,
-// which lives behind the integrationTest build tag; this test is a plain
-// unit test so it can run under `go test -race` without docker.
+// rangeFilterGTE builds a `prop >= value` filter. Inlined instead of reusing
+// filters_integration_test.go's buildFilter, which lives behind the
+// integrationTest tag; this test must run under `go test -race` without docker.
 func rangeFilterGTE(className, propName string, value int) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
@@ -119,8 +106,7 @@ func rangeFilterGTE(className, propName string, value int) *filters.LocalFilter 
 	}
 }
 
-// putMaskingObject imports one object carrying rangeableMaskingValue. Every
-// object shares the value so the whole corpus is selected by `>= value`.
+// putMaskingObject imports one object carrying rangeableMaskingValue.
 func putMaskingObject(t *testing.T, ctx context.Context, shard *Shard, className, propName string) {
 	t.Helper()
 	require.NoError(t, shard.PutObject(ctx, &storobj.Object{
@@ -135,27 +121,15 @@ func putMaskingObject(t *testing.T, ctx context.Context, shard *Shard, className
 	}))
 }
 
-// TestRangeableMasking_ReadSourceSwitch_CountFlipsOnReadiness is the
-// deterministic falsification test for the masking hypothesis on
-// weaviate/0-weaviate-issues#335: a shard whose rangeable bucket is short by
-// K postings vs its filterable bucket answers a where-filtered range query
-// with the FULL count while IsRangeableLocallyReady is false (filterable
-// walk) and the SHORT count while it is true/default (rangeable-only). This
-// is the mechanism by which a hidden index gap converts into the CI
-// pre-restart 1500 -> post-restart 1494 signature: the read SOURCE switches
-// across the restart because the in-memory readiness map resets and defaults
-// to bucket-existence.
-//
-// Read-source switch under test:
-//   - hasUsableRangeableIndex = HasRangeableIndex && IsRangeableLocallyReady.
-//     When false, propValuePair.hasRangeableIndex is dropped, so getBucketName
-//     routes a range operator to the FILTERABLE bucket. When true, it routes to
-//     the RANGEABLE bucket.
+// TestRangeableMasking_ReadSourceSwitch_CountFlipsOnReadiness pins
+// weaviate/0-weaviate-issues#335: with the rangeable bucket short by K
+// postings vs filterable, range-query count depends on IsRangeableLocallyReady
+// (which bucket getBucketName routes to), not just on-disk state.
 func TestRangeableMasking_ReadSourceSwitch_CountFlipsOnReadiness(t *testing.T) {
 	ctx := testCtx()
 	const (
 		numObjs = 30
-		gapK    = 6 // mirrors the CI 1500 -> 1494 delta (6 postings)
+		gapK    = 6
 	)
 	propName := filterableToRangeablePropName
 	className := "RangeableMask_" + uuid.NewString()[:8]
@@ -179,12 +153,8 @@ func TestRangeableMasking_ReadSourceSwitch_CountFlipsOnReadiness(t *testing.T) {
 	require.Lenf(t, rangeableDocIDsAtLeast(t, rangeBucket, rangeableMaskingValue), numObjs,
 		"rangeable bucket must hold all %d postings before we induce the gap", numObjs)
 
-	// Induce the index gap: remove K postings from the RANGEABLE bucket
-	// ONLY. The filterable bucket keeps all N. This is the honest
-	// construction of "rangeable short by K vs filterable" — the identical
-	// divergence an incomplete backfill or a dropped replica-side posting
-	// would leave behind. Reads never see the removal directly; they see
-	// only whichever bucket the readiness gate routes them to.
+	// Induce the gap: remove K postings from the RANGEABLE bucket only
+	// (filterable keeps all N).
 	allIDs := rangeableDocIDsAtLeast(t, rangeBucket, rangeableMaskingValue)
 	lex, err := entinverted.LexicographicallySortableInt64(rangeableMaskingValue)
 	require.NoError(t, err)
@@ -203,21 +173,15 @@ func TestRangeableMasking_ReadSourceSwitch_CountFlipsOnReadiness(t *testing.T) {
 		return len(objs)
 	}
 
-	// (1) DEFAULT readiness (no explicit map entry). The rangeable bucket
-	// exists, so IsRangeableLocallyReady falls back to true
-	// (bucket-existence default). This is the POST-restart state: the
-	// in-memory readiness map has reset, reads route to the SHORT rangeable
-	// bucket. Count = N-K — the 1494 signature.
+	// (1) Default readiness (bucket exists → ready): routes to the SHORT
+	// rangeable bucket.
 	require.Truef(t, shard.IsRangeableLocallyReady(propName),
 		"default readiness must be true when the rangeable bucket exists (bucket-existence fallback)")
 	assert.Equalf(t, numObjs-gapK, countVia(),
 		"post-restart (default-ready) read routes to the SHORT rangeable bucket and MUST expose the gap")
 
-	// (2) Readiness explicit FALSE. The PRE-restart state: the migration's
-	// PreReindexHook set the prop not-locally-ready, so the range read falls
-	// back to the FILTERABLE walk. The gap is MASKED. Count = N — the 1500
-	// signature. The count FLIP between (1) and (2) over identical on-disk
-	// data is the masking mechanism, confirmed.
+	// (2) Readiness explicit false: routes to the COMPLETE filterable
+	// bucket, masking the gap.
 	shard.setRangeableLocallyReady(propName, false)
 	assert.Equalf(t, numObjs, countVia(),
 		"masked (readiness=false) read routes to the COMPLETE filterable bucket and hides the gap")
@@ -228,14 +192,9 @@ func TestRangeableMasking_ReadSourceSwitch_CountFlipsOnReadiness(t *testing.T) {
 		"exposed (readiness=true) read routes back to the SHORT rangeable bucket")
 }
 
-// TestRangeableMasking_WriteSide_NotReadinessGated pins the write-side half
-// of the masking question: post-flip writes are NOT readiness-gated. The
-// rangeable write in addToPropertyValueIndex gates on
-// property.HasRangeableIndex (the schema/analysis view) and bucket existence,
-// NOT on IsRangeableLocallyReady. Consequence for the incident: a masked
-// replica (readiness=false, filterable serving reads) keeps writing NEW
-// postings into the rangeable bucket, so it does not fall further behind on new
-// writes — the deficit is the fixed historical gap, not a widening one.
+// TestRangeableMasking_WriteSide_NotReadinessGated pins
+// weaviate/0-weaviate-issues#335: writes gate on HasRangeableIndex + bucket
+// existence, not on IsRangeableLocallyReady, so a masked replica's gap never widens.
 func TestRangeableMasking_WriteSide_NotReadinessGated(t *testing.T) {
 	ctx := testCtx()
 	propName := filterableToRangeablePropName
@@ -256,8 +215,8 @@ func TestRangeableMasking_WriteSide_NotReadinessGated(t *testing.T) {
 	require.Empty(t, readRangeableIDs(t, rangeBucket, rangeableMaskingValue),
 		"rangeable bucket starts empty for this value")
 
-	// Write while masked. If writes were readiness-gated this posting would
-	// be skipped; they are not, so it lands in the rangeable bucket.
+	// Write while masked; writes are not readiness-gated, so it still lands
+	// in the rangeable bucket.
 	putMaskingObject(t, ctx, shard, className, propName)
 
 	assert.Lenf(t, readRangeableIDs(t, rangeBucket, rangeableMaskingValue), 1,

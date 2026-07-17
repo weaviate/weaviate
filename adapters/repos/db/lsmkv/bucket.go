@@ -1618,18 +1618,10 @@ func (b *Bucket) CountApproximate() (int, error) {
 	return count, nil
 }
 
-// HasAnyData reports whether the bucket currently holds any persisted
-// (on-disk segment) or buffered (memtable) data. It is a cheap
-// O(#segments) structural probe — it never scans or materializes bucket
-// contents — and works for every strategy (unlike Count, which is
-// Replace-only).
-//
-// The intended use is a startup-time check: a promoted-but-empty reindex
-// bucket (a runtime swap that finalized an empty ingest dir) has zero
-// segments and an empty memtable and returns false, so shard init can
-// tell it apart from a populated bucket without a full read. See
-// [github.com/weaviate/weaviate/adapters/repos/db.Shard]'s rangeable
-// readiness reconciliation.
+// HasAnyData reports whether the bucket holds any persisted or buffered
+// data. Cheap O(#segments) structural probe (never scans contents); works
+// for every strategy, unlike Count (Replace-only). Used at shard startup to
+// distinguish an empty promoted-swap bucket from a populated one.
 func (b *Bucket) HasAnyData() bool {
 	if b.disk.Len() > 0 {
 		return true
@@ -2139,10 +2131,9 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 // tombstones into every current on-disk segment. Shared by FlushAndSwitch and
 // flushActiveMemtableInPlace.
 //
-// Accepted race (weaviate/weaviate#9104): a compaction can finish between the
-// segment-view read and the merge, so a just-compacted segment ends up without
-// the tombstone. Non-critical: the object is still filtered at query time, and
-// a restart reapplies tombstones consistently.
+// Accepted race (weaviate/weaviate#9104): a segment compacted mid-merge can
+// miss the tombstone — non-critical, since the object is still filtered at
+// query time and a restart reconciles it.
 func (b *Bucket) mergeInvertedTombstonesIntoSegments(tombstones *sroar.Bitmap) error {
 	segments, release := b.disk.getConsistentViewOfSegments()
 	defer release()
@@ -2156,12 +2147,12 @@ func (b *Bucket) mergeInvertedTombstonesIntoSegments(tombstones *sroar.Bitmap) e
 }
 
 // flushActiveMemtableInPlace flushes the active memtable into a new on-disk
-// segment without switching to a new active memtable. Write-frozen counterpart
-// to FlushAndSwitch, used only by [Store.FinalizeBucketSwapLive]: the caller
-// MUST already hold b.flushLock and have drained writers (waitForZeroWriters),
-// since FlushAndSwitch releases flushLock — which would let a write land in the
-// memtable this swap discards. Bookkeeping mirrors FlushAndSwitch and MUST stay
-// in sync with it.
+// segment without switching to a new active memtable. Write-frozen
+// counterpart to FlushAndSwitch, used only by [Store.FinalizeBucketSwapLive]:
+// caller MUST already hold b.flushLock and have drained writers, since
+// FlushAndSwitch releases flushLock, which would let a write land in the
+// memtable this swap discards. Bookkeeping mirrors FlushAndSwitch; keep them
+// in sync.
 func (b *Bucket) flushActiveMemtableInPlace() error {
 	if b.active.getStrategy() == StrategyInverted {
 		avgPropLength, propLengthCount := b.disk.GetAveragePropertyLength()

@@ -22,9 +22,8 @@ import (
 )
 
 // TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart pins
-// 0-wi#320: CommitSwapOnShard must finalize the ingest→canonical rename live,
-// not defer it to restart (root cause of the weaviate/weaviate#11987 downgrade
-// gap).
+// 0-wi#320: CommitSwapOnShard must finalize the ingest→canonical rename live
+// (root cause of the weaviate/weaviate#11987 downgrade gap).
 func TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
@@ -40,28 +39,23 @@ func TestReindexStagedSwap_CommitFinalizesCanonicalDirOnDisk_NoRestart(t *testin
 	canonicalDir := filepath.Join(lsmPath, task.strategy.SourceBucketName(propName))
 	ingestDir := filepath.Join(lsmPath, task.ingestBucketName(propName))
 
-	// PIN 0-wi#320 (a): canonical dir must exist on disk after the task finishes.
 	require.True(t, dirExists(canonicalDir),
 		"0-wi#320: canonical searchable dir %q must exist on disk after task FINISHED (no restart); "+
 			"currently the ingest→canonical rename is deferred to restart, so a v1.38→v1.37 downgrade "+
 			"finds no dir and BM25 silently returns 0 hits", canonicalDir)
 
-	// PIN 0-wi#320 (a): the ingest sidecar must be renamed away.
 	require.False(t, dirExists(ingestDir),
 		"0-wi#320: ingest sidecar dir %q must be renamed to the canonical name after task FINISHED (no restart)",
 		ingestDir)
 
-	// PIN 0-wi#320: the in-memory bucket must serve from the canonical dir, not
-	// the ingest sidecar.
 	require.Equal(t, canonicalDir, shard.store.Bucket(searchBucketName).GetDir(),
 		"0-wi#320: live searchable bucket must serve from the canonical dir after task FINISHED, "+
 			"not the ingest sidecar")
 }
 
 // TestReindexStagedSwap_CrashAfterLiveFinalize_ConvergesOnNextBoot pins
-// 0-wi#320 crash safety (b): a crash after the live finalize has promoted
-// ingest→canonical but before the tracker is retired must converge on next
-// boot without resurrecting the ingest sidecar or clobbering the canonical dir.
+// 0-wi#320: a crash after live finalize but before tracker retirement must
+// converge on next boot without resurrecting the ingest sidecar.
 func TestReindexStagedSwap_CrashAfterLiveFinalize_ConvergesOnNextBoot(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"

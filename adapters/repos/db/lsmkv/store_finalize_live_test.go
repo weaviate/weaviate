@@ -222,8 +222,7 @@ func TestFinalizeBucketSwapLive_ConcurrentWritesNotLost(t *testing.T) {
 			for !stop.Load() {
 				key := fmt.Sprintf("w%d-%06d", w, i)
 				val := fmt.Sprintf("val-%d-%06d", w, i)
-				// store.Bucket resolves fresh each call; the map entry is never
-				// remapped across finalize.
+				// store.Bucket resolves fresh each call; the map entry is never remapped.
 				if err := store.Bucket(name).Put([]byte(key), []byte(val)); err != nil {
 					errCh <- fmt.Errorf("put %q: %w", key, err)
 					return

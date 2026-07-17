@@ -29,8 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-// dumpDir lists the files (with sizes) in a bucket dir for post-mortem
-// forensics — which of the tail's writes lives in a .db segment vs a .wal.
+// dumpDir lists a bucket dir's files (with sizes) for debugging.
 func dumpDir(t *testing.T, label, dir string) {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -49,24 +48,20 @@ func dumpDir(t *testing.T, label, dir string) {
 	}
 }
 
-// rangeableSwapBucketOpts mirrors the field/default bucket options for a
-// rangeable bucket (INDEX_RANGEABLE_IN_MEMORY defaults off, so the on-disk
-// segment read path is used — the config the weaviate/weaviate#11985 CI ran).
+// rangeableSwapBucketOpts mirrors the default rangeable bucket options
+// (on-disk segment reads, INDEX_RANGEABLE_IN_MEMORY off).
 func rangeableSwapBucketOpts() []BucketOption {
 	return []BucketOption{
 		WithStrategy(StrategyRoaringSetRange),
 		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 		WithUseBloomFilter(false),
-		// production default (DefaultPersistenceMaxReuseWalSize = 4096): a
-		// small post-flip tail is persisted as a reused WAL on shutdown, not
-		// flushed to a segment.
+		// production default: a small post-flip tail stays in the reused
+		// WAL on shutdown, not flushed to a segment.
 		WithMinWalThreshold(4096),
 	}
 }
 
-// readRangeableEqual returns the sorted docIDs stored under key `val` with
-// OperatorEqual — the same read shape the production range query path and the
-// db-package fingerprint helper use.
+// readRangeableEqual returns sorted docIDs under key val via OperatorEqual.
 func readRangeableEqual(t *testing.T, b *Bucket, val uint64) []uint64 {
 	t.Helper()
 	reader := b.ReaderRoaringSetRange()
@@ -109,9 +104,8 @@ func newRangeableSwapNames(dir string) rangeableSwapNames {
 	}
 }
 
-// openRangeableSwapStore opens a store whose flush cycle is driven by `flush`
-// (pass a noop group for the explicit-FlushAndSwitch case, a live group to race
-// shutdown against an in-flight flush). Compaction cycles are always noop.
+// openRangeableSwapStore opens a store whose flush cycle is driven by flush
+// (noop for explicit-FlushAndSwitch, live to race shutdown against a flush).
 func openRangeableSwapStore(t *testing.T, dir string, logger logrus.FieldLogger,
 	flush cyclemanager.CycleCallbackGroup,
 ) *Store {
@@ -122,13 +116,10 @@ func openRangeableSwapStore(t *testing.T, dir string, logger logrus.FieldLogger,
 	return store
 }
 
-// buildAndSwapRangeableIngest reproduces the in-process enable-rangeable
-// migration plus the phase-2 swap: backfill `backfillN` postings (value==docID)
-// through a reindex bucket flushed to real segments, prepend them into a fresh
-// ingest bucket, optionally add `doubleWriteN` double-write-window postings and
-// (when flushIngest) flush the ingest bulk to segments, then
-// SwapBucketPointer(main<-ingest) and rename the displaced old-main dir to
-// backup. Returns the live (ex-ingest) bucket, still on disk at the ingest dir.
+// buildAndSwapRangeableIngest reproduces the in-process migration + phase-2
+// swap: backfill via a reindex bucket, prepend into ingest,
+// SwapBucketPointer(main<-ingest). Returns the live (ex-ingest) bucket,
+// still on disk at the ingest dir.
 func buildAndSwapRangeableIngest(t *testing.T, ctx context.Context, store *Store,
 	n rangeableSwapNames, opts []BucketOption, backfillN, doubleWriteN int, flushIngest bool,
 ) *Bucket {
@@ -146,9 +137,7 @@ func buildAndSwapRangeableIngest(t *testing.T, ctx context.Context, store *Store
 	require.NoError(t, reindexBucket.FlushAndSwitch())
 
 	// Ingest bucket: prepend backfill segments, add the double-write window,
-	// and (for the on-disk case) flush so the bulk lives in segments and the
-	// active memtable is clean — the steady state after the flush cycle drains
-	// the migration's bulk writes.
+	// and (on-disk case) flush so the active memtable is clean.
 	require.NoError(t, store.CreateOrLoadBucket(ctx, n.ingest, opts...))
 	ingestBucket := store.Bucket(n.ingest)
 	require.NotNil(t, ingestBucket)
@@ -178,9 +167,8 @@ func buildAndSwapRangeableIngest(t *testing.T, ctx context.Context, store *Store
 	return live
 }
 
-// finalizeRenameRangeableIngest performs the next-restart finalize
-// (finalizeMigrationDir): drop the backup, remove any stale main dir, and
-// rename the ingest sidecar dir to the canonical main dir.
+// finalizeRenameRangeableIngest performs the next-restart finalize: drop the
+// backup, remove any stale main dir, and rename the ingest sidecar to main.
 func finalizeRenameRangeableIngest(t *testing.T, n rangeableSwapNames) {
 	t.Helper()
 	require.NoError(t, os.RemoveAll(n.backupDir))
@@ -204,7 +192,7 @@ func reloadRangeableMain(t *testing.T, ctx context.Context, dir string,
 }
 
 // assertRangeableContiguousServed asserts values [0, upTo) each read back as
-// exactly {i} — the pre-restart "everything served" (the 1500-pass) state.
+// exactly {i}.
 func assertRangeableContiguousServed(t *testing.T, b *Bucket, upTo uint64) {
 	t.Helper()
 	for i := uint64(0); i < upTo; i++ {
@@ -228,22 +216,10 @@ func assertNoRangeablePostingsLost(t *testing.T, b *Bucket, upTo uint64) {
 			"missing docIDs=%v", len(missing), upTo, missing)
 }
 
-// TestRangeableSwap_PostFlipWriteTail_SurvivesGracefulRestart is the
-// storage-level regression guard for the "face 3" restart-crossing
-// posting-loss window of weaviate/0-weaviate-issues#335. It asserts NO loss:
-// the isolated write→flush→rename→reload path preserves the post-flip tail
-// across a graceful restart, which REFUTES sub-mechanisms (a) "shutdown flush
-// doesn't run for swapped buckets" and (b) "segment mis-order/drop on reload"
-// as deterministic single-node bugs. If a future change to SwapBucketPointer,
-// finalizeMigrationDir, PrependSegmentsFromBucket, or WAL recovery reintroduces
-// the loss, this goes red.
-//
-// Sequence (mirrors the in-process enable-rangeable migration + deferred
-// finalize rename): build a populated ingest bucket (backfill segments +
-// unflushed double-write memtable), SwapBucketPointer(main<-ingest), land
-// post-flip writes in the ex-ingest bucket's active memtable/WAL, graceful
-// shutdown (on-shutdown flush runs — matches RestartAt, not SIGKILL), the
-// next-restart finalize rename, then reload and assert every posting present.
+// TestRangeableSwap_PostFlipWriteTail_SurvivesGracefulRestart pins
+// weaviate/0-weaviate-issues#335: post-flip rangeable writes must survive
+// SwapBucketPointer + graceful shutdown + the next-restart finalize rename,
+// with zero postings lost.
 func TestRangeableSwap_PostFlipWriteTail_SurvivesGracefulRestart(t *testing.T) {
 	t.Run("onDisk", func(t *testing.T) {
 		ctx := context.Background()
@@ -260,9 +236,7 @@ func TestRangeableSwap_PostFlipWriteTail_SurvivesGracefulRestart(t *testing.T) {
 		)
 		live := buildAndSwapRangeableIngest(t, ctx, store, names, opts, backfillN, doubleWriteN, true)
 
-		// Post-flip tail: the authoritative re-PATCH postings that stay in the
-		// reused WAL on shutdown (commitlog < MaxReuseWalSize), which is the
-		// field shape (node 2: 6/1500 lost across a graceful restart).
+		// Post-flip tail: small enough to stay in the reused WAL on shutdown.
 		const (
 			tailStart = backfillN + doubleWriteN
 			tailN     = 6
@@ -285,21 +259,17 @@ func TestRangeableSwap_PostFlipWriteTail_SurvivesGracefulRestart(t *testing.T) {
 	})
 }
 
-// TestRangeableSwap_PostFlipWriteTail_RealFlushCycle drives the same face-3
-// swap→post-flip-write→graceful-shutdown→rename→reload round trip, but with the
-// PRODUCTION flush cycle running (a real cyclemanager on a fast ticker plus the
-// default MaxReuseWalSize) so the registered flush callback switches the WAL
-// mid-stream and the graceful shutdown races an in-flight flush — the field
-// condition the explicit-FlushAndSwitch test doesn't exercise. It repeats the
-// write/switch churn to widen the shutdown-vs-flush window.
+// TestRangeableSwap_PostFlipWriteTail_RealFlushCycle drives the same
+// swap→post-flip-write→graceful-shutdown→rename→reload round trip under the
+// PRODUCTION flush cycle, so a flush can race the graceful shutdown.
 func TestRangeableSwap_PostFlipWriteTail_RealFlushCycle(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	names := newRangeableSwapNames(dir)
 
-	// Real flush cycle on a fast ticker + a low WAL threshold, so the callback
-	// fires and switches the commitlog repeatedly during the writes below.
+	// Fast ticker + low WAL threshold so the flush callback fires repeatedly
+	// during the writes below.
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	flushCycle := cyclemanager.NewManager("flush",
 		cyclemanager.NewFixedTicker(2*time.Millisecond), flushCallbacks.CycleCallback, logger)
@@ -319,8 +289,7 @@ func TestRangeableSwap_PostFlipWriteTail_RealFlushCycle(t *testing.T) {
 	const backfillN = 500
 	live := buildAndSwapRangeableIngest(t, ctx, store, names, opts, backfillN, 0, false)
 
-	// Post-flip writes with the flush cycle churning underneath. Pace the
-	// writes so the 2ms ticker interleaves flush/switch between them.
+	// Pace writes so the 2ms ticker interleaves flush/switch between them.
 	const (
 		tailStart = backfillN
 		tailN     = 500
@@ -333,8 +302,7 @@ func TestRangeableSwap_PostFlipWriteTail_RealFlushCycle(t *testing.T) {
 	}
 	assertRangeableContiguousServed(t, live, tailStart+tailN)
 
-	// Graceful shutdown while the flush cycle is still active (matches
-	// production: the cycle is stopped as part of, not before, teardown).
+	// Graceful shutdown while the flush cycle is still active (matches production).
 	require.NoError(t, store.Shutdown(ctx))
 	shutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	require.NoError(t, flushCycle.StopAndWait(shutCtx))
