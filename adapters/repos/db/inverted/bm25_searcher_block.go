@@ -171,15 +171,15 @@ func (b *BM25Searcher) wandBlock(
 	if params.SearchOperator == common_filters.SearchOperatorAnd && params.MatchTokensAcrossProperties {
 		nonEmptyGroups := 0
 		var groupKey string
-		for tok, propNames := range propNamesByTokenization {
+		for tok, propNames := range stats.propNamesByTokenization {
 			if len(propNames) > 0 {
 				nonEmptyGroups++
 				groupKey = tok
 			}
 		}
-		if nonEmptyGroups == 1 && len(queryTermsByTokenization[groupKey]) > 0 {
+		if nonEmptyGroups == 1 && len(stats.queryTermsByTokenization[groupKey]) > 0 {
 			crossPropAnd = true
-			crossPropQueryTerms = queryTermsByTokenization[groupKey]
+			crossPropQueryTerms = stats.queryTermsByTokenization[groupKey]
 		}
 	}
 
@@ -201,7 +201,7 @@ func (b *BM25Searcher) wandBlock(
 	// The cross-property pass produces the final global top-K in one shot, so it
 	// uses the true limit and skips combineResults' per-property merge.
 	if crossPropAnd {
-		objects, scores, err := b.wandBlockCrossPropAnd(ctx, allResults, crossPropQueryTerms, averagePropLength, limit, params, additional)
+		objects, scores, err := b.wandBlockCrossPropAnd(ctx, allResults, crossPropQueryTerms, stats.averagePropLength, limit, params, additional)
 		return objects, scores, false, err
 	}
 
