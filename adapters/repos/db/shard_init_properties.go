@@ -151,13 +151,9 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			}
 			s.cleanStaleMigrationDirs(prop.Name, "rangeable")
 			s.cleanStaleSidecarDirs(mainBucket)
-			// The durable not-ready sentinel is keyed by property name with no
-			// epoch, so a leftover marker would gate a later same-name rangeable
-			// re-creation not-ready forever (its OnMigrationComplete clear never
-			// runs for a native re-add). Clear it here, alongside the tracker-dir
-			// cleanup above. Best-effort like that cleanup: a stale sentinel only
-			// over-gates to the filterable fallback, it never loses data.
-			// weaviate/0-weaviate-issues#335.
+			// Sentinel is keyed by property name with no epoch, so a leftover
+			// marker would gate a same-name re-creation not-ready forever
+			// (OnMigrationComplete never fires on a native re-add).
 			if err := s.removeRangeableIncompleteSentinel(prop.Name); err != nil {
 				s.index.logger.WithField("shard", s.name).WithField("property", prop.Name).
 					Warnf("failed to clear rangeable-incomplete sentinel on index drop; a "+

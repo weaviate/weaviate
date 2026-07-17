@@ -25,15 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// DropProperty edge on the durable rangeable-incomplete sentinel
-// (weaviate/0-weaviate-issues#335): the marker is keyed by property NAME with
-// no epoch and is cleared only by the migration's OnMigrationComplete. Dropping
-// the rangeable index (IndexRangeFilters=false) must therefore clear it too —
-// otherwise a same-name rangeable re-creation, which never runs that migration
-// hook, inherits the stale not-ready verdict and stays gated forever.
-
-// dropRangeableProp is the schema-apply payload that turns the rangeable index
-// OFF while keeping the filterable sibling (the fallback the gate falls back to).
+// dropRangeableProp disables the rangeable index but keeps the filterable
+// fallback enabled.
 func dropRangeableProp(propName string) *models.Property {
 	no := false
 	yes := true
@@ -45,9 +38,8 @@ func dropRangeableProp(propName string) *models.Property {
 	}
 }
 
-// copyDirForRangeableTest recursively copies a bucket dir. Used to snapshot a
-// populated rangeable bucket and restore it as a "re-created same-name,
-// natively populated" index after a drop.
+// copyDirForRangeableTest recursively copies a bucket dir, used to snapshot
+// and later restore a populated bucket as a re-created same-name index.
 func copyDirForRangeableTest(t *testing.T, src, dst string) {
 	t.Helper()
 	require.NoError(t, filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
@@ -70,10 +62,8 @@ func copyDirForRangeableTest(t *testing.T, src, dst string) {
 	}))
 }
 
-// TestRangeableRecovery_DropRangeableIndex_ClearsDurableIncompleteSentinel pins
-// the crux: the real schema-apply property-drop path must clear the durable
-// not-ready sentinel. RED on head (the drop leaves the marker behind), green
-// once the drop clears it alongside the sibling .migrations tracker cleanup.
+// Regression for weaviate/0-weaviate-issues#335: index drop must clear the
+// durable not-ready sentinel.
 func TestRangeableRecovery_DropRangeableIndex_ClearsDurableIncompleteSentinel(t *testing.T) {
 	ctx := testCtx()
 	className := "RangeDropClearsSentinel_" + uuid.NewString()[:8]
@@ -87,7 +77,6 @@ func TestRangeableRecovery_DropRangeableIndex_ClearsDurableIncompleteSentinel(t 
 	require.True(t, shard.rangeableIncompleteSentinelExists(propName),
 		"precondition: durable not-ready verdict present")
 
-	// Drop the rangeable index through the real schema-apply path.
 	eg := enterrors.NewErrorGroupWrapper(idx.logger)
 	shard.updatePropertyBuckets(ctx, eg, dropRangeableProp(propName))
 	require.NoError(t, eg.Wait())
@@ -99,11 +88,8 @@ func TestRangeableRecovery_DropRangeableIndex_ClearsDurableIncompleteSentinel(t 
 			"same-name rangeable re-creation stays gated not-ready forever")
 }
 
-// TestRangeableRecovery_DropThenRecreateSameNamePopulated_NotGatedForever is the
-// end-to-end journey: a gated property is dropped, then re-created same-name with
-// a populated rangeable bucket, and must be served READY. On head the stale
-// pre-drop sentinel survives the drop and gates the re-created (populated) index
-// not-ready forever; the fix clears it on drop so the populated bucket is ready.
+// Regression for weaviate/0-weaviate-issues#335: drop then same-name
+// re-creation with data must not stay gated not-ready.
 func TestRangeableRecovery_DropThenRecreateSameNamePopulated_NotGatedForever(t *testing.T) {
 	ctx := testCtx()
 	className := "RangeDropRecreate_" + uuid.NewString()[:8]
@@ -111,9 +97,7 @@ func TestRangeableRecovery_DropThenRecreateSameNamePopulated_NotGatedForever(t *
 
 	idx, _, shardName := driveRangeableMigrationToTidied(t, ctx, className)
 
-	// Promote the deferred ingest dir into the canonical rangeable bucket via a
-	// completion restart, then shut down so the canonical dir is consistent to
-	// snapshot as the "re-created same-name, natively populated" index.
+	// Completion restart makes the canonical rangeable dir consistent to snapshot.
 	shard1 := restartWithCompletedRangeableSchema(t, ctx, idx, shardName, className)
 	lsmPath := shard1.pathLSM()
 	rangeableDir := filepath.Join(lsmPath, helpers.BucketRangeableFromPropNameLSM(propName))
@@ -123,8 +107,6 @@ func TestRangeableRecovery_DropThenRecreateSameNamePopulated_NotGatedForever(t *
 	snapshot := filepath.Join(t.TempDir(), "rangeable-snapshot")
 	copyDirForRangeableTest(t, rangeableDir, snapshot)
 
-	// Restart, persist the stale not-ready verdict, then drop the rangeable
-	// index via the real schema-apply path.
 	shardA := restartWithCompletedRangeableSchema(t, ctx, idx, shardName, className)
 	require.NoError(t, shardA.writeRangeableIncompleteSentinel(propName))
 	require.True(t, shardA.rangeableIncompleteSentinelExists(propName))
@@ -134,8 +116,7 @@ func TestRangeableRecovery_DropThenRecreateSameNamePopulated_NotGatedForever(t *
 	require.NoError(t, eg.Wait())
 	require.NoError(t, shardA.Shutdown(ctx))
 
-	// Re-create the same-name rangeable index, natively populated: restore the
-	// snapshot into the canonical bucket path the drop just removed.
+	// Simulate a native re-creation by restoring into the path the drop removed.
 	require.False(t, dirExists(rangeableDir), "the drop must have removed the rangeable bucket dir")
 	copyDirForRangeableTest(t, snapshot, rangeableDir)
 
