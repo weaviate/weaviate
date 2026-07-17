@@ -18,19 +18,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // Like newAddPropertyLazyFixture but without the Shutdown cleanup: a reproduced
@@ -38,47 +30,8 @@ import (
 func newReplConfigDeadlockFixture(t *testing.T, className string) (*DB, *Index) {
 	t.Helper()
 	ctx := testCtx()
-	logger, _ := test.NewNullLogger()
+	repo, migrator, schemaGetter := newLazyLoadRepo(t, singleShardState())
 
-	baseMetrics := monitoring.GetMetrics()
-	metricsCopy := *baseMetrics
-	metricsCopy.Registerer = monitoring.NoopRegisterer
-	metrics := &metricsCopy
-
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		return readFunc(&models.Class{Class: className}, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-
-	repo, err := New(logger, "node1", Config{
-		RootPath:                  t.TempDir(),
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		EnableLazyLoadShards:      boolPtr(true),
-	},
-		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
-		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader,
-	)
-	require.NoError(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.NoError(t, repo.WaitForStartup(ctx))
-
-	migrator := NewMigrator(repo, logger, "node1")
 	class := &models.Class{
 		Class:               className,
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
