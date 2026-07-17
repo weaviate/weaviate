@@ -180,13 +180,18 @@ func valueNameFromDataType(dt schema.DataType) string {
 	return "value" + strings.ToUpper(string(dt[0])) + string(dt[1:])
 }
 
+// mergeErrs joins operand errors with the same comma-separated message as
+// before, but multi-%w wrapping keeps each reachable via errors.As/Is, so a
+// typed error (e.g. Forbidden) inside a compound filter stays classifiable.
 func mergeErrs(errs []error) error {
-	msgs := make([]string, len(errs))
-	for i, err := range errs {
-		msgs[i] = err.Error()
+	if len(errs) == 0 {
+		return nil
 	}
-
-	return errors.Errorf("%s", strings.Join(msgs, ", "))
+	err := errs[0]
+	for _, e := range errs[1:] {
+		err = fmt.Errorf("%w, %w", err, e)
+	}
+	return err
 }
 
 func IsInternalProperty(propName schema.PropertyName) bool {

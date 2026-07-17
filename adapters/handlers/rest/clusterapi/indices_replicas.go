@@ -1244,6 +1244,8 @@ func asyncCheckpointHTTPStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, replica.ErrAsyncReplicationNotActive):
 		return http.StatusPreconditionFailed
+	case errors.Is(err, replica.ErrAsyncCheckpointCutoffInPast):
+		return http.StatusPreconditionFailed
 	}
 	return http.StatusInternalServerError
 }
