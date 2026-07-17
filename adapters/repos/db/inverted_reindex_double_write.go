@@ -42,12 +42,8 @@ func resolveDoubleWriteBucket(shard *Shard, sidecarName, swapFallbackName string
 // double-write callback: scope-filters the property, then resolves the bucket
 // via [resolveDoubleWriteBucket] (forTargetStrategy arms the swap fallback).
 //
-// A nil bucket is the caller's single stop signal (`if bucket == nil { return
-// err }`): err==nil is a benign no-op (scoped out, or an expected post-swap
-// sidecar teardown in the backup phase), while err!=nil means the target phase
-// resolved no bucket at all and must fail loudly rather than silently drop the
-// write. Folding both no-op and error into `bucket == nil` keeps every call
-// site to one guard — the skip bool was always just bucket == nil anyway.
+// bucket == nil is the caller's stop signal: err == nil is a benign no-op,
+// err != nil means the target phase found no bucket and must fail loudly.
 func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 	propsByName map[string]struct{}, bucketNamer, sourceBucketName func(string) string,
 	forTargetStrategy bool,
@@ -74,15 +70,10 @@ func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 		property.Name, bucketName, swapFallback)
 }
 
-// withRetokenizeDoubleWrite is the shared body of both retokenize strategies'
-// add and delete callbacks. It index-scopes the property, resolves the scoped
-// bucket, selects the countables (re-tokenizing RawValues with the target
-// tokenization on the target phase, mirroring live property.Items otherwise),
-// then hands the resolved bucket and items to apply. Only that per-item op
-// differs between add/delete and between the searchable/filterable strategies,
-// so factoring the rest here keeps the four callbacks from diverging or
-// duplicating. analyzer may be nil when forTargetStrategy is false: it is only
-// dereferenced on the target-and-RawValues path.
+// withRetokenizeDoubleWrite is the shared body of the four retokenize
+// add/delete callbacks; only the per-item op in apply differs between them.
+// analyzer may be nil — it's dereferenced only when forTargetStrategy and
+// property.RawValues are both set.
 func withRetokenizeDoubleWrite(shard *Shard, property *inverted.Property, hasIndex bool,
 	propsByName map[string]struct{}, bucketNamer, sourceBucketName func(string) string,
 	forTargetStrategy bool, analyzer *inverted.Analyzer, targetTokenization string,
