@@ -35,6 +35,27 @@ import (
 	"acceptance_tests_with_client/internal/wvhost"
 )
 
+// startPolling runs poll in a background loop. stop blocks until the loop has returned, so no
+// poll is still in flight afterwards. Defers run last-registered-first: register stop after the
+// cleanup it has to run before.
+func startPolling(poll func()) (stop func()) {
+	var (
+		stopped atomic.Bool
+		wg      sync.WaitGroup
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for !stopped.Load() {
+			poll()
+		}
+	}()
+	return func() {
+		stopped.Store(true)
+		wg.Wait()
+	}
+}
+
 func TestTenantStatusChanges(t *testing.T) {
 	ctx := context.Background()
 	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
@@ -72,31 +93,24 @@ func TestTenantStatusChanges(t *testing.T) {
 			}).Do(ctx)
 		require.NoError(t, err)
 	}
-	endUsage := atomic.Bool{}
+	stopUsage := startPolling(func() {
+		usage, err := GetDebugUsageForCollection(className)
+		require.NoError(t, err)
+		require.NotNil(t, usage)
+		require.Equal(t, len(usage.Shards), len(tenants))
 
-	go func() {
-		for {
-			if endUsage.Load() {
-				return
+		require.Equal(t, len(usage.Shards), usage.UniqueShardCount)
+
+		names := make(map[string]struct{})
+		for _, shard := range usage.Shards {
+			if _, ok := names[shard.Name]; ok {
+				require.Fail(t, "duplicate shard name found")
 			}
-
-			usage, err := GetDebugUsageForCollection(className)
-			require.NoError(t, err)
-			require.NotNil(t, usage)
-			require.Equal(t, len(usage.Shards), len(tenants))
-
-			require.Equal(t, len(usage.Shards), usage.UniqueShardCount)
-
-			names := make(map[string]struct{})
-			for _, shard := range usage.Shards {
-				if _, ok := names[shard.Name]; ok {
-					require.Fail(t, "duplicate shard name found")
-				}
-				names[shard.Name] = struct{}{}
-			}
-			require.Equal(t, len(names), len(tenants))
+			names[shard.Name] = struct{}{}
 		}
-	}()
+		require.Equal(t, len(names), len(tenants))
+	})
+	defer stopUsage()
 
 	var eg errgroup.Group
 	for i := range tenants {
@@ -113,7 +127,6 @@ func TestTenantStatusChanges(t *testing.T) {
 		)
 	}
 	require.NoError(t, eg.Wait())
-	endUsage.Store(true)
 }
 
 func TestUsageTenantDelete(t *testing.T) {
@@ -154,43 +167,37 @@ func TestUsageTenantDelete(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	endUsage := atomic.Bool{}
 	deletedTenants := atomic.Int32{}
-	go func() {
-		for {
-			if endUsage.Load() {
-				return
-			}
-			deletedTenantsBeforeCall := deletedTenants.Load()
-			usage, err := GetDebugUsageForCollection(className)
-			require.NoError(t, err)
-			require.NotNil(t, usage)
-			deletedTenantsAfterCall := deletedTenants.Load()
+	stopUsage := startPolling(func() {
+		deletedTenantsBeforeCall := deletedTenants.Load()
+		usage, err := GetDebugUsageForCollection(className)
+		require.NoError(t, err)
+		require.NotNil(t, usage)
+		deletedTenantsAfterCall := deletedTenants.Load()
 
-			// we add a bit of wiggle room here as the usage endpoint might take a bit to reflect the changes
-			require.LessOrEqual(t, len(usage.Shards), len(tenants)-int(deletedTenantsBeforeCall)+1)
-			require.GreaterOrEqual(t, len(usage.Shards), len(tenants)-int(deletedTenantsAfterCall)-1)
+		// we add a bit of wiggle room here as the usage endpoint might take a bit to reflect the changes
+		require.LessOrEqual(t, len(usage.Shards), len(tenants)-int(deletedTenantsBeforeCall)+1)
+		require.GreaterOrEqual(t, len(usage.Shards), len(tenants)-int(deletedTenantsAfterCall)-1)
 
-			if len(usage.Shards) > 0 {
-				require.Equal(t, len(usage.Shards), usage.UniqueShardCount)
-			}
-
-			names := make(map[string]struct{})
-			for _, shard := range usage.Shards {
-				if _, ok := names[shard.Name]; ok {
-					require.Fail(t, "duplicate shard name found")
-				}
-				names[shard.Name] = struct{}{}
-			}
+		if len(usage.Shards) > 0 {
+			require.Equal(t, len(usage.Shards), usage.UniqueShardCount)
 		}
-	}()
+
+		names := make(map[string]struct{})
+		for _, shard := range usage.Shards {
+			if _, ok := names[shard.Name]; ok {
+				require.Fail(t, "duplicate shard name found")
+			}
+			names[shard.Name] = struct{}{}
+		}
+	})
+	defer stopUsage()
 
 	for i := range tenants {
 		err := c.Schema().TenantsDeleter().WithClassName(className).WithTenants(tenants[i].Name).Do(ctx)
 		require.NoError(t, err)
 		deletedTenants.Add(1)
 	}
-	endUsage.Store(true)
 }
 
 func TestCollectionDeletion(t *testing.T) {
@@ -223,31 +230,25 @@ func TestCollectionDeletion(t *testing.T) {
 		require.NoError(t, classCreator.WithClass(class).Do(ctx))
 	}
 
-	endUsage := atomic.Bool{}
 	deletedClasses := atomic.Int32{}
-	go func() {
-		for {
-			if endUsage.Load() {
-				return
-			}
-			deletedClassesBeforeCall := deletedClasses.Load()
-			usage, err := getDebugUsage()
-			require.NoError(t, err)
-			require.NotNil(t, usage)
-			deletedClassesAfterCall := deletedClasses.Load()
+	stopUsage := startPolling(func() {
+		deletedClassesBeforeCall := deletedClasses.Load()
+		usage, err := getDebugUsage()
+		require.NoError(t, err)
+		require.NotNil(t, usage)
+		deletedClassesAfterCall := deletedClasses.Load()
 
-			// we add a bit of wiggle room here as the usage endpoint might take a bit to reflect the changes
-			require.LessOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesBeforeCall)+1)
-			require.GreaterOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesAfterCall)-1)
-		}
-	}()
+		// we add a bit of wiggle room here as the usage endpoint might take a bit to reflect the changes
+		require.LessOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesBeforeCall)+1)
+		require.GreaterOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesAfterCall)-1)
+	})
+	defer stopUsage()
 
 	for i := 0; i < numClasses; i++ {
 		className := getClassName(t, i)
 		require.NoError(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
 		deletedClasses.Add(1)
 	}
-	endUsage.Store(true)
 }
 
 func TestAlterSchemaDropPropertyIndex(t *testing.T) {
@@ -311,26 +312,15 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 	require.Greater(t, initialStorage, uint64(0))
 
 	// Concurrently poll shard usage while dropping property indices
-	endUsage := atomic.Bool{}
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			if endUsage.Load() {
-				return
-			}
-			time.Sleep(500 * time.Millisecond)
-			if endUsage.Load() {
-				return
-			}
-			usage, err := GetDebugUsageForCollection(className)
-			require.NoError(t, err)
-			require.Len(t, usage.Shards, 1)
-			require.Greater(t, usage.Shards[0].FullShardStorageBytes, uint64(0))
-			assert.Less(t, usage.Shards[0].FullShardStorageBytes, initialStorage)
-		}
-	}()
+	stopUsage := startPolling(func() {
+		time.Sleep(500 * time.Millisecond)
+		usage, err := GetDebugUsageForCollection(className)
+		require.NoError(t, err)
+		require.Len(t, usage.Shards, 1)
+		require.Greater(t, usage.Shards[0].FullShardStorageBytes, uint64(0))
+		assert.Less(t, usage.Shards[0].FullShardStorageBytes, initialStorage)
+	})
+	defer stopUsage()
 
 	// Drop all property indices using the Go client
 	require.NoError(t, c.Schema().PropertyIndexDeleter().
@@ -342,8 +332,7 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 	require.NoError(t, c.Schema().PropertyIndexDeleter().
 		WithClassName(className).WithPropertyName(numberProp).WithRangeFilters().Do(ctx))
 
-	endUsage.Store(true)
-	wg.Wait()
+	stopUsage()
 
 	// Verify that storage dropped after removing all property indices
 	colUsageAfter, err := GetDebugUsageForCollection(className)
