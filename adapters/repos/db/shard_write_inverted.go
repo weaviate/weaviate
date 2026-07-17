@@ -38,24 +38,18 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 }
 
 // analyzeObjectCommonWithOverlay is analyzeObjectCommon plus an optional
-// migration overlay (see AnalyzeObjectForMigrationWithOverlay). Without the
-// overlay, a property targeted by a from-scratch enable-* migration is
-// never nil-tracked during the backfill scan: HasAnyInvertedIndex(prop)
-// reads the LIVE (pre-migration) schema, which is false for the very
-// property the migration is trying to populate, so a pre-existing object
-// missing that property would silently produce no NilProperty entry at
-// all - the property is neither in `props` (analyzer skips it, no value)
-// nor in `nilProps` (this gate skips it too). That is the null-state half
-// of weaviate/0-weaviate-issues#322: the sidecar backfill in
-// OnAfterLsmInitAsync can only write what analyzeObjectCommon hands it.
+// migration overlay (see AnalyzeObjectForMigrationWithOverlay). Without it,
+// a property targeted by a from-scratch enable-* migration is never
+// nil-tracked during the backfill scan: HasAnyInvertedIndex reads the LIVE
+// (pre-migration) schema, which is false for the property the migration is
+// populating, so a missing property produces no NilProperty entry at all -
+// the null-state half of weaviate/0-weaviate-issues#322.
 //
-// The overlay-aware check treats a property as "has an inverted index" for
-// nil-tracking purposes if EITHER the live schema already says so, OR the
-// migration overlay forces one of Filterable/Searchable/Rangeable on for
-// it - the exact same condition the analyzer already uses downstream for
-// non-nil properties (see AnalyzerOverlay implementations per strategy).
-// AnalyzeObject (the normal write path) always passes a nil overlay, so
-// this is unchanged for ordinary writes.
+// The overlay-aware check treats a property as indexed if EITHER the live
+// schema says so, OR the overlay forces Filterable/Searchable/Rangeable on
+// - the same condition AnalyzerOverlay uses for non-nil properties.
+// AnalyzeObject always passes a nil overlay, so this is unchanged for
+// ordinary writes.
 func (s *Shard) analyzeObjectCommonWithOverlay(object *storobj.Object, c *models.Class,
 	overlay map[string]inverted.PropertyOverlay,
 ) (map[string]interface{}, []inverted.NilProperty, error) {

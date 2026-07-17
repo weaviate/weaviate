@@ -118,83 +118,44 @@ func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 }
 
 // trackMigratingPropLength / untrackMigratingPropLength feed the BM25
-// prop-length tracker (JsonShardMetaData) for a property that an in-flight
-// EnableSearchableStrategy migration is force-searchable-ing, closing the
-// residual stranding window left by the swap-time recompute
-// (Shard.recomputeSearchableTallyForProp): a live write landing after that
-// recompute's rescan but before this task's double-write callbacks are
-// disabled (the deferred call in runtimeSwap) would otherwise have its
-// postings mirrored into the new searchable bucket while never
-// contributing to avgdl, because SetPropertyLengths on the normal write
-// path only tracks props whose HasSearchableIndex is already true on the
-// LIVE (not-yet-flipped) schema.
+// prop-length tracker for a property an in-flight EnableSearchableStrategy
+// migration is force-searchable-ing, closing the residual window between
+// Shard.recomputeSearchableTallyForProp's rescan and this task's
+// double-write callbacks being disabled: a write landing in that window
+// would mirror postings into the searchable bucket but never reach avgdl,
+// because SetPropertyLengths only tracks props whose HasSearchableIndex is
+// already true on the live (not-yet-flipped) schema.
 //
-// Gating on propsByName membership (this migration's own target props),
-// not on property.HasSearchableIndex, is load-bearing for the same reason
-// AnalyzerOverlay forces the flag during backfill: HasSearchableIndex on
-// the Property handed to these callbacks always reflects the live schema,
-// which is false for the migrating prop until the migration's cluster-wide
-// RAFT flip runs.
+// Gating on propsByName (not property.HasSearchableIndex, which always
+// reflects the live schema) is load-bearing, same reason AnalyzerOverlay
+// forces the flag during backfill.
 //
-// Scope: these callbacks only ever fire for a property that reaches
-// Shard.AnalyzeObject's inverted.HasAnyInvertedIndex gate on the LIVE
-// schema, i.e. one that already carries a live filterable or rangeable
-// index alongside the not-yet-live searchable one. A property with NO
-// live index at all (the common from-scratch enable-searchable starting
-// state) is skipped by AnalyzeObject before any Property value ever
-// reaches these callbacks - its writes are covered by
-// Shard.recomputeSearchableTallyForProp's flush-then-rescan instead,
-// which reads each object's raw stored JSON directly rather than going
-// through the live write path's secondary-index bookkeeping. See that
-// function's godoc for the fuller picture of which window covers which
-// write shape.
+// These callbacks only fire for a property that already carries a live
+// filterable/rangeable index (HasAnyInvertedIndex gates AnalyzeObject). A
+// property with no live index at all never reaches them; those writes are
+// covered by recomputeSearchableTallyForProp's flush-then-rescan instead -
+// see that function's godoc for the fuller window picture.
 //
-// property.Length!=0 (rather than len(property.Items)!=0) is the gate for
-// "does this call represent a real analyzed value, track/untrack it" -
-// this is deliberate, not an oversight: DeltaSkipSearchable
-// (adapters/repos/db/inverted/delta_analyzer.go) computes an ITEM-LEVEL
-// delta, not the object's full value, for a property that is edited in
-// place while it also carries another live index (filterable/rangeable)
-// alongside the not-yet-live searchable one - so property.Items on these
-// calls can be a partial add/delete set. DeltaSkipSearchable always
-// carries the property's FULL previous/next Length through untouched on
-// both the add-side and delete-side delta entries (delta_analyzer.go
-// lines ~145-160), except for its synthetic "this side doesn't apply"
-// placeholder entries used when a property newly appears or disappears on
-// an existing object, which hard-code Length:0 regardless of the real
-// value on the other side (delta_analyzer.go lines 62-69, 175-182).
-// Gating on Length!=0 therefore fires on every entry carrying a real
-// value - full object writes, full deletes, AND partial-delta edits alike
-// - while skipping exactly the synthetic placeholders that would
-// otherwise corrupt the tracker's Count.
+// Gating on property.Length!=0 (not len(property.Items)!=0) is deliberate:
+// DeltaSkipSearchable (inverted/delta_analyzer.go) can hand these callbacks
+// an ITEM-LEVEL delta rather than the object's full value when the prop
+// also carries another live index, but it always carries the FULL
+// previous/next Length through on both delta entries - except for its
+// synthetic "this side doesn't apply" placeholder, which hard-codes
+// Length:0. Gating on Length!=0 fires on every entry with a real value
+// while skipping exactly the placeholders that would corrupt Count.
 //
-// Using len(property.Items) (not property.Length itself - a rune/element
-// count in a different unit, see the Property godoc) as the tracked
-// magnitude reproduces SetPropertyLengths / subtractPropLengths's
-// Sum/Count contribution exactly even under delta chunking: for a
-// property edited in place (present before and after), the items
-// unchanged by the edit are identical on both sides of the delta and
-// cancel out arithmetically, so
-// len(next.Items) - len(prev.Items) == len(toAdd.Items) - len(toDel.Items).
+// The tracked magnitude is len(property.Items), not property.Length (a
+// different unit - see the Property godoc): for an in-place edit, items
+// unchanged across the delta cancel out arithmetically, so
+// len(next.Items)-len(prev.Items) == len(toAdd.Items)-len(toDel.Items),
+// matching SetPropertyLengths/subtractPropLengths exactly.
 //
-// untrackMigratingPropLength additionally guards against untracking a prop
-// that has not yet been seeded by any recompute (e.g. an update landing
-// during the backfill/prepare phase, before the swap-time recompute has run
-// even once for this shard), by calling
-// JsonShardMetaData.UnTrackPropertyIfPresent - a single-lock-acquisition
-// presence-check-and-untrack - instead of composing a separate PropertyTally
-// pre-check with UnTrackProperty. The two-call composition is genuinely
-// concurrent with Shard.recomputeSearchableTallyForProp's ResetProperty
-// (registered before backfill starts, only disabled by runtimeSwap's
-// deferred disableCallbacks call - see that function's godoc): a delete
-// landing between the pre-check and UnTrackProperty's own mutation can race
-// ResetProperty deleting the property in between, so UnTrackProperty
-// decrements Sum/Count on now-absent keys before its own presence check (on
-// BucketedData) returns "property not found" - corrupting the tally instead
-// of leaving it untouched. UnTrackPropertyIfPresent closes that window by
-// construction (one lock acquisition, no separate pre-check); skipping the
-// untrack when absent is safe because any state accumulated before the
-// recompute is discarded wholesale by its ResetProperty call.
+// untrackMigratingPropLength uses JsonShardMetaData.UnTrackPropertyIfPresent
+// (a single-lock-acquisition presence-check-and-untrack) rather than a
+// separate PropertyTally pre-check + UnTrackProperty, because that
+// composition races Shard.recomputeSearchableTallyForProp's ResetProperty -
+// see UnTrackPropertyIfPresent's own godoc for the TOCTOU this closes.
 func trackMigratingPropLength(shard *Shard, propsByName map[string]struct{}, property *inverted.Property) error {
 	if _, ok := propsByName[property.Name]; !ok {
 		return nil
