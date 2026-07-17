@@ -420,7 +420,7 @@ func (i *indices) postObject() http.Handler {
 func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 	index, shard string,
 ) {
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := shared.ReadBody(r.Body, r.ContentLength)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -453,7 +453,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 	index, shard string,
 ) {
-	bodyBytes, err := io.ReadAll(r.Body)
+	bodyBytes, err := shared.ReadBody(r.Body, r.ContentLength)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -652,7 +652,7 @@ func (i *indices) mergeObject() http.Handler {
 			return
 		}
 
-		bodyBytes, err := io.ReadAll(r.Body)
+		bodyBytes, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -746,7 +746,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -813,7 +813,7 @@ func (i *indices) postReferences() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(),
 				http.StatusInternalServerError)
@@ -863,7 +863,7 @@ func (i *indices) postAggregateObjects() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(),
 				http.StatusInternalServerError)
@@ -922,7 +922,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -981,7 +981,7 @@ func (i *indices) putOverwriteObjects() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1029,7 +1029,7 @@ func (i *indices) getObjectsDigest() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1079,7 +1079,7 @@ func (i *indices) getObjectsDigestsInRange() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1121,7 +1121,7 @@ func (i *indices) getHashTreeLevel() http.Handler {
 		}
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1162,7 +1162,7 @@ func (i *indices) deleteObjects() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1290,7 +1290,7 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := shared.ReadBody(r.Body, r.ContentLength)
 		if err != nil {
 			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
 			return

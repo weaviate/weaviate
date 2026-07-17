@@ -14,12 +14,17 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -43,11 +48,11 @@ func TestShard_CreateAsyncCheckpoint_Basic(t *testing.T) {
 	s := shardWithHashtree(t)
 	createdAt := time.Now().UTC()
 
-	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 1_000, createdAt))
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(1_000), createdAt))
 
 	root, cutoff, ca, ok := s.AsyncCheckpointRoot(ctx)
 	assert.True(t, ok, "expected active checkpoint")
-	assert.Equal(t, int64(1_000), cutoff)
+	assert.Equal(t, ckAbs(1_000), cutoff)
 	assert.Equal(t, createdAt, ca)
 	// Root mirrors the unbounded hashtree at clone time.
 	assert.Equal(t, s.hashtree.Root(), root)
@@ -59,16 +64,16 @@ func TestShard_CreateAsyncCheckpoint_StaleCreatedAtIsRejected(t *testing.T) {
 	older := time.Now().UTC()
 	newer := older.Add(time.Second)
 
-	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 2_000, newer))
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(2_000), newer))
 
 	// An older createdAt loses the tie-breaker; the active checkpoint stays.
-	err := s.CreateAsyncCheckpoint(ctx, 3_000, older)
+	err := s.CreateAsyncCheckpoint(ctx, ckAbs(3_000), older)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errAsyncCheckpointStale), "expected stale error, got %v", err)
 
 	_, cutoff, ca, ok := s.AsyncCheckpointRoot(ctx)
 	assert.True(t, ok)
-	assert.Equal(t, int64(2_000), cutoff, "active checkpoint must not be overwritten by stale createdAt")
+	assert.Equal(t, ckAbs(2_000), cutoff, "active checkpoint must not be overwritten by stale createdAt")
 	assert.Equal(t, newer, ca)
 }
 
@@ -78,12 +83,12 @@ func TestShard_CreateAsyncCheckpoint_NewerCreatedAtReplaces(t *testing.T) {
 	first := time.Now().UTC()
 	second := first.Add(time.Second)
 
-	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 2_000, first))
-	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 3_000, second))
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(2_000), first))
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(3_000), second))
 
 	_, cutoff, ca, ok := s.AsyncCheckpointRoot(ctx)
 	assert.True(t, ok)
-	assert.Equal(t, int64(3_000), cutoff)
+	assert.Equal(t, ckAbs(3_000), cutoff)
 	assert.Equal(t, second, ca)
 }
 
@@ -94,8 +99,8 @@ func TestShard_CreateAsyncCheckpoint_EqualCreatedAtIsStale(t *testing.T) {
 	s := shardWithHashtree(t)
 	at := time.Now().UTC()
 
-	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 2_000, at))
-	err := s.CreateAsyncCheckpoint(ctx, 3_000, at)
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(2_000), at))
+	err := s.CreateAsyncCheckpoint(ctx, ckAbs(3_000), at)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errAsyncCheckpointStale))
 }
@@ -133,7 +138,7 @@ func TestShard_CreateAsyncCheckpoint_HonoursContextCancel(t *testing.T) {
 func TestShard_DeleteAsyncCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	s := shardWithHashtree(t)
-	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 1_000, time.Now().UTC()))
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(1_000), time.Now().UTC()))
 
 	require.NoError(t, s.DeleteAsyncCheckpoint(ctx))
 
@@ -155,7 +160,7 @@ func TestShard_DeleteAsyncCheckpoint_IdempotentWhenInactive(t *testing.T) {
 func TestShard_DeleteAsyncCheckpoint_HonoursContextCancel(t *testing.T) {
 	ctx := context.Background()
 	s := shardWithHashtree(t)
-	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 1_000, time.Now().UTC()))
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(1_000), time.Now().UTC()))
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -182,7 +187,7 @@ func TestShard_AsyncCheckpoint_ClearedOnStateReset(t *testing.T) {
 	// state but forgets to wire it in.
 	ctx := context.Background()
 	s := shardWithHashtree(t)
-	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 1_000, time.Now().UTC()))
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(1_000), time.Now().UTC()))
 
 	s.asyncReplicationRWMux.Lock()
 	s.clearAsyncCheckpointLocked()
@@ -205,7 +210,7 @@ func TestShard_CreateAsyncCheckpoint_ActivatedAtUsesLocalClock(t *testing.T) {
 
 	before := time.Now()
 	futureCreatedAt := before.Add(2 * time.Minute).UTC()
-	require.NoError(t, s.CreateAsyncCheckpoint(ctx, 1_000, futureCreatedAt))
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, ckAbs(1_000), futureCreatedAt))
 	after := time.Now()
 
 	s.asyncReplicationRWMux.RLock()
@@ -231,11 +236,12 @@ func TestShard_CreateAsyncCheckpoint_ConcurrentRaceIsSerialised(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(N)
 	base := time.Now().UTC()
+	futureCutoff := base.Add(time.Hour).UnixMilli()
 	for i := 0; i < N; i++ {
 		i := i
 		go func() {
 			defer wg.Done()
-			_ = s.CreateAsyncCheckpoint(ctx, int64(i+1), base.Add(time.Duration(i)*time.Millisecond))
+			_ = s.CreateAsyncCheckpoint(ctx, futureCutoff+int64(i+1), base.Add(time.Duration(i)*time.Millisecond))
 		}()
 	}
 	wg.Wait()
@@ -247,4 +253,182 @@ func TestShard_CreateAsyncCheckpoint_ConcurrentRaceIsSerialised(t *testing.T) {
 	// one is at or after the earliest proposal.
 	assert.GreaterOrEqual(t, ca.UnixMilli(), base.UnixMilli())
 	assert.Greater(t, cutoff, int64(0))
+}
+
+func TestShard_CreateAsyncCheckpoint_RejectsPastCutoff(t *testing.T) {
+	ctx := context.Background()
+	s := shardWithHashtree(t)
+
+	require.ErrorIs(t, s.CreateAsyncCheckpoint(ctx, time.Now().Add(-time.Hour).UnixMilli(), time.Now()), errAsyncCheckpointCutoffInPast)
+	if _, _, _, ok := s.AsyncCheckpointRoot(ctx); ok {
+		t.Fatal("a rejected create must leave no active checkpoint")
+	}
+
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, time.Now().Add(time.Hour).UnixMilli(), time.Now()))
+	if _, _, _, ok := s.AsyncCheckpointRoot(ctx); !ok {
+		t.Fatal("a future cutoff must create the checkpoint")
+	}
+}
+
+const (
+	ckA = strfmt.UUID("00000000-0000-0000-0000-0000000000a1")
+	ckB = strfmt.UUID("00000000-0000-0000-0000-0000000000b2")
+	ckC = strfmt.UUID("00000000-0000-0000-0000-0000000000c3")
+)
+
+type ckOp struct {
+	del      bool
+	id       strfmt.UUID
+	ts       int64
+	old      int64
+	delEvent int64
+}
+
+// ckBase shifts test timestamps into the future so the cutoff-in-past guard passes; 0 stays 0 (no-version sentinel).
+var ckBase = time.Now().Add(time.Hour).UnixMilli()
+
+func ckAbs(v int64) int64 {
+	if v == 0 {
+		return 0
+	}
+	return ckBase + v
+}
+
+func ckApply(t *testing.T, s *Shard, op ckOp) {
+	t.Helper()
+	idBytes, err := uuid.MustParse(op.id.String()).MarshalBinary()
+	require.NoError(t, err)
+	if op.del {
+		require.NoError(t, s.deleteObjectHashTree(idBytes, ckAbs(op.ts), ckAbs(op.delEvent)))
+		return
+	}
+	obj := &storobj.Object{Object: models.Object{ID: op.id, LastUpdateTimeUnix: ckAbs(op.ts)}}
+	require.NoError(t, s.upsertObjectHashTree(obj, idBytes, objectInsertStatus{oldUpdateTime: ckAbs(op.old)}))
+}
+
+// ckRoot builds a fresh shard, applies before-ops, creates a checkpoint at cutoff, applies after-ops, returns the checkpoint root.
+func ckRoot(t *testing.T, cutoff int64, before, after []ckOp) hashtree.Digest {
+	t.Helper()
+	s := shardWithHashtree(t)
+	for _, op := range before {
+		ckApply(t, s, op)
+	}
+	require.NoError(t, s.CreateAsyncCheckpoint(context.Background(), ckAbs(cutoff), time.UnixMilli(ckAbs(cutoff))))
+	for _, op := range after {
+		ckApply(t, s, op)
+	}
+	root, _, _, ok := s.AsyncCheckpointRoot(context.Background())
+	require.True(t, ok)
+	return root
+}
+
+func TestShard_AsyncCheckpoint_AbsorbsLatePreCutoffObjects(t *testing.T) {
+	const cutoff = 200
+	full := ckRoot(t, cutoff, []ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 110}, {id: ckC, ts: 120}}, nil)
+	behind := ckRoot(t, cutoff, []ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 110}}, nil)
+	require.NotEqual(t, full, behind, "a shard missing a pre-cutoff object must not already match")
+
+	caughtUp := ckRoot(t, cutoff,
+		[]ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 110}},
+		[]ckOp{{id: ckC, ts: 120}})
+	require.Equal(t, full, caughtUp, "a pre-cutoff object arriving after creation must converge the root")
+}
+
+func TestShard_AsyncCheckpoint_FoldGating(t *testing.T) {
+	const cutoff = 200
+	tests := []struct {
+		name                             string
+		beforeA, afterA, beforeB, afterB []ckOp
+	}{
+		{
+			name:    "pre-cutoff create absorbed",
+			beforeA: []ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 120}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{id: ckB, ts: 120}},
+		},
+		{
+			name:    "post-cutoff create excluded",
+			beforeA: []ckOp{{id: ckA, ts: 100}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{id: ckB, ts: 250}},
+		},
+		{
+			name:    "pre-cutoff update absorbed",
+			beforeA: []ckOp{{id: ckA, ts: 150}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{id: ckA, ts: 150, old: 100}},
+		},
+		{
+			name:    "post-cutoff update keeps pre-cutoff version",
+			beforeA: []ckOp{{id: ckA, ts: 100}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{id: ckA, ts: 250, old: 100}},
+		},
+		{
+			name:    "pre-cutoff delete absorbed",
+			beforeA: []ckOp{{id: ckB, ts: 110}},
+			beforeB: []ckOp{{id: ckA, ts: 100}, {id: ckB, ts: 110}}, afterB: []ckOp{{del: true, id: ckA, ts: 100, delEvent: 150}},
+		},
+		{
+			name:    "post-cutoff delete keeps object",
+			beforeA: []ckOp{{id: ckA, ts: 100}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{del: true, id: ckA, ts: 100, delEvent: 250}},
+		},
+		{
+			name:    "resurrection converges to recreated state",
+			beforeA: []ckOp{{id: ckA, ts: 150}},
+			beforeB: []ckOp{{id: ckA, ts: 100}}, afterB: []ckOp{{del: true, id: ckA, ts: 100, delEvent: 120}, {id: ckA, ts: 150}},
+		},
+		{
+			name:    "post-cutoff-then-pre-cutoff update injects no phantom",
+			beforeA: []ckOp{{id: ckB, ts: 100}}, afterA: []ckOp{{id: ckA, ts: 150}},
+			beforeB: []ckOp{{id: ckB, ts: 100}}, afterB: []ckOp{{id: ckA, ts: 300}, {id: ckA, ts: 150, old: 300}},
+		},
+		{
+			name:    "post-cutoff object with pre-cutoff deletion event stays absent",
+			beforeA: []ckOp{{id: ckB, ts: 100}},
+			beforeB: []ckOp{{id: ckB, ts: 100}}, afterB: []ckOp{{id: ckA, ts: 300}, {del: true, id: ckA, ts: 300, delEvent: 150}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reference := ckRoot(t, cutoff, tt.beforeA, tt.afterA)
+			journey := ckRoot(t, cutoff, tt.beforeB, tt.afterB)
+			require.Equal(t, reference, journey)
+		})
+	}
+}
+
+func TestShard_AsyncCheckpoint_ConcurrentFoldIsRaceFree(t *testing.T) {
+	ctx := context.Background()
+	s := shardWithHashtree(t)
+	cutoff := time.Now().Add(time.Hour).UnixMilli()
+	require.NoError(t, s.CreateAsyncCheckpoint(ctx, cutoff, time.UnixMilli(cutoff)))
+
+	const writers = 8
+	var wg sync.WaitGroup
+	wg.Add(writers + 1)
+	for w := 0; w < writers; w++ {
+		w := w
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				id := strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", w*1000+i))
+				idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+				if err != nil {
+					continue
+				}
+				obj := &storobj.Object{Object: models.Object{ID: id, LastUpdateTimeUnix: 500_000}}
+				s.asyncReplicationRWMux.RLock()
+				_ = s.upsertObjectHashTree(obj, idBytes, objectInsertStatus{})
+				s.asyncReplicationRWMux.RUnlock()
+			}
+		}()
+	}
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			_ = s.DeleteAsyncCheckpoint(ctx)
+			_ = s.CreateAsyncCheckpoint(ctx, cutoff+int64(i+1), time.UnixMilli(cutoff+int64(i+1)))
+		}
+	}()
+	wg.Wait()
+
+	require.NotPanics(t, func() { s.AsyncCheckpointRoot(ctx) })
 }

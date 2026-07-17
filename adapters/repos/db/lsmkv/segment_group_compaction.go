@@ -394,6 +394,11 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		c := newCompactorReplace(f, left.newReplaceCursorReusable(), right.newReplaceCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, transformer)
+		// recycle the cursor read buffers on every exit, including a panic in do()
+		defer func() {
+			c.c1.releaseReader()
+			c.c2.releaseReader()
+		}()
 
 		aborted, err := runCompactor(c.do)
 		if err != nil {
@@ -508,6 +513,10 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 
 	if err := replacer.switchInMemory(); err != nil {
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
+	}
+
+	if strategy == segmentindex.StrategyInverted {
+		sg.reconcileAveragePropertyLength(oldLeft, oldRight, newSegment)
 	}
 
 	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)

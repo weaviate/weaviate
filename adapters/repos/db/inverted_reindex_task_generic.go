@@ -203,7 +203,16 @@ type ShardReindexTaskGeneric struct {
 	// longer than one in-memory map write. Runs on the swap goroutine, so
 	// SetTokenizationOverlay's own lock is enough. Wired only for
 	// tokenization-changing migrations.
+	//
+	// Only the recovery/resume path still uses this; the live Phase-2a loop
+	// routes through swapPropAtomic when wired.
 	onPropSwapped func(propName string)
+
+	// swapPropAtomic, when non-nil, runs the Phase-2a per-prop flip AND the
+	// overlay set as ONE critical section (Shard.SwapBucketAndSetOverlay).
+	// nil = legacy two-step flip + onPropSwapped. Returns the displaced
+	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
+	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error)
 
 	// trackerMkdirGuard yields the close-lock guard serializing a reindex
 	// tracker's init() MkdirAll against a concurrent Index.drop (see
@@ -1793,17 +1802,28 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// sentinel is already on disk — recovery idempotency.
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
 	for propIdx, propName := range props {
-		oldMainBucket, err := t.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
-		if err != nil {
-			return err
+		var (
+			oldMainBucket *lsmkv.Bucket
+			err           error
+		)
+		if t.swapPropAtomic != nil {
+			oldMainBucket, err = t.swapPropAtomic(ctx, store, rt, propIdx, propName)
+			if err != nil {
+				return err
+			}
+		} else {
+			oldMainBucket, err = t.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+			if err != nil {
+				return err
+			}
+			// Fire even when processOneSwapPropFn no-ops an already-swapped
+			// prop (sentinel on disk), so a resumed swap re-establishes the overlay.
+			if t.onPropSwapped != nil {
+				t.onPropSwapped(propName)
+			}
 		}
 		if oldMainBucket != nil {
 			oldMainBuckets[propName] = oldMainBucket
-		}
-		// Fire even when processOneSwapPropFn no-ops an already-swapped prop
-		// (sentinel on disk), so a resumed swap re-establishes the overlay.
-		if t.onPropSwapped != nil {
-			t.onPropSwapped(propName)
 		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")

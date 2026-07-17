@@ -13,14 +13,18 @@ package traverser
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -584,4 +588,27 @@ func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, i
 			Vector: []float32{1.0, 1.0, 1.0},
 		}, nil
 	}
+}
+
+// failingVectorModulesProvider overrides VectorFromSearchParam to fail, so
+// the wrap applied in vectorFromModules can be pinned.
+type failingVectorModulesProvider struct {
+	fakeModulesProvider
+}
+
+func (p *failingVectorModulesProvider) VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn[[]float32],
+) ([]float32, error) {
+	return nil, errors.New("remote client vectorize: connection refused")
+}
+
+// API handlers (e.g. adapters/handlers/rest/search) classify the failure by this type
+func Test_nearParamsVector_vectorFromModules_TypedError(t *testing.T) {
+	v := newNearParamsVector(&failingVectorModulesProvider{}, nil)
+
+	_, err := v.vectorFromModules(context.Background(), "Movie", "nearText", nil, "", "")
+	require.Error(t, err)
+	assert.True(t, errors.As(err, &enterrors.ErrQueryVectorization{}),
+		"vectorization failures must carry entities/errors.ErrQueryVectorization, got: %v", err)
+	assert.Equal(t, "vectorize params: remote client vectorize: connection refused", err.Error())
 }
