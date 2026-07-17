@@ -24,9 +24,12 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/namespaces"
@@ -291,14 +294,15 @@ func TestCreateUser_Namespaces(t *testing.T) {
 	tests := []struct {
 		name              string
 		namespacesEnabled bool
-		known             []string // namespaces the Exister reports as existing + active
-		deleting          []string // namespaces that exist but are inactive (being deleted)
-		userID            string   // raw id as the client sends it
-		principalNS       string   // principal.Namespace ("" = global)
+		known             []string                      // namespaces the Exister reports as existing + active
+		inState           map[string]api.NamespaceState // namespaces that exist in a non-active state
+		userID            string                        // raw id as the client sends it
+		principalNS       string                        // principal.Namespace ("" = global)
 		isGlobalOperator  bool
 		importUser        bool
 		authzKey          string // resolved users/ key the authorizer is asked for; "" if resolution 422s before authz
 		wantStatus        any
+		wantMsgContains   string // substring the error payload must name; "" = not asserted
 	}{
 		{
 			name:              "ns-disabled bare name succeeds",
@@ -371,15 +375,39 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			wantStatus:        &users.CreateUserUnprocessableEntity{},
 		},
 		{
-			// No CreateUser mock: a call here would fail the test, pinning the
-			// IsActive fast-path before apply.
+			// No CreateUser mock: the pre-check must reject before apply.
 			name:              "namespace being deleted short-circuits before apply",
 			namespacesEnabled: true,
-			deleting:          []string{"ns1"},
+			inState:           map[string]api.NamespaceState{"ns1": api.NamespaceStateDeleting},
 			userID:            "ns1:user",
 			isGlobalOperator:  true,
 			authzKey:          "ns1:user",
 			wantStatus:        &users.CreateUserUnprocessableEntity{},
+			wantMsgContains:   "being deleted",
+		},
+		{
+			// No CreateUser mock: the pre-check must reject before apply. The
+			// message must name suspension: reporting a deletion would tell the
+			// caller the namespace is never coming back.
+			name:              "suspended namespace short-circuits before apply",
+			namespacesEnabled: true,
+			inState:           map[string]api.NamespaceState{"ns1": api.NamespaceStateSuspended},
+			userID:            "ns1:user",
+			isGlobalOperator:  true,
+			authzKey:          "ns1:user",
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+			wantMsgContains:   "namespace is suspended",
+		},
+		{
+			// HTTPStatusForNamespaceErr doesn't cover ErrNamespaceGone, so
+			// without the explicit guard this would be a 500.
+			name:              "missing namespace renders 422, not 500",
+			namespacesEnabled: true,
+			userID:            "ns1:user",
+			isGlobalOperator:  true,
+			authzKey:          "ns1:user",
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+			wantMsgContains:   "namespace no longer exists",
 		},
 		{
 			name:              "import on NS-enabled rejected",
@@ -417,20 +445,24 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			for _, n := range tt.known {
 				known[n] = struct{}{}
 			}
-			deleting := map[string]struct{}{}
-			for _, n := range tt.deleting {
-				deleting[n] = struct{}{}
+			states := map[string]api.NamespaceState{}
+			for _, n := range tt.known {
+				states[n] = api.NamespaceStateActive
 			}
-			isActive := func(name string) bool { _, ok := known[name]; return ok }
-			exists := func(name string) bool {
-				if _, ok := known[name]; ok {
-					return true
-				}
-				_, ok := deleting[name]
-				return ok
+			for n, st := range tt.inState {
+				states[n] = st
 			}
+			exists := func(name string) bool { _, ok := states[name]; return ok }
 			ns.On("Exists", mock.AnythingOfType("string")).Return(exists).Maybe()
-			ns.On("IsActive", mock.AnythingOfType("string")).Return(isActive).Maybe()
+			ns.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
+				return states[name] == api.NamespaceStateActive
+			}).Maybe()
+			ns.On("GetNamespace", mock.AnythingOfType("string")).Return(
+				func(name string) api.Namespace {
+					return api.Namespace{Name: name, HomeNodes: []string{"node-1"}, State: states[name]}
+				},
+				exists,
+			).Maybe()
 
 			body := users.CreateUserBody{}
 			if tt.importUser {
@@ -448,8 +480,30 @@ func TestCreateUser_Namespaces(t *testing.T) {
 
 			res := h.createUser(users.CreateUserParams{UserID: tt.userID, HTTPRequest: req, Body: body}, principal)
 			assert.IsType(t, tt.wantStatus, res)
+			if tt.wantMsgContains != "" {
+				assert.Contains(t, responderErrMessage(t, res), tt.wantMsgContains)
+			}
 		})
 	}
+}
+
+// responderErrMessage returns the first error message in res's payload. The
+// status is asserted separately, so an unexpected responder type fails here
+// rather than reporting a confusing empty message.
+func responderErrMessage(t *testing.T, res middleware.Responder) string {
+	t.Helper()
+	var payload *models.ErrorResponse
+	switch r := res.(type) {
+	case *users.CreateUserUnprocessableEntity:
+		payload = r.Payload
+	case *users.CreateUserInternalServerError:
+		payload = r.Payload
+	default:
+		t.Fatalf("responder %T carries no error payload", res)
+	}
+	require.NotNil(t, payload)
+	require.NotEmpty(t, payload.Error)
+	return payload.Error[0].Message
 }
 
 // TestCreateUser_MapsApplyNamespaceErrors asserts the createUser handler
@@ -510,9 +564,17 @@ func TestCreateUser_MapsApplyNamespaceErrors(t *testing.T) {
 			dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 			dynUser.On("CreateUser", mock.Anything, userID, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
 
+			// Active, so the pre-check passes and the apply error under test
+			// is what the handler renders.
 			ns := namespaces.NewMockExister(t)
 			ns.On("Exists", mock.AnythingOfType("string")).Return(true).Maybe()
 			ns.On("IsActive", mock.AnythingOfType("string")).Return(true).Maybe()
+			ns.On("GetNamespace", mock.AnythingOfType("string")).Return(
+				func(name string) api.Namespace {
+					return api.Namespace{Name: name, HomeNodes: []string{"node-1"}, State: api.NamespaceStateActive}
+				},
+				func(string) bool { return true },
+			).Maybe()
 
 			h := dynUserHandler{
 				dbUsers:           dynUser,

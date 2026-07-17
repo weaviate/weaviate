@@ -375,6 +375,18 @@ func (h *dynUserHandler) resolveUserKeyForCreate(principal *models.Principal, ra
 	return apikey.MakeUserKey(raw, principal.Namespace), principal.Namespace, nil
 }
 
+// namespaceErrRendersUnprocessable reports whether err is a namespace-state
+// error the caller should see as a 422 rather than a 500.
+func namespaceErrRendersUnprocessable(err error) bool {
+	// HTTPStatusForNamespaceErr reports ok=false for ErrNamespaceGone, which
+	// would otherwise fall through to a 500 instead of a 422.
+	if errors.Is(err, namespaces.ErrNamespaceGone) {
+		return true
+	}
+	status, ok := cerrors.HTTPStatusForNamespaceErr(err)
+	return ok && status == http.StatusUnprocessableEntity
+}
+
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -423,15 +435,13 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
 	}
 
-	// Skip the RAFT round-trip when the namespace is locally known missing or
-	// deleting; the apply path re-validates authoritatively.
-	if ns != "" {
-		if !h.namespaces.Exists(ns) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q does not exist", ns)))
+	// Skip the RAFT round-trip when the namespace is locally known not to be
+	// active; the apply path re-validates authoritatively.
+	if err := namespaces.RequireActive(h.namespaces, ns); err != nil {
+		if namespaceErrRendersUnprocessable(err) {
+			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
-		if !h.namespaces.IsActive(ns) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted", ns)))
-		}
+		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if h.staticUserExists(internalKey) {
@@ -462,8 +472,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		// The namespace changed state between the pre-check above and the
 		// apply. Deleting renders 422 like the pre-check does — the namespace
 		// never returns to active, so the create is not retryable.
-		status, ok := cerrors.HTTPStatusForNamespaceErr(err)
-		if errors.Is(err, namespaces.ErrNamespaceGone) || (ok && status == http.StatusUnprocessableEntity) {
+		if namespaceErrRendersUnprocessable(err) {
 			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))
 		}
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating user: %w", err)))

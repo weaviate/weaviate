@@ -71,6 +71,7 @@ type claims struct {
 	Email         string   `json:"email"`
 	Groups        []string `json:"groups"`
 	GroupAsString string   `json:"group_as_string"`
+	Namespace     string   `json:"weaviate_namespace,omitempty"`
 }
 
 func Test_Middleware_WithValidToken(t *testing.T) {
@@ -182,6 +183,96 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		assert.Equal(t, "best-user", principal.Username)
 		assert.Equal(t, []string{"group1"}, principal.Groups)
 	})
+}
+
+// TestValidateAndExtract_NamespaceState uses real tokens because the state
+// check runs last: only a token that passes every other check reaches it.
+func TestValidateAndExtract_NamespaceState(t *testing.T) {
+	tests := []struct {
+		name      string
+		state     api.NamespaceState // empty = namespace missing
+		rootUsers []string
+		wantAuthN bool
+		wantMsg   string
+	}{
+		{name: "active authenticates", state: api.NamespaceStateActive, wantAuthN: true},
+		{
+			// The state check runs after the root check, so a namespaced root
+			// principal is rejected as root and never learns the state.
+			name:      "namespaced root is rejected as root, not by state",
+			state:     api.NamespaceStateSuspended,
+			rootUsers: []string{"customer1:alice"},
+			wantMsg:   "unauthorized: namespaced OIDC principal cannot be granted the root role; remove the namespace claim or remove the principal from RBAC root configuration",
+		},
+		{
+			name:    "suspended is denied, naming suspension",
+			state:   api.NamespaceStateSuspended,
+			wantMsg: "unauthorized: namespace is suspended",
+		},
+		{
+			name:    "resuming is denied, naming resumption",
+			state:   api.NamespaceStateResuming,
+			wantMsg: "unauthorized: namespace is resuming",
+		},
+		{
+			// deleting must be denied too, not fall through to a default pass.
+			name:    "deleting is denied, vaguely",
+			state:   api.NamespaceStateDeleting,
+			wantMsg: "unauthorized: namespace does not exist or is being deleted",
+		},
+		{
+			name:    "missing is denied, vaguely",
+			wantMsg: "unauthorized: namespace does not exist or is being deleted",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := newOIDCServer(t)
+			defer server.Close()
+
+			cfg := config.Config{
+				Authentication: config.Authentication{
+					OIDC: config.OIDC{
+						Enabled:           true,
+						Issuer:            runtime.NewDynamicValue(server.URL),
+						ClientID:          runtime.NewDynamicValue("best_client"),
+						SkipClientIDCheck: runtime.NewDynamicValue(false),
+						UsernameClaim:     runtime.NewDynamicValue("sub"),
+						NamespaceClaim:    runtime.NewDynamicValue("weaviate_namespace"),
+					},
+				},
+				Authorization: config.Authorization{
+					Rbac: rbacconf.Config{Enabled: true, RootUsers: tc.rootUsers},
+				},
+			}
+
+			exister := newFakeExister()
+			if tc.state != "" {
+				exister.markState("customer1", tc.state)
+			}
+
+			logger, _ := logrustest.NewNullLogger()
+			client, err := New(cfg, exister, true, logger)
+			require.NoError(t, err)
+
+			tok := tokenWithClaims(t, "alice", server.URL, "best_client", claims{Namespace: "customer1"})
+			principal, err := client.ValidateAndExtract(tok, []string{})
+
+			if tc.wantAuthN {
+				require.NoError(t, err)
+				require.NotNil(t, principal)
+				assert.Equal(t, "customer1:alice", principal.Username)
+				return
+			}
+			require.Error(t, err)
+			assert.Nil(t, principal, "a non-active namespace must never authenticate")
+			var apiErr errors.Error
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, int32(401), apiErr.Code())
+			assert.Equal(t, tc.wantMsg, err.Error())
+		})
+	}
 }
 
 func token(t *testing.T, subject string, issuer string, aud string) string {
@@ -407,49 +498,39 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 	})
 }
 
-// fakeExister is a minimal namespaces.Exister stub for classifyPrincipal
-// matrix testing. Names in `known` are active; names in `deleting` exist
-// but are not active.
+// fakeExister is a minimal namespaces.Exister stub. Names it does not hold
+// are missing; the rest report the state they were seeded with.
 type fakeExister struct {
-	known    map[string]struct{}
-	deleting map[string]struct{}
+	states map[string]api.NamespaceState
 }
 
 func newFakeExister(names ...string) *fakeExister {
-	m := map[string]struct{}{}
+	m := map[string]api.NamespaceState{}
 	for _, n := range names {
-		m[n] = struct{}{}
+		m[n] = api.NamespaceStateActive
 	}
-	return &fakeExister{known: m, deleting: map[string]struct{}{}}
+	return &fakeExister{states: m}
 }
 
-// markDeleting flips name from active to deleting.
-func (f *fakeExister) markDeleting(name string) {
-	delete(f.known, name)
-	f.deleting[name] = struct{}{}
+func (f *fakeExister) markState(name string, state api.NamespaceState) {
+	f.states[name] = state
 }
 
 func (f *fakeExister) Exists(name string) bool {
-	if _, ok := f.known[name]; ok {
-		return true
-	}
-	_, ok := f.deleting[name]
+	_, ok := f.states[name]
 	return ok
 }
 
 func (f *fakeExister) IsActive(name string) bool {
-	_, ok := f.known[name]
-	return ok
+	return f.states[name] == api.NamespaceStateActive
 }
 
 func (f *fakeExister) GetNamespace(name string) (api.Namespace, bool) {
-	if _, ok := f.known[name]; ok {
-		return api.Namespace{Name: name, State: api.NamespaceStateActive}, true
+	state, ok := f.states[name]
+	if !ok {
+		return api.Namespace{}, false
 	}
-	if _, ok := f.deleting[name]; ok {
-		return api.Namespace{Name: name, State: api.NamespaceStateDeleting}, true
-	}
-	return api.Namespace{}, false
+	return api.Namespace{Name: name, State: state}, true
 }
 
 // TestClassifyPrincipal exercises the per-token classification matrix.
@@ -472,7 +553,6 @@ func TestClassifyPrincipal(t *testing.T) {
 		namespacesEnabled bool
 		username          string
 		claims            map[string]any
-		markDeleting      string // optional: flip this namespace to deleting before classify
 		want              want
 	}{
 		{
@@ -539,19 +619,14 @@ func TestClassifyPrincipal(t *testing.T) {
 			want:              want{errCode: 401, errSubstr: "must carry either"},
 		},
 		{
-			name:              "NS-enabled, namespace claim names unknown namespace → reject",
+			// Namespace state is not classifyPrincipal's job: an unknown
+			// namespace classifies fine and is denied later, by the gate
+			// TestValidateAndExtract_NamespaceState covers.
+			name:              "NS-enabled, namespace claim names unknown namespace → classifies",
 			namespacesEnabled: true,
 			username:          "alice",
 			claims:            map[string]any{nsClaimKey: "ghost"},
-			want:              want{errCode: 401, errSubstr: "namespace 'ghost'"},
-		},
-		{
-			name:              "NS-enabled, namespace claim names a deleting namespace → reject",
-			namespacesEnabled: true,
-			username:          "alice",
-			claims:            map[string]any{nsClaimKey: "customer1"},
-			markDeleting:      "customer1",
-			want:              want{errCode: 401, errSubstr: "namespace 'customer1'"},
+			want:              want{namespace: "ghost"},
 		},
 		{
 			name:              "NS-enabled, namespace claim type mismatch → reject",
@@ -579,9 +654,6 @@ func TestClassifyPrincipal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			exister := newFakeExister("customer1")
-			if tt.markDeleting != "" {
-				exister.markDeleting(tt.markDeleting)
-			}
 			c := &Client{
 				Config: config.OIDC{
 					NamespaceClaim:       runtime.NewDynamicValue(nsClaimKey),

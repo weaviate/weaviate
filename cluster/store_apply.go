@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -187,7 +188,7 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -196,7 +197,7 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -246,7 +247,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
 				return
 			}
-			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -259,7 +260,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
 				return
 			}
-			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -318,7 +319,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				return
 			}
 			for name := range req.Roles {
-				if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
+				if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
 					ret.Error = err
 					return
 				}
@@ -335,15 +336,20 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
 		f = func() {
-			// A role can't be assigned to a subject in a namespace that's gone or
-			// being deleted; otherwise a late assignment would leave a grouping row
-			// behind after the cleanup cascade has emptied the namespace.
+			// A role can't be assigned to a subject in a namespace that is not
+			// active; while deleting, a late assignment would also leave a
+			// grouping row behind after the cleanup cascade has emptied it.
 			req := &api.AddRolesForUsersRequest{}
 			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
 				ret.Error = fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
 				return
 			}
-			if err := requireNamespaceActive(st.namespaceManager, subjectNamespace(req.User)); err != nil {
+			subjectNS, err := subjectNamespace(req.User)
+			if err != nil {
+				ret.Error = fmt.Errorf("resolve namespace of subject %q: %w", req.User, err)
+				return
+			}
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, subjectNS); err != nil {
 				ret.Error = err
 				return
 			}
