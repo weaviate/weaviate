@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"encoding/binary"
 	"io"
+	"math"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
@@ -25,17 +26,20 @@ type segmentCursorInvertedReusable struct {
 	nextOffset uint64
 	nodeBuf    binarySearchNodeMap
 
-	// Reusable decode buffers: they remove the per-docID MapPair and key/value
-	// allocations (multi-block nodes still allocate the block-entry/data slices in
-	// decodeBlocks). NOTE: nodeBuf.key/values alias keyBuf/mapPairBuf, which the
-	// next parse overwrites — a caller keeping a node across seek/next/first must
-	// copy it first (CursorMap defers its inner-cursor advances for exactly this).
-	readBuf    []byte    // disk-path node read buffer
-	keyBuf     []byte    // primary key
-	mapPairBuf []MapPair // decoded MapPairs (Key/Value alias kvArena)
-	kvArena    []byte    // contiguous key/value storage
-	deltaEnc   varenc.VarEncEncoder[uint64]
-	tfEnc      varenc.VarEncEncoder[uint64]
+	// Reusable decode buffers, so iterating a segment allocates per node nothing
+	// beyond growth: the output MapPairs/key, the arena, and the decoded block
+	// entry/data structs are all reused. NOTE: nodeBuf.key/values alias
+	// keyBuf/mapPairBuf, which the next parse overwrites — a caller keeping a node
+	// across seek/next/first must copy it first (CursorMap defers its inner-cursor
+	// advances for exactly this).
+	readBuf       []byte             // disk-path node read buffer
+	keyBuf        []byte             // primary key
+	mapPairBuf    []MapPair          // decoded MapPairs (Key/Value alias kvArena)
+	kvArena       []byte             // contiguous key/value storage
+	blockEntryBuf []terms.BlockEntry // decoded block entries (reused across nodes)
+	blockDataBuf  []terms.BlockData  // decoded block data (reused across nodes)
+	deltaEnc      varenc.VarEncEncoder[uint64]
+	tfEnc         varenc.VarEncEncoder[uint64]
 }
 
 func (s *segment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
@@ -111,7 +115,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromMemory(offset nodeO
 	dataEnd += 4 // trailing keyLen uint32
 
 	data := contents[offset.start:dataEnd]
-	s.mapPairBuf, s.kvArena, _ = decodeAndConvertFromBlocksReusable(data, s.mapPairBuf, s.kvArena, s.deltaEnc, s.tfEnc)
+	s.decodeBlocksAndConvert(data, docCount)
 
 	keyLen := binary.LittleEndian.Uint32(data[len(data)-4:])
 	keyStart := dataEnd
@@ -163,7 +167,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOff
 		return err
 	}
 
-	s.mapPairBuf, s.kvArena, _ = decodeAndConvertFromBlocksReusable(s.readBuf, s.mapPairBuf, s.kvArena, s.deltaEnc, s.tfEnc)
+	s.decodeBlocksAndConvert(s.readBuf, docCount)
 
 	keyLen := binary.LittleEndian.Uint32(s.readBuf[len(s.readBuf)-4:])
 
@@ -187,6 +191,80 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOff
 	s.nextOffset = offset.end
 
 	return nil
+}
+
+// decodeBlocksAndConvert decodes a node's block-encoded postings into
+// s.mapPairBuf/s.kvArena. Unlike decodeAndConvertFromBlocksReusable it also
+// reuses the intermediate block entry/data structs (s.blockEntryBuf/blockDataBuf)
+// and decodes them in place, so a multi-block node allocates no per-block
+// BlockEntry/BlockData. Output bytes are identical to the allocating path.
+func (s *segmentCursorInvertedReusable) decodeBlocksAndConvert(data []byte, collectionSize uint64) {
+	if cap(s.mapPairBuf) < int(collectionSize) {
+		s.mapPairBuf = make([]MapPair, 0, collectionSize)
+	} else {
+		s.mapPairBuf = s.mapPairBuf[:0]
+	}
+	neededArena := int(collectionSize) * 16
+	if cap(s.kvArena) < neededArena {
+		s.kvArena = make([]byte, neededArena)
+	} else {
+		s.kvArena = s.kvArena[:neededArena]
+	}
+	arenaOff := 0
+
+	// full-bytes path: docId + tf stored inline, no blocks
+	if collectionSize <= uint64(terms.ENCODE_AS_FULL_BYTES) {
+		offset := 8
+		for i := 0; i < int(collectionSize); i++ {
+			key := s.kvArena[arenaOff : arenaOff+8]
+			copy(key, data[offset:offset+8])
+			arenaOff += 8
+			value := s.kvArena[arenaOff : arenaOff+8]
+			copy(value, data[offset+8:offset+12])
+			binary.LittleEndian.PutUint32(value[4:], 0) // zero the reused propLength slot
+			arenaOff += 8
+			s.mapPairBuf = append(s.mapPairBuf, MapPair{Key: key, Value: value})
+			offset += 16
+		}
+		return
+	}
+
+	blockCount := (int(collectionSize) + terms.BLOCK_SIZE - 1) / terms.BLOCK_SIZE
+	if cap(s.blockEntryBuf) < blockCount {
+		s.blockEntryBuf = make([]terms.BlockEntry, blockCount)
+		s.blockDataBuf = make([]terms.BlockData, blockCount)
+	} else {
+		s.blockEntryBuf = s.blockEntryBuf[:blockCount]
+		s.blockDataBuf = s.blockDataBuf[:blockCount]
+	}
+
+	offset := 16 // skip collectionSize(8) + total length(8)
+	blockDataInitialOffset := offset + blockCount*terms.BlockEntry{}.Size()
+	for i := 0; i < blockCount; i++ {
+		terms.DecodeBlockEntryInto(data[offset:], &s.blockEntryBuf[i])
+		dataOffset := int(s.blockEntryBuf[i].Offset) + blockDataInitialOffset
+		terms.DecodeBlockDataReusable(data[dataOffset:], &s.blockDataBuf[i])
+		offset += s.blockEntryBuf[i].Size()
+	}
+
+	for i := range s.blockEntryBuf {
+		blockSize := terms.BLOCK_SIZE
+		if i == blockCount-1 {
+			blockSize = int(collectionSize) - terms.BLOCK_SIZE*i
+		}
+		docIds, tfs := packedDecode(&s.blockDataBuf[i], blockSize, s.deltaEnc, s.tfEnc)
+		for j := 0; j < blockSize; j++ {
+			key := s.kvArena[arenaOff : arenaOff+8]
+			binary.BigEndian.PutUint64(key, docIds[j])
+			arenaOff += 8
+			value := s.kvArena[arenaOff : arenaOff+8]
+			// PutUint64 writes the TF into value[0:4] and zeroes value[4:8], the
+			// propLength slot that would otherwise carry stale arena bytes
+			binary.LittleEndian.PutUint64(value, uint64(math.Float32bits(float32(tfs[j]))))
+			arenaOff += 8
+			s.mapPairBuf = append(s.mapPairBuf, MapPair{Key: key, Value: value})
+		}
+	}
 }
 
 // growBytes returns buf resliced to length n, reallocating only when cap is
