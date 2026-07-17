@@ -129,8 +129,19 @@ func (t *fileReindexTracker) init() error {
 		if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
 			return err
 		}
-		// Persist the new dir entry so it can't be lost before a sentinel is written into it.
-		return diskio.Fsync(filepath.Dir(t.config.migrationPath))
+		// migrationPath is <lsm>/.migrations/<name>, so MkdirAll can create
+		// BOTH the .migrations dir and its <name> child. A directory-entry
+		// creation is durable only once its PARENT is fsynced, so persist both
+		// new levels: fsync .migrations (persists the <name> entry) AND fsync
+		// the lsm dir (persists the .migrations entry). Fsyncing only
+		// .migrations would leave a freshly-created .migrations itself losable
+		// on crash — taking the whole tracker dir, and every sentinel under
+		// it, with it. Cheap: init runs once per migration.
+		migrationsDir := filepath.Dir(t.config.migrationPath) // <lsm>/.migrations
+		if err := diskio.Fsync(migrationsDir); err != nil {
+			return err
+		}
+		return diskio.Fsync(filepath.Dir(migrationsDir)) // <lsm>
 	}
 
 	if t.mkdirGuard != nil {
@@ -263,6 +274,11 @@ func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKe
 
 	progressFileFields := strings.Split(string(progressFile), "\n")
 	if len(progressFileFields) != 4 {
+		// Divergence from GetProgress, which treats the same torn/<4-line
+		// shape as no-progress: that is the resume path and MUST redo safely
+		// rather than error. parseProgressFile is diagnostics only
+		// (GetMigratedCount / the debug status endpoint), so a malformed file
+		// is surfaced as an error instead of being silently reported as zero.
 		err = fmt.Errorf("progress file %s has unexpected format, expected 4 lines, got %d", progressFilePath, len(progressFileFields))
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
