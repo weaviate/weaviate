@@ -123,7 +123,10 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 					}
 					time.Sleep(hookSleepMs * time.Millisecond)
 					return oldMainBucket, nil
-				})
+				},
+				// This proof drives only the flip↔overlay atomicity window; the
+				// per-prop sentinel fsync is not under test here.
+				nil)
 		}
 	}
 

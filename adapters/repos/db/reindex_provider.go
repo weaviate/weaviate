@@ -2204,6 +2204,19 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 			return shard.SwapBucketAndSetOverlay(propName, target,
 				func() (*lsmkv.Bucket, error) {
 					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+				},
+				func() error {
+					// Durable per-prop sentinel, run AFTER the overlay is set
+					// and tokenizationOverlayMu is released (F1): the fsync
+					// must never block queries pinning the (bucket,
+					// tokenization) pair. The flip callback
+					// (processOneSwapProp) skips this fsync on the atomic path
+					// so it lands here exactly once. Idempotent on a resumed
+					// swap whose sentinel is already on disk.
+					if rt.IsSwappedProp(propName) {
+						return nil
+					}
+					return rt.markSwappedProp(propName)
 				})
 		}
 	}

@@ -765,15 +765,59 @@ func (s *Shard) SetTokenizationOverlay(propName, target string) {
 	s.tokenizationOverlay[propName] = target
 }
 
-// SwapBucketAndSetOverlay runs propName's bucket flip and overlay set as ONE
-// critical section under tokenizationOverlayMu (read side:
-// [Shard.PinTokenizationAndSearchableBucket]), so no query sees a mixed pair.
+// SwapBucketAndSetOverlay runs propName's bucket-pointer flip and overlay
+// set as ONE critical section under tokenizationOverlayMu (read side:
+// [Shard.PinTokenizationAndSearchableBucket]), so no query ever sees a mixed
+// (bucket, tokenization) pair. It then runs the optional durable
+// `afterOverlay` step AFTER the lock is released.
+//
+// The split is deliberate. Only the pointer flip and the overlay set need to
+// be atomic w.r.t. queries; the per-prop sentinel fsync (markSwappedProp on
+// the reindex path) is durability, not atomicity. Holding
+// tokenizationOverlayMu across that fsync would stall every query on the
+// migrating prop for the fsync duration — tens to hundreds of ms on a
+// degraded disk — because queries pin the pair under this mutex's RLock.
+// Running the fsync after unlock keeps the query-visible critical section to
+// two in-memory map writes.
+//
+// Crash-safety is unchanged by the split: between the in-memory flip and the
+// afterOverlay fsync nothing durable changes on disk (Phase 2a does no dir
+// renames; those run later in Phase 2b), and reindex recovery
+// (recoverRuntimeSwapBuckets) re-derives the swap from on-disk dir state, NOT
+// from the per-prop sentinel — so a crash anywhere in the post-unlock gap
+// redoes the swap idempotently. The reorder also removes a latent failure
+// mode: if the fsync fails now, the overlay is already set, so queries stay
+// correctly routed (bucket ≡ overlay) instead of being left on the NEW bucket
+// with the OLD overlay until the next restart.
 //
 // CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
 // pinned query may need tokenizationOverlayMu next (self-clear path), so
-// draining here would invert lock order and deadlock. Phase-2b teardown
-// must happen strictly after this method returns.
+// draining here would invert lock order and deadlock. Phase-2b teardown must
+// happen strictly after this method returns. afterOverlay runs lock-free and
+// must NOT re-acquire tokenizationOverlayMu.
 func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
+	flip func() (*lsmkv.Bucket, error),
+	afterOverlay func() error,
+) (*lsmkv.Bucket, error) {
+	oldMainBucket, err := s.swapBucketPointerAndSetOverlayLocked(propName, target, flip)
+	if err != nil {
+		return nil, err
+	}
+	if afterOverlay != nil {
+		if err := afterOverlay(); err != nil {
+			return oldMainBucket, err
+		}
+	}
+	return oldMainBucket, nil
+}
+
+// swapBucketPointerAndSetOverlayLocked performs the atomicity-critical half
+// of [Shard.SwapBucketAndSetOverlay]: the bucket-pointer flip and the overlay
+// set under a single tokenizationOverlayMu write lock. It is split out so the
+// caller can release the lock (via this method's defer) BEFORE running the
+// durable post-step, keeping the sentinel fsync out of the query-blocking
+// critical section.
+func (s *Shard) swapBucketPointerAndSetOverlayLocked(propName, target string,
 	flip func() (*lsmkv.Bucket, error),
 ) (*lsmkv.Bucket, error) {
 	s.tokenizationOverlayMu.Lock()
