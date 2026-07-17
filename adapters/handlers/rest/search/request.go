@@ -203,7 +203,7 @@ func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIE
 
 // fillCommonTail parses returnMetadata (scoped to the resolved target
 // vectors), then the shared selection-and-filter tail — shared by the
-// vector-capable search types (near-text, hybrid).
+// vector-capable search types (near-text, hybrid, near-object).
 func (h *Handler) fillCommonTail(out *dto.GetParams, class *models.Class, className string,
 	common *models.SearchCommon, targetVectors []string, getClass classGetterFunc, principal *models.Principal,
 ) *APIError {
@@ -214,6 +214,72 @@ func (h *Handler) fillCommonTail(out *dto.GetParams, class *models.Class, classN
 	out.AdditionalProperties = addProps
 
 	return h.fillSelectionAndFilter(out, class, className, common, getClass, principal)
+}
+
+// buildNearObjectParams converts the near-object request into the
+// dto.GetParams consumed by traverser.GetClass. Behavior must stay in sync
+// with the gRPC parser's near-object handling
+// (adapters/handlers/grpc/v1/parse_search_request.go).
+func (h *Handler) buildNearObjectParams(class *models.Class, className string, body *models.SearchNearObjectRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	nearObject, apiErr := parseNearObject(class, body, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.NearObject = nearObject
+
+	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	return out, nil
+}
+
+// parseNearObject builds the near-object search params, mirroring the gRPC
+// parser: the source object's stored vector anchors the search, so no
+// vectorizer module is required. Whether the id resolves to an object is
+// the engine's (typed ErrSourceObjectNotFound/ErrSourceObjectNoVector).
+func parseNearObject(class *models.Class, body *models.SearchNearObjectRequest, targetVectors []string) (*searchparams.NearObject, *APIError) {
+	if body.ID == nil || *body.ID == "" {
+		return nil, newAPIError(http.StatusBadRequest, "id must not be empty")
+	}
+
+	if body.Certainty != nil && body.Distance != nil {
+		return nil, newAPIError(http.StatusBadRequest, "near_object: cannot provide both distance and certainty")
+	}
+	if body.Certainty != nil && (*body.Certainty < 0 || *body.Certainty > 1) {
+		return nil, newAPIError(http.StatusBadRequest,
+			"certainty must be between 0 and 1, got %v", *body.Certainty)
+	}
+
+	params := &searchparams.NearObject{
+		ID:            body.ID.String(),
+		TargetVectors: targetVectors,
+	}
+	if body.Certainty != nil {
+		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+			return nil, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+		}
+		params.Certainty = *body.Certainty
+	}
+	if body.Distance != nil {
+		params.Distance = *body.Distance
+		params.WithDistance = true
+	}
+
+	return params, nil
 }
 
 // buildHybridParams converts the hybrid request into the dto.GetParams

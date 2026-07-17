@@ -66,6 +66,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/search/{collection}/near-text",                         // search is a read; a viewer holds data READ
 		"/search/{collection}/bm25",                              // search is a read; a viewer holds data READ
 		"/search/{collection}/hybrid",                            // search is a read; a viewer holds data READ
+		"/search/{collection}/near-object",                       // search is a read; a viewer holds data READ
 	}
 
 	// TODO: these leak status (404 for aliases, 501 for replication) before
@@ -150,6 +151,10 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 			// same for hybrid
 			if endpoint.path == "/search/{collection}/hybrid" && endpoint.method == http.MethodPost {
 				body = []byte(`{"query":"ABC"}`)
+			}
+			// same for near-object (a well-formed source-object id)
+			if endpoint.path == "/search/{collection}/near-object" && endpoint.method == http.MethodPost {
+				body = []byte(`{"id":"aa44bbee-ca5f-4db7-a412-5fc6a2300001"}`)
 			}
 
 			forbidden := false

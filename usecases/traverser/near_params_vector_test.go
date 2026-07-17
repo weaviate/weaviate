@@ -612,3 +612,64 @@ func Test_nearParamsVector_vectorFromModules_TypedError(t *testing.T) {
 		"vectorization failures must carry entities/errors.ErrQueryVectorization, got: %v", err)
 	assert.Equal(t, "vectorize params: remote client vectorize: connection refused", err.Error())
 }
+
+// fixedObjectSearcher answers every source-object lookup with the same
+// result, so the near-object failure modes can be staged.
+type fixedObjectSearcher struct {
+	res *search.Result
+}
+
+func (f *fixedObjectSearcher) Object(ctx context.Context, className string, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+	repl *additional.ReplicationProperties, tenant string,
+) (*search.Result, error) {
+	return f.res, nil
+}
+
+func (f *fixedObjectSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties, tenant string,
+) (search.Results, error) {
+	if f.res == nil {
+		return nil, nil
+	}
+	return search.Results{*f.res}, nil
+}
+
+// API handlers (e.g. adapters/handlers/rest/search) classify these failures
+// by type: a missing source object is a client error (400), a source object
+// without a usable vector a data-state error (422) — neither may degrade to
+// the generic vectorization 502.
+func Test_nearParamsVector_vectorFromNearObjectParams_TypedErrors(t *testing.T) {
+	nearObject := &searchparams.NearObject{ID: "73f2eb5f-5abf-447a-81ca-74b1dd168247"}
+
+	t.Run("missing source object", func(t *testing.T) {
+		v := newNearParamsVector(&fakeModulesProvider{}, &fixedObjectSearcher{res: nil})
+
+		_, err := v.vectorFromParams(context.Background(), nil, nearObject, nil, "Movie", "", "", 0)
+		require.Error(t, err)
+		assert.True(t, errors.As(err, &enterrors.ErrSourceObjectNotFound{}),
+			"a missing source object must carry entities/errors.ErrSourceObjectNotFound, got: %v", err)
+		assert.Equal(t, "nearObject params: vector not found", err.Error())
+	})
+
+	t.Run("source object without any vector", func(t *testing.T) {
+		v := newNearParamsVector(&fakeModulesProvider{}, &fixedObjectSearcher{res: &search.Result{}})
+
+		_, err := v.vectorFromParams(context.Background(), nil, nearObject, nil, "Movie", "", "", 0)
+		require.Error(t, err)
+		assert.True(t, errors.As(err, &enterrors.ErrSourceObjectNoVector{}),
+			"a vectorless source object must carry entities/errors.ErrSourceObjectNoVector, got: %v", err)
+	})
+
+	t.Run("source object without the target vector", func(t *testing.T) {
+		v := newNearParamsVector(&fakeModulesProvider{}, &fixedObjectSearcher{res: &search.Result{
+			Vectors: models.Vectors{"other_vec": []float32{1, 2, 3}},
+		}})
+
+		_, err := v.vectorFromParams(context.Background(), nil, nearObject, nil, "Movie", "", "title_vec", 0)
+		require.Error(t, err)
+		assert.True(t, errors.As(err, &enterrors.ErrSourceObjectNoVector{}),
+			"a missing target vector on the source object must carry entities/errors.ErrSourceObjectNoVector, got: %v", err)
+		assert.Equal(t, "nearObject params: vector not found for target: title_vec", err.Error())
+	})
+}
