@@ -115,6 +115,122 @@ func TestTypesConflictReason(t *testing.T) {
 	}
 }
 
+// TestTouchesBucket_RebuildSearchableIsExhaustive pins rebuild-searchable's
+// presence in both bucket-touch switches; a missing case panics via default.
+func TestTouchesBucket_RebuildSearchableIsExhaustive(t *testing.T) {
+	require.NotPanics(t, func() {
+		require.True(t, TouchesSearchable(ReindexTypeRebuildSearchable))
+		require.False(t, TouchesFilterable(ReindexTypeRebuildSearchable))
+	})
+}
+
+// TestTypesConflictReason_RebuildSearchableDoesNotPanic pins that an
+// overlapping rebuild-searchable task yields a conflict reason, not a panic.
+func TestTypesConflictReason_RebuildSearchableDoesNotPanic(t *testing.T) {
+	var reason string
+	require.NotPanics(t, func() {
+		reason = typesConflictReason(
+			ReindexTypeRebuildSearchable, []string{"text"},
+			ReindexTypeChangeTokenization, []string{"text"},
+		)
+	})
+	require.NotEmpty(t, reason, "overlapping in-flight task must yield a conflict reason")
+}
+
+// TestSearchablePropertyBlockmaxFromRAFT pins the RAFT-only derivation:
+// class flag OR a FINISHED blockmax-producing task on this property — nothing
+// else (other statuses, migration types, properties, or collections) counts.
+func TestSearchablePropertyBlockmaxFromRAFT(t *testing.T) {
+	task := func(collection string, mt ReindexMigrationType, status distributedtask.TaskStatus, props ...string) *distributedtask.Task {
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: collection, MigrationType: mt, Properties: props})
+		require.NoError(t, err)
+		return &distributedtask.Task{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: string(mt) + ":" + status.String()},
+			Status:         status,
+			Payload:        payload,
+		}
+	}
+
+	tests := []struct {
+		name      string
+		classFlag bool
+		tasks     []*distributedtask.Task
+		want      bool
+	}{
+		{name: "class flag on, no task → blockmax", classFlag: true, want: true},
+		{name: "class flag off, no task → WAND", classFlag: false, want: false},
+		{
+			name:  "finished change-algorithm on P → blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name:  "finished enable-searchable on P → blockmax (created as blockmax)",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeEnableSearchable, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name:  "finished rebuild-searchable on P → blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeRebuildSearchable, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name:  "finished change-tokenization on P → not blockmax (strategy preserved)",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeTokenization, distributedtask.TaskStatusFinished, "text")},
+			want:  false,
+		},
+		{
+			name:  "started change-algorithm on P → not yet blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusStarted, "text")},
+			want:  false,
+		},
+		{
+			name:  "swapping change-algorithm on P → not yet blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusSwapping, "text")},
+			want:  false,
+		},
+		{
+			name:  "failed change-algorithm on P → not blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFailed, "text")},
+			want:  false,
+		},
+		{
+			name:  "cancelled change-algorithm on P → not blockmax",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusCancelled, "text")},
+			want:  false,
+		},
+		{
+			name:  "finished change-algorithm on a different property → P still WAND",
+			tasks: []*distributedtask.Task{task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "other")},
+			want:  false,
+		},
+		{
+			name:  "finished change-algorithm on a different collection → P still WAND",
+			tasks: []*distributedtask.Task{task("Other", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
+			want:  false,
+		},
+		{
+			name:  "collection match is case-insensitive",
+			tasks: []*distributedtask.Task{task("c", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFinished, "text")},
+			want:  true,
+		},
+		{
+			name: "class flag on wins even with a failed task present",
+			tasks: []*distributedtask.Task{
+				task("C", ReindexTypeChangeAlgorithm, distributedtask.TaskStatusFailed, "text"),
+			},
+			classFlag: true,
+			want:      true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SearchablePropertyBlockmaxFromRAFT(tc.classFlag, "C", "text", tc.tasks)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // TestCheckConflict_AcceptsNonOverlapping pins the happy path:
 // CheckConflict returns nil when the new payload doesn't overlap with
 // any STARTED existing task.

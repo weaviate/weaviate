@@ -14,10 +14,63 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
+
+// producesBlockmaxSearchable reports whether completing a migration type
+// leaves the property's searchable bucket on blockmax. change-tokenization is
+// excluded: it rewrites bucket contents but preserves the existing strategy.
+func producesBlockmaxSearchable(t ReindexMigrationType) bool {
+	switch t {
+	case ReindexTypeChangeAlgorithm,
+		ReindexTypeEnableSearchable,
+		ReindexTypeRebuildSearchable:
+		return true
+	default:
+		return false
+	}
+}
+
+// SearchablePropertyBlockmaxFromRAFT reports whether the searchable index of
+// (collection, propName) is on blockmax, derived only from RAFT-consistent
+// state (class flag + reindex task list) so every node — including one
+// holding no shard of the collection — computes the same answer.
+//
+// classFlagBlockmax is class.InvertedIndexConfig.UsingBlockMaxWAND. The
+// property is blockmax if that flag is set, or a FINISHED reindex task
+// producing a blockmax bucket [producesBlockmaxSearchable] targeted it. The
+// class flag lags per-property truth (it flips only once every searchable
+// property has migrated), so an early-migrated property reads blockmax via
+// its completed task while the flag is still deferred.
+//
+// Accepted limitation: once a completed task ages out of the list
+// (CompletedTaskTTL), a migrated property in a permanently-partial class
+// (siblings stuck on WAND) reads back as WAND. Operator remediation
+// (re-migrate) covers it; see the GA reindex RFC.
+func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, propName string, reindexTasks []*distributedtask.Task) bool {
+	if classFlagBlockmax {
+		return true
+	}
+	for _, task := range reindexTasks {
+		if task.Status != distributedtask.TaskStatusFinished {
+			continue
+		}
+		var payload ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			continue
+		}
+		if !producesBlockmaxSearchable(payload.MigrationType) {
+			continue
+		}
+		if strings.EqualFold(payload.Collection, collection) && slices.Contains(payload.Properties, propName) {
+			return true
+		}
+	}
+	return false
+}
 
 // CheckConflict implements [distributedtask.ConflictDetector] for the
 // reindex namespace. Called under [Manager.mu] from the RAFT-apply
@@ -174,7 +227,8 @@ func TouchesSearchable(t ReindexMigrationType) bool {
 	switch t {
 	case ReindexTypeChangeAlgorithm,
 		ReindexTypeChangeTokenization,
-		ReindexTypeEnableSearchable:
+		ReindexTypeEnableSearchable,
+		ReindexTypeRebuildSearchable:
 		return true
 	case ReindexTypeRepairFilterable,
 		ReindexTypeChangeTokenizationFilterable,
@@ -199,6 +253,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 		return true
 	case ReindexTypeChangeAlgorithm,
 		ReindexTypeEnableSearchable,
+		ReindexTypeRebuildSearchable,
 		ReindexTypeEnableRangeable,
 		ReindexTypeRepairRangeable:
 		return false
