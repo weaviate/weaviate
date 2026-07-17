@@ -53,10 +53,11 @@ func TestReindex_DoubleWriteTargetPhaseNilBucket(t *testing.T) {
 		wantErrContains []string // non-empty => both callbacks must error and name these
 	}{
 		{
-			name:            "target phase, both names resolve nil, errors loudly",
-			add:             callback(blockmaxSearchableAddCallback(sidecarNamer, inScope, canonicalNamer)),
-			del:             callback(blockmaxSearchableDeleteCallback(sidecarNamer, inScope, canonicalNamer)),
-			wantErrContains: []string{propName, missingSidecar, missingCanonical},
+			name: "target phase, both names resolve nil, errors loudly",
+			add:  callback(blockmaxSearchableAddCallback(sidecarNamer, inScope, canonicalNamer)),
+			del:  callback(blockmaxSearchableDeleteCallback(sidecarNamer, inScope, canonicalNamer)),
+			// class + shard locators: on CL<ALL the absorbed error is the operator's only locator.
+			wantErrContains: []string{propName, missingSidecar, missingCanonical, shard.index.ID(), shard.Name()},
 		},
 		{
 			name: "backup phase, sidecar gone, skips by design",

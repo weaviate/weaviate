@@ -64,10 +64,12 @@ func resolveScopedDoubleWriteBucket(shard *Shard, property *inverted.Property,
 		return nil, bucketName, nil
 	}
 	// Target phase: this state is unreachable through a healthy swap, so
-	// error loudly instead of silently dropping the write.
+	// error loudly instead of silently dropping the write. Name the class and
+	// shard: on CL<ALL the absorbed error is the operator's only locator (the
+	// shard name doubles as the tenant in multi-tenant collections).
 	return nil, bucketName, fmt.Errorf(
-		"double-write target resolved no bucket for property %q: neither ingest sidecar %q nor canonical fallback %q exists",
-		property.Name, bucketName, swapFallback)
+		"double-write target resolved no bucket for property %q on class %q shard %q: neither ingest sidecar %q nor canonical fallback %q exists",
+		property.Name, shard.index.ID(), shard.name, bucketName, swapFallback)
 }
 
 // withRetokenizeDoubleWrite is the shared body of the four retokenize
