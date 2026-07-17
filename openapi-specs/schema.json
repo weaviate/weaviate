@@ -3903,21 +3903,24 @@
         },
         "rerank": {
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "object",
-          "x-nullable": true,
-          "required": [
-            "property"
-          ],
-          "properties": {
-            "property": {
-              "description": "The property to rerank on.",
-              "type": "string"
-            },
-            "query": {
-              "description": "The query to rerank with. Defaults to the search query.",
-              "type": "string"
-            }
-          }
+          "$ref": "#/definitions/SearchRerank"
+        }
+      }
+    },
+    "SearchRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
         }
       }
     },

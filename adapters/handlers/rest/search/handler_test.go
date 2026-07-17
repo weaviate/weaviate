@@ -232,7 +232,7 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 
 	deps.handler.enabled = runtime.NewDynamicValue(true)
 	rerankProp := "title"
-	rerank := &models.SearchCommonRerank{Property: &rerankProp}
+	rerank := &models.SearchRerank{Property: &rerankProp}
 	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
 		&models.SearchCommon{Rerank: rerank}, build)
 	require.NotNil(t, apiErr)

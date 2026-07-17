@@ -226,6 +226,15 @@ camelCase also matches the legacy REST bodies (objects/schema) and GraphQL.
 Note the repo remains split — the namespaces and export APIs chose
 snake_case — a platform-wide convention is still to be ratified.
 
+Same round (Copilot): the reserved `rerank` object is a referenced
+definition (`SearchRerank`), not inline — the inline generation baked the
+`rerank.` prefix into the child validator and the parent prefixed it again,
+so `{"rerank":{}}` reported `rerank.rerank.property in body is required`.
+With the `$ref` the child validates under its local name and the public
+error names `rerank.property` once (regression test in `request_test.go`).
+The camelCase response metadata keys are also now pinned on the wire by an
+acceptance subtest requesting all six metadata keys.
+
 Also on 2026-07-10 (Copilot review, two rounds): a denied request against
 an alias no longer names the alias target in the 403 (deny on the
 caller-supplied name); certainty outside [0,1] → 400; `limit`/`offset` and
@@ -428,7 +437,7 @@ enforced by the generated model at bind time; the rest are the handler's.
 | `returnMetadata` | `[]string` (enum) | `distance`, `certainty`, `score`, `explainScore`, `creationTime`, `lastUpdateTime` — metadata keys only; the object `id` is **always returned** as the envelope's `id` field and is not a valid entry; omitted or `[]` → no `metadata` block; value outside the enum (incl. `id`) → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
 | `tenant` | `string` | tenant-scoped authz (`ShardsData`) |
 | `consistencyLevel` | `string` (enum) | ONE / QUORUM / ALL; other value → 422 (swagger enum) |
-| reserved | `*string` / `*int64` / `*SearchCommonRerank` (ptr) | `singlePrompt`, `groupedTask` (RAG, deferred), `groupBy`, `numberOfGroups`, `objectsPerGroup`, `rerank` (`{"property", "query"}` — nested to match all four clients and the gRPC `Rerank` message) — declared but return 422 "not yet supported" when present (non-nil).
+| reserved | `*string` / `*int64` / `*SearchRerank` (ptr) | `singlePrompt`, `groupedTask` (RAG, deferred), `groupBy`, `numberOfGroups`, `objectsPerGroup`, `rerank` (`{"property", "query"}` — nested to match all four clients and the gRPC `Rerank` message) — declared but return 422 "not yet supported" when present (non-nil).
 ### Error-status table (as built)
 
 | Condition | Status | Body shape |

@@ -286,6 +286,27 @@ func TestRESTSearchNearText(t *testing.T) {
 		assert.Equal(t, movie1ID.String(), idOf(t, first))
 	})
 
+	t.Run("metadata comes back under camelCase wire keys", func(t *testing.T) {
+		status, out := postNearText(t, "Movie", map[string]interface{}{
+			"query":          []string{"spaceship galaxy"},
+			"returnMetadata": []string{"distance", "certainty", "score", "explainScore", "creationTime", "lastUpdateTime"},
+		})
+		require.Equal(t, http.StatusOK, status, "%v", out)
+
+		metadata := metadataOf(t, hit(t, out, 0))
+		// always computable for a cosine near-text search
+		for _, key := range []string{"distance", "certainty", "creationTime", "lastUpdateTime"} {
+			assert.Contains(t, metadata, key)
+		}
+		// score/explainScore may be absent for pure vector search, but any
+		// key that is present must use its camelCase wire name
+		for key := range metadata {
+			assert.Contains(t, []string{
+				"distance", "certainty", "score", "explainScore", "creationTime", "lastUpdateTime",
+			}, key, "unexpected metadata wire key")
+		}
+	})
+
 	t.Run("the id is always returned, even without returnMetadata", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
 			"query":            []string{"spaceship galaxy"},

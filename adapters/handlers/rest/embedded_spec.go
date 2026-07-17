@@ -10389,21 +10389,7 @@ func init() {
         },
         "rerank": {
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "object",
-          "required": [
-            "property"
-          ],
-          "properties": {
-            "property": {
-              "description": "The property to rerank on.",
-              "type": "string"
-            },
-            "query": {
-              "description": "The query to rerank with. Defaults to the search query.",
-              "type": "string"
-            }
-          },
-          "x-nullable": true
+          "$ref": "#/definitions/SearchRerank"
         },
         "returnMetadata": {
           "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
@@ -10480,6 +10466,23 @@ func init() {
           }
         }
       ]
+    },
+    "SearchRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
+        }
+      }
     },
     "SearchResponse": {
       "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
@@ -22180,21 +22183,7 @@ func init() {
         },
         "rerank": {
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "object",
-          "required": [
-            "property"
-          ],
-          "properties": {
-            "property": {
-              "description": "The property to rerank on.",
-              "type": "string"
-            },
-            "query": {
-              "description": "The query to rerank with. Defaults to the search query.",
-              "type": "string"
-            }
-          },
-          "x-nullable": true
+          "$ref": "#/definitions/SearchRerank"
         },
         "returnMetadata": {
           "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
@@ -22232,24 +22221,6 @@ func init() {
           "$ref": "#/definitions/WhereFilter"
         }
       }
-    },
-    "SearchCommonRerank": {
-      "description": "Reserved for reranking. Returns 422 (not yet supported).",
-      "type": "object",
-      "required": [
-        "property"
-      ],
-      "properties": {
-        "property": {
-          "description": "The property to rerank on.",
-          "type": "string"
-        },
-        "query": {
-          "description": "The query to rerank with. Defaults to the search query.",
-          "type": "string"
-        }
-      },
-      "x-nullable": true
     },
     "SearchNearTextRequest": {
       "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
@@ -22289,6 +22260,23 @@ func init() {
           }
         }
       ]
+    },
+    "SearchRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
+        }
+      }
     },
     "SearchResponse": {
       "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",

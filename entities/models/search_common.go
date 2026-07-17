@@ -31,7 +31,6 @@ import (
 //
 // swagger:model SearchCommon
 type SearchCommon struct {
-
 	// Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.
 	AutoLimit *int64 `json:"autoLimit,omitempty"`
 
@@ -57,8 +56,8 @@ type SearchCommon struct {
 	// The number of objects to skip before returning results. Used with `limit` for pagination.
 	Offset *int64 `json:"offset,omitempty"`
 
-	// rerank
-	Rerank *SearchCommonRerank `json:"rerank,omitempty"`
+	// Reserved for reranking. Returns 422 (not yet supported).
+	Rerank *SearchRerank `json:"rerank,omitempty"`
 
 	// The retrieval metadata to return under each result's `metadata` key. The object `id` is always returned as each result's `id` field. Omitted or empty returns no `metadata` block.
 	ReturnMetadata []string `json:"returnMetadata"`
@@ -191,12 +190,10 @@ func (m *SearchCommon) validateReturnMetadata(formats strfmt.Registry) error {
 	}
 
 	for i := 0; i < len(m.ReturnMetadata); i++ {
-
 		// value enum
 		if err := m.validateReturnMetadataItemsEnum("returnMetadata"+"."+strconv.Itoa(i), "body", m.ReturnMetadata[i]); err != nil {
 			return err
 		}
-
 	}
 
 	return nil
@@ -240,7 +237,6 @@ func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Regis
 }
 
 func (m *SearchCommon) contextValidateRerank(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Rerank != nil {
 		if err := m.Rerank.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -256,7 +252,6 @@ func (m *SearchCommon) contextValidateRerank(ctx context.Context, formats strfmt
 }
 
 func (m *SearchCommon) contextValidateWhere(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.Where != nil {
 		if err := m.Where.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -282,65 +277,6 @@ func (m *SearchCommon) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *SearchCommon) UnmarshalBinary(b []byte) error {
 	var res SearchCommon
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*m = res
-	return nil
-}
-
-// SearchCommonRerank Reserved for reranking. Returns 422 (not yet supported).
-//
-// swagger:model SearchCommonRerank
-type SearchCommonRerank struct {
-
-	// The property to rerank on.
-	// Required: true
-	Property *string `json:"property"`
-
-	// The query to rerank with. Defaults to the search query.
-	Query string `json:"query,omitempty"`
-}
-
-// Validate validates this search common rerank
-func (m *SearchCommonRerank) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateProperty(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *SearchCommonRerank) validateProperty(formats strfmt.Registry) error {
-
-	if err := validate.Required("rerank"+"."+"property", "body", m.Property); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ContextValidate validates this search common rerank based on context it is used
-func (m *SearchCommonRerank) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (m *SearchCommonRerank) MarshalBinary() ([]byte, error) {
-	if m == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(m)
-}
-
-// UnmarshalBinary interface implementation
-func (m *SearchCommonRerank) UnmarshalBinary(b []byte) error {
-	var res SearchCommonRerank
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -132,12 +133,22 @@ func TestReservedFieldsAbsentOrNullAllowed(t *testing.T) {
 	for _, body := range []string{
 		`{"query":["space"]}`,
 		`{"query":["space"],"groupBy":null}`,
+		`{"query":["space"],"rerank":null}`,
 	} {
 		t.Run(body, func(t *testing.T) {
 			_, apiErr := buildParams(t, movieClass(), body)
 			assert.Nil(t, apiErr)
 		})
 	}
+}
+
+func TestRerankValidationNamesPropertyOnce(t *testing.T) {
+	req, apiErr := decodeModel(`{"query":["space"],"rerank":{}}`)
+	require.Nil(t, apiErr)
+
+	err := req.Validate(strfmt.Default)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rerank.property in body is required")
 }
 
 func TestParseQuery(t *testing.T) {
