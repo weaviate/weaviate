@@ -789,6 +789,19 @@ func (s *Shard) reconcileRangeableReadinessAfterInit() {
 		if s.hasExplicitRangeableReadyEntry(propName) {
 			continue
 		}
+		// A durable not-ready verdict from a prior boot outlives the HasAnyData
+		// heuristic. Once this shard judged the rangeable index incomplete,
+		// post-gate writes may have since landed SOME postings (writes are
+		// schema+existence gated, not readiness gated), so the bucket now passes
+		// HasAnyData below while its historical postings are still missing.
+		// Trust the persisted verdict until an explicit rebuild clears it
+		// (FilterableToRangeableStrategy.OnMigrationComplete). Without this, the
+		// content heuristic re-serves the partially-populated bucket as ready
+		// and silently under-reports history. weaviate/0-weaviate-issues#335.
+		if s.rangeableIncompleteSentinelExists(propName) {
+			s.setRangeableLocallyReady(propName, false)
+			continue
+		}
 		rangeBucket := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
 		if rangeBucket == nil || rangeBucket.HasAnyData() {
 			// Absent (the default-false branch already protects queries) or
@@ -803,6 +816,16 @@ func (s *Shard) reconcileRangeableReadinessAfterInit() {
 			continue
 		}
 		s.setRangeableLocallyReady(propName, false)
+		// Persist the verdict so a subsequent boot whose bucket has since been
+		// partially repopulated by new writes still routes to the fallback
+		// instead of being fooled by HasAnyData. Best-effort: the in-memory
+		// verdict above already protects this boot; only cross-boot durability
+		// is at stake if the marker cannot be written.
+		if err := s.writeRangeableIncompleteSentinel(propName); err != nil {
+			s.index.logger.WithField("shard", s.name).WithField("property", propName).
+				Warnf("failed to persist rangeable-incomplete marker; the not-ready verdict "+
+					"may not survive a restart if the bucket is later partially repopulated: %v", err)
+		}
 		s.index.logger.WithField("shard", s.name).WithField("property", propName).
 			Warn("rangeable index is empty while the filterable index holds data; " +
 				"routing range queries to the filterable fallback on this shard until the rangeable index is repopulated")

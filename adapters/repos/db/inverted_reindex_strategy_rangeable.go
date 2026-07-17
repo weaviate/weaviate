@@ -241,6 +241,17 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 	if concrete, err := unwrapShard(ctx, shard); err == nil && concrete != nil {
 		for _, propName := range s.propNames {
 			concrete.setRangeableLocallyReady(propName, true)
+			// A completed rebuild repopulates the rangeable index from the
+			// objects bucket, so any durable "incomplete" verdict a prior boot
+			// recorded is now stale. Clear it so future boots trust the
+			// now-complete bucket again instead of routing to the filterable
+			// fallback forever. This is the explicit-rebuild clear point for the
+			// partial-population marker. weaviate/0-weaviate-issues#335.
+			if err := concrete.removeRangeableIncompleteSentinel(propName); err != nil {
+				concrete.index.logger.WithField("shard", concrete.name).WithField("property", propName).
+					Warnf("failed to clear rangeable-incomplete marker after migration completion; "+
+						"range queries may keep routing to the filterable fallback until the next successful rebuild: %v", err)
+			}
 		}
 	}
 
