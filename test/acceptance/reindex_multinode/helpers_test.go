@@ -944,17 +944,10 @@ func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAf
 	return late
 }
 
-// awaitRangeCountSettledNoFallback polls a range-count query until it
-// converges to expected, drives a few extra reads so any log-only side
-// effect tied to the first post-settle read has definitely run, then
-// asserts the (c) disk-fallback WARN (fallbackWARNSubstr) never fired
-// against container's logs. countFailMsgFmt/countFailArg follow
-// require.Eventually's msgAndArgs convention (a %-format string plus its
-// substitution value).
-//
-// Shared by the pre-restart and post-restart phases of
-// TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff,
-// which repeat this exact sequence around a node restart in between.
+// awaitRangeCountSettledNoFallback polls until the range count converges to
+// expected, then asserts the disk-fallback WARN (fallbackWARNSubstr) never
+// appeared in container's logs. countFailMsgFmt/countFailArg follow
+// require.Eventually's msgAndArgs convention.
 func awaitRangeCountSettledNoFallback(
 	ctx context.Context, t *testing.T,
 	container interface {
@@ -987,18 +980,9 @@ type rangeCountProbeCounters struct {
 }
 
 // startRangeCountPolling launches one goroutine per node in [1, nodeCount],
-// each firing a range-count query against className every 50ms until stopCh
-// is closed. Every poll increments queryRuns; a transient error increments
-// queryErrors and invokes onError (if non-nil); a non-error, non-expected
-// count increments wrongCounts and invokes onWrong (if non-nil). Both
-// callbacks are invoked concurrently from their own goroutine and must be
-// safe for that. Callers stop the probes by closing stopCh and then calling
-// wg.Wait(), and read the final tallies off the returned counters.
-//
-// Shared between TestMultiNode_EnableRangeable_NoPartialCountsInFlight and
-// TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe, which
-// differ only in their per-event log message shape (passed in via onWrong /
-// onError).
+// firing a range-count query every 50ms until stopCh closes. Tallies
+// runs/errors/wrong-counts and invokes onWrong/onError per event; both run
+// concurrently from their own goroutine and must be goroutine-safe.
 func startRangeCountPolling(
 	compose *docker.DockerCompose, className string, lo, hi, expected, nodeCount int,
 	onWrong func(nodeIdx, got int), onError func(nodeIdx int, err error),

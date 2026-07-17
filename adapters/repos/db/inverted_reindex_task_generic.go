@@ -2430,10 +2430,8 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 	strategy := t.strategy.TargetStrategy()
 	bucketOpts := t.bucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
 
-	// Mark only the ingest bucket - it becomes the main bucket after the swap
-	// and serves range reads from disk (rep forced off below). Reindex/backup
-	// buckets are torn down and never serve production reads. See
-	// weaviate/weaviate#12199.
+	// Only the ingest bucket becomes the main bucket post-swap; reindex/backup
+	// buckets are torn down and never serve reads.
 	if strategy == lsmkv.StrategyRoaringSetRange && shard.Index().Config.IndexRangeableInMemory {
 		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
 		logger.WithField("props", props).Info(
@@ -2636,11 +2634,9 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 		),
 	)
 
-	// Force keepSegmentsInMemory=false for RoaringSetRange reindex/ingest
-	// buckets - PrependSegmentsFromBucket can't rebuild the in-memory rep, so a
-	// kept rep would serve stale/empty range results until the next clean
-	// bucket open (see weaviate/weaviate#12199). This overrides the global
-	// knob; opts are appended after the strategy defaults.
+	// Override: RoaringSetRange ingest buckets never keep an in-memory rep.
+	// PrependSegmentsFromBucket can't rebuild it, so a kept rep would serve
+	// stale/empty range results until the next clean bucket open.
 	if strategy == lsmkv.StrategyRoaringSetRange {
 		opts = append(opts, lsmkv.WithKeepSegmentsInMemory(false))
 	}

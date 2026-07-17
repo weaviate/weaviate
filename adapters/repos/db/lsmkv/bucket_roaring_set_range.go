@@ -59,13 +59,10 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
 	if b.keepSegmentsInMemory {
-		// The in-memory rep must always mirror what's on disk (see
-		// weaviate/weaviate#12199). If it's unpopulated while disk segments
-		// exist, the rep is out of sync (mass-delete, or a rep-population gap):
-		// fall back to the always-correct disk reader and warn once. Check
-		// emptiness first so the populated hot path only pays one IsEmpty()
-		// under the rep's own RLock and never touches maintenanceLock; the two
-		// locks are never held together.
+		// Invariant: the rep must mirror disk. If unpopulated while disk
+		// segments exist (mass-delete, or a population gap), fall back to disk
+		// and warn once. Check emptiness first so the hot path pays one
+		// IsEmpty() under the rep's RLock and never holds maintenanceLock too.
 		if b.disk.roaringSetRangeSegmentInMemory.IsUnpopulated() {
 			if n := b.disk.roaringSetRangeDiskSegmentCount(); n > 0 {
 				b.rangeableFallbackWarnOnce.Do(func() {
@@ -86,10 +83,8 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 }
 
 func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
-	// A bucket marked deferred had keepSegmentsInMemory forced off while the
-	// global knob is on (reindex ingest path, see loadIngestBuckets). Emit the
-	// diagnostic once per bucket-open at the first range read; the marker gates
-	// only this log line, never read-path selection.
+	// Deferred marker: emit the disk-serving diagnostic once per bucket-open;
+	// never affects read-path selection.
 	if b.rangeableInMemoryDeferred {
 		b.rangeableDeferredLogOnce.Do(func() {
 			b.logger.WithField("bucket", b.dir).Info(

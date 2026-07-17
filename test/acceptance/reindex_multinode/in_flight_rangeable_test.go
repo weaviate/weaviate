@@ -116,10 +116,8 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	// every node directly. We count every wrong, non-baseline,
 	// non-transient-error result as a failure. The migration on 10 k
 	// objects across 3 shards takes seconds, so 50 ms poll spacing yields
-	// dozens of in-flight samples per goroutine. Transient HTTP / RAFT-busy
-	// errors are tolerated; a query that errors out is at least signalling
-	// "I can't answer" rather than returning a wrong number, so it's logged
-	// but not counted as a failure.
+	// dozens of in-flight samples per goroutine. Transient errors are logged,
+	// not counted as failures - they signal "can't answer", not a wrong number.
 	counters, stopCh, wg := startRangeCountPolling(compose, className, rangeLo, rangeHi, expectedBaseline, 3,
 		func(nodeIdx, got int) {
 			t.Logf("ISSUE C REPRO: node %d returned partial count %d (expected %d)",

@@ -27,8 +27,8 @@ import (
 
 // ErrPrependWouldDesyncInMemoryRep is returned by PrependSegmentsFromBucket when
 // the target RoaringSetRange group keeps an active in-memory rep: splicing would
-// desync it from disk and silently serve empty/partial range results (see
-// weaviate/weaviate#12199). Open with keepSegmentsInMemory=false.
+// desync it from disk and silently serve empty/partial range results. Open with
+// keepSegmentsInMemory=false.
 var ErrPrependWouldDesyncInMemoryRep = errors.New(
 	"prepend segments: RoaringSetRange bucket has an active in-memory representation " +
 		"which this operation cannot maintain; open the bucket with " +
@@ -53,18 +53,14 @@ var ErrPrependWouldDesyncInMemoryRep = errors.New(
 //   - Supported strategies: RoaringSet, RoaringSetRange, SetCollection,
 //     MapCollection, Inverted.
 //
-// Per-strategy derived-state obligations (next strategy added here MUST answer
-// this): splicing mutates sg.segments, so any strategy with segment-group-level
-// derived state must maintain it, guard it, or reject the mutation.
+// Per-strategy derived-state obligation (any new strategy must answer this):
+// splicing mutates sg.segments, so segment-group-level derived state must be
+// maintained, guarded, or the mutation rejected.
 //
-//	Replace         -> rejected (countNetAdditions not recalculable)
-//	Inverted        -> maintained (avgPropertyLengths, below)
-//	RoaringSetRange -> guarded: the in-memory rep must always mirror what's on
-//	                   disk, and this splice can't maintain that invariant, so
-//	                   it's rejected outright (see the guard below and
-//	                   weaviate/weaviate#12199)
-//	RoaringSet, SetCollection, MapCollection -> no segment-group-level derived
-//	                   state exists on this tree, so nothing to maintain
+//	Replace                          -> rejected (countNetAdditions)
+//	Inverted                         -> maintained (avgPropertyLengths, below)
+//	RoaringSetRange                  -> guarded (in-memory rep can't be spliced)
+//	RoaringSet/SetCollection/MapCollection -> no derived state to maintain
 func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	// Step 1: Validate strategy — Replace is not supported.
 	if sg.strategy == StrategyReplace {
@@ -72,13 +68,11 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 			"countNetAdditions cannot be recalculated for prepended segments", sg.strategy)
 	}
 
-	// Step 1b: reject splicing into a RoaringSetRange group with an active
-	// in-memory rep - an incremental older-onto-newer merge could let a stale
-	// value win, and an unrebuilt rep silently serves empty/partial results,
-	// breaking the invariant that the rep always mirrors disk (see
-	// weaviate/weaviate#12199). Reject before any copy/splice so the failure is
-	// clean. The rep pointer is set once in newSegmentGroup and never
-	// reassigned, so this read needs no lock.
+	// Reject splicing into a RoaringSetRange group with an active in-memory
+	// rep: an older-onto-newer merge could let a stale value win, and an
+	// unrebuilt rep would silently serve empty/partial results. The rep
+	// pointer is set once in newSegmentGroup and never reassigned, so this
+	// read needs no lock.
 	if sg.strategy == StrategyRoaringSetRange && sg.roaringSetRangeSegmentInMemory != nil {
 		return fmt.Errorf("%w (bucket=%s)", ErrPrependWouldDesyncInMemoryRep, filepath.Base(sg.dir))
 	}

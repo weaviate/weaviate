@@ -657,9 +657,6 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 	})
 }
 
-// createTestBucketRoaringSetRange creates a RoaringSetRange bucket. When
-// keepSegmentsInMemory is true the bucket builds an in-memory representation at
-// open, which is the state the PrependSegmentsFromBucket guard protects.
 func createTestBucketRoaringSetRange(t *testing.T, ctx context.Context, dir string, keepSegmentsInMemory bool) *Bucket {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -675,15 +672,12 @@ func createTestBucketRoaringSetRange(t *testing.T, ctx context.Context, dir stri
 	return b
 }
 
-// TestSegmentGroup_PrependSegments_RoaringSetRangeGuard pins the weaviate/weaviate#12199 guard:
-// splicing older backfill onto a RoaringSetRange bucket's active in-memory rep
-// would corrupt it, so the prepend is rejected before any file copy or splice.
-// Compaction is exempt - it only changes physical layout, never the rep.
+// TestSegmentGroup_PrependSegments_RoaringSetRangeGuard pins the
+// weaviate/weaviate#12199 guard: prepend into an active in-memory rep is
+// rejected before any file copy or splice.
 func TestSegmentGroup_PrependSegments_RoaringSetRangeGuard(t *testing.T) {
 	ctx := context.Background()
 
-	// Build a source RoaringSetRange bucket with one flushed segment, so that if
-	// the guard did NOT fire, files WOULD be copied into the target.
 	makeSource := func(t *testing.T) string {
 		t.Helper()
 		srcDir := t.TempDir()
@@ -724,7 +718,6 @@ func TestSegmentGroup_PrependSegments_RoaringSetRangeGuard(t *testing.T) {
 		defer tgt.Shutdown(ctx)
 		require.Nil(t, tgt.disk.roaringSetRangeSegmentInMemory)
 
-		// Give the target one segment so the prepend is a real splice.
 		require.NoError(t, tgt.RoaringSetRangeAdd(7, 999))
 		require.NoError(t, tgt.FlushAndSwitch())
 		segsBefore := tgt.disk.Len()

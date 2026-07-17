@@ -124,15 +124,14 @@ func (s *SegmentInMemory) countPendingMemtables() int {
 	return len(s.memtables)
 }
 
-// IsUnpopulated reports whether the rep would serve no rows: the presence
-// set (bitmaps[0]) is empty and no flushed memtables are queued for merge.
-// Size() can't be used instead - an unpopulated rep still allocates 65 empty
-// bitmap skeletons. Checking pending memtables too avoids a false positive in
-// the post-flush window where bitmaps[0] is briefly empty but Readers()
-// already serves the queued data.
+// IsUnpopulated reports whether the rep would serve no rows. Size() can't
+// substitute - an unpopulated rep still allocates 65 empty bitmap skeletons.
+// Also checks pending memtables to avoid a false positive in the post-flush
+// window, where bitmaps[0] is briefly empty but Readers() already serves the
+// queued data.
 //
-// Locks bitmapsLock then memtablesLock (matches Readers()'s order). Callers
-// must never hold either alongside the segment group's maintenanceLock.
+// Locks bitmapsLock then memtablesLock (matches Readers()'s order). Never
+// hold either alongside the segment group's maintenanceLock.
 func (s *SegmentInMemory) IsUnpopulated() bool {
 	s.bitmapsLock.RLock()
 	defer s.bitmapsLock.RUnlock()

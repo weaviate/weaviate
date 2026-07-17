@@ -32,42 +32,15 @@ import (
 
 // This file is the weaviate/weaviate#12199 regression suite: with
 // INDEX_RANGEABLE_IN_MEMORY=true, an enable-rangeable reindex must not serve
-// empty range results from an unpopulated in-memory representation after the
-// per-shard swap (no restart required). It also pins the two operator log
-// signals added by the fix.
-//
-// Log substrings emitted by the fix (bucket_roaring_set_range.go):
-//   - deferredINFOSubstr: fires once per bucket-open on the marked ingest
-//     bucket's first disk-path read; presence confirms (b)'s marker path is
-//     applied.
-//   - fallbackWARNSubstr: the (c) disk-fallback WARN. Must NOT fire on the
-//     fixed path (serving bucket has keepSegmentsInMemory=false).
-//
-// Per-mechanism revert-probe mapping:
-//   - (b) alone       -> caught by the prepend GUARD, not the WARN/INFO
-//     assertions: reverting only (b) leaves keepSegmentsInMemory=true on the
-//     ingest bucket, so the guard rejects the backfill prepend
-//     (ErrPrependWouldDesyncInMemoryRep) and AwaitReindexFinished fails
-//     before any post-swap query runs.
-//   - WARN/INFO pair  -> the WARN-absence + INFO-presence assertions serve two
-//     roles: (i) proof (b) is applied at the fix SHA, and (ii) a tripwire for a
-//     (b) AND guard DOUBLE revert - only then does the reindex complete with an
-//     empty rep served, so the WARN appears and the INFO (marker unset)
-//     disappears. A counts-only probe can't catch that double revert; these
-//     assertions can.
-//   - (c) alone       -> the Layer-1 four-case disk-fallback matrix (empty rep
-//     and disk segments must fall back).
-//   - guard alone     -> the prepend guard's own unit test (active-rep prepend
-//     errors).
-//   - option-(a) trap -> the fold-order value-integrity unit test.
+// empty range results from an unpopulated in-memory rep after the per-shard
+// swap (no restart required). Also pins the deferred-INFO and disk-fallback
+// WARN log signals emitted by the fix (bucket_roaring_set_range.go).
 const (
 	deferredINFOSubstr = "in-memory acceleration deferred until the shard is reloaded"
 	fallbackWARNSubstr = "rangeable in-memory index is empty"
 )
 
-// countInLogs returns the number of lines in a container's logs that contain
-// substr. Used to assert presence/absence of the two weaviate/weaviate#12199
-// log signals.
+// countInLogs returns the number of lines in a container's logs containing substr.
 func countInLogs(ctx context.Context, t *testing.T, c interface {
 	Logs(context.Context) (io.ReadCloser, error)
 }, substr string,
@@ -87,10 +60,9 @@ func countInLogs(ctx context.Context, t *testing.T, c interface {
 	return n
 }
 
-// startSingleNodeRangeableInMemCluster starts a 1-node cluster with the in-mem
-// rangeable knob on (weaviate/weaviate#12199 precondition) and LOG_LEVEL=info
-// so the deferred INFO / fallback WARN are visible in the logs the assertions
-// grep.
+// startSingleNodeRangeableInMemCluster starts a 1-node cluster with the
+// in-mem rangeable knob on and LOG_LEVEL=info so the deferred INFO / fallback
+// WARN are visible in the logs the assertions grep.
 func startSingleNodeRangeableInMemCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
 	t.Helper()
 	compose, err := docker.New().
@@ -103,9 +75,8 @@ func startSingleNodeRangeableInMemCluster(ctx context.Context, t *testing.T) (*d
 	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
 
-// scoreForGH12199 maps import index i to a score in [10_000, 60_000) step 5, so
-// [30_000, 40_000] selects exactly 2001/10_000 objects (mirrors
-// in_flight_rangeable_test.go; a half-built bucket returns a visibly wrong count).
+// scoreForGH12199 maps import index i to a score in [10_000, 60_000) step 5,
+// so [30_000, 40_000] selects exactly 2001/10_000 objects.
 func scoreForGH12199(i int) int { return 10_000 + i*5 }
 
 const (
@@ -128,9 +99,8 @@ func rangeableScoreProps() []*models.Property {
 	}
 }
 
-// TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff is the
-// core acceptance repro (single-node, knob on, NO restart) with the triple
-// assertion, followed by the post-restart in-memory hand-off case.
+// Pins weaviate/weaviate#12199: single-node acceptance repro (no restart),
+// plus the post-restart in-memory hand-off case.
 func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := startSingleNodeRangeableInMemCluster(ctx, t)
@@ -159,24 +129,18 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
-	// (1) Counts correct post-swap without restart (pre-fix served 0: empty
-	// in-memory rep), (2) the (c) WARN must not fire on the fixed path
-	// (serving bucket has keepSegmentsInMemory=false) - see the revert-probe
-	// mapping above. Poll briefly for the per-shard swap + schema flip to
-	// settle.
+	// Poll briefly for the per-shard swap + schema flip to settle, then check
+	// counts and the disk-fallback WARN.
 	awaitRangeCountSettledNoFallback(ctx, t, container, restURI, className,
 		gh12199RangeLo, gh12199RangeHi, gh12199Baseline,
 		"weaviate/weaviate#12199: post-swap range count must equal golden %d WITHOUT restart", gh12199Baseline,
-		"(c) disk-fallback WARN must not fire on the fixed path (WARN present => (b) AND guard both reverted, empty rep served, weaviate/weaviate#12199)")
+		"disk-fallback WARN must not fire on the fixed path; its presence means an empty in-memory rep was served (weaviate/weaviate#12199)")
 
-	// (3) The deferred-serving INFO must be present - only the (b) marker path
-	// sets the marker (see revert-probe mapping above).
 	assert.Positive(t, countInLogs(ctx, t, container, deferredINFOSubstr),
-		"deferred-serving INFO must fire post-swap (marker set + first disk read); absence => (b) marker not applied, weaviate/weaviate#12199")
+		"deferred-serving INFO must fire post-swap (marker set + first disk read); absence means the deferred marker was not applied (weaviate/weaviate#12199)")
 
-	// --- Post-restart in-memory hand-off case ---
-	// After restart, boot-time population rebuilds the in-memory rep from disk,
-	// so reads serve from the rep again and no (c) WARN fires (rep populated).
+	// Post-restart: boot-time population rebuilds the in-memory rep from disk,
+	// so reads serve from the rep again and no fallback WARN fires.
 	require.NoError(t, compose.StopAt(ctx, 0, nil))
 	require.NoError(t, compose.StartAt(ctx, 0))
 	restURI = compose.GetWeaviate().URI()
@@ -193,13 +157,11 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	awaitRangeCountSettledNoFallback(ctx, t, container, restURI, className,
 		gh12199RangeLo, gh12199RangeHi, gh12199Baseline,
 		"post-restart range count must still equal golden %d (rep rebuilt at boot)", gh12199Baseline,
-		"no (c) WARN after restart: the rep is rebuilt at boot and serves in-memory")
+		"no disk-fallback WARN after restart: the rep is rebuilt at boot and serves in-memory")
 }
 
-// TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe is a 3-node
-// statistical probe: fire range queries at every node throughout the migration
-// window and count divergences, not single-shot - silent wrong results, not
-// errors, are the failure mode.
+// Pins weaviate/weaviate#12199: 3-node statistical probe for silent wrong
+// range counts during the in-flight enable-rangeable migration window.
 func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t,
@@ -265,10 +227,8 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 			"served from an empty in-memory rep instead of the disk path.")
 }
 
-// TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity migrates under
-// concurrent live writes that change movers' value, then asserts a mover's NEW
-// value query returns it and its OLD value query returns nothing - catches both
-// fold-order corruption (option (a)) and the empty-rep bug (movers dropped).
+// Pins weaviate/weaviate#12199: migrates under concurrent live writes that
+// change movers' value, then asserts each mover serves its NEW value only.
 func TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := startSingleNodeRangeableInMemCluster(ctx, t)
@@ -315,11 +275,9 @@ func TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, moverCount, c, "pre-migration movers at oldValue")
 
-	// Start the migration, then wait for it to reach a live state before
-	// overwriting the movers. SubmitIndexUpdate is asynchronous: posting the
-	// updates immediately risks them landing before the task has even started,
-	// which would let the backfill simply read newValue and pass without
-	// exercising the double-write / fold-order scenario this test targets.
+	// Wait for the migration to be live before overwriting movers, or the
+	// backfill could simply read newValue and the double-write scenario
+	// wouldn't be exercised.
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
 		`{"rangeable":{"enabled":true}}`)
 	reindexhelpers.AwaitReindexLive(t, restURI, taskID)
@@ -351,8 +309,6 @@ func TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity(t *testing.T) {
 }
 
 // postObjects batch-imports objects (200 per batch) with consistency_level=ALL.
-// Reused by the value-integrity test for both the seed and the in-flight
-// overwrite (same UUIDs overwrite the prior value).
 func postObjects(t *testing.T, restURI string, objects []map[string]interface{}) {
 	t.Helper()
 	const batchSize = 200
