@@ -21,17 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// -----------------------------------------------------------------------------
-// TOCTOU: untrackMigratingPropLength composed a read-only PropertyTally
-// presence check with a separate UnTrackProperty call - two independent
-// lock acquisitions. A concurrent ResetProperty landing between them left
-// UnTrackProperty decrementing Sum/Count on now-absent keys instead of
-// returning a clean "property not found".
-//
-// These tests pin the fix at the JsonShardMetaData level: UnTrackProperty
-// now checks presence before mutating, and UnTrackPropertyIfPresent closes
-// the window structurally (one lock acquisition, no separate pre-check).
-// -----------------------------------------------------------------------------
+// Pins the TOCTOU where a concurrent ResetProperty could land between
+// UnTrackProperty's presence check and its mutation, corrupting Sum/Count.
 
 func newTOCTOUTestTracker(t *testing.T, name string) *JsonShardMetaData {
 	t.Helper()
@@ -93,10 +84,10 @@ func TestJsonShardMetaData_UnTrackProperty_ChecksPresenceBeforeMutating(t *testi
 	require.NoError(t, err)
 
 	assert.GreaterOrEqual(t, count, 0,
-		"BUG regression check (PR#12221 round-4 TOCTOU): UnTrackProperty must never leave COUNT negative after "+
+		"regression (UnTrackProperty TOCTOU): UnTrackProperty must never leave COUNT negative after "+
 			"losing a race against a concurrent ResetProperty - got %d", count)
 	assert.GreaterOrEqual(t, sum, 0,
-		"BUG regression check (PR#12221 round-4 TOCTOU): UnTrackProperty must never leave SUM negative after "+
+		"regression (UnTrackProperty TOCTOU): UnTrackProperty must never leave SUM negative after "+
 			"losing a race against a concurrent ResetProperty - got %d", sum)
 	assert.Zero(t, count, "post-reset UnTrackProperty must be a clean no-op (error returned, no mutation) - COUNT must stay exactly 0")
 	assert.Zero(t, sum, "post-reset UnTrackProperty must be a clean no-op (error returned, no mutation) - SUM must stay exactly 0")
@@ -205,9 +196,9 @@ func TestJsonShardMetaData_UnTrackPropertyIfPresent_ConcurrentHammerRaceFreeAndF
 	sum, count, _, err := tracker.PropertyTally("prop")
 	require.NoError(t, err)
 	assert.Equal(t, 10, sum,
-		"BUG regression check (PR#12221 round-4 TOCTOU): tracker must remain functionally correct after the "+
+		"regression (UnTrackProperty TOCTOU): tracker must remain functionally correct after the "+
 			"concurrent Track/UnTrackPropertyIfPresent/ResetProperty/PropertyTally hammer - got SUM=%d, want 10", sum)
 	assert.Equal(t, 2, count,
-		"BUG regression check (PR#12221 round-4 TOCTOU): tracker must remain functionally correct after the "+
+		"regression (UnTrackProperty TOCTOU): tracker must remain functionally correct after the "+
 			"concurrent Track/UnTrackPropertyIfPresent/ResetProperty/PropertyTally hammer - got COUNT=%d, want 2", count)
 }

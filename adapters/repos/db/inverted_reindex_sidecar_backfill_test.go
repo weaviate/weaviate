@@ -30,17 +30,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// weaviate/0-weaviate-issues#322: enable-* migrations never backfilled the
-// null/length sidecar buckets or the BM25 prop-length tally for objects that
-// existed before the migration started - the backfill loop discarded
-// AnalyzeObjectForMigrationWithOverlay's nilProps and never called
-// extendInvertedIndicesLSM / SetPropertyLengths for pre-existing objects.
-//
-// These tests compare a "migrated" shard (property starts unindexed,
-// enable-* runs after objects exist) against a "control" shard (indexed
-// from creation) and assert the sidecar/tally content converges.
-// -----------------------------------------------------------------------------
+// Pins weaviate/0-weaviate-issues#322: enable-* migrations skipped the
+// null/length sidecar backfill and BM25 tally for pre-existing objects.
+// Tests compare a "migrated" shard against an indexed-from-creation control.
 
 const sidecarBackfillTextProp = "title"
 
@@ -416,13 +408,8 @@ func TestSidecarBackfill_ScopedToMigratingPropOnly(t *testing.T) {
 	assert.Equal(t, preSum, postSum, "migrating a different property must not change the bystander's tally SUM")
 }
 
-// -----------------------------------------------------------------------------
-// The BM25 tally is recomputed once, from scratch, per migrating property
-// whose AnalyzerOverlay forces IndexSearchable on (see
-// ShardReindexTaskGeneric.completeMigrationOnShard), not incrementally
-// per-object - the tests below pin the double-count/durability regressions
-// an incremental per-object tally write would reintroduce.
-// -----------------------------------------------------------------------------
+// Pins the double-count/durability regressions an incremental per-object
+// tally write would reintroduce vs completeMigrationOnShard's full rescan.
 
 // newSidecarBackfillPreTalliedFixture builds a shard whose property is
 // already searchable from creation (so every PutObject tallies once) plus
@@ -594,13 +581,8 @@ func TestSidecarBackfill_EnableSearchable_TallyDurableAcrossRestart(t *testing.T
 		"BM25 avgdl (prop-length mean) must survive a restart immediately after a completed enable-searchable migration")
 }
 
-// -----------------------------------------------------------------------------
-// recomputeSearchableTallyForProp's rescan only sees segment-resident data.
-// A write landing in the objects memtable after the backfill's flush but
-// before the recompute's cursor snapshot was invisible to the rescan even
-// though it was already live-searchable - see that function's godoc for the
-// full window analysis.
-// -----------------------------------------------------------------------------
+// Pins the residual window where a write lands after the backfill flush but
+// before recomputeSearchableTallyForProp's cursor snapshot (see its godoc).
 
 // newSidecarBackfillSearchableFixture builds a shard with numObjects
 // pre-existing text objects and an EnableSearchableStrategy task whose
@@ -691,11 +673,11 @@ func TestSidecarBackfill_EnableSearchable_TallyMissesConcurrentWriteInMemtable(t
 	require.NoError(t, err)
 
 	assert.Equal(t, controlCount, migratedCount,
-		"BUG regression check (gh#322 / PR#12221 residual): BM25 tally COUNT must include an object written to "+
+		"regression (weaviate/0-weaviate-issues#322 residual): BM25 tally COUNT must include an object written to "+
 			"the objects memtable between the backfill scan and the post-swap recompute - got %d, want %d (control)",
 		migratedCount, controlCount)
 	assert.Equal(t, controlSum, migratedSum,
-		"BUG regression check (gh#322 / PR#12221 residual): BM25 tally SUM must include an object written to "+
+		"regression (weaviate/0-weaviate-issues#322 residual): BM25 tally SUM must include an object written to "+
 			"the objects memtable between the backfill scan and the post-swap recompute - got %d, want %d (control)",
 		migratedSum, controlSum)
 	assert.InDelta(t, controlMean, migratedMean, 0.001,
@@ -751,13 +733,9 @@ func TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindow
 			"(no double-count of the original n objects) - got sum=%d after first=%d", secondSum, firstSum)
 }
 
-// -----------------------------------------------------------------------------
-// weaviate/0-weaviate-issues#322 post-swap residual window: the double-write
-// callback mirrors postings unconditionally but never fed the BM25 tally,
-// so a write landing between the recompute and disableCallbacks was
-// searchable but permanently excluded from avgdl. trackMigratingPropLength /
-// untrackMigratingPropLength close this from inside the callbacks.
-// -----------------------------------------------------------------------------
+// Pins weaviate/0-weaviate-issues#322's post-swap residual window: a write
+// between the recompute and disableCallbacks was searchable but excluded
+// from avgdl until trackMigratingPropLength/untrackMigratingPropLength closed it.
 
 // newSidecarBackfillSearchableCallbackFixture builds a shard with a live
 // filterable index (so the double-write callback machinery engages),
@@ -823,11 +801,11 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWi
 	require.NoError(t, err)
 
 	assert.EqualValues(t, numObjects+1, secondCount,
-		"BUG regression check (gh#322 / PR#12221 post-swap residual): the BM25 tally COUNT must include a write landing "+
+		"regression (weaviate/0-weaviate-issues#322 post-swap residual): the BM25 tally COUNT must include a write landing "+
 			"after the recompute while the double-write callbacks are still active, with NO further recompute - "+
 			"got %d, want %d", secondCount, numObjects+1)
 	assert.Equal(t, firstSum+4, secondSum,
-		"BUG regression check (gh#322 / PR#12221 post-swap residual): the BM25 tally SUM must include exactly the "+
+		"regression (weaviate/0-weaviate-issues#322 post-swap residual): the BM25 tally SUM must include exactly the "+
 			"residual write's 4-word contribution with NO further recompute - got sum=%d after first=%d", secondSum, firstSum)
 }
 
@@ -851,11 +829,11 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyHandlesInPlaceEditWithout
 	require.NoError(t, err)
 
 	assert.EqualValues(t, numObjects, secondCount,
-		"BUG regression check (gh#322 / PR#12221 post-swap residual): an in-place edit of an ALREADY-tracked object must "+
+		"regression (weaviate/0-weaviate-issues#322 post-swap residual): an in-place edit of an ALREADY-tracked object must "+
 			"not inflate the BM25 tally COUNT (the paired Track/Untrack calls must net to zero) - got %d, want %d (unchanged)",
 		secondCount, numObjects)
 	assert.Equal(t, firstSum+2, secondSum,
-		"BUG regression check (gh#322 / PR#12221 post-swap residual): an in-place edit's SUM delta must equal exactly the "+
+		"regression (weaviate/0-weaviate-issues#322 post-swap residual): an in-place edit's SUM delta must equal exactly the "+
 			"net word-count change (1 word -> 3 words = +2) even though the double-write callback only ever sees "+
 			"an item-level delta, not the object's full value - got sum=%d after first=%d", secondSum, firstSum)
 }
@@ -872,8 +850,7 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyOffByOneOnEmptyValueEdit(
 		"(also Items:[], Length:0 on the affected side) - both look identical to the gate. Net effect: " +
 		"Count is off by -1 for an in-place edit TO empty (vs the live write path's net-zero) and +1 for an " +
 		"edit FROM empty, for any such transition landing while this task's double-write callbacks are " +
-		"active. Confirmed genuinely RED (migratedCount = controlCount-1, deterministic) before this skip " +
-		"was added. Converges on any recompute re-entry (ResetProperty + full rescan reads the object's " +
+		"active. Red when un-skipped: migratedCount = controlCount-1, deterministic. Converges on any recompute re-entry (ResetProperty + full rescan reads the object's " +
 		"true current value). Exact fix needs a shard-level force-searchable overlay registry threaded into " +
 		"the live write path's analysis (the surface PR weaviate/weaviate#12211's force-index overlay " +
 		"machinery builds for its own callers) - wrong to duplicate that machinery here. Un-skip once that " +
@@ -924,16 +901,8 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyOffByOneOnEmptyValueEdit(
 			"(control)", migratedCount, controlCount)
 }
 
-// -----------------------------------------------------------------------------
-// TOCTOU: untrackMigratingPropLength composed a read-only PropertyTally
-// check with a separate UnTrackProperty call, racing
-// Shard.recomputeSearchableTallyForProp's ResetProperty. The deterministic
-// pin lives at the tracker level (see
-// inverted.TestJsonShardMetaData_UnTrackProperty_ChecksPresenceBeforeMutating);
-// the test below exercises the same race through the real production call
-// path (untrackMigratingPropLength -> UnTrackPropertyIfPresent) under
-// genuine concurrent load.
-// -----------------------------------------------------------------------------
+// Same TOCTOU as inverted.TestJsonShardMetaData_UnTrackProperty_ChecksPresenceBeforeMutating,
+// exercised through the real production call path under concurrent load.
 
 // Drives a real concurrent race between recomputeSearchableTallyForProp
 // (ResetProperty + rescan) and a real delete through the live write path,
@@ -973,15 +942,15 @@ func TestSidecarBackfill_EnableSearchable_DeleteDuringRecomputeDoesNotFailOrCorr
 	require.NoError(t, recomputeErr, "sanity: the concurrent recompute call itself must succeed")
 
 	assert.NoError(t, putErr,
-		"BUG regression check (gh#322 / PR#12221 round-4 TOCTOU): a delete callback racing the post-swap tally "+
+		"regression (weaviate/0-weaviate-issues#322 delete-vs-recompute TOCTOU): a delete callback racing the post-swap tally "+
 			"recompute's ResetProperty must not fail the user's write")
 
 	sum, count, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, count, 0,
-		"BUG regression check (gh#322 / PR#12221 round-4 TOCTOU): BM25 tally COUNT must never go negative when a "+
+		"regression (weaviate/0-weaviate-issues#322 delete-vs-recompute TOCTOU): BM25 tally COUNT must never go negative when a "+
 			"delete callback races the post-swap recompute - got %d", count)
 	assert.GreaterOrEqual(t, sum, 0,
-		"BUG regression check (gh#322 / PR#12221 round-4 TOCTOU): BM25 tally SUM must never go negative when a "+
+		"regression (weaviate/0-weaviate-issues#322 delete-vs-recompute TOCTOU): BM25 tally SUM must never go negative when a "+
 			"delete callback races the post-swap recompute - got %d", sum)
 }
