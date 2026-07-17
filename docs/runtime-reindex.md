@@ -28,9 +28,11 @@ typical journeys it unlocks:
   flipped only after every shard has committed its swap.
 - Add a missing inverted index after the fact: `enable-filterable`,
   `enable-searchable`, `enable-rangeable`.
+- Migrate a searchable index from WAND (Map) to BlockMax (Inverted):
+  `change-algorithm`.
 - Repair a bucket suspected of corruption: `repair-filterable`,
-  `repair-searchable` (which is also the Map → Blockmax format
-  upgrade), `repair-rangeable`.
+  `rebuild-searchable` (rebuild an existing BlockMax bucket in place),
+  `repair-rangeable`.
 - Cancel an in-flight migration; the cluster cleans up the partial
   state and the property is back to its pre-submit on-disk shape.
 
@@ -640,11 +642,12 @@ tidied / lower-gen sidecars / in-flight gens left alone for
 
 ### 4.5 Strategy implementations — `inverted_reindex_strategy_*.go`
 
-Seven strategy implementations, one file each:
+Eight strategy implementations, one file each:
 
 | Strategy | Type | Source bucket | Target bucket | OnMigrationComplete |
 |---|---|---|---|---|
-| `MapToBlockmaxStrategy` | `repair-searchable` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `MapToBlockmaxStrategy` | `change-algorithm` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Inverted/Blockmax) | `searchable` (Inverted/Blockmax) | No-op (rebuild in place; no schema change). |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
 | `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` so this shard's queries observe ready=true at the same moment as the RAFT flip; per-prop `IndexRangeFilters=true` via `UpdatePropertyInternalFromMigration`. Format-only. |
 | `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
@@ -732,14 +735,17 @@ change-tokenization              ✓                ✓ (tokenization)
 change-tokenization-filterable   ✓                ✓ (tokenization)
 enable-filterable                ✓                ✓ (ForceFilterable)
 enable-searchable                ✓                ✓ (ForceSearchable + tokenization)
+change-algorithm                 ✓                
 enable-rangeable                                  
 repair-filterable                                 
-repair-searchable                                 
+rebuild-searchable                               
 repair-rangeable                                  
 ```
 
-The four semantic migrations need both the cluster-wide barrier and
-the per-shard analyzer overlay; the four format-only migrations need
+The five semantic migrations need the cluster-wide barrier; the four
+that change tokenization or force-enable an index additionally need the
+per-shard analyzer overlay (`change-algorithm` does not — it only swaps
+the searchable bucket strategy). The four format-only migrations need
 neither.
 
 ## 6. Crash safety
