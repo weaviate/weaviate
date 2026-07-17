@@ -25,6 +25,12 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
+// mExists reports whether the namespace is present in any state.
+func mExists(m *Manager, name string) bool {
+	_, ok := m.GetNamespace(name)
+	return ok
+}
+
 func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -157,11 +163,10 @@ func TestManager_ChangeState(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.True(t, m.Exists("customer1"))
-			assert.Equal(t, tc.target == cmd.NamespaceStateActive, m.IsActive("customer1"))
 
 			ns, ok := m.GetNamespace("customer1")
 			require.True(t, ok)
+			assert.Equal(t, tc.target, ns.State)
 			if tc.target == tc.seedState {
 				assert.Equal(t, seededIndex(tc.seedState), ns.StateChangeIndex,
 					"same-state re-apply must leave the recorded index alone")
@@ -205,7 +210,7 @@ func TestManager_RemoveEntity(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.False(t, m.Exists("customer1"))
+			assert.False(t, mExists(m, "customer1"))
 		})
 	}
 }
@@ -255,11 +260,11 @@ func TestManager_RemoveEntity_Leftovers(t *testing.T) {
 			err := m.RemoveEntity(removeEntityCmd(t, "customer1"))
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
-				assert.True(t, m.Exists("customer1"), "namespace must remain when leftovers block removal")
+				assert.True(t, mExists(m, "customer1"), "namespace must remain when leftovers block removal")
 				return
 			}
 			require.NoError(t, err)
-			assert.False(t, m.Exists("customer1"))
+			assert.False(t, mExists(m, "customer1"))
 		})
 	}
 }
@@ -317,20 +322,6 @@ func TestManager_Update(t *testing.T) {
 			assert.Equal(t, tc.wantHomeNode, got[0].Primary())
 		})
 	}
-}
-
-func TestManager_ExistsAndIsActiveProxies(t *testing.T) {
-	m := newTestManager(t)
-	require.NoError(t, m.Add(addCmd(t, "customer1")))
-
-	assert.True(t, m.Exists("customer1"))
-	assert.True(t, m.IsActive("customer1"))
-	assert.False(t, m.Exists("never-existed"))
-	assert.False(t, m.IsActive("never-existed"))
-
-	require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting, seedIndex)))
-	assert.True(t, m.Exists("customer1"))
-	assert.False(t, m.IsActive("customer1"))
 }
 
 func TestManager_Get(t *testing.T) {

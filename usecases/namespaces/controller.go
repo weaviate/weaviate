@@ -126,11 +126,10 @@ func isKnownState(s cmd.NamespaceState) bool {
 	return known
 }
 
-// Exister exposes read-only access to namespace state. Exists matches any
-// state; IsActive matches only the active state.
+// Exister exposes read-only access to namespace state. Callers that need to
+// know whether a namespace is usable go through [RequireActive] rather than
+// comparing State themselves.
 type Exister interface {
-	Exists(name string) bool
-	IsActive(name string) bool
 	GetNamespace(name string) (cmd.Namespace, bool)
 }
 
@@ -297,17 +296,6 @@ func (c *Controller) Count() int {
 	return len(c.namespaces)
 }
 
-// Exists reports whether a namespace with the given name is known.
-// Intended for non-cluster callers (REST handlers, OIDC claim resolution)
-// that need a fast existence check without constructing a RAFT subcommand.
-// Returns true for entries in any state.
-func (c *Controller) Exists(name string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	_, ok := c.namespaces[name]
-	return ok
-}
-
 // GetNamespace returns a snapshot copy of the namespace by name. ok is
 // false when the namespace does not exist.
 func (c *Controller) GetNamespace(name string) (ns cmd.Namespace, ok bool) {
@@ -318,18 +306,6 @@ func (c *Controller) GetNamespace(name string) (ns cmd.Namespace, ok bool) {
 		return cmd.Namespace{}, false
 	}
 	return *got, true
-}
-
-// IsActive reports whether the named namespace exists and is in the
-// [cmd.NamespaceStateActive] state.
-func (c *Controller) IsActive(name string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	ns, ok := c.namespaces[name]
-	if !ok {
-		return false
-	}
-	return ns.State == cmd.NamespaceStateActive
 }
 
 // ListDeleting returns the names of namespaces currently in the deleting

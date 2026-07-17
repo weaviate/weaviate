@@ -516,15 +516,6 @@ func (f *fakeExister) markState(name string, state api.NamespaceState) {
 	f.states[name] = state
 }
 
-func (f *fakeExister) Exists(name string) bool {
-	_, ok := f.states[name]
-	return ok
-}
-
-func (f *fakeExister) IsActive(name string) bool {
-	return f.states[name] == api.NamespaceStateActive
-}
-
 func (f *fakeExister) GetNamespace(name string) (api.Namespace, bool) {
 	state, ok := f.states[name]
 	if !ok {

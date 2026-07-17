@@ -48,6 +48,20 @@ func seededIndex(seedState cmd.NamespaceState) uint64 {
 	return seedIndex
 }
 
+// nsExists reports whether the namespace is present in any state.
+func nsExists(c *Controller, name string) bool {
+	_, ok := c.GetNamespace(name)
+	return ok
+}
+
+// nsState returns the namespace's state, failing the test if it is absent.
+func nsState(t *testing.T, c *Controller, name string) cmd.NamespaceState {
+	t.Helper()
+	ns, ok := c.GetNamespace(name)
+	require.True(t, ok, "namespace %q must exist", name)
+	return ns.State
+}
+
 // seedNamespace creates name and transitions it to seedState. An empty
 // seedState seeds nothing.
 func seedNamespace(t *testing.T, c *Controller, name string, seedState cmd.NamespaceState) {
@@ -187,7 +201,6 @@ func TestController_Create_StoresActiveState(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, cmd.NamespaceStateActive, got[0].State)
 	assert.Zero(t, got[0].StateChangeIndex)
-	assert.True(t, c.IsActive("customer1"))
 }
 
 func TestController_Create_RejectsDeletingWithDistinctSentinel(t *testing.T) {
@@ -289,11 +302,11 @@ func TestController_RemoveEntity(t *testing.T) {
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.wantErr)
-				assert.Equal(t, tc.seedState != "", c.Exists("customer1"))
+				assert.Equal(t, tc.seedState != "", nsExists(c, "customer1"))
 				return
 			}
 			require.NoError(t, err)
-			assert.False(t, c.Exists("customer1"))
+			assert.False(t, nsExists(c, "customer1"))
 		})
 	}
 }
@@ -347,21 +360,16 @@ func TestController_RecreateAfterRemoval(t *testing.T) {
 	require.NoError(t, c.RemoveEntity("customer1"))
 
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
-	assert.True(t, c.IsActive("customer1"))
+	assert.Equal(t, cmd.NamespaceStateActive, nsState(t, c, "customer1"))
 }
 
-func TestController_IsActiveAndListDeleting(t *testing.T) {
+func TestController_ListDeleting(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer3", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, c.ChangeState("customer3", cmd.NamespaceStateDeleting, seedIndex))
 	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
-
-	assert.True(t, c.IsActive("customer2"))
-	assert.False(t, c.IsActive("customer1"))
-	assert.False(t, c.IsActive("customer3"))
-	assert.False(t, c.IsActive("never-existed"))
 
 	assert.Equal(t, []string{"customer1", "customer3"}, c.ListDeleting())
 }
@@ -374,7 +382,6 @@ func TestController_RestoreNormalizesEmptyState(t *testing.T) {
 	snap := []byte(`{"customer1":{"Name":"customer1","HomeNodes":["node-1"]}}`)
 	require.NoError(t, c.Restore(snap))
 
-	assert.True(t, c.IsActive("customer1"))
 	got := c.Get("customer1")
 	require.Len(t, got, 1)
 	assert.Equal(t, cmd.NamespaceStateActive, got[0].State)
@@ -400,8 +407,6 @@ func TestController_RestoreRestoresKnownStates(t *testing.T) {
 		got, ok := c.GetNamespace(name)
 		require.True(t, ok, name)
 		assert.Equal(t, state, got.State, name)
-		// Only active is usable: every other restored state must be denied.
-		assert.Equal(t, state == cmd.NamespaceStateActive, c.IsActive(name), name)
 	}
 	assert.Equal(t, []string{"customer2"}, c.ListDeleting())
 }
@@ -480,16 +485,16 @@ func TestController_Get(t *testing.T) {
 	}
 }
 
-func TestController_Exists(t *testing.T) {
+func TestController_GetNamespace(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
 
-	assert.True(t, c.Exists("customer1"))
-	assert.False(t, c.Exists("never-existed"))
+	assert.True(t, nsExists(c, "customer1"))
+	assert.False(t, nsExists(c, "never-existed"))
 
 	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
 	require.NoError(t, c.RemoveEntity("customer1"))
-	assert.False(t, c.Exists("customer1"))
+	assert.False(t, nsExists(c, "customer1"))
 }
 
 func TestController_List(t *testing.T) {
