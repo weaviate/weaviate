@@ -17,9 +17,7 @@
 package rest_search
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -39,22 +37,8 @@ const (
 	hybridSong2ID = strfmt.UUID("cc44bbee-ca5f-4db7-a412-5fc6a2300002")
 )
 
-// postHybrid POSTs a raw JSON hybrid search and decodes the raw JSON reply,
-// so assertions run against the wire shape, not generated models.
 func postHybrid(t *testing.T, collection string, body map[string]interface{}) (int, map[string]interface{}) {
-	t.Helper()
-	payload, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	url := fmt.Sprintf("http://%s:%s/v1/search/%s/hybrid",
-		helper.ServerHost, helper.ServerPort, collection)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(payload))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	var out map[string]interface{}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	return resp.StatusCode, out
+	return postSearch(t, collection, "hybrid", body)
 }
 
 func TestRESTSearchHybrid(t *testing.T) {

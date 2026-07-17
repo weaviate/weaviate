@@ -54,14 +54,9 @@ func checkReservedFields(common *models.SearchCommon) *APIError {
 	return nil
 }
 
-// buildNearTextParams converts the near-text request into the dto.GetParams
-// consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
-// parser (adapters/handlers/grpc/v1/parse_search_request.go). Shared fields
-// are read from the embedded SearchCommon, near-text fields off the body.
-func (h *Handler) buildNearTextParams(class *models.Class, className string, body *models.SearchNearTextRequest,
-	getClass classGetterFunc, principal *models.Principal,
-) (dto.GetParams, *APIError) {
-	common := &body.SearchCommon
+// baseParams starts the dto.GetParams every search type shares: the
+// collection, tenant, consistency level and pagination.
+func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto.GetParams, *APIError) {
 	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
 
 	replProps, apiErr := parseConsistencyLevel(common.ConsistencyLevel)
@@ -76,26 +71,17 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 	}
 	out.Pagination = pagination
 
-	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
+	return out, nil
+}
 
-	nearTextParams, apiErr := parseNearText(class, body, targetVectors, pagination.Limit)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.ModuleParams = map[string]any{"nearText": nearTextParams}
-
-	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.AdditionalProperties = addProps
-
+// fillSelectionAndFilter fills the tail every search type shares: the
+// returnProperties selection (with the no-props marker) and the where filter.
+func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class, className string,
+	common *models.SearchCommon, getClass classGetterFunc, principal *models.Principal,
+) *APIError {
 	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
 	if apiErr != nil {
-		return dto.GetParams{}, apiErr
+		return apiErr
 	}
 	out.Properties = props
 	if len(out.Properties) == 0 {
@@ -104,9 +90,55 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 
 	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
 	if apiErr != nil {
-		return dto.GetParams{}, apiErr
+		return apiErr
 	}
 	out.Filters = filter
+
+	return nil
+}
+
+// fillCommonTail parses returnMetadata (scoped to the resolved target
+// vectors), then the shared selection-and-filter tail — the order the
+// vector-capable search types (near-text, near-object, hybrid) share.
+func (h *Handler) fillCommonTail(out *dto.GetParams, class *models.Class, className string,
+	common *models.SearchCommon, targetVectors []string, getClass classGetterFunc, principal *models.Principal,
+) *APIError {
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
+	if apiErr != nil {
+		return apiErr
+	}
+	out.AdditionalProperties = addProps
+
+	return h.fillSelectionAndFilter(out, class, className, common, getClass, principal)
+}
+
+// buildNearTextParams converts the near-text request into the dto.GetParams
+// consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
+// parser (adapters/handlers/grpc/v1/parse_search_request.go). Shared fields
+// are read from the embedded SearchCommon, near-text fields off the body.
+func (h *Handler) buildNearTextParams(class *models.Class, className string, body *models.SearchNearTextRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	nearTextParams, apiErr := parseNearText(class, body, targetVectors, out.Pagination.Limit)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.ModuleParams = map[string]any{"nearText": nearTextParams}
+
+	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
 
 	return out, nil
 }
@@ -119,19 +151,10 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	getClass classGetterFunc, principal *models.Principal,
 ) (dto.GetParams, *APIError) {
 	common := &body.SearchCommon
-	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
-
-	replProps, apiErr := parseConsistencyLevel(common.ConsistencyLevel)
+	out, apiErr := h.baseParams(className, common)
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
-	out.ReplicationProperties = replProps
-
-	pagination, apiErr := h.parsePagination(common)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.Pagination = pagination
 
 	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, nil)
 	if apiErr != nil {
@@ -151,20 +174,9 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	}
 	out.KeywordRanking = keywordRanking
 
-	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
-	if apiErr != nil {
+	if apiErr := h.fillSelectionAndFilter(&out, class, className, common, getClass, principal); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
-	out.Properties = props
-	if len(out.Properties) == 0 {
-		out.AdditionalProperties.NoProps = true
-	}
-
-	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.Filters = filter
 
 	return out, nil
 }
@@ -178,19 +190,10 @@ func (h *Handler) buildNearObjectParams(class *models.Class, className string, b
 	getClass classGetterFunc, principal *models.Principal,
 ) (dto.GetParams, *APIError) {
 	common := &body.SearchCommon
-	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
-
-	replProps, apiErr := parseConsistencyLevel(common.ConsistencyLevel)
+	out, apiErr := h.baseParams(className, common)
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
-	out.ReplicationProperties = replProps
-
-	pagination, apiErr := h.parsePagination(common)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.Pagination = pagination
 
 	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
 	if apiErr != nil {
@@ -203,26 +206,9 @@ func (h *Handler) buildNearObjectParams(class *models.Class, className string, b
 	}
 	out.NearObject = nearObject
 
-	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
-	if apiErr != nil {
+	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
-	out.AdditionalProperties = addProps
-
-	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.Properties = props
-	if len(out.Properties) == 0 {
-		out.AdditionalProperties.NoProps = true
-	}
-
-	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.Filters = filter
 
 	return out, nil
 }
@@ -276,19 +262,10 @@ func (h *Handler) buildHybridParams(class *models.Class, className string, body 
 	getClass classGetterFunc, principal *models.Principal,
 ) (dto.GetParams, *APIError) {
 	common := &body.SearchCommon
-	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
-
-	replProps, apiErr := parseConsistencyLevel(common.ConsistencyLevel)
+	out, apiErr := h.baseParams(className, common)
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
-	out.ReplicationProperties = replProps
-
-	pagination, apiErr := h.parsePagination(common)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.Pagination = pagination
 
 	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
 	if apiErr != nil {
@@ -301,26 +278,9 @@ func (h *Handler) buildHybridParams(class *models.Class, className string, body 
 	}
 	out.HybridSearch = hybrid
 
-	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
-	if apiErr != nil {
+	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
-	out.AdditionalProperties = addProps
-
-	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.Properties = props
-	if len(out.Properties) == 0 {
-		out.AdditionalProperties.NoProps = true
-	}
-
-	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.Filters = filter
 
 	return out, nil
 }
