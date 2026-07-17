@@ -63,6 +63,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/authz/roles/{id}/has-permission", // must be a POST rather than GET or HEAD due to need of body. but viewer can access it due to its permissions
 		"/tokenize",                        // stateless compute, no authz; POST only because it needs a body
 		"/schema/{className}/properties/{propertyName}/tokenize", // authorizes READ, which a viewer holds
+		"/search/{collection}/near-text",                         // search is a read; a viewer holds data READ
 	}
 
 	// TODO: these leak status (404 for aliases, 501 for replication) before
@@ -111,6 +112,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{userType}", "db")
 		url = strings.ReplaceAll(url, "{groupType}", "oidc")
 		url = strings.ReplaceAll(url, "{aliasName}", "aliasName")
+		url = strings.ReplaceAll(url, "{collection}", className)
 		url = strings.ReplaceAll(url, "{namespace_id}", "someNamespace")
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
@@ -133,6 +135,11 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 			// on id validation before authz; send a valid id so it reaches authz.
 			if endpoint.path == "/backups/{backend}" && endpoint.method == http.MethodPost {
 				body = []byte(`{"id":"someid"}`)
+			}
+			// near-text's generated body is {} (allOf schema) and 422s on the
+			// required query before authz; send a valid query so it reaches authz.
+			if endpoint.path == "/search/{collection}/near-text" && endpoint.method == http.MethodPost {
+				body = []byte(`{"query":["ABC"]}`)
 			}
 
 			forbidden := false

@@ -37,20 +37,17 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 	return nil
 }
 
-func blockmaxSearchableAddCallback(bucketNamer, canonicalNamer func(string) string,
-	propsByName map[string]struct{},
+// swapFallbackNamer is the canonical-name fallback passed to
+// resolveDoubleWriteBucket; nil skips on a missing sidecar (backup phase).
+func blockmaxSearchableAddCallback(bucketNamer func(string) string,
+	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+		if skip {
 			return nil
 		}
-		bucketName := bucketNamer(property.Name)
-		// bucketName can stop resolving mid-migration (runtimeSwap's
-		// Store.SwapBucketPointer renames it to canonicalNamer's result
-		// while this callback is still registered); see
-		// resolveDoubleWriteBucket for the invariant that makes the
-		// fallback safe.
-		bucket := resolveDoubleWriteBucket(shard.store, bucketName, canonicalNamer(property.Name))
 		propLen := calcPropLenInverted(property.Items)
 		for _, item := range property.Items {
 			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
@@ -62,15 +59,15 @@ func blockmaxSearchableAddCallback(bucketNamer, canonicalNamer func(string) stri
 	}
 }
 
-func blockmaxSearchableDeleteCallback(bucketNamer, canonicalNamer func(string) string,
-	propsByName map[string]struct{},
+func blockmaxSearchableDeleteCallback(bucketNamer func(string) string,
+	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+		if skip {
 			return nil
 		}
-		bucketName := bucketNamer(property.Name)
-		bucket := resolveDoubleWriteBucket(shard.store, bucketName, canonicalNamer(property.Name))
 		for _, item := range property.Items {
 			if err := shard.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
 				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)

@@ -117,16 +117,11 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		// bucketName can stop resolving mid-migration (runtimeSwap's
-		// Store.SwapBucketPointer renames it to s.SourceBucketName while
-		// this callback is still registered); see resolveDoubleWriteBucket
-		// for the invariant that makes the fallback safe.
-		bucket := resolveDoubleWriteBucket(shard.store, bucketName, s.SourceBucketName(property.Name))
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
@@ -163,16 +158,11 @@ func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		// bucketName can stop resolving mid-migration (runtimeSwap's
-		// Store.SwapBucketPointer renames it to s.SourceBucketName while
-		// this callback is still registered); see resolveDoubleWriteBucket
-		// for the invariant that makes the fallback safe.
-		bucket := resolveDoubleWriteBucket(shard.store, bucketName, s.SourceBucketName(property.Name))
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {

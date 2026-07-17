@@ -87,16 +87,11 @@ func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) str
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		// bucketName can stop resolving mid-migration (runtimeSwap's
-		// Store.SwapBucketPointer renames it to s.SourceBucketName while
-		// this callback is still registered); see resolveDoubleWriteBucket
-		// for the invariant that makes the fallback safe.
-		bucket := resolveDoubleWriteBucket(shard.store, bucketName, s.SourceBucketName(property.Name))
 		for _, item := range property.Items {
 			if err := shard.addToPropertySetBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("adding prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
@@ -113,16 +108,11 @@ func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) 
 		if !property.HasFilterableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		// bucketName can stop resolving mid-migration (runtimeSwap's
-		// Store.SwapBucketPointer renames it to s.SourceBucketName while
-		// this callback is still registered); see resolveDoubleWriteBucket
-		// for the invariant that makes the fallback safe.
-		bucket := resolveDoubleWriteBucket(shard.store, bucketName, s.SourceBucketName(property.Name))
 		for _, item := range property.Items {
 			if err := shard.deleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
 				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)

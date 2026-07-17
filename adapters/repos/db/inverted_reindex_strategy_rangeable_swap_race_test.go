@@ -17,6 +17,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -205,12 +207,23 @@ func TestFilterableToRangeableStrategy_MakeDeleteCallback_SurvivesSwapWindow(t *
 // TestFilterableToRangeableStrategy_MakeAddCallback_BothBucketsMissing pins
 // the nil-hardening half of the fix: when NEITHER the ingest name nor the
 // canonical name resolves (a genuine bug - never-registered bucket, or a
-// closing store - not the ordinary swap race), the callback must return a
-// descriptive error instead of panicking. This exercises
-// addToPropertyRangeBucket's own nil check as the last line of defense,
-// independent of resolveDoubleWriteBucket.
+// closing store - not the ordinary swap race), the callback must not panic.
+//
+// Post weaviate/weaviate#11985 convergence: resolveScopedDoubleWriteBucket
+// (inverted_reindex_double_write.go) treats "bucket unresolvable" as an
+// ordinary skip for EVERY strategy - the callback returns nil, not an
+// error, so a client write is never failed by a migration housekeeping
+// gap. That merged contract superseded this test's original expectation
+// (an error return); the loss-free requirement is now satisfied by
+// resolveDoubleWriteBucket logging a Warn at the exact absorption point
+// instead (see resolveDoubleWriteBucket), so the gap stays visible to
+// operators without failing the write. This test now pins BOTH halves of
+// that contract: no panic, no error, and the Warn fires.
 func TestFilterableToRangeableStrategy_MakeAddCallback_BothBucketsMissing(t *testing.T) {
 	shard, _ := setupRangeableSwapRaceShard(t)
+	logger, ok := shard.index.logger.(*logrus.Logger)
+	require.True(t, ok, "test helper wires a *logrus.Logger; if this changes, wire a hook differently")
+	hook := test.NewLocal(logger)
 
 	const propName = filterableToRangeablePropName
 	strategy := &FilterableToRangeableStrategy{propNames: []string{propName}, generation: 1}
@@ -231,5 +244,16 @@ func TestFilterableToRangeableStrategy_MakeAddCallback_BothBucketsMissing(t *tes
 	assert.NotPanics(t, func() {
 		cbErr = cb(shard, uint64(1), property)
 	}, "ADD callback must not panic even when neither bucket name resolves")
-	require.Error(t, cbErr, "a genuinely missing bucket must surface as an error, not a silent no-op")
+	require.NoError(t, cbErr,
+		"a genuinely missing bucket is skipped like any other double-write "+
+			"miss (resolveScopedDoubleWriteBucket's uniform skip contract) - "+
+			"it must not fail the live write")
+
+	// Causal check: the skip must not be silent-and-invisible. This is
+	// what makes the skip loss-free in practice - an operator can grep
+	// logs for it even though the write itself succeeds.
+	entry := hook.LastEntry()
+	require.NotNil(t, entry, "resolveDoubleWriteBucket must log when neither bucket name resolves")
+	assert.Equal(t, logrus.WarnLevel, entry.Level)
+	assert.Contains(t, entry.Message, "double-write mirror skipped")
 }

@@ -94,16 +94,11 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		// bucketName can stop resolving mid-migration (runtimeSwap's
-		// Store.SwapBucketPointer renames it to s.SourceBucketName while
-		// this callback is still registered); see resolveDoubleWriteBucket
-		// for the invariant that makes the fallback safe.
-		bucket := resolveDoubleWriteBucket(shard.store, bucketName, s.SourceBucketName(property.Name))
 		propLen := calcPropLen(property.Items)
 		for _, item := range property.Items {
 			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
@@ -122,16 +117,11 @@ func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) stri
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		// bucketName can stop resolving mid-migration (runtimeSwap's
-		// Store.SwapBucketPointer renames it to s.SourceBucketName while
-		// this callback is still registered); see resolveDoubleWriteBucket
-		// for the invariant that makes the fallback safe.
-		bucket := resolveDoubleWriteBucket(shard.store, bucketName, s.SourceBucketName(property.Name))
 		for _, item := range property.Items {
 			if err := shard.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
 				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
