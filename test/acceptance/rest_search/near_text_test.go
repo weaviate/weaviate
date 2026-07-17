@@ -253,18 +253,18 @@ func TestRESTSearchNearText(t *testing.T) {
 		},
 	})
 
-	t.Run("happy path: envelope with id, properties, metadata, took_ms", func(t *testing.T) {
+	t.Run("happy path: envelope with id, properties, metadata, tookMs", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
-			"query":             []string{"spaceship galaxy"},
-			"return_properties": []string{"title"},
-			"return_metadata":   []string{"distance"},
+			"query":            []string{"spaceship galaxy"},
+			"returnProperties": []string{"title"},
+			"returnMetadata":   []string{"distance"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
 		res := results(t, out)
 		require.Len(t, res, 2)
-		_, ok := out["took_ms"].(float64)
-		assert.True(t, ok, "took_ms missing or not a number: %v", out)
+		_, ok := out["tookMs"].(float64)
+		assert.True(t, ok, "tookMs missing or not a number: %v", out)
 
 		first := hit(t, out, 0)
 		props := propertiesOf(t, first)
@@ -286,10 +286,10 @@ func TestRESTSearchNearText(t *testing.T) {
 		assert.Equal(t, movie1ID.String(), idOf(t, first))
 	})
 
-	t.Run("the id is always returned, even without return_metadata", func(t *testing.T) {
+	t.Run("the id is always returned, even without returnMetadata", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
-			"query":             []string{"spaceship galaxy"},
-			"return_properties": []string{"title"},
+			"query":            []string{"spaceship galaxy"},
+			"returnProperties": []string{"title"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
@@ -299,23 +299,23 @@ func TestRESTSearchNearText(t *testing.T) {
 		assert.NotContains(t, first, "metadata")
 	})
 
-	t.Run("id is not a return_metadata value", func(t *testing.T) {
-		// return_metadata selects metadata keys only; "id" is outside the
+	t.Run("id is not a returnMetadata value", func(t *testing.T) {
+		// returnMetadata selects metadata keys only; "id" is outside the
 		// swagger enum and is rejected at bind time with the standard
 		// ErrorResponse body
 		status, out := postNearText(t, "Movie", map[string]interface{}{
-			"query":           []string{"spaceship galaxy"},
-			"return_metadata": []string{"id"},
+			"query":          []string{"spaceship galaxy"},
+			"returnMetadata": []string{"id"},
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-		assert.Contains(t, errMessage(t, out), "return_metadata")
+		assert.Contains(t, errMessage(t, out), "returnMetadata")
 		assert.Contains(t, out, "error", "bind errors must be ErrorResponse-shaped: %v", out)
 	})
 
 	t.Run("a property named metadata is ordinary user data under properties", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
-			"query":           []string{"spaceship galaxy"},
-			"return_metadata": []string{"distance"},
+			"query":          []string{"spaceship galaxy"},
+			"returnMetadata": []string{"distance"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
@@ -336,7 +336,7 @@ func TestRESTSearchNearText(t *testing.T) {
 				"operator": "LessThan",
 				"valueInt": 2000,
 			},
-			"return_properties": []string{"title"},
+			"returnProperties": []string{"title"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		res := results(t, out)
@@ -360,8 +360,8 @@ func TestRESTSearchNearText(t *testing.T) {
 
 	t.Run("references come back under references as arrays", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
-			"query":             []string{"spaceship galaxy"},
-			"return_properties": []string{"title", "hasAuthor.name"},
+			"query":            []string{"spaceship galaxy"},
+			"returnProperties": []string{"title", "hasAuthor.name"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
@@ -380,8 +380,8 @@ func TestRESTSearchNearText(t *testing.T) {
 
 	t.Run("references omitted when nothing selects across a reference", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
-			"query":             []string{"spaceship galaxy"},
-			"return_properties": []string{"title"},
+			"query":            []string{"spaceship galaxy"},
+			"returnProperties": []string{"title"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		assert.NotContains(t, hit(t, out, 0), "references")
@@ -389,8 +389,8 @@ func TestRESTSearchNearText(t *testing.T) {
 
 	t.Run("nested object properties are returned as nested maps", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
-			"query":             []string{"spaceship galaxy"},
-			"return_properties": []string{"details"},
+			"query":            []string{"spaceship galaxy"},
+			"returnProperties": []string{"details"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
@@ -452,10 +452,10 @@ func TestRESTSearchNearText(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "certainty")
 	})
 
-	t.Run("unknown property in return_properties is a 400", func(t *testing.T) {
+	t.Run("unknown property in returnProperties is a 400", func(t *testing.T) {
 		status, out := postNearText(t, "Movie", map[string]interface{}{
-			"query":             []string{"spaceship"},
-			"return_properties": []string{"nonexistent"},
+			"query":            []string{"spaceship"},
+			"returnProperties": []string{"nonexistent"},
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "no such prop")

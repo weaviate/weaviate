@@ -33,44 +33,41 @@ import (
 type SearchCommon struct {
 
 	// Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.
-	AutoLimit *int64 `json:"auto_limit,omitempty"`
+	AutoLimit *int64 `json:"autoLimit,omitempty"`
 
 	// The consistency level for the read.
 	// Enum: [ONE QUORUM ALL]
-	ConsistencyLevel string `json:"consistency_level,omitempty"`
+	ConsistencyLevel string `json:"consistencyLevel,omitempty"`
 
 	// Reserved for grouped search. Returns 422 (not yet supported).
-	GroupBy *string `json:"group_by,omitempty"`
+	GroupBy *string `json:"groupBy,omitempty"`
 
 	// Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).
-	GroupedTask *string `json:"grouped_task,omitempty"`
+	GroupedTask *string `json:"groupedTask,omitempty"`
 
 	// The maximum number of objects to return. Omitted or `0` falls back to the server default (`QUERY_DEFAULTS_LIMIT`); a value above `QUERY_MAXIMUM_RESULTS` is rejected.
 	Limit *int64 `json:"limit,omitempty"`
 
 	// Reserved for grouped search. Returns 422 (not yet supported).
-	NumberOfGroups *int64 `json:"number_of_groups,omitempty"`
+	NumberOfGroups *int64 `json:"numberOfGroups,omitempty"`
 
 	// Reserved for grouped search. Returns 422 (not yet supported).
-	ObjectsPerGroup *int64 `json:"objects_per_group,omitempty"`
+	ObjectsPerGroup *int64 `json:"objectsPerGroup,omitempty"`
 
 	// The number of objects to skip before returning results. Used with `limit` for pagination.
 	Offset *int64 `json:"offset,omitempty"`
 
-	// Reserved for reranking. Returns 422 (not yet supported).
-	RerankProperty *string `json:"rerank_property,omitempty"`
-
-	// Reserved for reranking. Returns 422 (not yet supported).
-	RerankQuery *string `json:"rerank_query,omitempty"`
+	// rerank
+	Rerank *SearchCommonRerank `json:"rerank,omitempty"`
 
 	// The retrieval metadata to return under each result's `metadata` key. The object `id` is always returned as each result's `id` field. Omitted or empty returns no `metadata` block.
-	ReturnMetadata []string `json:"return_metadata"`
+	ReturnMetadata []string `json:"returnMetadata"`
 
 	// The properties to return. A dot-path selects one hop across a reference (e.g. `hasAuthor.name`). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.
-	ReturnProperties []string `json:"return_properties"`
+	ReturnProperties []string `json:"returnProperties"`
 
 	// Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).
-	SinglePrompt *string `json:"single_prompt,omitempty"`
+	SinglePrompt *string `json:"singlePrompt,omitempty"`
 
 	// The tenant to search in a multi-tenant collection.
 	Tenant string `json:"tenant,omitempty"`
@@ -84,6 +81,10 @@ func (m *SearchCommon) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateConsistencyLevel(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateRerank(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -139,8 +140,27 @@ func (m *SearchCommon) validateConsistencyLevel(formats strfmt.Registry) error {
 	}
 
 	// value enum
-	if err := m.validateConsistencyLevelEnum("consistency_level", "body", m.ConsistencyLevel); err != nil {
+	if err := m.validateConsistencyLevelEnum("consistencyLevel", "body", m.ConsistencyLevel); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *SearchCommon) validateRerank(formats strfmt.Registry) error {
+	if swag.IsZero(m.Rerank) { // not required
+		return nil
+	}
+
+	if m.Rerank != nil {
+		if err := m.Rerank.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("rerank")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("rerank")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -150,7 +170,7 @@ var searchCommonReturnMetadataItemsEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["distance","certainty","score","explain_score","creation_time","last_update_time"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["distance","certainty","score","explainScore","creationTime","lastUpdateTime"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -173,7 +193,7 @@ func (m *SearchCommon) validateReturnMetadata(formats strfmt.Registry) error {
 	for i := 0; i < len(m.ReturnMetadata); i++ {
 
 		// value enum
-		if err := m.validateReturnMetadataItemsEnum("return_metadata"+"."+strconv.Itoa(i), "body", m.ReturnMetadata[i]); err != nil {
+		if err := m.validateReturnMetadataItemsEnum("returnMetadata"+"."+strconv.Itoa(i), "body", m.ReturnMetadata[i]); err != nil {
 			return err
 		}
 
@@ -205,6 +225,10 @@ func (m *SearchCommon) validateWhere(formats strfmt.Registry) error {
 func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateRerank(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateWhere(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -212,6 +236,22 @@ func (m *SearchCommon) ContextValidate(ctx context.Context, formats strfmt.Regis
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *SearchCommon) contextValidateRerank(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Rerank != nil {
+		if err := m.Rerank.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("rerank")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("rerank")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -242,6 +282,65 @@ func (m *SearchCommon) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *SearchCommon) UnmarshalBinary(b []byte) error {
 	var res SearchCommon
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// SearchCommonRerank Reserved for reranking. Returns 422 (not yet supported).
+//
+// swagger:model SearchCommonRerank
+type SearchCommonRerank struct {
+
+	// The property to rerank on.
+	// Required: true
+	Property *string `json:"property"`
+
+	// The query to rerank with. Defaults to the search query.
+	Query string `json:"query,omitempty"`
+}
+
+// Validate validates this search common rerank
+func (m *SearchCommonRerank) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateProperty(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *SearchCommonRerank) validateProperty(formats strfmt.Registry) error {
+
+	if err := validate.Required("rerank"+"."+"property", "body", m.Property); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validates this search common rerank based on context it is used
+func (m *SearchCommonRerank) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *SearchCommonRerank) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *SearchCommonRerank) UnmarshalBinary(b []byte) error {
+	var res SearchCommonRerank
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

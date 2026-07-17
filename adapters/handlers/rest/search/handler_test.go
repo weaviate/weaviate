@@ -231,12 +231,13 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 
 	deps.handler.enabled = runtime.NewDynamicValue(true)
-	rerank := "title"
+	rerankProp := "title"
+	rerank := &models.SearchCommonRerank{Property: &rerankProp}
 	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
-		&models.SearchCommon{RerankProperty: &rerank}, build)
+		&models.SearchCommon{Rerank: rerank}, build)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "rerank_property")
+	assert.Contains(t, apiErr.Error(), "rerank")
 }
 
 func TestHandlerHappyPath(t *testing.T) {
@@ -253,7 +254,7 @@ func TestHandlerHappyPath(t *testing.T) {
 	}
 
 	payload, apiErr := doNearText(t, deps, nil, "Movie",
-		`{"query":["space opera"],"limit":5,"return_properties":["title","year"],"return_metadata":["distance"]}`)
+		`{"query":["space opera"],"limit":5,"returnProperties":["title","year"],"returnMetadata":["distance"]}`)
 	require.Nil(t, apiErr)
 
 	require.Len(t, payload.Results, 1)
@@ -276,12 +277,12 @@ func TestHandlerHappyPath(t *testing.T) {
 }
 
 // TestHandlerIDAlwaysReturned: every hit carries its id on the envelope,
-// with or without return_metadata, and an id-only request produces no
+// with or without returnMetadata, and an id-only request produces no
 // metadata block.
 func TestHandlerIDAlwaysReturned(t *testing.T) {
 	for name, body := range map[string]string{
-		"return_metadata omitted": `{"query":["space"]}`,
-		"return_metadata empty":   `{"query":["space"],"return_metadata":[]}`,
+		"returnMetadata omitted": `{"query":["space"]}`,
+		"returnMetadata empty":   `{"query":["space"],"returnMetadata":[]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := newTestHandler(t)
@@ -536,7 +537,7 @@ func (a *denyCollections) Calls() []mocks.AuthZReq { return a.requests }
 // reference selection or a where filter are authorized, not just the primary.
 func TestHandlerAuthorizesReferencedCollections(t *testing.T) {
 	for name, body := range map[string]string{
-		"reference selection": `{"query":["space"],"return_properties":["hasAuthor.name"]}`,
+		"reference selection": `{"query":["space"],"returnProperties":["hasAuthor.name"]}`,
 		"where filter across a reference": `{"query":["space"],"where":` +
 			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"}}`,
 	} {

@@ -6549,7 +6549,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10338,13 +10338,13 @@ func init() {
       "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
       "type": "object",
       "properties": {
-        "auto_limit": {
+        "autoLimit": {
           "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
-        "consistency_level": {
+        "consistencyLevel": {
           "description": "The consistency level for the read.",
           "type": "string",
           "enum": [
@@ -10353,12 +10353,12 @@ func init() {
             "ALL"
           ]
         },
-        "group_by": {
+        "groupBy": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
         },
-        "grouped_task": {
+        "groupedTask": {
           "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
@@ -10369,13 +10369,13 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "number_of_groups": {
+        "numberOfGroups": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
-        "objects_per_group": {
+        "objectsPerGroup": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
           "format": "int64",
@@ -10387,17 +10387,25 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "rerank_property": {
+        "rerank": {
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "string",
+          "type": "object",
+          "required": [
+            "property"
+          ],
+          "properties": {
+            "property": {
+              "description": "The property to rerank on.",
+              "type": "string"
+            },
+            "query": {
+              "description": "The query to rerank with. Defaults to the search query.",
+              "type": "string"
+            }
+          },
           "x-nullable": true
         },
-        "rerank_query": {
-          "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
-        },
-        "return_metadata": {
+        "returnMetadata": {
           "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
           "type": "array",
           "items": {
@@ -10406,20 +10414,20 @@ func init() {
               "distance",
               "certainty",
               "score",
-              "explain_score",
-              "creation_time",
-              "last_update_time"
+              "explainScore",
+              "creationTime",
+              "lastUpdateTime"
             ]
           }
         },
-        "return_properties": {
+        "returnProperties": {
           "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
-        "single_prompt": {
+        "singlePrompt": {
           "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
@@ -10435,7 +10443,7 @@ func init() {
       }
     },
     "SearchNearTextRequest": {
-      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -10465,7 +10473,7 @@ func init() {
                 "type": "string"
               }
             },
-            "target_vector": {
+            "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
             }
@@ -10478,7 +10486,7 @@ func init() {
       "type": "object",
       "required": [
         "results",
-        "took_ms"
+        "tookMs"
       ],
       "properties": {
         "results": {
@@ -10489,7 +10497,7 @@ func init() {
           },
           "x-omitempty": false
         },
-        "took_ms": {
+        "tookMs": {
           "description": "Server-side processing time in milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -10498,7 +10506,7 @@ func init() {
       }
     },
     "SearchResultMetadata": {
-      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `return_metadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
       "type": "object",
       "properties": {
         "certainty": {
@@ -10507,7 +10515,7 @@ func init() {
           "format": "double",
           "x-nullable": true
         },
-        "creation_time": {
+        "creationTime": {
           "description": "The object's creation time, as epoch milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -10519,12 +10527,12 @@ func init() {
           "format": "float",
           "x-nullable": true
         },
-        "explain_score": {
+        "explainScore": {
           "description": "An explanation of how the score was computed.",
           "type": "string",
           "x-nullable": true
         },
-        "last_update_time": {
+        "lastUpdateTime": {
           "description": "The object's last-update time, as epoch milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -17957,7 +17965,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -22121,13 +22129,13 @@ func init() {
       "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
       "type": "object",
       "properties": {
-        "auto_limit": {
+        "autoLimit": {
           "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
-        "consistency_level": {
+        "consistencyLevel": {
           "description": "The consistency level for the read.",
           "type": "string",
           "enum": [
@@ -22136,12 +22144,12 @@ func init() {
             "ALL"
           ]
         },
-        "group_by": {
+        "groupBy": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
         },
-        "grouped_task": {
+        "groupedTask": {
           "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
@@ -22152,13 +22160,13 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "number_of_groups": {
+        "numberOfGroups": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
-        "objects_per_group": {
+        "objectsPerGroup": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
           "format": "int64",
@@ -22170,17 +22178,25 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "rerank_property": {
+        "rerank": {
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "string",
+          "type": "object",
+          "required": [
+            "property"
+          ],
+          "properties": {
+            "property": {
+              "description": "The property to rerank on.",
+              "type": "string"
+            },
+            "query": {
+              "description": "The query to rerank with. Defaults to the search query.",
+              "type": "string"
+            }
+          },
           "x-nullable": true
         },
-        "rerank_query": {
-          "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
-        },
-        "return_metadata": {
+        "returnMetadata": {
           "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
           "type": "array",
           "items": {
@@ -22189,20 +22205,20 @@ func init() {
               "distance",
               "certainty",
               "score",
-              "explain_score",
-              "creation_time",
-              "last_update_time"
+              "explainScore",
+              "creationTime",
+              "lastUpdateTime"
             ]
           }
         },
-        "return_properties": {
+        "returnProperties": {
           "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
-        "single_prompt": {
+        "singlePrompt": {
           "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
@@ -22217,8 +22233,26 @@ func init() {
         }
       }
     },
+    "SearchCommonRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
+        }
+      },
+      "x-nullable": true
+    },
     "SearchNearTextRequest": {
-      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -22248,7 +22282,7 @@ func init() {
                 "type": "string"
               }
             },
-            "target_vector": {
+            "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
             }
@@ -22261,7 +22295,7 @@ func init() {
       "type": "object",
       "required": [
         "results",
-        "took_ms"
+        "tookMs"
       ],
       "properties": {
         "results": {
@@ -22272,7 +22306,7 @@ func init() {
           },
           "x-omitempty": false
         },
-        "took_ms": {
+        "tookMs": {
           "description": "Server-side processing time in milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -22281,7 +22315,7 @@ func init() {
       }
     },
     "SearchResultMetadata": {
-      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `return_metadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
       "type": "object",
       "properties": {
         "certainty": {
@@ -22290,7 +22324,7 @@ func init() {
           "format": "double",
           "x-nullable": true
         },
-        "creation_time": {
+        "creationTime": {
           "description": "The object's creation time, as epoch milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -22302,12 +22336,12 @@ func init() {
           "format": "float",
           "x-nullable": true
         },
-        "explain_score": {
+        "explainScore": {
           "description": "An explanation of how the score was computed.",
           "type": "string",
           "x-nullable": true
         },
-        "last_update_time": {
+        "lastUpdateTime": {
           "description": "The object's last-update time, as epoch milliseconds.",
           "type": "integer",
           "format": "int64",
