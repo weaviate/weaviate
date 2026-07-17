@@ -16,9 +16,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -246,9 +245,9 @@ func validateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 }
 
 func validateTokenizationChange(
-	appState *state.State,
 	class *models.Class,
-	collection, propName, targetTokenization string,
+	propName, targetTokenization string,
+	reindexTasks []*distributedtask.Task,
 ) (bucketStrategy string, err error) {
 	// Find the property.
 	var targetProp *models.Property
@@ -276,29 +275,11 @@ func validateTokenizationChange(
 		return "", fmt.Errorf("property %q already uses tokenization %q", propName, targetTokenization)
 	}
 
-	// Detect bucket strategy from the first shard's searchable bucket.
-	className := entschema.ClassName(collection)
-	idx := appState.DB.GetIndex(className)
-	if idx == nil {
-		return "", fmt.Errorf("collection index not found")
-	}
-
-	idx.ForEachShard(func(_ string, shard db.ShardLike) error {
-		if bucketStrategy != "" {
-			return nil
-		}
-		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-		bucket := shard.Store().Bucket(bucketName)
-		if bucket != nil {
-			bucketStrategy = bucket.Strategy()
-		}
-		return nil
-	})
-	if bucketStrategy == "" {
-		return "", fmt.Errorf("searchable bucket not found for property %q", propName)
-	}
-
-	return bucketStrategy, nil
+	// change-tokenization preserves the bucket's existing strategy, so derive
+	// it from RAFT-consistent state (class flag + task list) rather than a
+	// per-node shard probe, which fails on a node holding no shard.
+	return lsmkv.DefaultSearchableStrategy(
+		searchablePropertyIsBlockmax(class, propName, reindexTasks)), nil
 }
 
 // buildUnitSpecs creates UnitSpec entries with GroupID = shardName (= tenant

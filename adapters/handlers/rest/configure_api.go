@@ -1164,7 +1164,7 @@ func initReindexAndDistributedTasks(
 	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
 	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.Logger,
+		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,

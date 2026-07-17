@@ -214,7 +214,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			// migrated). Filterable / rangeable have no equivalent today.
 			if e.indexType == "searchable" && e.flagOn {
 				idx.Algorithm = models.IndexStatusAlgorithmWand
-				if h.searchablePropertyIsBlockmax(class, prop) {
+				if searchablePropertyIsBlockmax(class, prop.Name, activeTasks[db.ReindexNamespace]) {
 					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
 				}
 			}
@@ -795,7 +795,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
 	case db.ReindexTypeChangeAlgorithm:
-		// repair-searchable migrates WAND → BlockMax. The targetAlgorithm
+		// change-algorithm migrates WAND → BlockMax. The targetAlgorithm
 		// lets the UI render the in-flight switch the same way it renders
 		// targetTokenization for change-tokenization.
 		idx.TargetAlgorithm = models.IndexStatusTargetAlgorithmBlockmax
@@ -1081,7 +1081,8 @@ func countStartedTasksForCollection(collection string, tasks []*distributedtask.
 // matching any property for conflict purposes.
 //
 // The bucket types each migration touches on its targeted property:
-//   - repair-searchable:    searchable bucket
+//   - change-algorithm:     searchable bucket (Map/WAND → Blockmax)
+//   - rebuild-searchable:   searchable bucket (rebuild in place)
 //   - repair-filterable:    filterable bucket
 //   - enable-searchable:    searchable bucket (from scratch)
 //   - enable-filterable:    filterable bucket (from scratch)

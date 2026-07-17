@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
@@ -45,20 +46,21 @@ import (
 //
 //   - "Semantic" migrations are the ones that change query
 //     semantics for the migrated property — change-tokenization,
-//     change-tokenization-filterable, enable-filterable, enable-searchable.
-//     These get the full barrier dance: every shard reindexes first
-//     (RunReindexOnlyOnShard), and only after every unit is terminal does
-//     OnGroupCompleted fire to run the swap phase (RunSwapOnShard) on each
-//     local shard, followed by OnTaskCompleted's cluster-wide schema flip.
-//     No shard serves new data until ALL shards are ready. This is where
-//     the SWAPPING-window tokenization overlay lives.
+//     change-tokenization-filterable, enable-filterable, enable-searchable,
+//     change-algorithm (Map/WAND → Blockmax). These get the full barrier
+//     dance: every shard reindexes first (RunReindexOnlyOnShard), and only
+//     after every unit is terminal does OnGroupCompleted fire to run the swap
+//     phase (RunSwapOnShard) on each local shard, followed by
+//     OnTaskCompleted's cluster-wide schema flip. No shard serves new data
+//     until ALL shards are ready. This is where the SWAPPING-window
+//     tokenization overlay lives (for the tokenization-changing ones).
 //
 //   - "Format-only" migrations don't change query semantics — they only
 //     change the on-disk bucket format. enable-rangeable, repair-rangeable,
-//     repair-filterable, repair-searchable (Map→Blockmax), and the
-//     RoaringSetRefresh strategy fall in this bucket. Each shard runs the
-//     full lifecycle independently via RunOnShard; there is no cluster-wide
-//     schema flip to coordinate.
+//     repair-filterable, rebuild-searchable (rebuild an existing Blockmax
+//     bucket in place), and the RoaringSetRefresh strategy fall in this
+//     bucket. Each shard runs the full lifecycle independently via RunOnShard;
+//     there is no cluster-wide schema flip to coordinate.
 //
 // Note on enable-rangeable: it is intentionally NOT classified as
 // semantic. Range queries' correctness during the migration is gated
@@ -74,6 +76,11 @@ type ReindexProvider struct {
 	logger        logrus.FieldLogger
 	localNode     string
 	concurrency   func() int
+
+	// taskLister backs shouldDeferBlockmaxFlip's flip decision with
+	// cluster-consistent state instead of node-local shard buckets.
+	// cluster.Raft satisfies it.
+	taskLister distributedtask.TaskLister
 
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
 	// fires after StartTask's per-task goroutine has already returned (its ctx
@@ -181,6 +188,7 @@ func composeProgressEnvelope(taskIdx, totalTasks int, progress float32) float32 
 func NewReindexProvider(
 	db *DB,
 	schemaManager *schema.Manager,
+	taskLister distributedtask.TaskLister,
 	logger logrus.FieldLogger,
 	localNode string,
 	concurrency func() int,
@@ -192,6 +200,7 @@ func NewReindexProvider(
 	return &ReindexProvider{
 		db:                db,
 		schemaManager:     schemaManager,
+		taskLister:        taskLister,
 		logger:            logger,
 		localNode:         localNode,
 		concurrency:       concurrency,
@@ -2116,40 +2125,47 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	}
 }
 
-// shouldDeferBlockmaxFlip is true while any local searchable bucket is still
-// on the source (map) strategy — defers the cluster-wide flip until every
-// per-property ChangeAlgorithm has drained (weaviate/0-weaviate-issues#254).
+// shouldDeferBlockmaxFlip defers the cluster-wide UsingBlockMaxWAND flip
+// until every searchable property has migrated off WAND — submit is
+// per-property, so one property's completion isn't the whole class's
+// (weaviate/0-weaviate-issues#254). Derived only from RAFT-consistent state
+// (schema + task list, via [SearchablePropertyBlockmaxFromRAFT]), never
+// node-local buckets, so every node agrees. The property completing now
+// counts as blockmax despite still showing SWAPPING — we're inside its
+// finalize.
 func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) (bool, error) {
-	if p.db == nil {
+	if p.schemaManager == nil || p.taskLister == nil {
+		// Tests may construct the provider without these deps; don't defer.
 		return false, nil
 	}
-	idx := p.db.GetIndex(entschema.ClassName(payload.Collection))
-	if idx == nil {
-		return false, fmt.Errorf("collection %q not found on this node", payload.Collection)
+	class := p.schemaManager.ReadOnlyClass(payload.Collection)
+	if class == nil {
+		return false, fmt.Errorf("collection %q not found in schema", payload.Collection)
 	}
-	var stillMap bool
-	idx.ForEachLoadedShard(func(_ string, sh ShardLike) error {
-		concrete, err := unwrapShard(ctx, sh)
-		if err != nil {
-			return nil
+	tasksByNS, err := p.taskLister.ListDistributedTasks(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list distributed tasks for blockmax flip: %w", err)
+	}
+	reindexTasks := tasksByNS[ReindexNamespace]
+
+	classFlag := class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND
+	completing := make(map[string]struct{}, len(payload.Properties))
+	for _, prop := range payload.Properties {
+		completing[prop] = struct{}{}
+	}
+	for _, prop := range class.Properties {
+		if !inverted.HasSearchableIndex(prop) {
+			continue
 		}
-		for name, bucket := range concrete.Store().GetBucketsByName() {
-			_, indexType := GetPropNameAndIndexTypeFromBucketName(name)
-			if indexType != IndexTypePropSearchableValue {
-				continue
-			}
-			if bucket.Strategy() == lsmkv.StrategyMapCollection {
-				stillMap = true
-				return nil
-			}
+		if _, ok := completing[prop.Name]; ok {
+			continue // finalizing to blockmax now
 		}
-		return nil
-	})
-	if stillMap {
-		logger.Info("reindex provider: change-algorithm cutover deferred — some searchable buckets still on map (subsequent per-property migration will complete the flip)")
-		return true, nil
+		if !SearchablePropertyBlockmaxFromRAFT(classFlag, payload.Collection, prop.Name, reindexTasks) {
+			logger.WithField("property", prop.Name).Info("reindex provider: change-algorithm cutover deferred — a sibling searchable property is still on WAND (its migration will complete the flip)")
+			return true, nil
+		}
 	}
 	return false, nil
 }

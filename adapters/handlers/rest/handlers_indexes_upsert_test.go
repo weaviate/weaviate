@@ -12,12 +12,14 @@
 package rest
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -68,6 +70,95 @@ func classWith(blockmax bool, props ...*models.Property) *models.Class {
 	return &models.Class{
 		Properties:          props,
 		InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: blockmax},
+	}
+}
+
+// activeReindexTask builds an in-flight reindex task for idempotency/conflict tests.
+func activeReindexTask(id, collection string, mt db.ReindexMigrationType, targetTok string, status distributedtask.TaskStatus, props ...string) *distributedtask.Task {
+	payload, _ := json.Marshal(db.ReindexTaskPayload{
+		Collection: collection, MigrationType: mt, TargetTokenization: targetTok, Properties: props,
+	})
+	return &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: id},
+		Status:         status,
+		Payload:        payload,
+	}
+}
+
+// TestResolveSearchableUpsert_Option2 pins that an in-flight task owns the
+// outcome: a matching request NO-OPs, a differing one 409s.
+func TestResolveSearchableUpsert_Option2(t *testing.T) {
+	on, off := boolPtr(true), boolPtr(false)
+	cases := []struct {
+		name         string
+		prop         *models.Property
+		tok          string
+		algorithm    string
+		tasks        []*distributedtask.Task
+		wantNoop     bool
+		wantConflict bool
+		wantMT       db.ReindexMigrationType
+	}{
+		{
+			name:      "repeat blockmax while change-algorithm in flight → NO_OP",
+			prop:      textProp("t", "word", on, off),
+			algorithm: "blockmax",
+			tasks:     []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeAlgorithm, "", distributedtask.TaskStatusStarted, "t")},
+			wantNoop:  true,
+		},
+		{
+			name:     "repeat tokenization while change-tokenization in flight (same target) → NO_OP",
+			prop:     textProp("t", "word", on, on),
+			tok:      "field",
+			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeTokenization, "field", distributedtask.TaskStatusStarted, "t")},
+			wantNoop: true,
+		},
+		{
+			name:         "assert current tokenization while migration moves away → 409",
+			prop:         textProp("t", "word", on, on),
+			tok:          "word",
+			tasks:        []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeTokenization, "field", distributedtask.TaskStatusStarted, "t")},
+			wantConflict: true,
+		},
+		{
+			name:         "algorithm request while tokenization migration in flight → 409",
+			prop:         textProp("t", "word", on, on),
+			algorithm:    "blockmax",
+			tasks:        []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeTokenization, "field", distributedtask.TaskStatusStarted, "t")},
+			wantConflict: true,
+		},
+		{
+			name:         "tokenization request while algorithm migration in flight → 409",
+			prop:         textProp("t", "word", on, on),
+			tok:          "field",
+			tasks:        []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeAlgorithm, "", distributedtask.TaskStatusStarted, "t")},
+			wantConflict: true,
+		},
+		{
+			name:     "repeat enable-searchable tokenization while creating (same tok) → NO_OP",
+			prop:     textProp("t", "word", off, off),
+			tok:      "word",
+			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeEnableSearchable, "word", distributedtask.TaskStatusStarted, "t")},
+			wantNoop: true,
+		},
+		{
+			name:      "no active task on this property → proceeds to change-algorithm",
+			prop:      textProp("t", "word", on, off),
+			algorithm: "blockmax",
+			tasks:     []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeAlgorithm, "", distributedtask.TaskStatusStarted, "other")},
+			wantMT:    db.ReindexTypeChangeAlgorithm,
+		},
+	}
+	h := &indexesHandlers{}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			class := classWith(false, tc.prop)
+			plan, err := h.resolveSearchableUpsert(class, "C", tc.prop, tc.tok, tc.algorithm, tc.tasks)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantNoop, plan.noop, "noop")
+			assert.Equal(t, tc.wantConflict, plan.conflict != "", "conflict (got %q)", plan.conflict)
+			assert.Equal(t, tc.wantMT, plan.migrationType, "migrationType")
+		})
 	}
 }
 
@@ -163,7 +254,7 @@ func TestResolveUpsertPlan_Searchable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(tc.blockmax, tc.prop)
-			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "searchable", tc.body)
+			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "searchable", tc.body, nil)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
@@ -239,7 +330,7 @@ func TestResolveUpsertPlan_Filterable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body)
+			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, nil)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
@@ -295,7 +386,7 @@ func TestResolveUpsertPlan_RangeFilters(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "rangeable", tc.body)
+			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "rangeable", tc.body, nil)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
@@ -367,10 +458,10 @@ func TestResolveRebuildPlan(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(tc.blockmax, tc.prop)
-			// nil appState → searchablePropertyIsBlockmax falls back to the
-			// class flag, so these class-granular cases behave as before.
+			// nil task list → searchablePropertyIsBlockmax derives from the
+			// class flag alone, so these class-granular cases behave as before.
 			h := &indexesHandlers{}
-			plan, err := h.resolveRebuildPlan(class, tc.prop, tc.indexType)
+			plan, err := h.resolveRebuildPlan(class, tc.prop, tc.indexType, nil)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)

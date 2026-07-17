@@ -13,25 +13,30 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // upsertPlan is the outcome of diffing an upsert/rebuild request against
-// current state: noop (respond 200 NO_OP) or migrationType (submit it).
-// Validation failures are returned as errors, not encoded here.
+// current state: noop (respond 200 NO_OP), a conflict (respond 409), or a
+// migrationType to submit. Validation failures are returned as errors (400),
+// not encoded here.
 type upsertPlan struct {
 	noop           bool
+	conflict       string
 	migrationType  db.ReindexMigrationType
 	targetTok      string
 	bucketStrategy string
@@ -72,15 +77,26 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		body = &models.IndexUpsertRequest{}
 	}
 
-	plan, err := h.resolveUpsertPlan(class, collection, prop, indexType, body)
+	// Fetch the RAFT reindex task list once, under the submit lock, so the
+	// blockmax derivation, active-task check, and conflict/cap gate all see
+	// the same snapshot.
+	reindexTasks, resp := h.listReindexTasks(ctx, principal)
+	if resp != nil {
+		return resp
+	}
+
+	plan, err := h.resolveUpsertPlan(class, collection, prop, indexType, body, reindexTasks)
 	if err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
+	}
+	if plan.conflict != "" {
+		return jsonResponder(http.StatusConflict, errorResponse(principal, plan.conflict))
 	}
 	if plan.noop {
 		return jsonResponder(http.StatusOK, &models.IndexUpdateResponse{Status: reindexNoOpStatus})
 	}
 
-	return h.submitReindexTask(ctx, principal, class, collection, params.PropertyName, plan, params.Tenants)
+	return h.submitReindexTask(ctx, principal, class, collection, params.PropertyName, plan, params.Tenants, reindexTasks)
 }
 
 // rebuildIndex implements POST .../index/{indexType}/rebuild — rebuild the
@@ -109,12 +125,34 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 		return resp
 	}
 
-	plan, err := h.resolveRebuildPlan(class, prop, indexType)
+	reindexTasks, resp := h.listReindexTasks(ctx, principal)
+	if resp != nil {
+		return resp
+	}
+
+	plan, err := h.resolveRebuildPlan(class, prop, indexType, reindexTasks)
 	if err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
 
-	return h.submitReindexTask(ctx, principal, class, collection, params.PropertyName, plan, params.Tenants)
+	return h.submitReindexTask(ctx, principal, class, collection, params.PropertyName, plan, params.Tenants, reindexTasks)
+}
+
+// listReindexTasks fetches the RAFT reindex task list under the submit lock.
+// Fails closed (503) rather than let callers derive blockmax truth,
+// idempotency, or the conflict/cap gate from a partial view.
+func (h *indexesHandlers) listReindexTasks(ctx context.Context, principal *models.Principal) ([]*distributedtask.Task, middleware.Responder) {
+	if h.appState.ClusterService == nil {
+		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+			"cluster service unavailable; cannot submit reindex task"))
+	}
+	tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
+	if err != nil {
+		h.appState.Logger.Errorf("submit: failing closed — cannot list in-flight distributed tasks to verify reindex preconditions: %v; rejecting with 503 rather than deriving blockmax/idempotency from a partial view", err)
+		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+			fmt.Sprintf("cannot verify reindex preconditions: listing in-flight tasks failed (%v); retry once the task store is reachable", err)))
+	}
+	return tasks[db.ReindexNamespace], nil
 }
 
 // cancelIndex implements POST .../index/{indexType}/cancel — cancel the
@@ -198,15 +236,16 @@ func findProperty(class *models.Class, propertyName string) *models.Property {
 // PUT finds the desired configuration already in place (declarative upsert).
 const reindexNoOpStatus = "NO_OP"
 
-// resolveUpsertPlan diffs the body against current state and returns a
-// migration to submit, a NO_OP, or a validation error (400).
-func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string, body *models.IndexUpsertRequest) (upsertPlan, error) {
+// resolveUpsertPlan diffs the request against current state, returning a
+// migration to submit, a NO_OP, a 409 conflict, or a 400 validation error.
+// reindexTasks supplies blockmax truth and the active-task idempotency check.
+func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string, body *models.IndexUpsertRequest, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
 	tok := strings.TrimSpace(body.Tokenization)
 	algorithm := strings.TrimSpace(body.Algorithm)
 
 	switch indexType {
 	case "searchable":
-		return h.resolveSearchableUpsert(class, collection, prop, tok, algorithm)
+		return h.resolveSearchableUpsert(class, collection, prop, tok, algorithm, reindexTasks)
 	case "filterable":
 		return resolveFilterableUpsert(prop, tok, algorithm)
 	case "rangeable":
@@ -217,29 +256,75 @@ func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection stri
 }
 
 // searchablePropertyIsBlockmax reports whether the property's searchable
-// index is already on the blockmax algorithm. It prefers per-property bucket
-// truth over the class-wide UsingBlockMaxWAND flag, which only flips once
-// EVERY searchable property has migrated: on a multi-searchable-property
-// class one property can be blockmax while the flag is still deferred behind
-// its siblings. Falls back to the class flag when the bucket isn't observable
-// on this node (see DB.SearchablePropertyIsBlockmax).
-func (h *indexesHandlers) searchablePropertyIsBlockmax(class *models.Class, prop *models.Property) bool {
-	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-		return true
+// index is on blockmax, derived only from RAFT-consistent state (class flag
+// + task list) so every node agrees regardless of shards held locally.
+// See [db.SearchablePropertyBlockmaxFromRAFT].
+func searchablePropertyIsBlockmax(class *models.Class, propName string, reindexTasks []*distributedtask.Task) bool {
+	classFlag := class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND
+	return db.SearchablePropertyBlockmaxFromRAFT(classFlag, class.Class, propName, reindexTasks)
+}
+
+// activeSearchableTaskFor returns the in-flight task (if any) converging this
+// property's searchable index, and whether it already targets what this
+// request asks for.
+func activeSearchableTaskFor(collection, propName, tok, algorithm string, reindexTasks []*distributedtask.Task) (task *distributedtask.Task, matches bool) {
+	for _, t := range reindexTasks {
+		if !t.Status.IsActive() {
+			continue
+		}
+		var p db.ReindexTaskPayload
+		if err := json.Unmarshal(t.Payload, &p); err != nil {
+			continue
+		}
+		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propName) {
+			continue
+		}
+		if !db.TouchesSearchable(p.MigrationType) {
+			continue
+		}
+		return t, requestMatchesActiveSearchable(p.MigrationType, p.TargetTokenization, tok, algorithm)
 	}
-	if h.appState == nil || h.appState.DB == nil {
+	return nil, false
+}
+
+// requestMatchesActiveSearchable reports whether an in-flight migration
+// already converges to the requested target: blockmax is the only algorithm
+// target, so either searchable migration type satisfies it; a tokenization
+// request needs a matching target tokenization.
+func requestMatchesActiveSearchable(activeType db.ReindexMigrationType, activeTargetTok, tok, algorithm string) bool {
+	switch {
+	case algorithm != "":
+		return activeType == db.ReindexTypeChangeAlgorithm || activeType == db.ReindexTypeRebuildSearchable
+	case tok != "":
+		return (activeType == db.ReindexTypeChangeTokenization || activeType == db.ReindexTypeEnableSearchable) &&
+			activeTargetTok == tok
+	default:
 		return false
 	}
-	blockmax, known := h.appState.DB.SearchablePropertyIsBlockmax(class.Class, prop.Name)
-	return known && blockmax
 }
 
 // resolveSearchableUpsert handles PUT .../index/searchable. At most one of
 // tokenization / algorithm may change per request.
-func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collection string, prop *models.Property, tok, algorithm string) (upsertPlan, error) {
+func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collection string, prop *models.Property, tok, algorithm string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
 	if tok != "" && algorithm != "" {
 		return upsertPlan{}, errors.New("at most one configuration change per request: set either tokenization or algorithm, not both — issue two requests")
 	}
+
+	// An in-flight task converging this index owns the outcome: a matching
+	// request NO-OPs, a differing one 409s. Checked before the schema read
+	// below to avoid a stale NO_OP mid-migration.
+	if algorithm != "" || tok != "" {
+		if task, matches := activeSearchableTaskFor(collection, prop.Name, tok, algorithm, reindexTasks); task != nil {
+			if matches {
+				return upsertPlan{noop: true}, nil
+			}
+			return upsertPlan{conflict: fmt.Sprintf(
+				"reindex task %q is already migrating searchable property %q to a different target; "+
+					"wait for it to finish or cancel it before requesting a different change",
+				task.ID, prop.Name)}, nil
+		}
+	}
+
 	exists := searchableIndexOn(prop)
 
 	switch {
@@ -263,7 +348,7 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 		// searchable property has migrated, so a property that already
 		// migrated must NO_OP even while the class flip is deferred behind
 		// its siblings (RFC: repeat blockmax PUT → 200 NO_OP).
-		if h.searchablePropertyIsBlockmax(class, prop) {
+		if searchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
 			return upsertPlan{noop: true}, nil
 		}
 		return upsertPlan{migrationType: db.ReindexTypeChangeAlgorithm}, nil
@@ -280,7 +365,7 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 			return upsertPlan{noop: true}, nil
 		}
 		// Coupled tokenization migration (rewrites searchable + filterable).
-		bucketStrategy, err := validateTokenizationChange(h.appState, class, collection, prop.Name, tok)
+		bucketStrategy, err := validateTokenizationChange(class, prop.Name, tok, reindexTasks)
 		if err != nil {
 			return upsertPlan{}, err
 		}
@@ -346,7 +431,7 @@ func resolveRangeableUpsert(class *models.Class, prop *models.Property, tok, alg
 
 // resolveRebuildPlan validates the rebuild preconditions for the internal
 // index-type token and returns the repair/rebuild migration to submit.
-func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string) (upsertPlan, error) {
+func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
 	switch indexType {
 	case "searchable":
 		if !searchableIndexOn(prop) {
@@ -356,7 +441,7 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 		// to blockmax first. Per-property truth: a property whose bucket is
 		// already blockmax must be rebuildable even while the class-wide flag
 		// is still deferred behind sibling properties.
-		if !h.searchablePropertyIsBlockmax(class, prop) {
+		if !searchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
 			return upsertPlan{}, errors.New("cannot rebuild a WAND searchable index — WAND is deprecated; PUT {\"algorithm\":\"blockmax\"} to migrate first")
 		}
 		return upsertPlan{migrationType: db.ReindexTypeRebuildSearchable}, nil
@@ -381,9 +466,10 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 }
 
 // submitReindexTask is the shared submit path for upsert and rebuild:
-// validates tenant scope, checks for conflicts/cap, and submits the
-// distributed task. Returns 202 STARTED or the mapped error.
-func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string) middleware.Responder {
+// validates tenant scope, checks conflicts/cap, and submits the distributed
+// task. Returns 202 STARTED or the mapped error, reusing the caller's RAFT
+// snapshot (reindexTasks) so check-and-submit sees one consistent view.
+func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task) middleware.Responder {
 	if h.appState.ClusterService == nil {
 		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
@@ -456,13 +542,12 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	// Format: "Collection:migration-type:property:ab3f".
 	taskID := fmt.Sprintf("%s:%s:%s:%s", collection, migrationType, properties[0], shortRandomSuffix())
 
-	// Conflict + concurrency-cap checks. The submit lock held by the caller
-	// serializes this check-and-submit against parallel DELETE and submits.
-	// Fails closed (503) when the task list is unavailable — see
-	// checkReindexAdmission.
-	tasks, listErr := h.appState.ClusterService.ListDistributedTasks(ctx)
+	// Conflict + concurrency-cap checks against the caller's RAFT snapshot,
+	// serialized by the caller's submit lock against parallel DELETE and
+	// submits. listErr is nil: the list was already fetched (fail-closed)
+	// in listReindexTasks.
 	if resp := h.checkReindexAdmission(principal, collection, migrationType, properties,
-		tasks[db.ReindexNamespace], listErr); resp != nil {
+		reindexTasks, nil); resp != nil {
 		return resp
 	}
 
