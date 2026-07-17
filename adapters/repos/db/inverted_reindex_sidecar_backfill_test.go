@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -1277,4 +1278,116 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyOffByOneOnEmptyValueEdit(
 		"BUG (gh#322 residual, pinned not fixed - see the skip message above): BM25 tally COUNT must match "+
 			"the live write path's semantics across an in-place edit to the empty string - got %d, want %d "+
 			"(control)", migratedCount, controlCount)
+}
+
+// -----------------------------------------------------------------------------
+// PR #12221 QA round-4: untrackMigratingPropLength composed a read-only
+// PropertyTally presence check with a separate UnTrackProperty call - two
+// independent lock acquisitions on JsonShardMetaData's mutex - and was
+// genuinely concurrent with Shard.recomputeSearchableTallyForProp's
+// ResetProperty (double-write callbacks stay live until runtimeSwap's
+// deferred disableCallbacks call). The deterministic, always-reproducible
+// pin for that exact interleaving lives at the tracker level:
+// inverted.TestJsonShardMetaData_UnTrackProperty_ChecksPresenceBeforeMutating
+// (adapters/repos/db/inverted/new_prop_length_tracker_untrack_toctou_test.go),
+// confirmed RED on the pre-fix UnTrackProperty via stash-revert. The test
+// below exercises the same race through the REAL production call path
+// (untrackMigratingPropLength -> UnTrackPropertyIfPresent, driven by a real
+// delete through the live write path racing a real
+// recomputeSearchableTallyForProp call) to prove the production wiring
+// itself is safe under genuine concurrency, not just the tracker primitive
+// in isolation.
+// -----------------------------------------------------------------------------
+
+// TestSidecarBackfill_EnableSearchable_DeleteDuringRecomputeDoesNotFailOrCorruptTally
+// drives a REAL concurrent race between shard.recomputeSearchableTallyForProp
+// (which calls ResetProperty first, then flushes and rescans the objects
+// bucket from disk - genuine, non-trivial-duration I/O, giving real
+// wall-clock overlap with the concurrent write below) and a REAL delete
+// through the live write path (PutObject editing the migrating prop to
+// empty, which fires the double-write delete callback ->
+// untrackMigratingPropLength -> UnTrackPropertyIfPresent).
+//
+// Causal link: on the fixed code, UnTrackPropertyIfPresent's single critical
+// section makes every possible interleaving between these two goroutines
+// safe by construction (the mutex forces the untrack to run either fully
+// before or fully after any given ResetProperty/rescan step, and both
+// orderings are correct) - so the assertions below (no error from the
+// user's write, no negative tally) hold regardless of how the scheduler
+// happens to interleave the two goroutines on this run. This test does not
+// replace the deterministic tracker-level pin above (a real goroutine race
+// cannot be relied on to hit the exact old two-call gap on every run the
+// way a channel-synchronized test can - see that test's own causal link for
+// the guaranteed-RED-on-old-code proof); it proves the production callback
+// is actually wired to the atomic fix under real concurrent load, at the
+// Shard/PutObject level QA round-4's report was written against.
+func TestSidecarBackfill_EnableSearchable_DeleteDuringRecomputeDoesNotFailOrCorruptTally(t *testing.T) {
+	// Enough objects that the rescan performs real, measurable I/O, widening
+	// the wall-clock overlap with the concurrent delete below.
+	const numObjects = 100
+	ctx := testCtx()
+
+	// Same class shape as the other CallbackTally tests: filterable already
+	// live, searchable not yet live, so the double-write callback machinery
+	// actually engages for "title" (HasAnyInvertedIndex must stay true
+	// throughout the migration - see AnalyzeObject's gate).
+	className := "SidecarBackfillDeleteDuringRecompute_" + uuid.NewString()[:8]
+	vFalse, vTrue := false, true
+	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	objects := sidecarBackfillTextObjects(className, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	t.Cleanup(task.disableCallbacks)
+
+	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
+	require.NoError(t, shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
+
+	// THE RACING DELETE: an in-place edit to empty deletes objects[0]'s only
+	// item, firing the double-write delete callback ->
+	// untrackMigratingPropLength -> UnTrackPropertyIfPresent, concurrently
+	// with a second, independent recomputeSearchableTallyForProp call below.
+	edited := objects[0]
+	edited.Object.Properties = map[string]interface{}{sidecarBackfillTextProp: ""}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	var (
+		recomputeErr error
+		putErr       error
+	)
+	go func() {
+		defer wg.Done()
+		recomputeErr = shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay)
+	}()
+	go func() {
+		defer wg.Done()
+		putErr = shard.PutObject(ctx, edited)
+	}()
+	wg.Wait()
+
+	require.NoError(t, recomputeErr, "sanity: the concurrent recompute call itself must succeed")
+
+	// THE FIX: the user's delete/update must not fail.
+	assert.NoError(t, putErr,
+		"BUG regression check (gh#322 / PR#12221 round-4 TOCTOU): a delete callback racing the post-swap tally "+
+			"recompute's ResetProperty must not fail the user's write")
+
+	// THE FIX: the tally must never go negative.
+	sum, count, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, count, 0,
+		"BUG regression check (gh#322 / PR#12221 round-4 TOCTOU): BM25 tally COUNT must never go negative when a "+
+			"delete callback races the post-swap recompute - got %d", count)
+	assert.GreaterOrEqual(t, sum, 0,
+		"BUG regression check (gh#322 / PR#12221 round-4 TOCTOU): BM25 tally SUM must never go negative when a "+
+			"delete callback races the post-swap recompute - got %d", sum)
 }
