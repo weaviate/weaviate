@@ -88,15 +88,18 @@ func startUsagePoller(t *testing.T, baselineWait func(ct *assert.CollectT), poll
 	}
 }
 
-func TestTenantStatusChanges(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
-
-	className := t.Name() + "Class"
+// createTenantedClass creates a fresh multi-tenancy-enabled collection named className with
+// a single "first" text property and numTenants tenants (tenant0..tenantN-1), deleting any
+// pre-existing collection with that name first. It captures the class/tenant bootstrap
+// shared by TestTenantStatusChanges, TestUsageTenantDelete and TestRestart below.
+//
+// The caller must `defer cleanup()` immediately at the call site, mirroring the startUsagePoller
+// contract above: cleanup only deletes the collection, so its ordering relative to other
+// defers at the call site (e.g. TestRestart's container teardown) is the caller's to control.
+func createTenantedClass(t *testing.T, ctx context.Context, c *client.Client, className string, numTenants int) (tenants []models.Tenant, cleanup func()) {
+	t.Helper()
 
 	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	class := &models.Class{
 		Class: className,
@@ -110,13 +113,22 @@ func TestTenantStatusChanges(t *testing.T) {
 	}
 	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-	tenants := make([]models.Tenant, 10)
+	tenants = make([]models.Tenant, numTenants)
 	for i := range tenants {
 		tenants[i] = models.Tenant{Name: fmt.Sprintf("tenant%d", i)}
 	}
 	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).WithTenants(tenants...).Do(ctx))
 
-	// add some data
+	return tenants, func() {
+		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	}
+}
+
+// seedTenantTextData writes one object per tenant to className, each with a distinct "first"
+// property value. Shared by TestTenantStatusChanges and TestUsageTenantDelete below.
+func seedTenantTextData(t *testing.T, ctx context.Context, c *client.Client, className string, tenants []models.Tenant) {
+	t.Helper()
+
 	for i, tenant := range tenants {
 		_, err := c.Data().Creator().WithClassName(className).
 			WithTenant(tenant.Name).
@@ -125,6 +137,19 @@ func TestTenantStatusChanges(t *testing.T) {
 			}).Do(ctx)
 		require.NoError(t, err)
 	}
+}
+
+func TestTenantStatusChanges(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
+	require.Nil(t, err)
+
+	className := t.Name() + "Class"
+	tenants, cleanup := createTenantedClass(t, ctx, c, className, 10)
+	defer cleanup()
+
+	seedTenantTextData(t, ctx, c, className, tenants)
+
 	stopPoller := startUsagePoller(
 		t,
 		func(ct *assert.CollectT) {
@@ -179,37 +204,10 @@ func TestUsageTenantDelete(t *testing.T) {
 	require.Nil(t, err)
 
 	className := t.Name() + "Class"
+	tenants, cleanup := createTenantedClass(t, ctx, c, className, 100)
+	defer cleanup()
 
-	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-
-	class := &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{
-				Name:     "first",
-				DataType: []string{string(schema.DataTypeText)},
-			},
-		},
-		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-	}
-	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
-
-	tenants := make([]models.Tenant, 100)
-	for i := range tenants {
-		tenants[i] = models.Tenant{Name: fmt.Sprintf("tenant%d", i)}
-	}
-	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).WithTenants(tenants...).Do(ctx))
-
-	// add some data
-	for i, tenant := range tenants {
-		_, err := c.Data().Creator().WithClassName(className).
-			WithTenant(tenant.Name).
-			WithProperties(map[string]interface{}{
-				"first": fmt.Sprintf("hello%d", i),
-			}).Do(ctx)
-		require.NoError(t, err)
-	}
+	seedTenantTextData(t, ctx, c, className, tenants)
 
 	deletedTenants := atomic.Int32{}
 
@@ -551,27 +549,8 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	className := t.Name() + "Class"
-
-	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-
-	class := &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{
-				Name:     "first",
-				DataType: []string{string(schema.DataTypeText)},
-			},
-		},
-		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-	}
-	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
-
-	tenants := make([]models.Tenant, 100)
-	for i := range tenants {
-		tenants[i] = models.Tenant{Name: fmt.Sprintf("tenant%d", i)}
-	}
-	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).WithTenants(tenants...).Do(ctx))
+	tenants, cleanup := createTenantedClass(t, ctx, c, className, 100)
+	defer cleanup()
 
 	// add some data
 	for i, tenant := range tenants {
