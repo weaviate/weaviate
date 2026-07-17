@@ -151,6 +151,14 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			}
 			s.cleanStaleMigrationDirs(prop.Name, "rangeable")
 			s.cleanStaleSidecarDirs(mainBucket)
+			// Sentinel is keyed by property name with no epoch, so a leftover
+			// marker would gate a same-name re-creation not-ready forever
+			// (OnMigrationComplete never fires on a native re-add).
+			if err := s.removeRangeableIncompleteSentinel(prop.Name); err != nil {
+				s.index.logger.WithField("shard", s.name).WithField("property", prop.Name).
+					Warnf("failed to clear rangeable-incomplete sentinel on index drop; a "+
+						"same-name rangeable re-creation may stay gated not-ready until manual cleanup: %v", err)
+			}
 		}
 		return nil
 	})

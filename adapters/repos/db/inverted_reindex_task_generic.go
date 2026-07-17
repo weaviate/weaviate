@@ -82,21 +82,22 @@
 //     [MigrationStrategy.OnMigrationComplete] for the per-strategy
 //     contract.
 //
-// Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup, BEFORE
-// LSM init reloads any buckets)
+// Phase 3 — INGEST→CANONICAL RENAME (live at task completion, with a
+// next-startup crash safety net)
 // ---------------------------------------------------------------------
-// Implemented by [FinalizeCompletedMigrations] (which scans
-// .migrations/ for tracker dirs with merged.mig — recovery promotes
-// merged-but-not-tidied gens — and tidied.mig, then renames each
-// gen's __ingest_<N>/ dir to its canonical name).
+// The ingest bucket is the LIVE post-swap main bucket: renaming its dir
+// while in-memory would corrupt its segment registry and mmaps. Two paths
+// promote it safely:
 //
-// Why deferred: the ingest bucket is the LIVE post-swap main bucket.
-// Its mmaps are open, its segment registry holds the ingest_<N> path
-// as its dir. Renaming that dir while the bucket is in-memory would
-// corrupt the segment registry and any subsequent write that
-// resolves paths from the bucket's stored dir. At next startup,
-// before LSM init touches the canonical name, no bucket is mmapping
-// anything — the rename is safe.
+//   - Live, at task completion (weaviate/0-weaviate-issues#320):
+//     [CommitSwapOnShard] calls [lsmkv.Store.FinalizeBucketSwapLive], which
+//     drains readers, freezes writers, flushes the active memtable, renames
+//     the dir, and rewrites the in-memory paths — no read tears, no write
+//     is lost, no restart needed.
+//   - At next startup, before LSM init touches the canonical name, no
+//     bucket is mmapping anything: [FinalizeCompletedMigrations] renames
+//     each gen's __ingest_<N>/ dir. This remains the crash safety net for
+//     a live finalize that failed or a node that died mid-commit.
 //
 // Crash safety: every phase transition is preceded by a tracker
 // sentinel fsync (markPrepended, markMerged, markSwappedProp,
@@ -834,9 +835,31 @@ func (t *ShardReindexTaskGeneric) CommitSwapOnShard(ctx context.Context, shard S
 	}
 	if backupsReleased {
 		t.trimOlderGenerationsLocked(logger, shard, rt, props)
+		// weaviate/0-weaviate-issues#320: converge on-disk layout live instead of on restart.
+		t.finalizeCommittedSwapsLive(ctx, logger, concreteShard, props)
 	}
-	logger.Info("commit swap: staged swap committed (tidied + OLD backup trimmed); ingest→main rename deferred to next restart")
+	logger.Info("commit swap: staged swap committed (tidied + OLD backup trimmed); ingest→canonical dirs finalized live (restart finalize remains the crash safety net)")
 	return nil
+}
+
+// finalizeCommittedSwapsLive promotes each committed prop's ingest sidecar to
+// its canonical dir now via [lsmkv.Store.FinalizeBucketSwapLive]
+// (weaviate/0-weaviate-issues#320), instead of waiting for the next restart.
+// Best-effort: on failure the sidecar is left for the startup finalize to
+// converge — the crash safety net is never removed.
+func (t *ShardReindexTaskGeneric) finalizeCommittedSwapsLive(ctx context.Context,
+	logger logrus.FieldLogger, shard *Shard, props []string,
+) {
+	lsmPath := shard.pathLSM()
+	store := shard.store
+	for _, propName := range props {
+		mainName := t.strategy.SourceBucketName(propName)
+		canonicalDir := filepath.Join(lsmPath, mainName)
+		if err := store.FinalizeBucketSwapLive(ctx, mainName, canonicalDir); err != nil {
+			logger.WithField("prop", propName).WithField("bucket", mainName).
+				Warnf("commit swap: live ingest→canonical finalize failed; leaving ingest sidecar for next-restart finalize: %v", err)
+		}
+	}
 }
 
 // RollbackSwapOnShard undoes a staged swap after the cluster-wide task

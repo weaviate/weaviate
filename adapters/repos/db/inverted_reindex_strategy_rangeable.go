@@ -239,6 +239,14 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 	if concrete, err := unwrapShard(ctx, shard); err == nil && concrete != nil {
 		for _, propName := range s.propNames {
 			concrete.setRangeableLocallyReady(propName, true)
+			// A completed rebuild repopulates the index, so a prior boot's
+			// "incomplete" verdict is now stale; clear it so future boots
+			// trust the bucket again. weaviate/0-weaviate-issues#335.
+			if err := concrete.removeRangeableIncompleteSentinel(propName); err != nil {
+				concrete.index.logger.WithField("shard", concrete.name).WithField("property", propName).
+					Warnf("failed to clear rangeable-incomplete marker after migration completion; "+
+						"range queries may keep routing to the filterable fallback until the next successful rebuild: %v", err)
+			}
 		}
 	}
 

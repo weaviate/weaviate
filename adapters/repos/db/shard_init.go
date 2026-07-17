@@ -187,6 +187,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
+	// Buckets are loaded now: close the silent-zero gap where an empty
+	// promoted rangeable bucket would otherwise be served as ready.
+	s.reconcileRangeableReadinessAfterInit()
+
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
