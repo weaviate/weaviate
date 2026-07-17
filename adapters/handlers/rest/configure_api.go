@@ -1163,6 +1163,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	}
 
 	serverConfig.Config.Cluster.RaftBootstrapExpect = serverConfig.Config.Raft.BootstrapExpect
+	serverConfig.Config.Cluster.RaftBootstrapTimeout = serverConfig.Config.Raft.BootstrapTimeout
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
