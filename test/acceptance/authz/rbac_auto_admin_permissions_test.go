@@ -98,6 +98,10 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 			if endpoint.path == "/search/{collection}/hybrid" && endpoint.method == http.MethodPost {
 				body = []byte(`{"query":"ABC"}`)
 			}
+			// same for near-object (a well-formed source-object id)
+			if endpoint.path == "/search/{collection}/near-object" && endpoint.method == http.MethodPost {
+				body = []byte(`{"id":"aa44bbee-ca5f-4db7-a412-5fc6a2300001"}`)
+			}
 
 			if endpoint.method == "POST" || endpoint.method == "PUT" || endpoint.method == "PATCH" || endpoint.method == "DELETE" {
 				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(body))
