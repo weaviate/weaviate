@@ -26,22 +26,21 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Pins the QA base-sync carry-check finding (weaviate/weaviate#12221,
-// 2026-07-17 13:04 comment): OnAfterLsmInit's rt.IsSwapped()&&!rt.IsTidied()
-// crash-recovery branch (inverted_reindex_task_generic.go, "swapped, not
+// Pins weaviate/weaviate#12221 finding 2: OnAfterLsmInit's
+// rt.IsSwapped()&&!rt.IsTidied() crash-recovery branch ("swapped, not
 // tidied. starting backup buckets") re-registers the backup-window
 // double-write callback, but the recovery-only shim
-// (shardReindexerV3RecoveryOnly.RunBeforeLsmInit, reindex_recovery.go:392)
-// deliberately skips OnBeforeLsmInit, and the SAME task instance is later
-// reused by ReindexProvider.OnGroupCompleted's RunSwapOnShard call
-// (reindex_provider.go:93-96) - whose rt.IsSwapped() dispatch branch
-// (tidyBackupBuckets + finalizeMigrationAfterRecovery) never routes through
-// runtimeSwap, the ONLY place that calls disableCallbacks(). The
-// registration survives the migration's completion and keeps firing
-// trackMigratingPropLength for every subsequent write to the migrating
-// prop, alongside the live SetPropertyLengths path once the cluster-wide
-// schema flip lands - double-tallying every post-recovery write until the
-// shard restarts again.
+// (shardReindexerV3RecoveryOnly.RunBeforeLsmInit) deliberately skips
+// OnBeforeLsmInit, and the SAME task instance is later reused by
+// ReindexProvider.OnGroupCompleted's RunSwapOnShard call - whose
+// rt.IsSwapped() dispatch branch (tidyBackupBuckets +
+// finalizeMigrationAfterRecovery) never routes through runtimeSwap, the
+// ONLY place that calls disableCallbacks(). The registration survives the
+// migration's completion and keeps firing trackMigratingPropLength for
+// every subsequent write to the migrating prop, alongside the live
+// SetPropertyLengths path once the cluster-wide schema flip lands -
+// double-tallying every post-recovery write until the shard restarts
+// again.
 
 // synthesizeSwappedNotTidied drives a real EnableSearchable migration to
 // completion, then removes the on-disk tidied sentinel to synthetically
@@ -140,7 +139,7 @@ func TestReindex_EnableSearchable_CrashRecoveryMidTidy_LeakedCallbackDoubleTalli
 	// already gone. Pre-fix this fails the user's write outright, not just
 	// the tally.
 	require.NoErrorf(t, shard.PutObject(ctx, postFlip),
-		"BUG regression (weaviate/0-weaviate-issues#322 base-sync finding C): a write landing after crash-recovery "+
+		"BUG regression (weaviate/weaviate#12221 finding 2): a write landing after crash-recovery "+
 			"mid-tidy finalization and after the cluster schema flip must not fail - the leaked backup-window "+
 			"double-write callback (registered by OnAfterLsmInit's IsSwapped&&!IsTidied branch, never disarmed "+
 			"because the recovery dispatch in RunSwapOnShard doesn't route through runtimeSwap's defer) tries to "+
@@ -150,12 +149,12 @@ func TestReindex_EnableSearchable_CrashRecoveryMidTidy_LeakedCallbackDoubleTalli
 	require.NoError(t, err)
 
 	assert.Equalf(t, preCount+1, postCount,
-		"BUG regression (weaviate/0-weaviate-issues#322 base-sync finding C): a write landing after crash-recovery "+
+		"BUG regression (weaviate/weaviate#12221 finding 2): a write landing after crash-recovery "+
 			"mid-tidy finalization and after the cluster schema flip must tally BM25 COUNT exactly ONCE - the leaked "+
 			"backup-window double-write callback (registered by OnAfterLsmInit's IsSwapped&&!IsTidied branch, never "+
 			"disarmed because the recovery dispatch in RunSwapOnShard doesn't route through runtimeSwap's defer) "+
 			"double-counts alongside the live SetPropertyLengths path - got %d, want %d", postCount, preCount+1)
 	assert.Equalf(t, preSum+3, postSum,
-		"BUG regression (weaviate/0-weaviate-issues#322 base-sync finding C): BM25 SUM must increase by exactly the "+
+		"BUG regression (weaviate/weaviate#12221 finding 2): BM25 SUM must increase by exactly the "+
 			"new object's 3-word contribution, not double it - got %d, want %d", postSum, preSum+3)
 }
