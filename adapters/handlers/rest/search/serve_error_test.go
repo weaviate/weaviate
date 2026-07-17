@@ -74,7 +74,7 @@ func TestServeErrorCompositeValidation(t *testing.T) {
 
 	composite := openapierrors.CompositeValidationError(
 		openapierrors.New(http.StatusUnprocessableEntity, "query in body is required"),
-		openapierrors.New(http.StatusUnprocessableEntity, "consistency_level in body should be one of [ONE QUORUM ALL]"),
+		openapierrors.New(http.StatusUnprocessableEntity, "consistencyLevel in body should be one of [ONE QUORUM ALL]"),
 	)
 	ServeError(rec, req, composite)
 

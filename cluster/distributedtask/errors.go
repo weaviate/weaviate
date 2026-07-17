@@ -87,6 +87,14 @@ var (
 	ErrTaskNotInFinalizingState = errors.New("task is not in finalizing state")
 )
 
+// ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
+// failure as deterministically unrecoverable (e.g. target property deleted
+// mid-flight, payload unparsable): the [Scheduler] fails the task
+// immediately instead of retrying. A plain error is transient and retried
+// up to the per-task bound. Distinct from [ErrPermanentRejection] (FSM
+// apply rejections crossing the RAFT/gRPC boundary).
+var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
+
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
 // permanent FSM rejections from generic Internal errors on the wire. It
 // is intentionally codes.FailedPrecondition: the FSM is internally

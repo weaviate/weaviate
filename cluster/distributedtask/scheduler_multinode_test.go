@@ -122,11 +122,12 @@ func (p *recordingUnitAwareProvider) SetGroupCompletedError(err error) {
 	p.groupCompletedErr = err
 }
 
-func (p *recordingUnitAwareProvider) OnTaskCompleted(task *Task) {
+func (p *recordingUnitAwareProvider) OnTaskCompleted(task *Task) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.taskCalls = append(p.taskCalls, task.ID)
 	p.taskCallsBy[task.ID]++
+	return nil
 }
 
 func (p *recordingUnitAwareProvider) taskCompletedCount(taskID string) int {

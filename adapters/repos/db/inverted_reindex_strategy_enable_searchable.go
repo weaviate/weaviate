@@ -94,7 +94,11 @@ func (s *EnableSearchableStrategy) ShouldProcessProperty(property *inverted.Prop
 func (s *EnableSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
-	postings := blockmaxSearchableAddCallback(bucketNamer, propsByName)
+	var swapFallbackNamer func(string) string
+	if forTargetStrategy {
+		swapFallbackNamer = s.SourceBucketName
+	}
+	postings := blockmaxSearchableAddCallback(bucketNamer, propsByName, swapFallbackNamer)
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if err := postings(shard, docID, property); err != nil {
 			return err
@@ -108,7 +112,11 @@ func (s *EnableSearchableStrategy) MakeAddCallback(bucketNamer func(string) stri
 func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onDeleteFromPropertyValueIndex {
-	postings := blockmaxSearchableDeleteCallback(bucketNamer, propsByName)
+	var swapFallbackNamer func(string) string
+	if forTargetStrategy {
+		swapFallbackNamer = s.SourceBucketName
+	}
+	postings := blockmaxSearchableDeleteCallback(bucketNamer, propsByName, swapFallbackNamer)
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if err := postings(shard, docID, property); err != nil {
 			return err

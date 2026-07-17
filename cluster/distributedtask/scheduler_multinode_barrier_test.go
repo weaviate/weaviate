@@ -100,11 +100,12 @@ func (p *barrierRecordingProvider) OnSwapRequested(task *Task, _ string, _ []str
 	return nil
 }
 
-func (p *barrierRecordingProvider) OnTaskCompleted(task *Task) {
+func (p *barrierRecordingProvider) OnTaskCompleted(task *Task) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.taskCalls = append(p.taskCalls, task.ID)
 	p.taskCallsBy[task.ID]++
+	return nil
 }
 
 func (p *barrierRecordingProvider) SetGroupCompletedError(err error) {

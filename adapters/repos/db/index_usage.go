@@ -64,7 +64,20 @@ func (db *DB) UsageForIndex(ctx context.Context, className schema.ClassName, sha
 		index.dropIndex.RUnlock()
 	}()
 
-	return index.usageForCollection(ctx, shardReadSem, exactObjectCount, vectorsConfig)
+	// abort the scan as soon as a drop of this index is requested, so the drop
+	// does not wait behind the dropIndex.RLock held above
+	usageCtx, usageCancel := context.WithCancel(ctx)
+	defer usageCancel()
+	stop := context.AfterFunc(index.dropRequestedCtx, usageCancel)
+	defer stop()
+
+	usage, err := index.usageForCollection(usageCtx, shardReadSem, exactObjectCount, vectorsConfig)
+	if err != nil && index.dropRequestedCtx.Err() != nil && ctx.Err() == nil {
+		// the collection is being dropped: skip it, the report continues without it
+		db.logger.Infof("usage scan aborted: collection %q is being dropped", className)
+		return nil, nil
+	}
+	return usage, err
 }
 
 func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.Weighted, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.CollectionUsage, error) {
@@ -177,6 +190,10 @@ func (i *Index) usageForCollection(ctx context.Context, shardReadSem *semaphore.
 func (i *Index) usageForShard(ctx context.Context, shardName string, exactObjectCount bool, vectorConfig map[string]models.VectorConfig) (*types.ShardUsage, error) {
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	shard := i.shards.Load(shardName)
 	var localStatus string

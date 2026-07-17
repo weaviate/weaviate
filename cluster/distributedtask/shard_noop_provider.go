@@ -246,7 +246,7 @@ func (p *ShardNoopProvider) OnSwapRequested(_ *Task, _ string, _ []string) error
 	return nil
 }
 
-func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
+func (p *ShardNoopProvider) OnTaskCompleted(task *Task) error {
 	p.completedTasksMu.Lock()
 	defer p.completedTasksMu.Unlock()
 	p.completedTasks[task.TaskDescriptor] = true
@@ -280,6 +280,7 @@ func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
 
 	p.logger.WithField("taskID", task.ID).WithField("status", task.Status).
 		Info("shard-noop provider: task-completion fired")
+	return nil
 }
 
 func (p *ShardNoopProvider) IsTaskCompleted(desc TaskDescriptor) bool {

@@ -112,6 +112,7 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_MARK_FINALIZED = 306;
     TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK = 307;
     TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK = 308;
+    TYPE_DISTRIBUTED_TASK_MARK_FAILED = 309;
   }
   Type type = 1;
   string class = 2;
@@ -305,6 +306,18 @@ message MarkTaskFinalizedRequest {
   string id = 2;
   uint64 version = 3;
   int64 finalized_at_unix_millis = 4;
+}
+
+// MarkTaskFailedRequest transitions a task SWAPPING → FAILED when
+// OnTaskCompleted returns a terminal error: permanent schema-flip failure
+// or retry-exhausted transient one (weaviate/0-weaviate-issues#297).
+// Idempotent at the FSM layer: a later commit on a terminal task is a no-op.
+message MarkTaskFailedRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string error = 4;
+  int64 failed_at_unix_millis = 5;
 }
 
 // RecordDistributedTaskPostCompletionAckRequest captures one node's

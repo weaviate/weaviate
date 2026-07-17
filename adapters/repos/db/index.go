@@ -269,6 +269,13 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
+	// dropRequestedCtx is cancelled as soon as a drop of this index is requested,
+	// before the drop starts waiting for dropIndex. Long-running readers holding
+	// dropIndex.RLock (e.g. usage scans) watch it to abort promptly and unblock
+	// the drop.
+	dropRequestedCtx    context.Context
+	signalDropRequested context.CancelFunc
+
 	// The other locks in the index should always be called in the given order to prevent deadlocks:
 	// 1. closeLock
 	// 2. backupLock (for a specific shard)
@@ -450,6 +457,7 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
+	index.dropRequestedCtx, index.signalDropRequested = context.WithCancel(context.Background())
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
 	getDeletionStrategy := func() string {
@@ -779,7 +787,9 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	i.ForEachShard(func(key string, shard ShardLike) error {
+	// Skip cold shards: they'd only be force-loaded to create empty buckets,
+	// which they build from the refreshed class at their next load anyway.
+	i.ForEachLoadedShard(func(key string, shard ShardLike) error {
 		shard.initPropertyBuckets(ctx, eg, false, props...)
 		return nil
 	})

@@ -37,13 +37,12 @@ func checkReservedFields(common *models.SearchCommon) *APIError {
 		name    string
 		present bool
 	}{
-		{"single_prompt", common.SinglePrompt != nil},
-		{"grouped_task", common.GroupedTask != nil},
-		{"group_by", common.GroupBy != nil},
-		{"number_of_groups", common.NumberOfGroups != nil},
-		{"objects_per_group", common.ObjectsPerGroup != nil},
-		{"rerank_property", common.RerankProperty != nil},
-		{"rerank_query", common.RerankQuery != nil},
+		{"singlePrompt", common.SinglePrompt != nil},
+		{"groupedTask", common.GroupedTask != nil},
+		{"groupBy", common.GroupBy != nil},
+		{"numberOfGroups", common.NumberOfGroups != nil},
+		{"objectsPerGroup", common.ObjectsPerGroup != nil},
+		{"rerank", common.Rerank != nil},
 	}
 	for _, r := range reserved {
 		if r.present {
@@ -119,7 +118,7 @@ func parseConsistencyLevel(level string) (*additional.ReplicationProperties, *AP
 		return &additional.ReplicationProperties{ConsistencyLevel: strings.ToUpper(level)}, nil
 	default:
 		return nil, newAPIError(http.StatusBadRequest,
-			"consistency_level must be one of ONE, QUORUM, ALL, got %q", level)
+			"consistencyLevel must be one of ONE, QUORUM, ALL, got %q", level)
 	}
 }
 
@@ -142,7 +141,7 @@ func (h *Handler) parsePagination(common *models.SearchCommon) (*filters.Paginat
 	}
 	if common.AutoLimit != nil {
 		if *common.AutoLimit < 0 {
-			return nil, newAPIError(http.StatusBadRequest, "auto_limit must not be negative, got %d", *common.AutoLimit)
+			return nil, newAPIError(http.StatusBadRequest, "autoLimit must not be negative, got %d", *common.AutoLimit)
 		}
 		pagination.Autocut = int(*common.AutoLimit)
 	}
@@ -170,7 +169,7 @@ func (h *Handler) parsePagination(common *models.SearchCommon) (*filters.Paginat
 
 // resolveTargetVectors resolves the target vector for the search: a
 // collection with exactly one named vector selects it implicitly, a
-// collection with several requires target_vector.
+// collection with several requires targetVector.
 func resolveTargetVectors(class *models.Class, targetVector string) ([]string, *APIError) {
 	var targetVectors []string
 	if targetVector != "" {
@@ -288,8 +287,8 @@ func checkVectorizer(class *models.Class, targetVectors []string) *APIError {
 	return nil
 }
 
-// parseReturnMetadata converts return_metadata into additional.Properties.
-// return_metadata selects metadata keys only; the object id is not one of
+// parseReturnMetadata converts returnMetadata into additional.Properties.
+// returnMetadata selects metadata keys only; the object id is not one of
 // them — it is always requested internally (additional.Properties{ID: true})
 // and returned as each result's id field, whatever the list contains.
 func parseReturnMetadata(class *models.Class, returnMetadata []string, targetVectors []string) (additional.Properties, *APIError) {
@@ -302,15 +301,15 @@ func parseReturnMetadata(class *models.Class, returnMetadata []string, targetVec
 			props.Certainty = true
 		case "score":
 			props.Score = true
-		case "explain_score":
+		case "explainScore":
 			props.ExplainScore = true
-		case "creation_time":
+		case "creationTime":
 			props.CreationTimeUnix = true
-		case "last_update_time":
+		case "lastUpdateTime":
 			props.LastUpdateTimeUnix = true
 		default:
 			return additional.Properties{}, newAPIError(http.StatusBadRequest,
-				"unknown return_metadata entry %q, expected one of distance, certainty, score, explain_score, creation_time, last_update_time", entry)
+				"unknown returnMetadata entry %q, expected one of distance, certainty, score, explainScore, creationTime, lastUpdateTime", entry)
 		}
 	}
 
@@ -342,7 +341,7 @@ func parseReturnProperties(class *models.Class, returnProperties []string,
 
 	for _, entry := range returnProperties {
 		if entry == "" {
-			return nil, newAPIError(http.StatusBadRequest, "return_properties entries must not be empty")
+			return nil, newAPIError(http.StatusBadRequest, "returnProperties entries must not be empty")
 		}
 
 		root, sub, isDotPath := strings.Cut(entry, ".")
@@ -356,7 +355,7 @@ func parseReturnProperties(class *models.Class, returnProperties []string,
 		if !schema.IsRefDataType(schemaProp.DataType) {
 			if isDotPath {
 				return nil, newAPIError(http.StatusBadRequest,
-					"return_properties: %q is not a reference property, dot-paths only select across references", root)
+					"returnProperties: %q is not a reference property, dot-paths only select across references", root)
 			}
 			prop, apiErr := nonRefSelectProperty(schemaProp, normalized)
 			if apiErr != nil {
@@ -411,12 +410,12 @@ func refSelectProperty(schemaProp *models.Property, name, sub string, isDotPath 
 ) (*search.SelectProperty, *APIError) {
 	if isDotPath && strings.Contains(sub, ".") {
 		return nil, newAPIError(http.StatusUnprocessableEntity,
-			"return_properties: %q is not yet supported, only one reference hop is supported (e.g. %s.%s)",
+			"returnProperties: %q is not yet supported, only one reference hop is supported (e.g. %s.%s)",
 			name+"."+sub, name, strings.Split(sub, ".")[0])
 	}
 	if len(schemaProp.DataType) != 1 {
 		return nil, newAPIError(http.StatusUnprocessableEntity,
-			"return_properties: multi-target reference %q is not yet supported", name)
+			"returnProperties: multi-target reference %q is not yet supported", name)
 	}
 
 	linkedClassName := schemaProp.DataType[0]
@@ -449,7 +448,7 @@ func refSelectProperty(schemaProp *models.Property, name, sub string, isDotPath 
 		}
 		if schema.IsRefDataType(subProp.DataType) {
 			return nil, newAPIError(http.StatusUnprocessableEntity,
-				"return_properties: %q is not yet supported, only one reference hop is supported", name+"."+sub)
+				"returnProperties: %q is not yet supported, only one reference hop is supported", name+"."+sub)
 		}
 		selectProp, apiErr := nonRefSelectProperty(subProp, subNormalized)
 		if apiErr != nil {

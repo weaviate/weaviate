@@ -479,13 +479,10 @@ type Shard struct {
 
 	reindexer ShardReindexerV3
 
-	// Copy-on-write callback slices stored in atomic.Value for lock-free reads
-	// on the hot write path. Registration (rare) copies the slice behind
-	// propertyValueIndexCallbacksMu; iteration (every object write) loads the
-	// current snapshot without locking.
-	callbacksAddToPropertyValueIndex      atomic.Value // []onAddToPropertyValueIndex
-	callbacksRemoveFromPropertyValueIndex atomic.Value // []onDeleteFromPropertyValueIndex
-	propertyValueIndexCallbacksMu         sync.Mutex
+	// Folded snapshot (propValueIndexState) for lock-free reads on the write
+	// path; registration/arm/disarm publish a fresh copy under the mutex.
+	propValueIndexState           atomic.Value // *propValueIndexState
+	propertyValueIndexCallbacksMu sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -965,50 +962,45 @@ func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
 }
 
+// registerAddToPropertyValueIndex appends callback to the folded write-path
+// snapshot and returns a disarm func that REMOVES it again (by id, copy-on-write
+// under the mutex). Removing rather than flagging keeps the slice bounded: the
+// backup-window migration path (re)registers a pair per run, so a
+// flag-and-keep disarm would leak one entry per migration onto the hot path for
+// the life of the shard. Disarm is idempotent — a second call finds no matching
+// id and no-ops.
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
-	disabled := &atomic.Bool{}
-	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if disabled.Load() {
-			return nil
-		}
-		return callback(shard, docID, property)
-	}
+	var id uint64
+	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+		id = cur.nextCallbackID
+		cur.nextCallbackID++
+		cur.add = appendAddCallback(cur.add, id, callback)
+		return cur
+	})
 
-	s.propertyValueIndexCallbacksMu.Lock()
-	var current []onAddToPropertyValueIndex
-	if v := s.callbacksAddToPropertyValueIndex.Load(); v != nil {
-		current = v.([]onAddToPropertyValueIndex)
+	return func() {
+		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+			cur.add = removeAddCallback(cur.add, id)
+			return cur
+		})
 	}
-	updated := make([]onAddToPropertyValueIndex, len(current)+1)
-	copy(updated, current)
-	updated[len(current)] = wrapped
-	s.callbacksAddToPropertyValueIndex.Store(updated)
-	s.propertyValueIndexCallbacksMu.Unlock()
-
-	return func() { disabled.Store(true) }
 }
 
 func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {
-	disabled := &atomic.Bool{}
-	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if disabled.Load() {
-			return nil
-		}
-		return callback(shard, docID, property)
-	}
+	var id uint64
+	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+		id = cur.nextCallbackID
+		cur.nextCallbackID++
+		cur.del = appendDeleteCallback(cur.del, id, callback)
+		return cur
+	})
 
-	s.propertyValueIndexCallbacksMu.Lock()
-	var current []onDeleteFromPropertyValueIndex
-	if v := s.callbacksRemoveFromPropertyValueIndex.Load(); v != nil {
-		current = v.([]onDeleteFromPropertyValueIndex)
+	return func() {
+		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+			cur.del = removeDeleteCallback(cur.del, id)
+			return cur
+		})
 	}
-	updated := make([]onDeleteFromPropertyValueIndex, len(current)+1)
-	copy(updated, current)
-	updated[len(current)] = wrapped
-	s.callbacksRemoveFromPropertyValueIndex.Store(updated)
-	s.propertyValueIndexCallbacksMu.Unlock()
-
-	return func() { disabled.Store(true) }
 }
 
 // AnyActiveMovement reports whether a replica movement is in flight for this shard.

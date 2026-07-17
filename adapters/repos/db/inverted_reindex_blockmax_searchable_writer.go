@@ -37,15 +37,17 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 	return nil
 }
 
+// swapFallbackNamer is the canonical-name fallback passed to
+// resolveDoubleWriteBucket; nil skips on a missing sidecar (backup phase).
 func blockmaxSearchableAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+		if skip {
 			return nil
 		}
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
 		propLen := calcPropLenInverted(property.Items)
 		for _, item := range property.Items {
 			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
@@ -58,14 +60,14 @@ func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 }
 
 func blockmaxSearchableDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{},
+	propsByName map[string]struct{}, swapFallbackNamer func(string) string,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, swapFallbackNamer, swapFallbackNamer != nil)
+		if skip {
 			return nil
 		}
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
 		for _, item := range property.Items {
 			if err := shard.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
 				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
