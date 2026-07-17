@@ -26,7 +26,6 @@ import (
 
 func ptrTo[T any](v T) *T { return &v }
 
-// T-FIELDS-1: curated extraction - mixed RF, MT, named-vector, hnsw/flat/dynamic.
 func TestCuratedFields_Extraction(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
@@ -87,7 +86,6 @@ func TestCuratedFields_Extraction(t *testing.T) {
 	assert.Equal(t, 1, payload.VectorIndexTypeCounts["dynamic"])
 }
 
-// T-FIELDS-2: usedModules fallback - nil ModuleConfig but Vectorizer set.
 func TestUsedModules_NilModuleConfigFallback(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
@@ -131,7 +129,6 @@ func TestUsedModules_NilModuleConfigFallback(t *testing.T) {
 	assert.NotContains(t, modules, "", "empty vectorizer must not appear")
 }
 
-// T-FIELDS-3: node count comes from schemaManager.Nodes().
 func TestCuratedFields_NodeCount(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
@@ -150,8 +147,8 @@ func TestCuratedFields_NodeCount(t *testing.T) {
 	assert.Equal(t, 2, *payload.NodeCount)
 }
 
-// T-FIELDS-5: pointer fields serialize a measured zero/false instead of being
-// dropped by omitempty; nil means unmeasured.
+// Pointer fields serialize a measured zero/false instead of being dropped by
+// omitempty; nil means unmeasured.
 func TestPayload_PointerSemantics_JSON(t *testing.T) {
 	t.Run("measured zero/false serialize", func(t *testing.T) {
 		p := Payload{
@@ -191,7 +188,6 @@ func TestPayload_PointerSemantics_JSON(t *testing.T) {
 	})
 }
 
-// T-FIELDS-4: VectorIndexType defaults to "hnsw" when empty string.
 func TestCuratedFields_DefaultVectorIndexType(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}

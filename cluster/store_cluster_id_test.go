@@ -48,7 +48,6 @@ func buildClusterIDApplyRequest(t *testing.T, clusterID string) *api.ApplyReques
 	}
 }
 
-// T-CID-1: set-once apply. applyClusterIDSet with id A then id B leaves clusterId == A.
 func TestClusterID_SetOnce(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
@@ -58,7 +57,6 @@ func TestClusterID_SetOnce(t *testing.T) {
 	assert.Equal(t, "id-A", st.ClusterID(), "first set wins")
 }
 
-// T-CID-2: idempotent on log replay. Applying the same entry twice yields one value, no error.
 func TestClusterID_IdempotentOnReplay(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
@@ -69,8 +67,8 @@ func TestClusterID_IdempotentOnReplay(t *testing.T) {
 	assert.Equal(t, "replay-id", st.ClusterID())
 }
 
-// T-CID-4: survives snapshot Persist→Restore (via the FSM snapshot struct
-// directly, since Store.Persist needs a full raft sink).
+// Exercises the FSM snapshot struct directly, since Store.Persist needs a full
+// raft sink.
 func TestClusterID_SnapshotPersistRestore(t *testing.T) {
 	const testID = "snap-cluster-id"
 
@@ -92,7 +90,7 @@ func TestClusterID_SnapshotPersistRestore(t *testing.T) {
 	assert.Equal(t, testID, st.ClusterID())
 }
 
-// T-CID-5: restore-then-replay is idempotent (no double-cancel panic).
+// Guards the restore-then-replay path against a double-close panic.
 func TestClusterID_RestoreThenReplayIdempotent(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
@@ -104,7 +102,6 @@ func TestClusterID_RestoreThenReplayIdempotent(t *testing.T) {
 	assert.Equal(t, "original-id", st.ClusterID())
 }
 
-// T-CID-6: empty-UUID guard - applyClusterIDSet rejects empty cluster_id.
 func TestClusterID_EmptyUUIDGuard(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 	err := st.applyClusterIDSet(buildClusterIDApplyRequest(t, ""))
@@ -112,7 +109,7 @@ func TestClusterID_EmptyUUIDGuard(t *testing.T) {
 	assert.Empty(t, st.ClusterID(), "cluster id must remain unset")
 }
 
-// T-CID-7: WaitForClusterID returns immediately after clusterIDSet is closed.
+// WaitForClusterID returns immediately once clusterIDSet is closed.
 func TestClusterID_WaitReturnsOnCancel(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
@@ -126,7 +123,6 @@ func TestClusterID_WaitReturnsOnCancel(t *testing.T) {
 	assert.Equal(t, "wait-test-id", id)
 }
 
-// T-CID-7 (timeout arm): WaitForClusterID returns ctx.Err() when deadline expires.
 func TestClusterID_WaitTimesOut(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 	// Do NOT set cluster id, so context will expire.
@@ -139,7 +135,6 @@ func TestClusterID_WaitTimesOut(t *testing.T) {
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
-// T-COMPAT-1: old-snapshot decode - ClusterID=="" after unmarshal, no error.
 func TestClusterID_OldSnapshotDecode(t *testing.T) {
 	// A snapshot JSON that has no cluster_id or cluster_created_at fields.
 	oldSnap := `{"node_id":"n1","snapshot_id":"s1"}`
@@ -148,7 +143,6 @@ func TestClusterID_OldSnapshotDecode(t *testing.T) {
 	assert.Empty(t, snap.ClusterID, "old snapshot must decode without cluster_id")
 }
 
-// T-CID-8: bootstrap loop exits promptly once clusterId is committed on any node.
 func TestClusterIDBootstrapLoop_ExitsOnClusterIDSet(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
@@ -171,7 +165,6 @@ func TestClusterIDBootstrapLoop_ExitsOnClusterIDSet(t *testing.T) {
 	assert.Equal(t, "bootstrap-loop-exit-id", st.ClusterID())
 }
 
-// T-CID-9: bootstrap loop exits promptly when the store context is cancelled (Store.Close path).
 func TestClusterIDBootstrapLoop_ExitsOnStoreContextCancelled(t *testing.T) {
 	st := newStoreForClusterIDTests(t)
 
@@ -192,7 +185,6 @@ func TestClusterIDBootstrapLoop_ExitsOnStoreContextCancelled(t *testing.T) {
 	}
 }
 
-// T-COMPAT-2: new-snapshot -> old-struct decode (unknown keys ignored).
 func TestClusterID_NewSnapshotToOldStructIgnored(t *testing.T) {
 	newSnap := `{"node_id":"n1","cluster_id":"xyz","cluster_created_at":12345}`
 	type oldSnapshot struct {

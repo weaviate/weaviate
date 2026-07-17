@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// T-IDENT-1: ReadOrCreateNodeID creates then reads stable.
 func TestReadOrCreateNodeID_CreatesAndReads(t *testing.T) {
 	dir := t.TempDir()
 	id1, err := ReadOrCreateNodeID(dir)
@@ -42,7 +41,6 @@ func TestReadOrCreateNodeID_CreatesAndReads(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "node-id.tmp must not be left behind")
 }
 
-// T-IDENT-2: nodeId survives simulated restart (two New() calls same dir).
 func TestNodeIDSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
 
@@ -62,7 +60,6 @@ func TestNodeIDSurvivesRestart(t *testing.T) {
 	assert.Equal(t, tel1.nodeID, tel2.nodeID, "nodeId must be identical across restarts")
 }
 
-// T-IDENT-3: machineId (ephemeral) must never equal nodeId (persisted).
 func TestMachineIDDiffersFromNodeID(t *testing.T) {
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -91,7 +88,6 @@ func TestMachineIDDiffersFromNodeID(t *testing.T) {
 		"machineId must not overwrite nodeId (slip guard)")
 }
 
-// T-IDENT-4: nodeId resets on data-dir wipe.
 func TestNodeIDResetsOnDataDirWipe(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
@@ -104,7 +100,6 @@ func TestNodeIDResetsOnDataDirWipe(t *testing.T) {
 	assert.NotEqual(t, id1, id2, "different data dirs must produce different nodeIds")
 }
 
-// T-IDENT-5: read-only / unwritable dir falls back.
 // Skipped when running as root because root bypasses dir permission bits,
 // causing the write to succeed and the assertion to fail in CI containers.
 func TestReadOrCreateNodeID_UnwritableDirReturnsError(t *testing.T) {

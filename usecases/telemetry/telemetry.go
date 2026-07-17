@@ -59,9 +59,7 @@ type Telemeter struct {
 	nodesStatusGetter nodesStatusGetter
 	schemaManager     schemaManager
 	logger            logrus.FieldLogger
-	// shutdown is buffered(1) so Stop() never blocks while Start() waits on the
-	// clusterId wait. Consequence: Terminate may push before Init during a
-	// shutdown-during-startup race; ordering is not guaranteed.
+	// buffered(1) so Stop() never blocks; Terminate may precede Init at shutdown-during-startup.
 	shutdown        chan struct{}
 	consumer        string
 	pushInterval    time.Duration

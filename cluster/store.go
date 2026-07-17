@@ -1034,7 +1034,7 @@ func (st *Store) maybeCommitClusterID() {
 	if err != nil {
 		st.log.WithFields(logrus.Fields{
 			"cluster_id": idStr,
-		}).Warnf("maybeCommitClusterID: marshal subcommand: %v", err)
+		}).Warnf("marshal cluster-id set subcommand: %v", err)
 		return
 	}
 	applyReq := &api.ApplyRequest{
@@ -1044,7 +1044,7 @@ func (st *Store) maybeCommitClusterID() {
 	if _, err := st.Execute(applyReq); err != nil {
 		st.log.WithFields(logrus.Fields{
 			"cluster_id": idStr,
-		}).Warnf("maybeCommitClusterID: execute: %v", err)
+		}).Warnf("commit cluster-id set command: %v", err)
 	}
 }
 

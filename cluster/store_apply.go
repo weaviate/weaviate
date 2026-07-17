@@ -443,10 +443,10 @@ func (st *Store) numberOfNodesInTheCluster() int {
 func (st *Store) applyClusterIDSet(cmd *api.ApplyRequest) error {
 	req := &api.SetClusterIDRequest{}
 	if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
-		return fmt.Errorf("applyClusterIDSet: unmarshal: %w", err)
+		return fmt.Errorf("unmarshal cluster-id set command: %w", err)
 	}
 	if req.ClusterId == "" {
-		return fmt.Errorf("applyClusterIDSet: received empty cluster_id, refusing to store")
+		return fmt.Errorf("empty cluster_id in cluster-id set command")
 	}
 	st.setClusterIDFields(req.ClusterId)
 	return nil
