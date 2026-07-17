@@ -619,11 +619,14 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		// In-memory swap completed (per-prop dirs renamed); just tidy
 		// backups and finalize.
 		//
-		// Disarm callbacks BEFORE tidying, not after. The only callback
+		// Disarm callbacks BEFORE tidying, not after. The callback normally
 		// reachable in this branch is the backup-window double-write
 		// registered by OnAfterLsmInit's rt.IsSwapped()&&!rt.IsTidied()
-		// branch (registerDoubleWriteCallbacks(..., forTargetStrategy=false)),
-		// which mirrors writes into the backup bucket by name with no
+		// branch (registerDoubleWriteCallbacks(..., forTargetStrategy=false));
+		// a retry after an IsMerged/IsPrepended run that failed at tidy also
+		// re-enters here with the ingest-window callback (below) still
+		// armed instead, and this disarm handles that case safely too.
+		// The backup-window callback mirrors writes into the backup bucket by name with no
 		// swap fallback: resolveDoubleWriteBucket only returns nil once
 		// the name is gone from the store, and tidyBackupBuckets removes
 		// the on-disk dir WITHOUT unregistering the bucket from the

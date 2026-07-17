@@ -16,14 +16,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // Pins weaviate/weaviate#12221 finding 2: OnAfterLsmInit's
@@ -62,24 +58,9 @@ func TestReindex_EnableSearchable_CrashRecoveryMidTidy_LeakedCallbackDoubleTalli
 	const numObjects = 20
 	ctx := testCtx()
 
-	className := "EnableSearchableCrashMidTidy_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	// Filterable=true (live index) so AnalyzeObject doesn't gate the prop out
-	// of the double-write callback machinery for from-scratch writes - same
-	// shape as newSidecarBackfillSearchableCallbackFixture.
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	shard, idx, task, wrapped, _ := newBackfilledEnableSearchableFixture(t, ctx, "EnableSearchableCrashMidTidy", numObjects)
+	className := shard.Index().Config.ClassName.String()
 
-	objects := sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, wrapped := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted)
 
@@ -110,7 +91,8 @@ func TestReindex_EnableSearchable_CrashRecoveryMidTidy_LeakedCallbackDoubleTalli
 	// performs once every node's OnGroupCompleted has acked: the live schema
 	// now reports the migrating prop as searchable, so SetPropertyLengths
 	// starts tracking it on the ordinary (non-migration) write path.
-	class.Properties[0].IndexSearchable = &vTrue
+	vTrue := true
+	idx.getSchema.ReadOnlyClass(className).Properties[0].IndexSearchable = &vTrue
 
 	preSum, preCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
 	require.NoError(t, err)
@@ -120,16 +102,7 @@ func TestReindex_EnableSearchable_CrashRecoveryMidTidy_LeakedCallbackDoubleTalli
 	// One write landing strictly after recovery finalized AND after the
 	// schema flip - the exact shape a rolling upgrade would produce between
 	// this node's ack and the cluster-wide RAFT schema commit.
-	postFlip := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    strfmt.UUID(uuid.NewString()),
-			Class: className,
-			Properties: map[string]interface{}{
-				sidecarBackfillTextProp: "alpha bravo charlie", // 3 words
-			},
-		},
-	}
+	postFlip := newSidecarMarkerObject(className, sidecarBackfillTextProp, "alpha bravo charlie") // 3 words
 	// The leaked callback's postings leg is a MORE severe manifestation of
 	// the same root cause than the tally alone: it still resolves the
 	// backup bucket by NAME (resolveDoubleWriteBucket finds it non-nil in

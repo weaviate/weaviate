@@ -16,16 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // This suite pins the composition of weaviate/weaviate#11985's
@@ -76,26 +72,11 @@ func (sc enableSearchableSwapWindowScenario) run(t *testing.T, numObjects int,
 ) (shard *Shard, task *ShardReindexTaskGeneric, objects []*storobj.Object) {
 	t.Helper()
 	ctx := testCtx()
-	className := "EnableSearchableSwapWindow_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	// Filterable=true (live index) so AnalyzeObject doesn't gate the prop
-	// out of the double-write callback machinery for from-scratch writes -
-	// same shape as newSidecarBackfillSearchableCallbackFixture.
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard = shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	objects = sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	shard, _, task, _, objects = newBackfilledEnableSearchableFixture(t, ctx, "EnableSearchableSwapWindow", numObjects)
 
 	_, preCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
 	require.NoError(t, err)
 	require.Zero(t, preCount, "sanity: unindexed prop must have no tally before the migration starts")
-
-	task, _ = newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
 
 	injected := false
 	origSwap := task.processOneSwapPropFn
@@ -109,8 +90,6 @@ func (sc enableSearchableSwapWindowScenario) run(t *testing.T, numObjects int,
 		return oldMain, nil
 	}
 
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 	require.True(t, injected, "swap-window injection hook must have fired")
 
@@ -138,16 +117,7 @@ func TestSidecarBackfill_EnableSearchable_SwapWindowFallbackCallbackTallyIndepen
 			preInjectSum, preInjectCount, _, err = shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
 			require.NoError(t, err)
 
-			marker := &storobj.Object{
-				MarshallerVersion: 1,
-				Object: models.Object{
-					ID:    strfmt.UUID(uuid.NewString()),
-					Class: shard.Index().Config.ClassName.String(),
-					Properties: map[string]interface{}{
-						sidecarBackfillTextProp: enableSearchableSwapWindowMarkerWord,
-					},
-				},
-			}
+			marker := newSidecarMarkerObject(shard.Index().Config.ClassName.String(), sidecarBackfillTextProp, enableSearchableSwapWindowMarkerWord)
 			require.NoError(t, shard.PutObject(ctx, marker),
 				"a write resolved through the composed callback's fallback branch must not fail")
 
@@ -188,16 +158,7 @@ func TestSidecarBackfill_EnableSearchable_SwapWindowWriteConvergesPostingsOnceAn
 			require.Nil(t, shard.store.Bucket(task.ingestBucketName(sidecarBackfillTextProp)),
 				"sanity: ingest bucket name must already be unregistered at the injection point (fallback branch)")
 
-			marker := &storobj.Object{
-				MarshallerVersion: 1,
-				Object: models.Object{
-					ID:    strfmt.UUID(uuid.NewString()),
-					Class: shard.Index().Config.ClassName.String(),
-					Properties: map[string]interface{}{
-						sidecarBackfillTextProp: enableSearchableSwapWindowMarkerWord,
-					},
-				},
-			}
+			marker := newSidecarMarkerObject(shard.Index().Config.ClassName.String(), sidecarBackfillTextProp, enableSearchableSwapWindowMarkerWord)
 			require.NoError(t, shard.PutObject(ctx, marker))
 		},
 	}
@@ -278,19 +239,8 @@ func TestSidecarBackfill_EnableSearchable_SwapWindowDeleteConvergesTallyNMinusOn
 func directResolutionCallbackTallyDelta(t *testing.T, numObjects int, markerWord string) (deltaSum, deltaCount int) {
 	t.Helper()
 	ctx := testCtx()
-	className := "EnableSearchableSwapWindowDirect_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	for _, obj := range sidecarBackfillTextObjects(className, numObjects, 0) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	shard, _, task, _, _ := newBackfilledEnableSearchableFixture(t, ctx, "EnableSearchableSwapWindowDirect", numObjects)
+	className := shard.Index().Config.ClassName.String()
 
 	require.NotNilf(t, shard.store.Bucket(task.ingestBucketName(sidecarBackfillTextProp)),
 		"sanity: ingest bucket must still be registered - this is the DIRECT resolution branch, not the fallback one")
@@ -298,16 +248,7 @@ func directResolutionCallbackTallyDelta(t *testing.T, numObjects int, markerWord
 	preSum, preCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
 	require.NoError(t, err)
 
-	marker := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    strfmt.UUID(uuid.NewString()),
-			Class: className,
-			Properties: map[string]interface{}{
-				sidecarBackfillTextProp: markerWord,
-			},
-		},
-	}
+	marker := newSidecarMarkerObject(className, sidecarBackfillTextProp, markerWord)
 	require.NoError(t, shard.PutObject(ctx, marker),
 		"a write resolved through the callback's DIRECT branch must not fail")
 
@@ -317,7 +258,6 @@ func directResolutionCallbackTallyDelta(t *testing.T, numObjects int, markerWord
 	// Drive the migration to completion so the fixture converges cleanly;
 	// the delta this helper returns was already captured above, strictly
 	// inside the reindex window.
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 
 	return postSum - preSum, postCount - preCount
@@ -332,7 +272,11 @@ func directResolutionCallbackTallyDelta(t *testing.T, numObjects int, markerWord
 // happened to land in.
 func TestSidecarBackfill_EnableSearchable_DirectVsFallbackCallbackTallyDeltaIdentical(t *testing.T) {
 	const numObjects = 20
-	const markerWord = enableSearchableSwapWindowMarkerWord
+	// Multi-word, unlike this file's other 1-word markers - a SUM/COUNT
+	// mixup in either resolution branch would inflate SUM by more than
+	// COUNT, so this test doesn't rely solely on the mid-tidy-tally
+	// suite's marker elsewhere for that discrimination.
+	const markerWord = "golf hotel india"
 
 	directDeltaSum, directDeltaCount := directResolutionCallbackTallyDelta(t, numObjects, markerWord)
 
@@ -345,16 +289,7 @@ func TestSidecarBackfill_EnableSearchable_DirectVsFallbackCallbackTallyDeltaIden
 			preSum, preCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
 			require.NoError(t, err)
 
-			marker := &storobj.Object{
-				MarshallerVersion: 1,
-				Object: models.Object{
-					ID:    strfmt.UUID(uuid.NewString()),
-					Class: shard.Index().Config.ClassName.String(),
-					Properties: map[string]interface{}{
-						sidecarBackfillTextProp: markerWord,
-					},
-				},
-			}
+			marker := newSidecarMarkerObject(shard.Index().Config.ClassName.String(), sidecarBackfillTextProp, markerWord)
 			require.NoError(t, shard.PutObject(ctx, marker),
 				"a write resolved through the composed callback's fallback branch must not fail")
 
@@ -394,19 +329,9 @@ func TestSidecarBackfill_EnableSearchable_DirectVsFallbackCallbackTallyDeltaIden
 func TestSidecarBackfill_EnableSearchable_DeleteUntallyThroughFallbackObservedBeforeRecompute(t *testing.T) {
 	const numObjects = 20
 	ctx := testCtx()
-	className := "EnableSearchableSwapWindowDeleteUntally_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
 
-	for _, obj := range sidecarBackfillTextObjects(className, numObjects, 0) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	shard, _, task, _, _ := newBackfilledEnableSearchableFixture(t, ctx, "EnableSearchableSwapWindowDeleteUntally", numObjects)
+	className := shard.Index().Config.ClassName.String()
 
 	// DIRECT-branch add: track a marker object via the callback machinery
 	// while the ingest bucket is still registered, so its contribution is
@@ -414,17 +339,8 @@ func TestSidecarBackfill_EnableSearchable_DeleteUntallyThroughFallbackObservedBe
 	// swap-window delete below.
 	require.NotNilf(t, shard.store.Bucket(task.ingestBucketName(sidecarBackfillTextProp)),
 		"sanity: ingest bucket must be registered for the DIRECT-branch add")
-	markerID := strfmt.UUID(uuid.NewString())
-	marker := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    markerID,
-			Class: className,
-			Properties: map[string]interface{}{
-				sidecarBackfillTextProp: enableSearchableSwapWindowMarkerWord, // 1 word
-			},
-		},
-	}
+	marker := newSidecarMarkerObject(className, sidecarBackfillTextProp, enableSearchableSwapWindowMarkerWord) // 1 word
+	markerID := marker.ID()
 
 	preAddSum, preAddCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
 	require.NoError(t, err)
@@ -458,7 +374,6 @@ func TestSidecarBackfill_EnableSearchable_DeleteUntallyThroughFallbackObservedBe
 		return oldMain, nil
 	}
 
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 	require.True(t, deleteObserved, "swap-window delete injection hook must have fired")
 
