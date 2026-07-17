@@ -14,14 +14,10 @@ package db
 import (
 	"testing"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // tidyWindowRaceMarkerWord is outside sidecarBackfillTextObjects' 5-word
@@ -51,23 +47,9 @@ func TestReindex_EnableSearchable_RecoveryTidyWindowRace_DisarmBeforeTidy(t *tes
 	const numObjects = 20
 	ctx := testCtx()
 
-	className := "EnableSearchableTidyWindowRace_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	// Filterable=true (live index) so AnalyzeObject doesn't gate the prop out
-	// of the double-write callback machinery for from-scratch writes - same
-	// shape as newSidecarBackfillSearchableCallbackFixture.
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	shard, idx, task, wrapped, _ := newBackfilledEnableSearchableFixture(t, ctx, "EnableSearchableTidyWindowRace", numObjects)
+	className := shard.Index().Config.ClassName.String()
 
-	for _, obj := range sidecarBackfillTextObjects(className, numObjects, 0) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, wrapped := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted)
 
@@ -89,7 +71,8 @@ func TestReindex_EnableSearchable_RecoveryTidyWindowRace_DisarmBeforeTidy(t *tes
 	require.True(t, rt2.IsSwapped(), "sanity: must still report swapped")
 	require.False(t, rt2.IsTidied(), "sanity: must still be inside the crash-recovery window this bug targets")
 
-	racerID := strfmt.UUID(uuid.NewString())
+	racer := newSidecarMarkerObject(className, sidecarBackfillTextProp, tidyWindowRaceMarkerWord)
+	racerID := racer.ID()
 	raceInjected := false
 	var raceWriteErr error
 	origTidy := task2.processOneTidyProp
@@ -108,16 +91,6 @@ func TestReindex_EnableSearchable_RecoveryTidyWindowRace_DisarmBeforeTidy(t *tes
 			// hasn't landed), so a successful write is NOT expected to
 			// produce a searchable posting - only to not fail outright,
 			// which is the N1 claim under test.
-			racer := &storobj.Object{
-				MarshallerVersion: 1,
-				Object: models.Object{
-					ID:    racerID,
-					Class: className,
-					Properties: map[string]interface{}{
-						sidecarBackfillTextProp: tidyWindowRaceMarkerWord,
-					},
-				},
-			}
 			raceWriteErr = shard.PutObject(ctx, racer)
 		}
 		return nil

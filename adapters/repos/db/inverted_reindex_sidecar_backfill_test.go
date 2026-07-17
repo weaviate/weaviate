@@ -68,6 +68,24 @@ func sidecarBackfillTextObjects(className string, n, nilCount int) []*storobj.Ob
 	return out
 }
 
+// newSidecarMarkerObject builds a single-property text object with a fresh
+// random UUID - the shape every marker/racer/residual object injected
+// mid-migration across this file and its sibling swap-window,
+// tidy-window-race, and mid-tidy-tally test files takes to observe the
+// double-write callback machinery's tally/posting behavior on one write.
+func newSidecarMarkerObject(className, propName, propValue string) *storobj.Object {
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: className,
+			Properties: map[string]interface{}{
+				propName: propValue,
+			},
+		},
+	}
+}
+
 // newSidecarBackfillTextClass builds a class with a single text property.
 // indexFilterable/indexSearchable control which index (if any) the
 // property starts with - nil means "not explicitly set" (defaults apply).
@@ -581,6 +599,40 @@ func TestSidecarBackfill_EnableSearchable_TallyDurableAcrossRestart(t *testing.T
 		"BM25 avgdl (prop-length mean) must survive a restart immediately after a completed enable-searchable migration")
 }
 
+// newBackfilledEnableSearchableFixture builds a shard with a live
+// filterable index (Filterable=true, Searchable=false - so AnalyzeObject
+// doesn't gate the prop out of the double-write callback machinery for
+// from-scratch writes), numObjects pre-existing text objects, and an
+// EnableSearchableStrategy task through RunReindexOnlyOnShard +
+// RunPrepareOnShard. recomputeSearchableTallyForProp only runs inside
+// RunSwapOnShard (see its call site), so stopping here leaves the tally
+// untouched - callers needing a pre-swap sanity check on the tally, or a
+// pre-swap hook on the task, may do so before driving RunSwapOnShard
+// themselves. Shared by the swap-window, tidy-window-race, and
+// mid-tidy-tally crash-recovery suites in sibling files.
+func newBackfilledEnableSearchableFixture(t *testing.T, ctx context.Context, classNamePrefix string, numObjects int,
+) (shard *Shard, idx *Index, task *ShardReindexTaskGeneric, wrapped *testEnableSearchableStrategyWrapper, objects []*storobj.Object) {
+	t.Helper()
+
+	className := classNamePrefix + "_" + uuid.NewString()[:8]
+	vFalse, vTrue := false, true
+	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard = shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	objects = sidecarBackfillTextObjects(className, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, wrapped = newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+
+	return shard, idx, task, wrapped, objects
+}
+
 // Pins the residual window where a write lands after the backfill flush but
 // before recomputeSearchableTallyForProp's cursor snapshot (see its godoc).
 
@@ -623,16 +675,7 @@ func TestSidecarBackfill_EnableSearchable_TallyMissesConcurrentWriteInMemtable(t
 
 	// Written after the backfill scan returns, before the post-swap
 	// recompute - lands in the objects memtable.
-	concurrentObj := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    strfmt.UUID(uuid.NewString()),
-			Class: migratedClassName,
-			Properties: map[string]interface{}{
-				sidecarBackfillTextProp: concurrentObjText,
-			},
-		},
-	}
+	concurrentObj := newSidecarMarkerObject(migratedClassName, sidecarBackfillTextProp, concurrentObjText)
 	require.NoError(t, migratedShard.PutObject(ctx, concurrentObj))
 
 	require.NoError(t, task.RunPrepareOnShard(ctx, migratedShard))
@@ -653,16 +696,7 @@ func TestSidecarBackfill_EnableSearchable_TallyMissesConcurrentWriteInMemtable(t
 	for _, obj := range controlObjects {
 		require.NoError(t, controlShard.PutObject(ctx, obj))
 	}
-	controlExtra := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    strfmt.UUID(uuid.NewString()),
-			Class: controlClassName,
-			Properties: map[string]interface{}{
-				sidecarBackfillTextProp: concurrentObjText,
-			},
-		},
-	}
+	controlExtra := newSidecarMarkerObject(controlClassName, sidecarBackfillTextProp, concurrentObjText)
 	require.NoError(t, controlShard.PutObject(ctx, controlExtra))
 
 	controlSum, controlCount, controlMean, err := controlShard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
@@ -705,16 +739,7 @@ func TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindow
 	require.EqualValues(t, numObjects, firstCount, "sanity: first recompute must land on exactly the n pre-existing objects")
 
 	// Lands strictly after the first recompute has completed and flushed.
-	residualObj := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    strfmt.UUID(uuid.NewString()),
-			Class: migratedClassName,
-			Properties: map[string]interface{}{
-				sidecarBackfillTextProp: residualObjText,
-			},
-		},
-	}
+	residualObj := newSidecarMarkerObject(migratedClassName, sidecarBackfillTextProp, residualObjText)
 	require.NoError(t, migratedShard.PutObject(ctx, residualObj))
 
 	// A second, independent recompute must land on n+1 - not 2n (broken
@@ -784,16 +809,7 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWi
 	className := shard.Index().Config.ClassName.String()
 
 	// Lands after the recompute, while callbacks are still active.
-	residualObj := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    strfmt.UUID(uuid.NewString()),
-			Class: className,
-			Properties: map[string]interface{}{
-				sidecarBackfillTextProp: residualObjText,
-			},
-		},
-	}
+	residualObj := newSidecarMarkerObject(className, sidecarBackfillTextProp, residualObjText)
 	require.NoError(t, shard.PutObject(ctx, residualObj))
 
 	// Must already include the residual write with no further recompute.
