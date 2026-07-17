@@ -551,8 +551,12 @@ func (st *Store) Close(ctx context.Context) error {
 		return nil
 	}
 
-	// Stop the cluster-id bootstrap loop before tearing down raft so the loop
-	// cannot call Execute() on a shutdown raft instance.
+	// Signal the cluster-id bootstrap loop to stop before tearing down raft. This
+	// only cancels the loop's context; it does not wait for the goroutine to
+	// return, so a tick already inside maybeCommitClusterID -> Execute may briefly
+	// race raft teardown. That is safe: Execute() on a shutting-down raft returns
+	// ErrRaftShutdown/ErrNotLeader, which maybeCommitClusterID logs rather than
+	// panicking on.
 	st.bootstrapLoopCancel()
 
 	// transfer leadership: it stops accepting client requests, ensures

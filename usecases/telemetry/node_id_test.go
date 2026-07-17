@@ -38,6 +38,11 @@ func TestReadOrCreateNodeID_CreatesAndReads(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(dir, "node-id"))
 	require.NoError(t, err)
 	assert.Equal(t, id1, string(b))
+
+	// the tmp file must not linger: rename consumes it and the deferred cleanup
+	// removes it on any post-write failure path.
+	_, statErr := os.Stat(filepath.Join(dir, "node-id.tmp"))
+	assert.True(t, os.IsNotExist(statErr), "node-id.tmp must not be left behind")
 }
 
 // T-IDENT-2: nodeId survives simulated restart (two New() calls same dir).

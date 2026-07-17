@@ -24,6 +24,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -59,19 +60,28 @@ type Telemeter struct {
 	nodesStatusGetter nodesStatusGetter
 	schemaManager     schemaManager
 	logger            logrus.FieldLogger
-	shutdown          chan struct{} // buffered(1): Stop() must not block during Start()'s clusterId wait
-	failedToStart     bool
-	consumer          string
-	pushInterval      time.Duration
-	clientTracker     *ClientTracker
-	cloudInfoHelper   *cloudInfoHelper
+	// shutdown is buffered(1) so Stop() never blocks while Start() is still inside
+	// the clusterId wait. Consequence: on shutdown-during-startup Stop() can send
+	// and push Terminate before Start() pushes Init, so Terminate-before-Init
+	// ordering is not guaranteed.
+	shutdown        chan struct{}
+	consumer        string
+	pushInterval    time.Duration
+	clientTracker   *ClientTracker
+	cloudInfoHelper *cloudInfoHelper
 
 	// nodeID is the persisted per-node UUID from the data-volume file. NOT the hostname.
 	// machineID stays uuid.NewString() per process (unchanged, counts restarts).
-	nodeID string
-	// clusterID is populated in Start() before the Init push.
-	clusterID            string
+	nodeID               string
 	asyncIndexingEnabled bool
+
+	// mu guards clusterID and failedToStart: both are written by Start() (the
+	// clusterId wait can run for up to 30s) and read by Stop() during shutdown,
+	// so shutdown-during-startup would otherwise race them.
+	mu            sync.Mutex
+	failedToStart bool
+	// clusterID is populated in Start() before the Init push.
+	clusterID string
 	// waitForClusterID blocks until the raft leader commits the cluster identity.
 	waitForClusterID func(ctx context.Context) (string, error)
 }
@@ -152,6 +162,9 @@ func ReadOrCreateNodeID(dataPath string) (string, error) {
 	if err := os.WriteFile(tmp, []byte(id), 0o600); err != nil {
 		return "", fmt.Errorf("write node-id tmp: %w", err)
 	}
+	// Clean up the tmp file on any failure after it is written (rename or re-read).
+	// On the happy path rename consumes tmp, so this is a no-op (ignored ENOENT).
+	defer func() { _ = os.Remove(tmp) }()
 	if err := os.Rename(tmp, nodePath); err != nil {
 		return "", fmt.Errorf("rename node-id: %w", err)
 	}
@@ -168,6 +181,30 @@ func (tel *Telemeter) GetClientTracker() *ClientTracker {
 	return tel.clientTracker
 }
 
+func (tel *Telemeter) setClusterID(id string) {
+	tel.mu.Lock()
+	defer tel.mu.Unlock()
+	tel.clusterID = id
+}
+
+func (tel *Telemeter) getClusterID() string {
+	tel.mu.Lock()
+	defer tel.mu.Unlock()
+	return tel.clusterID
+}
+
+func (tel *Telemeter) setFailedToStart(v bool) {
+	tel.mu.Lock()
+	defer tel.mu.Unlock()
+	tel.failedToStart = v
+}
+
+func (tel *Telemeter) getFailedToStart() bool {
+	tel.mu.Lock()
+	defer tel.mu.Unlock()
+	return tel.failedToStart
+}
+
 // Start begins telemetry for the node
 func (tel *Telemeter) Start(ctx context.Context) error {
 	// Wait up to 30 s for the raft leader to commit the cluster identity before the
@@ -182,13 +219,13 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 			tel.logger.WithField("action", "telemetry_cluster_id_wait").
 				Warnf("cluster identity not available within 30s, pushing INIT without clusterId: %v", err)
 		} else {
-			tel.clusterID = clusterID
+			tel.setClusterID(clusterID)
 		}
 	}
 
 	payload, err := tel.push(ctx, PayloadType.Init)
 	if err != nil {
-		tel.failedToStart = true
+		tel.setFailedToStart(true)
 		return fmt.Errorf("push: %w", err)
 	}
 	f := func() {
@@ -234,7 +271,7 @@ func (tel *Telemeter) Stop(ctx context.Context) error {
 		}
 	}()
 
-	if tel.failedToStart {
+	if tel.getFailedToStart() {
 		return nil
 	}
 
@@ -344,7 +381,7 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		UniqueID:         uniqueID,
 		// stable identity
 		NodeID:    tel.nodeID,
-		ClusterID: tel.clusterID,
+		ClusterID: tel.getClusterID(),
 		// curated signal
 		NodeCount:                  &nodeCount,
 		MaxReplicationFactor:       &maxRF,
