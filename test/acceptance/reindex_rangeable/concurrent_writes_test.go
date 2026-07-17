@@ -111,15 +111,14 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 		className := "F10RangeableMig"
 		ids := setupClassWithObjects(t, className, false)
 
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, propName,
-			`{"rangeable":{"enabled":true}}`)
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, propName, "rangeFilters", `{}`)
 		t.Logf("submitted enable-rangeable task: %s", taskID)
 
 		// Fire the PATCH storm immediately so it overlaps the migration
 		// window (markStarted → backfill → swap → schema flip).
 		runUpdateStorm(t, restURI, className, ids)
 
-		reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, propName, "rangeable")
+		reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, propName, "rangeFilters")
 		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 		// Schema flag must be flipped.
