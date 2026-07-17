@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,19 @@ import (
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
+
+// panicEvidenceLinePatterns match log lines that are evidence of a Go
+// panic (goroutine dump headers and stack-frame lines) even when they
+// don't contain any of filterMigrationLogLines' migration keywords -
+// a panic inside a double-write callback (e.g. GH weaviate/weaviate#12206)
+// has no "reindex"/"migration" substring on its own stack-frame lines, so
+// a keyword-only filter silently drops the exact evidence a post-mortem
+// needs.
+var panicEvidenceLinePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`panic:`),
+	regexp.MustCompile(`goroutine \d+ \[`),
+	regexp.MustCompile(`\.go:\d+ \+0x`),
+}
 
 // start3NodeReindexCluster spins up a 3-node cluster with DTM enabled
 // and the reindex provider automatically registered. Optional
@@ -648,8 +662,22 @@ func filterMigrationLogLines(s string) []string {
 	}
 	var out []string
 	for _, line := range strings.Split(s, "\n") {
+		matched := false
 		for _, kw := range keywords {
 			if strings.Contains(line, kw) {
+				out = append(out, line)
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+		// Always keep panic evidence regardless of keyword match - a
+		// recovered panic inside a double-write callback has stack-frame
+		// lines with no migration keyword on them at all.
+		for _, re := range panicEvidenceLinePatterns {
+			if re.MatchString(line) {
 				out = append(out, line)
 				break
 			}

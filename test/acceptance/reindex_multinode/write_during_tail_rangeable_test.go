@@ -85,14 +85,28 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 	// round-robin-independent (single node is enough - the object routes
 	// to whichever shard its ID hashes to, and with dozens of writes
 	// across 3 shards at least one lands on an already-completed shard
-	// with overwhelming probability). Runs until stopCh closes; every
-	// write attempted is counted so the final assertion checks an exact
-	// number, not just "some writes landed".
+	// with overwhelming probability). Runs until stopCh closes.
+	//
+	// Score numbering uses a monotonic ATTEMPT counter, not the success
+	// counter: deriving the score from `written` meant a failed injection
+	// (postSingleNumericObject returns false) left the counter unchanged,
+	// so the next tick reused the exact same score. Under partial-
+	// replication commit semantics a request that this test observes as
+	// "failed" (non-2xx / timeout on the ALL-consistency response) can
+	// still have committed on a quorum of replicas - reusing its score for
+	// a brand-new object (different UUID) then creates two genuinely
+	// distinct objects sharing one sentinel score, which the range-count
+	// assertion below cannot distinguish from a single write and either
+	// over- or under-counts. `attempted` guarantees every request -
+	// successful or not - gets its own score, so no two objects can ever
+	// collide on one; `written` still tracks the exact number of
+	// successes the final assertion expects to find.
 	var (
-		written  atomic.Int64
-		stopCh   = make(chan struct{})
-		stopOnce sync.Once
-		writerWg sync.WaitGroup
+		attempted atomic.Int64
+		written   atomic.Int64
+		stopCh    = make(chan struct{})
+		stopOnce  sync.Once
+		writerWg  sync.WaitGroup
 	)
 	stopWriter := func() {
 		stopOnce.Do(func() { close(stopCh) })
@@ -109,7 +123,7 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 				return
 			case <-ticker.C:
 			}
-			n := written.Load()
+			n := attempted.Add(1) - 1
 			score := tailSentinelBase + int(n)
 			if postSingleNumericObject(t, restURIOf(compose, 1), className, score) {
 				written.Add(1)
@@ -134,8 +148,14 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 	// nothing to the window this test targets.
 	stopWriter()
 	tailWriteCount := int(written.Load())
-	t.Logf("injected %d tail writes with sentinel scores in [%d, %d) across the migration lifecycle",
-		tailWriteCount, tailSentinelBase, tailSentinelBase+tailWriteCount)
+	tailAttemptCount := int(attempted.Load())
+	// The scan band must cover every SCORE the writer could have used
+	// (tailAttemptCount, since scores are attempt-numbered - see the
+	// writer goroutine comment above), even though only tailWriteCount of
+	// those attempts are expected to have succeeded.
+	tailScanUpperBound := tailSentinelBase + tailAttemptCount - 1
+	t.Logf("injected %d successful tail writes (of %d attempts) with sentinel scores in [%d, %d]",
+		tailWriteCount, tailAttemptCount, tailSentinelBase, tailScanUpperBound)
 	require.Greater(t, tailWriteCount, 0,
 		"the continuous writer should have produced at least one successful write during the migration")
 
@@ -148,7 +168,7 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 	require.Eventually(t, func() bool {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 			count, err := rangeCount(restURIOf(compose, nodeIdx), className, propName,
-				tailSentinelBase, tailSentinelBase+tailWriteCount-1)
+				tailSentinelBase, tailScanUpperBound)
 			if err != nil || count != tailWriteCount {
 				return false
 			}
@@ -159,12 +179,13 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 		count, err := rangeCount(restURIOf(compose, nodeIdx), className, propName,
-			tailSentinelBase, tailSentinelBase+tailWriteCount-1)
+			tailSentinelBase, tailScanUpperBound)
 		require.NoError(t, err, "post-migration tail-range query on node %d failed", nodeIdx)
 		require.Equal(t, tailWriteCount, count,
 			"node %d: expected all %d writes injected during the migration to be present in the "+
 				"rangeable index; a lower count reproduces weaviate/0-weaviate-issues#319 (rangeable "+
-				"instance) - a write in the post-swap pre-flip window silently missing the rangeable bucket",
+				"instance) - a write in the post-swap pre-flip window silently missing the rangeable bucket; "+
+				"a higher count means two attempts collided on one sentinel score",
 			nodeIdx, tailWriteCount)
 	}
 }
