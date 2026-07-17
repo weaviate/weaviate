@@ -150,6 +150,87 @@ func init() {
         }
       }
     },
+    "/aggregate/{collection}": {
+      "post": {
+        "description": "Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat ` + "`" + `count` + "`" + ` response) or per group of a ` + "`" + `groupBy` + "`" + ` property (` + "`" + `groups` + "`" + ` response). A ` + "`" + `where` + "`" + ` filter limits the objects that are aggregated; an empty body returns the collection's total object count.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "aggregate"
+        ],
+        "summary": "Aggregate over a collection",
+        "operationId": "aggregate",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to aggregate over. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The aggregate request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AggregateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregation performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/AggregateResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. an unknown groupBy property, a non-positive limit, limit without groupBy, an unknown filter property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks aggregations (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/aliases": {
       "get": {
         "description": "Retrieve a list of all aliases in the system. Results can be filtered by specifying a collection (class) name to get aliases for a specific collection only.",
@@ -7421,6 +7502,115 @@ func init() {
         "type": "object"
       }
     },
+    "AggregateGroup": {
+      "description": "One group of a grouped aggregation: the group's identity under ` + "`" + `groupedBy` + "`" + ` and its aggregated metrics (phase 1: ` + "`" + `count` + "`" + `).",
+      "type": "object",
+      "required": [
+        "groupedBy",
+        "count"
+      ],
+      "properties": {
+        "count": {
+          "description": "The number of objects in the group.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "groupedBy": {
+          "$ref": "#/definitions/AggregateGroupedBy"
+        }
+      }
+    },
+    "AggregateGroupedBy": {
+      "description": "The identity of one group: the ` + "`" + `groupBy` + "`" + ` property (as a one-element path) and the property value that formed the group.",
+      "type": "object",
+      "required": [
+        "path",
+        "value"
+      ],
+      "properties": {
+        "path": {
+          "description": "The grouped property, as a one-element path.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "value": {
+          "description": "The property value that formed the group. Typed as the property is: text values are strings, numeric values numbers, boolean values booleans; grouping by a reference property yields the reference's beacon URI as a string."
+        }
+      }
+    },
+    "AggregateRequest": {
+      "description": "Request body for the aggregate endpoint. Phase 1 supports counts: the number of matching objects, in total or per group. Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships. An empty body ` + "`" + `{}` + "`" + ` returns the collection's total object count.",
+      "type": "object",
+      "properties": {
+        "groupBy": {
+          "description": "The property to group by, as a bare property name. Each distinct value of the property forms one group (an object whose property holds several values counts toward each of them). Omitted or empty aggregates over all matching objects without grouping.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "The maximum number of groups to return, largest first. Must be positive and requires ` + "`" + `groupBy` + "`" + `; omitted falls back to the server default (100 groups).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objectLimit": {
+          "description": "Reserved for aggregate-over-search (the maximum number of search results to aggregate). Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "over": {
+          "description": "Reserved for aggregate-over-search (aggregating the results of a vector, keyword or hybrid search). Returns 422 (not yet supported).",
+          "type": "object",
+          "x-nullable": true
+        },
+        "returnMetrics": {
+          "description": "The aggregation metrics to return. Phase 1 supports only ` + "`" + `count` + "`" + ` (the number of matching objects, per group when ` + "`" + `groupBy` + "`" + ` is set); omitted or empty is equivalent to ` + "`" + `[\"count\"]` + "`" + `. The property-scoped ` + "`" + `property:statistic` + "`" + ` grammar (e.g. ` + "`" + `price:mean` + "`" + `) is reserved and returns 422 (not yet supported).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tenant": {
+          "description": "The tenant to aggregate in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter to limit the objects that are aggregated.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "AggregateResponse": {
+      "description": "The result of an aggregation. An ungrouped aggregation returns the flat form (` + "`" + `count` + "`" + ` plus ` + "`" + `tookMs` + "`" + `); a grouped aggregation returns ` + "`" + `groups` + "`" + ` plus ` + "`" + `tookMs` + "`" + `. Exactly one of ` + "`" + `count` + "`" + `/` + "`" + `groups` + "`" + ` is present, except that a grouped aggregation which produced no groups (nothing matched, or no matching object carries the property) omits ` + "`" + `groups` + "`" + ` entirely.",
+      "type": "object",
+      "required": [
+        "tookMs"
+      ],
+      "properties": {
+        "count": {
+          "description": "The number of matching objects. Present only for ungrouped aggregations.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "groups": {
+          "description": "The groups, ordered by descending count. Present only for grouped aggregations.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AggregateGroup"
+          },
+          "x-omitempty": true
+        },
+        "tookMs": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
     "Alias": {
       "description": "Represents the mapping between an alias name and a collection. An alias provides an alternative name for accessing a collection.",
       "type": "object",
@@ -11692,6 +11882,10 @@ func init() {
       "name": "search"
     },
     {
+      "description": "Operations for aggregating over collections. The aggregate endpoint counts the objects that match an optional ` + "`" + `where` + "`" + ` filter, in total or grouped by a property's distinct values.",
+      "name": "aggregate"
+    },
+    {
       "name": "meta"
     },
     {
@@ -11849,6 +12043,87 @@ func init() {
           },
           "503": {
             "description": "The application is not ready to serve traffic. Traffic should be directed to other available replicas if applicable."
+          }
+        }
+      }
+    },
+    "/aggregate/{collection}": {
+      "post": {
+        "description": "Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat ` + "`" + `count` + "`" + ` response) or per group of a ` + "`" + `groupBy` + "`" + ` property (` + "`" + `groups` + "`" + ` response). A ` + "`" + `where` + "`" + ` filter limits the objects that are aggregated; an empty body returns the collection's total object count.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "aggregate"
+        ],
+        "summary": "Aggregate over a collection",
+        "operationId": "aggregate",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to aggregate over. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The aggregate request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AggregateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregation performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/AggregateResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. an unknown groupBy property, a non-positive limit, limit without groupBy, an unknown filter property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks aggregations (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -19222,6 +19497,115 @@ func init() {
         "type": "object"
       }
     },
+    "AggregateGroup": {
+      "description": "One group of a grouped aggregation: the group's identity under ` + "`" + `groupedBy` + "`" + ` and its aggregated metrics (phase 1: ` + "`" + `count` + "`" + `).",
+      "type": "object",
+      "required": [
+        "groupedBy",
+        "count"
+      ],
+      "properties": {
+        "count": {
+          "description": "The number of objects in the group.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "groupedBy": {
+          "$ref": "#/definitions/AggregateGroupedBy"
+        }
+      }
+    },
+    "AggregateGroupedBy": {
+      "description": "The identity of one group: the ` + "`" + `groupBy` + "`" + ` property (as a one-element path) and the property value that formed the group.",
+      "type": "object",
+      "required": [
+        "path",
+        "value"
+      ],
+      "properties": {
+        "path": {
+          "description": "The grouped property, as a one-element path.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "value": {
+          "description": "The property value that formed the group. Typed as the property is: text values are strings, numeric values numbers, boolean values booleans; grouping by a reference property yields the reference's beacon URI as a string."
+        }
+      }
+    },
+    "AggregateRequest": {
+      "description": "Request body for the aggregate endpoint. Phase 1 supports counts: the number of matching objects, in total or per group. Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships. An empty body ` + "`" + `{}` + "`" + ` returns the collection's total object count.",
+      "type": "object",
+      "properties": {
+        "groupBy": {
+          "description": "The property to group by, as a bare property name. Each distinct value of the property forms one group (an object whose property holds several values counts toward each of them). Omitted or empty aggregates over all matching objects without grouping.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "The maximum number of groups to return, largest first. Must be positive and requires ` + "`" + `groupBy` + "`" + `; omitted falls back to the server default (100 groups).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objectLimit": {
+          "description": "Reserved for aggregate-over-search (the maximum number of search results to aggregate). Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "over": {
+          "description": "Reserved for aggregate-over-search (aggregating the results of a vector, keyword or hybrid search). Returns 422 (not yet supported).",
+          "type": "object",
+          "x-nullable": true
+        },
+        "returnMetrics": {
+          "description": "The aggregation metrics to return. Phase 1 supports only ` + "`" + `count` + "`" + ` (the number of matching objects, per group when ` + "`" + `groupBy` + "`" + ` is set); omitted or empty is equivalent to ` + "`" + `[\"count\"]` + "`" + `. The property-scoped ` + "`" + `property:statistic` + "`" + ` grammar (e.g. ` + "`" + `price:mean` + "`" + `) is reserved and returns 422 (not yet supported).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tenant": {
+          "description": "The tenant to aggregate in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter to limit the objects that are aggregated.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "AggregateResponse": {
+      "description": "The result of an aggregation. An ungrouped aggregation returns the flat form (` + "`" + `count` + "`" + ` plus ` + "`" + `tookMs` + "`" + `); a grouped aggregation returns ` + "`" + `groups` + "`" + ` plus ` + "`" + `tookMs` + "`" + `. Exactly one of ` + "`" + `count` + "`" + `/` + "`" + `groups` + "`" + ` is present, except that a grouped aggregation which produced no groups (nothing matched, or no matching object carries the property) omits ` + "`" + `groups` + "`" + ` entirely.",
+      "type": "object",
+      "required": [
+        "tookMs"
+      ],
+      "properties": {
+        "count": {
+          "description": "The number of matching objects. Present only for ungrouped aggregations.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "groups": {
+          "description": "The groups, ordered by descending count. Present only for grouped aggregations.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AggregateGroup"
+          },
+          "x-omitempty": true
+        },
+        "tookMs": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
     "Alias": {
       "description": "Represents the mapping between an alias name and a collection. An alias provides an alternative name for accessing a collection.",
       "type": "object",
@@ -23878,6 +24262,10 @@ func init() {
     {
       "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; the bm25 endpoint performs keyword (BM25F) search over the searchable text properties. Each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
       "name": "search"
+    },
+    {
+      "description": "Operations for aggregating over collections. The aggregate endpoint counts the objects that match an optional ` + "`" + `where` + "`" + ` filter, in total or grouped by a property's distinct values.",
+      "name": "aggregate"
     },
     {
       "name": "meta"
