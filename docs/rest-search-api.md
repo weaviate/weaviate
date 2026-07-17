@@ -116,9 +116,9 @@ gated version. Two deliberate, accepted changes:
 Reserved fields are **declared** in the schema (each `x-nullable: true` so
 it generates as a pointer), so their 422 "not yet supported" demand signal
 survives — presence is a non-nil pointer. `certainty`/`distance`/`limit`/
-`offset`/`auto_limit` are likewise `x-nullable` to keep the absent-vs-zero
-pointer semantics the handler relies on. `consistency_level` and
-`return_metadata` items carry enums (they now validate at bind time).
+`offset`/`autoLimit` are likewise `x-nullable` to keep the absent-vs-zero
+pointer semantics the handler relies on. `consistencyLevel` and
+`returnMetadata` items carry enums (they now validate at bind time).
 
 Swagger-native behaviors are unchanged from 2026-07-07 (missing body → 422
 code 602; wrong/absent Content-Type → 415; other methods → 405 + `Allow:
@@ -136,7 +136,7 @@ time before the handler runs:
   instead of an array) fails the JSON decode → **400**, not 422. A
   schema-valid but semantically-invalid filter (e.g. an unknown property path)
   reaches the handler's `filterext.Parse` / `ValidateFilters` → **400**.
-  Similarly, bad `consistency_level` / `return_metadata` enum values → 422 at
+  Similarly, bad `consistencyLevel` / `returnMetadata` enum values → 422 at
   bind (the handler keeps its own tolerant checks as a defensive fallback for
   the direct-call path).
 
@@ -148,10 +148,10 @@ field rejection) during a future OpenAPI 3.x migration would be a
 **Migration note (canonical values):** the enums make two inputs stricter on
 the wire than the untyped version accepted — clients that relied on lenient
 casing or lenient metadata keys must now send canonical values. (1)
-`consistency_level` is **uppercase-only**: the untyped handler silently
+`consistencyLevel` is **uppercase-only**: the untyped handler silently
 upper-cased a lowercase `"quorum"` via `ToUpper`, but the enum
 `[ONE, QUORUM, ALL]` now returns 422 for it at bind time. (2)
-`return_metadata` values are enum-validated: an unsupported key (e.g.
+`returnMetadata` values are enum-validated: an unsupported key (e.g.
 `"vector"`) now returns 422 at bind, where the untyped version reached the
 handler and returned 400.
 
@@ -190,15 +190,15 @@ observable change — same wire shapes, status codes and live smoke
 (65/65 + disabled 2/2 + writeonly 1/1). What changed:
 
 - **Shared response model.** `SearchNearTextResponse` → `SearchResponse`
-  (`{results: []SearchResultObject, took_ms}`); the near-text 200 repoints
+  (`{results: []SearchResultObject, tookMs}`); the near-text 200 repoints
   at it. One model serves all four endpoints. `SearchResultObject`
   unchanged.
 - **Shared request base via `allOf`.** A new `SearchCommon` definition holds
   every field common to all search types (`where`, `limit`/`offset`/
-  `auto_limit`, `return_properties`, `return_metadata`, `tenant`,
-  `consistency_level`, and the seven search-reserved fields).
+  `autoLimit`, `returnProperties`, `returnMetadata`, `tenant`,
+  `consistencyLevel`, and the six search-reserved fields).
   `SearchNearTextRequest = allOf[SearchCommon, {query (required), certainty,
-  distance, target_vector}]` — `target_vector` stays near-text-specific (bm25
+  distance, targetVector}]` — `targetVector` stays near-text-specific (bm25
   won't have it). go-swagger generates `SearchNearTextRequest` with an
   **embedded** `SearchCommon` (fields promoted), so the handler reads shared
   fields via promotion (`body.Where`, `body.Limit`, …) and the reserved base
@@ -221,6 +221,40 @@ observable change — same wire shapes, status codes and live smoke
   logic is untouched — only their call sites moved.
 - **`IsSearchRoute` generalized** to any `/v1/search/{collection}/{type}`, so
   the op-mode read classification already covers hybrid/bm25/near-object.
+
+Also on 2026-07-17: the response identifier stays `id`, not the SDKs'
+`uuid` — wire-layer consistency (objects API, GraphQL, gRPC proto, filter
+paths, near-object request field) beats SDK object-model naming; the
+identifier round-trips into other REST calls that all spell it `id`.
+Unresolved: `lastUpdateTime` (matches the Python client) vs the TS
+client's `updateTime` — the SDKs disagree with each other; needs a
+cross-client ruling.
+
+On 2026-07-17 (post-merge review): payload field names switched from
+snake_case to camelCase (`returnProperties`, `targetVector`, `autoLimit`,
+`consistencyLevel`, `tookMs`, metadata keys/enum `explainScore`,
+`creationTime`, `lastUpdateTime`, reserved fields `singlePrompt` etc.).
+Reviewers flagged the mix with the camelCase `WhereFilter` inside one body;
+camelCase also matches the legacy REST bodies (objects/schema) and GraphQL.
+Note the repo remains split — the namespaces and export APIs chose
+snake_case — a platform-wide convention is still to be ratified.
+
+Same round (Copilot): the reserved `rerank` object is a referenced
+definition (`SearchRerank`), not inline — the inline generation baked the
+`rerank.` prefix into the child validator and the parent prefixed it again,
+so `{"rerank":{}}` reported `rerank.rerank.property in body is required`.
+With the `$ref` the child validates under its local name and the public
+error names `rerank.property` once (regression test in `request_test.go`).
+The camelCase response metadata keys are also now pinned on the wire by an
+acceptance subtest requesting all six metadata keys.
+
+On merging the camelCase decision into the bm25/hybrid/near-object/
+aggregate branch, the new endpoints' fields followed suit:
+`queryProperties`, `fusionType` (enum value `relativeScore`),
+`maxVectorDistance`, `targetVector`, and aggregate's `groupBy`,
+`returnMetrics`, `objectLimit`, `tookMs` and `groupedBy`. Their
+reserved-field tests send the nested `rerank` object, not the removed
+flat pair.
 
 Also on 2026-07-10 (Copilot review, two rounds): a denied request against
 an alias no longer names the alias target in the 403 (deny on the
@@ -263,7 +297,7 @@ Each hit in `results` is a **gRPC-proto-like envelope**, the typed
   objects with the selected one-hop properties). Omitted when the request
   selects no references.
 - `metadata` — a typed `SearchResultMetadata` (`distance`, `certainty`,
-  `score`, `explain_score`, `creation_time`, `last_update_time`; all
+  `score`, `explainScore`, `creationTime`, `lastUpdateTime`; all
   optional pointer fields, so absent ≠ zero). Omitted unless non-id
   metadata was requested and is present.
 
@@ -273,9 +307,9 @@ Properties of this contract:
   properties live under `properties`, so a collection property named
   `metadata` sits at `properties.metadata`, disjoint from the envelope's
   `metadata` (regression tests in `reply_test.go` and the acceptance
-  suite). `return_properties` has no reserved names: any name that is not
+  suite). `returnProperties` has no reserved names: any name that is not
   a schema property is the generic unknown-property 400.
-- **`id` is always returned**; `return_metadata: []` (or omitted) means
+- **`id` is always returned**; `returnMetadata: []` (or omitted) means
   "no metadata block", but every hit carries its `id` anyway.
 
 Also from the same review round:
@@ -298,12 +332,12 @@ Also from the same review round:
   `fmt.Errorf("…: %w", err)` — messages byte-identical, chain preserved;
   the `ErrQueryVectorization` attachments are unchanged.
 
-### 2026-07-14 — `return_metadata` accepts metadata keys only (Ivan)
+### 2026-07-14 — `returnMetadata` accepts metadata keys only (Ivan)
 
-`return_metadata` selects only metadata keys: `distance`, `certainty`,
-`score`, `explain_score`, `creation_time`, `last_update_time`. The object
+`returnMetadata` selects only metadata keys: `distance`, `certainty`,
+`score`, `explainScore`, `creationTime`, `lastUpdateTime`. The object
 `id` is not a metadata key — it is always returned as each result's
-top-level `id` field, whatever `return_metadata` contains. Any value
+top-level `id` field, whatever `returnMetadata` contains. Any value
 outside the enum (including `id`) is rejected by swagger validation at
 bind time → 422; the handler's own parser keeps a matching 400 fallback
 for the direct-call path. Strict-now-widen-later: accepting `id` again
@@ -328,7 +362,7 @@ be toggled without a restart.
 
 `POST /v1/search/{collection}/bm25` — BM25F keyword search, built exactly as
 the 2026-07-09 refactor intended: a new `SearchBm25Request =
-allOf[SearchCommon, {query (required), query_properties}]` definition +
+allOf[SearchCommon, {query (required), queryProperties}]` definition +
 regen, a small `buildBm25Params` that fills `dto.GetParams.KeywordRanking`
 (the shared `SearchCommon` parsers reused as-is), and a thin `Handler.Bm25`
 wrapper over the generic `execute()`. Everything in the shared contract —
@@ -347,7 +381,7 @@ bm25-specific fields (both live in the bm25 `allOf` extension, not
   `KeywordRanking.Query`. Absent or `null` → 422 (swagger required, nil
   pointer); an explicit `""` passes bind (non-nil pointer) and is the
   handler's 400 — the same absent-vs-empty split near-text has.
-- `query_properties` — optional array of property names to keyword-search.
+- `queryProperties` — optional array of property names to keyword-search.
   Omitted or `[]` searches every searchable text property. Maps to
   `KeywordRanking.Properties`. A property without a searchable index (e.g.
   an `int` property, or `indexSearchable: false`) is rejected by the
@@ -355,7 +389,7 @@ bm25-specific fields (both live in the bm25 `allOf` extension, not
 
 Since bm25 runs no vector search: collections without any vectorizer module
 are fully searchable (no near-text-style 422), and the near-text-only fields
-(`certainty`/`distance`/`target_vector`) are simply unknown fields for this
+(`certainty`/`distance`/`targetVector`) are simply unknown fields for this
 endpoint — silently ignored under the option-2 contract. The spec declares
 no 502 for bm25 (no embedding provider is ever called).
 
@@ -369,13 +403,13 @@ Decision log for the three settled points:
    field later is a non-breaking widening, while shipping it now would
    freeze a shape we haven't validated. Until then bm25 uses the server
    default (`or`).
-2. **`query_properties` boost syntax (`"title^2"`): PASS THROUGH.** The REST
+2. **`queryProperties` boost syntax (`"title^2"`): PASS THROUGH.** The REST
    parser does not interpret `^` — property strings flow to the searcher
    verbatim (after the same `LowercaseFirstLetterOfStrings` normalization
    the gRPC parser applies), and `bm25_searcher.go` parses the boost. This
    matches GraphQL and gRPC exactly (behavior-sync rule); documented in the
-   spec's `query_properties` description.
-3. **`return_metadata` `distance`/`certainty` on bm25: SILENT DROP.** Both
+   spec's `queryProperties` description.
+3. **`returnMetadata` `distance`/`certainty` on bm25: SILENT DROP.** Both
    live in the shared `SearchCommon` enum but cannot be computed for a
    keyword search. The request succeeds and the response omits them,
    matching the existing gRPC-parity precedent (certainty on non-cosine is
@@ -383,14 +417,14 @@ Decision log for the three settled points:
    from gRPC: the certainty flag is cleared in `buildBm25Params` (gRPC
    clears it for every non-vector search), while distance needs no clearing
    — the explorer only emits `distance` for vector searches. The meaningful
-   bm25 metadata keys are `score` and `explain_score`; `explain_score` also
+   bm25 metadata keys are `score` and `explainScore`; `explainScore` also
    switches on `KeywordRanking.AdditionalExplanations` (gRPC parity).
 
 ### 2026-07-16 — third endpoint: hybrid (fused keyword + vector search)
 
 `POST /v1/search/{collection}/hybrid` — the bm25 recipe applied again: a new
 `SearchHybridRequest = allOf[SearchCommon, {query (required), alpha,
-fusion_type, max_vector_distance, query_properties, target_vector}]`
+fusionType, maxVectorDistance, queryProperties, targetVector}]`
 definition + regen, a `buildHybridParams`/`parseHybrid` pair that fills
 `dto.GetParams.HybridSearch` (`searchparams.HybridSearch`, the struct the
 gRPC and GraphQL parsers fill), and a thin `Handler.Hybrid` wrapper over the
@@ -404,15 +438,15 @@ hybrid-specific fields (all in the hybrid `allOf` extension):
 |---|---|---|
 | `query` | `string` (required) | one string feeds both legs: scored with BM25F and vectorized server-side. Absent or `null` → 422 (swagger required); explicit `""` → 400 (the bm25 split) |
 | `alpha` | `*float64` (ptr) | weight of the vector leg. Omitted → **0.75** (`common_filters.DefaultAlpha`, the gRPC/GraphQL default); outside [0,1] → 400 (the GraphQL parser's validation — gRPC accepts any float, a known upstream drift we do not copy); `0` = pure keyword search, `1` = pure vector search |
-| `fusion_type` | `string` (enum) | `ranked` \| `relative_score`; other value → 422 (swagger enum; handler keeps a 400 fallback for the direct-call path). Omitted → **relative_score** (`common_filters.HybridFusionDefault`, the gRPC/GraphQL default-when-omitted) |
-| `max_vector_distance` | `*float64` (ptr) | vector-distance cutoff (gRPC `Hybrid_VectorDistance` threshold): objects farther than this are dropped from the fused result, including their keyword ranking. Maps to `HybridSearch.Distance` (float32) + `WithDistance` |
-| `query_properties` | `[]string` | keyword-leg property subset; same gRPC-parity handling as bm25 (first-letter lowercasing, `^boost` pass-through, non-searchable property → typed 422 from the searcher) |
-| `target_vector` | `string` | same semantics as near-text (required on multi-named-vector collections → else 422; unknown name → 400) |
+| `fusionType` | `string` (enum) | `ranked` \| `relativeScore`; other value → 422 (swagger enum; handler keeps a 400 fallback for the direct-call path). Omitted → **relativeScore** (`common_filters.HybridFusionDefault`, the gRPC/GraphQL default-when-omitted) |
+| `maxVectorDistance` | `*float64` (ptr) | vector-distance cutoff (gRPC `Hybrid_VectorDistance` threshold): objects farther than this are dropped from the fused result, including their keyword ranking. Maps to `HybridSearch.Distance` (float32) + `WithDistance` |
+| `queryProperties` | `[]string` | keyword-leg property subset; same gRPC-parity handling as bm25 (first-letter lowercasing, `^boost` pass-through, non-searchable property → typed 422 from the searcher) |
+| `targetVector` | `string` | same semantics as near-text (required on multi-named-vector collections → else 422; unknown name → 400) |
 
 Decision log for the settled points:
 
 1. **Defaults are the platform defaults.** Omitted `alpha` → 0.75 and
-   omitted `fusion_type` → relative_score, both read from
+   omitted `fusionType` → relativeScore, both read from
    `adapters/handlers/graphql/local/common_filters` (`DefaultAlpha`,
    `HybridFusionDefault`) — the same constants the gRPC parser applies for
    `FUSION_TYPE_UNSPECIFIED`/unset alpha, so the three APIs cannot drift
@@ -438,7 +472,7 @@ Decision log for the settled points:
    bm25 `search_operator` deferral (2026-07-14) applies to the hybrid
    keyword leg identically. All are safe widenings later (b6ef0eed
    asymmetry rule).
-5. **`return_metadata` `distance`/`certainty` on hybrid: SILENT OMISSION.**
+5. **`returnMetadata` `distance`/`certainty` on hybrid: SILENT OMISSION.**
    The request flags mirror gRPC exactly — hybrid is a vector search, so
    the certainty flag is NOT force-cleared like bm25's (subject only to the
    shared cosine-compatibility drop) — but the fused result list carries
@@ -446,13 +480,13 @@ Decision log for the settled points:
    never for the hybrid path, so the response omits both keys whatever the
    flags say (verified live; identical to what gRPC/GraphQL return for
    hybrid). The meaningful hybrid metadata keys are `score` and
-   `explain_score`.
+   `explainScore`.
 
 ### 2026-07-16 — fourth endpoint: near-object (search anchored at an object)
 
 `POST /v1/search/{collection}/near-object` — the recipe once more: a new
 `SearchNearObjectRequest = allOf[SearchCommon, {id (required), certainty,
-distance, target_vector}]` definition + regen, a
+distance, targetVector}]` definition + regen, a
 `buildNearObjectParams`/`parseNearObject` pair that fills
 `dto.GetParams.NearObject` (`searchparams.NearObject`, the struct the gRPC
 parser fills), and a thin `Handler.NearObject` wrapper over `execute()`. The
@@ -468,7 +502,7 @@ near-object-specific fields (all in the near-object `allOf` extension):
 | `id` | `strfmt.UUID` (required) | the source object's UUID. Absent or `null` → 422 (swagger required); structurally invalid (incl. explicit `""`) → 422 (swagger `format: uuid` at bind); well-formed but matching no object → **400** from the engine (typed `ErrSourceObjectNotFound`). The handler keeps an empty-id 400 for the direct-call path |
 | `certainty` | `*float64` (ptr) | cosine-only (else 422, deterministic handler check — near-text parity); mutually exclusive with `distance` (else 400, the gRPC rule); outside [0,1] → 400 |
 | `distance` | `*float64` (ptr) | max vector distance from the source object |
-| `target_vector` | `string` | which named vector anchors the search (the source object must carry it); same resolution as near-text (missing on multi-named-vector collection → 422; unknown name → 400) |
+| `targetVector` | `string` | which named vector anchors the search (the source object must carry it); same resolution as near-text (missing on multi-named-vector collection → 422; unknown name → 400) |
 
 Decision log for the settled points:
 
@@ -478,7 +512,7 @@ Decision log for the settled points:
    tier: 404 stays reserved for the *addressing* context (unknown
    collection/tenant, as everywhere else in the table), while a body value
    that names a nonexistent thing is a 400 — exactly the unknown
-   `target_vector` precedent. **Tier note:** a *structurally* bad UUID never
+   `targetVector` precedent. **Tier note:** a *structurally* bad UUID never
    reaches the engine — `format: uuid` rejects it at bind → 422 (the
    request-schema tier), while a well-formed-but-unknown UUID is the
    handler/engine tier → 400.
@@ -511,7 +545,7 @@ Decision log for the settled points:
 4. **No `beacon`.** gRPC near-object also accepts a beacon reference; the
    REST draft ships id-only (the RFC scope) — adding `beacon` later is a
    safe widening. `searchparams.NearObject.Beacon` stays empty.
-5. **`return_metadata` certainty is NOT force-cleared** (vector search,
+5. **`returnMetadata` certainty is NOT force-cleared** (vector search,
    same rationale as hybrid); distance/certainty metadata are computed
    against the source object's vector.
 
@@ -520,8 +554,8 @@ Decision log for the settled points:
 `POST /v1/aggregate/{collection}` — the family's first non-search endpoint,
 under its own static root (per the 2026-07-08 path decision). Phase 1
 supports **counts only**: the number of matching objects, in total (flat
-`{count, took_ms}` response) or per group of a `group_by` property
-(`{groups: [{grouped_by, count}], took_ms}`). A new typed `AggregateRequest`
+`{count, tookMs}` response) or per group of a `groupBy` property
+(`{groups: [{groupedBy, count}], tookMs}`). A new typed `AggregateRequest`
 definition + regen, a `buildAggregateParams` that fills `aggregation.Params`
 (the struct the gRPC and GraphQL aggregate parsers fill,
 behavior-sync with `parse_aggregate_request.go`), a `Handler.Aggregate`
@@ -536,8 +570,8 @@ carve-out and the `ServeError` reshaping extend to the new root via
 
 **Own request model — deliberately NOT `allOf[SearchCommon]`.**
 `SearchCommon`'s `limit` means max *objects* while aggregate's means max
-*groups*; `offset`/`auto_limit`/`return_properties`/`return_metadata` do
-not apply to an aggregation; and `SearchCommon` *reserves* `group_by` (for
+*groups*; `offset`/`autoLimit`/`returnProperties`/`returnMetadata` do
+not apply to an aggregation; and `SearchCommon` *reserves* `groupBy` (for
 grouped search) which aggregate uses functionally. Sharing the base would
 have frozen wrong semantics into the spec.
 
@@ -545,14 +579,14 @@ Request fields (typed, unknown fields ignored — the option-2 contract):
 
 | Field | Type | Behavior |
 |---|---|---|
-| `group_by` | `string` | bare property name; each distinct value forms a group (array-valued properties count toward each element's group; a ref property groups by beacon URI). Omitted or `""` → ungrouped. First letter lowercased to the canonical spelling (the grouper matches names exactly). Unknown property → **400** (the engine would silently return zero groups — rejected deterministically instead); dotted path → **422 "not yet supported"** (the engine's grouper rejects cross-ref grouping outright) |
-| `return_metrics` | `[]string` | omitted, `[]` and `["count"]` are equivalent — count is phase 1's only metric and is always computed. An entry with a colon (the `property:statistic` grammar, e.g. `"price:mean"`) → **422 "not yet supported"** (phase 2's per-property stats, presence = demand signal); any other entry → **422 unknown** (the tier bad enum values get everywhere else in the family — no swagger enum, so the handler owns both messages) |
+| `groupBy` | `string` | bare property name; each distinct value forms a group (array-valued properties count toward each element's group; a ref property groups by beacon URI). Omitted or `""` → ungrouped. First letter lowercased to the canonical spelling (the grouper matches names exactly). Unknown property → **400** (the engine would silently return zero groups — rejected deterministically instead); dotted path → **422 "not yet supported"** (the engine's grouper rejects cross-ref grouping outright) |
+| `returnMetrics` | `[]string` | omitted, `[]` and `["count"]` are equivalent — count is phase 1's only metric and is always computed. An entry with a colon (the `property:statistic` grammar, e.g. `"price:mean"`) → **422 "not yet supported"** (phase 2's per-property stats, presence = demand signal); any other entry → **422 unknown** (the tier bad enum values get everywhere else in the family — no swagger enum, so the handler owns both messages) |
 | `where` | `*models.WhereFilter` | same parser + tiers as search (`filterext.Parse` + `ValidateFilters`; unknown property → 400, bad operator enum → 422 at bind, wrong value type → 400 at decode) |
-| `limit` | `*int64` (ptr) | max number of **groups**, largest first. Requires `group_by` → else **400** (without grouping there is nothing to limit; accepting-and-ignoring would also silently defeat the count-star fast path). Must be positive → else **400** (`insertOrdered` in the engine's grouper degenerates at 0 — order-dependent truncation). Omitted → the engine default (100 groups, `grouped.go`) |
+| `limit` | `*int64` (ptr) | max number of **groups**, largest first. Requires `groupBy` → else **400** (without grouping there is nothing to limit; accepting-and-ignoring would also silently defeat the count-star fast path). Must be positive → else **400** (`insertOrdered` in the engine's grouper degenerates at 0 — order-dependent truncation). Omitted → the engine default (100 groups, `grouped.go`) |
 | `tenant` | `string` | tenant-scoped authz (`ShardsData`), same as search |
-| reserved | `over` (object), `object_limit` (`*int64`) | the aggregate-over-search pair (aggregating vector/keyword/hybrid search results) — declared x-nullable, present → **422 "not yet supported"**, checked before authz like every reserved field |
+| reserved | `over` (object), `objectLimit` (`*int64`) | the aggregate-over-search pair (aggregating vector/keyword/hybrid search results) — declared x-nullable, present → **422 "not yet supported"**, checked before authz like every reserved field |
 
-**`consistency_level` is deliberately absent** (unlike `SearchCommon`):
+**`consistencyLevel` is deliberately absent** (unlike `SearchCommon`):
 the engine's aggregate path has no consistency knob — `Index.aggregate`
 hardcodes `ConsistencyLevelOne` for shard routing (and the count-star fast
 path reads counts at `ConsistencyLevelAll`), and neither
@@ -578,7 +612,7 @@ Decision log for the settled points:
    property) omits `groups` entirely (go-swagger `omitempty`, same
    convention as the search envelope's `references`); the shapes stay
    distinguishable because ungrouped always carries `count`.
-3. **`grouped_by` is `{path, value}`** — the shape both GraphQL
+3. **`groupedBy` is `{path, value}`** — the shape both GraphQL
    (`groupedBy {path value}`) and gRPC (`AggregateReply_Group_GroupedBy`)
    expose. `path` is the one-element property path (engine-produced);
    `value` is deliberately untyped in the spec and carries the property's
@@ -613,15 +647,15 @@ Decision log for the settled points:
   200/400/401/403/404/422/500/503, deliberately no 429/502), definitions `SearchCommon` (shared
   base), `SearchNearTextRequest` (= `allOf[SearchCommon,
   near-text-specific]`), `SearchBm25Request` (= `allOf[SearchCommon, {query,
-  query_properties}]`), `SearchHybridRequest` (= `allOf[SearchCommon, {query,
-  alpha, fusion_type, max_vector_distance, query_properties,
-  target_vector}]`), `SearchNearObjectRequest` (= `allOf[SearchCommon, {id,
-  certainty, distance, target_vector}]`), `SearchResponse`,
+  queryProperties}]`), `SearchHybridRequest` (= `allOf[SearchCommon, {query,
+  alpha, fusionType, maxVectorDistance, queryProperties,
+  targetVector}]`), `SearchNearObjectRequest` (= `allOf[SearchCommon, {id,
+  certainty, distance, targetVector}]`), `SearchResponse`,
   `SearchResultObject` (the typed
   `{id, properties, references, metadata}` envelope; `properties`/
   `references` are free-form maps) and `SearchResultMetadata` (all-optional
   typed metadata). The spec declares the always-present parts required:
-  `results` + `took_ms` on `SearchResponse`, `id` + `properties` on
+  `results` + `tookMs` on `SearchResponse`, `id` + `properties` on
   `SearchResultObject` (`properties` may be `{}`). Every declared error
   status carries the `ErrorResponse` schema — matching the search-scoped
   `ServeError` wrapper, so generated clients decode the message on every
@@ -635,7 +669,7 @@ Decision log for the settled points:
   `entities/models/search_common.go`, `search_near_text_request.go`,
   `search_bm25_request.go`, `search_response.go`, `search_result_object.go`,
   `search_result_metadata.go`, `aggregate_request.go`,
-  `aggregate_response.go`, `aggregate_group.go`, `aggregate_grouped_by.go`,
+  `aggregate_response.go`, `aggregate_group.go`, `aggregate_groupedBy.go`,
   `client/search/*`, `client/aggregate/*`,
   `adapters/handlers/rest/embedded_spec.go`.
 - `adapters/handlers/rest/handlers_search.go` — wires the generated
@@ -658,12 +692,12 @@ Decision log for the settled points:
   the same package (it reuses the family's unexported machinery):
   `IsAggregateRoute`, `Handler.Aggregate` (same pipeline order via
   `resolveAuthorizedClass`), `checkAggregateReservedFields` (over /
-  object_limit / non-count return_metrics, before authz),
+  objectLimit / non-count returnMetrics, before authz),
   `buildAggregateParams` (`aggregation.Params` in behavior-sync with the
-  gRPC `parse_aggregate_request.go`: group_by → single-segment
+  gRPC `parse_aggregate_request.go`: groupBy → single-segment
   `filters.Path`, limit → max groups, where via the shared `parseWhere`,
   `IncludeMetaCount` always on) and `buildAggregateResponse` (flat count vs
-  groups, `grouped_by` `{path, value}`, ref-beacon namespace strip — gRPC
+  groups, `groupedBy` `{path, value}`, ref-beacon namespace strip — gRPC
   `prepare_aggregate_reply.go` parity).
 - `adapters/handlers/rest/search/request.go` — the shared parsers
   (`checkReservedFields`/`parsePagination` on `*SearchCommon`, plus
@@ -676,14 +710,14 @@ Decision log for the settled points:
   and `buildBm25Params` (+ `parseBm25`) — `KeywordRanking` params in
   behavior-sync with the gRPC parser's bm25 handling (property-name
   lowercasing, `^boost` pass-through, `AdditionalExplanations` from
-  `explain_score`, certainty cleared on non-vector search). Both reuse:
+  `explainScore`, certainty cleared on non-vector search). Both reuse:
   where via `filterext.Parse` + `filters.ValidateFilters` (same parser as
-  GraphQL/batch-delete), pagination (`auto_limit` → autocut, `*int64` →
-  `int`), `return_metadata` → `additional.Properties`, `return_properties`
+  GraphQL/batch-delete), pagination (`autoLimit` → autocut, `*int64` →
+  `int`), `returnMetadata` → `additional.Properties`, `returnProperties`
   incl. one-hop dot-path refs. `buildHybridParams` (+ `parseHybrid`) fills
   `dto.GetParams.HybridSearch` in behavior-sync with the gRPC parser's
   hybrid handling (alpha/fusion defaults from `common_filters`,
-  `max_vector_distance` → distance cutoff, property lowercasing, alpha-gated
+  `maxVectorDistance` → distance cutoff, property lowercasing, alpha-gated
   vectorizer pre-check). `buildNearObjectParams` (+ `parseNearObject`) fills
   `dto.GetParams.NearObject` in behavior-sync with the gRPC parser's
   near-object handling (certainty/distance exclusivity, cosine-only 422,
@@ -695,7 +729,7 @@ Decision log for the settled points:
   the selected nested properties (blobs never leak), reference selections
   under `references` as arrays of objects, typed retrieval metadata under
   `metadata` (omitted when only the id was requested), vectors never
-  returned, no `count` field, `took_ms` in integer milliseconds.
+  returned, no `count` field, `tookMs` in integer milliseconds.
 - `adapters/handlers/rest/middlewares.go` — operational-mode
   classification only (see below); no custom mount remains.
 - `usecases/config/config_handler.go` + `environment.go` —
@@ -715,9 +749,9 @@ means unknown fields are ignored (platform parity) and `query` is array-only
 (Swagger 2.0 has no `oneOf` for the string-or-array union) — see the
 2026-07-08 decision entry for the accepted trade-offs. `x-nullable: true`
 generates a **pointer** for every field where absent-vs-zero matters
-(`certainty`, `distance`, `limit`, `offset`, `auto_limit`, and every reserved
+(`certainty`, `distance`, `limit`, `offset`, `autoLimit`, and every reserved
 scalar), preserving the handler's presence semantics. Slices
-(`return_properties`, `return_metadata`) are naturally nil-vs-`[]`
+(`returnProperties`, `returnMetadata`) are naturally nil-vs-`[]`
 distinguishable. `query` is `required`.
 
 ### Request body fields (as built)
@@ -731,27 +765,27 @@ enforced by the generated model at bind time; the rest are the handler's.
 | `query` | `[]string` (required) | the near-text concepts, embedded server-side; array-only (single concept = one-element array); absent → 422 (swagger required); `[]` or empty concept → 400 |
 | `certainty` | `*float64` (ptr) | cosine-only (else 422); mutually exclusive with `distance` (else 400); outside [0,1] → 400 |
 | `distance` | `*float64` (ptr) | max vector distance |
-| `target_vector` | `string` | required when the collection has >1 named vector (else 422); unknown name → 400; sole named vector selected implicitly |
+| `targetVector` | `string` | required when the collection has >1 named vector (else 422); unknown name → 400; sole named vector selected implicitly |
 | `where` | `*models.WhereFilter` | reuses the existing definition; bad `operator` enum → 422 (swagger); wrong value type (e.g. a string for `valueInt`) → 400 (JSON decode); schema-valid but unknown property → 400 (handler `filterext.Parse`) |
 | `limit` / `offset` | `*int64` (ptr) | negative → 400; `limit` 0/omitted → `QUERY_DEFAULTS_LIMIT`; each and their sum capped at `QUERY_MAXIMUM_RESULTS` (else 400, checked pre-db so int overflow cannot reach the negative special limit flags) |
-| `auto_limit` | `*int64` (ptr) | maps to autocut |
-| `return_properties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref, non-blob props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; unknown name → 400 |
-| `return_metadata` | `[]string` (enum) | `distance`, `certainty`, `score`, `explain_score`, `creation_time`, `last_update_time` — metadata keys only; the object `id` is **always returned** as the envelope's `id` field and is not a valid entry; omitted or `[]` → no `metadata` block; value outside the enum (incl. `id`) → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
+| `autoLimit` | `*int64` (ptr) | maps to autocut |
+| `returnProperties` | `[]string` | omitted → all non-ref, non-blob props; `[]` → no props; dot-path = one reference hop (`hasAuthor.name`); bare ref name = all non-ref, non-blob props of the target; ≥2 hops or multi-target refs → 422 "not yet supported"; unknown name → 400 |
+| `returnMetadata` | `[]string` (enum) | `distance`, `certainty`, `score`, `explainScore`, `creationTime`, `lastUpdateTime` — metadata keys only; the object `id` is **always returned** as the envelope's `id` field and is not a valid entry; omitted or `[]` → no `metadata` block; value outside the enum (incl. `id`) → 422 (swagger enum); `certainty` silently dropped on non-cosine (gRPC parity) |
 | `tenant` | `string` | tenant-scoped authz (`ShardsData`) |
-| `consistency_level` | `string` (enum) | ONE / QUORUM / ALL; other value → 422 (swagger enum) |
-| reserved | `*string` / `*int64` (ptr) | `single_prompt`, `grouped_task` (RAG, deferred), `group_by`, `number_of_groups`, `objects_per_group`, `rerank_property`, `rerank_query` — declared but return 422 "not yet supported" when present (non-nil).
+| `consistencyLevel` | `string` (enum) | ONE / QUORUM / ALL; other value → 422 (swagger enum) |
+| reserved | `*string` / `*int64` / `*SearchRerank` (ptr) | `singlePrompt`, `groupedTask` (RAG, deferred), `groupBy`, `numberOfGroups`, `objectsPerGroup`, `rerank` (`{"property", "query"}` — nested to match all four clients and the gRPC `Rerank` message) — declared but return 422 "not yet supported" when present (non-nil).
 ### Error-status table (as built)
 
 | Condition | Status | Body shape |
 |---|---|---|
 | malformed JSON body; `query` string form (array-only); wrong field type (incl. a `where` value of the wrong JSON type, e.g. a string for `valueInt`, or `path` as a string) | 400 | `ErrorResponse` |
-| missing body; absent `query`; bad `consistency_level`/`return_metadata` enum; bad `where` `operator` enum | 422 | `ErrorResponse` |
-| empty `query` array / empty concept; unknown `target_vector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; hybrid `alpha` outside [0,1]; both certainty+distance; near-object `id` matching no object (typed `ErrSourceObjectNotFound`); semantically-invalid `where` (unknown property); unknown property in `return_properties`; aggregate: unknown `group_by` property, `limit` without `group_by`, non-positive `limit` | 400 | `ErrorResponse` |
+| missing body; absent `query`; bad `consistencyLevel`/`returnMetadata` enum; bad `where` `operator` enum | 422 | `ErrorResponse` |
+| empty `query` array / empty concept; unknown `targetVector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; hybrid `alpha` outside [0,1]; both certainty+distance; near-object `id` matching no object (typed `ErrSourceObjectNotFound`); semantically-invalid `where` (unknown property); unknown property in `returnProperties`; aggregate: unknown `groupBy` property, `limit` without `groupBy`, non-positive `limit` | 400 | `ErrorResponse` |
 | invalid credentials (bad key/token, via the swagger security layer) | 401 | `ErrorResponse` |
 | no/malformed credentials (anonymous-access middleware, above the swagger layer) | 401 | legacy `{"code","message"}` (parity with existing endpoints) |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
 | unknown collection; unknown tenant | 404 | `ErrorResponse` |
-| no vectorizer (near-text, hybrid above alpha 0) / missing `target_vector` on multi-vector collection / certainty on non-cosine / near-object source object without a usable vector (typed `ErrSourceObjectNoVector`) / reserved param present (incl. aggregate's `over`/`object_limit` and non-count `return_metrics`) / aggregate dotted `group_by` / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / experimental feature not enabled (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) | 422 | `ErrorResponse` |
+| no vectorizer (near-text, hybrid above alpha 0) / missing `targetVector` on multi-vector collection / certainty on non-cosine / near-object source object without a usable vector (typed `ErrSourceObjectNoVector`) / reserved param present (incl. aggregate's `over`/`objectLimit` and non-count `returnMetrics`) / aggregate dotted `groupBy` / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / experimental feature not enabled (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) | 422 | `ErrorResponse` |
 | embedding provider failure (near-text, hybrid — the only endpoints that declare 502; bm25, near-object and aggregate never vectorize) | 502 | `ErrorResponse` |
 | rate limited (traverser) | 429 | `ErrorResponse` — only the traverser's own typed `ErrRateLimit` maps here (search endpoints only: the traverser's aggregate path has no rate limiter, so aggregate declares no 429); an embedding provider's rate-limit error is an ordinary vectorization failure and maps to 502 |
 | other method on the route | 405 + `Allow: POST` | `ErrorResponse` |
@@ -837,21 +871,21 @@ Items the RFC should settle, discovered while building all three variants.
 **Still for the RFC:**
 
 1. **"Byte-identical QUERY/POST responses" is unsatisfiable** with
-   `took_ms` in the body. Moot while QUERY is dropped, but the RFC text
-   should say "identical modulo `took_ms`" or move timing to a header
+   `tookMs` in the body. Moot while QUERY is dropped, but the RFC text
+   should say "identical modulo `tookMs`" or move timing to a header
    before QUERY returns.
-2. **`[]` vs omitted** for `return_properties`/`return_metadata` is
-   unspecified. As built: `return_properties` omitted → all non-ref props,
-   `[]` → no properties; `return_metadata` omitted or `[]` → no `metadata`
+2. **`[]` vs omitted** for `returnProperties`/`returnMetadata` is
+   unspecified. As built: `returnProperties` omitted → all non-ref props,
+   `[]` → no properties; `returnMetadata` omitted or `[]` → no `metadata`
    block — but the object `id` is **always returned** on the envelope
    either way (2026-07-13).
-3. **Unknown `target_vector`** is absent from the error table. As built:
+3. **Unknown `targetVector`** is absent from the error table. As built:
    400 (bad value); only the *missing*-on-multi-vector case is the
    RFC-specified 422.
 4. **Tenant misuse** (tenant on a non-MT collection; missing tenant on an
    MT collection) is absent from the table. As built: 422; unknown tenant
    is the RFC-specified 404.
-5. **`certainty` in `return_metadata` on non-cosine** is silently dropped
+5. **`certainty` in `returnMetadata` on non-cosine** is silently dropped
    (gRPC parity), while the certainty *threshold* is a 422. The RFC should
    pick one behavior for both.
 6. **Reserved-root collision rule — moot by construction (2026-07-08).**
@@ -911,42 +945,42 @@ Create a collection with the vectorizer, insert a few objects (via
 ```bash
 curl -s -X POST -H 'Content-Type: application/json' \
   -d '{"query":["spaceship galaxy"],"limit":3,
-       "return_properties":["title"],"return_metadata":["distance"]}' \
+       "returnProperties":["title"],"returnMetadata":["distance"]}' \
   http://127.0.0.1:8091/v1/search/Movie/near-text
-# -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"distance":0.12}}],"took_ms":8}
+# -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"distance":0.12}}],"tookMs":8}
 
 # bm25 needs no vectorizer module at all (a plain string query):
 curl -s -X POST -H 'Content-Type: application/json' \
-  -d '{"query":"spaceship galaxy","limit":3,"query_properties":["title^2","description"],
-       "return_properties":["title"],"return_metadata":["score","explain_score"]}' \
+  -d '{"query":"spaceship galaxy","limit":3,"queryProperties":["title^2","description"],
+       "returnProperties":["title"],"returnMetadata":["score","explainScore"]}' \
   http://127.0.0.1:8091/v1/search/Movie/bm25
-# -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"score":1.5,"explain_score":"..."}}],"took_ms":3}
+# -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"score":1.5,"explainScore":"..."}}],"tookMs":3}
 
 # hybrid fuses both (alpha weights the vector leg; alpha 0 needs no vectorizer):
 curl -s -X POST -H 'Content-Type: application/json' \
-  -d '{"query":"spaceship galaxy","alpha":0.6,"fusion_type":"relative_score",
-       "return_properties":["title"],"return_metadata":["score"]}' \
+  -d '{"query":"spaceship galaxy","alpha":0.6,"fusionType":"relativeScore",
+       "returnProperties":["title"],"returnMetadata":["score"]}' \
   http://127.0.0.1:8091/v1/search/Movie/hybrid
-# -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"score":0.95}}],"took_ms":9}
+# -> {"results":[{"id":"...","properties":{"title":"..."},"metadata":{"score":0.95}}],"tookMs":9}
 
 # near-object anchors at a stored object's vector (no vectorizer involved;
 # the source object returns as the closest hit):
 curl -s -X POST -H 'Content-Type: application/json' \
   -d '{"id":"<uuid-of-an-object>","limit":3,
-       "return_properties":["title"],"return_metadata":["distance"]}' \
+       "returnProperties":["title"],"returnMetadata":["distance"]}' \
   http://127.0.0.1:8091/v1/search/Movie/near-object
-# -> {"results":[{"id":"<uuid-of-an-object>","properties":{"title":"..."},"metadata":{"distance":0}},...],"took_ms":2}
+# -> {"results":[{"id":"<uuid-of-an-object>","properties":{"title":"..."},"metadata":{"distance":0}},...],"tookMs":2}
 
 # aggregate needs no vectorizer either; an empty body is the total count:
 curl -s -X POST -H 'Content-Type: application/json' -d '{}' \
   http://127.0.0.1:8091/v1/aggregate/Movie
-# -> {"count":2,"took_ms":1}
+# -> {"count":2,"tookMs":1}
 
 curl -s -X POST -H 'Content-Type: application/json' \
-  -d '{"group_by":"year","limit":10,
+  -d '{"groupBy":"year","limit":10,
        "where":{"operator":"GreaterThan","path":["year"],"valueInt":1990}}' \
   http://127.0.0.1:8091/v1/aggregate/Movie
-# -> {"groups":[{"grouped_by":{"path":["year"],"value":1999},"count":2},...],"took_ms":3}
+# -> {"groups":[{"groupedBy":{"path":["year"],"value":1999},"count":2},...],"tookMs":3}
 ```
 
 If you have the local harnesses, run them against the running instance
@@ -972,12 +1006,12 @@ re-issue the same request:
   `search.Handler` (the 2026-07-06 draft on tag
   `rest-search-querypost-snapshot` is the reference implementation:
   middleware placement, CORS/415/405 handling, op-mode carve-outs).
-- **aggregate phase 2+**: the reserved `over`/`object_limit`
+- **aggregate phase 2+**: the reserved `over`/`objectLimit`
   (aggregate-over-search — the gRPC AggregateRequest's near/hybrid search
-  oneof), the `property:statistic` `return_metrics` grammar (mean, median,
+  oneof), the `property:statistic` `returnMetrics` grammar (mean, median,
   mode, sum, min/max, top-occurrences, boolean percentages — all already in
-  `aggregation.Params.Properties`), dotted `group_by` (needs engine support:
-  the grouper rejects cross-ref grouping), and `consistency_level` if the
+  `aggregation.Params.Properties`), dotted `groupBy` (needs engine support:
+  the grouper rejects cross-ref grouping), and `consistencyLevel` if the
   engine's aggregate path ever grows a consistency knob (it hardcodes ONE
   today). All are additive widenings of the phase-1 counts contract.
 - **`search_operator`** (`and`/`or` + `minimum_or_tokens_match`) on bm25 and
@@ -985,7 +1019,7 @@ re-issue the same request:
   decision log; adding it later is a non-breaking widening. Likewise the
   hybrid `vector` / sub-search params and the near-object `beacon`
   (2026-07-16 entries).
-- **RAG params** (`single_prompt`/`grouped_task`): currently 422; needs
+- **RAG params** (`singlePrompt`/`groupedTask`): currently 422; needs
   `Cache-Control: no-store` (or equivalent) when implemented, since
   generation re-invokes paid LLM calls.
 - **Dot-paths beyond one hop**, multi-target reference selection.

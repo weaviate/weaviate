@@ -348,6 +348,8 @@ func TestEntrypointRepair_ConcurrentInserts(t *testing.T) {
 	require.NoError(t, err)
 	defer index.Drop(ctx, false)
 
+	index.randFunc = func() float64 { return 0.5 }
+
 	// Insert initial nodes
 	for i := 0; i < len(vectors); i++ {
 		err := index.Add(ctx, uint64(i), vectors[i])

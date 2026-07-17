@@ -94,8 +94,8 @@ func groupCounts(t *testing.T, out map[string]interface{}) map[interface{}]float
 		require.True(t, ok)
 		count, ok := g["count"].(float64)
 		require.True(t, ok, "group has no count: %v", g)
-		groupedBy, ok := g["grouped_by"].(map[string]interface{})
-		require.True(t, ok, "group has no grouped_by: %v", g)
+		groupedBy, ok := g["groupedBy"].(map[string]interface{})
+		require.True(t, ok, "group has no groupedBy: %v", g)
 		counts[groupedBy["value"]] = count
 	}
 	return counts
@@ -210,13 +210,13 @@ func TestRESTAggregate(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		assert.Equal(t, float64(4), countOf(t, out))
-		_, ok := out["took_ms"].(float64)
-		assert.True(t, ok, "took_ms missing or not a number: %v", out)
+		_, ok := out["tookMs"].(float64)
+		assert.True(t, ok, "tookMs missing or not a number: %v", out)
 	})
 
-	t.Run("return_metrics count is equivalent to omitting it", func(t *testing.T) {
+	t.Run("returnMetrics count is equivalent to omitting it", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"return_metrics": []string{"count"},
+			"returnMetrics": []string{"count"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		assert.Equal(t, float64(4), countOf(t, out))
@@ -242,9 +242,9 @@ func TestRESTAggregate(t *testing.T) {
 		assert.Equal(t, float64(0), countOf(t, out))
 	})
 
-	t.Run("group_by returns per-group counts, largest first", func(t *testing.T) {
+	t.Run("groupBy returns per-group counts, largest first", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "genre",
+			"groupBy": "genre",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
@@ -252,8 +252,8 @@ func TestRESTAggregate(t *testing.T) {
 		require.Len(t, groups, 3)
 		first, ok := groups[0].(map[string]interface{})
 		require.True(t, ok)
-		groupedBy, ok := first["grouped_by"].(map[string]interface{})
-		require.True(t, ok, "group has no grouped_by: %v", first)
+		groupedBy, ok := first["groupedBy"].(map[string]interface{})
+		require.True(t, ok, "group has no groupedBy: %v", first)
 		assert.Equal(t, []interface{}{"genre"}, groupedBy["path"])
 		assert.Equal(t, "scifi", groupedBy["value"], "largest group first")
 		assert.Equal(t, float64(2), first["count"])
@@ -263,9 +263,9 @@ func TestRESTAggregate(t *testing.T) {
 		}, groupCounts(t, out))
 	})
 
-	t.Run("group_by combines with where", func(t *testing.T) {
+	t.Run("groupBy combines with where", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "genre",
+			"groupBy": "genre",
 			"where": map[string]interface{}{
 				"operator": "Equal", "path": []string{"year"}, "valueInt": 1999,
 			},
@@ -278,8 +278,8 @@ func TestRESTAggregate(t *testing.T) {
 
 	t.Run("limit caps the number of groups", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "genre",
-			"limit":    1,
+			"groupBy": "genre",
+			"limit":   1,
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		assert.Equal(t, map[interface{}]float64{"scifi": 2}, groupCounts(t, out))
@@ -287,7 +287,7 @@ func TestRESTAggregate(t *testing.T) {
 
 	t.Run("group values keep the property's JSON type", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "year",
+			"groupBy": "year",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		// int property: values arrive as JSON numbers, not strings
@@ -296,7 +296,7 @@ func TestRESTAggregate(t *testing.T) {
 		}, groupCounts(t, out))
 
 		status, out = postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "inStock",
+			"groupBy": "inStock",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		// boolean property: values arrive as JSON booleans
@@ -305,9 +305,9 @@ func TestRESTAggregate(t *testing.T) {
 		}, groupCounts(t, out))
 	})
 
-	t.Run("group_by a reference property groups by beacon", func(t *testing.T) {
+	t.Run("groupBy a reference property groups by beacon", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "hasNovelist",
+			"groupBy": "hasNovelist",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		assert.Equal(t, map[interface{}]float64{
@@ -316,17 +316,17 @@ func TestRESTAggregate(t *testing.T) {
 		}, groupCounts(t, out))
 	})
 
-	t.Run("group_by property spelling is normalized", func(t *testing.T) {
+	t.Run("groupBy property spelling is normalized", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "Genre",
+			"groupBy": "Genre",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.Len(t, groupsOf(t, out), 3)
 	})
 
-	t.Run("group_by matching nothing omits groups", func(t *testing.T) {
+	t.Run("groupBy matching nothing omits groups", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "genre",
+			"groupBy": "genre",
 			"where": map[string]interface{}{
 				"operator": "Equal", "path": []string{"genre"}, "valueText": "poetry",
 			},
@@ -334,20 +334,20 @@ func TestRESTAggregate(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		assert.NotContains(t, out, "groups")
 		assert.NotContains(t, out, "count")
-		assert.Contains(t, out, "took_ms")
+		assert.Contains(t, out, "tookMs")
 	})
 
-	t.Run("unknown group_by property is a 400", func(t *testing.T) {
+	t.Run("unknown groupBy property is a 400", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "nonexistent",
+			"groupBy": "nonexistent",
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "nonexistent")
 	})
 
-	t.Run("dotted group_by is a 422", func(t *testing.T) {
+	t.Run("dotted groupBy is a 422", func(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "hasNovelist.name",
+			"groupBy": "hasNovelist.name",
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "not yet supported")
@@ -357,11 +357,11 @@ func TestRESTAggregate(t *testing.T) {
 		status, out := postAggregate(t, "Novel", map[string]interface{}{
 			"limit": 5,
 		})
-		require.Equal(t, http.StatusBadRequest, status, "limit without group_by: %v", out)
-		assert.Contains(t, errMessage(t, out), "requires group_by")
+		require.Equal(t, http.StatusBadRequest, status, "limit without groupBy: %v", out)
+		assert.Contains(t, errMessage(t, out), "requires groupBy")
 
 		status, out = postAggregate(t, "Novel", map[string]interface{}{
-			"group_by": "genre", "limit": 0,
+			"groupBy": "genre", "limit": 0,
 		})
 		require.Equal(t, http.StatusBadRequest, status, "zero limit: %v", out)
 		assert.Contains(t, errMessage(t, out), "positive")
@@ -370,9 +370,9 @@ func TestRESTAggregate(t *testing.T) {
 	t.Run("reserved parameters are a 422", func(t *testing.T) {
 		for name, body := range map[string]map[string]interface{}{
 			"over":           {"over": map[string]interface{}{"near_text": map[string]interface{}{"query": []string{"x"}}}},
-			"object_limit":   {"object_limit": 100},
-			"metric grammar": {"return_metrics": []string{"price:mean"}},
-			"unknown metric": {"return_metrics": []string{"median"}},
+			"objectLimit":    {"objectLimit": 100},
+			"metric grammar": {"returnMetrics": []string{"price:mean"}},
+			"unknown metric": {"returnMetrics": []string{"median"}},
 		} {
 			status, out := postAggregate(t, "Novel", body)
 			require.Equal(t, http.StatusUnprocessableEntity, status, "%s: %v", name, out)
@@ -433,7 +433,7 @@ func TestRESTAggregate(t *testing.T) {
 	})
 
 	t.Run("bind tiers: malformed body, wrong types, missing body", func(t *testing.T) {
-		status, out := postAggregateRaw(t, "Novel", []byte(`{"group_by":`))
+		status, out := postAggregateRaw(t, "Novel", []byte(`{"groupBy":`))
 		require.Equal(t, http.StatusBadRequest, status, "malformed JSON: %v", out)
 		assert.Contains(t, out, "error", "bind errors must be ErrorResponse-shaped: %v", out)
 

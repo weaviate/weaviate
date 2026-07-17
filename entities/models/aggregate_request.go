@@ -30,19 +30,19 @@ import (
 type AggregateRequest struct {
 
 	// The property to group by, as a bare property name. Each distinct value of the property forms one group (an object whose property holds several values counts toward each of them). Omitted or empty aggregates over all matching objects without grouping.
-	GroupBy string `json:"group_by,omitempty"`
+	GroupBy string `json:"groupBy,omitempty"`
 
-	// The maximum number of groups to return, largest first. Must be positive and requires `group_by`; omitted falls back to the server default (100 groups).
+	// The maximum number of groups to return, largest first. Must be positive and requires `groupBy`; omitted falls back to the server default (100 groups).
 	Limit *int64 `json:"limit,omitempty"`
 
 	// Reserved for aggregate-over-search (the maximum number of search results to aggregate). Returns 422 (not yet supported).
-	ObjectLimit *int64 `json:"object_limit,omitempty"`
+	ObjectLimit *int64 `json:"objectLimit,omitempty"`
 
 	// Reserved for aggregate-over-search (aggregating the results of a vector, keyword or hybrid search). Returns 422 (not yet supported).
 	Over interface{} `json:"over,omitempty"`
 
-	// The aggregation metrics to return. Phase 1 supports only `count` (the number of matching objects, per group when `group_by` is set); omitted or empty is equivalent to `["count"]`. The property-scoped `property:statistic` grammar (e.g. `price:mean`) is reserved and returns 422 (not yet supported).
-	ReturnMetrics []string `json:"return_metrics"`
+	// The aggregation metrics to return. Phase 1 supports only `count` (the number of matching objects, per group when `groupBy` is set); omitted or empty is equivalent to `["count"]`. The property-scoped `property:statistic` grammar (e.g. `price:mean`) is reserved and returns 422 (not yet supported).
+	ReturnMetrics []string `json:"returnMetrics"`
 
 	// The tenant to aggregate in a multi-tenant collection.
 	Tenant string `json:"tenant,omitempty"`

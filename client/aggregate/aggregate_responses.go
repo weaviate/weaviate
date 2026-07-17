@@ -163,7 +163,7 @@ func NewAggregateBadRequest() *AggregateBadRequest {
 /*
 AggregateBadRequest describes a response with status code 400, with default header values.
 
-An invalid parameter value (e.g. an unknown group_by property, a non-positive limit, limit without group_by, an unknown filter property) or an unparseable request body.
+An invalid parameter value (e.g. an unknown groupBy property, a non-positive limit, limit without groupBy, an unknown filter property) or an unparseable request body.
 */
 type AggregateBadRequest struct {
 	Payload *models.ErrorResponse
@@ -435,7 +435,7 @@ func NewAggregateUnprocessableEntity() *AggregateUnprocessableEntity {
 /*
 AggregateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or return_metrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
 */
 type AggregateUnprocessableEntity struct {
 	Payload *models.ErrorResponse

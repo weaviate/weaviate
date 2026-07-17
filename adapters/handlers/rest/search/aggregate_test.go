@@ -114,9 +114,9 @@ func TestAggregateHandlerHappyPath(t *testing.T) {
 }
 
 // TestAggregateHandlerReturnMetricsCount: "count", the empty array and an
-// omitted return_metrics are equivalent (count is the only phase-1 metric).
+// omitted returnMetrics are equivalent (count is the only phase-1 metric).
 func TestAggregateHandlerReturnMetricsCount(t *testing.T) {
-	for _, body := range []string{`{}`, `{"return_metrics":[]}`, `{"return_metrics":["count"]}`, `{"return_metrics":["count","count"]}`} {
+	for _, body := range []string{`{}`, `{"returnMetrics":[]}`, `{"returnMetrics":["count"]}`, `{"returnMetrics":["count","count"]}`} {
 		t.Run(body, func(t *testing.T) {
 			deps := newTestHandler(t)
 			deps.searcher.aggregateRes = ungroupedCount(7)
@@ -137,9 +137,9 @@ func TestAggregateReservedFieldsRejected(t *testing.T) {
 	}{
 		{"over", `{"over":{"near_text":{"query":["space"]}}}`, "over is not yet supported"},
 		{"over empty object", `{"over":{}}`, "over is not yet supported"},
-		{"object_limit", `{"object_limit":100}`, "object_limit is not yet supported"},
-		{"metric grammar", `{"return_metrics":["price:mean"]}`, `"price:mean" is not yet supported`},
-		{"unknown metric", `{"return_metrics":["mean"]}`, `unknown return_metrics entry "mean"`},
+		{"objectLimit", `{"objectLimit":100}`, "objectLimit is not yet supported"},
+		{"metric grammar", `{"returnMetrics":["price:mean"]}`, `"price:mean" is not yet supported`},
+		{"unknown metric", `{"returnMetrics":["mean"]}`, `unknown returnMetrics entry "mean"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -160,19 +160,19 @@ func TestAggregateReservedFieldsRejected(t *testing.T) {
 // pin is TestReservedFieldsAbsentOrNullAllowed). over is the family's first
 // interface{}-typed reserved field — null must decode to a nil interface,
 // not a typed non-nil one — so its decode is pinned explicitly alongside the
-// pointer-typed object_limit.
+// pointer-typed objectLimit.
 func TestAggregateReservedFieldsAbsentOrNullAllowed(t *testing.T) {
 	assert.Nil(t, mustAggregateModel(t, `{"over":null}`).Over)
-	assert.Nil(t, mustAggregateModel(t, `{"object_limit":null}`).ObjectLimit)
+	assert.Nil(t, mustAggregateModel(t, `{"objectLimit":null}`).ObjectLimit)
 
 	tests := []struct {
 		body string
 		res  *aggregation.Result
 	}{
 		{`{"over":null}`, ungroupedCount(1)},
-		{`{"object_limit":null}`, ungroupedCount(1)},
+		{`{"objectLimit":null}`, ungroupedCount(1)},
 		// nulls combined with valid functional fields
-		{`{"over":null,"object_limit":null,"return_metrics":["count"],"group_by":"year"}`, &aggregation.Result{}},
+		{`{"over":null,"objectLimit":null,"returnMetrics":["count"],"groupBy":"year"}`, &aggregation.Result{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.body, func(t *testing.T) {
@@ -194,7 +194,7 @@ func TestAggregateHandlerUnknownBodyFieldIgnored(t *testing.T) {
 	assert.Nil(t, apiErr)
 }
 
-// TestAggregateHandlerGroupBy: group_by flows into params.GroupBy as a
+// TestAggregateHandlerGroupBy: groupBy flows into params.GroupBy as a
 // single-segment path, limit caps the number of groups, and the reply is the
 // grouped form.
 func TestAggregateHandlerGroupBy(t *testing.T) {
@@ -204,7 +204,7 @@ func TestAggregateHandlerGroupBy(t *testing.T) {
 		{GroupedBy: &aggregation.GroupedBy{Path: []string{"year"}, Value: float64(2021)}, Count: 1},
 	}}
 
-	payload, apiErr := doAggregate(t, deps, nil, "Movie", `{"group_by":"year","limit":2}`)
+	payload, apiErr := doAggregate(t, deps, nil, "Movie", `{"groupBy":"year","limit":2}`)
 	require.Nil(t, apiErr)
 
 	assert.Nil(t, payload.Count, "a grouped reply must not carry the flat count")
@@ -232,7 +232,7 @@ func TestAggregateHandlerGroupByNormalized(t *testing.T) {
 	deps := newTestHandler(t)
 	deps.searcher.aggregateRes = &aggregation.Result{}
 
-	_, apiErr := doAggregate(t, deps, nil, "Movie", `{"group_by":"Year"}`)
+	_, apiErr := doAggregate(t, deps, nil, "Movie", `{"groupBy":"Year"}`)
 	require.Nil(t, apiErr)
 	require.NotNil(t, deps.searcher.lastAggregateParams.GroupBy)
 	assert.Equal(t, "year", deps.searcher.lastAggregateParams.GroupBy.Property.String())
@@ -247,8 +247,8 @@ func TestAggregateGroupByValidation(t *testing.T) {
 	}{
 		// the engine would silently return zero groups for an unknown
 		// property; the handler rejects it deterministically
-		{"unknown property", `{"group_by":"nope"}`, http.StatusBadRequest, "nope"},
-		{"dotted path", `{"group_by":"hasAuthor.name"}`, http.StatusUnprocessableEntity, "not yet supported"},
+		{"unknown property", `{"groupBy":"nope"}`, http.StatusBadRequest, "nope"},
+		{"dotted path", `{"groupBy":"hasAuthor.name"}`, http.StatusUnprocessableEntity, "not yet supported"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -268,9 +268,9 @@ func TestAggregateLimitValidation(t *testing.T) {
 		body string
 		want string
 	}{
-		{"limit without group_by", `{"limit":5}`, "requires group_by"},
-		{"limit zero", `{"group_by":"year","limit":0}`, "must be positive"},
-		{"limit negative", `{"group_by":"year","limit":-3}`, "must be positive"},
+		{"limit without groupBy", `{"limit":5}`, "requires groupBy"},
+		{"limit zero", `{"groupBy":"year","limit":0}`, "must be positive"},
+		{"limit negative", `{"groupBy":"year","limit":-3}`, "must be positive"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -484,13 +484,13 @@ func TestBuildAggregateResponseUngrouped(t *testing.T) {
 		require.NotNil(t, reply.Count)
 		assert.Equal(t, int64(0), *reply.Count)
 
-		// the wire shape is flat: count + took_ms, no groups key
+		// the wire shape is flat: count + tookMs, no groups key
 		raw, err := json.Marshal(reply)
 		require.NoError(t, err)
 		var asMap map[string]any
 		require.NoError(t, json.Unmarshal(raw, &asMap))
 		assert.Equal(t, float64(0), asMap["count"])
-		assert.Contains(t, asMap, "took_ms")
+		assert.Contains(t, asMap, "tookMs")
 		assert.NotContains(t, asMap, "groups")
 	})
 
@@ -547,7 +547,7 @@ func TestBuildAggregateResponseGrouped(t *testing.T) {
 		require.NoError(t, json.Unmarshal(raw, &asMap))
 		assert.NotContains(t, asMap, "groups")
 		assert.NotContains(t, asMap, "count")
-		assert.Contains(t, asMap, "took_ms")
+		assert.Contains(t, asMap, "tookMs")
 	})
 
 	t.Run("nil result behaves like no groups", func(t *testing.T) {
@@ -629,8 +629,8 @@ func TestGroupValueBeaconStrip(t *testing.T) {
 	}
 }
 
-// TestAggregateGroupByRefDetection: the handler flags a ref-typed group_by so
-// the reply builder strips beacon namespaces; a non-ref group_by is not
+// TestAggregateGroupByRefDetection: the handler flags a ref-typed groupBy so
+// the reply builder strips beacon namespaces; a non-ref groupBy is not
 // flagged. Exercised through the full handler with a namespaced principal.
 func TestAggregateGroupByRefDetection(t *testing.T) {
 	deps := newTestHandler(t)
@@ -648,7 +648,7 @@ func TestAggregateGroupByRefDetection(t *testing.T) {
 		},
 	}}
 
-	payload, apiErr := doAggregate(t, deps, principal, "Movie", `{"group_by":"hasAuthor"}`)
+	payload, apiErr := doAggregate(t, deps, principal, "Movie", `{"groupBy":"hasAuthor"}`)
 	require.Nil(t, apiErr)
 	require.Len(t, payload.Groups, 1)
 	assert.Equal(t, "weaviate://localhost/Author/73f2eb5f-5abf-447a-81ca-74b1dd168247",

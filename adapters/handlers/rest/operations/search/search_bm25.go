@@ -47,7 +47,7 @@ func NewSearchBm25(ctx *middleware.Context, handler SearchBm25Handler) *SearchBm
 
 # Search a collection with bm25
 
-Performs a keyword (BM25F) search over the objects of a collection. Objects are scored against the query with the BM25F ranking function over the searchable text properties (all of them, or the `query_properties` subset) and the best-scoring objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
+Performs a keyword (BM25F) search over the objects of a collection. Objects are scored against the query with the BM25F ranking function over the searchable text properties (all of them, or the `queryProperties` subset) and the best-scoring objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
 */
 type SearchBm25 struct {
 	Context *middleware.Context

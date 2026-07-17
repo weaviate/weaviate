@@ -43,6 +43,8 @@ var (
 	ErrAsyncCheckpointStale = errors.New("checkpoint createdAt is not newer than the active one")
 	// ErrAsyncReplicationNotActive maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncReplicationNotActive = errors.New("async replication is not active on this shard")
+	// ErrAsyncCheckpointCutoffInPast maps to HTTP 412 / FailedPrecondition.
+	ErrAsyncCheckpointCutoffInPast = errors.New("checkpoint cutoff is not in this node's future")
 	// MsgCLevel consistency level cannot be achieved
 	MsgCLevel = "cannot achieve consistency level"
 

@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SearchBm25Request Request body for the bm25 search endpoint. Performs a keyword (BM25F) search over the collection's searchable text properties and returns the best-scoring objects. Extends the shared search fields (`SearchCommon`) with the bm25-specific `query` and `query_properties`.
+// SearchBm25Request Request body for the bm25 search endpoint. Performs a keyword (BM25F) search over the collection's searchable text properties and returns the best-scoring objects. Extends the shared search fields (`SearchCommon`) with the bm25-specific `query` and `queryProperties`.
 //
 // swagger:model SearchBm25Request
 type SearchBm25Request struct {
@@ -36,7 +36,7 @@ type SearchBm25Request struct {
 	Query *string `json:"query"`
 
 	// The properties to keyword-search, each optionally weighted with a `^boost` suffix (e.g. `title^2`). Omitted or empty searches every searchable text property. A property without a searchable index is rejected with 422.
-	QueryProperties []string `json:"query_properties"`
+	QueryProperties []string `json:"queryProperties"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -52,7 +52,7 @@ func (m *SearchBm25Request) UnmarshalJSON(raw []byte) error {
 	var dataAO1 struct {
 		Query *string `json:"query"`
 
-		QueryProperties []string `json:"query_properties"`
+		QueryProperties []string `json:"queryProperties"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -77,7 +77,7 @@ func (m SearchBm25Request) MarshalJSON() ([]byte, error) {
 	var dataAO1 struct {
 		Query *string `json:"query"`
 
-		QueryProperties []string `json:"query_properties"`
+		QueryProperties []string `json:"queryProperties"`
 	}
 
 	dataAO1.Query = m.Query

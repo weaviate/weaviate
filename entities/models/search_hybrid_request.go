@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SearchHybridRequest Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (`SearchCommon`) with the hybrid-specific `query`, `alpha`, `fusion_type`, `max_vector_distance`, `query_properties` and `target_vector`.
+// SearchHybridRequest Request body for the hybrid search endpoint. Combines a keyword (BM25F) search and a vector search over the same query string, fusing both rankings into one result list. Extends the shared search fields (`SearchCommon`) with the hybrid-specific `query`, `alpha`, `fusionType`, `maxVectorDistance`, `queryProperties` and `targetVector`.
 //
 // swagger:model SearchHybridRequest
 type SearchHybridRequest struct {
@@ -35,22 +35,22 @@ type SearchHybridRequest struct {
 	// The weight of the vector part of the search, between 0 and 1. `0` is a pure keyword search, `1` a pure vector search. Omitted defaults to `0.75`. With `0` the query is never vectorized, so a collection without a vectorizer module is searchable.
 	Alpha *float64 `json:"alpha,omitempty"`
 
-	// The algorithm that fuses the keyword and vector rankings: `ranked` (reciprocal-rank fusion) or `relative_score` (normalized-score fusion). Omitted defaults to `relative_score`.
-	// Enum: [ranked relative_score]
-	FusionType string `json:"fusion_type,omitempty"`
+	// The algorithm that fuses the keyword and vector rankings: `ranked` (reciprocal-rank fusion) or `relativeScore` (normalized-score fusion). Omitted defaults to `relativeScore`.
+	// Enum: [ranked relativeScore]
+	FusionType string `json:"fusionType,omitempty"`
 
 	// The maximum vector distance of a match: objects farther than this from the query vector are excluded, from the keyword ranking too.
-	MaxVectorDistance *float64 `json:"max_vector_distance,omitempty"`
+	MaxVectorDistance *float64 `json:"maxVectorDistance,omitempty"`
 
 	// The query, as a plain string. It is scored with BM25F for the keyword part of the search and vectorized server-side for the vector part. Must not be empty.
 	// Required: true
 	Query *string `json:"query"`
 
 	// The properties the keyword part of the search scores against, each optionally weighted with a `^boost` suffix (e.g. `title^2`). Omitted or empty searches every searchable text property. A property without a searchable index is rejected with 422.
-	QueryProperties []string `json:"query_properties"`
+	QueryProperties []string `json:"queryProperties"`
 
 	// The named vector to search. Required when the collection has more than one named vector.
-	TargetVector string `json:"target_vector,omitempty"`
+	TargetVector string `json:"targetVector,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -66,15 +66,15 @@ func (m *SearchHybridRequest) UnmarshalJSON(raw []byte) error {
 	var dataAO1 struct {
 		Alpha *float64 `json:"alpha,omitempty"`
 
-		FusionType string `json:"fusion_type,omitempty"`
+		FusionType string `json:"fusionType,omitempty"`
 
-		MaxVectorDistance *float64 `json:"max_vector_distance,omitempty"`
+		MaxVectorDistance *float64 `json:"maxVectorDistance,omitempty"`
 
 		Query *string `json:"query"`
 
-		QueryProperties []string `json:"query_properties"`
+		QueryProperties []string `json:"queryProperties"`
 
-		TargetVector string `json:"target_vector,omitempty"`
+		TargetVector string `json:"targetVector,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -107,15 +107,15 @@ func (m SearchHybridRequest) MarshalJSON() ([]byte, error) {
 	var dataAO1 struct {
 		Alpha *float64 `json:"alpha,omitempty"`
 
-		FusionType string `json:"fusion_type,omitempty"`
+		FusionType string `json:"fusionType,omitempty"`
 
-		MaxVectorDistance *float64 `json:"max_vector_distance,omitempty"`
+		MaxVectorDistance *float64 `json:"maxVectorDistance,omitempty"`
 
 		Query *string `json:"query"`
 
-		QueryProperties []string `json:"query_properties"`
+		QueryProperties []string `json:"queryProperties"`
 
-		TargetVector string `json:"target_vector,omitempty"`
+		TargetVector string `json:"targetVector,omitempty"`
 	}
 
 	dataAO1.Alpha = m.Alpha
@@ -165,7 +165,7 @@ var searchHybridRequestTypeFusionTypePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["ranked","relative_score"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["ranked","relativeScore"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -188,7 +188,7 @@ func (m *SearchHybridRequest) validateFusionType(formats strfmt.Registry) error 
 	}
 
 	// value enum
-	if err := m.validateFusionTypeEnum("fusion_type", "body", m.FusionType); err != nil {
+	if err := m.validateFusionTypeEnum("fusionType", "body", m.FusionType); err != nil {
 		return err
 	}
 

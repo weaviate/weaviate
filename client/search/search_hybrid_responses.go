@@ -447,7 +447,7 @@ func NewSearchHybridUnprocessableEntity() *SearchHybridUnprocessableEntity {
 /*
 SearchHybridUnprocessableEntity describes a response with status code 422, with default header values.
 
-Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0, target_vector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
 */
 type SearchHybridUnprocessableEntity struct {
 	Payload *models.ErrorResponse

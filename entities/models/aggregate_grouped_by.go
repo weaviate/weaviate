@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// AggregateGroupedBy The identity of one group: the `group_by` property (as a one-element path) and the property value that formed the group.
+// AggregateGroupedBy The identity of one group: the `groupBy` property (as a one-element path) and the property value that formed the group.
 //
 // swagger:model AggregateGroupedBy
 type AggregateGroupedBy struct {

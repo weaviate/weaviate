@@ -55,7 +55,7 @@ type ClientService interface {
 /*
 SearchBm25 searches a collection with bm25
 
-Performs a keyword (BM25F) search over the objects of a collection. Objects are scored against the query with the BM25F ranking function over the searchable text properties (all of them, or the `query_properties` subset) and the best-scoring objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
+Performs a keyword (BM25F) search over the objects of a collection. Objects are scored against the query with the BM25F ranking function over the searchable text properties (all of them, or the `queryProperties` subset) and the best-scoring objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
 */
 func (a *Client) SearchBm25(params *SearchBm25Params, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchBm25OK, error) {
 	// TODO: Validate the params before sending
@@ -96,7 +96,7 @@ func (a *Client) SearchBm25(params *SearchBm25Params, authInfo runtime.ClientAut
 /*
 SearchHybrid searches a collection with hybrid
 
-Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the `query_properties` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per `fusion_type`, weighted by `alpha`) and the best objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
+Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the `queryProperties` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per `fusionType`, weighted by `alpha`) and the best objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
 */
 func (a *Client) SearchHybrid(params *SearchHybridParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchHybridOK, error) {
 	// TODO: Validate the params before sending

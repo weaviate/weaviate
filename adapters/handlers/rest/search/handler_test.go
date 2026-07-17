@@ -263,12 +263,13 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 
 	deps.handler.enabled = runtime.NewDynamicValue(true)
-	rerank := "title"
+	rerankProp := "title"
+	rerank := &models.SearchRerank{Property: &rerankProp}
 	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
-		&models.SearchCommon{RerankProperty: &rerank}, build)
+		&models.SearchCommon{Rerank: rerank}, build)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "rerank_property")
+	assert.Contains(t, apiErr.Error(), "rerank")
 }
 
 func TestHandlerHappyPath(t *testing.T) {
@@ -285,7 +286,7 @@ func TestHandlerHappyPath(t *testing.T) {
 	}
 
 	payload, apiErr := doNearText(t, deps, nil, "Movie",
-		`{"query":["space opera"],"limit":5,"return_properties":["title","year"],"return_metadata":["distance"]}`)
+		`{"query":["space opera"],"limit":5,"returnProperties":["title","year"],"returnMetadata":["distance"]}`)
 	require.Nil(t, apiErr)
 
 	require.Len(t, payload.Results, 1)
@@ -308,12 +309,12 @@ func TestHandlerHappyPath(t *testing.T) {
 }
 
 // TestHandlerIDAlwaysReturned: every hit carries its id on the envelope,
-// with or without return_metadata, and an id-only request produces no
+// with or without returnMetadata, and an id-only request produces no
 // metadata block.
 func TestHandlerIDAlwaysReturned(t *testing.T) {
 	for name, body := range map[string]string{
-		"return_metadata omitted": `{"query":["space"]}`,
-		"return_metadata empty":   `{"query":["space"],"return_metadata":[]}`,
+		"returnMetadata omitted": `{"query":["space"]}`,
+		"returnMetadata empty":   `{"query":["space"],"returnMetadata":[]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := newTestHandler(t)
@@ -568,7 +569,7 @@ func (a *denyCollections) Calls() []mocks.AuthZReq { return a.requests }
 // reference selection or a where filter are authorized, not just the primary.
 func TestHandlerAuthorizesReferencedCollections(t *testing.T) {
 	for name, body := range map[string]string{
-		"reference selection": `{"query":["space"],"return_properties":["hasAuthor.name"]}`,
+		"reference selection": `{"query":["space"],"returnProperties":["hasAuthor.name"]}`,
 		"where filter across a reference": `{"query":["space"],"where":` +
 			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"}}`,
 	} {
@@ -747,7 +748,7 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 
 // TestBm25HandlerHappyPath: the bm25 wrapper drives the same execute() flow
 // as near-text, with KeywordRanking params instead of module params, and the
-// envelope carries score/explain_score metadata.
+// envelope carries score/explainScore metadata.
 func TestBm25HandlerHappyPath(t *testing.T) {
 	deps := newTestHandler(t)
 	deps.searcher.res = []any{
@@ -762,7 +763,7 @@ func TestBm25HandlerHappyPath(t *testing.T) {
 	}
 
 	payload, apiErr := doBm25(t, deps, nil, "Movie",
-		`{"query":"space opera","limit":5,"query_properties":["title"],"return_properties":["title"],"return_metadata":["score","explain_score"]}`)
+		`{"query":"space opera","limit":5,"queryProperties":["title"],"returnProperties":["title"],"returnMetadata":["score","explainScore"]}`)
 	require.Nil(t, apiErr)
 
 	require.Len(t, payload.Results, 1)
@@ -803,13 +804,12 @@ func TestBm25HandlerDisabled(t *testing.T) {
 // execute() fires for bm25 exactly as for near-text.
 func TestBm25ReservedFieldsRejected(t *testing.T) {
 	reserved := map[string]string{
-		"single_prompt":     `"x"`,
-		"grouped_task":      `"x"`,
-		"group_by":          `"x"`,
-		"number_of_groups":  `2`,
-		"objects_per_group": `2`,
-		"rerank_property":   `"x"`,
-		"rerank_query":      `"x"`,
+		"singlePrompt":    `"x"`,
+		"groupedTask":     `"x"`,
+		"groupBy":         `"x"`,
+		"numberOfGroups":  `2`,
+		"objectsPerGroup": `2`,
+		"rerank":          `{"property":"x"}`,
 	}
 	for field, value := range reserved {
 		t.Run(field, func(t *testing.T) {
@@ -889,7 +889,7 @@ func TestNearObjectHandlerHappyPath(t *testing.T) {
 	}
 
 	payload, apiErr := doNearObject(t, deps, nil, "Movie",
-		`{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247","limit":5,"return_properties":["title"],"return_metadata":["distance"]}`)
+		`{"id":"73f2eb5f-5abf-447a-81ca-74b1dd168247","limit":5,"returnProperties":["title"],"returnMetadata":["distance"]}`)
 	require.Nil(t, apiErr)
 
 	require.Len(t, payload.Results, 1)
@@ -929,13 +929,12 @@ func TestNearObjectHandlerDisabled(t *testing.T) {
 // in execute() fires for near-object exactly as for the other search types.
 func TestNearObjectReservedFieldsRejected(t *testing.T) {
 	reserved := map[string]string{
-		"single_prompt":     `"x"`,
-		"grouped_task":      `"x"`,
-		"group_by":          `"x"`,
-		"number_of_groups":  `2`,
-		"objects_per_group": `2`,
-		"rerank_property":   `"x"`,
-		"rerank_query":      `"x"`,
+		"singlePrompt":    `"x"`,
+		"groupedTask":     `"x"`,
+		"groupBy":         `"x"`,
+		"numberOfGroups":  `2`,
+		"objectsPerGroup": `2`,
+		"rerank":          `{"property":"x"}`,
 	}
 	for field, value := range reserved {
 		t.Run(field, func(t *testing.T) {
@@ -1066,7 +1065,7 @@ func TestHybridHandlerHappyPath(t *testing.T) {
 	}
 
 	payload, apiErr := doHybrid(t, deps, nil, "Movie",
-		`{"query":"space opera","limit":5,"alpha":0.6,"fusion_type":"ranked","return_properties":["title"],"return_metadata":["score"]}`)
+		`{"query":"space opera","limit":5,"alpha":0.6,"fusionType":"ranked","returnProperties":["title"],"returnMetadata":["score"]}`)
 	require.Nil(t, apiErr)
 
 	require.Len(t, payload.Results, 1)
@@ -1106,13 +1105,12 @@ func TestHybridHandlerDisabled(t *testing.T) {
 // execute() fires for hybrid exactly as for near-text and bm25.
 func TestHybridReservedFieldsRejected(t *testing.T) {
 	reserved := map[string]string{
-		"single_prompt":     `"x"`,
-		"grouped_task":      `"x"`,
-		"group_by":          `"x"`,
-		"number_of_groups":  `2`,
-		"objects_per_group": `2`,
-		"rerank_property":   `"x"`,
-		"rerank_query":      `"x"`,
+		"singlePrompt":    `"x"`,
+		"groupedTask":     `"x"`,
+		"groupBy":         `"x"`,
+		"numberOfGroups":  `2`,
+		"objectsPerGroup": `2`,
+		"rerank":          `{"property":"x"}`,
 	}
 	for field, value := range reserved {
 		t.Run(field, func(t *testing.T) {

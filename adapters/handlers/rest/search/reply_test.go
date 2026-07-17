@@ -427,7 +427,7 @@ func TestBuildResponseErrorsOnMissingID(t *testing.T) {
 	})
 }
 
-// TestBuildResponseEmptyResults: results and took_ms are required in the
+// TestBuildResponseEmptyResults: results and tookMs are required in the
 // spec, so they must be non-nil even for zero hits.
 func TestBuildResponseEmptyResults(t *testing.T) {
 	reply, err := buildResponse(nil, dto.GetParams{}, time.Millisecond)

@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SearchNearObjectRequest Request body for the near-object search endpoint. The stored vector of an existing object (the source object, referenced by `id`) anchors the search and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (`SearchCommon`) with the near-object-specific `id`, `certainty`, `distance` and `target_vector`.
+// SearchNearObjectRequest Request body for the near-object search endpoint. The stored vector of an existing object (the source object, referenced by `id`) anchors the search and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (`SearchCommon`) with the near-object-specific `id`, `certainty`, `distance` and `targetVector`.
 //
 // swagger:model SearchNearObjectRequest
 type SearchNearObjectRequest struct {
@@ -43,7 +43,7 @@ type SearchNearObjectRequest struct {
 	ID *strfmt.UUID `json:"id"`
 
 	// The named vector to search (the source object's vector for this name anchors the search). Required when the collection has more than one named vector.
-	TargetVector string `json:"target_vector,omitempty"`
+	TargetVector string `json:"targetVector,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -63,7 +63,7 @@ func (m *SearchNearObjectRequest) UnmarshalJSON(raw []byte) error {
 
 		ID *strfmt.UUID `json:"id"`
 
-		TargetVector string `json:"target_vector,omitempty"`
+		TargetVector string `json:"targetVector,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -96,7 +96,7 @@ func (m SearchNearObjectRequest) MarshalJSON() ([]byte, error) {
 
 		ID *strfmt.UUID `json:"id"`
 
-		TargetVector string `json:"target_vector,omitempty"`
+		TargetVector string `json:"targetVector,omitempty"`
 	}
 
 	dataAO1.Certainty = m.Certainty

@@ -441,7 +441,7 @@ func NewSearchNearObjectUnprocessableEntity() *SearchNearObjectUnprocessableEnti
 /*
 SearchNearObjectUnprocessableEntity describes a response with status code 422, with default header values.
 
-Either a request-schema violation (a missing, null or structurally invalid required `id`, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+Either a request-schema violation (a missing, null or structurally invalid required `id`, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
 */
 type SearchNearObjectUnprocessableEntity struct {
 	Payload *models.ErrorResponse

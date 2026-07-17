@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// AggregateResponse The result of an aggregation. An ungrouped aggregation returns the flat form (`count` plus `took_ms`); a grouped aggregation returns `groups` plus `took_ms`. Exactly one of `count`/`groups` is present, except that a grouped aggregation which produced no groups (nothing matched, or no matching object carries the property) omits `groups` entirely.
+// AggregateResponse The result of an aggregation. An ungrouped aggregation returns the flat form (`count` plus `tookMs`); a grouped aggregation returns `groups` plus `tookMs`. Exactly one of `count`/`groups` is present, except that a grouped aggregation which produced no groups (nothing matched, or no matching object carries the property) omits `groups` entirely.
 //
 // swagger:model AggregateResponse
 type AggregateResponse struct {
@@ -39,7 +39,7 @@ type AggregateResponse struct {
 
 	// Server-side processing time in milliseconds.
 	// Required: true
-	TookMs *int64 `json:"took_ms"`
+	TookMs *int64 `json:"tookMs"`
 }
 
 // Validate validates this aggregate response
@@ -88,7 +88,7 @@ func (m *AggregateResponse) validateGroups(formats strfmt.Registry) error {
 
 func (m *AggregateResponse) validateTookMs(formats strfmt.Registry) error {
 
-	if err := validate.Required("took_ms", "body", m.TookMs); err != nil {
+	if err := validate.Required("tookMs", "body", m.TookMs); err != nil {
 		return err
 	}
 

@@ -46,7 +46,7 @@ func IsAggregateRoute(urlPath string) bool {
 
 // Aggregate executes a counts aggregation over collection: the number of
 // objects matching the optional where filter, in total or per group of the
-// group_by property. It returns the 200 payload or an APIError carrying the
+// groupBy property. It returns the 200 payload or an APIError carrying the
 // HTTP status.
 func (h *Handler) Aggregate(ctx context.Context, principal *models.Principal,
 	collection string, body *models.AggregateRequest,
@@ -88,8 +88,8 @@ func (h *Handler) Aggregate(ctx context.Context, principal *models.Principal,
 }
 
 // checkAggregateReservedFields rejects reserved (not yet supported) fields
-// and unsupported return_metrics entries with 422. over/object_limit are the
-// aggregate-over-search pair; the "property:statistic" return_metrics
+// and unsupported returnMetrics entries with 422. over/objectLimit are the
+// aggregate-over-search pair; the "property:statistic" returnMetrics
 // grammar is the per-property statistics of a later phase. Keep the set in
 // lock-step with AggregateRequest in openapi-specs/schema.json.
 func checkAggregateReservedFields(body *models.AggregateRequest) *APIError {
@@ -97,7 +97,7 @@ func checkAggregateReservedFields(body *models.AggregateRequest) *APIError {
 		return newAPIError(http.StatusUnprocessableEntity, "over is not yet supported")
 	}
 	if body.ObjectLimit != nil {
-		return newAPIError(http.StatusUnprocessableEntity, "object_limit is not yet supported")
+		return newAPIError(http.StatusUnprocessableEntity, "objectLimit is not yet supported")
 	}
 	for _, metric := range body.ReturnMetrics {
 		if metric == "count" {
@@ -105,10 +105,10 @@ func checkAggregateReservedFields(body *models.AggregateRequest) *APIError {
 		}
 		if strings.Contains(metric, ":") {
 			return newAPIError(http.StatusUnprocessableEntity,
-				"return_metrics entry %q is not yet supported; only \"count\" is", metric)
+				"returnMetrics entry %q is not yet supported; only \"count\" is", metric)
 		}
 		return newAPIError(http.StatusUnprocessableEntity,
-			"unknown return_metrics entry %q, expected \"count\"", metric)
+			"unknown returnMetrics entry %q, expected \"count\"", metric)
 	}
 	return nil
 }
@@ -117,7 +117,7 @@ func checkAggregateReservedFields(body *models.AggregateRequest) *APIError {
 // aggregation.Params consumed by traverser.Aggregate. Behavior must stay in
 // sync with the gRPC parser (adapters/handlers/grpc/v1/
 // parse_aggregate_request.go). The returned groupByIsRef reports whether the
-// group_by property is a cross-reference — its group values are beacon URIs
+// groupBy property is a cross-reference — its group values are beacon URIs
 // the reply builder must namespace-strip.
 func (h *Handler) buildAggregateParams(class *models.Class, className string,
 	body *models.AggregateRequest, getClass classGetterFunc, principal *models.Principal,
@@ -135,7 +135,7 @@ func (h *Handler) buildAggregateParams(class *models.Class, className string,
 		// check before GetPropertyByName, which matches the segment before a dot
 		if strings.Contains(body.GroupBy, ".") {
 			return nil, false, newAPIError(http.StatusUnprocessableEntity,
-				"group_by %q is not yet supported, group_by must be a bare property name", body.GroupBy)
+				"groupBy %q is not yet supported, groupBy must be a bare property name", body.GroupBy)
 		}
 		normalized := schema.LowercaseFirstLetter(body.GroupBy)
 		prop, err := schema.GetPropertyByName(class, normalized)
@@ -154,7 +154,7 @@ func (h *Handler) buildAggregateParams(class *models.Class, className string,
 	if body.Limit != nil {
 		if body.GroupBy == "" {
 			return nil, false, newAPIError(http.StatusBadRequest,
-				"limit is the maximum number of groups and requires group_by")
+				"limit is the maximum number of groups and requires groupBy")
 		}
 		if *body.Limit <= 0 {
 			return nil, false, newAPIError(http.StatusBadRequest,
@@ -175,8 +175,8 @@ func (h *Handler) buildAggregateParams(class *models.Class, className string,
 
 // buildAggregateResponse converts the traverser's aggregation result into
 // the models.AggregateResponse: ungrouped aggregations return the flat
-// {count, took_ms} form, grouped ones {groups, took_ms} with each group's
-// {grouped_by, count}, ordered by descending count (engine order). A grouped
+// {count, tookMs} form, grouped ones {groups, tookMs} with each group's
+// {groupedBy, count}, ordered by descending count (engine order). A grouped
 // aggregation may produce no groups (nothing matched, or no matching object
 // carries the property); groups is then omitted.
 func buildAggregateResponse(res any, grouped, groupByIsRef bool,

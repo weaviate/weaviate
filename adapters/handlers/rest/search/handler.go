@@ -359,7 +359,7 @@ func statusFromError(err error) *APIError {
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &enterrors.ErrSourceObjectNotFound{}):
 		// near-object: the id names no object — a bad body value, like an
-		// unknown target_vector (must stay above ErrQueryVectorization)
+		// unknown targetVector (must stay above ErrQueryVectorization)
 		return &APIError{Status: http.StatusBadRequest, Err: err}
 	case errors.As(err, &enterrors.ErrSourceObjectNoVector{}):
 		// near-object: the object exists but its stored vectors cannot

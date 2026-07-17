@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// AggregateGroup One group of a grouped aggregation: the group's identity under `grouped_by` and its aggregated metrics (phase 1: `count`).
+// AggregateGroup One group of a grouped aggregation: the group's identity under `groupedBy` and its aggregated metrics (phase 1: `count`).
 //
 // swagger:model AggregateGroup
 type AggregateGroup struct {
@@ -36,7 +36,7 @@ type AggregateGroup struct {
 
 	// grouped by
 	// Required: true
-	GroupedBy *AggregateGroupedBy `json:"grouped_by"`
+	GroupedBy *AggregateGroupedBy `json:"groupedBy"`
 }
 
 // Validate validates this aggregate group
@@ -68,16 +68,16 @@ func (m *AggregateGroup) validateCount(formats strfmt.Registry) error {
 
 func (m *AggregateGroup) validateGroupedBy(formats strfmt.Registry) error {
 
-	if err := validate.Required("grouped_by", "body", m.GroupedBy); err != nil {
+	if err := validate.Required("groupedBy", "body", m.GroupedBy); err != nil {
 		return err
 	}
 
 	if m.GroupedBy != nil {
 		if err := m.GroupedBy.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("grouped_by")
+				return ve.ValidateName("groupedBy")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("grouped_by")
+				return ce.ValidateName("groupedBy")
 			}
 			return err
 		}
@@ -105,9 +105,9 @@ func (m *AggregateGroup) contextValidateGroupedBy(ctx context.Context, formats s
 	if m.GroupedBy != nil {
 		if err := m.GroupedBy.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("grouped_by")
+				return ve.ValidateName("groupedBy")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("grouped_by")
+				return ce.ValidateName("groupedBy")
 			}
 			return err
 		}

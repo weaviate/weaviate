@@ -200,16 +200,16 @@ func TestRESTSearchNearObject(t *testing.T) {
 
 	t.Run("happy path: ordered by distance from the source object, source included", func(t *testing.T) {
 		status, out := postNearObject(t, "Poem", map[string]interface{}{
-			"id":                poem1ID.String(),
-			"return_properties": []string{"title"},
-			"return_metadata":   []string{"distance"},
+			"id":               poem1ID.String(),
+			"returnProperties": []string{"title"},
+			"returnMetadata":   []string{"distance"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 
 		res := results(t, out)
 		require.Len(t, res, 3)
-		_, ok := out["took_ms"].(float64)
-		assert.True(t, ok, "took_ms missing or not a number: %v", out)
+		_, ok := out["tookMs"].(float64)
+		assert.True(t, ok, "tookMs missing or not a number: %v", out)
 
 		// the source object is a hit too, at distance 0
 		first := hit(t, out, 0)
@@ -282,17 +282,17 @@ func TestRESTSearchNearObject(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "has no vector")
 	})
 
-	t.Run("named vectors: target_vector selects the anchor vector", func(t *testing.T) {
+	t.Run("named vectors: targetVector selects the anchor vector", func(t *testing.T) {
 		status, out := postNearObject(t, "Sketch", map[string]interface{}{
-			"id":            sketch1ID.String(),
-			"target_vector": "first",
+			"id":           sketch1ID.String(),
+			"targetVector": "first",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.NotEmpty(t, results(t, out))
 		assert.Equal(t, sketch1ID.String(), idOf(t, hit(t, out, 0)))
 	})
 
-	t.Run("named vectors: missing target_vector on a multi-vector collection is a 422", func(t *testing.T) {
+	t.Run("named vectors: missing targetVector on a multi-vector collection is a 422", func(t *testing.T) {
 		status, out := postNearObject(t, "Sketch", map[string]interface{}{
 			"id": sketch1ID.String(),
 		})
@@ -300,18 +300,18 @@ func TestRESTSearchNearObject(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "target")
 	})
 
-	t.Run("named vectors: unknown target_vector is a 400", func(t *testing.T) {
+	t.Run("named vectors: unknown targetVector is a 400", func(t *testing.T) {
 		status, out := postNearObject(t, "Sketch", map[string]interface{}{
-			"id":            sketch1ID.String(),
-			"target_vector": "third",
+			"id":           sketch1ID.String(),
+			"targetVector": "third",
 		})
 		require.Equal(t, http.StatusBadRequest, status, "%v", out)
 	})
 
 	t.Run("source object without the target vector is a 422", func(t *testing.T) {
 		status, out := postNearObject(t, "Sketch", map[string]interface{}{
-			"id":            sketch2ID.String(),
-			"target_vector": "second",
+			"id":           sketch2ID.String(),
+			"targetVector": "second",
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "vector not found for target")
@@ -344,7 +344,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 				"operator": "LessThan",
 				"valueInt": 2000,
 			},
-			"return_properties": []string{"title"},
+			"returnProperties": []string{"title"},
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		res := results(t, out)
@@ -361,8 +361,8 @@ func TestRESTSearchNearObject(t *testing.T) {
 
 	t.Run("reserved fields are a 422", func(t *testing.T) {
 		status, out := postNearObject(t, "Poem", map[string]interface{}{
-			"id":              poem1ID.String(),
-			"rerank_property": "title",
+			"id":     poem1ID.String(),
+			"rerank": map[string]interface{}{"property": "title"},
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "not yet supported")

@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -865,6 +866,7 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 	if len(updates) == 0 {
 		return nil
 	}
+	debugEnabled := idx.debugLoggingEnabled()
 
 	ctx = withChangeLogReplay(ctx)
 
@@ -883,6 +885,8 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 	}
 	pending := map[strfmt.UUID]pendingPut{}
 
+	var appliedPuts, appliedDeletes []strfmt.UUID
+
 	flushPending := func() error {
 		if len(pending) == 0 {
 			return nil
@@ -895,6 +899,11 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		for _, e := range errs {
 			if e != nil {
 				return fmt.Errorf("replay put batch: %w", e)
+			}
+		}
+		if debugEnabled {
+			for _, o := range objs {
+				appliedPuts = append(appliedPuts, o.ID())
 			}
 		}
 		clear(pending)
@@ -913,6 +922,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 			}
 			if err := s.DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli)); err != nil {
 				return fmt.Errorf("replay delete for %s: %w", u.ID, err)
+			}
+			if debugEnabled {
+				appliedDeletes = append(appliedDeletes, u.ID)
 			}
 			continue
 		}
@@ -936,7 +948,17 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		pending[u.ID] = pendingPut{decoded: decoded, ts: u.LastUpdateTimeUnixMilli}
 	}
 
-	return flushPending()
+	if err := flushPending(); err != nil {
+		return err
+	}
+	idx.logger.WithFields(logrus.Fields{
+		"action":          "change_capture_log",
+		"shard":           shard,
+		"entries":         len(updates),
+		"puts_applied":    appliedPuts,
+		"deletes_applied": appliedDeletes,
+	}).Debug("change-capture log replay batch applied")
+	return nil
 }
 
 func (i *Index) DigestObjects(ctx context.Context,

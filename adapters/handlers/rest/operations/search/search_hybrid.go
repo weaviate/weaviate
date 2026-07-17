@@ -47,7 +47,7 @@ func NewSearchHybrid(ctx *middleware.Context, handler SearchHybridHandler) *Sear
 
 # Search a collection with hybrid
 
-Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the `query_properties` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per `fusion_type`, weighted by `alpha`) and the best objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
+Performs a hybrid search over the objects of a collection: the query is scored with the BM25F ranking function over the searchable text properties (all of them, or the `queryProperties` subset) and, in parallel, vectorized server-side and searched against the vector index; the two rankings are fused (per `fusionType`, weighted by `alpha`) and the best objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`.
 */
 type SearchHybrid struct {
 	Context *middleware.Context

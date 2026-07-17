@@ -49,7 +49,7 @@ type ClientService interface {
 /*
 Aggregate aggregates over a collection
 
-Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat `count` response) or per group of a `group_by` property (`groups` response). A `where` filter limits the objects that are aggregated; an empty body returns the collection's total object count.
+Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat `count` response) or per group of a `groupBy` property (`groups` response). A `where` filter limits the objects that are aggregated; an empty body returns the collection's total object count.
 */
 func (a *Client) Aggregate(params *AggregateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AggregateOK, error) {
 	// TODO: Validate the params before sending

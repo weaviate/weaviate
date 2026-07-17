@@ -47,7 +47,7 @@ func NewAggregate(ctx *middleware.Context, handler AggregateHandler) *Aggregate 
 
 # Aggregate over a collection
 
-Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat `count` response) or per group of a `group_by` property (`groups` response). A `where` filter limits the objects that are aggregated; an empty body returns the collection's total object count.
+Aggregates over the objects of a collection. Phase 1 supports counts: the number of matching objects, either in total (flat `count` response) or per group of a `groupBy` property (`groups` response). A `where` filter limits the objects that are aggregated; an empty body returns the collection's total object count.
 */
 type Aggregate struct {
 	Context *middleware.Context

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -147,13 +148,12 @@ func TestReservedFieldsRejected(t *testing.T) {
 	// each reserved field, set to a type-appropriate non-null value, is a
 	// 422 "not yet supported"
 	reserved := map[string]string{
-		"single_prompt":     `"x"`,
-		"grouped_task":      `"x"`,
-		"group_by":          `"x"`,
-		"number_of_groups":  `2`,
-		"objects_per_group": `2`,
-		"rerank_property":   `"x"`,
-		"rerank_query":      `"x"`,
+		"singlePrompt":    `"x"`,
+		"groupedTask":     `"x"`,
+		"groupBy":         `"x"`,
+		"numberOfGroups":  `2`,
+		"objectsPerGroup": `2`,
+		"rerank":          `{"property":"x"}`,
 	}
 	for field, value := range reserved {
 		t.Run(field, func(t *testing.T) {
@@ -172,13 +172,23 @@ func TestReservedFieldsAbsentOrNullAllowed(t *testing.T) {
 	// treated as absent and the request proceeds
 	for _, body := range []string{
 		`{"query":["space"]}`,
-		`{"query":["space"],"group_by":null}`,
+		`{"query":["space"],"groupBy":null}`,
+		`{"query":["space"],"rerank":null}`,
 	} {
 		t.Run(body, func(t *testing.T) {
 			_, apiErr := buildParams(t, movieClass(), body)
 			assert.Nil(t, apiErr)
 		})
 	}
+}
+
+func TestRerankValidationNamesPropertyOnce(t *testing.T) {
+	req, apiErr := decodeModel(`{"query":["space"],"rerank":{}}`)
+	require.Nil(t, apiErr)
+
+	err := req.Validate(strfmt.Default)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rerank.property in body is required")
 }
 
 func TestParseQuery(t *testing.T) {
@@ -223,7 +233,7 @@ func TestParsePagination(t *testing.T) {
 
 	t.Run("explicit values", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"limit":3,"offset":6,"auto_limit":2}`)
+			`{"query":["space"],"limit":3,"offset":6,"autoLimit":2}`)
 		require.Nil(t, apiErr)
 		pagination := searcher.lastParams.Pagination
 		assert.Equal(t, 3, pagination.Limit)
@@ -234,9 +244,9 @@ func TestParsePagination(t *testing.T) {
 	})
 
 	for name, body := range map[string]string{
-		"negative limit":      `{"query":["space"],"limit":-1}`,
-		"negative offset":     `{"query":["space"],"offset":-1}`,
-		"negative auto_limit": `{"query":["space"],"auto_limit":-1}`,
+		"negative limit":     `{"query":["space"],"limit":-1}`,
+		"negative offset":    `{"query":["space"],"offset":-1}`,
+		"negative autoLimit": `{"query":["space"],"autoLimit":-1}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, apiErr := buildParams(t, movieClass(), body)
@@ -333,23 +343,23 @@ func TestTargetVectors(t *testing.T) {
 		assert.Equal(t, []string{"title_vec"}, nearTextFromParams(t, searcher).TargetVectors)
 	})
 
-	t.Run("multiple named vectors require target_vector", func(t *testing.T) {
+	t.Run("multiple named vectors require targetVector", func(t *testing.T) {
 		_, apiErr := buildParams(t, namedVectorsClass("title_vec", "plot_vec"), `{"query":["space"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 		assert.Contains(t, apiErr.Error(), "multiple vectors")
 	})
 
-	t.Run("explicit target_vector", func(t *testing.T) {
+	t.Run("explicit targetVector", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, namedVectorsClass("title_vec", "plot_vec"),
-			`{"query":["space"],"target_vector":"plot_vec"}`)
+			`{"query":["space"],"targetVector":"plot_vec"}`)
 		require.Nil(t, apiErr)
 		assert.Equal(t, []string{"plot_vec"}, nearTextFromParams(t, searcher).TargetVectors)
 	})
 
-	t.Run("unknown target_vector is a 400", func(t *testing.T) {
+	t.Run("unknown targetVector is a 400", func(t *testing.T) {
 		_, apiErr := buildParams(t, namedVectorsClass("title_vec"),
-			`{"query":["space"],"target_vector":"nope"}`)
+			`{"query":["space"],"targetVector":"nope"}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
@@ -386,7 +396,7 @@ func TestParseReturnMetadata(t *testing.T) {
 	})
 
 	t.Run("empty list still requests the id", func(t *testing.T) {
-		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_metadata":[]}`)
+		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnMetadata":[]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.True(t, addl.ID)
@@ -394,19 +404,19 @@ func TestParseReturnMetadata(t *testing.T) {
 	})
 
 	t.Run("id is not a metadata key", func(t *testing.T) {
-		// return_metadata selects metadata keys only; the id is a top-level
+		// returnMetadata selects metadata keys only; the id is a top-level
 		// result field. Live, the swagger enum rejects "id" at bind (422);
 		// the parser's own 400 covers the direct-call path.
-		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_metadata":["id"]}`)
+		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnMetadata":["id"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 		assert.Contains(t, apiErr.Error(),
-			"expected one of distance, certainty, score, explain_score, creation_time, last_update_time")
+			"expected one of distance, certainty, score, explainScore, creationTime, lastUpdateTime")
 	})
 
 	t.Run("all supported values", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"return_metadata":["distance","certainty","score","explain_score","creation_time","last_update_time"]}`)
+			`{"query":["space"],"returnMetadata":["distance","certainty","score","explainScore","creationTime","lastUpdateTime"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.True(t, addl.ID)
@@ -421,13 +431,13 @@ func TestParseReturnMetadata(t *testing.T) {
 	t.Run("certainty dropped on non-cosine", func(t *testing.T) {
 		class := movieClass()
 		class.VectorIndexConfig = hnsw.UserConfig{Distance: "l2-squared"}
-		searcher, apiErr := buildParams(t, class, `{"query":["space"],"return_metadata":["certainty"]}`)
+		searcher, apiErr := buildParams(t, class, `{"query":["space"],"returnMetadata":["certainty"]}`)
 		require.Nil(t, apiErr)
 		assert.False(t, searcher.lastParams.AdditionalProperties.Certainty)
 	})
 
 	t.Run("unknown value is a 400", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_metadata":["vector"]}`)
+		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnMetadata":["vector"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
@@ -448,7 +458,7 @@ func TestParseReturnProperties(t *testing.T) {
 	})
 
 	t.Run("subset", func(t *testing.T) {
-		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_properties":["title"]}`)
+		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnProperties":["title"]}`)
 		require.Nil(t, apiErr)
 		props := searcher.lastParams.Properties
 		require.Len(t, props, 1)
@@ -457,21 +467,21 @@ func TestParseReturnProperties(t *testing.T) {
 	})
 
 	t.Run("empty list means no properties", func(t *testing.T) {
-		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_properties":[]}`)
+		searcher, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnProperties":[]}`)
 		require.Nil(t, apiErr)
 		assert.Empty(t, searcher.lastParams.Properties)
 		assert.True(t, searcher.lastParams.AdditionalProperties.NoProps)
 	})
 
 	t.Run("unknown property is a 400", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_properties":["nope"]}`)
+		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnProperties":["nope"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
 
 	t.Run("dot-path selects across a reference", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"return_properties":["title","hasAuthor.name"]}`)
+			`{"query":["space"],"returnProperties":["title","hasAuthor.name"]}`)
 		require.Nil(t, apiErr)
 		props := searcher.lastParams.Properties
 		require.Len(t, props, 2)
@@ -485,7 +495,7 @@ func TestParseReturnProperties(t *testing.T) {
 
 	t.Run("dot-paths with the same root merge", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"return_properties":["hasAuthor.name","hasAuthor.age"]}`)
+			`{"query":["space"],"returnProperties":["hasAuthor.name","hasAuthor.age"]}`)
 		require.Nil(t, apiErr)
 		props := searcher.lastParams.Properties
 		require.Len(t, props, 1)
@@ -495,7 +505,7 @@ func TestParseReturnProperties(t *testing.T) {
 
 	t.Run("bare reference name selects all target properties", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"return_properties":["hasAuthor"]}`)
+			`{"query":["space"],"returnProperties":["hasAuthor"]}`)
 		require.Nil(t, apiErr)
 		props := searcher.lastParams.Properties
 		require.Len(t, props, 1)
@@ -509,14 +519,14 @@ func TestParseReturnProperties(t *testing.T) {
 	})
 
 	t.Run("dot-path on a non-ref property is a 400", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"return_properties":["title.name"]}`)
+		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnProperties":["title.name"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
 
 	t.Run("two reference hops are deferred with a 422", func(t *testing.T) {
 		_, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"return_properties":["hasAuthor.name.first"]}`)
+			`{"query":["space"],"returnProperties":["hasAuthor.name.first"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 		assert.Contains(t, apiErr.Error(), "not yet supported")
@@ -524,7 +534,7 @@ func TestParseReturnProperties(t *testing.T) {
 
 	t.Run("unknown property on the referenced class is a 400", func(t *testing.T) {
 		_, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"return_properties":["hasAuthor.nope"]}`)
+			`{"query":["space"],"returnProperties":["hasAuthor.nope"]}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
@@ -611,11 +621,11 @@ func TestBm25QueryProperties(t *testing.T) {
 		body string
 		want []string
 	}{
-		{"pass through", `{"query":"space","query_properties":["title"]}`, []string{"title"}},
-		{"boost suffix passes through", `{"query":"space","query_properties":["title^2"]}`, []string{"title^2"}},
+		{"pass through", `{"query":"space","queryProperties":["title"]}`, []string{"title"}},
+		{"boost suffix passes through", `{"query":"space","queryProperties":["title^2"]}`, []string{"title^2"}},
 		{
 			"first letter lowercased (gRPC parity)",
-			`{"query":"space","query_properties":["Title^2","Year"]}`,
+			`{"query":"space","queryProperties":["Title^2","Year"]}`,
 			[]string{"title^2", "year"},
 		},
 		{
@@ -623,11 +633,11 @@ func TestBm25QueryProperties(t *testing.T) {
 			// interior caps are preserved — a whole-string strings.ToLower would
 			// yield "camelcaseprop" and fail this case.
 			"first letter only, interior caps preserved",
-			`{"query":"space","query_properties":["CamelCaseProp"]}`,
+			`{"query":"space","queryProperties":["CamelCaseProp"]}`,
 			[]string{"camelCaseProp"},
 		},
 		{"omitted searches all searchable properties", `{"query":"space"}`, nil},
-		{"empty searches all searchable properties", `{"query":"space","query_properties":[]}`, nil},
+		{"empty searches all searchable properties", `{"query":"space","queryProperties":[]}`, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -645,21 +655,21 @@ func TestBm25QueryProperties(t *testing.T) {
 }
 
 func TestBm25ReturnMetadata(t *testing.T) {
-	t.Run("score and explain_score", func(t *testing.T) {
+	t.Run("score and explainScore", func(t *testing.T) {
 		searcher, apiErr := buildBm25(t, movieClass(),
-			`{"query":"space","return_metadata":["score","explain_score"]}`)
+			`{"query":"space","returnMetadata":["score","explainScore"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.True(t, addl.ID)
 		assert.True(t, addl.Score)
 		assert.True(t, addl.ExplainScore)
-		// explain_score also switches on the ranker's explanations (gRPC
+		// explainScore also switches on the ranker's explanations (gRPC
 		// parity: AdditionalExplanations follows ExplainScore)
 		assert.True(t, searcher.lastParams.KeywordRanking.AdditionalExplanations)
 	})
 
-	t.Run("explain_score omitted leaves explanations off", func(t *testing.T) {
-		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"space","return_metadata":["score"]}`)
+	t.Run("explainScore omitted leaves explanations off", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"space","returnMetadata":["score"]}`)
 		require.Nil(t, apiErr)
 		assert.False(t, searcher.lastParams.KeywordRanking.AdditionalExplanations)
 	})
@@ -670,7 +680,7 @@ func TestBm25ReturnMetadata(t *testing.T) {
 		// only for vector searches, so the response omits it either way
 		// (silent drop; covered end to end in the reply tests).
 		searcher, apiErr := buildBm25(t, movieClass(),
-			`{"query":"space","return_metadata":["distance","certainty","score"]}`)
+			`{"query":"space","returnMetadata":["distance","certainty","score"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.False(t, addl.Certainty)
@@ -680,7 +690,7 @@ func TestBm25ReturnMetadata(t *testing.T) {
 
 	t.Run("creation and update times", func(t *testing.T) {
 		searcher, apiErr := buildBm25(t, movieClass(),
-			`{"query":"space","return_metadata":["creation_time","last_update_time"]}`)
+			`{"query":"space","returnMetadata":["creationTime","lastUpdateTime"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.True(t, addl.CreationTimeUnix)
@@ -715,7 +725,7 @@ func TestBm25NeedsNoVectorizer(t *testing.T) {
 func TestBm25SharedFields(t *testing.T) {
 	t.Run("pagination and consistency", func(t *testing.T) {
 		searcher, apiErr := buildBm25(t, movieClass(),
-			`{"query":"space","limit":3,"offset":6,"auto_limit":2,"consistency_level":"QUORUM"}`)
+			`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM"}`)
 		require.Nil(t, apiErr)
 		pagination := searcher.lastParams.Pagination
 		assert.Equal(t, 3, pagination.Limit)
@@ -732,18 +742,18 @@ func TestBm25SharedFields(t *testing.T) {
 		require.NotNil(t, searcher.lastParams.Filters)
 	})
 
-	t.Run("return_properties subset", func(t *testing.T) {
-		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"space","return_properties":["title"]}`)
+	t.Run("returnProperties subset", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"space","returnProperties":["title"]}`)
 		require.Nil(t, apiErr)
 		require.Len(t, searcher.lastParams.Properties, 1)
 		assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
 	})
 
 	t.Run("near-text-only fields are unknown fields and ignored", func(t *testing.T) {
-		// option-2 contract: fields outside the bm25 schema (target_vector,
+		// option-2 contract: fields outside the bm25 schema (targetVector,
 		// certainty, distance live in the near-text extension) drop at decode
 		searcher, apiErr := buildBm25(t, movieClass(),
-			`{"query":"space","target_vector":"nope","certainty":0.9,"distance":0.1,"not_a_field":1}`)
+			`{"query":"space","targetVector":"nope","certainty":0.9,"distance":0.1,"not_a_field":1}`)
 		require.Nil(t, apiErr)
 		require.NotNil(t, searcher.lastParams.KeywordRanking)
 	})
@@ -897,21 +907,21 @@ func TestNearObjectTargetVectors(t *testing.T) {
 		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.NearObject.TargetVectors)
 	})
 
-	t.Run("multiple named vectors require target_vector", func(t *testing.T) {
+	t.Run("multiple named vectors require targetVector", func(t *testing.T) {
 		_, apiErr := buildNearObject(t, namedVectorsClass("title_vec", "summary_vec"),
 			fmt.Sprintf(`{"id":%q}`, nearObjectSourceID))
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 
 		searcher, apiErr := buildNearObject(t, namedVectorsClass("title_vec", "summary_vec"),
-			fmt.Sprintf(`{"id":%q,"target_vector":"summary_vec"}`, nearObjectSourceID))
+			fmt.Sprintf(`{"id":%q,"targetVector":"summary_vec"}`, nearObjectSourceID))
 		require.Nil(t, apiErr)
 		assert.Equal(t, []string{"summary_vec"}, searcher.lastParams.NearObject.TargetVectors)
 	})
 
-	t.Run("unknown target_vector is a 400", func(t *testing.T) {
+	t.Run("unknown targetVector is a 400", func(t *testing.T) {
 		_, apiErr := buildNearObject(t, namedVectorsClass("title_vec"),
-			fmt.Sprintf(`{"id":%q,"target_vector":"nope"}`, nearObjectSourceID))
+			fmt.Sprintf(`{"id":%q,"targetVector":"nope"}`, nearObjectSourceID))
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
@@ -923,7 +933,7 @@ func TestNearObjectReturnMetadata(t *testing.T) {
 		// force-cleared (gRPC parity), subject only to the
 		// cosine-compatibility silent drop
 		searcher, apiErr := buildNearObject(t, movieClass(),
-			fmt.Sprintf(`{"id":%q,"return_metadata":["distance","certainty"]}`, nearObjectSourceID))
+			fmt.Sprintf(`{"id":%q,"returnMetadata":["distance","certainty"]}`, nearObjectSourceID))
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.True(t, addl.Certainty)
@@ -934,7 +944,7 @@ func TestNearObjectReturnMetadata(t *testing.T) {
 		class := movieClass()
 		class.VectorIndexConfig = hnsw.UserConfig{Distance: "l2-squared"}
 		searcher, apiErr := buildNearObject(t, class,
-			fmt.Sprintf(`{"id":%q,"return_metadata":["distance","certainty"]}`, nearObjectSourceID))
+			fmt.Sprintf(`{"id":%q,"returnMetadata":["distance","certainty"]}`, nearObjectSourceID))
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.False(t, addl.Certainty)
@@ -948,9 +958,9 @@ func TestNearObjectReturnMetadata(t *testing.T) {
 func TestNearObjectSharedFields(t *testing.T) {
 	t.Run("pagination, consistency, where, properties", func(t *testing.T) {
 		searcher, apiErr := buildNearObject(t, movieClass(), fmt.Sprintf(
-			`{"id":%q,"limit":3,"offset":6,"consistency_level":"ALL",`+
+			`{"id":%q,"limit":3,"offset":6,"consistencyLevel":"ALL",`+
 				`"where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980},`+
-				`"return_properties":["title"]}`, nearObjectSourceID))
+				`"returnProperties":["title"]}`, nearObjectSourceID))
 		require.Nil(t, apiErr)
 		assert.Equal(t, 3, searcher.lastParams.Pagination.Limit)
 		assert.Equal(t, 6, searcher.lastParams.Pagination.Offset)
@@ -1070,7 +1080,7 @@ func TestHybridAlpha(t *testing.T) {
 }
 
 // TestHybridFusionType pins the fusion mapping and the shared default:
-// omitted means relative_score (common_filters.HybridFusionDefault, the same
+// omitted means relativeScore (common_filters.HybridFusionDefault, the same
 // default gRPC and GraphQL apply).
 func TestHybridFusionType(t *testing.T) {
 	tests := []struct {
@@ -1078,9 +1088,9 @@ func TestHybridFusionType(t *testing.T) {
 		body string
 		want int
 	}{
-		{"omitted defaults to relative_score", `{"query":"space"}`, common_filters.HybridRelativeScoreFusion},
-		{"ranked", `{"query":"space","fusion_type":"ranked"}`, common_filters.HybridRankedFusion},
-		{"relative_score", `{"query":"space","fusion_type":"relative_score"}`, common_filters.HybridRelativeScoreFusion},
+		{"omitted defaults to relativeScore", `{"query":"space"}`, common_filters.HybridRelativeScoreFusion},
+		{"ranked", `{"query":"space","fusionType":"ranked"}`, common_filters.HybridRankedFusion},
+		{"relativeScore", `{"query":"space","fusionType":"relativeScore"}`, common_filters.HybridRelativeScoreFusion},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1093,16 +1103,16 @@ func TestHybridFusionType(t *testing.T) {
 	t.Run("unknown value is a 400", func(t *testing.T) {
 		// the swagger enum rejects it with 422 before the handler; the
 		// handler's 400 is the defensive fallback for the direct-call path
-		_, apiErr := buildHybrid(t, movieClass(), `{"query":"space","fusion_type":"best"}`)
+		_, apiErr := buildHybrid(t, movieClass(), `{"query":"space","fusionType":"best"}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
-		assert.Contains(t, apiErr.Error(), "fusion_type")
+		assert.Contains(t, apiErr.Error(), "fusionType")
 	})
 }
 
 func TestHybridMaxVectorDistance(t *testing.T) {
 	t.Run("sets the distance cutoff", func(t *testing.T) {
-		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space","max_vector_distance":0.4}`)
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space","maxVectorDistance":0.4}`)
 		require.Nil(t, apiErr)
 		hybrid := searcher.lastParams.HybridSearch
 		assert.Equal(t, float32(0.4), hybrid.Distance)
@@ -1125,15 +1135,15 @@ func TestHybridQueryProperties(t *testing.T) {
 		body string
 		want []string
 	}{
-		{"pass through", `{"query":"space","query_properties":["title"]}`, []string{"title"}},
-		{"boost suffix passes through", `{"query":"space","query_properties":["title^2"]}`, []string{"title^2"}},
+		{"pass through", `{"query":"space","queryProperties":["title"]}`, []string{"title"}},
+		{"boost suffix passes through", `{"query":"space","queryProperties":["title^2"]}`, []string{"title^2"}},
 		{
 			"first letter lowercased (gRPC parity)",
-			`{"query":"space","query_properties":["Title^2","Year"]}`,
+			`{"query":"space","queryProperties":["Title^2","Year"]}`,
 			[]string{"title^2", "year"},
 		},
 		{"omitted searches all searchable properties", `{"query":"space"}`, nil},
-		{"empty searches all searchable properties", `{"query":"space","query_properties":[]}`, nil},
+		{"empty searches all searchable properties", `{"query":"space","queryProperties":[]}`, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1204,28 +1214,28 @@ func TestHybridTargetVectors(t *testing.T) {
 		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.HybridSearch.TargetVectors)
 	})
 
-	t.Run("multiple named vectors require target_vector", func(t *testing.T) {
+	t.Run("multiple named vectors require targetVector", func(t *testing.T) {
 		_, apiErr := buildHybrid(t, namedVectorsClass("title_vec", "summary_vec"), `{"query":"space"}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 
 		searcher, apiErr := buildHybrid(t, namedVectorsClass("title_vec", "summary_vec"),
-			`{"query":"space","target_vector":"summary_vec"}`)
+			`{"query":"space","targetVector":"summary_vec"}`)
 		require.Nil(t, apiErr)
 		assert.Equal(t, []string{"summary_vec"}, searcher.lastParams.HybridSearch.TargetVectors)
 	})
 
-	t.Run("unknown target_vector is a 400", func(t *testing.T) {
-		_, apiErr := buildHybrid(t, namedVectorsClass("title_vec"), `{"query":"space","target_vector":"nope"}`)
+	t.Run("unknown targetVector is a 400", func(t *testing.T) {
+		_, apiErr := buildHybrid(t, namedVectorsClass("title_vec"), `{"query":"space","targetVector":"nope"}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
 }
 
 func TestHybridReturnMetadata(t *testing.T) {
-	t.Run("score and explain_score", func(t *testing.T) {
+	t.Run("score and explainScore", func(t *testing.T) {
 		searcher, apiErr := buildHybrid(t, movieClass(),
-			`{"query":"space","return_metadata":["score","explain_score"]}`)
+			`{"query":"space","returnMetadata":["score","explainScore"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.True(t, addl.ID)
@@ -1241,7 +1251,7 @@ func TestHybridReturnMetadata(t *testing.T) {
 		// scores, so the response omits distance/certainty (covered end to
 		// end in the acceptance suite).
 		searcher, apiErr := buildHybrid(t, movieClass(),
-			`{"query":"space","return_metadata":["distance","certainty"]}`)
+			`{"query":"space","returnMetadata":["distance","certainty"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.True(t, addl.Certainty)
@@ -1252,7 +1262,7 @@ func TestHybridReturnMetadata(t *testing.T) {
 		class := movieClass()
 		class.VectorIndexConfig = hnsw.UserConfig{Distance: "l2-squared"}
 		searcher, apiErr := buildHybrid(t, class,
-			`{"query":"space","return_metadata":["distance","certainty"]}`)
+			`{"query":"space","returnMetadata":["distance","certainty"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.False(t, addl.Certainty)
@@ -1266,7 +1276,7 @@ func TestHybridReturnMetadata(t *testing.T) {
 func TestHybridSharedFields(t *testing.T) {
 	t.Run("pagination and consistency", func(t *testing.T) {
 		searcher, apiErr := buildHybrid(t, movieClass(),
-			`{"query":"space","limit":3,"offset":6,"auto_limit":2,"consistency_level":"QUORUM"}`)
+			`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM"}`)
 		require.Nil(t, apiErr)
 		pagination := searcher.lastParams.Pagination
 		assert.Equal(t, 3, pagination.Limit)
@@ -1283,8 +1293,8 @@ func TestHybridSharedFields(t *testing.T) {
 		require.NotNil(t, searcher.lastParams.Filters)
 	})
 
-	t.Run("return_properties subset", func(t *testing.T) {
-		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space","return_properties":["title"]}`)
+	t.Run("returnProperties subset", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space","returnProperties":["title"]}`)
 		require.Nil(t, apiErr)
 		require.Len(t, searcher.lastParams.Properties, 1)
 		assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
@@ -1298,7 +1308,7 @@ func TestParseConsistencyLevel(t *testing.T) {
 	t.Run("valid levels", func(t *testing.T) {
 		for _, level := range []string{"ONE", "QUORUM", "ALL", "quorum"} {
 			searcher, apiErr := buildParams(t, movieClass(),
-				fmt.Sprintf(`{"query":["space"],"consistency_level":"%s"}`, level))
+				fmt.Sprintf(`{"query":["space"],"consistencyLevel":"%s"}`, level))
 			require.Nil(t, apiErr)
 			require.NotNil(t, searcher.lastParams.ReplicationProperties)
 			assert.Equal(t, strings.ToUpper(level), searcher.lastParams.ReplicationProperties.ConsistencyLevel)
@@ -1312,7 +1322,7 @@ func TestParseConsistencyLevel(t *testing.T) {
 	})
 
 	t.Run("invalid is a 400", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"consistency_level":"MOST"}`)
+		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"consistencyLevel":"MOST"}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
