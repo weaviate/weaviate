@@ -74,6 +74,11 @@ type compactorInverted struct {
 
 	segmentFile    *segmentindex.SegmentFile
 	maxNewFileSize int64
+
+	// reusable buffers so per-key/per-block compaction encoding allocates nothing
+	writeBuf   [8]byte
+	arena      keyArena
+	encodeBufs compactorInvertedBuffers
 }
 
 func newCompactorInverted(w io.WriteSeeker,
@@ -108,6 +113,7 @@ func newCompactorInverted(w io.WriteSeeker,
 		enableChecksumValidation: enableChecksumValidation,
 		maxNewFileSize:           maxNewFileSize,
 		allocChecker:             allocChecker,
+		encodeBufs:               newCompactorInvertedBuffers(),
 	}
 }
 
@@ -167,7 +173,7 @@ func (c *compactorInverted) do(ctx context.Context) error {
 		return errors.Wrap(err, "write property lengths")
 	}
 	treeOffset := uint64(c.offset)
-	if err := c.writeIndices(kis); err != nil {
+	if err := c.writeIndices(kis, uint64(keysOffset)); err != nil {
 		return errors.Wrap(err, "write index")
 	}
 
@@ -302,13 +308,13 @@ func (c *compactorInverted) writePropertyLengths() (int, error) {
 	return len(encoded) + 8 + 8 + 8, nil
 }
 
-func (c *compactorInverted) writeKeys(ctx context.Context) ([]segmentindex.Key, error) {
+func (c *compactorInverted) writeKeys(ctx context.Context) ([]segmentindex.KeyRedux, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
 	// the (dummy) header was already written, this is our initial offset
 
-	var kis []segmentindex.Key
+	kis := make([]segmentindex.KeyRedux, 0, c.c1.segment.index.KeyCount()+c.c2.segment.index.KeyCount())
 	sim := newSortedMapMerger()
 
 	for i := 0; ; i++ {
@@ -384,21 +390,13 @@ func (c *compactorInverted) writeKeys(ctx context.Context) ([]segmentindex.Key, 
 
 func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 	values []MapPair,
-) (segmentindex.Key, error) {
-	// NOTE: There are no guarantees in the cursor logic that any memory is valid
-	// for more than a single iteration. Every time you call next() to advance
-	// the cursor, any memory might be reused.
-	//
-	// This includes the key buffer which was the cause of
-	// https://github.com/weaviate/weaviate/issues/3517
-	//
-	// A previous logic created a new assignment in each iteration, but thatwas
-	// not an explicit guarantee. A change in v1.21 (for pread/mmap) added a
-	// reusable buffer for the key which surfaced this bug.
-	keyCopy := make([]byte, len(key))
-	copy(keyCopy, key)
+) (segmentindex.KeyRedux, error) {
+	// Copy the key: the cursor reuses its key buffer across iterations, so
+	// keeping the slice would let a later next() overwrite it
+	// (https://github.com/weaviate/weaviate/issues/3517).
+	keyCopy := c.arena.CopyKey(key)
 
-	// fresh cursor per term: its docIDs ascend, so lookups stay amortized O(1)
+	// fresh view per term: its docIDs ascend, so lookups stay amortized O(1)
 	view := propLengthsView{ids: c.propLengthIds, lens: c.propLengthLens}
 
 	return segmentInvertedNode{
@@ -406,17 +404,18 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 		primaryKey:  keyCopy,
 		offset:      offset,
 		propLengths: &view,
-	}.KeyIndexAndWriteTo(c.segmentFile.BodyWriter(), c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
+	}.KeyIndexAndWriteToCompaction(c.segmentFile.BodyWriter(), c.writeBuf[:], &c.encodeBufs,
+		c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
 }
 
-func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
-	indices := segmentindex.Indexes{
-		Keys:                keys,
-		SecondaryIndexCount: c.secondaryIndexCount,
-		AllocChecker:        c.allocChecker,
+func (c *compactorInverted) writeIndices(keys []segmentindex.KeyRedux, dataStartOffset uint64) error {
+	// KeyIndexAndWriteToCompaction emits no secondary keys and MarshalSortedKeys
+	// serializes none, so this path is only valid without secondary indexes —
+	// which inverted (BM25 postings) never has.
+	if c.secondaryIndexCount > 0 {
+		return fmt.Errorf("inverted compaction does not support secondary indexes")
 	}
-
-	_, err := indices.WriteTo(c.segmentFile.BodyWriter())
+	_, err := segmentindex.MarshalSortedKeys(c.segmentFile.BodyWriter(), keys, dataStartOffset)
 	return err
 }
 
