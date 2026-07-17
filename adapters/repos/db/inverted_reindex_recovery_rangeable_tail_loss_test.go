@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // rangeableKey encodes an int64 property value into the uint64 storage key the
@@ -90,27 +89,10 @@ func TestRangeableRecovery_PostFlipWriteTail_SurvivesGracefulRestart(t *testing.
 	propName := filterableToRangeablePropName
 	canonical := helpers.BucketRangeableFromPropNameLSM(propName)
 
-	class := newFilterableToRangeableTestClass(className)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-
-	// Backfill source data: 25 objects with values cycling 0..4.
-	for _, obj := range makeFilterableToRangeableTestObjects(t, 25, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	// Drive the inline migration to completion (swap done; the promoted
-	// rangeable bucket is live at its deferred ingest dir).
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	// Import 25 objects (values cycling 0..4) and drive the inline migration to
+	// completion (swap done; the promoted rangeable bucket is live at its
+	// deferred ingest dir).
+	shard, idx := setupRangeableMigratedShard(t, ctx, className)
 
 	rb := shard.store.Bucket(canonical)
 	require.NotNil(t, rb, "promoted rangeable bucket must be live post-migration")
@@ -186,24 +168,7 @@ func TestRangeableRecovery_PostFlipPatchTail_SurvivesGracefulRestart(t *testing.
 	propName := filterableToRangeablePropName
 	canonical := helpers.BucketRangeableFromPropNameLSM(propName)
 
-	class := newFilterableToRangeableTestClass(className)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-
-	for _, obj := range makeFilterableToRangeableTestObjects(t, 25, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	shard, idx := setupRangeableMigratedShard(t, ctx, className)
 
 	rb := shard.store.Bucket(canonical)
 	require.NotNil(t, rb)

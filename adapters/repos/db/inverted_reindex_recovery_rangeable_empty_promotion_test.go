@@ -45,13 +45,13 @@ import (
 // DEPENDENCY on the happy path but keeps this restart finalize as the crash
 // safety net, so the gap survives on that path. These tests pin it.
 
-// driveRangeableMigrationToTidied runs a full inline FilterableToRangeable
-// migration to the IsTidied state on a throw-away shard, then shuts it down,
-// leaving the on-disk state a subsequent restart recovers from. Returns the
-// index (reused for the restart), the shard's LSM path, and its name.
-func driveRangeableMigrationToTidied(t *testing.T, ctx context.Context, className string) (*Index, string, string) {
+// setupRangeableMigratedShard creates a fresh shard, imports 25 cycling-value
+// objects, and drives a full inline FilterableToRangeable migration to
+// completion (through the swap, so the promoted rangeable bucket is live at its
+// deferred ingest dir). The shard is left running; callers that want the
+// tidied-then-shutdown on-disk state use driveRangeableMigrationToTidied.
+func setupRangeableMigratedShard(t *testing.T, ctx context.Context, className string) (*Shard, *Index) {
 	t.Helper()
-	propName := filterableToRangeablePropName
 	class := newFilterableToRangeableTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
@@ -62,7 +62,7 @@ func driveRangeableMigrationToTidied(t *testing.T, ctx context.Context, classNam
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, filterableToRangeablePropName)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -71,7 +71,16 @@ func driveRangeableMigrationToTidied(t *testing.T, ctx context.Context, classNam
 			break
 		}
 	}
+	return shard, idx
+}
 
+// driveRangeableMigrationToTidied runs a full inline FilterableToRangeable
+// migration to the IsTidied state on a throw-away shard, then shuts it down,
+// leaving the on-disk state a subsequent restart recovers from. Returns the
+// index (reused for the restart), the shard's LSM path, and its name.
+func driveRangeableMigrationToTidied(t *testing.T, ctx context.Context, className string) (*Index, string, string) {
+	t.Helper()
+	shard, idx := setupRangeableMigratedShard(t, ctx, className)
 	lsmPath := shard.pathLSM()
 	shardName := shard.Name()
 	require.NoError(t, shard.Shutdown(ctx))

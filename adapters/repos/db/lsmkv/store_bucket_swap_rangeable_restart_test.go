@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -83,6 +84,150 @@ func readRangeableEqual(t *testing.T, b *Bucket, val uint64) []uint64 {
 	return ids
 }
 
+// rangeableSwapNames holds the bucket names and on-disk dirs for a rangeable
+// swap round-trip: the canonical (main) bucket, the deferred-rename ingest
+// sidecar, the transient reindex backfill bucket, and the displaced-old-main
+// backup dir. The names match the production enable-rangeable layout.
+type rangeableSwapNames struct {
+	main, ingest, reindex                     string
+	mainDir, ingestDir, reindexDir, backupDir string
+}
+
+func newRangeableSwapNames(dir string) rangeableSwapNames {
+	const (
+		main    = "property_score_rangeable"
+		ingest  = "property_score_rangeable__rangeable_ingest_1"
+		reindex = "property_score_rangeable__rangeable_reindex_1"
+		backup  = "property_score_rangeable__rangeable_backup_1"
+	)
+	return rangeableSwapNames{
+		main: main, ingest: ingest, reindex: reindex,
+		mainDir:    filepath.Join(dir, main),
+		ingestDir:  filepath.Join(dir, ingest),
+		reindexDir: filepath.Join(dir, reindex),
+		backupDir:  filepath.Join(dir, backup),
+	}
+}
+
+// openRangeableSwapStore opens a store whose flush cycle is driven by `flush`
+// (pass a noop group for the explicit-FlushAndSwitch case, a live group to race
+// shutdown against an in-flight flush). Compaction cycles are always noop.
+func openRangeableSwapStore(t *testing.T, dir string, logger logrus.FieldLogger,
+	flush cyclemanager.CycleCallbackGroup,
+) *Store {
+	t.Helper()
+	store, err := New(dir, dir, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), flush)
+	require.NoError(t, err)
+	return store
+}
+
+// buildAndSwapRangeableIngest reproduces the in-process enable-rangeable
+// migration plus the phase-2 swap: backfill `backfillN` postings (value==docID)
+// through a reindex bucket flushed to real segments, prepend them into a fresh
+// ingest bucket, optionally add `doubleWriteN` double-write-window postings and
+// (when flushIngest) flush the ingest bulk to segments, then
+// SwapBucketPointer(main<-ingest) and rename the displaced old-main dir to
+// backup. Returns the live (ex-ingest) bucket, still on disk at the ingest dir.
+func buildAndSwapRangeableIngest(t *testing.T, ctx context.Context, store *Store,
+	n rangeableSwapNames, opts []BucketOption, backfillN, doubleWriteN int, flushIngest bool,
+) *Bucket {
+	t.Helper()
+	// Empty canonical bucket, as PreReindexHook creates it.
+	require.NoError(t, store.CreateOrLoadBucket(ctx, n.main, opts...))
+
+	// Historical postings live in a reindex bucket, flushed to real segments.
+	require.NoError(t, store.CreateOrLoadBucket(ctx, n.reindex, opts...))
+	reindexBucket := store.Bucket(n.reindex)
+	require.NotNil(t, reindexBucket)
+	for i := uint64(0); i < uint64(backfillN); i++ {
+		require.NoError(t, reindexBucket.RoaringSetRangeAdd(i, i))
+	}
+	require.NoError(t, reindexBucket.FlushAndSwitch())
+
+	// Ingest bucket: prepend backfill segments, add the double-write window,
+	// and (for the on-disk case) flush so the bulk lives in segments and the
+	// active memtable is clean — the steady state after the flush cycle drains
+	// the migration's bulk writes.
+	require.NoError(t, store.CreateOrLoadBucket(ctx, n.ingest, opts...))
+	ingestBucket := store.Bucket(n.ingest)
+	require.NotNil(t, ingestBucket)
+	require.NoError(t, ingestBucket.PrependSegmentsFromBucket(ctx, n.reindexDir))
+	for i := uint64(backfillN); i < uint64(backfillN+doubleWriteN); i++ {
+		require.NoError(t, ingestBucket.RoaringSetRangeAdd(i, i))
+	}
+	if flushIngest {
+		require.NoError(t, ingestBucket.FlushAndSwitch())
+	}
+
+	// Reindex bucket is shut down + dir removed by prep.
+	require.NoError(t, store.ShutdownBucket(ctx, n.reindex))
+	require.NoError(t, os.RemoveAll(n.reindexDir))
+
+	// Phase 2a: SwapBucketPointer (in-memory pointer flip). Phase 2b: shut down
+	// the displaced old-main and rename its dir to backup.
+	oldMain, err := store.SwapBucketPointer(ctx, n.main, n.ingest)
+	require.NoError(t, err)
+	require.NoError(t, oldMain.Shutdown(ctx))
+	require.NoError(t, os.Rename(n.mainDir, n.backupDir))
+
+	live := store.Bucket(n.main)
+	require.NotNil(t, live)
+	require.Equal(t, n.ingestDir, live.GetDir(),
+		"live main bucket must still be on disk at the ingest dir")
+	return live
+}
+
+// finalizeRenameRangeableIngest performs the next-restart finalize
+// (finalizeMigrationDir): drop the backup, remove any stale main dir, and
+// rename the ingest sidecar dir to the canonical main dir.
+func finalizeRenameRangeableIngest(t *testing.T, n rangeableSwapNames) {
+	t.Helper()
+	require.NoError(t, os.RemoveAll(n.backupDir))
+	if _, statErr := os.Stat(n.mainDir); statErr == nil {
+		require.NoError(t, os.RemoveAll(n.mainDir))
+	}
+	require.NoError(t, os.Rename(n.ingestDir, n.mainDir))
+}
+
+// reloadRangeableMain reopens the store (all-noop cycles) and loads the promoted
+// canonical bucket from its now-renamed dir.
+func reloadRangeableMain(t *testing.T, ctx context.Context, dir string,
+	logger logrus.FieldLogger, n rangeableSwapNames, opts []BucketOption,
+) (*Store, *Bucket) {
+	t.Helper()
+	store := openRangeableSwapStore(t, dir, logger, cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, store.CreateOrLoadBucket(ctx, n.main, opts...))
+	reloaded := store.Bucket(n.main)
+	require.NotNil(t, reloaded)
+	return store, reloaded
+}
+
+// assertRangeableContiguousServed asserts values [0, upTo) each read back as
+// exactly {i} — the pre-restart "everything served" (the 1500-pass) state.
+func assertRangeableContiguousServed(t *testing.T, b *Bucket, upTo uint64) {
+	t.Helper()
+	for i := uint64(0); i < upTo; i++ {
+		require.Equalf(t, []uint64{i}, readRangeableEqual(t, b, i),
+			"pre-restart: posting for value %d must be served", i)
+	}
+}
+
+// assertNoRangeablePostingsLost asserts every value in [0, upTo) survived the
+// round trip; the failure message names each missing docID.
+func assertNoRangeablePostingsLost(t *testing.T, b *Bucket, upTo uint64) {
+	t.Helper()
+	var missing []uint64
+	for i := uint64(0); i < upTo; i++ {
+		if got := readRangeableEqual(t, b, i); len(got) != 1 || got[0] != i {
+			missing = append(missing, i)
+		}
+	}
+	require.Emptyf(t, missing,
+		"post-restart: %d/%d postings vanished across the graceful restart; "+
+			"missing docIDs=%v", len(missing), upTo, missing)
+}
+
 // TestRangeableSwap_PostFlipWriteTail_SurvivesGracefulRestart is the
 // storage-level regression guard for the "face 3" restart-crossing
 // posting-loss window of weaviate/0-weaviate-issues#335. It asserts NO loss:
@@ -94,141 +239,49 @@ func readRangeableEqual(t *testing.T, b *Bucket, val uint64) []uint64 {
 // the loss, this goes red.
 //
 // Sequence (mirrors the in-process enable-rangeable migration + deferred
-// finalize rename):
-//  1. Build a populated rangeable *ingest* bucket the way the migration does:
-//     backfill segments prepended from a reindex bucket (PrependSegmentsFromBucket)
-//     plus an unflushed double-write memtable.
-//  2. SwapBucketPointer(main <- ingest): the live bucket is now the ex-ingest
-//     bucket, still on disk at the ingest dir.
-//  3. Post-flip writes land in the ex-ingest bucket's active memtable/WAL.
-//  4. Graceful store shutdown (on-shutdown flush runs — matches RestartAt, not
-//     SIGKILL).
-//  5. The next-restart finalize renames the ingest dir to the canonical main
-//     dir (finalizeMigrationDir: os.Rename after removing any stale main dir).
-//  6. Reload the bucket from the canonical dir and assert every posting —
-//     backfill, double-write, AND the post-flip tail — is present.
+// finalize rename): build a populated ingest bucket (backfill segments +
+// unflushed double-write memtable), SwapBucketPointer(main<-ingest), land
+// post-flip writes in the ex-ingest bucket's active memtable/WAL, graceful
+// shutdown (on-shutdown flush runs — matches RestartAt, not SIGKILL), the
+// next-restart finalize rename, then reload and assert every posting present.
 func TestRangeableSwap_PostFlipWriteTail_SurvivesGracefulRestart(t *testing.T) {
 	t.Run("onDisk", func(t *testing.T) {
 		ctx := context.Background()
 		dir := t.TempDir()
 		logger, _ := test.NewNullLogger()
-
-		const (
-			mainName    = "property_score_rangeable"
-			ingestName  = "property_score_rangeable__rangeable_ingest_1"
-			reindexName = "property_score_rangeable__rangeable_reindex_1"
-		)
-		mainDir := filepath.Join(dir, mainName)
-		ingestDir := filepath.Join(dir, ingestName)
-		reindexDir := filepath.Join(dir, reindexName)
-		backupDir := filepath.Join(dir, "property_score_rangeable__rangeable_backup_1")
-
+		names := newRangeableSwapNames(dir)
 		opts := rangeableSwapBucketOpts()
 
-		// ---- Phase 1: running process, in-process migration ----
-		store, err := New(dir, dir, logger, nil, nil,
-			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop())
-		require.NoError(t, err)
+		store := openRangeableSwapStore(t, dir, logger, cyclemanager.NewCallbackGroupNoop())
 
-		// Empty canonical bucket, as PreReindexHook creates it.
-		require.NoError(t, store.CreateOrLoadBucket(ctx, mainName, opts...))
+		const (
+			backfillN    = 1000 // historical postings 0..999
+			doubleWriteN = 100  // double-write window 1000..1099
+		)
+		live := buildAndSwapRangeableIngest(t, ctx, store, names, opts, backfillN, doubleWriteN, true)
 
-		// Backfill lives in a reindex bucket, flushed to real segments.
-		require.NoError(t, store.CreateOrLoadBucket(ctx, reindexName, opts...))
-		reindexBucket := store.Bucket(reindexName)
-		require.NotNil(t, reindexBucket)
-		// Historical postings: docIDs 0..999, value == docID.
-		const backfillN = 1000
-		for i := uint64(0); i < backfillN; i++ {
-			require.NoError(t, reindexBucket.RoaringSetRangeAdd(i, i))
-		}
-		require.NoError(t, reindexBucket.FlushAndSwitch())
-
-		// Ingest bucket: prepend backfill segments + double-write window,
-		// then flush so the bulk lives in segments and the active memtable is
-		// clean — exactly the steady state after the flush cycle has drained
-		// the migration's bulk writes. The post-flip tail then lands in a
-		// fresh, small memtable.
-		require.NoError(t, store.CreateOrLoadBucket(ctx, ingestName, opts...))
-		ingestBucket := store.Bucket(ingestName)
-		require.NotNil(t, ingestBucket)
-		require.NoError(t, ingestBucket.PrependSegmentsFromBucket(ctx, reindexDir))
-		// Double-write window postings: docIDs 1000..1099.
-		const doubleWriteN = 100
-		for i := uint64(backfillN); i < backfillN+doubleWriteN; i++ {
-			require.NoError(t, ingestBucket.RoaringSetRangeAdd(i, i))
-		}
-		require.NoError(t, ingestBucket.FlushAndSwitch())
-
-		// Reindex bucket is shut down + dir removed by prep.
-		require.NoError(t, store.ShutdownBucket(ctx, reindexName))
-		require.NoError(t, os.RemoveAll(reindexDir))
-
-		// ---- Phase 2a: SwapBucketPointer (in-memory pointer flip) ----
-		oldMain, err := store.SwapBucketPointer(ctx, mainName, ingestName)
-		require.NoError(t, err)
-		// Phase 2b: shut down displaced old-main, rename its dir to backup.
-		require.NoError(t, oldMain.Shutdown(ctx))
-		require.NoError(t, os.Rename(mainDir, backupDir))
-
-		// ---- Phase 3: post-flip writes to the ex-ingest bucket ----
-		// The authoritative re-PATCH tail: a handful of postings that stay
-		// in the reused WAL on shutdown (commitlog < MaxReuseWalSize), which
-		// is the field shape (node 2: 6/1500 lost across a graceful restart).
-		const tailStart = backfillN + doubleWriteN
-		const tailN = 6
-		live := store.Bucket(mainName)
-		require.NotNil(t, live)
-		require.Equal(t, ingestDir, live.GetDir(),
-			"live main bucket must still be on disk at the ingest dir")
+		// Post-flip tail: the authoritative re-PATCH postings that stay in the
+		// reused WAL on shutdown (commitlog < MaxReuseWalSize), which is the
+		// field shape (node 2: 6/1500 lost across a graceful restart).
+		const (
+			tailStart = backfillN + doubleWriteN
+			tailN     = 6
+		)
 		for i := uint64(tailStart); i < tailStart+tailN; i++ {
 			require.NoError(t, live.RoaringSetRangeAdd(i, i))
 		}
+		assertRangeableContiguousServed(t, live, tailStart+tailN)
 
-		// Sanity: everything is served pre-restart (the 1500-pass state).
-		for i := uint64(0); i < tailStart+tailN; i++ {
-			require.Equal(t, []uint64{i}, readRangeableEqual(t, live, i),
-				"pre-restart: posting for value %d must be served", i)
-		}
-
-		// ---- Phase 4: graceful shutdown (RestartAt: flush runs) ----
+		// Graceful shutdown (RestartAt: flush runs), then next-restart finalize.
 		require.NoError(t, store.Shutdown(ctx))
+		dumpDir(t, "post-shutdown ingest dir", names.ingestDir)
 
-		dumpDir(t, "post-shutdown ingest dir", ingestDir)
+		finalizeRenameRangeableIngest(t, names)
+		dumpDir(t, "post-rename main dir", names.mainDir)
 
-		// ---- Phase 5: next-restart finalize rename (finalizeMigrationDir) ----
-		require.NoError(t, os.RemoveAll(backupDir))
-		if _, statErr := os.Stat(mainDir); statErr == nil {
-			require.NoError(t, os.RemoveAll(mainDir))
-		}
-		require.NoError(t, os.Rename(ingestDir, mainDir))
-
-		dumpDir(t, "post-rename main dir", mainDir)
-
-		// ---- Phase 6: reload from canonical dir, assert no loss ----
-		store2, err := New(dir, dir, logger, nil, nil,
-			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop())
-		require.NoError(t, err)
+		store2, reloaded := reloadRangeableMain(t, ctx, dir, logger, names, opts)
 		defer store2.Shutdown(ctx)
-
-		require.NoError(t, store2.CreateOrLoadBucket(ctx, mainName, opts...))
-		reloaded := store2.Bucket(mainName)
-		require.NotNil(t, reloaded)
-
-		var missing []uint64
-		for i := uint64(0); i < tailStart+tailN; i++ {
-			if got := readRangeableEqual(t, reloaded, i); len(got) != 1 || got[0] != i {
-				missing = append(missing, i)
-			}
-		}
-		require.Emptyf(t, missing,
-			"post-restart: %d/%d postings vanished across the graceful restart; "+
-				"missing docIDs=%v (tail band is [%d,%d))",
-			len(missing), tailStart+tailN, missing, tailStart, tailStart+tailN)
+		assertNoRangeablePostingsLost(t, reloaded, tailStart+tailN)
 	})
 }
 
@@ -237,22 +290,13 @@ func TestRangeableSwap_PostFlipWriteTail_SurvivesGracefulRestart(t *testing.T) {
 // PRODUCTION flush cycle running (a real cyclemanager on a fast ticker plus the
 // default MaxReuseWalSize) so the registered flush callback switches the WAL
 // mid-stream and the graceful shutdown races an in-flight flush — the field
-// condition my explicit-FlushAndSwitch tests don't exercise. It repeats the
+// condition the explicit-FlushAndSwitch test doesn't exercise. It repeats the
 // write/switch churn to widen the shutdown-vs-flush window.
 func TestRangeableSwap_PostFlipWriteTail_RealFlushCycle(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
-
-	const (
-		mainName    = "property_score_rangeable"
-		ingestName  = "property_score_rangeable__rangeable_ingest_1"
-		reindexName = "property_score_rangeable__rangeable_reindex_1"
-	)
-	mainDir := filepath.Join(dir, mainName)
-	ingestDir := filepath.Join(dir, ingestName)
-	reindexDir := filepath.Join(dir, reindexName)
-	backupDir := filepath.Join(dir, "property_score_rangeable__rangeable_backup_1")
+	names := newRangeableSwapNames(dir)
 
 	// Real flush cycle on a fast ticker + a low WAL threshold, so the callback
 	// fires and switches the commitlog repeatedly during the writes below.
@@ -269,49 +313,25 @@ func TestRangeableSwap_PostFlipWriteTail_RealFlushCycle(t *testing.T) {
 		WithMinWalThreshold(4096),
 	}
 
-	store, err := New(dir, dir, logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		flushCallbacks)
-	require.NoError(t, err)
+	store := openRangeableSwapStore(t, dir, logger, flushCallbacks)
 
-	require.NoError(t, store.CreateOrLoadBucket(ctx, mainName, opts...))
-	require.NoError(t, store.CreateOrLoadBucket(ctx, reindexName, opts...))
-	reindexBucket := store.Bucket(reindexName)
+	// No double-write window here; the bulk lands via prepend + the live cycle.
 	const backfillN = 500
-	for i := uint64(0); i < backfillN; i++ {
-		require.NoError(t, reindexBucket.RoaringSetRangeAdd(i, i))
-	}
-	require.NoError(t, reindexBucket.FlushAndSwitch())
-
-	require.NoError(t, store.CreateOrLoadBucket(ctx, ingestName, opts...))
-	ingestBucket := store.Bucket(ingestName)
-	require.NoError(t, ingestBucket.PrependSegmentsFromBucket(ctx, reindexDir))
-	require.NoError(t, store.ShutdownBucket(ctx, reindexName))
-	require.NoError(t, os.RemoveAll(reindexDir))
-
-	oldMain, err := store.SwapBucketPointer(ctx, mainName, ingestName)
-	require.NoError(t, err)
-	require.NoError(t, oldMain.Shutdown(ctx))
-	require.NoError(t, os.Rename(mainDir, backupDir))
+	live := buildAndSwapRangeableIngest(t, ctx, store, names, opts, backfillN, 0, false)
 
 	// Post-flip writes with the flush cycle churning underneath. Pace the
 	// writes so the 2ms ticker interleaves flush/switch between them.
-	const tailStart = backfillN
-	const tailN = 500
-	live := store.Bucket(mainName)
-	require.Equal(t, ingestDir, live.GetDir())
+	const (
+		tailStart = backfillN
+		tailN     = 500
+	)
 	for i := uint64(tailStart); i < tailStart+tailN; i++ {
 		require.NoError(t, live.RoaringSetRangeAdd(i, i))
 		if i%25 == 0 {
 			time.Sleep(3 * time.Millisecond)
 		}
 	}
-
-	for i := uint64(0); i < tailStart+tailN; i++ {
-		require.Equalf(t, []uint64{i}, readRangeableEqual(t, live, i),
-			"pre-restart: posting for value %d must be served", i)
-	}
+	assertRangeableContiguousServed(t, live, tailStart+tailN)
 
 	// Graceful shutdown while the flush cycle is still active (matches
 	// production: the cycle is stopped as part of, not before, teardown).
@@ -319,33 +339,11 @@ func TestRangeableSwap_PostFlipWriteTail_RealFlushCycle(t *testing.T) {
 	shutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	require.NoError(t, flushCycle.StopAndWait(shutCtx))
 	cancel()
+	dumpDir(t, "post-shutdown ingest dir (real cycle)", names.ingestDir)
 
-	dumpDir(t, "post-shutdown ingest dir (real cycle)", ingestDir)
+	finalizeRenameRangeableIngest(t, names)
 
-	require.NoError(t, os.RemoveAll(backupDir))
-	if _, statErr := os.Stat(mainDir); statErr == nil {
-		require.NoError(t, os.RemoveAll(mainDir))
-	}
-	require.NoError(t, os.Rename(ingestDir, mainDir))
-
-	store2, err := New(dir, dir, logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
+	store2, reloaded := reloadRangeableMain(t, ctx, dir, logger, names, opts)
 	defer store2.Shutdown(ctx)
-
-	require.NoError(t, store2.CreateOrLoadBucket(ctx, mainName, opts...))
-	reloaded := store2.Bucket(mainName)
-	require.NotNil(t, reloaded)
-
-	var missing []uint64
-	for i := uint64(0); i < tailStart+tailN; i++ {
-		if got := readRangeableEqual(t, reloaded, i); len(got) != 1 || got[0] != i {
-			missing = append(missing, i)
-		}
-	}
-	require.Emptyf(t, missing,
-		"post-restart: %d/%d postings vanished across the graceful restart "+
-			"(real flush cycle); missing docIDs=%v", len(missing), tailStart+tailN, missing)
+	assertNoRangeablePostingsLost(t, reloaded, tailStart+tailN)
 }
