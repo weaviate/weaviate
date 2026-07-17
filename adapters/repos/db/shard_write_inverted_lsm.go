@@ -179,8 +179,9 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 // CursorOnDisk only sees segment-resident data, so an unflushed write
 // would otherwise be invisible to the rescan.
 //
-// Three windows matter for the migrating prop's tally, only one a real
-// residual:
+// Four windows matter for the migrating prop's tally. Windows 1-3 are
+// exactly-once by construction; window 4 is a known, unfixed residual
+// (weaviate/0-weaviate-issues#322 base-sync finding):
 //
 //  1. A write reaching this task's double-write callbacks (registered
 //     before backfill, disabled after runtimeSwap) is tallied
@@ -191,12 +192,33 @@ func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Prop
 //  2. This function's flush-then-rescan covers every write that landed in
 //     the objects bucket before the flush, regardless of window 1: the
 //     rescan re-derives the value from raw stored JSON, and ResetProperty
-//     first discards any window-1 increment, so the rebuild is
-//     exactly-once.
-//  3. The sole residual is a write racing strictly between the flush and
-//     the cursor open: it lands in the new active memtable, not lost,
-//     only delayed - any future invocation (idempotent) converges the
-//     tally, e.g. a recovery re-entry into completeMigrationOnShard.
+//     first discards any window-1 increment that has ALREADY landed by the
+//     time ResetProperty runs - see window 4 for the case where it hasn't.
+//  3. A write racing strictly between the flush and the cursor open lands
+//     in the new active memtable, not lost, only delayed - any future
+//     invocation (idempotent) converges the tally, e.g. a recovery
+//     re-entry into completeMigrationOnShard.
+//  4. KNOWN RESIDUAL - double-count, not covered by windows 1-3: this
+//     function calls ResetProperty BEFORE FlushAndSwitch, not after. A
+//     writer whose objects-bucket Put lands before the flush below (so the
+//     rescan loop will independently find and TrackProperty it) but whose
+//     OWN window-1 callback TrackProperty call (trackMigratingPropLength)
+//     fires strictly AFTER ResetProperty has already run is counted
+//     TWICE: the reset can't discard an increment that hasn't happened
+//     yet, and the tracker has no way to recognize "this TrackProperty
+//     call is for an object the CURRENT rescan will separately re-derive."
+//     Closing this needs a causality marker (e.g. a per-property epoch
+//     ResetProperty bumps and the callback's TrackProperty call checks)
+//     plumbed through the general, non-migration write path - out of
+//     scope for a migration-local fix. Silent BM25 sum/count inflation,
+//     not data loss; converges on any LATER recompute re-entry (that
+//     invocation's own ResetProperty wipes the inflated value and its
+//     rescan re-derives the correct one) - same "rides a future recompute,
+//     doesn't self-heal without one" character as the empty-value ±1 and
+//     delete-during-recompute-overcount residuals documented on
+//     trackMigratingPropLength. Deterministically pinned (skipped, not
+//     asserted - see the skip message for the exact interleaving) by
+//     inverted.TestJsonShardMetaData_TrackAfterResetDuringRescanDoubleCounts.
 func (s *Shard) recomputeSearchableTallyForProp(ctx context.Context, propName string,
 	overlay map[string]inverted.PropertyOverlay,
 ) error {
