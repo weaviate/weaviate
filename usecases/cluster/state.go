@@ -112,8 +112,8 @@ type Config struct {
 	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
 	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
 	RaftBootstrapExpect int
-	// BootstrapTimeout bounds the startup join retry; mirrors RAFT_BOOTSTRAP_TIMEOUT.
-	BootstrapTimeout time.Duration
+	// RaftBootstrapTimeout bounds the startup join retry; mirrors RAFT_BOOTSTRAP_TIMEOUT.
+	RaftBootstrapTimeout time.Duration
 }
 
 type AuthConfig struct {
@@ -225,7 +225,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	}
 
 	if len(joinAddr) > 0 {
-		timeout := userConfig.BootstrapTimeout
+		timeout := userConfig.RaftBootstrapTimeout
 		if timeout <= 0 {
 			timeout = joinTimeout
 		}

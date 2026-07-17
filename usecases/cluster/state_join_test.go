@@ -76,12 +76,12 @@ func TestInitJoinRetryPolicy(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 
 			cfg := Config{
-				Hostname:            "node1",
-				Localhost:           true,
-				Join:                deadJoinAddr,
-				GossipBindPort:      gossipPort,
-				RaftBootstrapExpect: test.bootstrapExpect,
-				BootstrapTimeout:    testJoinTimeout,
+				Hostname:             "node1",
+				Localhost:            true,
+				Join:                 deadJoinAddr,
+				GossipBindPort:       gossipPort,
+				RaftBootstrapExpect:  test.bootstrapExpect,
+				RaftBootstrapTimeout: testJoinTimeout,
 			}
 
 			start := time.Now()
