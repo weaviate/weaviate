@@ -138,8 +138,9 @@ func TestHybridDiversitySelection(t *testing.T) {
 			Metadata:    &pb.MetadataRequest{Uuid: true},
 			Uses_127Api: true,
 		})
-		assert.NoError(ct, err)
-		assert.NotNil(ct, resp)
+		if !assert.NoError(ct, err) || !assert.NotNil(ct, resp) {
+			return
+		}
 		assert.Len(ct, resp.Results, 1)
 	}, 30*time.Second, 500*time.Millisecond)
 
