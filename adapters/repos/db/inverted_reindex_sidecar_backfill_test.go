@@ -126,6 +126,66 @@ func sidecarLengthFingerprint(t *testing.T, shard *Shard, propName string) map[s
 	return fingerprintRoaringSetBucket(t, shard.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName)))
 }
 
+// newSidecarBackfillMigratedControlPair builds the paired "migrated" (starts
+// unindexed - classBuilder(className, false)) and "control" (indexed from
+// class creation - classBuilder(className, true)) shards shared by the
+// migrated-vs-control regression tests below. Both shards get the SAME
+// object shape (objectBuilder), just under distinct class names (the
+// migrated shard's carries "Migrated", the control shard's carries
+// "Control") so their object sets never collide even though the objects
+// are otherwise identical.
+func newSidecarBackfillMigratedControlPair(t *testing.T, ctx context.Context, namePrefix string, numObjects int,
+	classBuilder func(className string, indexed bool) *models.Class,
+	objectBuilder func(className string, numObjects int) []*storobj.Object,
+) (migratedShard *Shard, migratedIdx *Index, controlShard *Shard) {
+	t.Helper()
+
+	migratedClassName := namePrefix + "Migrated_" + uuid.NewString()[:8]
+	migratedClass := classBuilder(migratedClassName, false)
+	migratedShd, idx := testShardWithSettings(t, ctx, migratedClass, enthnsw.UserConfig{Skip: true}, false, false, false)
+	migratedShard = migratedShd.(*Shard)
+	t.Cleanup(func() { migratedShard.Shutdown(ctx) })
+	for _, obj := range objectBuilder(migratedClassName, numObjects) {
+		require.NoError(t, migratedShard.PutObject(ctx, obj))
+	}
+
+	controlClassName := namePrefix + "Control_" + uuid.NewString()[:8]
+	controlClass := classBuilder(controlClassName, true)
+	controlShd, _ := testShardWithSettings(t, ctx, controlClass, enthnsw.UserConfig{Skip: true}, false, false, false)
+	controlShard = controlShd.(*Shard)
+	t.Cleanup(func() { controlShard.Shutdown(ctx) })
+	for _, obj := range objectBuilder(controlClassName, numObjects) {
+		require.NoError(t, controlShard.PutObject(ctx, obj))
+	}
+
+	return migratedShard, idx, controlShard
+}
+
+// newSidecarBackfillEnableSearchableMigratedControlPair specializes
+// newSidecarBackfillMigratedControlPair for the enable-searchable shape
+// shared by the two callers below: a text class whose SEARCHABLE flag is
+// the only one that toggles (filterable stays false throughout), with
+// sidecarBackfillTextObjects(nilCount) as the object shape.
+func newSidecarBackfillEnableSearchableMigratedControlPair(t *testing.T, ctx context.Context, namePrefix string,
+	numObjects, nilCount int,
+) (migratedShard *Shard, migratedIdx *Index, controlShard *Shard) {
+	t.Helper()
+
+	vFalse := false
+	return newSidecarBackfillMigratedControlPair(t, ctx, namePrefix, numObjects,
+		func(className string, indexed bool) *models.Class {
+			searchable := &vFalse
+			if indexed {
+				vTrue := true
+				searchable = &vTrue
+			}
+			return newSidecarBackfillTextClass(className, &vFalse, searchable)
+		},
+		func(className string, n int) []*storobj.Object {
+			return sidecarBackfillTextObjects(className, n, nilCount)
+		})
+}
+
 // TestSidecarBackfill_EnableFilterable_NullAndLength is the RED repro for
 // the null/length half of gh#322 on the enable-filterable migration path.
 //
@@ -145,18 +205,20 @@ func TestSidecarBackfill_EnableFilterable_NullAndLength(t *testing.T) {
 	const nilCount = 5
 	ctx := testCtx()
 
-	migratedClassName := "SidecarBackfillFilterableMigrated_" + uuid.NewString()[:8]
 	vFalse := false
-	migratedClass := newSidecarBackfillTextClass(migratedClassName, &vFalse, &vFalse)
-	migratedShd, migratedIdx := testShardWithSettings(t, ctx, migratedClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	migratedShard := migratedShd.(*Shard)
-	defer migratedShard.Shutdown(ctx)
-
-	objects := sidecarBackfillTextObjects(migratedClassName, numObjects, nilCount)
-	for _, obj := range objects {
-		require.NoError(t, migratedShard.PutObject(ctx, obj))
-	}
+	migratedShard, migratedIdx, controlShard := newSidecarBackfillMigratedControlPair(t, ctx, "SidecarBackfillFilterable", numObjects,
+		func(className string, indexed bool) *models.Class {
+			filterable := &vFalse
+			if indexed {
+				vTrue := true
+				filterable = &vTrue
+			}
+			return newSidecarBackfillTextClass(className, filterable, &vFalse)
+		},
+		func(className string, n int) []*storobj.Object {
+			return sidecarBackfillTextObjects(className, n, nilCount)
+		})
+	migratedClassName := migratedShard.Index().Config.ClassName.String()
 
 	// Pre-migration: null/length buckets must be absent (HasAnyInvertedIndex
 	// is false for an unindexed property, so shard init skips creating
@@ -171,20 +233,6 @@ func TestSidecarBackfill_EnableFilterable_NullAndLength(t *testing.T) {
 	require.NoError(t, task.RunPrepareOnShard(ctx, migratedShard))
 	require.NoError(t, task.RunSwapOnShard(ctx, migratedShard))
 	require.True(t, wrapped.migrationCompleted)
-
-	// Control: identical objects, property filterable from class creation.
-	controlClassName := "SidecarBackfillFilterableControl_" + uuid.NewString()[:8]
-	vTrue := true
-	controlClass := newSidecarBackfillTextClass(controlClassName, &vTrue, &vFalse)
-	controlShd, _ := testShardWithSettings(t, ctx, controlClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	controlShard := controlShd.(*Shard)
-	defer controlShard.Shutdown(ctx)
-
-	controlObjects := sidecarBackfillTextObjects(controlClassName, numObjects, nilCount)
-	for _, obj := range controlObjects {
-		require.NoError(t, controlShard.PutObject(ctx, obj))
-	}
 
 	controlNull := sidecarNullFingerprint(t, controlShard, sidecarBackfillTextProp)
 	controlLength := sidecarLengthFingerprint(t, controlShard, sidecarBackfillTextProp)
@@ -209,18 +257,8 @@ func TestSidecarBackfill_EnableSearchable_NullLengthAndTally(t *testing.T) {
 	const nilCount = 5
 	ctx := testCtx()
 
-	migratedClassName := "SidecarBackfillSearchableMigrated_" + uuid.NewString()[:8]
-	vFalse := false
-	migratedClass := newSidecarBackfillTextClass(migratedClassName, &vFalse, &vFalse)
-	migratedShd, migratedIdx := testShardWithSettings(t, ctx, migratedClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	migratedShard := migratedShd.(*Shard)
-	defer migratedShard.Shutdown(ctx)
-
-	objects := sidecarBackfillTextObjects(migratedClassName, numObjects, nilCount)
-	for _, obj := range objects {
-		require.NoError(t, migratedShard.PutObject(ctx, obj))
-	}
+	migratedShard, migratedIdx, controlShard := newSidecarBackfillEnableSearchableMigratedControlPair(t, ctx, "SidecarBackfillSearchable", numObjects, nilCount)
+	migratedClassName := migratedShard.Index().Config.ClassName.String()
 
 	require.Nil(t, migratedShard.store.Bucket(helpers.BucketFromPropNameNullLSM(sidecarBackfillTextProp)))
 	require.Nil(t, migratedShard.store.Bucket(helpers.BucketFromPropNameLengthLSM(sidecarBackfillTextProp)))
@@ -230,19 +268,6 @@ func TestSidecarBackfill_EnableSearchable_NullLengthAndTally(t *testing.T) {
 	require.NoError(t, task.RunPrepareOnShard(ctx, migratedShard))
 	require.NoError(t, task.RunSwapOnShard(ctx, migratedShard))
 	require.True(t, wrapped.migrationCompleted)
-
-	controlClassName := "SidecarBackfillSearchableControl_" + uuid.NewString()[:8]
-	vTrue := true
-	controlClass := newSidecarBackfillTextClass(controlClassName, &vFalse, &vTrue)
-	controlShd, _ := testShardWithSettings(t, ctx, controlClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	controlShard := controlShd.(*Shard)
-	defer controlShard.Shutdown(ctx)
-
-	controlObjects := sidecarBackfillTextObjects(controlClassName, numObjects, nilCount)
-	for _, obj := range controlObjects {
-		require.NoError(t, controlShard.PutObject(ctx, obj))
-	}
 
 	controlNull := sidecarNullFingerprint(t, controlShard, sidecarBackfillTextProp)
 	controlLength := sidecarLengthFingerprint(t, controlShard, sidecarBackfillTextProp)
@@ -332,18 +357,18 @@ func TestSidecarBackfill_EnableRangeable_Null(t *testing.T) {
 	const numObjects = 25
 	ctx := testCtx()
 
-	migratedClassName := "SidecarBackfillRangeableMigrated_" + uuid.NewString()[:8]
 	vFalse := false
-	migratedClass := newSidecarBackfillNumClass(migratedClassName, &vFalse, &vFalse)
-	migratedShd, migratedIdx := testShardWithSettings(t, ctx, migratedClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	migratedShard := migratedShd.(*Shard)
-	defer migratedShard.Shutdown(ctx)
-
-	objects := sidecarBackfillNumObjects(migratedClassName, numObjects)
-	for _, obj := range objects {
-		require.NoError(t, migratedShard.PutObject(ctx, obj))
-	}
+	migratedShard, migratedIdx, controlShard := newSidecarBackfillMigratedControlPair(t, ctx, "SidecarBackfillRangeable", numObjects,
+		func(className string, indexed bool) *models.Class {
+			rangeable := &vFalse
+			if indexed {
+				vTrue := true
+				rangeable = &vTrue
+			}
+			return newSidecarBackfillNumClass(className, &vFalse, rangeable)
+		},
+		func(className string, n int) []*storobj.Object { return sidecarBackfillNumObjects(className, n) })
+	migratedClassName := migratedShard.Index().Config.ClassName.String()
 
 	require.Nil(t, migratedShard.store.Bucket(helpers.BucketFromPropNameNullLSM(sidecarBackfillNumProp)),
 		"pre-migration null bucket must be absent for an unindexed numeric property")
@@ -353,19 +378,6 @@ func TestSidecarBackfill_EnableRangeable_Null(t *testing.T) {
 	require.NoError(t, task.RunPrepareOnShard(ctx, migratedShard))
 	require.NoError(t, task.RunSwapOnShard(ctx, migratedShard))
 	require.True(t, wrapped.migrationCompleted)
-
-	controlClassName := "SidecarBackfillRangeableControl_" + uuid.NewString()[:8]
-	vTrue := true
-	controlClass := newSidecarBackfillNumClass(controlClassName, &vFalse, &vTrue)
-	controlShd, _ := testShardWithSettings(t, ctx, controlClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	controlShard := controlShd.(*Shard)
-	defer controlShard.Shutdown(ctx)
-
-	controlObjects := sidecarBackfillNumObjects(controlClassName, numObjects)
-	for _, obj := range controlObjects {
-		require.NoError(t, controlShard.PutObject(ctx, obj))
-	}
 
 	controlNull := sidecarNullFingerprint(t, controlShard, sidecarBackfillNumProp)
 	require.NotEmpty(t, controlNull, "control null fingerprint must be non-empty (sanity check)")
@@ -476,6 +488,35 @@ func TestSidecarBackfill_ScopedToMigratingPropOnly(t *testing.T) {
 //     tally.
 // -----------------------------------------------------------------------------
 
+// newSidecarBackfillPreTalliedFixture builds the shard+object scaffold
+// shared by the DoesNotDoubleCountTally regression tests below: a class
+// built by classBuilder (already searchable from creation, so every
+// PutObject's live write path tallies once), numObjects pre-existing text
+// objects, and the pre-migration tally sanity check every caller performs
+// before driving its own migration and re-reading the tally.
+func newSidecarBackfillPreTalliedFixture(t *testing.T, ctx context.Context, classNamePrefix string,
+	numObjects int, classBuilder func(className string) *models.Class,
+) (shard *Shard, idx *Index, preSum, preCount int) {
+	t.Helper()
+
+	className := classNamePrefix + "_" + uuid.NewString()[:8]
+	class := classBuilder(className)
+	shd, index := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard = shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	objects := sidecarBackfillTextObjects(className, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	preSum, preCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+	require.Equal(t, numObjects, preCount, "sanity: every PutObject must have tallied (property is searchable from class creation)")
+
+	return shard, index, preSum, preCount
+}
+
 // TestSidecarBackfill_MapToBlockmax_DoesNotDoubleCountTally is the RED
 // repro for gh#322 finding 1: OnAfterLsmInitAsync's backfill loop
 // runs for every generic migration, not just enable-*. Before this rework,
@@ -502,24 +543,13 @@ func TestSidecarBackfill_MapToBlockmax_DoesNotDoubleCountTally(t *testing.T) {
 	const numObjects = 25
 	ctx := testCtx()
 
-	className := "SidecarBackfillMapToBlockmax_" + uuid.NewString()[:8]
 	// newTestClassWithProps leaves IndexSearchable nil (defaults to true)
 	// and UsingBlockMaxWAND=false, so the property starts fully searchable
 	// via a MapCollection bucket - exactly the map->blockmax source state.
-	class := newTestClassWithProps(className, []string{sidecarBackfillTextProp})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	objects := sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	preSum, preCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
-	require.NoError(t, err)
-	require.Equal(t, numObjects, preCount, "sanity: every PutObject must have tallied (property is searchable from class creation)")
+	shard, idx, preSum, preCount := newSidecarBackfillPreTalliedFixture(t, ctx, "SidecarBackfillMapToBlockmax", numObjects,
+		func(className string) *models.Class {
+			return newTestClassWithProps(className, []string{sidecarBackfillTextProp})
+		})
 	require.NotZero(t, preSum, "sanity: non-empty text must contribute a non-zero sum")
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
@@ -558,23 +588,12 @@ func TestSidecarBackfill_RebuildSearchable_DoesNotDoubleCountTally(t *testing.T)
 	const numObjects = 25
 	ctx := testCtx()
 
-	className := "SidecarBackfillRebuildSearchable_" + uuid.NewString()[:8]
-	class := newRebuildSearchableTestClass(className, []string{sidecarBackfillTextProp})
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	shard, idx, preSum, preCount := newSidecarBackfillPreTalliedFixture(t, ctx, "SidecarBackfillRebuildSearchable", numObjects,
+		func(className string) *models.Class {
+			return newRebuildSearchableTestClass(className, []string{sidecarBackfillTextProp})
+		})
 
-	objects := sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	preSum, preCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
-	require.NoError(t, err)
-	require.Equal(t, numObjects, preCount, "sanity: every PutObject must have tallied (property is searchable from class creation)")
-
-	task, wrapped := newRebuildSearchableTask(t, idx, className, sidecarBackfillTextProp)
+	task, wrapped := newRebuildSearchableTask(t, idx, shard.Index().Config.ClassName.String(), sidecarBackfillTextProp)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -614,25 +633,14 @@ func TestSidecarBackfill_EnableFilterableOverSearchableProp_DoesNotDoubleCountTa
 	const numObjects = 25
 	ctx := testCtx()
 
-	className := "SidecarBackfillFilterableOverSearchable_" + uuid.NewString()[:8]
 	// IndexFilterable=false (migration target), IndexSearchable left nil
 	// -> defaults to true for a text prop (already searchable).
-	class := newEnableFilterableTestClass(className, sidecarBackfillTextProp)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
+	shard, idx, preSum, preCount := newSidecarBackfillPreTalliedFixture(t, ctx, "SidecarBackfillFilterableOverSearchable", numObjects,
+		func(className string) *models.Class {
+			return newEnableFilterableTestClass(className, sidecarBackfillTextProp)
+		})
 
-	objects := sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	preSum, preCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
-	require.NoError(t, err)
-	require.Equal(t, numObjects, preCount, "sanity: every PutObject must have tallied (property is searchable by default)")
-
-	task, wrapped := newEnableFilterableTask(t, idx, className, sidecarBackfillTextProp)
+	task, wrapped := newEnableFilterableTask(t, idx, shard.Index().Config.ClassName.String(), sidecarBackfillTextProp)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -670,18 +678,8 @@ func TestSidecarBackfill_EnableSearchable_TallyDurableAcrossRestart(t *testing.T
 	const nilCount = 5
 	ctx := testCtx()
 
-	migratedClassName := "SidecarBackfillTallyDurable_" + uuid.NewString()[:8]
-	vFalse := false
-	migratedClass := newSidecarBackfillTextClass(migratedClassName, &vFalse, &vFalse)
-	migratedShd, migratedIdx := testShardWithSettings(t, ctx, migratedClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	migratedShard := migratedShd.(*Shard)
-	defer migratedShard.Shutdown(ctx)
-
-	objects := sidecarBackfillTextObjects(migratedClassName, numObjects, nilCount)
-	for _, obj := range objects {
-		require.NoError(t, migratedShard.PutObject(ctx, obj))
-	}
+	migratedShard, migratedIdx, controlShard := newSidecarBackfillEnableSearchableMigratedControlPair(t, ctx, "SidecarBackfillTallyDurable", numObjects, nilCount)
+	migratedClassName := migratedShard.Index().Config.ClassName.String()
 
 	task, wrapped := newEnableSearchableTask(t, migratedIdx, migratedClassName, sidecarBackfillTextProp, models.PropertyTokenizationWord)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, migratedShard))
@@ -690,17 +688,6 @@ func TestSidecarBackfill_EnableSearchable_TallyDurableAcrossRestart(t *testing.T
 	require.True(t, wrapped.migrationCompleted)
 
 	// Control: identical objects, searchable from class creation.
-	controlClassName := "SidecarBackfillTallyDurableControl_" + uuid.NewString()[:8]
-	vTrue := true
-	controlClass := newSidecarBackfillTextClass(controlClassName, &vFalse, &vTrue)
-	controlShd, _ := testShardWithSettings(t, ctx, controlClass, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	controlShard := controlShd.(*Shard)
-	defer controlShard.Shutdown(ctx)
-	controlObjects := sidecarBackfillTextObjects(controlClassName, numObjects, nilCount)
-	for _, obj := range controlObjects {
-		require.NoError(t, controlShard.PutObject(ctx, obj))
-	}
 	controlSum, controlCount, _, err := controlShard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
 	require.NoError(t, err)
 	require.NotZero(t, controlCount, "sanity: control tally must have counted at least one searchable write")
@@ -969,23 +956,70 @@ func TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindow
 // the tracker from inside the callbacks themselves.
 // -----------------------------------------------------------------------------
 
+// newSidecarBackfillSearchableCallbackFixture builds the shard+task scaffold
+// shared by the enable-searchable callback-tally regression tests below: a
+// class with a live FILTERABLE index (searchable not yet live) so
+// HasAnyInvertedIndex stays true and the double-write callback machinery
+// actually engages for "title" - a property with ZERO live indexes never
+// reaches Shard.AnalyzeObject's callback machinery for a brand-new object at
+// all (only IsTokenizationChangingMigration wires the per-shard overlay
+// AnalyzeObject consults; an enable-searchable migration never flips that
+// gate for ordinary writes), numObjects pre-existing text objects, the
+// migration's backfill phase already run (RunReindexOnlyOnShard) with the
+// double-write callbacks left ACTIVE - t.Cleanup(task.disableCallbacks)
+// instead of RunPrepareOnShard/RunSwapOnShard, which would disable them -
+// and the post-swap tally recompute already run once directly
+// (recomputeSearchableTallyForProp, the exact primitive
+// runtimeSwap's completeMigrationOnShard invokes) to establish the
+// "recompute already ran, callbacks still active" baseline every caller
+// below builds on.
+func newSidecarBackfillSearchableCallbackFixture(t *testing.T, ctx context.Context, classNamePrefix string, numObjects int,
+) (shard *Shard, task *ShardReindexTaskGeneric, objects []*storobj.Object, firstSum, firstCount int) {
+	t.Helper()
+
+	className := classNamePrefix + "_" + uuid.NewString()[:8]
+	vFalse, vTrue := false, true
+	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard = shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	objects = sidecarBackfillTextObjects(className, numObjects, 0)
+	for _, obj := range objects {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ = newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	t.Cleanup(task.disableCallbacks)
+
+	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
+	require.NoError(t, shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
+
+	firstSum, firstCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
+	require.NoError(t, err)
+	require.EqualValues(t, numObjects, firstCount, "sanity: recompute must land on exactly the n pre-existing objects")
+
+	return shard, task, objects, firstSum, firstCount
+}
+
 // TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWindow
 // is the RED/GREEN regression test for the residual above.
 //
-// Causal link: this test catches the bug because it (1) runs only the
-// backfill phase (RunReindexOnlyOnShard) - not the shared
-// newSidecarBackfillSearchableFixture, see the class-shape comment below -
-// so the double-write callbacks stay registered for the rest of the test;
-// it never calls RunPrepareOnShard/RunSwapOnShard, which is what would
-// otherwise disable them; (2) calls recomputeSearchableTallyForProp
-// directly, the exact primitive runtimeSwap's completeMigrationOnShard
-// would have invoked, to establish the "recompute already ran" baseline;
-// then (3) writes an (n+1)th object and asserts the tally already reflects
-// it with NO further recompute call. Pre-fix, EnableSearchableStrategy's
-// add callback only mirrors postings (blockmaxSearchableAddCallback), so
-// the tally stays at n instead of n+1. Post-fix, trackMigratingPropLength's
-// TrackProperty call inside the add callback closes the gap synchronously
-// on write - no second recompute needed, unlike
+// Causal link: this test catches the bug because
+// newSidecarBackfillSearchableCallbackFixture (1) runs only the backfill
+// phase (RunReindexOnlyOnShard) - never RunPrepareOnShard/RunSwapOnShard, so
+// the double-write callbacks stay registered for the rest of the test
+// (cleaned up via t.Cleanup(task.disableCallbacks) instead); (2) calls
+// recomputeSearchableTallyForProp directly, the exact primitive
+// runtimeSwap's completeMigrationOnShard would have invoked, to establish
+// the "recompute already ran" baseline. This test then writes an (n+1)th
+// object and asserts the tally already reflects it with NO further
+// recompute call. Pre-fix, EnableSearchableStrategy's add callback only
+// mirrors postings (blockmaxSearchableAddCallback), so the tally stays at n
+// instead of n+1. Post-fix, trackMigratingPropLength's TrackProperty call
+// inside the add callback closes the gap synchronously on write - no second
+// recompute needed, unlike
 // TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindowWrite
 // above, whose residual write lands strictly AFTER callbacks are disabled.
 func TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWindow(t *testing.T) {
@@ -993,47 +1027,8 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWi
 	const residualObjText = "alpha bravo charlie delta" // 4 words
 	ctx := testCtx()
 
-	// Unlike newSidecarBackfillSearchableFixture's from-absolute-zero class
-	// (filterable AND searchable both false), this test needs the prop to
-	// already carry a live FILTERABLE index before the searchable-enable
-	// migration starts. That's not cosmetic: Shard.AnalyzeObject (the
-	// normal write path) gates a property out of analysis entirely via
-	// inverted.HasAnyInvertedIndex when none of its index flags are live -
-	// an enable-searchable migration never flips that gate for ordinary
-	// writes (only IsTokenizationChangingMigration wires the per-shard
-	// overlay AnalyzeObject consults), so a prop with ZERO live indexes
-	// never reaches the double-write callback machinery for a brand-new
-	// object at all, and the callback-tally fix under test would never
-	// fire. A pre-existing filterable index keeps HasAnyInvertedIndex true
-	// throughout the migration, which is exactly the shape the post-swap
-	// residual window above targets.
-	className := "SidecarBackfillCallbackTally_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	objects := sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	defer task.disableCallbacks()
-
-	// Establish the "recompute already ran" baseline directly - the exact
-	// primitive runtimeSwap's completeMigrationOnShard invokes - without
-	// going through RunPrepareOnShard/RunSwapOnShard, so the double-write
-	// callbacks registered by the fixture's RunReindexOnlyOnShard call
-	// stay active for the rest of this test.
-	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
-	require.NoError(t, shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
-
-	firstSum, firstCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
-	require.NoError(t, err)
-	require.EqualValues(t, numObjects, firstCount, "sanity: recompute must land on exactly the n pre-existing objects")
+	shard, _, _, firstSum, _ := newSidecarBackfillSearchableCallbackFixture(t, ctx, "SidecarBackfillCallbackTally", numObjects)
+	className := shard.Index().Config.ClassName.String()
 
 	// THE RESIDUAL-STRANDING WRITE: lands strictly after the recompute
 	// above, while the migration's double-write callbacks are still
@@ -1089,32 +1084,7 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyHandlesInPlaceEditWithout
 	const numObjects = 20
 	ctx := testCtx()
 
-	// Same class shape as TestSidecarBackfill_EnableSearchable_CallbackTallyClosesResidualStrandingWindow
-	// (filterable already live) for the same reason: HasAnyInvertedIndex
-	// must stay true for "title" throughout the migration for the
-	// double-write callback to engage at all.
-	className := "SidecarBackfillCallbackTallyEdit_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	objects := sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	defer task.disableCallbacks()
-
-	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
-	require.NoError(t, shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
-
-	firstSum, firstCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
-	require.NoError(t, err)
-	require.EqualValues(t, numObjects, firstCount, "sanity: recompute must land on exactly the n pre-existing objects")
+	shard, _, objects, firstSum, _ := newSidecarBackfillSearchableCallbackFixture(t, ctx, "SidecarBackfillCallbackTallyEdit", numObjects)
 
 	// objects[0] has wordCount=(0%5)+1=1 -> text "alpha" (sidecarBackfillTextObjects).
 	// Both the old and new values are non-empty, so DeltaSkipSearchable
@@ -1209,31 +1179,7 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyOffByOneOnEmptyValueEdit(
 	const numObjects = 20
 	ctx := testCtx()
 
-	// Same class shape as the two CallbackTally tests above: filterable
-	// already live, searchable not yet live, so the double-write callback
-	// machinery actually engages for "title" (see those tests' comments).
-	className := "SidecarBackfillCallbackTallyEmptyEdit_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	objects := sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	defer task.disableCallbacks()
-
-	// Arrange the migration with callbacks active POST-recompute - the
-	// exact primitive runtimeSwap's completeMigrationOnShard invokes -
-	// without going through RunPrepareOnShard/RunSwapOnShard, so the
-	// callbacks stay active for the edit below.
-	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
-	require.NoError(t, shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
+	shard, _, objects, _, _ := newSidecarBackfillSearchableCallbackFixture(t, ctx, "SidecarBackfillCallbackTallyEmptyEdit", numObjects)
 
 	// THE EMPTY-VALUE EDIT: clears objects[0]'s title to "" in place while
 	// callbacks are active. Both the old value ("alpha") and the new value
@@ -1250,6 +1196,7 @@ func TestSidecarBackfill_EnableSearchable_CallbackTallyOffByOneOnEmptyValueEdit(
 	// (subtractPropLengths + SetPropertyLengths on the full analyzed
 	// value) - the ground truth this shard's tally must converge to.
 	controlClassName := "SidecarBackfillCallbackTallyEmptyEditControl_" + uuid.NewString()[:8]
+	vFalse, vTrue := false, true
 	controlClass := newSidecarBackfillTextClass(controlClassName, &vFalse, &vTrue)
 	controlShd, _ := testShardWithSettings(t, ctx, controlClass, enthnsw.UserConfig{Skip: true}, false, false, false)
 	controlShard := controlShd.(*Shard)
@@ -1327,28 +1274,9 @@ func TestSidecarBackfill_EnableSearchable_DeleteDuringRecomputeDoesNotFailOrCorr
 	const numObjects = 100
 	ctx := testCtx()
 
-	// Same class shape as the other CallbackTally tests: filterable already
-	// live, searchable not yet live, so the double-write callback machinery
-	// actually engages for "title" (HasAnyInvertedIndex must stay true
-	// throughout the migration - see AnalyzeObject's gate).
-	className := "SidecarBackfillDeleteDuringRecompute_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	objects := sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task, _ := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	t.Cleanup(task.disableCallbacks)
+	shard, task, objects, _, _ := newSidecarBackfillSearchableCallbackFixture(t, ctx, "SidecarBackfillDeleteDuringRecompute", numObjects)
 
 	overlay := task.strategy.AnalyzerOverlay([]string{sidecarBackfillTextProp})
-	require.NoError(t, shard.recomputeSearchableTallyForProp(ctx, sidecarBackfillTextProp, overlay))
 
 	// THE RACING DELETE: an in-place edit to empty deletes objects[0]'s only
 	// item, firing the double-write delete callback ->
