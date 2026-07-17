@@ -86,6 +86,31 @@ func newTestLoop(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
 	}
 }
 
+// TestShardIsLazyUnloaded checks that only a lazy shard not yet materialized is skipped;
+// absent (COLD), loaded lazy, and non-lazy shards are not.
+func TestShardIsLazyUnloaded(t *testing.T) {
+	tests := []struct {
+		name  string
+		shard ShardLike // nil means the tenant is absent from the shard map
+		want  bool
+	}{
+		{name: "absent tenant", shard: nil, want: false},
+		{name: "lazy shard not loaded", shard: &LazyLoadShard{loaded: false}, want: true},
+		{name: "lazy shard loaded", shard: &LazyLoadShard{loaded: true}, want: false},
+		{name: "non-lazy shard", shard: &Shard{}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := &Index{}
+			if tt.shard != nil {
+				idx.shards.Store("tenant_0", tt.shard)
+			}
+			assert.Equal(t, tt.want, idx.shardIsLazyUnloaded("tenant_0"))
+		})
+	}
+}
+
 // TestTenantTTLLoop_ContextCancelAfterActivation is the primary regression test for
 // the server bug reported in:
 //

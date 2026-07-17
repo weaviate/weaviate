@@ -1,0 +1,144 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package search
+
+import (
+	"encoding/json"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/weaviate/weaviate/entities/models"
+)
+
+// whereFilterOperators is the canonical operator enum advertised in the hybrid
+// tool's `filters` schema. It is sourced from the models constants so the
+// advertised enum can never drift from what filterext.Parse actually accepts.
+// Keep in sync with the WhereFilterOperator* constants in
+// entities/models/where_filter.go (a drift test pins this).
+var whereFilterOperators = []string{
+	models.WhereFilterOperatorAnd,
+	models.WhereFilterOperatorOr,
+	models.WhereFilterOperatorNot,
+	models.WhereFilterOperatorEqual,
+	models.WhereFilterOperatorNotEqual,
+	models.WhereFilterOperatorLike,
+	models.WhereFilterOperatorGreaterThan,
+	models.WhereFilterOperatorGreaterThanEqual,
+	models.WhereFilterOperatorLessThan,
+	models.WhereFilterOperatorLessThanEqual,
+	models.WhereFilterOperatorContainsAny,
+	models.WhereFilterOperatorContainsAll,
+	models.WhereFilterOperatorContainsNone,
+	models.WhereFilterOperatorWithinGeoRange,
+	models.WhereFilterOperatorIsNull,
+}
+
+// hybridFilterSchema returns the JSON-schema object advertised for the
+// `filters` argument of weaviate-query-hybrid. It mirrors the REST WhereFilter
+// (entities/models.WhereFilter) so an LLM client can emit valid filters.
+//
+// It is hand-authored rather than reflected from the Go type because mark3labs
+// builds tool input schemas with jsonschema.Reflector{DoNotReference: true}.
+// Under DoNotReference the reflector inlines every type and never emits $ref,
+// so the self-referential WhereFilter (Operands []*WhereFilter) would recurse
+// infinitely and overflow the stack while constructing the tool at startup.
+// Nested operands are therefore conveyed via description rather than a $ref.
+func hybridFilterSchema() map[string]any {
+	enum := make([]any, len(whereFilterOperators))
+	for i, op := range whereFilterOperators {
+		enum[i] = op
+	}
+	scalar := func(typ, desc string) map[string]any {
+		return map[string]any{"type": typ, "description": desc}
+	}
+	arrayOf := func(itemType, desc string) map[string]any {
+		return map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": itemType},
+			"description": desc,
+		}
+	}
+	return map[string]any{
+		"type": "object",
+		"description": "Optional where-filter, identical in shape to the REST `where` argument. " +
+			"A leaf filter compares one property, e.g. {\"path\":[\"title\"],\"operator\":\"Equal\",\"valueText\":\"x\"}. " +
+			"Combine leaves with {\"operator\":\"And\"|\"Or\",\"operands\":[ ...nested filters... ]}.",
+		"properties": map[string]any{
+			"operator": map[string]any{
+				"type":        "string",
+				"enum":        enum,
+				"description": "Comparison operator for a leaf filter, or And/Or/Not to combine `operands`.",
+			},
+			"path":              arrayOf("string", "Property path. Direct property: [\"title\"]. Cross-reference: [\"hasAuthor\",\"Author\",\"name\"]."),
+			"valueText":         scalar("string", "Value for text/string properties."),
+			"valueInt":          scalar("integer", "Value for int properties."),
+			"valueNumber":       scalar("number", "Value for number properties."),
+			"valueBoolean":      scalar("boolean", "Value for boolean properties."),
+			"valueDate":         scalar("string", "Value for date properties, RFC3339 (e.g. 2020-01-01T00:00:00Z)."),
+			"valueTextArray":    arrayOf("string", "Values for ContainsAny/ContainsAll/ContainsNone on text properties."),
+			"valueIntArray":     arrayOf("integer", "Values for ContainsAny/ContainsAll/ContainsNone on int properties."),
+			"valueNumberArray":  arrayOf("number", "Values for ContainsAny/ContainsAll/ContainsNone on number properties."),
+			"valueBooleanArray": arrayOf("boolean", "Values for ContainsAny/ContainsAll/ContainsNone on boolean properties."),
+			"valueDateArray":    arrayOf("string", "Values for ContainsAny/ContainsAll/ContainsNone on date properties, each RFC3339."),
+			"valueGeoRange": map[string]any{
+				"type":        "object",
+				"description": "Value for WithinGeoRange: a center coordinate plus a max distance in meters.",
+				"properties": map[string]any{
+					"geoCoordinates": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"latitude":  map[string]any{"type": "number"},
+							"longitude": map[string]any{"type": "number"},
+						},
+					},
+					"distance": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"max": map[string]any{"type": "number", "description": "Max distance in meters."},
+						},
+					},
+				},
+			},
+			"operands": arrayOf("object", "Nested where-filters with the same structure as this object. Use with the And/Or operators to build compound filters."),
+		},
+	}
+}
+
+// withHybridFilterSchema injects hybridFilterSchema() as the `filters` property
+// of the tool's input schema. It must be applied AFTER mcp.WithInputSchema so it
+// runs on the generated RawInputSchema. The approach mirrors
+// internal.overridePropertyDescriptions, which likewise mutates the raw schema
+// rather than relying on struct reflection.
+//
+// The injection is unconditional: whatever shape the reflected schema is in,
+// `filters` always ends up present — the reflected schema is reused when it
+// parses, and a minimal object schema is synthesized otherwise — so the hybrid
+// tool can never be advertised without its filter schema.
+func withHybridFilterSchema() mcp.ToolOption {
+	return func(t *mcp.Tool) {
+		schema := map[string]any{"type": "object"}
+		var reflected map[string]any
+		if len(t.RawInputSchema) > 0 && json.Unmarshal(t.RawInputSchema, &reflected) == nil {
+			schema = reflected
+		}
+		props, ok := schema["properties"].(map[string]any)
+		if !ok {
+			props = map[string]any{}
+			schema["properties"] = props
+		}
+		props["filters"] = hybridFilterSchema()
+		raw, err := json.Marshal(schema)
+		if err != nil {
+			return // unreachable: schema holds only JSON-serializable maps/strings/slices
+		}
+		t.RawInputSchema = raw
+	}
+}

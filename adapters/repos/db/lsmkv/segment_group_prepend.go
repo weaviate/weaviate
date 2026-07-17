@@ -23,8 +23,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 // ErrPrependWouldDesyncInMemoryRep is returned by PrependSegmentsFromBucket when
@@ -138,28 +136,14 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 	sg.segments = newSegments
 	sg.maintenanceLock.Unlock()
 
-	// Update metrics for the newly added segments.
+	// Update metrics and the average-property-length accounting for the newly
+	// added segments. The accounting has to land before the deferred
+	// resumeCompaction: a compaction that retires a prepended segment subtracts
+	// its contribution, which must have been added first.
 	for _, seg := range initialized {
 		sg.metrics.IncSegmentTotalByStrategy(sg.strategy)
 		sg.metrics.ObserveSegmentSize(sg.strategy, seg.Size())
-	}
-
-	// For Inverted strategy, update the segment group's average property
-	// length tracking from the prepended segments. Without this, the
-	// bucket's GetAveragePropertyLength returns 0, causing BM25 scoring
-	// to produce zero scores and empty query results.
-	if sg.strategy == StrategyInverted {
-		for _, seg := range initialized {
-			if seg.getStrategy() != segmentindex.StrategyInverted {
-				continue
-			}
-			data := seg.getInvertedData()
-			avg, count := data.avgPropertyLengthsAvg, data.avgPropertyLengthsCount
-			if count > 0 {
-				sg.averagePropSum.Add(uint64(avg * float64(count)))
-				sg.averagePropCount.Add(count)
-			}
-		}
+		sg.countSegmentAveragePropLength(seg)
 	}
 
 	return nil

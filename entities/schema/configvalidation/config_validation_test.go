@@ -12,9 +12,11 @@
 package configvalidation
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -58,4 +60,15 @@ func TestCertainty(t *testing.T) {
 			}
 		})
 	}
+}
+
+// API handlers (e.g. adapters/handlers/rest/search) classify the non-cosine
+// certainty failure by this type.
+func TestCertaintyIncompatibleTypedError(t *testing.T) {
+	class := &models.Class{VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceDot}}
+
+	err := CheckCertaintyCompatibility(class, nil)
+	require.Error(t, err)
+	require.True(t, errors.As(err, &enterrors.ErrCertaintyIncompatible{}),
+		"non-cosine certainty error must carry entities/errors.ErrCertaintyIncompatible, got: %v", err)
 }
