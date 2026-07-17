@@ -2802,6 +2802,81 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			error: true,
 		},
+		{
+			name: "MMR limit larger than default query limit should error",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(11))}}},
+				},
+			},
+			error: true,
+		},
+		{
+			name: "MMR limit larger than explicit query limit should error",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Limit:      5,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(6))}}},
+				},
+			},
+			error: true,
+		},
+		{
+			name: "MMR balance below 0 should error",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(5)), Balance: ptr(float32(-0.1))}}},
+				},
+			},
+			error: true,
+		},
+		{
+			name: "MMR balance above 1 should error",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(5)), Balance: ptr(float32(1.1))}}},
+				},
+			},
+			error: true,
+		},
+		{
+			name: "MMR limit equal to query limit is allowed",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Limit:      5,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Selection: &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{Limit: ptr(uint32(5)), Balance: ptr(float32(0.5))}}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            classname,
+				Pagination:           &filters.Pagination{Limit: 5},
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: true},
+				NearVector:           &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}}},
+				Selection:            &searchparams.Selection{MMR: &searchparams.SelectionMMR{Limit: 5, Balance: 0.5}},
+			},
+			error: false,
+		},
 	}
 
 	parser := NewParser(false, getClass, nil, false)

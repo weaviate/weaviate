@@ -81,7 +81,7 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 	}
 	sel, err := selector.New(selection, distProv.SingleDist, vecForID, diverseCount)
 	if err != nil {
-		return nil, fmt.Errorf("hybrid mmr: %w", err)
+		return nil, fmt.Errorf("mmr: %w", err)
 	}
 	if sel == nil {
 		return results, nil
@@ -93,7 +93,7 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 	}
 	selectedIDs, _, err := sel.Select(ctx, ids, queryDists)
 	if err != nil {
-		return nil, fmt.Errorf("hybrid mmr: %w", err)
+		return nil, fmt.Errorf("mmr: %w", err)
 	}
 
 	mmrOrder := make([]search.Result, len(selectedIDs))

@@ -438,8 +438,16 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
 	if out.Selection != nil {
-		if out.Selection.MMR != nil && out.Selection.MMR.Limit == 0 {
-			return dto.GetParams{}, errors.New("MMR limit must be at least 1")
+		if mmr := out.Selection.MMR; mmr != nil {
+			if mmr.Limit == 0 {
+				return dto.GetParams{}, errors.New("MMR limit must be at least 1")
+			}
+			if out.Pagination.Limit > 0 && int(mmr.Limit) > out.Pagination.Limit {
+				return dto.GetParams{}, fmt.Errorf("MMR limit (%d) cannot be larger than the query limit (%d)", mmr.Limit, out.Pagination.Limit)
+			}
+			if mmr.Balance < 0 || mmr.Balance > 1 {
+				return dto.GetParams{}, errors.New("MMR balance must be between 0 and 1")
+			}
 		}
 		selectionTargets := targetVectors
 		if len(selectionTargets) == 0 {
