@@ -183,7 +183,7 @@ observable change — same wire shapes, status codes and live smoke
 - **Shared request base via `allOf`.** A new `SearchCommon` definition holds
   every field common to all search types (`where`, `limit`/`offset`/
   `autoLimit`, `returnProperties`, `returnMetadata`, `tenant`,
-  `consistencyLevel`, and the seven search-reserved fields).
+  `consistencyLevel`, and the six search-reserved fields).
   `SearchNearTextRequest = allOf[SearchCommon, {query (required), certainty,
   distance, targetVector}]` — `targetVector` stays near-text-specific (bm25
   won't have it). go-swagger generates `SearchNearTextRequest` with an
