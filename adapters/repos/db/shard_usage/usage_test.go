@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -458,13 +459,22 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	errs := make(chan error, 80)
-	for range 8 {
-		wg.Add(1)
+	for range 4 {
+		wg.Add(2)
 		go func() {
 			defer wg.Done()
 			<-start
 			for range 10 {
 				if _, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, "text"); err != nil {
+					errs <- err
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			for range 10 {
+				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, []string{"text"}); err != nil {
 					errs <- err
 				}
 			}
@@ -476,4 +486,51 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 	for err := range errs {
 		require.NoError(t, err)
 	}
+}
+
+func TestCalculateUnloadedDimensionsUsageAll(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tenantName := "tenant"
+
+	writeDims := func(t *testing.T, b *lsmkv.Bucket, targetVector string, dims uint32, docIDs []uint64) {
+		key := make([]byte, len(targetVector)+4)
+		copy(key, targetVector)
+		binary.LittleEndian.PutUint32(key[len(targetVector):], dims)
+		for _, docID := range docIDs {
+			require.NoError(t, b.RoaringSetAddOne(key, docID))
+		}
+	}
+
+	dirName := t.TempDir()
+	bucketFolder := shardPathDimensionsLSM(dirName, tenantName)
+	b, err := lsmkv.NewBucketCreator().NewBucket(ctx, bucketFolder, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+	require.NoError(t, err)
+
+	writeDims(t, b, "text", 128, []uint64{1, 2, 3, 4, 5})
+	writeDims(t, b, "image", 512, []uint64{1, 2, 3})
+	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.Shutdown(ctx))
+
+	targetVectors := []string{"text", "image", "missing"}
+	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors)
+	require.NoError(t, err)
+	require.Len(t, all, len(targetVectors))
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"])
+	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"])
+	assert.Equal(t, types.Dimensionality{}, all["missing"])
+
+	// parity with the single-vector variant
+	for _, targetVector := range targetVectors {
+		single, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, targetVector)
+		require.NoError(t, err)
+		assert.Equal(t, all[targetVector], single, targetVector)
+	}
+
+	// no target vectors → nothing to calculate, no bucket open
+	none, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, nil)
+	require.NoError(t, err)
+	assert.Nil(t, none)
 }
