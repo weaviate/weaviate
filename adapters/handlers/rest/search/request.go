@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
@@ -52,14 +53,9 @@ func checkReservedFields(common *models.SearchCommon) *APIError {
 	return nil
 }
 
-// buildNearTextParams converts the near-text request into the dto.GetParams
-// consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
-// parser (adapters/handlers/grpc/v1/parse_search_request.go). Shared fields
-// are read from the embedded SearchCommon, near-text fields off the body.
-func (h *Handler) buildNearTextParams(class *models.Class, className string, body *models.SearchNearTextRequest,
-	getClass classGetterFunc, principal *models.Principal,
-) (dto.GetParams, *APIError) {
-	common := &body.SearchCommon
+// baseParams starts the dto.GetParams every search type shares: the
+// collection, tenant, consistency level and pagination.
+func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto.GetParams, *APIError) {
 	out := dto.GetParams{ClassName: className, Tenant: common.Tenant}
 
 	replProps, apiErr := parseConsistencyLevel(common.ConsistencyLevel)
@@ -74,26 +70,17 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 	}
 	out.Pagination = pagination
 
-	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
+	return out, nil
+}
 
-	nearTextParams, apiErr := parseNearText(class, body, targetVectors, pagination.Limit)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.ModuleParams = map[string]any{"nearText": nearTextParams}
-
-	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
-	if apiErr != nil {
-		return dto.GetParams{}, apiErr
-	}
-	out.AdditionalProperties = addProps
-
+// fillSelectionAndFilter fills the tail every search type shares: the
+// returnProperties selection (with the no-props marker) and the where filter.
+func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class, className string,
+	common *models.SearchCommon, getClass classGetterFunc, principal *models.Principal,
+) *APIError {
 	props, apiErr := parseReturnProperties(class, common.ReturnProperties, getClass)
 	if apiErr != nil {
-		return dto.GetParams{}, apiErr
+		return apiErr
 	}
 	out.Properties = props
 	if len(out.Properties) == 0 {
@@ -102,11 +89,115 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 
 	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
 	if apiErr != nil {
-		return dto.GetParams{}, apiErr
+		return apiErr
 	}
 	out.Filters = filter
 
+	return nil
+}
+
+// fillCommonTail parses returnMetadata (scoped to the resolved target
+// vectors), then the shared selection-and-filter tail — the order the
+// vector-capable search types (near-text, near-object, hybrid) share.
+func (h *Handler) fillCommonTail(out *dto.GetParams, class *models.Class, className string,
+	common *models.SearchCommon, targetVectors []string, getClass classGetterFunc, principal *models.Principal,
+) *APIError {
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
+	if apiErr != nil {
+		return apiErr
+	}
+	out.AdditionalProperties = addProps
+
+	return h.fillSelectionAndFilter(out, class, className, common, getClass, principal)
+}
+
+// buildNearTextParams converts the near-text request into the dto.GetParams
+// consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
+// parser (adapters/handlers/grpc/v1/parse_search_request.go). Shared fields
+// are read from the embedded SearchCommon, near-text fields off the body.
+func (h *Handler) buildNearTextParams(class *models.Class, className string, body *models.SearchNearTextRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	nearTextParams, apiErr := parseNearText(class, body, targetVectors, out.Pagination.Limit)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.ModuleParams = map[string]any{"nearText": nearTextParams}
+
+	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
 	return out, nil
+}
+
+// buildBm25Params converts the bm25 request into the dto.GetParams consumed
+// by traverser.GetClass. Behavior must stay in sync with the gRPC parser's
+// bm25 handling (adapters/handlers/grpc/v1/parse_search_request.go). Shared
+// fields are read from the embedded SearchCommon, bm25 fields off the body.
+func (h *Handler) buildBm25Params(class *models.Class, className string, body *models.SearchBm25Request,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, nil)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	// certainty cannot be computed for a keyword search; drop it silently
+	// (gRPC parity: extractAdditionalPropsFromMetadata clears certainty on
+	// every non-vector search). distance is likewise inapplicable but needs
+	// no clearing — the explorer emits it only for vector searches, so the
+	// response omits it either way.
+	addProps.Certainty = false
+	out.AdditionalProperties = addProps
+
+	keywordRanking, apiErr := parseBm25(body, addProps.ExplainScore)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.KeywordRanking = keywordRanking
+
+	if apiErr := h.fillSelectionAndFilter(&out, class, className, common, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	return out, nil
+}
+
+// parseBm25 builds the keyword-ranking params for a bm25 search, mirroring
+// the gRPC parser: the first letter of each property name is lowercased and
+// a "^boost" suffix (e.g. "title^2") passes through untouched — the searcher
+// parses it. Property existence/searchability is not validated here; the
+// searcher rejects a property without a searchable index (a typed
+// MissingIndexError, mapped to 422).
+func parseBm25(body *models.SearchBm25Request, explainScore bool) (*searchparams.KeywordRanking, *APIError) {
+	// an absent (or null) query is already rejected upstream by swagger's
+	// required validation; an explicit empty string reaches the handler
+	if body.Query == nil || *body.Query == "" {
+		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+	}
+	return &searchparams.KeywordRanking{
+		Type:                   "bm25",
+		Query:                  *body.Query,
+		Properties:             schema.LowercaseFirstLetterOfStrings(body.QueryProperties),
+		AdditionalExplanations: explainScore,
+	}, nil
 }
 
 func parseConsistencyLevel(level string) (*additional.ReplicationProperties, *APIError) {
@@ -233,7 +324,7 @@ func parseNearText(class *models.Class, body *models.SearchNearTextRequest, targ
 		params.WithDistance = true
 	}
 
-	if apiErr := checkVectorizer(class, targetVectors); apiErr != nil {
+	if apiErr := checkVectorizer(class, targetVectors, "near-text"); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -256,14 +347,15 @@ func parseQuery(query []string) ([]string, *APIError) {
 	return query, nil
 }
 
-// checkVectorizer rejects near-text on collections whose (target) vector has
-// no vectorizer module configured — deterministic counterpart of the
-// modules provider's "could not vectorize input ..." runtime error.
-func checkVectorizer(class *models.Class, targetVectors []string) *APIError {
+// checkVectorizer rejects searches that need server-side vectorization on
+// collections whose (target) vector has no vectorizer module configured —
+// deterministic counterpart of the modules provider's "could not vectorize
+// input ..." runtime error. searchKind names the rejected search in the 422.
+func checkVectorizer(class *models.Class, targetVectors []string, searchKind string) *APIError {
 	noVectorizer := func(target string) *APIError {
 		return newAPIError(http.StatusUnprocessableEntity,
-			"near-text is not supported: collection %s has no vectorizer module configured for target vector %q",
-			class.Class, target)
+			"%s is not supported: collection %s has no vectorizer module configured for target vector %q",
+			searchKind, class.Class, target)
 	}
 
 	for _, target := range targetVectors {

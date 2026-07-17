@@ -152,6 +152,23 @@ func doNearText(t *testing.T, deps *testDeps, principal *models.Principal,
 	return deps.handler.NearText(context.Background(), principal, collection, mustModel(t, body))
 }
 
+// mustBm25Model is mustModel for the bm25 request model.
+func mustBm25Model(t *testing.T, body string) *models.SearchBm25Request {
+	t.Helper()
+	var req models.SearchBm25Request
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doBm25 runs the bm25 handler the way the generated operation wiring does,
+// with the typed, already-decoded request model.
+func doBm25(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.Bm25(context.Background(), principal, collection, mustBm25Model(t, body))
+}
+
 func TestIsSearchRoute(t *testing.T) {
 	tests := []struct {
 		path string
@@ -712,6 +729,116 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, apiErr.Status, apiErr.Error())
 		})
 	}
+}
+
+// TestBm25HandlerHappyPath: the bm25 wrapper drives the same execute() flow
+// as near-text, with KeywordRanking params instead of module params, and the
+// envelope carries score/explainScore metadata.
+func TestBm25HandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"score":        float32(1.5),
+				"explainScore": "BM25F: title term frequency",
+			},
+		},
+	}
+
+	payload, apiErr := doBm25(t, deps, nil, "Movie",
+		`{"query":"space opera","limit":5,"queryProperties":["title"],"returnProperties":["title"],"returnMetadata":["score","explainScore"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Score)
+	assert.Equal(t, float32(1.5), *obj.Metadata.Score)
+	require.NotNil(t, obj.Metadata.ExplainScore)
+	assert.Equal(t, "BM25F: title term frequency", *obj.Metadata.ExplainScore)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with keyword-ranking params, no module params
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.KeywordRanking)
+	assert.Equal(t, "space opera", params.KeywordRanking.Query)
+	assert.Equal(t, []string{"title"}, params.KeywordRanking.Properties)
+	assert.Empty(t, params.ModuleParams)
+}
+
+func TestBm25HandlerDisabled(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.handler.enabled = runtime.NewDynamicValue(false)
+
+	_, apiErr := doBm25(t, deps, nil, "Movie", `{"query":"space"}`)
+	require.NotNil(t, apiErr)
+	// mirrors DISABLE_GRAPHQL: the operation stays registered and rejects
+	// requests with 422
+	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+	assert.Contains(t, apiErr.Error(), "not enabled")
+	assert.Contains(t, apiErr.Error(), "EXPERIMENTAL_REST_SEARCH_ENABLED")
+}
+
+// TestBm25ReservedFieldsRejected: the shared reserved-field 422 gate in
+// execute() fires for bm25 exactly as for near-text.
+func TestBm25ReservedFieldsRejected(t *testing.T) {
+	reserved := map[string]string{
+		"singlePrompt":    `"x"`,
+		"groupedTask":     `"x"`,
+		"groupBy":         `"x"`,
+		"numberOfGroups":  `2`,
+		"objectsPerGroup": `2`,
+		"rerank":          `{"property":"x"}`,
+	}
+	for field, value := range reserved {
+		t.Run(field, func(t *testing.T) {
+			deps := newTestHandler(t)
+			_, apiErr := doBm25(t, deps, nil, "Movie",
+				fmt.Sprintf(`{"query":"space","%s":%s}`, field, value))
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "not yet supported")
+			assert.Contains(t, apiErr.Error(), field)
+		})
+	}
+}
+
+func TestBm25HandlerAuthorizesBeforeSchemaAccess(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Unknown"))
+
+	// unknown collection AND unauthorized: authz runs first, so the caller
+	// must not learn whether the collection exists
+	_, apiErr := doBm25(t, deps, nil, "Unknown", `{"query":"space"}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+func TestBm25HandlerUnknownCollection(t *testing.T) {
+	deps := newTestHandler(t)
+
+	_, apiErr := doBm25(t, deps, nil, "Unknown", `{"query":"space"}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+	assert.Contains(t, apiErr.Error(), "could not find collection")
+}
+
+func TestBm25HandlerTenantAuthorization(t *testing.T) {
+	deps := newTestHandler(t)
+
+	_, apiErr := doBm25(t, deps, nil, "Movie", `{"query":"space","tenant":"tenantA"}`)
+	require.Nil(t, apiErr)
+
+	calls := deps.authorizer.Calls()
+	require.NotEmpty(t, calls)
+	assert.Contains(t, calls[0].Resources[0], "tenantA")
+	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
