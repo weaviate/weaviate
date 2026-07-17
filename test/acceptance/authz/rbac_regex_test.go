@@ -13,12 +13,14 @@ package authz
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
@@ -106,5 +108,49 @@ func TestAuthZDataObjectRegexBreakout(t *testing.T) {
 		var forbidden *users.GetUserInfoForbidden
 		require.True(t, errors.As(err, &forbidden),
 			"data object regex reached the users domain: %v", err)
+	})
+}
+
+// TestAuthZInvalidRegexPermissionRejected proves the enforcer-panic DoS is closed
+// at the API boundary: a permission target that would not compile as a casbin
+// pattern (or is over-long, or contains '/') is rejected at role create (422), so
+// it never reaches the matcher, and the node stays responsive.
+func TestAuthZInvalidRegexPermissionRejected(t *testing.T) {
+	adminKey := "admin-key"
+
+	_, down := composeUpShared(t)
+	defer down()
+
+	roleName := "invalidRegexDoSRole"
+	payloads := []struct {
+		name   string
+		object string
+	}{
+		{"unbalanced bracket", "["},
+		{"unicode class escape (survives a naive compile check)", `\p{L}`},
+		{"slash breaks segment boundaries", "a/b"},
+		{"over-long target", strings.Repeat("a", 300)},
+	}
+	for _, p := range payloads {
+		t.Run("rejected at create: "+p.name, func(t *testing.T) {
+			object := p.object
+			role := &models.Role{
+				Name: &roleName,
+				Permissions: []*models.Permission{{
+					Action: String(authorization.ReadData),
+					Data:   &models.PermissionData{Collection: String("*"), Object: &object},
+				}},
+			}
+			helper.DeleteRole(t, adminKey, roleName)
+			_, err := helper.Client(t).Authz.CreateRole(
+				authz.NewCreateRoleParams().WithBody(role), helper.CreateAuth(adminKey))
+			require.Error(t, err)
+			var unprocessable *authz.CreateRoleUnprocessableEntity
+			require.True(t, errors.As(err, &unprocessable), "expected 422, got %v", err)
+		})
+	}
+
+	t.Run("server stays responsive after the rejected creates", func(t *testing.T) {
+		require.NotEmpty(t, helper.GetRoles(t, adminKey))
 	})
 }

@@ -12,6 +12,7 @@
 package authz
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -153,6 +154,131 @@ func TestValidatePermissions(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "invalid regex in data object is rejected (would panic the matcher)",
+			permissions: []*models.Permission{
+				{Data: &models.PermissionData{Collection: String("*"), Object: String("[")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "invalid regex in user is rejected",
+			permissions: []*models.Permission{
+				{Users: &models.PermissionUsers{Users: String("x[")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "invalid regex in role is rejected",
+			permissions: []*models.Permission{
+				{Roles: &models.PermissionRoles{Role: String("(")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "collection passing the charset but not compiling is rejected",
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("A[")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "slash in object is rejected",
+			permissions: []*models.Permission{
+				{Data: &models.PermissionData{Collection: String("*"), Object: String("a/b")}},
+			},
+			expectedErr: "must not contain '/'",
+		},
+		{
+			name: "valid object regex is accepted",
+			permissions: []*models.Permission{
+				{Data: &models.PermissionData{Collection: String("*"), Object: String("o|x")}},
+			},
+		},
+		{
+			name: "valid user regex is accepted",
+			permissions: []*models.Permission{
+				{Users: &models.PermissionUsers{Users: String("admin.*")}},
+			},
+		},
+		{
+			name: "valid oidc user with colon is accepted",
+			permissions: []*models.Permission{
+				{Users: &models.PermissionUsers{Users: String("okta:alice")}},
+			},
+		},
+		{
+			name: "unicode class escape in user rejected (KeyMatch5 brace rewrite would break it)",
+			permissions: []*models.Permission{
+				{Users: &models.PermissionUsers{Users: String(`\p{L}`)}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "unicode codepoint escape in object rejected",
+			permissions: []*models.Permission{
+				{Data: &models.PermissionData{Collection: String("*"), Object: String(`\x{263a}`)}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "collection with unicode class escape rejected",
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String(`A\p{L}`)}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "invalid regex in group rejected",
+			permissions: []*models.Permission{
+				{Groups: &models.PermissionGroups{Group: String("x["), GroupType: models.GroupTypeOidc}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "invalid regex in shard rejected",
+			permissions: []*models.Permission{
+				{Replicate: &models.PermissionReplicate{Collection: String("*"), Shard: String("[")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "invalid regex in alias rejected",
+			permissions: []*models.Permission{
+				{Aliases: &models.PermissionAliases{Collection: String("*"), Alias: String("[")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "invalid regex in tenant rejected",
+			permissions: []*models.Permission{
+				{Tenants: &models.PermissionTenants{Collection: String("*"), Tenant: String("[")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "over-long user target rejected",
+			permissions: []*models.Permission{
+				{Users: &models.PermissionUsers{Users: String(strings.Repeat("a", 257))}},
+			},
+			expectedErr: "exceeds the maximum length",
+		},
+		{
+			name: "user target at the length limit accepted",
+			permissions: []*models.Permission{
+				{Users: &models.PermissionUsers{Users: String(strings.Repeat("a", 256))}},
+			},
+		},
+		{
+			name: "valid group, shard and alias regex accepted",
+			permissions: []*models.Permission{
+				{
+					Groups:    &models.PermissionGroups{Group: String("team.*"), GroupType: models.GroupTypeOidc},
+					Replicate: &models.PermissionReplicate{Collection: String("*"), Shard: String("s|t")},
+					Aliases:   &models.PermissionAliases{Collection: String("*"), Alias: String("a*")},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -166,4 +292,16 @@ func TestValidatePermissions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidatePermissions_AccumulatesErrors pins that every invalid field in a
+// permission surfaces, not just the last one.
+func TestValidatePermissions_AccumulatesErrors(t *testing.T) {
+	err := validatePermissions(false, &models.Permission{
+		Collections: &models.PermissionCollections{Collection: String("A[")},
+		Data:        &models.PermissionData{Collection: String("*"), Object: String("(")},
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "collection 'A[' is not a valid pattern")
+	assert.Contains(t, err.Error(), "object '(' is not a valid pattern")
 }
