@@ -492,6 +492,30 @@ func TestSidecarBackfill_MapToBlockmax_DoesNotDoubleCountTally(t *testing.T) {
 			"property must not double the BM25 tally SUM - got %d, want %d (pre-migration value, unchanged)", postSum, preSum)
 }
 
+// runMigrationAndFetchTally drives task through RunReindexOnlyOnShard,
+// RunPrepareOnShard, and RunSwapOnShard, asserts migrationCompleted fired
+// (via the *bool address of the wrapper's field - the wrapper types differ
+// per strategy, so callers pass &wrapped.migrationCompleted directly), and
+// returns the post-migration BM25 tally for propName. Shared "run the
+// migration to completion, then read back the tally" step between
+// TestSidecarBackfill_RebuildSearchable_DoesNotDoubleCountTally and
+// TestSidecarBackfill_EnableFilterableOverSearchableProp_DoesNotDoubleCountTally,
+// which diverge on which migration produces the already-searchable/
+// already-filterable source state and on the regression message they pin.
+func runMigrationAndFetchTally(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric, migrationCompleted *bool, propName string) (postSum, postCount int) {
+	t.Helper()
+
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+	require.True(t, *migrationCompleted)
+
+	postSum, postCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(propName)
+	require.NoError(t, err)
+
+	return postSum, postCount
+}
+
 // Same regression as TestSidecarBackfill_MapToBlockmax_DoesNotDoubleCountTally,
 // exercised against RebuildSearchableStrategy - a second strategy with a
 // nil AnalyzerOverlay, confirming the ForceSearchable gate isn't coupled to
@@ -506,13 +530,7 @@ func TestSidecarBackfill_RebuildSearchable_DoesNotDoubleCountTally(t *testing.T)
 		})
 
 	task, wrapped := newRebuildSearchableTask(t, idx, shard.Index().Config.ClassName.String(), sidecarBackfillTextProp)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-	require.True(t, wrapped.migrationCompleted)
-
-	postSum, postCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
-	require.NoError(t, err)
+	postSum, postCount := runMigrationAndFetchTally(t, ctx, shard, task, &wrapped.migrationCompleted, sidecarBackfillTextProp)
 
 	assert.Equal(t, preCount, postCount,
 		"BUG regression check (gh#322): RebuildSearchable must not double the BM25 "+
@@ -538,13 +556,7 @@ func TestSidecarBackfill_EnableFilterableOverSearchableProp_DoesNotDoubleCountTa
 		})
 
 	task, wrapped := newEnableFilterableTask(t, idx, shard.Index().Config.ClassName.String(), sidecarBackfillTextProp)
-	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-	require.True(t, wrapped.migrationCompleted)
-
-	postSum, postCount, _, err := shard.GetPropertyLengthTracker().PropertyTally(sidecarBackfillTextProp)
-	require.NoError(t, err)
+	postSum, postCount := runMigrationAndFetchTally(t, ctx, shard, task, &wrapped.migrationCompleted, sidecarBackfillTextProp)
 
 	assert.Equal(t, preCount, postCount,
 		"BUG regression check (gh#322): enable-filterable over an already-searchable "+
@@ -599,19 +611,17 @@ func TestSidecarBackfill_EnableSearchable_TallyDurableAcrossRestart(t *testing.T
 		"BM25 avgdl (prop-length mean) must survive a restart immediately after a completed enable-searchable migration")
 }
 
-// newBackfilledEnableSearchableFixture builds a shard with a live
-// filterable index (Filterable=true, Searchable=false - so AnalyzeObject
-// doesn't gate the prop out of the double-write callback machinery for
-// from-scratch writes), numObjects pre-existing text objects, and an
-// EnableSearchableStrategy task through RunReindexOnlyOnShard +
-// RunPrepareOnShard. recomputeSearchableTallyForProp only runs inside
-// RunSwapOnShard (see its call site), so stopping here leaves the tally
-// untouched - callers needing a pre-swap sanity check on the tally, or a
-// pre-swap hook on the task, may do so before driving RunSwapOnShard
-// themselves. Shared by the swap-window, tidy-window-race, and
-// mid-tidy-tally crash-recovery suites in sibling files.
-func newBackfilledEnableSearchableFixture(t *testing.T, ctx context.Context, classNamePrefix string, numObjects int,
-) (shard *Shard, idx *Index, task *ShardReindexTaskGeneric, wrapped *testEnableSearchableStrategyWrapper, objects []*storobj.Object) {
+// newSidecarBackfillFilterableOnlyShardWithObjects builds a shard with a
+// live filterable index (Filterable=true, Searchable=false - so
+// AnalyzeObject doesn't gate the prop out of the double-write callback
+// machinery for from-scratch writes) and numObjects pre-existing text
+// objects. The common "class + shard + object seeding" step shared by
+// newBackfilledEnableSearchableFixture and
+// newSidecarBackfillSearchableCallbackFixture, which diverge on how far
+// they then drive the reindex task (stop after RunPrepareOnShard vs run one
+// recompute with callbacks left active).
+func newSidecarBackfillFilterableOnlyShardWithObjects(t *testing.T, ctx context.Context, classNamePrefix string, numObjects int,
+) (shard *Shard, idx *Index, objects []*storobj.Object) {
 	t.Helper()
 
 	className := classNamePrefix + "_" + uuid.NewString()[:8]
@@ -626,11 +636,65 @@ func newBackfilledEnableSearchableFixture(t *testing.T, ctx context.Context, cla
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
+	return shard, idx, objects
+}
+
+// newBackfilledEnableSearchableFixture builds on
+// newSidecarBackfillFilterableOnlyShardWithObjects, driving an
+// EnableSearchableStrategy task through RunReindexOnlyOnShard +
+// RunPrepareOnShard. recomputeSearchableTallyForProp only runs inside
+// RunSwapOnShard (see its call site), so stopping here leaves the tally
+// untouched - callers needing a pre-swap sanity check on the tally, or a
+// pre-swap hook on the task, may do so before driving RunSwapOnShard
+// themselves. Shared by the swap-window, tidy-window-race, and
+// mid-tidy-tally crash-recovery suites in sibling files.
+func newBackfilledEnableSearchableFixture(t *testing.T, ctx context.Context, classNamePrefix string, numObjects int,
+) (shard *Shard, idx *Index, task *ShardReindexTaskGeneric, wrapped *testEnableSearchableStrategyWrapper, objects []*storobj.Object) {
+	t.Helper()
+
+	shard, idx, objects = newSidecarBackfillFilterableOnlyShardWithObjects(t, ctx, classNamePrefix, numObjects)
+	className := shard.Index().Config.ClassName.String()
+
 	task, wrapped = newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
 	return shard, idx, task, wrapped, objects
+}
+
+// replayCrashRecoveryToSwappedNotTidied drives a real EnableSearchable
+// migration to completion on a freshly backfilled fixture, synthesizes a
+// crash between markSwapped and markTidied (synthesizeSwappedNotTidied,
+// `inverted_reindex_crash_recovery_mid_tidy_tally_test.go`), then simulates
+// a restart: a fresh task2 instance whose OnAfterLsmInit re-establishes the
+// crash-recovery bookkeeping and sanity-checks task2's tracker still
+// reports IsSwapped()&&!IsTidied(). This is the exact replay window both
+// weaviate/weaviate#12221's tidy-window-race (finding N1,
+// `inverted_reindex_recovery_tidy_window_race_test.go`) and mid-tidy-tally
+// (finding 2, `inverted_reindex_crash_recovery_mid_tidy_tally_test.go`)
+// regressions are driven from. Callers dispatch their own RunSwapOnShard
+// call on task2 and inline their divergent assertions.
+func replayCrashRecoveryToSwappedNotTidied(t *testing.T, ctx context.Context, classNamePrefix string, numObjects int,
+) (shard *Shard, idx *Index, task2 *ShardReindexTaskGeneric, wrapped2 *testEnableSearchableStrategyWrapper, className string) {
+	t.Helper()
+
+	shard, idx, task, wrapped, _ := newBackfilledEnableSearchableFixture(t, ctx, classNamePrefix, numObjects)
+	className = shard.Index().Config.ClassName.String()
+
+	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+	require.True(t, wrapped.migrationCompleted)
+
+	synthesizeSwappedNotTidied(t, shard, task)
+
+	task2, wrapped2 = newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
+	require.NoError(t, task2.OnAfterLsmInit(ctx, shard))
+
+	rt2, err := task2.newReindexTracker(shard.pathLSM())
+	require.NoError(t, err)
+	require.True(t, rt2.IsSwapped(), "sanity: must still report swapped")
+	require.False(t, rt2.IsTidied(), "sanity: must still be inside the crash-recovery window this bug targets")
+
+	return shard, idx, task2, wrapped2, className
 }
 
 // Pins the residual window where a write lands after the backfill flush but
@@ -762,26 +826,17 @@ func TestSidecarBackfill_EnableSearchable_SecondRecomputeConvergesResidualWindow
 // between the recompute and disableCallbacks was searchable but excluded
 // from avgdl until trackMigratingPropLength/untrackMigratingPropLength closed it.
 
-// newSidecarBackfillSearchableCallbackFixture builds a shard with a live
-// filterable index (so the double-write callback machinery engages),
-// numObjects pre-existing text objects, the backfill phase run with
-// callbacks left active, and one recompute already performed to establish
-// the "recompute ran, callbacks still active" baseline.
+// newSidecarBackfillSearchableCallbackFixture builds on
+// newSidecarBackfillFilterableOnlyShardWithObjects (so the double-write
+// callback machinery engages), runs the backfill phase with callbacks left
+// active, and performs one recompute to establish the "recompute ran,
+// callbacks still active" baseline.
 func newSidecarBackfillSearchableCallbackFixture(t *testing.T, ctx context.Context, classNamePrefix string, numObjects int,
 ) (shard *Shard, task *ShardReindexTaskGeneric, objects []*storobj.Object, firstSum, firstCount int) {
 	t.Helper()
 
-	className := classNamePrefix + "_" + uuid.NewString()[:8]
-	vFalse, vTrue := false, true
-	class := newSidecarBackfillTextClass(className, &vTrue, &vFalse)
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
-	shard = shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	objects = sidecarBackfillTextObjects(className, numObjects, 0)
-	for _, obj := range objects {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	shard, idx, objects := newSidecarBackfillFilterableOnlyShardWithObjects(t, ctx, classNamePrefix, numObjects)
+	className := shard.Index().Config.ClassName.String()
 
 	task, _ = newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))

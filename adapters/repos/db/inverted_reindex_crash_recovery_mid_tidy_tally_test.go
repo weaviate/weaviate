@@ -18,8 +18,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Pins weaviate/weaviate#12221 finding 2: OnAfterLsmInit's
@@ -58,25 +56,12 @@ func TestReindex_EnableSearchable_CrashRecoveryMidTidy_LeakedCallbackDoubleTalli
 	const numObjects = 20
 	ctx := testCtx()
 
-	shard, idx, task, wrapped, _ := newBackfilledEnableSearchableFixture(t, ctx, "EnableSearchableCrashMidTidy", numObjects)
-	className := shard.Index().Config.ClassName.String()
-
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
-	require.True(t, wrapped.migrationCompleted)
-
-	synthesizeSwappedNotTidied(t, shard, task)
-
-	// Simulated restart: a fresh task instance, callback registration state
-	// starts empty. shardReindexerV3RecoveryOnly.RunBeforeLsmInit is a
-	// documented no-op for DTM-driven semantic migrations, so only
-	// OnAfterLsmInit runs here - never OnBeforeLsmInit.
-	task2, wrapped2 := newEnableSearchableTask(t, idx, className, sidecarBackfillTextProp, models.PropertyTokenizationWord)
-	require.NoError(t, task2.OnAfterLsmInit(ctx, shard))
-
-	rt2, err := task2.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt2.IsSwapped(), "sanity: must still report swapped")
-	require.False(t, rt2.IsTidied(), "sanity: must still be inside the crash-recovery window this bug targets")
+	// Fresh task2 instance replaying a crash between markSwapped and
+	// markTidied, callback registration state starting empty.
+	// shardReindexerV3RecoveryOnly.RunBeforeLsmInit is a documented no-op
+	// for DTM-driven semantic migrations, so only OnAfterLsmInit runs here
+	// - never OnBeforeLsmInit.
+	shard, idx, task2, wrapped2, className := replayCrashRecoveryToSwappedNotTidied(t, ctx, "EnableSearchableCrashMidTidy", numObjects)
 
 	// The real recovery dispatch: ReindexProvider.OnGroupCompleted calls
 	// RunSwapOnShard on the SAME (recovered) task instance.
