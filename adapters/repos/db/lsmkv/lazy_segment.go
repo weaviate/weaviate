@@ -244,6 +244,11 @@ func (s *lazySegment) markForDeletion() error {
 	return s.segment.markForDeletion()
 }
 
+func (s *lazySegment) markForDeletionExceptSegment() error {
+	s.mustLoad()
+	return s.segment.markForDeletionExceptSegment()
+}
+
 func (s *lazySegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error) {
 	s.mustLoad()
 	return s.segment.MergeTombstones(other)
