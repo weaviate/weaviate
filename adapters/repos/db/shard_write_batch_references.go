@@ -137,9 +137,11 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		// The merge above bumped the object past a live reindex watermark; mirror
 		// its co-located props so the backfill scan's skip stays lossless.
 		if err := b.mirrorColocatedPropsForReindex(res); err != nil {
-			errLock.Lock()
-			errs[i] = err
-			errLock.Unlock()
+			func() {
+				errLock.Lock()
+				defer errLock.Unlock()
+				errs[i] = err
+			}()
 			continue
 		}
 
