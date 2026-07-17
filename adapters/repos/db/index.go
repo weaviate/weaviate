@@ -491,7 +491,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				return nil
 			default:
 				// avoid footprint of empty shards
-				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+				if i.keepEmptyShardUnloaded(shardName) {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
@@ -585,6 +585,14 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 	return err == nil && count == 0
 }
 
+// keepEmptyShardUnloaded reports whether a locally-empty tenant shard may stay
+// unloaded to save memory. With async replication on it must not: a shard empty
+// on this node may hold data on replicas (e.g. writes missed while this node was
+// down), and only loading it starts the per-shard hashbeater that converges it.
+func (i *Index) keepEmptyShardUnloaded(shardName string) bool {
+	return i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) && !i.AsyncReplicationEnabled()
+}
+
 func (i *Index) loadLocalShardIfActive(shardName string) error {
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
@@ -598,7 +606,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 	lazyShard, ok := shard.(*LazyLoadShard)
 	if ok {
 		// avoid footprint of empty shards
-		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+		if i.keepEmptyShardUnloaded(shardName) {
 			return nil
 		}
 		return lazyShard.Load(context.Background())
