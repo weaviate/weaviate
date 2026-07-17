@@ -177,17 +177,24 @@ func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 // cancel out arithmetically, so
 // len(next.Items) - len(prev.Items) == len(toAdd.Items) - len(toDel.Items).
 //
-// untrackMigratingPropLength additionally guards against
-// UnTrackProperty's "property not found" error for a prop that has not
-// yet been seeded by any recompute (e.g. an update landing during the
-// backfill/prepare phase, before the swap-time recompute has run even
-// once for this shard) - UnTrackProperty mutates Sum/Count BEFORE
-// returning that error (see JsonShardMetaData.UnTrackProperty), so
-// calling it unconditionally would corrupt the tally instead of leaving
-// it untouched. PropertyTally's read-only presence check avoids that by
-// construction; skipping the untrack in that window is safe because any
-// state accumulated before the recompute is discarded wholesale by its
-// ResetProperty call.
+// untrackMigratingPropLength additionally guards against untracking a prop
+// that has not yet been seeded by any recompute (e.g. an update landing
+// during the backfill/prepare phase, before the swap-time recompute has run
+// even once for this shard), by calling
+// JsonShardMetaData.UnTrackPropertyIfPresent - a single-lock-acquisition
+// presence-check-and-untrack - instead of composing a separate PropertyTally
+// pre-check with UnTrackProperty. The two-call composition is genuinely
+// concurrent with Shard.recomputeSearchableTallyForProp's ResetProperty
+// (registered before backfill starts, only disabled by runtimeSwap's
+// deferred disableCallbacks call - see that function's godoc): a delete
+// landing between the pre-check and UnTrackProperty's own mutation can race
+// ResetProperty deleting the property in between, so UnTrackProperty
+// decrements Sum/Count on now-absent keys before its own presence check (on
+// BucketedData) returns "property not found" - corrupting the tally instead
+// of leaving it untouched. UnTrackPropertyIfPresent closes that window by
+// construction (one lock acquisition, no separate pre-check); skipping the
+// untrack when absent is safe because any state accumulated before the
+// recompute is discarded wholesale by its ResetProperty call.
 func trackMigratingPropLength(shard *Shard, propsByName map[string]struct{}, property *inverted.Property) error {
 	if _, ok := propsByName[property.Name]; !ok {
 		return nil
@@ -208,13 +215,7 @@ func untrackMigratingPropLength(shard *Shard, propsByName map[string]struct{}, p
 	if property.Length <= 0 {
 		return nil
 	}
-	tracker := shard.GetPropertyLengthTracker()
-	if _, count, _, err := tracker.PropertyTally(property.Name); err != nil {
-		return fmt.Errorf("checking BM25 tally presence for migrating prop %q: %w", property.Name, err)
-	} else if count == 0 {
-		return nil
-	}
-	if err := tracker.UnTrackProperty(property.Name, float32(len(property.Items))); err != nil {
+	if _, err := shard.GetPropertyLengthTracker().UnTrackPropertyIfPresent(property.Name, float32(len(property.Items))); err != nil {
 		return fmt.Errorf("untracking BM25 tally for migrating prop %q: %w", property.Name, err)
 	}
 	return nil
