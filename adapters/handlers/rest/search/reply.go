@@ -28,7 +28,7 @@ import (
 // models.SearchResponse envelope: per hit the always-present object id, the
 // selected non-reference properties under "properties", reference selections
 // under "references" and the requested retrieval metadata under "metadata",
-// plus took_ms. Vectors are never returned; there is no count field.
+// plus tookMs. Vectors are never returned; there is no count field.
 func buildResponse(res []any, params dto.GetParams, took time.Duration) (*models.SearchResponse, error) {
 	results := make([]*models.SearchResultObject, len(res))
 	for i, raw := range res {
