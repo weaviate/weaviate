@@ -25,7 +25,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 )
 
@@ -76,19 +75,7 @@ func TestMultiNode_EnableRangeable_WriteDuringTailLandsInRangeableIndex(t *testi
 	// only) the writes this test injected.
 	const tailSentinelBase = 9_000_000
 
-	trueVal, falseVal := true, false
-	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
-		{Name: "name", DataType: []string{"text"}},
-		{
-			Name:              propName,
-			DataType:          []string{"int"},
-			IndexFilterable:   &trueVal,
-			IndexRangeFilters: &falseVal,
-		},
-	})
-	defer deleteCollection(t, restURIOf(compose, 1), className)
-
-	batchImportNumeric(t, restURIOf(compose, 1), className, totalObjects, func(i int) int { return i })
+	defer createPreMigrationScoreCollection(t, compose, className, propName, totalObjects)()
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURIOf(compose, 1), className, propName,
 		`{"rangeable":{"enabled":true}}`)

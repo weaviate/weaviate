@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -65,27 +64,8 @@ func newLiveFilterableToRangeableTask(t *testing.T, idx *Index, className, propN
 		propNames:  []string{propName},
 		generation: 1,
 	}
-	selectedProps := map[string]struct{}{propName: {}}
-	cfg := reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
-		concurrency:                   2,
-		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
-		processingDuration:            10 * time.Minute,
-		pauseDuration:                 1 * time.Second,
-		checkProcessingEveryNoObjects: 1000,
-
-		selectionEnabled: true,
-		selectedPropsByCollection: map[string]map[string]struct{}{
-			className: selectedProps,
-		},
-		selectedShardsByCollection: map[string]map[string]struct{}{
-			className: nil, // nil = all shards
-		},
-	}
 	return NewShardReindexTaskGeneric(
-		"FilterableToRangeable", idx.logger, strategy, cfg,
+		"FilterableToRangeable", idx.logger, strategy, filterableToRangeableTaskConfig(className, propName),
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
 }

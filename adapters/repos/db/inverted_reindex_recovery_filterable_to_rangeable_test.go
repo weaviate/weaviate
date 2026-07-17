@@ -179,8 +179,20 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 		},
 	}
 
-	selectedProps := map[string]struct{}{propName: {}}
-	cfg := reindexTaskConfig{
+	task := NewShardReindexTaskGeneric(
+		"FilterableToRangeable", idx.logger, wrapped, filterableToRangeableTaskConfig(className, propName),
+		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+	return task, wrapped
+}
+
+// filterableToRangeableTaskConfig builds the reindexTaskConfig shared by
+// every FilterableToRangeableStrategy test task, wrapped
+// ([newFilterableToRangeableTask]) or unwrapped/live
+// ([newLiveFilterableToRangeableTask]): swap+tidy enabled, selection
+// scoped to propName on className, all shards.
+func filterableToRangeableTaskConfig(className, propName string) reindexTaskConfig {
+	return reindexTaskConfig{
 		swapBuckets:                   true,
 		tidyBuckets:                   true,
 		concurrency:                   2,
@@ -192,18 +204,12 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 
 		selectionEnabled: true,
 		selectedPropsByCollection: map[string]map[string]struct{}{
-			className: selectedProps,
+			className: {propName: {}},
 		},
 		selectedShardsByCollection: map[string]map[string]struct{}{
 			className: nil, // nil = all shards
 		},
 	}
-
-	task := NewShardReindexTaskGeneric(
-		"FilterableToRangeable", idx.logger, wrapped, cfg,
-		&UuidKeyParser{}, uuidObjectsIteratorAsync,
-	)
-	return task, wrapped
 }
 
 // testFilterableToRangeableStrategyWrapper overrides OnMigrationComplete

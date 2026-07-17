@@ -229,6 +229,28 @@ func restURIOf(compose *docker.DockerCompose, nodeIdx int) string {
 	return compose.GetWeaviateNode(nodeIdx).URI()
 }
 
+// createPreMigrationScoreCollection is the shared enable-rangeable arrange
+// step for PR #12206's staggered-flip/write-during-tail tests: a
+// `name`+`propName` collection with propName pre-migration
+// (IndexFilterable=true, IndexRangeFilters=false), sequentially imported
+// with totalObjects objects via batchImportNumeric(i => i). Returns the
+// deleteCollection cleanup, which the caller must defer.
+func createPreMigrationScoreCollection(t *testing.T, compose *docker.DockerCompose, className, propName string, totalObjects int) func() {
+	t.Helper()
+	trueVal, falseVal := true, false
+	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, []*models.Property{
+		{Name: "name", DataType: []string{"text"}},
+		{
+			Name:              propName,
+			DataType:          []string{"int"},
+			IndexFilterable:   &trueVal,
+			IndexRangeFilters: &falseVal,
+		},
+	})
+	batchImportNumeric(t, restURIOf(compose, 1), className, totalObjects, func(i int) int { return i })
+	return func() { deleteCollection(t, restURIOf(compose, 1), className) }
+}
+
 // batchImportNumeric posts `total` objects in 200-object batches, each with
 // a unique `name` and a `score` produced by scoreFor(i). consistency_level=
 // ALL ensures the cluster is in a fully-replicated baseline state before
