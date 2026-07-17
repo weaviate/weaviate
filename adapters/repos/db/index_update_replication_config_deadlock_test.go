@@ -91,71 +91,101 @@ func TestUpdateReplicationConfig_SequentialWithLazyShard(t *testing.T) {
 	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
+// gateAllocChecker parks Load at CheckMappingAndReserve — inside Load's
+// critical section (shard mutex held, before its config read) — giving the
+// test a deterministic sync point.
+type gateAllocChecker struct {
+	entered chan struct{} // closed when Load reaches the gate
+	release chan struct{} // closed by the test to let Load continue
+}
+
+func (g gateAllocChecker) CheckAlloc(int64) error { return nil }
+
+func (g gateAllocChecker) CheckMappingAndReserve(int64, int) error {
+	close(g.entered)
+	<-g.release
+	return nil
+}
+
+func (g gateAllocChecker) Refresh(bool) {}
+
 // Pins the ABBA deadlock that wedged the RAFT FSM in prod (the UpdateClass
 // apply never returns, so raft.Shutdown hangs on runFSM):
 //
 //	updateReplicationConfig: holds replicationConfigLock (W) -> wants LazyLoadShard.mutex (isLoaded)
 //	LazyLoadShard.Load:      holds LazyLoadShard.mutex      -> wants replicationConfigLock (R via initNonVector)
+//
+// The interleaving is forced deterministically: Load is parked at the gate
+// with the shard mutex held; a test-held read lock queues the updater's write
+// (observable — a pending writer fails TryRLock); releasing both lets Load's
+// config read collide with the fan-out. Every sync point fails the test loudly
+// if it is not reached, so the test cannot pass without exercising the cycle.
 func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 	const (
-		attempts        = 5
+		syncTimeout     = 10 * time.Second
 		deadlockTimeout = 15 * time.Second
 	)
 	ctx := context.Background()
 
-	for attempt := 1; attempt <= attempts; attempt++ {
-		repo, index := newReplConfigDeadlockFixture(t, "ReplConfigDeadlock")
-		lazy := soleColdShard(t, index)
+	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigDeadlock")
+	lazy := soleColdShard(t, index)
 
-		loadDone := make(chan error, 1)
-		go func() { loadDone <- lazy.Load(ctx) }()
+	gate := gateAllocChecker{entered: make(chan struct{}), release: make(chan struct{})}
+	lazy.memMonitor = gate
 
-		// Load holds the shard mutex for its entire duration; wait until it does.
-		mutexHeld := false
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-			if !lazy.mutex.TryLock() {
-				mutexHeld = true
-				break
-			}
-			lazy.mutex.Unlock()
-			select {
-			case err := <-loadDone:
-				require.NoError(t, err)
-				deadline = time.Time{} // load finished before we saw the mutex: window missed
-			default:
-				runtime.Gosched()
-			}
-		}
-		if !mutexHeld {
-			require.NoError(t, repo.Shutdown(context.Background()))
-			continue
-		}
+	loadDone := make(chan error, 1)
+	go func() { loadDone <- lazy.Load(ctx) }()
 
-		updateDone := make(chan error, 1)
-		go func() {
-			updateDone <- index.updateReplicationConfig(ctx, &models.ReplicationConfig{
-				Factor:       1,
-				AsyncEnabled: true,
-			})
-		}()
-
-		loadOK, updateOK := false, false
-		timeout := time.After(deadlockTimeout)
-		for !loadOK || !updateOK {
-			select {
-			case err := <-loadDone:
-				require.NoError(t, err)
-				loadOK = true
-			case err := <-updateDone:
-				require.NoError(t, err)
-				updateOK = true
-			case <-timeout:
-				buf := make([]byte, 1<<22)
-				stacks := string(buf[:runtime.Stack(buf, true)])
-				t.Fatalf("deadlock reproduced on attempt %d: updateReplicationConfig and LazyLoadShard.Load wedged for %s (load done: %v, update done: %v).\n\ninvolved goroutines:\n\n%s",
-					attempt, deadlockTimeout, loadOK, updateOK, deadlockStacks(stacks))
-			}
-		}
-		require.NoError(t, repo.Shutdown(context.Background()))
+	select {
+	case <-gate.entered:
+	case <-time.After(syncTimeout):
+		t.Fatal("Load never reached the gate inside its critical section — the fixture no longer exercises the interleaving")
 	}
+
+	// Queue the updater behind a test-held read lock so its write-lock request
+	// is observably pending before Load is released.
+	index.replicationConfigLock.RLock()
+
+	updateDone := make(chan error, 1)
+	go func() {
+		updateDone <- index.updateReplicationConfig(ctx, &models.ReplicationConfig{
+			Factor:       1,
+			AsyncEnabled: true,
+		})
+	}()
+
+	writerQueued := false
+	for deadline := time.Now().Add(syncTimeout); time.Now().Before(deadline); {
+		if !index.replicationConfigLock.TryRLock() {
+			writerQueued = true // a pending writer blocks new readers
+			break
+		}
+		index.replicationConfigLock.RUnlock()
+		runtime.Gosched()
+	}
+	if !writerQueued {
+		index.replicationConfigLock.RUnlock()
+		t.Fatal("updateReplicationConfig never queued for the config write lock")
+	}
+	index.replicationConfigLock.RUnlock() // writer acquires the lock now
+	close(gate.release)                   // Load proceeds into its config read
+
+	loadOK, updateOK := false, false
+	timeout := time.After(deadlockTimeout)
+	for !loadOK || !updateOK {
+		select {
+		case err := <-loadDone:
+			require.NoError(t, err)
+			loadOK = true
+		case err := <-updateDone:
+			require.NoError(t, err)
+			updateOK = true
+		case <-timeout:
+			buf := make([]byte, 1<<22)
+			stacks := string(buf[:runtime.Stack(buf, true)])
+			t.Fatalf("deadlock: updateReplicationConfig and LazyLoadShard.Load wedged for %s (load done: %v, update done: %v).\n\ninvolved goroutines:\n\n%s",
+				deadlockTimeout, loadOK, updateOK, deadlockStacks(stacks))
+		}
+	}
+	require.NoError(t, repo.Shutdown(context.Background()))
 }
