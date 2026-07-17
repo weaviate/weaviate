@@ -252,7 +252,8 @@ func newRangeableRepPopulated(t *testing.T, logger logrus.FieldLogger, value, do
 
 func newRangeableDiskSegment(value, docID uint64) Segment {
 	return newFakeRoaringSetRangeSegment(
-		map[uint64]*sroar.Bitmap{value: roaringset.NewBitmap(docID)}, sroar.NewBitmap())
+		map[uint64]*sroar.Bitmap{value: roaringset.NewBitmap(docID)}, sroar.NewBitmap(),
+	)
 }
 
 func newRangeableBucket(logger logrus.FieldLogger, keepInMem, deferred bool,
@@ -349,7 +350,7 @@ func TestRoaringSetRangeDiskFallback(t *testing.T) {
 
 		assert.Equal(t, []uint64{200}, readEqual(t, b, value), "served from disk")
 		assert.Equal(t, 1, countLogLevel(hook, logrus.WarnLevel))
-		assert.Contains(t, hook.LastEntry().Message, "INV-RANGEABLE-REP-EQUALS-DISK")
+		assert.Contains(t, hook.LastEntry().Message, "rangeable in-memory index is empty")
 	})
 
 	t.Run("empty rep + no disk segments: no fallback, empty result, no WARN", func(t *testing.T) {

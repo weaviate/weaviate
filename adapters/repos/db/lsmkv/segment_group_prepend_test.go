@@ -709,9 +709,8 @@ func TestSegmentGroup_PrependSegments_RoaringSetRangeGuard(t *testing.T) {
 		err := tgt.PrependSegmentsFromBucket(ctx, srcDir)
 		require.Error(t, err)
 		require.ErrorIs(t, err, ErrPrependWouldDesyncInMemoryRep)
-		assert.Contains(t, err.Error(), "INV-RANGEABLE-REP-EQUALS-DISK")
+		assert.Contains(t, err.Error(), "active in-memory representation")
 		assert.Contains(t, err.Error(), "keepSegmentsInMemory=false")
-		assert.Contains(t, err.Error(), "GH#12199")
 
 		assert.Equal(t, segsBefore, tgt.disk.Len(), "segment list must be unmutated")
 		assert.Equal(t, filesBefore, countDBFiles(t, tgtDir), "no segment files may be copied")

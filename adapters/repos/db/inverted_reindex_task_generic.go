@@ -2405,18 +2405,17 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 	strategy := t.strategy.TargetStrategy()
 	bucketOpts := t.bucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
 
-	// GH#12199: mark only the ingest bucket - it becomes the main bucket after
-	// the swap and serves range reads from disk (rep forced off below).
-	// Reindex/backup buckets are torn down and never serve production reads.
+	// Mark only the ingest bucket - it becomes the main bucket after the swap
+	// and serves range reads from disk (rep forced off below). Reindex/backup
+	// buckets are torn down and never serve production reads. See
+	// weaviate/weaviate#12199.
 	if strategy == lsmkv.StrategyRoaringSetRange && shard.Index().Config.IndexRangeableInMemory {
 		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
 		logger.WithField("props", props).Info(
-			"INDEX_RANGEABLE_IN_MEMORY is on, but the enable-rangeable reindex opens its " +
-				"ingest buckets with keepSegmentsInMemory=false to avoid serving empty range " +
-				"results from an unpopulated in-memory representation (GH#12199). Range queries " +
-				"on these properties serve correctly from disk after the swap; the in-memory " +
-				"acceleration takes effect at the next bucket open (node restart, shard reload, " +
-				"or tenant reactivation).")
+			"rangeable properties are serving from disk during reindex ingest; " +
+				"in-memory acceleration resumes at the next bucket open (node " +
+				"restart, shard reload, or tenant reactivation).",
+		)
 	}
 
 	return t.loadBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
@@ -2582,7 +2581,8 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 ) []lsmkv.BucketOption {
 	cfg := shard.Index().Config
 
-	opts := shard.makeDefaultBucketOptions(strategy,
+	opts := shard.makeDefaultBucketOptions(
+		strategy,
 		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
 		lsmkv.WithKeepTombstones(keepTombstones),
 		// overwrite DynamicMemtableSizing

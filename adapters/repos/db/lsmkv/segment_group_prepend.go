@@ -29,12 +29,13 @@ import (
 
 // ErrPrependWouldDesyncInMemoryRep is returned by PrependSegmentsFromBucket when
 // the target RoaringSetRange group keeps an active in-memory rep: splicing would
-// desync it from disk (INV-RANGEABLE-REP-EQUALS-DISK) and silently serve
-// empty/partial range results (GH#12199). Open with keepSegmentsInMemory=false.
+// desync it from disk and silently serve empty/partial range results (see
+// weaviate/weaviate#12199). Open with keepSegmentsInMemory=false.
 var ErrPrependWouldDesyncInMemoryRep = errors.New(
 	"prepend segments: RoaringSetRange bucket has an active in-memory representation " +
-		"which this operation cannot maintain (INV-RANGEABLE-REP-EQUALS-DISK); " +
-		"open the bucket with keepSegmentsInMemory=false, or implement a full-rebuild merge - see GH#12199")
+		"which this operation cannot maintain; open the bucket with " +
+		"keepSegmentsInMemory=false, or implement a full-rebuild merge",
+)
 
 // PrependSegmentsFromBucket copies all segments from srcDir and atomically
 // prepends them into this SegmentGroup's segment list. The copied segments
@@ -60,8 +61,10 @@ var ErrPrependWouldDesyncInMemoryRep = errors.New(
 //
 //	Replace         -> rejected (countNetAdditions not recalculable)
 //	Inverted        -> maintained (avgPropertyLengths, below)
-//	RoaringSetRange -> guarded (rep desync would be silent; see the guard below
-//	                   and INV-RANGEABLE-REP-EQUALS-DISK / GH#12199)
+//	RoaringSetRange -> guarded: the in-memory rep must always mirror what's on
+//	                   disk, and this splice can't maintain that invariant, so
+//	                   it's rejected outright (see the guard below and
+//	                   weaviate/weaviate#12199)
 //	RoaringSet, SetCollection, MapCollection -> no segment-group-level derived
 //	                   state exists on this tree, so nothing to maintain
 func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
@@ -73,10 +76,11 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 
 	// Step 1b: reject splicing into a RoaringSetRange group with an active
 	// in-memory rep - an incremental older-onto-newer merge could let a stale
-	// value win, and an unrebuilt rep silently serves empty/partial results
-	// (INV-RANGEABLE-REP-EQUALS-DISK, GH#12199). Reject before any copy/splice
-	// so the failure is clean. The rep pointer is set once in newSegmentGroup and
-	// never reassigned, so this read needs no lock.
+	// value win, and an unrebuilt rep silently serves empty/partial results,
+	// breaking the invariant that the rep always mirrors disk (see
+	// weaviate/weaviate#12199). Reject before any copy/splice so the failure is
+	// clean. The rep pointer is set once in newSegmentGroup and never
+	// reassigned, so this read needs no lock.
 	if sg.strategy == StrategyRoaringSetRange && sg.roaringSetRangeSegmentInMemory != nil {
 		return fmt.Errorf("%w (bucket=%s)", ErrPrependWouldDesyncInMemoryRep, filepath.Base(sg.dir))
 	}

@@ -59,22 +59,21 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
 	if b.keepSegmentsInMemory {
-		// (c) GH#12199: rep unpopulated but disk segments exist means the rep is
-		// out of sync with disk (mass-delete or a rep-population gap) - fall back
-		// to the always-correct disk reader and WARN once. Check emptiness first
-		// so the populated hot path only pays one IsEmpty() under the rep's own
-		// RLock and never touches maintenanceLock; the two locks are never held
-		// together.
+		// The in-memory rep must always mirror what's on disk (see
+		// weaviate/weaviate#12199). If it's unpopulated while disk segments
+		// exist, the rep is out of sync (mass-delete, or a rep-population gap):
+		// fall back to the always-correct disk reader and warn once. Check
+		// emptiness first so the populated hot path only pays one IsEmpty()
+		// under the rep's own RLock and never touches maintenanceLock; the two
+		// locks are never held together.
 		if b.disk.roaringSetRangeSegmentInMemory.IsUnpopulated() {
 			if n := b.disk.roaringSetRangeDiskSegmentCount(); n > 0 {
 				b.rangeableFallbackWarnOnce.Do(func() {
 					b.logger.WithField("bucket", b.dir).Warnf(
-						"rangeable in-memory representation is empty but %d disk segment(s) "+
-							"exist; falling back to the disk range reader "+
-							"(INV-RANGEABLE-REP-EQUALS-DISK). Results remain correct. This may "+
-							"indicate a mass deletion of the indexed property or a rep-population "+
-							"gap; restart the node or reload the shard to rebuild the in-memory "+
-							"representation (GH#12199).", n)
+						"rangeable in-memory index is empty but %d disk segment(s) exist; "+
+							"serving from disk (results remain correct). Reload the shard or "+
+							"restart the node to rebuild the in-memory index.", n,
+					)
 				})
 				// Benign TOCTOU: the rep only empties via mass-delete, and the
 				// disk path is a correct superset either way.
@@ -87,16 +86,17 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 }
 
 func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
-	// GH#12199: bucket marked deferred means keepSegmentsInMemory was forced off
-	// while the global knob is on (reindex ingest path). Emit the diagnostic once
-	// per bucket-open at the first range read; the marker gates only this log
-	// line, never read-path selection.
+	// A bucket marked deferred had keepSegmentsInMemory forced off while the
+	// global knob is on (reindex ingest path, see loadIngestBuckets). Emit the
+	// diagnostic once per bucket-open at the first range read; the marker gates
+	// only this log line, never read-path selection.
 	if b.rangeableInMemoryDeferred {
 		b.rangeableDeferredLogOnce.Do(func() {
 			b.logger.WithField("bucket", b.dir).Info(
-				"rangeable property serving from disk; in-memory knob deferred until next " +
-					"reload (GH#12199). Restart the node or reload the shard to rebuild the " +
-					"in-memory representation and resume in-memory acceleration.")
+				"rangeable property serving from disk; in-memory acceleration " +
+					"deferred until the shard is reloaded. Reload the shard or " +
+					"restart the node to rebuild the in-memory index.",
+			)
 		})
 	}
 

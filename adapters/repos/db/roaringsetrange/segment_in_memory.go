@@ -124,19 +124,15 @@ func (s *SegmentInMemory) countPendingMemtables() int {
 	return len(s.memtables)
 }
 
-// IsUnpopulated reports whether the rep would return no rows for any query:
-// presence set (bitmaps[0]) is empty AND no pending flushed-memtables are
-// queued for merge. This is the emptiness discriminant for the disk-fallback
-// decision (GH#12199).
+// IsUnpopulated reports whether the rep would serve any rows: the presence
+// set (bitmaps[0]) is empty and no flushed memtables are queued for merge.
+// Size() can't be used instead - an unpopulated rep still allocates 65 empty
+// bitmap skeletons. Checking pending memtables too avoids a false positive in
+// the post-flush window where bitmaps[0] is briefly empty but Readers()
+// already serves the queued data.
 //
-// Size() is not usable: an unpopulated rep still allocates 65 bitmap skeletons
-// with non-zero byte size. The pending-memtable check avoids a false-positive
-// fallback in the transient post-flush window where bitmaps[0] is briefly empty
-// but Readers() already serves the data from the pending-memtable queue; a
-// genuine desync (prepend-bypass bug, mass-delete) has both empty.
-//
-// Locks bitmapsLock then memtablesLock (Readers()'s order). Callers must never
-// hold either alongside the segment group's maintenanceLock.
+// Locks bitmapsLock then memtablesLock (matches Readers()'s order). Callers
+// must never hold either alongside the segment group's maintenanceLock.
 func (s *SegmentInMemory) IsUnpopulated() bool {
 	s.bitmapsLock.RLock()
 	defer s.bitmapsLock.RUnlock()

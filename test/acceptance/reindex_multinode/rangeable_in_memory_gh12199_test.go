@@ -60,12 +60,13 @@ import (
 //     errors).
 //   - option-(a) trap -> the fold-order value-integrity unit test.
 const (
-	deferredINFOSubstr = "in-memory knob deferred until next reload"
-	fallbackWARNSubstr = "falling back to the disk range reader"
+	deferredINFOSubstr = "in-memory acceleration deferred until the shard is reloaded"
+	fallbackWARNSubstr = "rangeable in-memory index is empty"
 )
 
 // countInLogs returns the number of lines in a container's logs that contain
-// substr. Used to assert presence/absence of the two GH#12199 log signals.
+// substr. Used to assert presence/absence of the two weaviate/weaviate#12199
+// log signals.
 func countInLogs(ctx context.Context, t *testing.T, c interface {
 	Logs(context.Context) (io.ReadCloser, error)
 }, substr string,
@@ -163,13 +164,13 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	// settle.
 	awaitRangeCountSettledNoFallback(ctx, t, container, restURI, className,
 		gh12199RangeLo, gh12199RangeHi, gh12199Baseline,
-		"GH#12199: post-swap range count must equal golden %d WITHOUT restart", gh12199Baseline,
-		"(c) disk-fallback WARN must not fire on the fixed path (WARN present => (b) AND guard both reverted, empty rep served, GH#12199)")
+		"weaviate/weaviate#12199: post-swap range count must equal golden %d WITHOUT restart", gh12199Baseline,
+		"(c) disk-fallback WARN must not fire on the fixed path (WARN present => (b) AND guard both reverted, empty rep served, weaviate/weaviate#12199)")
 
 	// (3) The deferred-serving INFO must be present - only the (b) marker path
 	// sets the marker (see revert-probe mapping above).
 	assert.Positive(t, countInLogs(ctx, t, container, deferredINFOSubstr),
-		"deferred-serving INFO must fire post-swap (marker set + first disk read); absence => (b) marker not applied, GH#12199")
+		"deferred-serving INFO must fire post-swap (marker set + first disk read); absence => (b) marker not applied, weaviate/weaviate#12199")
 
 	// --- Post-restart in-memory hand-off case ---
 	// After restart, boot-time population rebuilds the in-memory rep from disk,
@@ -219,7 +220,7 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 	counters, stopCh, wg := startRangeCountPolling(compose, className,
 		gh12199RangeLo, gh12199RangeHi, gh12199Baseline, 3,
 		func(nodeIdx, got int) {
-			t.Logf("GH#12199 in-flight divergence: node %d returned %d (expected %d)", nodeIdx, got, gh12199Baseline)
+			t.Logf("weaviate/weaviate#12199 in-flight divergence: node %d returned %d (expected %d)", nodeIdx, got, gh12199Baseline)
 		}, nil)
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURIOf(compose, 1), className, "score",
@@ -257,7 +258,7 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 	}
 
 	assert.Zero(t, counters.wrongCounts.Load(),
-		"GH#12199: zero silent-wrong range counts during the in-flight enable-rangeable "+
+		"weaviate/weaviate#12199: zero silent-wrong range counts during the in-flight enable-rangeable "+
 			"window with INDEX_RANGEABLE_IN_MEMORY=true. A non-zero count means a replica "+
 			"served from an empty in-memory rep instead of the disk path.")
 }
@@ -312,9 +313,15 @@ func TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, moverCount, c, "pre-migration movers at oldValue")
 
-	// Start the migration, then overwrite the movers to newValue WHILE it runs.
+	// Start the migration, then wait for it to reach a live state before
+	// overwriting the movers. SubmitIndexUpdate is asynchronous: posting the
+	// updates immediately risks them landing before the task has even started,
+	// which would let the backfill simply read newValue and pass without
+	// exercising the double-write / fold-order scenario this test targets.
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
 		`{"rangeable":{"enabled":true}}`)
+	reindexhelpers.AwaitReindexLive(t, restURI, taskID)
+
 	updates := make([]map[string]interface{}, 0, moverCount)
 	for i := 0; i < moverCount; i++ {
 		updates = append(updates, map[string]interface{}{
