@@ -69,13 +69,13 @@ func (s *RebuildSearchableStrategy) ShouldProcessProperty(_ *inverted.Property) 
 func (s *RebuildSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, _ bool,
 ) onAddToPropertyValueIndex {
-	return blockmaxSearchableAddCallback(bucketNamer, propsByName)
+	return blockmaxSearchableAddCallback(bucketNamer, s.SourceBucketName, propsByName)
 }
 
 func (s *RebuildSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, _ bool,
 ) onDeleteFromPropertyValueIndex {
-	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName)
+	return blockmaxSearchableDeleteCallback(bucketNamer, s.SourceBucketName, propsByName)
 }
 
 // PreReindexHook is a no-op — the target BlockMax bucket already exists

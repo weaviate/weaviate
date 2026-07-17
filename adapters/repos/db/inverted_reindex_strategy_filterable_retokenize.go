@@ -112,7 +112,11 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		// bucketName can stop resolving mid-migration (runtimeSwap's
+		// Store.SwapBucketPointer renames it to s.SourceBucketName while
+		// this callback is still registered); see resolveDoubleWriteBucket
+		// for the invariant that makes the fallback safe.
+		bucket := resolveDoubleWriteBucket(shard.store, bucketName, s.SourceBucketName(property.Name))
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
@@ -150,7 +154,11 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 		}
 
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		// bucketName can stop resolving mid-migration (runtimeSwap's
+		// Store.SwapBucketPointer renames it to s.SourceBucketName while
+		// this callback is still registered); see resolveDoubleWriteBucket
+		// for the invariant that makes the fallback safe.
+		bucket := resolveDoubleWriteBucket(shard.store, bucketName, s.SourceBucketName(property.Name))
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {

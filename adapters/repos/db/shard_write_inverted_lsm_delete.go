@@ -112,6 +112,9 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
+	if bucket == nil {
+		return fmt.Errorf("shard: no bucket to delete inverted item '%s' docID %d from", item.Data, docID)
+	}
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyInverted)
 
 	docIDBytes := make([]byte, 8)
@@ -159,6 +162,9 @@ func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNul
 }
 
 func (s *Shard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+	if bucket == nil {
+		return fmt.Errorf("shard: no bucket to delete set prop '%s' docID %d from", key, docID)
+	}
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
@@ -171,7 +177,13 @@ func (s *Shard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, 
 	return bucket.RoaringSetRemoveOne(key, docID)
 }
 
+// deleteFromPropertyRangeBucket is the delete-side sibling of
+// addToPropertyRangeBucket; same nil-receiver hardening, same rationale
+// (GH weaviate/weaviate#12206).
 func (s *Shard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+	if bucket == nil {
+		return fmt.Errorf("shard: no rangeable bucket to delete docID %d from", docID)
+	}
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyRoaringSetRange)
 
 	if len(key) != 8 {
