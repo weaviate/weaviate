@@ -312,6 +312,8 @@ func asyncCheckpointErrorToGRPC(err error) error {
 		return status.Errorf(codes.AlreadyExists, "%v", err)
 	case errors.Is(err, replica.ErrAsyncReplicationNotActive):
 		return status.Errorf(codes.FailedPrecondition, "%v", err)
+	case errors.Is(err, replica.ErrAsyncCheckpointCutoffInPast):
+		return status.Errorf(codes.FailedPrecondition, "%v", err)
 	}
 	return status.Errorf(codes.Internal, "%v", err)
 }

@@ -23,15 +23,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
-	docID uint64,
+	docID uint64, st *propValueIndexState,
 ) error {
 	for _, prop := range props {
-		if err := s.addToPropertyValueIndex(docID, prop); err != nil {
+		if err := s.addToPropertyValueIndex(docID, prop, st); err != nil {
 			return err
 		}
 
@@ -72,7 +71,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 	return nil
 }
 
-func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
+func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property, st *propValueIndexState) error {
 	if property.HasFilterableIndex {
 		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
 		if bucketValue == nil {
@@ -127,8 +126,12 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
-	if err := s.onAddToPropertyValueIndex(docID, &property); err != nil {
-		return err
+	// Scope props are suppressed here; migrationDoubleWrite fires them under
+	// the TARGET analysis instead of this source-schema view.
+	if _, migrating := st.scope.props[property.Name]; !migrating {
+		if err := s.fireAddToPropertyValueIndex(st, docID, &property); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -309,37 +312,6 @@ func (s *Shard) resetDimensionsLSM(ctx context.Context) error {
 		return errors.Wrap(err, "replace dimensions bucket")
 	}
 
-	return nil
-}
-
-func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Property) error {
-	callbacks, _ := s.callbacksAddToPropertyValueIndex.Load().([]onAddToPropertyValueIndex)
-	ec := errorcompounder.New()
-	for _, cb := range callbacks {
-		ec.Add(cb(s, docID, property))
-	}
-	return ec.ToError()
-}
-
-// hasActiveReindexMirror reports whether co-located props need mirroring for
-// an in-flight reindex.
-func (s *Shard) hasActiveReindexMirror() bool {
-	return s.activeAddToPropertyValueIndexCallbacks.Load() > 0
-}
-
-// mirrorPropsIntoReindexIngest re-fires the add-to-property-value-index
-// callbacks so writes that bypass full re-analysis (batch refs, delta
-// merges) don't let an in-flight reindex's backfill scan skip an object
-// with its target value never mirrored (weaviate/0-weaviate-issues#318).
-func (s *Shard) mirrorPropsIntoReindexIngest(docID uint64, props []inverted.Property) error {
-	if !s.hasActiveReindexMirror() {
-		return nil
-	}
-	for i := range props {
-		if err := s.onAddToPropertyValueIndex(docID, &props[i]); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 

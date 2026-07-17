@@ -174,19 +174,34 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 	return errs
 }
 
-// mirrorColocatedPropsForReindex mirrors the merged object's props for any
-// in-flight reindex. Batch-ref writes only touch their own buckets, so this
-// prevents the backfill scan from skipping an object whose co-located target
-// value was never re-indexed (weaviate/0-weaviate-issues#318).
+// mirrorColocatedPropsForReindex mirrors the merged object's scope-property
+// postings into any in-flight reindex ingest bucket. The batch-ref writers
+// touch only the reference's own buckets and never funnel through
+// updateInvertedIndexLSM's migrationDoubleWrite, so without this a reindex of a
+// co-located primitive property loses the object: mutableMergeObjectLSM bumps
+// its LastUpdateTimeUnix past the reindex watermark, the backfill scan skips it,
+// yet its target value was never mirrored (weaviate/0-weaviate-issues#318).
+//
+// Analyzes under the TARGET overlay and fires only scope props — exactly what
+// migrationDoubleWrite's add leg does on the object write path — so a
+// retokenizing migration mirrors target-tokenized terms (not source-tokenized)
+// into the ingest bucket (weaviate/0-weaviate-issues#298). No-op when no
+// migration scope is armed.
 func (b *referencesBatcher) mirrorColocatedPropsForReindex(res mutableMergeResult) error {
-	if !b.shard.hasActiveReindexMirror() {
+	st := b.shard.loadPropValueIndexState()
+	if len(st.scope.props) == 0 {
 		return nil
 	}
-	props, _, _, err := b.shard.AnalyzeObject(res.next)
+	migAdd, err := b.shard.analyzeForDoubleWrite(res.next, st)
 	if err != nil {
 		return fmt.Errorf("analyze merged object for reindex mirror: %w", err)
 	}
-	return b.shard.mirrorPropsIntoReindexIngest(res.status.docID, props)
+	for i := range migAdd {
+		if err := b.shard.fireAddToPropertyValueIndex(st, res.status.docID, &migAdd[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult, ref objects.BatchReference, prop *models.Property) error {

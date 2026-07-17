@@ -373,16 +373,29 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	var objectDigest [16 + 8]byte
 	copy(objectDigest[:], uuidBytes)
 
+	// Update the live tree first so a checkpoint-fold error can never leave a torn leaf.
 	if status.oldUpdateTime > 0 {
 		// Given only latest object version is maintained, previous registration is erased
 		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
 		s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 	}
-
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
-	return nil
+	// Fold ≤cutoff changes into the checkpoint so it converges; >cutoff writes leave it frozen.
+	cpht := s.asyncCheckpointHashtree
+	if cpht == nil || object.Object.LastUpdateTimeUnix > s.asyncCheckpointCutoff {
+		return nil
+	}
+	// Erase old only if the clone holds it (old ≤ cutoff); erasing a >cutoff version injects a phantom.
+	if status.oldUpdateTime > 0 && status.oldUpdateTime <= s.asyncCheckpointCutoff {
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
+		if err := cpht.AggregateLeafWith(leaf, objectDigest[:]); err != nil {
+			return err
+		}
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
+	}
+	return cpht.AggregateLeafWith(leaf, objectDigest[:])
 }
 
 func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
@@ -520,6 +533,10 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
+	// One snapshot for the whole write, so the double-write pass below sees
+	// the same {add,del,scope} as the inline suppression above.
+	st := s.loadPropValueIndexState()
+
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
 	var prevNestedProps []inverted.NestedProperty
@@ -573,7 +590,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if prevObject != nil {
 		// TODO: metrics
-		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID); err != nil {
+		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID, st); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
 		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
@@ -593,22 +610,13 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
+	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID, st); err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 	if err := s.extendNestedInvertedIndicesLSM(nestedProps, status.docID); err != nil {
 		return fmt.Errorf("put nested inverted indices: %w", err)
 	}
 	s.metrics.InvertedExtend(before, len(propsToAdd))
-
-	// A docID-preserved (delta) update only re-indexes changed props; mirror the
-	// full set so an in-flight reindex's backfill scan doesn't skip this
-	// object's unchanged target prop (weaviate/0-weaviate-issues#318).
-	if status.docIDPreserved {
-		if err := s.mirrorPropsIntoReindexIngest(status.docID, props); err != nil {
-			return fmt.Errorf("mirror props into reindex ingest: %w", err)
-		}
-	}
 
 	if s.index.Config.TrackVectorDimensions {
 		err = object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
@@ -620,6 +628,12 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err != nil {
 			return err
 		}
+	}
+
+	// Mirrors this write into the ingest bucket under the TARGET analysis for
+	// scope props suppressed above; no-op absent a migration.
+	if err := s.migrationDoubleWrite(st, object, prevObject, status); err != nil {
+		return fmt.Errorf("migration double-write: %w", err)
 	}
 
 	return nil
