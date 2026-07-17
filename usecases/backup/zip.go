@@ -75,7 +75,8 @@ type zip struct {
 // NewZip creates a new zip writer for backup chunks. There are three size thresholds:
 //
 //   - bigFileThreshold: files >= this size get their own dedicated chunk (auto-calculated
-//     from the 100 biggest files in the shard).
+//     from the configured number of biggest files in the shard, see
+//     BACKUP_MAX_INDIVIDUAL_FILES).
 //   - splitFileSize: files exceeding this size are split across multiple chunks.
 //     Must be >= bigFileThreshold.
 //   - chunkTargetSize: the target size for chunks that pack multiple small files together.

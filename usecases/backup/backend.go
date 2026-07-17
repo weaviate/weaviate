@@ -533,7 +533,7 @@ func (u *uploader) compress(ctx context.Context,
 
 	// bigFileThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
 	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFileThreshold.
-	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
+	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.BigFileThreshold)
 	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFileThreshold)
 	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
 	if err != nil {
@@ -629,7 +629,7 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 }
 
 // createFileList creates a FileList from a ShardDescriptor with Files copied,
-// FileSizes map populated, and Top100Size calculated (size of 100th biggest file, minimum 1MB).
+// FileSizes map populated, and BigFileThreshold calculated.
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
 // Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
 func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath string) (*backup.FileList, error) {
@@ -658,17 +658,26 @@ func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath stri
 	filesCopy := make([]string, len(files))
 	copy(filesCopy, files)
 
+	// A config not built by FromEnv leaves this nil, so Get yields 0.
+	maxIndividualFiles := u.cfg.MaxIndividualFiles.Get()
+	if maxIndividualFiles <= 0 {
+		maxIndividualFiles = config.DefaultBackupMaxIndividualFiles
+	}
+
 	return &backup.FileList{
-		Files:      filesCopy,
-		FileSizes:  fileSizes,
-		Top100Size: calculateTop100Size(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped, u.cfg.MinChunkSize),
+		Files:     filesCopy,
+		FileSizes: fileSizes,
+		BigFileThreshold: calculateBigFileThreshold(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped,
+			maxIndividualFiles, u.cfg.MinChunkSize),
 	}, nil
 }
 
-// calculateTop100Size returns the size of the 100th biggest file (or smallest if fewer than 100),
-// with a minimum of minSize. Uses a min-heap of size 100 for O(n) time and O(1) space complexity.
-func calculateTop100Size(fileSizes map[string]int64, numSkippedFiles int, minSize int64) int64 {
-	k := max(100-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
+// calculateBigFileThreshold returns the size of the k-th biggest file, clamped to minSize,
+// where k is maxIndividualFiles reduced by numSkippedFiles and at least 1. Returns the
+// smallest file's size if there are fewer than k files.
+// Uses a min-heap for O(n) time and O(min(k, n)) space.
+func calculateBigFileThreshold(fileSizes map[string]int64, numSkippedFiles, maxIndividualFiles int, minSize int64) int64 {
+	k := max(maxIndividualFiles-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
 
 	if len(fileSizes) == 0 {
 		return minSize

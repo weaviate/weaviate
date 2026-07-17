@@ -342,10 +342,11 @@ type ShardAndID struct {
 type FileList struct {
 	Files     []string
 	FileSizes map[string]int64 // map of relative file path to file size in bytes
-	// Top100Size is the size of the 100th biggest file (or smallest if fewer than 100 files),
-	// with a minimum of 1MB. This can be used for chunk size optimization.
-	Top100Size int64
-	start      int
+	// BigFileThreshold is the size of the n-th biggest file, clamped to a minimum chunk size,
+	// where n is the configured number of files that may get their own chunk, minus the files
+	// reused from the base backup.
+	BigFileThreshold int64
+	start            int
 }
 
 // Len returns the number of files in the list
