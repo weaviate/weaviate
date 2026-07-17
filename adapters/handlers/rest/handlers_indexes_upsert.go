@@ -435,21 +435,12 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 
 	// Conflict + concurrency-cap checks. The submit lock held by the caller
 	// serializes this check-and-submit against parallel DELETE and submits.
+	// Fails closed (503) when the task list is unavailable — see
+	// checkReindexAdmission.
 	tasks, listErr := h.appState.ClusterService.ListDistributedTasks(ctx)
-	if listErr == nil {
-		reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
-		if checkErr != nil {
-			// An in-flight task has an unparseable payload — we cannot prove
-			// non-conflict, so refuse rather than race. 503 so the caller
-			// retries after an operator inspects the in-flight task.
-			return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal, checkErr.Error()))
-		}
-		if reason != "" {
-			return jsonResponder(http.StatusConflict, errorResponse(principal, reason))
-		}
-		if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
-			return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
-		}
+	if resp := h.checkReindexAdmission(principal, collection, migrationType, properties,
+		tasks[db.ReindexNamespace], listErr); resp != nil {
+		return resp
 	}
 
 	// Defense in depth against CANCEL→retry silently resuming stale partial

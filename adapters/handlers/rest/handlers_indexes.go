@@ -935,6 +935,58 @@ func normalizeSearchableAlgorithm(s string) string {
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
 
+// checkReindexAdmission is the pre-submit safety gate shared by the upsert
+// and rebuild paths: it decides whether a new reindex task may be admitted
+// given the current in-flight task list. Returns nil to proceed, or the
+// terminal responder to return instead:
+//
+//   - listErr != nil        → 503, FAIL CLOSED. Without the task list we can
+//     neither prove non-conflict nor enforce the per-collection cap, so
+//     admitting the submit would silently let a conflicting migration through
+//     (a correctness hole, not just an availability blip). Refuse and log
+//     loudly so the operator sees why.
+//   - unparseable payload    → 503 (an in-flight task we cannot decode; same
+//     "cannot prove non-conflict" epistemics as a list failure).
+//   - conflicting migration  → 409 naming the offending task.
+//   - cap breached           → 429.
+//
+// Split out of submitReindexTask so the gate is unit-testable without a live
+// cluster or DB (the submit path itself needs shard ownership from a real DB).
+func (h *indexesHandlers) checkReindexAdmission(principal *models.Principal, collection string,
+	migrationType db.ReindexMigrationType, properties []string,
+	tasks []*distributedtask.Task, listErr error,
+) middleware.Responder {
+	if listErr != nil {
+		// Loud audit line, error text in the message body per the logging
+		// convention (no WithError).
+		property := ""
+		if len(properties) > 0 {
+			property = properties[0]
+		}
+		h.appState.Logger.WithFields(logrus.Fields{
+			"collection":     collection,
+			"property":       property,
+			"migration_type": migrationType,
+		}).Errorf("submit: failing closed — cannot list in-flight distributed tasks to verify reindex conflict/cap: %v; rejecting with 503 rather than admitting an unchecked migration", listErr)
+		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+			fmt.Sprintf("cannot verify reindex preconditions: listing in-flight tasks failed (%v); retry once the task store is reachable", listErr)))
+	}
+	reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks)
+	if checkErr != nil {
+		// An in-flight task has an unparseable payload — we cannot prove
+		// non-conflict, so refuse rather than race. 503 so the caller
+		// retries after an operator inspects the in-flight task.
+		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal, checkErr.Error()))
+	}
+	if reason != "" {
+		return jsonResponder(http.StatusConflict, errorResponse(principal, reason))
+	}
+	if inflight := countStartedTasksForCollection(collection, tasks); inflight >= maxConcurrentReindexPerCollection {
+		return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
+	}
+	return nil
+}
+
 // reindexCapExceededResponder returns a 429 with the standard ErrorResponse
 // body, operation-agnostic so upsert and rebuild share the same responder.
 //
