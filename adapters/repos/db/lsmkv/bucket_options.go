@@ -302,8 +302,9 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 }
 
 // WithRangeableInMemoryDeferred marks a RoaringSetRange bucket whose in-memory
-// rep was intentionally left unbuilt (reindex ingest path, GH#12199). It only
-// enables a diagnostic log line and never affects read-path selection.
+// rep was intentionally left unbuilt (reindex ingest path, see
+// weaviate/weaviate#12199). It only enables a diagnostic log line and never
+// affects read-path selection.
 func WithRangeableInMemoryDeferred(deferred bool) BucketOption {
 	return func(b *Bucket) error {
 		b.rangeableInMemoryDeferred = deferred

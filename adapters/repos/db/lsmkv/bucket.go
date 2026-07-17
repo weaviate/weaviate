@@ -235,12 +235,12 @@ type Bucket struct {
 	keepSegmentsInMemory bool
 
 	// rangeableInMemoryDeferred marks a RoaringSetRange bucket whose rep was left
-	// unbuilt while INDEX_RANGEABLE_IN_MEMORY is on (GH#12199 reindex ingest path).
-	// It only selects a diagnostic log line; keepSegmentsInMemory alone governs
-	// read-path selection.
+	// unbuilt while INDEX_RANGEABLE_IN_MEMORY is on (reindex ingest path, see
+	// weaviate/weaviate#12199). It only selects a diagnostic log line;
+	// keepSegmentsInMemory alone governs read-path selection.
 	rangeableInMemoryDeferred bool
 
-	// Dedup for the two GH#12199 diagnostic log lines (deferred-serving INFO,
+	// Dedup for the two rangeable diagnostic log lines (deferred-serving INFO,
 	// disk-fallback WARN). A fresh Bucket per open gives sync.Once
 	// once-per-bucket-open semantics.
 	rangeableDeferredLogOnce  sync.Once

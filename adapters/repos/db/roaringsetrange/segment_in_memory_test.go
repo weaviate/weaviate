@@ -485,12 +485,13 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 	})
 }
 
-// TestSegmentInMemoryFoldOrderValueIntegrity pins INV-RANGEABLE-REP-EQUALS-DISK
-// at the value level: the rep is a flattened fold correct only when applied
-// oldest->newest (each segment's Deletions wipe stale bitmaps before its
-// Additions). Folding an older segment onto a newer one lets a stale value win
-// silently - a wrong VALUE with the docID still present, so membership checks
-// alone can't catch it (GH#12199, the rejected option-(a) merge shape).
+// TestSegmentInMemoryFoldOrderValueIntegrity pins the invariant that the rep
+// always mirrors disk, at the value level: the rep is a flattened fold
+// correct only when applied oldest->newest (each segment's Deletions wipe
+// stale bitmaps before its Additions). Folding an older segment onto a newer
+// one lets a stale value win silently - a wrong VALUE with the docID still
+// present, so membership checks alone can't catch it (the rejected
+// option-(a) merge shape; see weaviate/weaviate#12199).
 func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	bufPool := roaringset.NewBitmapBufPoolNoop()

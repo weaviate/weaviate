@@ -866,8 +866,8 @@ func (sg *SegmentGroup) count() int {
 
 // roaringSetRangeDiskSegmentCount returns the on-disk segment count via a cheap
 // read lock only (no incRef/allocation like Len/count) - the disk-fallback
-// discriminant (GH#12199) only needs the count, and only on the rare
-// unpopulated-rep path. Must not be held while bitmapsLock is held.
+// discriminant (see weaviate/weaviate#12199) only needs the count, and only on
+// the rare unpopulated-rep path. Must not be held while bitmapsLock is held.
 func (sg *SegmentGroup) roaringSetRangeDiskSegmentCount() int {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()

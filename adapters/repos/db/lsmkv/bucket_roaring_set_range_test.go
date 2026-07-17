@@ -219,7 +219,7 @@ func TestRoaringSetRangeReaderConsistentViewInMemo(t *testing.T) {
 	})(t)
 }
 
-// --- GH#12199 (c) disk-fallback + deferred-INFO marker test helpers ---
+// --- weaviate/weaviate#12199 (c) disk-fallback + deferred-INFO marker test helpers ---
 
 func countLogLevel(hook *test.Hook, level logrus.Level) int {
 	n := 0
@@ -282,7 +282,7 @@ func readEqual(t *testing.T, b *Bucket, value uint64) []uint64 {
 
 // TestRoaringSetRangeKeepSegmentsInMemoryOverride: the last
 // WithKeepSegmentsInMemory wins, forcing the rep off regardless of the
-// strategy default (GH#12199 (b)).
+// strategy default (weaviate/weaviate#12199 (b)).
 func TestRoaringSetRangeKeepSegmentsInMemoryOverride(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -321,7 +321,7 @@ func TestRoaringSetRangeKeepSegmentsInMemoryOverride(t *testing.T) {
 	})
 }
 
-// TestRoaringSetRangeDiskFallback pins the (c) four-case matrix (GH#12199): an
+// TestRoaringSetRangeDiskFallback pins the (c) four-case matrix (weaviate/weaviate#12199): an
 // unpopulated rep with disk segments present must fall back to disk and WARN
 // once per bucket-open. Rep and disk hold DIFFERENT docIDs so the result proves
 // which path served the read.
@@ -387,7 +387,7 @@ func TestRoaringSetRangeDiskFallback(t *testing.T) {
 	})
 }
 
-// TestRoaringSetRangeDeferredServingINFO pins GH#12199: a deferred-marked bucket
+// TestRoaringSetRangeDeferredServingINFO pins weaviate/weaviate#12199: a deferred-marked bucket
 // emits the disk-serving INFO once per bucket-open; unmarked buckets never do,
 // and the marker never affects read-path selection.
 func TestRoaringSetRangeDeferredServingINFO(t *testing.T) {

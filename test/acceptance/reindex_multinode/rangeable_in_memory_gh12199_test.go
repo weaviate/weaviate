@@ -30,10 +30,11 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-// This file is the GH#12199 regression suite: with INDEX_RANGEABLE_IN_MEMORY=true,
-// an enable-rangeable reindex must not serve empty range results from an
-// unpopulated in-memory representation after the per-shard swap (no restart
-// required). It also pins the two operator log signals added by the fix.
+// This file is the weaviate/weaviate#12199 regression suite: with
+// INDEX_RANGEABLE_IN_MEMORY=true, an enable-rangeable reindex must not serve
+// empty range results from an unpopulated in-memory representation after the
+// per-shard swap (no restart required). It also pins the two operator log
+// signals added by the fix.
 //
 // Log substrings emitted by the fix (bucket_roaring_set_range.go):
 //   - deferredINFOSubstr: fires once per bucket-open on the marked ingest
@@ -45,9 +46,9 @@ import (
 // Per-mechanism revert-probe mapping:
 //   - (b) alone       -> caught by the prepend GUARD, not the WARN/INFO
 //     assertions: reverting only (b) leaves keepSegmentsInMemory=true on the
-//     ingest bucket, so the guard rejects the backfill prepend and
-//     AwaitReindexFinished fails with INV-RANGEABLE-REP-EQUALS-DISK before any
-//     post-swap query runs.
+//     ingest bucket, so the guard rejects the backfill prepend
+//     (ErrPrependWouldDesyncInMemoryRep) and AwaitReindexFinished fails
+//     before any post-swap query runs.
 //   - WARN/INFO pair  -> the WARN-absence + INFO-presence assertions serve two
 //     roles: (i) proof (b) is applied at the fix SHA, and (ii) a tripwire for a
 //     (b) AND guard DOUBLE revert - only then does the reindex complete with an
@@ -87,8 +88,9 @@ func countInLogs(ctx context.Context, t *testing.T, c interface {
 }
 
 // startSingleNodeRangeableInMemCluster starts a 1-node cluster with the in-mem
-// rangeable knob on (GH#12199 precondition) and LOG_LEVEL=info so the deferred
-// INFO / fallback WARN are visible in the logs the assertions grep.
+// rangeable knob on (weaviate/weaviate#12199 precondition) and LOG_LEVEL=info
+// so the deferred INFO / fallback WARN are visible in the logs the assertions
+// grep.
 func startSingleNodeRangeableInMemCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
 	t.Helper()
 	compose, err := docker.New().

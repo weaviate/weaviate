@@ -675,7 +675,7 @@ func createTestBucketRoaringSetRange(t *testing.T, ctx context.Context, dir stri
 	return b
 }
 
-// TestSegmentGroup_PrependSegments_RoaringSetRangeGuard pins the GH#12199 guard:
+// TestSegmentGroup_PrependSegments_RoaringSetRangeGuard pins the weaviate/weaviate#12199 guard:
 // splicing older backfill onto a RoaringSetRange bucket's active in-memory rep
 // would corrupt it, so the prepend is rejected before any file copy or splice.
 // Compaction is exempt - it only changes physical layout, never the rep.

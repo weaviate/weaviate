@@ -2594,10 +2594,11 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 		),
 	)
 
-	// GH#12199: force keepSegmentsInMemory=false for RoaringSetRange reindex/ingest
-	// buckets - PrependSegmentsFromBucket can't rebuild the in-memory rep, so a kept
-	// rep would serve stale/empty range results until the next clean bucket open.
-	// This overrides the global knob; opts are appended after the strategy defaults.
+	// Force keepSegmentsInMemory=false for RoaringSetRange reindex/ingest
+	// buckets - PrependSegmentsFromBucket can't rebuild the in-memory rep, so a
+	// kept rep would serve stale/empty range results until the next clean
+	// bucket open (see weaviate/weaviate#12199). This overrides the global
+	// knob; opts are appended after the strategy defaults.
 	if strategy == lsmkv.StrategyRoaringSetRange {
 		opts = append(opts, lsmkv.WithKeepSegmentsInMemory(false))
 	}
