@@ -64,6 +64,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/tokenize",                        // stateless compute, no authz; POST only because it needs a body
 		"/schema/{className}/properties/{propertyName}/tokenize", // authorizes READ, which a viewer holds
 		"/search/{collection}/near-text",                         // search is a read; a viewer holds data READ
+		"/search/{collection}/bm25",                              // search is a read; a viewer holds data READ
 	}
 
 	// TODO: these leak status (404 for aliases, 501 for replication) before
@@ -140,6 +141,10 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 			// required query before authz; send a valid query so it reaches authz.
 			if endpoint.path == "/search/{collection}/near-text" && endpoint.method == http.MethodPost {
 				body = []byte(`{"query":["ABC"]}`)
+			}
+			// same for bm25 (its query is a plain string)
+			if endpoint.path == "/search/{collection}/bm25" && endpoint.method == http.MethodPost {
+				body = []byte(`{"query":"ABC"}`)
 			}
 
 			forbidden := false
