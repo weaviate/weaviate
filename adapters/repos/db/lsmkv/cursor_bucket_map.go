@@ -28,6 +28,9 @@ type CursorMap struct {
 	unlock       func()
 	listCfg      MapListOptionConfig
 	keyOnly      bool
+	// inner cursors whose advance was deferred from the previous return, applied
+	// on the next call so reusable cursors don't overwrite still-in-use data
+	pendingAdvanceIDs []int
 }
 
 type cursorStateMap struct {
@@ -94,6 +97,8 @@ func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) (*CursorMap, error) {
 }
 
 func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {
+	// re-seeking repositions every inner cursor, so any deferred advance is moot
+	c.pendingAdvanceIDs = c.pendingAdvanceIDs[:0]
 	c.seekAll(key)
 	return c.serveCurrentStateAndAdvance(ctx)
 }
@@ -103,6 +108,7 @@ func (c *CursorMap) Next(ctx context.Context) ([]byte, []MapPair) {
 }
 
 func (c *CursorMap) First(ctx context.Context) ([]byte, []MapPair) {
+	c.pendingAdvanceIDs = c.pendingAdvanceIDs[:0]
 	c.firstAll()
 	return c.serveCurrentStateAndAdvance(ctx)
 }
@@ -156,6 +162,14 @@ func (c *CursorMap) firstAll() {
 }
 
 func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []MapPair) {
+	// Apply the advances deferred from the previous return. Inner cursors that
+	// reuse their Key/Value buffers (segmentCursorInvertedReusable) overwrite them
+	// on next(), so we advance only once the caller has consumed what we returned.
+	for _, id := range c.pendingAdvanceIDs {
+		c.advanceInner(id)
+	}
+	c.pendingAdvanceIDs = c.pendingAdvanceIDs[:0]
+
 	for {
 		id, err := c.cursorWithLowestKey()
 		if err != nil {
@@ -166,17 +180,17 @@ func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []
 
 		ids, _ := c.haveDuplicatesInState(id)
 
-		// take the key from any of the results, we have the guarantee that they're
-		// all the same
-		key := c.state[ids[0]].key
+		// Copy the key: some inner cursors reuse one key buffer across iterations,
+		// so it would be overwritten once the cursor advances. The merged values
+		// are valid until the next call (deferred advance), which is the cursor's
+		// contract — callers must consume them before advancing.
+		src := c.state[ids[0]].key
+		key := make([]byte, len(src))
+		copy(key, src)
 
 		var perSegmentResults [][]MapPair
-
 		for _, id := range ids {
-			candidates := c.state[id].value
-			perSegmentResults = append(perSegmentResults, candidates)
-
-			c.advanceInner(id)
+			perSegmentResults = append(perSegmentResults, c.state[id].value)
 		}
 
 		if c.listCfg.legacyRequireManualSorting {
@@ -193,9 +207,16 @@ func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []
 			panic(fmt.Errorf("unexpected error decoding map values: %w", err))
 		}
 		if len(merged) == 0 {
-			// all values deleted, proceed
+			// all values deleted: the data is discarded, so advance immediately
+			for _, id := range ids {
+				c.advanceInner(id)
+			}
 			continue
 		}
+
+		// Defer advancing until the next call so the caller can consume the
+		// returned key/values before the reusable buffers are overwritten.
+		c.pendingAdvanceIDs = append(c.pendingAdvanceIDs, ids...)
 
 		if !c.keyOnly {
 			return key, merged
