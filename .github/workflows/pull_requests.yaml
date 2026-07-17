@@ -764,6 +764,11 @@ jobs:
   Acceptance-Reindex-Tests:
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    env:
+      # Failure-only forensic dumps from the reindex acceptance tests land here
+      # (e.g. weaviate/0-weaviate-issues#335 shard LSM data dirs). Read by the
+      # tests; uploaded by the "Upload reindex forensic artifacts" step below.
+      REINDEX_FORENSICS_DIR: ${{ github.workspace }}/reindex-forensics
     strategy:
       fail-fast: false
       matrix:
@@ -813,6 +818,14 @@ jobs:
           max_attempts: 1
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+      - name: Upload reindex forensic artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: reindex-forensics-${{ matrix.name }}
+          path: ${{ github.workspace }}/reindex-forensics
+          if-no-files-found: ignore
+          retention-days: 14
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores

@@ -374,6 +374,13 @@ func assertRangeCountAllNodes(t *testing.T, compose *docker.DockerCompose, class
 		"%s: every replica must serve all %d updated objects over the sentinel band", phase, want)
 	if !ok {
 		t.Errorf("%s rangeable counts per node = %v, want %d on every node (silent rangeable write-loss)", phase, last, want)
+		// weaviate/0-weaviate-issues#335: the discriminating evidence is the
+		// migrated property's on-disk rangeable bucket shape at failure time
+		// (promoted-dir file listing + .wal presence/sizes). Capture it now,
+		// before the pre-restart failure path runs the rolling restart that
+		// would mutate the WAL state, so the next flake self-evidences instead
+		// of needing an eighth refuted producer.
+		captureRangeableDataDirsOnFailure(t, compose, className, propName, phase)
 	}
 }
 
