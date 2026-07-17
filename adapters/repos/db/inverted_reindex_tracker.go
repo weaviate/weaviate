@@ -129,14 +129,9 @@ func (t *fileReindexTracker) init() error {
 		if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
 			return err
 		}
-		// migrationPath is <lsm>/.migrations/<name>, so MkdirAll can create
-		// BOTH the .migrations dir and its <name> child. A directory-entry
-		// creation is durable only once its PARENT is fsynced, so persist both
-		// new levels: fsync .migrations (persists the <name> entry) AND fsync
-		// the lsm dir (persists the .migrations entry). Fsyncing only
-		// .migrations would leave a freshly-created .migrations itself losable
-		// on crash — taking the whole tracker dir, and every sentinel under
-		// it, with it. Cheap: init runs once per migration.
+		// MkdirAll may create both .migrations and its <name> child; a new dir
+		// entry is durable only once its parent is fsynced, so fsync both new
+		// levels' parents or a crash can lose the whole tracker dir.
 		migrationsDir := filepath.Dir(t.config.migrationPath) // <lsm>/.migrations
 		if err := diskio.Fsync(migrationsDir); err != nil {
 			return err

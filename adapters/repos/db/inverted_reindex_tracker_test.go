@@ -76,16 +76,8 @@ func TestFileReindexTracker_GetProgressTornSentinel(t *testing.T) {
 	}
 }
 
-// Minor 1: init() must persist BOTH directory levels MkdirAll can create —
-// <lsm>/.migrations and <lsm>/.migrations/<name> — by fsyncing each new
-// level's parent (.migrations, then the lsm dir). Fsyncing only .migrations
-// leaves a freshly-created .migrations itself losable on crash, taking the
-// whole tracker dir (and every sentinel under it) with it.
-//
-// An fsync's effect (surviving a real power loss) isn't observable from
-// userspace, so this exercises the real-fs CODE PATH and its on-disk result:
-// a wrong fsync target would surface as an init() error, and the run proves
-// both levels get created against a tree where .migrations did not pre-exist.
+// Pins: init() must fsync both new directory levels MkdirAll can create
+// (.migrations and its <name> child), not just the immediate parent.
 func TestFileReindexTracker_InitFsyncsNewParentLevels(t *testing.T) {
 	lsmPath := t.TempDir()
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
@@ -98,8 +90,7 @@ func TestFileReindexTracker_InitFsyncsNewParentLevels(t *testing.T) {
 	require.DirExists(t, migrationsDir, "init() must create <lsm>/.migrations")
 	require.DirExists(t, tr.config.migrationPath, "init() must create the <name> child dir")
 
-	// Idempotent: a second init() over the existing tree still fsyncs both
-	// levels without error.
+	// Idempotent: a second init() over an existing tree must still succeed.
 	require.NoError(t, tr.init())
 }
 

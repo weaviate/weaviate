@@ -2206,13 +2206,9 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
 				},
 				func() error {
-					// Durable per-prop sentinel, run AFTER the overlay is set
-					// and tokenizationOverlayMu is released (F1): the fsync
-					// must never block queries pinning the (bucket,
-					// tokenization) pair. The flip callback
-					// (processOneSwapProp) skips this fsync on the atomic path
-					// so it lands here exactly once. Idempotent on a resumed
-					// swap whose sentinel is already on disk.
+					// Durable sentinel, deferred here so it runs after
+					// tokenizationOverlayMu is released (F1). Skip if a
+					// resumed swap already made it durable.
 					if rt.IsSwappedProp(propName) {
 						return nil
 					}

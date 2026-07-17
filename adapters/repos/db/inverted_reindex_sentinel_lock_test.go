@@ -23,10 +23,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// sentinelLockProbeTracker wraps a real reindexTracker so the test can
-// observe whether tokenizationOverlayMu was still held at the moment the
-// per-prop sentinel fsync (markSwappedProp) ran. It is a plain test wrapper
-// over the tracker interface — no production seam.
+// sentinelLockProbeTracker wraps a real reindexTracker to observe whether
+// tokenizationOverlayMu is held when the per-prop sentinel fsync
+// (markSwappedProp) runs.
 type sentinelLockProbeTracker struct {
 	reindexTracker
 	shard          *Shard
@@ -35,11 +34,8 @@ type sentinelLockProbeTracker struct {
 }
 
 func (w *sentinelLockProbeTracker) markSwappedProp(propName string) error {
-	// F1 contract: the sentinel fsync must run with tokenizationOverlayMu
-	// released, so it never blocks a query pinning the (bucket, tokenization)
-	// pair under the read side of that lock. Probe it: if a read lock cannot
-	// be acquired here, a writer still holds it — which would be the pre-fix
-	// regression (fsync inside the critical section).
+	// F1: the sentinel fsync must run with tokenizationOverlayMu released.
+	// TryRLock fails here if a writer still holds it.
 	if w.shard.tokenizationOverlayMu.TryRLock() {
 		w.shard.tokenizationOverlayMu.RUnlock()
 	} else {
@@ -49,28 +45,9 @@ func (w *sentinelLockProbeTracker) markSwappedProp(propName string) error {
 	return w.reindexTracker.markSwappedProp(propName)
 }
 
-// TestSwapBucketAndSetOverlay_SentinelFsyncOutsideLock pins F1: on the live
-// atomic swap path, the per-prop sentinel fsync (markSwappedProp) MUST run
-// AFTER tokenizationOverlayMu is released, while the bucket-pointer flip and
-// the overlay set MUST run under it. The durability upgrade (fsync every
-// sentinel) made markSwappedProp expensive; leaving it inside the overlay
-// lock stalls every query on the migrating prop for the fsync duration
-// (tens–hundreds of ms on a degraded disk), because queries pin the pair via
-// Shard.PinTokenizationAndSearchableBucket's RLock.
-//
-// The test drives the real production wiring: maybeWirePerPropOverlaySet
-// builds task.swapPropAtomic, which routes through
-// Shard.SwapBucketAndSetOverlay (flip callback + post-unlock afterOverlay).
-// It observes the lock state at both boundaries through the production code
-// path — no test-only seam — using TryRLock as a non-blocking lock-state
-// probe:
-//
-//   - inside the flip callback the write lock is held → TryRLock must FAIL
-//   - inside markSwappedProp (the afterOverlay step) the lock is released →
-//     TryRLock must SUCCEED
-//
-// A regression that moves the fsync back inside the critical section flips
-// lockHeldAtMark to true and fails the assertion.
+// Pins F1: on the atomic swap path, the per-prop sentinel fsync must run
+// after tokenizationOverlayMu is released; the bucket-pointer flip and
+// overlay set must run under it.
 func TestSwapBucketAndSetOverlay_SentinelFsyncOutsideLock(t *testing.T) {
 	ctx := testCtx()
 
@@ -85,10 +62,8 @@ func TestSwapBucketAndSetOverlay_SentinelFsyncOutsideLock(t *testing.T) {
 	fieldBucketName := helpers.BucketSearchableFromPropNameLSM(fieldProp)
 	wordBucketName := helpers.BucketSearchableFromPropNameLSM(fx.wordProp)
 
-	// The flip callback runs inside SwapBucketAndSetOverlay's critical
-	// section: a read lock must NOT be acquirable here. This override mirrors
-	// the shape of the atomic-overlay proof — it performs only the pointer
-	// flip (the production flip's IsSwappedProp gate is not under test).
+	// Runs inside SwapBucketAndSetOverlay's critical section, so a read lock
+	// must NOT be acquirable here. Only the pointer flip is under test.
 	var flipSawLockFree atomic.Bool
 	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store,
 		_ reindexTracker, _ int, _ string,
@@ -131,7 +106,6 @@ func TestSwapBucketAndSetOverlay_SentinelFsyncOutsideLock(t *testing.T) {
 	require.True(t, rt.IsSwappedProp(fieldProp),
 		"the per-prop sentinel must be on disk after the atomic swap")
 
-	// And the overlay routes the FIELD prop to the WORD bucket post-swap.
 	tok, bkt, release := shard.PinTokenizationAndSearchableBucket(fieldProp, models.PropertyTokenizationField)
 	defer release()
 	require.Equal(t, models.PropertyTokenizationWord, tok,

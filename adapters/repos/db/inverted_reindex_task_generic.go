@@ -280,10 +280,8 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 // SwapBucketAndSetOverlay's flip callback, which already holds
 // tokenizationOverlayMu; firing onPropSwapped here would re-enter that
 // lock and deadlock, so both call sites guard on swapPropAtomic == nil.
-// For the same reason the markSwappedProp sentinel fsync is SKIPPED here on
-// the atomic path and deferred to SwapBucketAndSetOverlay's post-unlock
-// afterOverlay step, so the durable write never runs under the query-blocking
-// lock (F1).
+// For the same reason the sentinel fsync is skipped here on the atomic path
+// and deferred to SwapBucketAndSetOverlay's afterOverlay step (F1).
 func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store *lsmkv.Store, rt reindexTracker, _ int, propName string) (*lsmkv.Bucket, error) {
 	if rt.IsSwappedProp(propName) {
 		// Resumed swap: re-arm the overlay so bucket≡overlay alignment is
@@ -308,13 +306,8 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 	if t.swapPropAtomic == nil && t.onPropSwapped != nil {
 		t.onPropSwapped(propName)
 	}
-	// Durable per-prop sentinel. On the legacy path it runs here — outside
-	// any query-blocking lock. On the atomic path (swapPropAtomic != nil)
-	// this method runs as SwapBucketAndSetOverlay's flip callback UNDER
-	// tokenizationOverlayMu, so the fsync is deferred to that method's
-	// post-unlock afterOverlay step (see the reindex_provider wiring) to keep
-	// file I/O out of the query-blocking critical section (F1). Skip it here
-	// on the atomic path.
+	// Legacy path writes the sentinel here; the atomic path defers it to
+	// SwapBucketAndSetOverlay's afterOverlay step (F1).
 	if t.swapPropAtomic == nil {
 		if err := rt.markSwappedProp(propName); err != nil {
 			return nil, fmt.Errorf("marking swapped prop %q: %w", propName, err)

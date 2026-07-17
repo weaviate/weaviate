@@ -811,12 +811,9 @@ func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
 	return oldMainBucket, nil
 }
 
-// swapBucketPointerAndSetOverlayLocked performs the atomicity-critical half
-// of [Shard.SwapBucketAndSetOverlay]: the bucket-pointer flip and the overlay
-// set under a single tokenizationOverlayMu write lock. It is split out so the
-// caller can release the lock (via this method's defer) BEFORE running the
-// durable post-step, keeping the sentinel fsync out of the query-blocking
-// critical section.
+// swapBucketPointerAndSetOverlayLocked is the locked half of
+// [Shard.SwapBucketAndSetOverlay], split out so the caller can release the
+// lock before running the durable afterOverlay step.
 func (s *Shard) swapBucketPointerAndSetOverlayLocked(propName, target string,
 	flip func() (*lsmkv.Bucket, error),
 ) (*lsmkv.Bucket, error) {
