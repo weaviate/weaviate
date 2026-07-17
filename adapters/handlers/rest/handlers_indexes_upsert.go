@@ -228,7 +228,7 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 	case algorithm != "":
 		// Algorithm change targets an existing searchable index only.
 		if !exists {
-			return upsertPlan{}, errors.New(db.NoSearchableIndexError(prop.Name, db.NoSearchableIndexHintRebuildOrAlgorithm))
+			return upsertPlan{}, errors.New(db.NoSearchableIndexError(prop.Name))
 		}
 		switch normalizeSearchableAlgorithm(algorithm) {
 		case models.IndexStatusAlgorithmBlockmax:
@@ -330,7 +330,7 @@ func resolveRebuildPlan(class *models.Class, prop *models.Property, indexType st
 	switch indexType {
 	case "searchable":
 		if !searchableIndexOn(prop) {
-			return upsertPlan{}, errors.New(db.NoSearchableIndexError(prop.Name, db.NoSearchableIndexHintRebuildOrAlgorithm))
+			return upsertPlan{}, errors.New(db.NoSearchableIndexError(prop.Name))
 		}
 		// A WAND searchable index cannot be rebuilt — migrate to blockmax first.
 		if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {

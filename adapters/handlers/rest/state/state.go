@@ -112,8 +112,8 @@ type State struct {
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
 	// (collection, property) tuple across BOTH the reindex-submit
-	// handler (PUT /v1/schema/{class}/indexes/{prop}) and the
-	// destructive property-index handler (DELETE
+	// handler (PUT /v1/schema/{class}/properties/{prop}/index/{indexType})
+	// and the destructive property-index handler (DELETE
 	// /v1/schema/{class}/properties/{prop}/index/{indexName}).
 	//
 	// Motivating failure mode (pinned by

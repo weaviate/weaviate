@@ -47,9 +47,9 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationBo
 	require.Equal(t, "name", entry.Data["property"])
 	require.Equal(t, ReindexTypeChangeTokenization, entry.Data["migration_type"])
 	// change-tokenization can tear either inverted index; guidance must
-	// instruct the operator to rebuild both.
+	// instruct the operator to rebuild both via the GA rebuild route.
 	require.Equal(t,
-		`PUT /v1/schema/Products/indexes/name {"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`,
+		`POST /v1/schema/Products/properties/name/index/filterable/rebuild && POST /v1/schema/Products/properties/name/index/searchable/rebuild`,
 		entry.Data["repair_command"])
 	require.Contains(t, entry.Message, "FAILED")
 	require.Contains(t, entry.Message, "bucket")
@@ -71,7 +71,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationFi
 	// change-tokenization-filterable touches ONLY the filterable bucket;
 	// guidance must scope to that.
 	require.Equal(t,
-		`PUT /v1/schema/Products/indexes/category {"filterable":{"rebuild":true}}`,
+		`POST /v1/schema/Products/properties/category/index/filterable/rebuild`,
 		entry.Data["repair_command"])
 }
 

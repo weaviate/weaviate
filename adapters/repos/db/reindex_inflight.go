@@ -144,54 +144,25 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 		)
 	}
 	return fmt.Errorf(
-		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
+		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via POST /v1/schema/<class>/properties/<prop>/index/<indexType>/cancel",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
 	)
 }
 
-// NoSearchableIndexHint identifies which `PUT /v1/schema/{class}/indexes/{prop}`
-// verb hit the "property has no searchable index" gate so the helper can
-// emit the right remediation suggestion. Tokenization changes can fall
-// back to the filterable side; rebuild and algorithm changes cannot.
-type NoSearchableIndexHint int
-
-const (
-	// NoSearchableIndexHintTokenization is the hint for
-	// `{"searchable":{"tokenization":...}}`: suggest the filterable
-	// retokenization path as an alternative.
-	NoSearchableIndexHintTokenization NoSearchableIndexHint = iota
-	// NoSearchableIndexHintRebuildOrAlgorithm is the hint for
-	// `{"searchable":{"rebuild":true}}` and
-	// `{"searchable":{"algorithm":...}}`: only the enable-searchable
-	// remediation makes sense (no filterable fallback).
-	NoSearchableIndexHintRebuildOrAlgorithm
-)
-
-// NoSearchableIndexError formats the operator-facing 400 returned when
-// a `PUT /v1/schema/{class}/indexes/{prop}` request asks the server to
-// act on a searchable index that does not exist on the property. Centralised
-// here so every handler call site emits identical phrasing — prior to
-// unification three handlers used three slightly different strings
-// ("has no searchable index; use ...", "does not have a searchable index",
-// and the inline filterable hint), which made operator log triage harder
+// NoSearchableIndexError formats the operator-facing 400 returned when a
+// searchable-index operation (rebuild or algorithm change) targets a
+// property that has no searchable index. Centralised here so every handler
+// call site emits identical phrasing — prior to unification the handlers
+// used slightly different strings, which made operator log triage harder
 // and risked drift as new verbs were added.
 //
-// The canonical wording is "property %q has no searchable index" plus a
-// verb-appropriate remediation tail; the inverse case ("already has a
-// searchable index", emitted by enable-searchable validation) is
-// deliberately not unified with this helper since it carries the
-// opposite meaning.
-func NoSearchableIndexError(propertyName string, hint NoSearchableIndexHint) string {
-	switch hint {
-	case NoSearchableIndexHintTokenization:
-		return fmt.Sprintf(
-			"property %q has no searchable index; use {\"filterable\":{\"tokenization\":...}} to retokenize the filterable bucket, or {\"searchable\":{\"enabled\":true,\"tokenization\":...}} to add a searchable index",
-			propertyName,
-		)
-	default: // NoSearchableIndexHintRebuildOrAlgorithm
-		return fmt.Sprintf(
-			"property %q has no searchable index; use {\"searchable\":{\"enabled\":true,\"tokenization\":...}} to add one first",
-			propertyName,
-		)
-	}
+// The canonical wording is "property %q has no searchable index" plus the
+// GA remediation route; the inverse case ("already has a searchable index",
+// emitted by enable-searchable validation) is deliberately not unified with
+// this helper since it carries the opposite meaning.
+func NoSearchableIndexError(propertyName string) string {
+	return fmt.Sprintf(
+		"property %q has no searchable index; PUT /v1/schema/{className}/properties/%s/index/searchable with a tokenization to add one first",
+		propertyName, propertyName,
+	)
 }

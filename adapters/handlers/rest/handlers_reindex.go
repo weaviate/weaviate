@@ -219,7 +219,8 @@ func validateEnableSearchableProperty(prop *models.Property, tokenization string
 }
 
 // validateFilterableTokenizationChange validates the body for
-// `PUT /v1/schema/{class}/indexes/{prop}` with `{filterable:{tokenization:X}}`.
+// `PUT /v1/schema/{class}/properties/{prop}/index/filterable` with a
+// diverging `{"tokenization":X}`.
 // Distinct from validateTokenizationChange: does NOT require a searchable
 // bucket — this is the filterable-only retokenize variant. The caller
 // dispatches to ReindexTypeChangeTokenizationFilterable which runs only
@@ -233,7 +234,7 @@ func validateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 		return fmt.Errorf("property %q is not a text type; filterable.tokenization only applies to text / text[]", prop.Name)
 	}
 	if prop.IndexFilterable == nil || !*prop.IndexFilterable {
-		return fmt.Errorf("property %q has no filterable index; nothing to retokenize. Enable filterable first via {\"filterable\":{\"enabled\":true}}", prop.Name)
+		return fmt.Errorf("property %q has no filterable index; nothing to retokenize. Enable it first via PUT /v1/schema/{className}/properties/%s/index/filterable with an empty body {}", prop.Name, prop.Name)
 	}
 	if !entschema.IsValidTokenization(targetTokenization) {
 		return fmt.Errorf("invalid tokenization %q", targetTokenization)

@@ -1836,32 +1836,36 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 		return
 	}
 	for _, propName := range payload.Properties {
-		// The repair body rebuilds every index the migration could have
-		// torn — we can't tell from here which sub-task failed, and
-		// rebuild is idempotent on a healthy index.
-		var repairBody string
+		// Rebuild every index type the migration could have torn — we can't
+		// tell from here which sub-task failed, and rebuild is idempotent on
+		// a healthy index. Each index type is its own GA rebuild call.
+		var repairIndexTypes []string
 		switch payload.MigrationType {
 		case ReindexTypeChangeTokenization,
 			ReindexTypeEnableSearchable,
 			ReindexTypeChangeAlgorithm,
 			ReindexTypeRebuildSearchable:
-			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`
+			repairIndexTypes = []string{"filterable", "searchable"}
 		case ReindexTypeChangeTokenizationFilterable,
 			ReindexTypeEnableFilterable,
 			ReindexTypeRepairFilterable:
-			repairBody = `{"filterable":{"rebuild":true}}`
+			repairIndexTypes = []string{"filterable"}
 		case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-			repairBody = `{"rangeable":{"rebuild":true}}`
+			repairIndexTypes = []string{"rangeFilters"}
 		default:
 			// Fallback for any future migration type: rebuild everything.
-			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true},"rangeable":{"rebuild":true}}`
+			repairIndexTypes = []string{"filterable", "searchable", "rangeFilters"}
+		}
+		repairCommands := make([]string, 0, len(repairIndexTypes))
+		for _, indexType := range repairIndexTypes {
+			repairCommands = append(repairCommands, fmt.Sprintf(
+				"POST /v1/schema/%s/properties/%s/index/%s/rebuild",
+				payload.Collection, propName, indexType))
 		}
 		logger.WithFields(map[string]any{
 			"property":       propName,
 			"migration_type": payload.MigrationType,
-			"repair_command": fmt.Sprintf(
-				"PUT /v1/schema/%s/indexes/%s %s",
-				payload.Collection, propName, repairBody),
+			"repair_command": strings.Join(repairCommands, " && "),
 		}).Errorf(
 			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
 				"that committed their swap BEFORE the failure left the "+

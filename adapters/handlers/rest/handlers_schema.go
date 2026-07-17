@@ -221,8 +221,9 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 
 	// Serialize with the reindex-submit REST handler on the same
 	// (collection, property) tuple. Without this lock, a parallel
-	// PUT /v1/schema/{class}/indexes/{prop} (which submits a reindex
-	// task) and this DELETE (which drops the canonical bucket) race
+	// PUT /v1/schema/{class}/properties/{prop}/index/{indexType} (which
+	// submits a reindex task) and this DELETE (which drops the canonical
+	// bucket) race
 	// at the RAFT serializer: if DELETE's UpdateProperty commits
 	// before the reindex's DistributedTaskAdd, the apply-time
 	// MutationGuard cannot reject DELETE because no task is in-flight
