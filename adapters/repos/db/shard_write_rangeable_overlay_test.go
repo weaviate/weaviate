@@ -90,6 +90,84 @@ func newLiveFilterableToRangeableTask(t *testing.T, idx *Index, className, propN
 	)
 }
 
+// driveFilterableToRangeableMigrationToLocalTidy is the shared restart-
+// fixture arrange step for every test that needs a shard sitting in the
+// tidy-but-not-flipped window: it creates a fresh shard for class, writes
+// numObjects objects, and drives a live FilterableToRangeableStrategy
+// migration for propName (via newLiveFilterableToRangeableTask) to full
+// local completion (tidied.mig on disk, in-process OnMigrationComplete
+// already ran) WITHOUT ever touching the cluster-wide schema flag - that
+// flip is RAFT-level, out of scope for a single-shard test, and is exactly
+// the window GH weaviate/weaviate#12189 defers.
+//
+// Driving the migration inline never goes through ReindexProvider, so it
+// never writes payload.mig on its own; this helper persists a realistic one
+// explicitly via SaveRecoveryPayload so the on-disk shape matches what a
+// real RAFT/DTM-driven migration leaves behind (see
+// filterableToRangeableRecoveryPayloadJSON's godoc).
+//
+// Callers are responsible for shutting the returned shard down (directly,
+// or via [restartShardAfterLocalTidy]).
+func driveFilterableToRangeableMigrationToLocalTidy(
+	t *testing.T, ctx context.Context, class *models.Class, propName string, numObjects int,
+) (shard *Shard, idx *Index) {
+	t.Helper()
+	className := class.Class
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard = shd.(*Shard)
+
+	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task := newLiveFilterableToRangeableTask(t, idx, className, propName)
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	for {
+		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+	require.NoError(t, task.SaveRecoveryPayload(shard.pathLSM(),
+		filterableToRangeableRecoveryPayloadJSON(t, propName)))
+
+	return shard, idx
+}
+
+// restartShardAfterLocalTidy simulates a process restart exactly like a
+// real node restart: idx.initShard builds a brand-new *Shard with an empty
+// in-memory rangeableLocalReady map, and, critically,
+// FinalizeCompletedMigrations deletes the tidied tracker directory as part
+// of that same restart.
+//
+// Deliberately does NOT wire idx.shardReindexer to a task that knows about
+// the migration (it stays the default shardReindexerV3Noop
+// testShardWithSettings set up, see helper_for_test.go). Real node startup
+// initializes shards before RAFT/DTM has necessarily re-synced the active-
+// task list to this node's reindexer, so a write can land on a freshly-
+// initialized shard with NO reindex task driving recovery yet. Wiring a
+// live, matching task here (as the sibling recovery-convergence tests do)
+// would let its OnAfterLsmInit re-discover "not started" (the tracker dir
+// is gone) and re-run the WHOLE migration from scratch, which re-converges
+// regardless of whether the seed fix under test even exists, masking the
+// exact gap these tests are for.
+//
+// The caller owns shutting the returned shard down.
+func restartShardAfterLocalTidy(t *testing.T, ctx context.Context, idx *Index, shard *Shard, class *models.Class) *Shard {
+	t.Helper()
+	shardName := shard.Name()
+	require.NoError(t, shard.Shutdown(ctx))
+
+	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	require.NoError(t, err, "restarted shard init must succeed")
+	shard2 := shd2.(*Shard)
+	idx.shards.Store(shardName, shd2)
+	return shard2
+}
+
 // TestRangeableForceIndexOverlay pins the write-path overlay that closes
 // the #12189-introduced write-loss window (weaviate/0-weaviate-issues#319,
 // rangeable instance): once a shard is locally ready for a rangeable prop
@@ -260,31 +338,7 @@ func TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFli
 	const propName = filterableToRangeablePropName
 	class := newFilterableToRangeableTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-
-	for _, obj := range makeFilterableToRangeableTestObjects(t, 10, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task := newLiveFilterableToRangeableTask(t, idx, className, propName)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
-
-	// Driving the migration inline (above) never goes through
-	// ReindexProvider, so it never writes payload.mig on its own; do
-	// it explicitly so the on-disk shape matches what a real
-	// RAFT/DTM-driven migration leaves behind (see
-	// filterableToRangeableRecoveryPayloadJSON's godoc).
-	require.NoError(t, task.SaveRecoveryPayload(shard.pathLSM(),
-		filterableToRangeableRecoveryPayloadJSON(t, propName)))
+	shard, idx := driveFilterableToRangeableMigrationToLocalTidy(t, ctx, class, propName, 10)
 
 	falseVal := false
 	preFlipProp := &models.Property{Name: propName, DataType: []string{"int"}, IndexRangeFilters: &falseVal}
@@ -296,26 +350,8 @@ func TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFli
 	require.NotNil(t, overlay, "sanity: pre-restart overlay should already force rangeable")
 	require.True(t, overlay[propName].ForceRangeable)
 
-	shardName := shard.Name()
-	require.NoError(t, shard.Shutdown(ctx))
-
-	// Deliberately do NOT wire idx.shardReindexer to a task that knows
-	// about this migration (it stays the default shardReindexerV3Noop
-	// testShardWithSettings set up, see helper_for_test.go). Real node
-	// startup initializes shards before RAFT/DTM has necessarily
-	// re-synced the active-task list to this node's reindexer, so a
-	// write can land on a freshly-initialized shard with NO reindex
-	// task driving recovery yet. Wiring a live, matching task here (as
-	// the sibling recovery-convergence tests do) would let its
-	// OnAfterLsmInit re-discover "not started" (the tracker dir is
-	// gone) and re-run the WHOLE migration from scratch, which
-	// re-converges regardless of whether the seed fix under test even
-	// exists, masking the exact gap this test is for.
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
-	require.NoError(t, err, "restarted shard init must succeed")
-	shard2 := shd2.(*Shard)
+	shard2 := restartShardAfterLocalTidy(t, ctx, idx, shard, class)
 	defer shard2.Shutdown(ctx)
-	idx.shards.Store(shardName, shd2)
 
 	overlay2 := shard2.rangeableForceIndexOverlay([]*models.Property{preFlipProp})
 	require.NotNilf(t, overlay2, "restart must not reopen the post-swap pre-flip write-loss window: "+

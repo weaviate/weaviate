@@ -27,20 +27,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // restartShardIntoTidyButNotFlippedRangeableWindow is the write/read pin
 // analog of the restart fixture in
 // TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFlip
-// (shard_write_rangeable_overlay_test.go): drive an enable-rangeable
-// migration for propName to full local completion (tidied.mig on disk,
-// in-process OnMigrationComplete already ran) WITHOUT ever touching the
-// cluster-wide schema flag, write a realistic payload.mig via
-// SaveRecoveryPayload (driving the migration inline never goes through
-// ReindexProvider, so it never persists one on its own - see
-// filterableToRangeableRecoveryPayloadJSON's godoc), then restart via
-// idx.initShard exactly like a real node restart.
+// (shard_write_rangeable_overlay_test.go): it composes
+// driveFilterableToRangeableMigrationToLocalTidy and
+// restartShardAfterLocalTidy (shard_write_rangeable_overlay_test.go) to
+// land propName in the tidy-but-not-flipped window.
 //
 // The returned shard lands in the tidy-but-not-flipped window:
 // rangeableLocalReady[propName] is seeded true by
@@ -54,40 +49,8 @@ func restartShardIntoTidyButNotFlippedRangeableWindow(
 	className := "RangeableBucketLoad_" + uuid.NewString()[:8]
 	class = newFilterableToRangeableTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-
-	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
-
-	task := newLiveFilterableToRangeableTask(t, idx, className, propName)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
-	require.NoError(t, task.SaveRecoveryPayload(shard.pathLSM(),
-		filterableToRangeableRecoveryPayloadJSON(t, propName)))
-
-	shardName := shard.Name()
-	require.NoError(t, shard.Shutdown(ctx))
-
-	// Deliberately do NOT wire idx.shardReindexer to a task that knows
-	// about this migration - same rationale as
-	// TestRangeableForceIndexOverlay_SurvivesRestartAfterLocalTidyBeforeSchemaFlip:
-	// real node startup can init a shard before RAFT/DTM has re-synced
-	// the active-task list, and wiring a live task here would let it
-	// re-discover "not started" and re-run the whole migration from
-	// scratch, masking the exact gap this fixture is for.
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
-	require.NoError(t, err, "restarted shard init must succeed")
-	shard2 = shd2.(*Shard)
-	idx.shards.Store(shardName, shd2)
+	shard, idx := driveFilterableToRangeableMigrationToLocalTidy(t, ctx, class, propName, numObjects)
+	shard2 = restartShardAfterLocalTidy(t, ctx, idx, shard, class)
 
 	require.True(t, shard2.IsRangeableLocallyReady(propName),
 		"sanity: seedRangeableLocalReadyFromMigrationHistory must have marked this prop ready post-restart")
