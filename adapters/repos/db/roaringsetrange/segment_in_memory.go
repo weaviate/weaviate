@@ -124,7 +124,7 @@ func (s *SegmentInMemory) countPendingMemtables() int {
 	return len(s.memtables)
 }
 
-// IsUnpopulated reports whether the rep would serve any rows: the presence
+// IsUnpopulated reports whether the rep would serve no rows: the presence
 // set (bitmaps[0]) is empty and no flushed memtables are queued for merge.
 // Size() can't be used instead - an unpopulated rep still allocates 65 empty
 // bitmap skeletons. Checking pending memtables too avoids a false positive in
