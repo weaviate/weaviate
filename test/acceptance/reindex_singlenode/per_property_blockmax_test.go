@@ -24,18 +24,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testPerPropertyBlockmaxNoOp pins the per-property blockmax semantics on a
-// multi-searchable-property class (Etienne's decision: per-property NO_OP).
-//
-// The class-wide UsingBlockMaxWAND flip is deferred until EVERY searchable
-// property has migrated (shouldDeferBlockmaxFlip). Before the fix, the GA
-// handler resolved blockmax NO_OP, rebuild eligibility, and status algorithm
-// against that class-level flag — so a property that had already migrated:
-//   - answered a repeat blockmax PUT with 202 + a full re-run (not 200 NO_OP);
-//   - 400'd on rebuild with "cannot rebuild a WAND searchable index";
-//   - reported algorithm="wand" in GET /indexes.
-//
-// All three now use the property's TRUE bucket strategy.
+// testPerPropertyBlockmaxNoOp pins per-property blockmax truth on a
+// multi-searchable-property class: NO_OP, rebuild eligibility, and status
+// algorithm must reflect each property's own migrated bucket, not the
+// class-wide flag (which stays deferred until EVERY searchable property has
+// migrated; see shouldDeferBlockmaxFlip).
 func testPerPropertyBlockmaxNoOp(t *testing.T, restURI string) {
 	const class = "PerPropBlockmax"
 	helper.CreateClass(t, &models.Class{
@@ -80,7 +73,6 @@ func testPerPropertyBlockmaxNoOp(t *testing.T, restURI string) {
 	assertSearchableAlgorithm(t, restURI, class, "body", "wand", "")
 
 	// Core: repeat blockmax PUT on the already-migrated title → 200 NO_OP.
-	// RED on current head: 202 + a new full change-algorithm task.
 	resp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, class, "title", "searchable", `{"algorithm":"blockmax"}`)
 	require.Equalf(t, http.StatusOK, resp.StatusCode,
 		"repeat blockmax PUT on an already-migrated property must be 200 NO_OP, got: %s", resp.Body)

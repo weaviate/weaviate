@@ -17,30 +17,21 @@ import (
 	"time"
 )
 
-// reindexDeleteMarkerTTL bounds how long a recorded DELETE is remembered.
-// The only consumer is the GET /indexes finalize-window suppression, which
-// matters for at most one finalize window (2× scheduler tick, clamped to
-// ≤10s) after a task FINISHED. A delete older than that can never suppress
-// anything (the driving FINISHED task is already outside its window), so a
-// generous 30s TTL is ample and keeps the map bounded.
+// reindexDeleteMarkerTTL bounds how long a recorded DELETE is remembered. A
+// delete can only matter within the finalize window (≤10s after FINISHED),
+// so 30s is generous headroom that also keeps the map bounded.
 const reindexDeleteMarkerTTL = 30 * time.Second
 
 // ReindexDeleteMarkers records, per (collection, property, indexType), the
-// most recent time a property-index DELETE was accepted.
+// most recent time a property-index DELETE was accepted, so GET /indexes can
+// tell "index was deleted after its task finished" (suppress the
+// finalize-window "indexing@100%" bleed) from a live re-enable (STARTED
+// task, never suppressed).
 //
-// It exists to suppress the post-DELETE finalize-window bleed on
-// GET /v1/schema/{class}/indexes: mergeReindexStatus keeps a recently-FINISHED
-// task's index visible as "indexing@100%" for a short window to bridge the gap
-// between "task FINISHED" and "schema flag flipped". After a DELETE the flag
-// is intentionally off, so that override wrongly resurrects the just-deleted
-// index. The GET handler consults these markers to distinguish "index was
-// deleted after its task finished" (suppress) from a live re-enable (which is
-// driven by a STARTED task and never touches this path).
-//
-// Node-local and best-effort: the marker lives on the node that served the
-// DELETE. A GET served by a different node in a multi-node cluster may still
-// show the bleed for the (short) finalize window — acceptable, since the
-// finalize-window override itself is already a per-node, cosmetic mitigation.
+// Node-local and best-effort: a GET served by a different node in a
+// multi-node cluster may still show the bleed for the short finalize
+// window — acceptable, since the finalize-window override itself is
+// already a per-node, cosmetic mitigation.
 type ReindexDeleteMarkers struct {
 	mu      sync.Mutex
 	deleted map[string]time.Time

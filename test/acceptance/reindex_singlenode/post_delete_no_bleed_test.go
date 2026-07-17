@@ -22,18 +22,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testPostDeleteNoSyntheticEntry pins Etienne's decision to SUPPRESS the
-// post-DELETE synthetic finalize-window entry: once a DELETE for a
-// (property, indexType) is accepted, GET /indexes must not synthesize an
-// "indexing@100%" entry for it.
-//
-// mergeReindexStatus keeps a recently-FINISHED task's index visible as
-// "indexing@100%" for a short window to bridge FINISHED → schema-flag-flip.
-// After a DELETE the flag is intentionally off, so on the unfixed handler the
-// override resurrects the just-deleted index for the whole finalize window
-// (QA F2: "~3s after DELETE, GET /indexes shows the deleted index as
-// indexing@progress=1.0"). The fix records the DELETE and suppresses the
-// finalize-window synthesis when the driving task finished before the delete.
+// testPostDeleteNoSyntheticEntry pins that once a DELETE for a (property,
+// indexType) is accepted, GET /indexes must never synthesize an
+// "indexing@100%" finalize-window entry for it (mergeReindexStatus's
+// FINISHED-task bridge would otherwise resurrect the just-deleted index for
+// the whole finalize window).
 //
 // Stricter than testDeleteThenReEnableIndexingBleed (which only requires the
 // bleed to eventually clear): here the entry must be absent at EVERY sample
@@ -62,8 +55,7 @@ func testPostDeleteNoSyntheticEntry(t *testing.T, restURI string) {
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// DELETE it, then assert the rangeFilters entry is absent at every sample
-	// across the finalize window (2× scheduler tick, clamped ≥3s). On the
-	// unfixed handler the entry bleeds as "indexing@1.0" here.
+	// across the finalize window (2× scheduler tick, clamped ≥3s).
 	deleteIndex(t, restURI, class, "score", "rangeFilters")
 
 	deadline := time.Now().Add(4 * time.Second)

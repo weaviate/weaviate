@@ -261,8 +261,7 @@ func matrixBodies() []matrixBody {
 		// shape drives both enable-searchable (create, when no searchable
 		// index exists) and change-tokenization (retokenize, when it does) —
 		// the resolver picks from the property's pre-state, which the matrix
-		// already sweeps. (A second byte-identical "..._tokenization_..." pair
-		// was dropped: it exercised nothing the pre-state sweep didn't.)
+		// already sweeps.
 		{"PUT_searchable_enabled_tok_word", "searchable", "put", `{"tokenization":"word"}`},
 		{"PUT_searchable_enabled_tok_field", "searchable", "put", `{"tokenization":"field"}`},
 		// searchable algorithm switch (Map/WAND → BlockMax).

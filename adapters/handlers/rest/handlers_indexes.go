@@ -209,12 +209,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 				idx.Tokenization = prop.Tokenization
 			}
 			// Only searchable indexes have a BM25 algorithm; surface the
-			// property's TRUE wand/blockmax state so the UI renders it
-			// honestly. The class-wide UsingBlockMaxWAND flag flips only
-			// after every searchable property has migrated, so a per-property
-			// check is required to avoid reporting "wand" for a property whose
-			// bucket is already blockmax. Filterable / rangeable have no
-			// equivalent today.
+			// property's TRUE wand/blockmax state (not just the class-wide
+			// flag, which flips only once every searchable property has
+			// migrated). Filterable / rangeable have no equivalent today.
 			if e.indexType == "searchable" && e.flagOn {
 				idx.Algorithm = models.IndexStatusAlgorithmWand
 				if h.searchablePropertyIsBlockmax(class, prop) {
@@ -223,11 +220,10 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			}
 			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, finalizeWindow, h.appState.Logger)
 			// Suppress the post-DELETE finalize-window bleed: a synthetic
-			// "indexing@100%" entry painted from a FINISHED task whose index
-			// was deleted AFTER it finished must not surface — the caller
-			// deleted the index and must not see a phantom finalize entry.
-			// Uses the raw (pre-strip) task ID to match parsedTasks; a live
-			// re-enable is driven by a STARTED task and so is never suppressed.
+			// "indexing@100%" entry from a FINISHED task whose index was
+			// deleted AFTER it finished must not resurface. Uses the raw
+			// (pre-strip) task ID to match parsedTasks; a live re-enable
+			// (STARTED task) is never suppressed.
 			if !e.flagOn && idx.Status == models.IndexStatusStatusIndexing &&
 				h.isPostDeleteFinalizeBleed(collection, prop.Name, canonicalIndexType(e.indexType), idx.TaskID, parsedTasks) {
 				continue
@@ -897,16 +893,13 @@ func isSyntheticStatus(s string) bool {
 }
 
 // isPostDeleteFinalizeBleed reports whether the synthetic "indexing@100%"
-// entry currently painted on an index status is a phantom left by
-// mergeReindexStatus's finalize-window override after the caller DELETEd the
-// index. It is a bleed iff the driving task (taskID) has FINISHED and a DELETE
-// for this (collection, property, indexType) was recorded AFTER that task
-// finished — i.e. the index was created, its task finished, and then it was
-// deleted, so the finalize window (which exists only to bridge FINISHED →
-// schema-flag-flip for a live creation) no longer applies.
+// entry on an index status is a phantom left by mergeReindexStatus's
+// finalize-window override after the caller DELETEd the index: the driving
+// task (taskID) has FINISHED, and a DELETE for this (collection, property,
+// indexType) was recorded AFTER it finished.
 //
 // A live re-enable is driven by a STARTED task (which outranks the stale
-// FINISHED one in mergeReindexStatus's best-task pick), so its entry is never
+// FINISHED one in mergeReindexStatus's best-task pick), so it is never
 // suppressed here. indexType is the canonical status-type spelling, matching
 // what the DELETE handler recorded.
 func (h *indexesHandlers) isPostDeleteFinalizeBleed(collection, property, indexType, taskID string, parsedTasks []parsedReindexTask) bool {

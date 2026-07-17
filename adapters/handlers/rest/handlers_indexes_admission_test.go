@@ -50,14 +50,10 @@ func statusOf(t *testing.T, resp middleware.Responder) (int, *models.ErrorRespon
 	return rec.Code, &body
 }
 
-// TestCheckReindexAdmission_FailsClosedOnListError pins QA-2: when the
-// in-flight task list cannot be fetched (RAFT/cluster blip), the pre-submit
-// gate must FAIL CLOSED with 503 rather than admitting an unchecked submit.
-// Admitting it would skip the 409-conflict and 429-cap checks and silently
-// let a conflicting migration through — an availability blip turned into a
-// correctness hole. Because the gate returns a non-nil responder, the caller
-// (submitReindexTask) returns it before ever calling AddDistributedTask, so
-// nothing is submitted.
+// TestCheckReindexAdmission_FailsClosedOnListError pins that when the
+// in-flight task list cannot be fetched, the pre-submit gate FAILS CLOSED
+// with 503 instead of admitting an unchecked submit (which would silently
+// let a conflicting migration through).
 func TestCheckReindexAdmission_FailsClosedOnListError(t *testing.T) {
 	h := admissionHandler()
 
@@ -72,11 +68,9 @@ func TestCheckReindexAdmission_FailsClosedOnListError(t *testing.T) {
 		"503 body must explain why the precondition check could not run")
 }
 
-// TestCheckReindexAdmission_CapExceededReturns429 pins QA-3: with the cap's
-// worth of active tasks already in flight for the collection, the next
-// (33rd) submission is rejected with 429 through the real gate — not merely
-// counted by the count helper. Uses distinct properties so no conflict fires
-// before the cap check.
+// TestCheckReindexAdmission_CapExceededReturns429 pins that with the cap's
+// worth of active tasks already in flight, the next submission is rejected
+// with 429 through the real gate — not merely counted by the count helper.
 func TestCheckReindexAdmission_CapExceededReturns429(t *testing.T) {
 	h := admissionHandler()
 	const collection = "C"
