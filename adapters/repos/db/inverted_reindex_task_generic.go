@@ -840,12 +840,30 @@ func (t *ShardReindexTaskGeneric) completeMigrationOnShard(ctx context.Context, 
 // recovery branches in [RunSwapOnShard] which don't go through
 // runtimeSwap.
 //
-// Best-effort on trim — failures are logged, not returned, matching
-// the trim policy at the end of runtimeSwap.
+// Disarms this task instance's double-write callbacks on return, same as
+// runtimeSwap's own defer and for the same reason: OnAfterLsmInit's
+// rt.IsSwapped()&&!rt.IsTidied() branch re-registers the backup-window
+// callback on crash recovery (a previous runtimeSwap crashed between
+// markSwapped and markTidied), but recovery never re-enters runtimeSwap;
+// it converges here instead. Without this, that registration survives past
+// this function's completion and keeps firing on every later write to the
+// migrating prop: trimOlderGenerationsLocked below removes the backup
+// bucket's on-disk directory without unregistering it from the store, so
+// the postings leg dereferences a bucket with no backing segment files
+// (failing the write outright), and the tally leg double-counts against
+// SetPropertyLengths once the cluster-wide schema flip lands
+// (weaviate/0-weaviate-issues#322). Deferred (not called unconditionally
+// inline) so it still runs on the completeMigrationOnShard error path,
+// matching runtimeSwap's "stop touching these buckets regardless of
+// outcome" contract. A harmless no-op when nothing was registered, the
+// common case, since only the crash-recovery branch above ever registers
+// the backup-window callback.
 func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt reindexTracker, props []string,
 ) error {
+	defer t.disableCallbacks()
+
 	if err := t.completeMigrationOnShard(ctx, shard, props); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
