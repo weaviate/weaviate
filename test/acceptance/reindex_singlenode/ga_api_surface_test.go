@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,6 +113,74 @@ func testGAApiSurface(t *testing.T, restURI string) {
 		resp := reindexhelpers.CancelIndex(t, restURI, class, "title", "searchable")
 		require.Equal(t, "NO_OP", resp.Status, "cancel with nothing in flight must be a 202 NO_OP")
 		require.Empty(t, resp.TaskID)
+	})
+
+	t.Run("rangeable alias accepted on rebuild and cancel sub-resources", func(t *testing.T) {
+		// score has a rangeFilters index (created in the idempotency subtest).
+		// Rebuild AND cancel must both accept the `rangeable` write-path alias.
+		taskID := reindexhelpers.RebuildIndex(t, restURI, class, "score", "rangeable")
+		require.NotEmpty(t, taskID, "rebuild via rangeable alias must return a taskId")
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+
+		// Nothing in flight now → cancel via the alias is a 202 NO_OP.
+		resp := reindexhelpers.CancelIndex(t, restURI, class, "score", "rangeable")
+		assert.Equal(t, "NO_OP", resp.Status, "cancel via rangeable alias must be 202 NO_OP when idle")
+	})
+
+	t.Run("status surfaces IndexStatus.taskId; coupled entries share the same taskId", func(t *testing.T) {
+		// A coupled tokenization change on title rewrites BOTH the searchable
+		// and filterable buckets under ONE task. While in flight, both status
+		// entries must carry the same taskId (equal to the submit's).
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "title", "searchable", `{"tokenization":"field"}`)
+		require.NotEmpty(t, taskID)
+
+		// Poll to catch the in-flight window: units stay pending for up to one
+		// scheduler tick before the local worker claims them, and a semantic
+		// migration crosses the swap barrier over several ticks — comfortably
+		// observable at 50ms cadence.
+		var sawCoupled bool
+		deadline := time.Now().Add(8 * time.Second)
+		for time.Now().Before(deadline) && !sawCoupled {
+			idx := reindexhelpers.GetIndexes(t, restURI, class)
+			var searchableTask, filterableTask, searchableStatus string
+			for _, p := range idx.Properties {
+				if p.Name != "title" {
+					continue
+				}
+				for _, e := range p.Indexes {
+					switch e.Type {
+					case "searchable":
+						searchableTask, searchableStatus = e.TaskID, e.Status
+					case "filterable":
+						filterableTask = e.TaskID
+					}
+				}
+			}
+			if searchableTask != "" && (searchableStatus == "pending" || searchableStatus == "indexing") {
+				assert.Equal(t, taskID, searchableTask, "searchable entry taskId must equal the submit's taskId")
+				assert.Equal(t, taskID, filterableTask,
+					"coupled filterable entry must share the same taskId as searchable")
+				sawCoupled = true
+			}
+			if !sawCoupled {
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+		require.True(t, sawCoupled, "expected to observe the coupled in-flight taskId on both title entries")
+
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexViaIndexes(t, restURI, class, "title", "searchable")
+
+		// Once ready, a plain entry carries no taskId.
+		idx := reindexhelpers.GetIndexes(t, restURI, class)
+		for _, p := range idx.Properties {
+			if p.Name != "title" {
+				continue
+			}
+			for _, e := range p.Indexes {
+				assert.Emptyf(t, e.TaskID, "a ready %s entry must not carry a taskId", e.Type)
+			}
+		}
 	})
 
 	t.Run("old Preview PUT /indexes/{prop} route is gone", func(t *testing.T) {

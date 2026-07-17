@@ -247,7 +247,7 @@ func matrixPreStatesForSpecial() []matrixPreState {
 type matrixBody struct {
 	name      string
 	indexType string // "searchable" / "filterable" / "rangeFilters"
-	verb      string // "put" (declarative upsert), "rebuild", "cancel"
+	verb      string // "put" (declarative upsert) or "rebuild"
 	body      string // PUT upsert body; ignored for rebuild / cancel
 }
 
@@ -257,16 +257,14 @@ type matrixBody struct {
 // tokenization/algorithm change; rebuild is a bodyless POST sub-resource.
 func matrixBodies() []matrixBody {
 	return []matrixBody{
-		// canonical enable-searchable, two tokenizations to exercise both
-		// the "matches stored tok" and "diverges from stored tok" branches
-		// of the searchable upsert resolver.
+		// searchable {"tokenization":X}, two tokenizations. In GA this ONE
+		// shape drives both enable-searchable (create, when no searchable
+		// index exists) and change-tokenization (retokenize, when it does) —
+		// the resolver picks from the property's pre-state, which the matrix
+		// already sweeps. (A second byte-identical "..._tokenization_..." pair
+		// was dropped: it exercised nothing the pre-state sweep didn't.)
 		{"PUT_searchable_enabled_tok_word", "searchable", "put", `{"tokenization":"word"}`},
 		{"PUT_searchable_enabled_tok_field", "searchable", "put", `{"tokenization":"field"}`},
-		// change-tokenization on searchable. Same GA shape as the enable
-		// rows above (tokenization drives both create and retokenize); the
-		// resolver picks create vs retokenize from the property's state.
-		{"PUT_searchable_tokenization_word", "searchable", "put", `{"tokenization":"word"}`},
-		{"PUT_searchable_tokenization_field", "searchable", "put", `{"tokenization":"field"}`},
 		// searchable algorithm switch (Map/WAND → BlockMax).
 		{"PUT_searchable_algorithm_blockmax", "searchable", "put", `{"algorithm":"blockmax"}`},
 		// empty searchable body: "ensure the searchable index exists with
@@ -294,16 +292,12 @@ func matrixBodies() []matrixBody {
 // issueMatrixRequest issues the GA request described by mb against
 // (className, propName) via the shared reindex helpers and returns the raw
 // status + body. PUT rows (including the empty / malformed robustness rows)
-// go through SubmitIndexUpsertRaw; rebuild / cancel rows POST the matching
-// sub-resource.
+// go through SubmitIndexUpsertRaw; rebuild rows POST the rebuild sub-resource.
 func issueMatrixRequest(t *testing.T, restURI, className, propName string, mb matrixBody) (int, []byte) {
 	t.Helper()
 	switch mb.verb {
 	case "rebuild":
 		r := reindexhelpers.RebuildIndexRaw(t, restURI, className, propName, mb.indexType)
-		return r.StatusCode, []byte(r.Body)
-	case "cancel":
-		r := reindexhelpers.CancelIndexRaw(t, restURI, className, propName, mb.indexType)
 		return r.StatusCode, []byte(r.Body)
 	default: // "put" — declarative upsert
 		r := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, propName, mb.indexType, mb.body)
@@ -798,7 +792,6 @@ func verifySchemaPostMigration(t *testing.T, class, propName string, mb matrixBo
 func queryIndexForBody(mb matrixBody) string {
 	switch {
 	case strings.Contains(mb.name, "searchable_enabled_tok"),
-		strings.Contains(mb.name, "searchable_tokenization"),
 		strings.Contains(mb.name, "searchable_rebuild"):
 		return "searchable"
 	case strings.Contains(mb.name, "filterable_enabled") &&

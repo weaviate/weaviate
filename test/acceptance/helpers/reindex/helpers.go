@@ -150,6 +150,11 @@ func taskIDFromBody(t *testing.T, body string) string {
 	t.Helper()
 	var result map[string]string
 	require.NoError(t, json.Unmarshal([]byte(body), &result))
+	// A 202 must carry a non-empty taskId. Without this, a submit that
+	// returns 202 with a missing/empty taskId flows through silently and
+	// only surfaces downstream as a misleading 120s AwaitReindexFinished("")
+	// timeout — every submit in every package funnels through here.
+	require.NotEmpty(t, result["taskId"], "202 response missing taskId: %s", body)
 	return result["taskId"]
 }
 
@@ -174,6 +179,7 @@ type IndexesResponse struct {
 			Type               string  `json:"type"`
 			Status             string  `json:"status"`
 			Progress           float32 `json:"progress"`
+			TaskID             string  `json:"taskId,omitempty"`
 			Tokenization       string  `json:"tokenization,omitempty"`
 			TargetTokenization string  `json:"targetTokenization,omitempty"`
 			Algorithm          string  `json:"algorithm,omitempty"`
