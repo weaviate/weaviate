@@ -34,9 +34,8 @@ import (
 )
 
 // newReplConfigDeadlockFixture is newAddPropertyLazyFixture without the Shutdown
-// cleanup: after a reproduced deadlock the shard mutex is wedged forever and a
-// deferred Shutdown would hang the test binary. Callers shut down explicitly on
-// the non-deadlocked paths only.
+// cleanup: a reproduced deadlock wedges the shard mutex forever, so a deferred
+// Shutdown would hang the test binary. Callers shut down explicitly when not wedged.
 func newReplConfigDeadlockFixture(t *testing.T, className string) (*DB, *Index) {
 	t.Helper()
 	ctx := testCtx()
@@ -109,8 +108,8 @@ func soleColdShard(t *testing.T, index *Index) *LazyLoadShard {
 	return lazy
 }
 
-// deadlockStacks keeps only the goroutines involved in the reproduced cycle so
-// the failure message stays readable; falls back to the full dump.
+// deadlockStacks keeps only the goroutines involved in the cycle; falls back to
+// the full dump if none match.
 func deadlockStacks(full string) string {
 	var kept []string
 	for _, g := range strings.Split(full, "\n\n") {
@@ -126,9 +125,8 @@ func deadlockStacks(full string) string {
 	return strings.Join(kept, "\n\n")
 }
 
-// Sanity companion for the deadlock test: the same two operations succeed when
-// they don't overlap, so a failure there is attributable to the interleaving,
-// not to the fixture.
+// Sanity companion: the same two operations succeed when they don't overlap, so
+// a deadlock-test failure is attributable to the interleaving, not the fixture.
 func TestUpdateReplicationConfig_SequentialWithLazyShard(t *testing.T) {
 	ctx := context.Background()
 	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigSequential")
@@ -142,18 +140,17 @@ func TestUpdateReplicationConfig_SequentialWithLazyShard(t *testing.T) {
 	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
-// Reproduces the ABBA deadlock between enabling async replication and a lazy
-// shard load (observed in prod as a wedged RAFT FSM and a pod stuck
-// Terminating, because raft.Shutdown waits on runFSM which is stuck in this
-// Apply):
+// Pins the ABBA deadlock between enabling async replication and a lazy shard
+// load — in prod it wedges the RAFT FSM (UpdateClass apply) and leaves pods
+// stuck Terminating, since raft.Shutdown waits on runFSM:
 //
 //	updateReplicationConfig: holds replicationConfigLock (W) -> wants LazyLoadShard.mutex (isLoaded)
 //	LazyLoadShard.Load:      holds LazyLoadShard.mutex      -> wants replicationConfigLock (R)
 //	                         (initNonVector -> Index.AsyncReplicationEnabled)
 //
-// The test starts a real Load, waits until it owns the shard mutex, then runs
-// updateReplicationConfig. On broken code both goroutines wedge and the test
-// fails with their stacks; once the lock cycle is fixed it passes.
+// Starts a real Load, waits until it owns the shard mutex, then races
+// updateReplicationConfig against it; wedged goroutines fail the test with
+// their stacks.
 func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 	const (
 		attempts        = 5
@@ -168,8 +165,7 @@ func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 		loadDone := make(chan error, 1)
 		go func() { loadDone <- lazy.Load(ctx) }()
 
-		// Load holds the shard mutex for its entire duration; observe that it
-		// does before racing the config update against it.
+		// Load holds the shard mutex for its entire duration; wait until it does.
 		mutexHeld := false
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 			if !lazy.mutex.TryLock() {
