@@ -79,10 +79,12 @@ func TestInitTargetVector_ShutsDownIndexWhenQueueCreationFails(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// async indexing makes NewVectorIndexQueue call q.Init()
-			shardLike, _ := testShard(t, context.Background(), "VecQueueOrphan",
-				func(idx *Index) { idx.AsyncIndexingEnabled = true })
+			shardLike, index := testShard(t, context.Background(), "VecQueueOrphan")
 			s := underlyingShard(t, shardLike)
+			// enable async only after NewShard: it makes NewVectorIndexQueue call
+			// q.Init(), but at creation it would spawn a ConvertQueue goroutine that
+			// nil-derefs the test harness's (absent) indexCheckpoints.
+			index.AsyncIndexingEnabled = true
 
 			const target = "orphanTarget"
 			// a file where the queue dir must go makes q.Init() fail
@@ -121,10 +123,10 @@ func TestInitTargetVector_ShutsDownIndexWhenQueueCreationFails(t *testing.T) {
 // vector-index creation does not leave the shard read-only: the goroutine that
 // restores StatusReady must run even when initTargetVector returns an error.
 func TestUpdateVectorIndexConfigs_FailedInitRestoresStatus(t *testing.T) {
-	// async indexing makes NewVectorIndexQueue call q.Init()
-	shardLike, _ := testShard(t, context.Background(), "VecQueueReadonly",
-		func(idx *Index) { idx.AsyncIndexingEnabled = true })
+	shardLike, index := testShard(t, context.Background(), "VecQueueReadonly")
 	s := underlyingShard(t, shardLike)
+	// enable async only after NewShard (see the sibling test).
+	index.AsyncIndexingEnabled = true
 
 	const target = "newTarget"
 	// a file where the queue dir must go makes q.Init() fail

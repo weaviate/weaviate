@@ -457,10 +457,10 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
-	idx.AsyncIndexingEnabled = withAsyncIndexingEnabled
 	for _, opt := range indexOpts {
 		opt(idx)
 	}
+	idx.AsyncIndexingEnabled = withAsyncIndexingEnabled
 
 	shardName := shardState.AllPhysicalShards()[0]
 
