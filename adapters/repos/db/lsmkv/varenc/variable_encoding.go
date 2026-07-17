@@ -29,13 +29,9 @@ const (
 type VarEncEncoder[T any] interface {
 	Init(expectedCount int)
 	Encode(values []T) []byte
-	// EncodeAppend encodes values into the encoder's internal buffer, then
-	// appends the encoded bytes to arena. It returns the encoded sub-slice and
-	// the updated arena, avoiding a per-call allocation when several blocks whose
-	// data must coexist are encoded into one arena. A later append that grows the
-	// arena reallocates it: earlier sub-slices keep their bytes (they retain the
-	// old backing array) but are no longer contiguous with the returned arena, so
-	// pre-size the arena when all sub-slices must share one backing array.
+	// EncodeAppend appends the encoding to arena and returns the encoded sub-slice
+	// plus the (possibly reallocated) arena. A growth realloc leaves earlier
+	// sub-slices valid but detached, so pre-size arena if they must stay contiguous.
 	EncodeAppend(values []T, arena []byte) (encoded []byte, updatedArena []byte)
 	Decode(data []byte) []T
 	EncodeReusable(values []T, buf []byte)
