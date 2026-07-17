@@ -908,18 +908,28 @@ func (i *Index) asyncReplicationGloballyDisabled() bool {
 }
 
 func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
-	i.replicationConfigLock.Lock()
-	defer i.replicationConfigLock.Unlock()
+	// The lock must not span the shard fan-out below: it takes each
+	// LazyLoadShard's mutex, and a mid-load shard holds that mutex while
+	// RLocking this config — ABBA deadlock. Post-unlock loads read the new
+	// config, so no shard misses the update.
+	config, asyncEnabled, err := func() (AsyncReplicationConfig, bool, error) {
+		i.replicationConfigLock.Lock()
+		defer i.replicationConfigLock.Unlock()
 
-	i.Config.ReplicationFactor = cfg.Factor
-	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
+		i.Config.ReplicationFactor = cfg.Factor
+		i.Config.DeletionStrategy = cfg.DeletionStrategy
+		i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
 
-	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
+		config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
+		if err != nil {
+			return AsyncReplicationConfig{}, false, err
+		}
+		i.Config.AsyncReplicationConfig = config
+		return config, i.asyncReplicationEnabled(), nil
+	}()
 	if err != nil {
 		return err
 	}
-	i.Config.AsyncReplicationConfig = config
 
 	// unloaded shards fetch the latest config when loaded; iterate concurrently so one shard's fault can't skip the rest (errors are accumulated, not first-error abort).
 	return i.ForEachLoadedShardConcurrently(func(name string, shard ShardLike) error {
@@ -928,12 +938,12 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 			return fmt.Errorf("shard %q does not implement asyncReplicationController", name)
 		}
 
-		if i.asyncReplicationEnabled() {
+		if asyncEnabled {
 			// enableAsyncReplication handles the already-running case by updating
 			// the stored config in-place. The scheduler's runEntry detects height
 			// changes and triggers a rebuild via asyncRepNeedsRebuild, so a
 			// stop/start cycle is only needed for height changes (handled there).
-			if err := ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig); err != nil {
+			if err := ctrl.enableAsyncReplication(ctx, config); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
 		} else {
