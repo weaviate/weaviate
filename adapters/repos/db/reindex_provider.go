@@ -1568,7 +1568,12 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // Skips the flip on non-SWAPPING terminal states (FAILED / CANCELLED) so
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
-func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
+//
+// Returns a non-nil error on the SWAPPING path when the flip fails: wrapped
+// in [distributedtask.ErrTaskCompletionPermanent] when unrecoverable, plain
+// when transient (weaviate/0-weaviate-issues#297). Terminal-status cleanup
+// always returns nil.
+func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	payload, payloadErr := p.loadPayload(task)
 	// Caches are cleared on exit (not up-front): the staged-swap commit /
 	// rollback below still needs the cached task instances.
@@ -1603,15 +1608,16 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 				// OnTaskCompleted.
 			}
 		}
-		return
+		return nil
 	}
 	if payloadErr != nil {
 		logger.Errorf("reindex provider: task-completion: failed to load payload; schema flip will not run: %v", payloadErr)
-		return
+		// An unparsable payload never becomes parsable — permanent.
+		return fmt.Errorf("load payload for schema flip: %w: %w", payloadErr, distributedtask.ErrTaskCompletionPermanent)
 	}
 	if !IsSemanticMigration(payload.MigrationType) {
 		// Format-only migrations flip their metadata inside RunSwapOnShard.
-		return
+		return nil
 	}
 
 	// Defense in depth against a stale-status dispatch
@@ -1630,7 +1636,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		logger.Warn("reindex provider: task-completion: a post-completion ack reported failure while status still reads SWAPPING; refusing the schema flip and rolling back staged swaps (0-weaviate-issues#220)")
 		logOperatorRepairGuidanceOnFailedSemanticMigration(logger, payload)
 		p.autoCleanupAfterTerminal(task, payload, logger)
-		return
+		// Treated exactly like the FAILED terminal branch above (rollback +
+		// operator guidance), which returns nil: no flip was attempted, so
+		// this is terminal cleanup, not a retryable flip failure. The task is
+		// already durably FAILED via the FSM's failed-ack transition
+		// (see Manager.RecordPostCompletionAck).
+		return nil
 	}
 
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
@@ -1642,8 +1653,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		// schema is still pre-flip on this node — the overlay keeps queries
 		// aligned until either a retry lands or TokenizationFor self-clears.
 		// The staged swaps are NOT committed: their OLD backups must
-		// survive until the flip verdict is durable.
-		return
+		// survive until the flip verdict is durable. The error propagates so
+		// the scheduler retries the flip next tick (transient;
+		// weaviate/0-weaviate-issues#297).
+		return fmt.Errorf("schema flip: %w", err)
 	}
 
 	if IsTokenizationChangingMigration(payload.MigrationType) {
@@ -1671,6 +1684,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	// the local staged swaps: tidied sentinel + destructive trim of the
 	// OLD backups (weaviate/0-weaviate-issues#220).
 	p.commitStagedSwapsLocally(task, payload, logger)
+	return nil
 }
 
 // commitStagedSwapsLocally runs the task-level COMMIT of every staged
@@ -2275,9 +2289,10 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			return fmt.Errorf("flip tokenization: %w", err)
 		}
 		if len(missing) > 0 {
-			// Single-property migration; a missing property between submit
-			// and finalize is a hard error.
-			return fmt.Errorf("property %v not found in class %q at finalize", missing, payload.Collection)
+			// Single-property migration: a property deleted between submit
+			// and finalize can never be flipped — permanent (weaviate/0-weaviate-issues#297).
+			return fmt.Errorf("property %v not found in class %q at finalize: %w",
+				missing, payload.Collection, distributedtask.ErrTaskCompletionPermanent)
 		}
 		logger.WithField("tokenization", payload.TargetTokenization).
 			Info("reindex provider: change-tokenization cutover committed")

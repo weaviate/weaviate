@@ -15,8 +15,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -24,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -377,4 +381,165 @@ func TestHybrid_ResponseHasNoOwnNamespaceLeak(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(blob), "customer1:",
 		"namespaced response must not echo the caller's own \"<ns>:\" anywhere: %s", string(blob))
+}
+
+// hybridToolInputSchema builds the real tool and returns its decoded input
+// schema. Building it also guards the recursion regression: a self-referential
+// filter schema would overflow the stack here instead of returning.
+func hybridToolInputSchema(t *testing.T) map[string]any {
+	t.Helper()
+	s, _ := newSearcher(t, &models.Principal{}, false, nil)
+	tools := Tools(s, nil, nil)
+	require.Len(t, tools, 1)
+	raw := tools[0].Tool.RawInputSchema
+	require.NotEmpty(t, raw, "hybrid tool must advertise a raw input schema")
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal(raw, &schema))
+	return schema
+}
+
+// TestHybrid_FilterSchemaExposed: `filters` is advertised with the structured
+// WhereFilter shape (it used to be hidden).
+func TestHybrid_FilterSchemaExposed(t *testing.T) {
+	schema := hybridToolInputSchema(t)
+	props, ok := schema["properties"].(map[string]any)
+	require.True(t, ok)
+
+	filterSchema, ok := props["filters"].(map[string]any)
+	require.True(t, ok, "filters must be advertised in the tool input schema")
+	assert.Equal(t, "object", filterSchema["type"])
+
+	fprops, ok := filterSchema["properties"].(map[string]any)
+	require.True(t, ok, "filters must expose structured sub-properties")
+	// value-field completeness is covered by TestHybrid_FilterSchemaValueFields
+	for _, key := range []string{"operator", "path", "valueText", "operands"} {
+		assert.Contains(t, fprops, key, "filters schema should expose %q", key)
+	}
+
+	operands, ok := fprops["operands"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "array", operands["type"], "operands carries nested filters")
+}
+
+// TestHybrid_FilterSchemaValueFields: every non-deprecated value* field on
+// models.WhereFilter must be advertised (the deprecated valueString /
+// valueStringArray aliases are intentionally omitted).
+func TestHybrid_FilterSchemaValueFields(t *testing.T) {
+	deprecated := map[string]bool{"valueString": true, "valueStringArray": true}
+	var want []string
+	tp := reflect.TypeOf(models.WhereFilter{})
+	for i := 0; i < tp.NumField(); i++ {
+		name := strings.Split(tp.Field(i).Tag.Get("json"), ",")[0]
+		if strings.HasPrefix(name, "value") && !deprecated[name] {
+			want = append(want, name)
+		}
+	}
+	require.NotEmpty(t, want, "model must expose value* fields")
+
+	schema := hybridToolInputSchema(t)
+	fprops := schema["properties"].(map[string]any)["filters"].(map[string]any)["properties"].(map[string]any)
+	for _, name := range want {
+		assert.Contains(t, fprops, name,
+			"filters schema must advertise the model's %q value field", name)
+	}
+}
+
+// TestHybrid_FilterSchemaAlwaysInjected: `filters` is injected whatever the
+// reflected schema's shape, and existing properties are preserved.
+func TestHybrid_FilterSchemaAlwaysInjected(t *testing.T) {
+	cases := map[string]json.RawMessage{
+		"nil raw schema":   nil,
+		"empty object":     json.RawMessage(`{}`),
+		"no properties":    json.RawMessage(`{"type":"object"}`),
+		"unparseable":      json.RawMessage(`not json`),
+		"with other props": json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			tool := &mcp.Tool{RawInputSchema: raw}
+			withHybridFilterSchema()(tool)
+
+			var schema map[string]any
+			require.NoError(t, json.Unmarshal(tool.RawInputSchema, &schema))
+			props, ok := schema["properties"].(map[string]any)
+			require.True(t, ok, "properties must exist after injection")
+			assert.Contains(t, props, "filters", "filters must always be injected")
+			if name == "with other props" {
+				assert.Contains(t, props, "query", "existing reflected properties must be preserved")
+			}
+		})
+	}
+}
+
+// TestHybrid_FilterSchemaOperatorEnum: the advertised operator enum matches the
+// WhereFilter model's own enum (read from the model, not hand-copied).
+func TestHybrid_FilterSchemaOperatorEnum(t *testing.T) {
+	canonical := modelOperatorEnum(t)
+
+	assert.ElementsMatch(t, canonical, whereFilterOperators,
+		"whereFilterOperators must cover exactly the WhereFilter model's operator enum")
+
+	schema := hybridToolInputSchema(t)
+	fprops := schema["properties"].(map[string]any)["filters"].(map[string]any)["properties"].(map[string]any)
+	enumAny, ok := fprops["operator"].(map[string]any)["enum"].([]any)
+	require.True(t, ok, "operator must declare an enum")
+	got := make([]string, len(enumAny))
+	for i, v := range enumAny {
+		got[i] = v.(string)
+	}
+	assert.ElementsMatch(t, canonical, got, "advertised operator enum must match the model's enum")
+}
+
+// modelOperatorEnum reads the operators the model accepts out of its own
+// enum-validation error — an independent source of truth, since the operator
+// constants aren't reflectable.
+func modelOperatorEnum(t *testing.T) []string {
+	t.Helper()
+	err := (&models.WhereFilter{Operator: "__not_a_real_operator__"}).Validate(strfmt.Default)
+	require.Error(t, err, "the model must reject an unknown operator")
+	msg := err.Error()
+	i, j := strings.Index(msg, "["), strings.LastIndex(msg, "]")
+	require.True(t, i >= 0 && j > i, "enum error should list the allowed operators: %s", msg)
+	ops := strings.Fields(msg[i+1 : j])
+	require.NotEmpty(t, ops)
+	return ops
+}
+
+// TestHybrid_StructuredFilterFlowsThrough verifies a REST-shaped filter is
+// parsed by filterext.Parse and reaches the traverser as a LocalFilter, for
+// both a leaf and a nested And.
+func TestHybrid_StructuredFilterFlowsThrough(t *testing.T) {
+	t.Run("leaf filter reaches the traverser", func(t *testing.T) {
+		s, trav := newSearcher(t, &models.Principal{}, false, nil)
+		_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
+			CollectionName: "Movies", Query: "x",
+			Filters: map[string]any{
+				"path": []any{"title"}, "operator": "Equal", "valueText": "Inception",
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, trav.gotParams.Filters)
+		require.NotNil(t, trav.gotParams.Filters.Root)
+		assert.Equal(t, filters.OperatorEqual, trav.gotParams.Filters.Root.Operator)
+		assert.NotNil(t, trav.gotParams.Filters.Root.On)
+	})
+
+	t.Run("nested And filter parses into operands", func(t *testing.T) {
+		s, trav := newSearcher(t, &models.Principal{}, false, nil)
+		_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
+			CollectionName: "Movies", Query: "x",
+			Filters: map[string]any{
+				"operator": "And",
+				"operands": []any{
+					map[string]any{"path": []any{"title"}, "operator": "Equal", "valueText": "Dune"},
+					map[string]any{"path": []any{"genre"}, "operator": "Equal", "valueText": "scifi"},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, trav.gotParams.Filters)
+		require.NotNil(t, trav.gotParams.Filters.Root)
+		assert.Equal(t, filters.OperatorAnd, trav.gotParams.Filters.Root.Operator)
+		assert.Len(t, trav.gotParams.Filters.Root.Operands, 2)
+	})
 }

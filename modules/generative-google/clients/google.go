@@ -281,20 +281,16 @@ func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{},
 		params.Model = model
 	}
 	if params.Temperature == nil {
-		temperature := settings.Temperature()
-		params.Temperature = &temperature
+		params.Temperature = settings.Temperature()
 	}
 	if params.TopP == nil {
-		topP := settings.TopP()
-		params.TopP = &topP
+		params.TopP = settings.TopP()
 	}
 	if params.TopK == nil {
-		topK := settings.TopK()
-		params.TopK = &topK
+		params.TopK = settings.TopK()
 	}
 	if params.MaxTokens == nil {
-		maxTokens := settings.TokenLimit()
-		params.MaxTokens = &maxTokens
+		params.MaxTokens = settings.TokenLimit()
 	}
 
 	params.Images = generative.ParseImageProperties(params.Images, params.ImageProperties, imagePropertiesArray)
