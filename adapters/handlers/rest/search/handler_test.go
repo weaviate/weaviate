@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/inverted"
@@ -44,6 +45,10 @@ type fakeSearcher struct {
 	lastParams dto.GetParams
 	res        []any
 	err        error
+
+	lastAggregateParams *aggregation.Params
+	aggregateRes        any
+	aggregateErr        error
 }
 
 func (f *fakeSearcher) GetClass(ctx context.Context, principal *models.Principal,
@@ -54,6 +59,16 @@ func (f *fakeSearcher) GetClass(ctx context.Context, principal *models.Principal
 		return nil, f.err
 	}
 	return f.res, nil
+}
+
+func (f *fakeSearcher) Aggregate(ctx context.Context, principal *models.Principal,
+	params *aggregation.Params,
+) (any, error) {
+	f.lastAggregateParams = params
+	if f.aggregateErr != nil {
+		return nil, f.aggregateErr
+	}
+	return f.aggregateRes, nil
 }
 
 type fakeSchemaReader struct {
