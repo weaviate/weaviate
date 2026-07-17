@@ -147,10 +147,10 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	})
 
 	// --- Subtest 8b: GA API surface contract ---
-	// Pins the v1.39 GA surface: declarative-upsert idempotency (200 NO_OP),
-	// the rangeable→rangeFilters write-path alias + canonical status output,
-	// the POST rebuild / cancel sub-resources, and the removal of the old
-	// Preview PUT /indexes/{prop} route. Cheap: small dataset, no long waits.
+	// Pins declarative-upsert idempotency (200 NO_OP), the
+	// rangeable→rangeFilters write-path alias + canonical status output, the
+	// POST rebuild/cancel sub-resources, and removal of the old
+	// PUT /indexes/{prop} route.
 	t.Run("GAApiSurface", func(t *testing.T) {
 		testGAApiSurface(t, restURI)
 	})

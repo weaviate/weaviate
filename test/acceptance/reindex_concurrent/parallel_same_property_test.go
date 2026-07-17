@@ -330,9 +330,9 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 // Helpers specific to this test (others reused from concurrent_test.go).
 // =============================================================================
 
-// submitIndexUpdateRaw is a non-asserting PUT to the GA per-index-type
-// upsert endpoint .../properties/{property}/index/{indexType}. It returns the
-// raw status code + taskID + body so the caller can branch on 202 vs 409.
+// submitIndexUpdateRaw PUTs to the GA per-index-type upsert endpoint and
+// returns status + taskID + body, unasserted, so callers can branch on 202
+// vs 409.
 func submitIndexUpdateRaw(t *testing.T, restURI, collection, property, indexType, jsonBody string) (int, string, string) {
 	t.Helper()
 	url := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/%s", restURI, collection, property, indexType)

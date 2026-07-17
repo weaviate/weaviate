@@ -296,10 +296,8 @@ func importBodies(t *testing.T, className string, count int) {
 	}
 }
 
-// submitChangeTokenization submits a change-tokenization upsert for the
-// searchable index of <prop> via the GA API (PUT
-// .../properties/<prop>/index/searchable with body {"tokenization":<target>}),
-// asserts 202, and returns the task id.
+// submitChangeTokenization submits a change-tokenization upsert for
+// <prop>'s searchable index, asserts 202, and returns the task id.
 func submitChangeTokenization(t *testing.T, restURI, collection, property, target string) string {
 	t.Helper()
 	return reindexhelpers.SubmitIndexUpsert(t, restURI, collection, property, "searchable",
@@ -374,11 +372,9 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 		"canonical data must survive the audit")
 }
 
-// testCancelOnNoInFlightReturns202NoOp asserts the M6 contract:
-// POST .../index/searchable/cancel with no task targeting the tuple
-// returns 202 Accepted with Status: NO_OP and no TaskID — cancel is
-// idempotent on the "nothing to cancel" path. Matches the singlenode
-// copy of the test in test/acceptance/reindex_singlenode/cancel_test.go.
+// testCancelOnNoInFlightReturns202NoOp: cancel with no task targeting the
+// tuple is idempotent — 202 with Status: NO_OP and no TaskID. Matches the
+// singlenode copy in test/acceptance/reindex_singlenode/cancel_test.go.
 func testCancelOnNoInFlightReturns202NoOp(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_CancelNoTask"
@@ -405,16 +401,10 @@ func testCancelOnNoInFlightReturns202NoOp(t *testing.T, restURI string) {
 		"cancel-no-task should not name a TaskID, got: %+v", result)
 }
 
-// testAlgorithmVerb asserts that on an already-blockmax class:
-//   - searchable.algorithm:"blockmax" → 200 NO_OP (already in the desired
-//     state; the GA declarative-upsert API treats "already there" as an
-//     idempotent no-op — the pre-GA API returned 400 "already on blockmax")
-//   - searchable.algorithm:"WAND"     → 400 (deprecated algorithm rejected by
-//     the handler; the GA IndexUpsertRequest.algorithm field carries no
-//     swagger enum, so WAND reaches the handler and is refused with a 400
-//     validation error rather than a 422 swagger-validator rejection)
-//
-// and that neither call schedules a DTM task.
+// testAlgorithmVerb asserts that on an already-blockmax class,
+// algorithm:"blockmax" is a 200 NO_OP (idempotent upsert) and
+// algorithm:"WAND" is a 400 (deprecated; rejected by the handler since
+// the field carries no swagger enum). Neither schedules a DTM task.
 func testAlgorithmVerb(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_AlgorithmVerb"
@@ -444,10 +434,6 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 	preTasksBytes, _ := io.ReadAll(preTasksResp.Body)
 	_ = preTasksResp.Body.Close()
 
-	// algorithm:"blockmax" on an already-blockmax class → 200 NO_OP. The GA
-	// declarative-upsert API diffs the request against current state and
-	// treats "already in the desired state" as an idempotent no-op (the
-	// pre-GA API returned 400 "already on blockmax" here).
 	noopResp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, propName, "searchable",
 		`{"algorithm":"blockmax"}`)
 	require.Equalf(t, http.StatusOK, noopResp.StatusCode,
@@ -455,11 +441,6 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 	assert.Contains(t, noopResp.Body, "NO_OP",
 		"200 body must report Status: NO_OP; got: %s", noopResp.Body)
 
-	// algorithm:"WAND" → 400. The GA IndexUpsertRequest.algorithm field has no
-	// swagger enum (the pre-GA nested body had enum:["blockmax"], yielding a
-	// 422 at the validator layer); WAND now reaches the handler and is
-	// rejected as a deprecated algorithm with a 400 naming the only accepted
-	// target.
 	wandResp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, propName, "searchable",
 		`{"algorithm":"WAND"}`)
 	require.Equalf(t, http.StatusBadRequest, wandResp.StatusCode,

@@ -65,10 +65,8 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 		rebuild bool
 		// indexType is the URL index segment for the submit AND the key under
 		// which the targeted property's index entry appears in GET
-		// /v1/schema/{class}/indexes (the two share the GA canonical spelling,
-		// e.g. "rangeFilters"). Only that entry is allowed to leave `ready`
-		// during the migration; every other (property, indexType) pair must
-		// stay `ready`.
+		// /v1/schema/{class}/indexes. Only that entry may leave `ready` during
+		// the migration; every other (property, indexType) pair must stay `ready`.
 		indexType string
 	}
 

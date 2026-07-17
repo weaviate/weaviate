@@ -115,15 +115,10 @@ func testFilterableTokenizationFilterableOnly(t *testing.T, restURI, dataType st
 		"post-migration: Equal('alpha') must still match exactly one object with word tokenization")
 }
 
-// testSearchableTokenizationOnFilterableOnlyRejected pins that a searchable
-// retokenize whose tokenization diverges from the property's existing
-// filterable bucket is rejected. Under the GA API PUT
-// .../index/searchable {"tokenization":"word"} on a filterable-only text
-// property (tokenization "field") takes the enable-searchable create path,
-// where validateEnableSearchableProperty fails fast: enabling searchable
-// with a tokenization that differs from the pre-existing filterable index
-// would silently desynchronize the two buckets. The 400 names the
-// filterable index so the caller knows to retokenize it first.
+// testSearchableTokenizationOnFilterableOnlyRejected pins that creating a
+// searchable index with a tokenization diverging from the property's
+// existing filterable tokenization is rejected (400 naming the filterable
+// index) rather than silently desynchronizing the two buckets.
 func testSearchableTokenizationOnFilterableOnlyRejected(t *testing.T, restURI string) {
 	const className = "SearchableTokOnFilterableOnly"
 	trueVal, falseVal := true, false

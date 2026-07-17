@@ -177,7 +177,7 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 		}
 	}
 
-	// Repair only t1 and t2 via enable-rangeable on the int property.
+	// Repair only t1 and t2 via enable-rangeFilters on the int property.
 	targetTenants := []string{"t1", "t2"}
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score",
 		"rangeFilters", `{}`, reindexhelpers.WithTenants(targetTenants))
@@ -342,7 +342,7 @@ func testEnableRangeableMT(t *testing.T, restURI string) {
 		require.Len(t, ids, 5, "tenant %s should have 5 items with score>5", tn)
 	}
 
-	// Enable rangeable.
+	// Enable rangeFilters.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score",
 		"rangeFilters", `{}`)
 	t.Logf("enable rangeable MT task: %s", taskID)

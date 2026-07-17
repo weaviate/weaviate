@@ -136,12 +136,10 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 	})
 }
 
-// runEnableThenDeleteCycle submits a declarative PUT upsert to create an
-// index on the named property, waits for FINISHED, asserts the schema flag
-// flipped on via the per-index-type require* helper, then DELETEs the index
-// by the same canonical indexType segment ("searchable"/"filterable"/
-// "rangeFilters"). Under the GA API that segment is also the type name GET
-// /indexes reports, so submit, DELETE, and status all share one spelling.
+// runEnableThenDeleteCycle submits a PUT upsert to create an index, waits
+// for FINISHED, asserts the flag flipped, then DELETEs it. The same
+// indexType segment names the index everywhere (submit, DELETE, and GET
+// /indexes status), so one parameter covers all three.
 //
 // Shared by the bleed test's 3 subtests (searchable / filterable /
 // rangeable) so the enable→FINISHED→DELETE shape stays identical across

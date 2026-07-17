@@ -75,11 +75,9 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		Vectorizer:         "none",
 	})
-	// The "tenants subset accepted on MT collection" sub-test submits a
-	// repair-filterable task on mtClass.text_word and does NOT await terminal
-	// state. DeleteClass is rejected by the schema FSM's MutationGuard while a
-	// reindex task is in flight, so the deferred cleanup cancels the in-flight
-	// task (via the GA POST .../cancel sub-resource) BEFORE deleting the class.
+	// The "tenants subset..." sub-test leaves a repair-filterable task
+	// in-flight. DeleteClass is rejected by the MutationGuard while it runs,
+	// so cleanup must cancel it (via POST .../cancel) before deleting the class.
 	defer func() {
 		cancelURL := fmt.Sprintf("http://%s/v1/schema/%s/properties/text_word/index/filterable/cancel", restURI, mtClass)
 		cancelReq, _ := http.NewRequest(http.MethodPost, cancelURL, nil)

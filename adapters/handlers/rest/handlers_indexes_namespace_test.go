@@ -26,14 +26,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// TestUpsertIndex_SubmitLockKeyedOnQualifiedClass pins the PUT side of the shared
-// submit lock: a namespaced short-name caller must lock on the qualified class,
-// the key DeleteClassPropertyIndex uses. The test pre-holds that lock — a
-// correctly-keyed handler blocks; the buggy raw-keyed one takes a different lock
-// and proceeds.
-//
-// The lock must be acquired BEFORE the class read (which panics on the nil
-// SchemaManager here); that ordering is what closes the DELETE race.
+// TestUpsertIndex_SubmitLockKeyedOnQualifiedClass pins that a namespaced
+// caller locks on the qualified class (DeleteClassPropertyIndex's key),
+// acquired before the class read (which panics on nil SchemaManager here).
 func TestUpsertIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)

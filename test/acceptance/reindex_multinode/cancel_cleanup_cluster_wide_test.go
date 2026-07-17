@@ -160,10 +160,8 @@ func awaitTaskStartedFast(t *testing.T, restURI, taskID string, timeout time.Dur
 	}, timeout, 50*time.Millisecond, "task %s should reach STARTED", taskID)
 }
 
-// cancelReindexProperty cancels an in-flight reindex on the given
-// (property, indexType) via POST .../index/{indexType}/cancel and asserts a
-// 202. The GA status vocabulary is canonical, so a caller-supplied
-// "rangeable" is mapped to "rangeFilters" before the request.
+// cancelReindexProperty cancels an in-flight reindex on (property,
+// indexType) via POST .../index/{indexType}/cancel and asserts 202.
 func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType string) {
 	t.Helper()
 	if indexType == "rangeable" {

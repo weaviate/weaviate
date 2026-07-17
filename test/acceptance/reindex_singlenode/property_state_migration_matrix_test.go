@@ -47,12 +47,9 @@ package reindex_singlenode
 //     production.
 //
 //   - **No silent 202 on an already-satisfied request.** A declarative
-//     upsert whose desired configuration already holds (already enabled,
-//     tokenization already the target, already blockmax) must return 200
-//     with body `{"status":"NO_OP"}` and spawn no task. Pre-GA this was a
-//     400; GA makes it an idempotent 200. A 202 that spawns a no-op reindex
-//     task, or a 200 without the NO_OP status, is the regression pinned
-//     here.
+//     upsert whose desired configuration already holds must return 200 with
+//     body `{"status":"NO_OP"}` and spawn no task — never a 202 that spawns
+//     a no-op task, or a 200 without the NO_OP status.
 //
 // The matrix does NOT try to encode the precise validation rules from
 // handlers_reindex.go (which tokenization is rejected, which body shape
@@ -255,19 +252,9 @@ type matrixBody struct {
 }
 
 // matrixBodies enumerates the GA request shapes covered by the test. Each
-// shape exercises a distinct dispatcher arm. Under the GA API the index group
-// moved from the request body into the URL segment (indexType) and the verb
-// became either a declarative PUT body (empty = create, tokenization,
-// algorithm) or a POST .../rebuild sub-resource. The set is deliberately
-// compact.
-//
-// Note on the pre-GA "enabled:false" / "no-verb" rows: those tested rejection
-// of a grouped body that named no actionable verb. The GA body has no
-// `enabled` field (disable is DELETE, not PUT) and an empty body {} is itself
-// the create verb, so those rows have no GA analogue; the empty-body probes
-// below cover the "no config supplied" surface instead, and the
-// already-satisfied → 200 NO_OP invariant (below) covers "must not spawn a
-// no-op task".
+// shape exercises a distinct dispatcher arm: the index type is a URL
+// segment, and the body is either empty (create) or names a
+// tokenization/algorithm change; rebuild is a bodyless POST sub-resource.
 func matrixBodies() []matrixBody {
 	return []matrixBody{
 		// canonical enable-searchable, two tokenizations to exercise both
@@ -579,11 +566,9 @@ func runMatrixCell(t *testing.T, restURI string, dt matrixDataType, ps matrixPre
 		return
 	}
 
-	// ---- 200 NO_OP path (declarative upsert already in the desired state) ----
-	// Pre-GA this returned 400 ("already enabled" / "already at tokenization
-	// X" / "already blockmax"); GA returns 200 with {"status":"NO_OP"} and
-	// spawns no task. A 200 without that status, or a 202 that spawns a no-op
-	// task for an already-satisfied request, is the regression we pin here.
+	// ---- 200 NO_OP path: declarative upsert already in the desired state. ----
+	// A 200 without Status: NO_OP, or a 202 that spawns a no-op task, is the
+	// regression pinned here.
 	if statusCode == http.StatusOK {
 		var bodyJSON map[string]string
 		if err := json.Unmarshal(respBytes, &bodyJSON); err != nil {

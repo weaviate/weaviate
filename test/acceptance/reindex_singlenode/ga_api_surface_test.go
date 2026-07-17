@@ -23,10 +23,10 @@ import (
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 )
 
-// testGAApiSurface pins the v1.39 GA reindex surface end-to-end against a live
+// testGAApiSurface pins the GA reindex surface end-to-end against a live
 // node: declarative-upsert idempotency (200 NO_OP), the rangeable→rangeFilters
-// write-path alias plus canonical status output, the POST rebuild / cancel
-// sub-resources, and the removal of the old Preview PUT /indexes/{prop} route.
+// write-path alias plus canonical status output, the POST rebuild/cancel
+// sub-resources, and removal of the old PUT /indexes/{prop} route.
 func testGAApiSurface(t *testing.T, restURI string) {
 	const class = "GAApiSurface"
 	reindexhelpers.SetupClass(t, class, []*models.Property{

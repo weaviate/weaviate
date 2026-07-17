@@ -107,9 +107,9 @@ func testChangeTokBothThenDeleteSearchableThenChangeTokFilterable(t *testing.T, 
 		}))
 	}
 
-	// Step 1: change-tok-both from word → field via {searchable:{tokenization:field}}.
-	// This goes through ReindexTypeChangeTokenization and retokenizes BOTH
-	// buckets.
+	// Step 1: change-tok-both from word → field via PUT .../index/searchable
+	// {"tokenization":"field"}. Goes through ReindexTypeChangeTokenization
+	// and retokenizes BOTH buckets.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "searchable",
 		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
@@ -458,12 +458,12 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 //
 // Hazard: indexTypeFromMigrationType returns ("", false) for
 // ReindexTypeChangeTokenization, which means CleanStalePartialReindexState
-// is NOT called by the submit-time pre-cleanup at handlers_indexes.go:427.
-// The cancel handler at handlers_indexes.go:598 IS called but only with
-// the specific indexType passed in the cancel body. If the change-tok-both
-// cancel happened via {searchable:{cancel:true}} then only the
-// searchable side gets cleaned — the filterable side's stale state
-// persists and may corrupt the subsequent change-tok-filterable.
+// is NOT called by submitReindexTask's pre-submit cleanup. cancelReindexTask
+// IS called but only with the specific indexType targeted by the cancel
+// request. If the change-tok-both cancel happened via POST
+// .../index/searchable/cancel then only the searchable side gets cleaned —
+// the filterable side's stale state persists and may corrupt the subsequent
+// change-tok-filterable.
 func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string) {
 	const class = "ChangeTokBothCancelThenFilterable"
 	trueVal := true
@@ -489,11 +489,10 @@ func testChangeTokBothCancelThenChangeTokFilterable(t *testing.T, restURI string
 		}))
 	}
 
-	// Step 1: submit change-tok-both, then cancel mid-flight via
-	// {searchable:{cancel:true}}. The change-tok-both task is registered
-	// as ReindexTypeChangeTokenization which targets BOTH searchable
-	// AND filterable. Cancel with the searchable verb (the natural
-	// shape since the submit used the searchable verb).
+	// Step 1: submit change-tok-both, then cancel mid-flight via POST
+	// .../index/searchable/cancel. The change-tok-both task is registered as
+	// ReindexTypeChangeTokenization, which targets BOTH searchable AND
+	// filterable; cancel via the searchable index since that's what submit used.
 	requestBody := `{"tokenization":"field"}`
 	cancelInFlightOrSkip(t, restURI, class, "name", "searchable", requestBody)
 
@@ -570,9 +569,9 @@ func testChangeTokFilterableEnableSearchableThenChangeTokBoth(t *testing.T, rest
 	requireSearchableEnabled(t, class, "name")
 	requireTokenizationEquals(t, class, "name", "field")
 
-	// Step 3: change-tok-both from field → word using
-	// {searchable:{tokenization:word}}. This runs ReindexTypeChangeTokenization
-	// which retokenizes BOTH buckets.
+	// Step 3: change-tok-both from field → word via PUT .../index/searchable
+	// {"tokenization":"word"}. Runs ReindexTypeChangeTokenization, which
+	// retokenizes BOTH buckets.
 	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "searchable",
 		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)

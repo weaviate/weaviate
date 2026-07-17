@@ -27,15 +27,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// upsertPlan is the resolved outcome of diffing an index upsert (or a
-// rebuild) request against the property's current state. Exactly one of the
-// three shapes is meaningful:
-//
-//   - noop == true                         → nothing to do, respond 200 NO_OP.
-//   - migrationType != "" (noop == false)  → submit this migration.
-//
-// A validation failure is returned as an error by the resolver instead of
-// being encoded here.
+// upsertPlan is the outcome of diffing an upsert/rebuild request against
+// current state: noop (respond 200 NO_OP) or migrationType (submit it).
+// Validation failures are returned as errors, not encoded here.
 type upsertPlan struct {
 	noop           bool
 	migrationType  db.ReindexMigrationType
@@ -43,13 +37,9 @@ type upsertPlan struct {
 	bucketStrategy string
 }
 
-// upsertIndex implements PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}.
-//
-// Declarative upsert: the body describes the desired index configuration;
-// the server diffs against current state and either creates the index,
-// migrates its config, or does nothing (200 NO_OP). Concurrent
-// non-conflicting reindex tasks are allowed; two conflict if they would
-// touch the same bucket for the same property.
+// upsertIndex implements PUT .../index/{indexType}: diffs the body against
+// current state to create or migrate the index, or no-ops (200) if it
+// already matches.
 func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -66,11 +56,8 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return resp
 	}
 
-	// Hold the per-(collection, property) submit lock EARLY — before the
-	// class read + validation + RAFT task-add — so a parallel DELETE on the
-	// same (collection, property) cannot drop the bucket between this
-	// handler's class snapshot and its task-add. See the submitLock godoc
-	// for the torn-bucket race this prevents.
+	// Lock EARLY (before class read + validation + RAFT submit) so a parallel
+	// DELETE can't drop the bucket mid-snapshot — see submitLock godoc.
 	propLock := h.submitLock(collection, params.PropertyName)
 	propLock.Lock()
 	defer propLock.Unlock()
@@ -146,15 +133,15 @@ func (h *indexesHandlers) cancelIndex(params schema.SchemaObjectsIndexCancelPara
 		return resp
 	}
 
-	// Hold the submit lock for parity with the submit path: cancel drains the
-	// local worker and scrubs partial on-disk state, which must not race a
-	// concurrent DELETE / submit on the same (collection, property).
+	// Cancel drains the local worker and scrubs partial on-disk state, which
+	// must not race a concurrent DELETE / submit on the same (collection,
+	// property).
 	propLock := h.submitLock(collection, params.PropertyName)
 	propLock.Lock()
 	defer propLock.Unlock()
 
-	// Verify the collection + property exist (RFC §1.8: 404 is reserved for
-	// unknown collection/property; "nothing to cancel" is a 202 NO_OP).
+	// 404 is reserved for unknown collection/property; "nothing to cancel"
+	// is a 202 NO_OP.
 	if _, _, resp := h.readClassProperty(principal, collection, params.PropertyName); resp != nil {
 		return resp
 	}
@@ -162,13 +149,10 @@ func (h *indexesHandlers) cancelIndex(params schema.SchemaObjectsIndexCancelPara
 	return h.cancelReindexTask(ctx, collection, params.PropertyName, indexType, principal)
 }
 
-// qualifyAndAuthorize qualifies the class name and authorizes UPDATE on the
-// collection — the two steps that must run BEFORE the submit lock is taken
-// (they need no schema read). It deliberately does NOT read the class: the
-// caller acquires the submit lock first, then calls readClassProperty, so
-// the validation snapshot is taken under the lock (see the submitLock godoc
-// for the DELETE race this ordering closes). RFC §1.4 requires UPDATE on the
-// collection for upsert / rebuild / cancel.
+// qualifyAndAuthorize resolves and authorizes UPDATE on the collection
+// before the submit lock is taken; it deliberately skips the class read so
+// that snapshot happens under the lock (see submitLock godoc for the DELETE
+// race this closes).
 func (h *indexesHandlers) qualifyAndAuthorize(ctx context.Context, principal *models.Principal, className string) (string, middleware.Responder) {
 	// Qualify (no alias resolution, like DeleteClassPropertyIndex).
 	collection, qErr := namespacing.QualifyClass(principal, h.appState.ServerConfig.Config.Namespaces.Enabled, className)
@@ -184,9 +168,9 @@ func (h *indexesHandlers) qualifyAndAuthorize(ctx context.Context, principal *mo
 	return collection, nil
 }
 
-// readClassProperty reads the class and locates the property, returning a
-// non-nil 404 responder for an unknown collection or property. Callers hold
-// the submit lock, so this snapshot cannot be torn by a racing DELETE.
+// readClassProperty returns a 404 responder for an unknown collection or
+// property. Callers hold the submit lock, so the snapshot can't be torn by
+// a racing DELETE.
 func (h *indexesHandlers) readClassProperty(principal *models.Principal, collection, propertyName string) (*models.Class, *models.Property, middleware.Responder) {
 	class := h.appState.SchemaManager.ReadOnlyClass(collection)
 	if class == nil {
@@ -214,9 +198,8 @@ func findProperty(class *models.Class, propertyName string) *models.Property {
 // PUT finds the desired configuration already in place (declarative upsert).
 const reindexNoOpStatus = "NO_OP"
 
-// resolveUpsertPlan diffs an upsert body against the property's current
-// state for the given internal index-type token and returns the migration
-// to submit, a NO_OP, or a validation error (surfaced as 400).
+// resolveUpsertPlan diffs the body against current state and returns a
+// migration to submit, a NO_OP, or a validation error (400).
 func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string, body *models.IndexUpsertRequest) (upsertPlan, error) {
 	tok := strings.TrimSpace(body.Tokenization)
 	algorithm := strings.TrimSpace(body.Algorithm)
@@ -257,7 +240,7 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 			return upsertPlan{}, fmt.Errorf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
 				algorithm, models.IndexStatusAlgorithmBlockmax)
 		}
-		// Already on blockmax → identical config → NO_OP (RFC §1.5).
+		// Already on blockmax → identical config → NO_OP.
 		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
 			return upsertPlan{noop: true}, nil
 		}
@@ -374,11 +357,9 @@ func resolveRebuildPlan(class *models.Class, prop *models.Property, indexType st
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 }
 
-// submitReindexTask is the shared submit path for upsert and rebuild: it
-// validates the tenant scope, builds the task payload from shard placement,
-// runs the conflict + concurrency-cap checks, scrubs stale partial state,
-// submits the distributed task, and emits the audit line. Returns the wire
-// response (202 STARTED on success, or the mapped error).
+// submitReindexTask is the shared submit path for upsert and rebuild:
+// validates tenant scope, checks for conflicts/cap, and submits the
+// distributed task. Returns 202 STARTED or the mapped error.
 func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string) middleware.Responder {
 	if h.appState.ClusterService == nil {
 		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
@@ -391,7 +372,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 
 	// Tenant scope: only valid on MT collections, and only for format-only
-	// (non-semantic) operations (RFC §1.10).
+	// (non-semantic) operations.
 	if !isMT && len(tenants) > 0 {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal,
 			"tenants parameter is only valid for multi-tenant collections"))
@@ -471,11 +452,9 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		}
 	}
 
-	// Defense in depth against the CANCEL→retry silent failure: scrub any
-	// stale partial reindex sidecars left by a previous cancelled run before
-	// this task can resume against them and report a false success. Cleaning
-	// BOTH index dirs for a coupled change-tokenization is critical — see the
-	// indexTypesFromMigrationType godoc for the Sev 1 data-loss it prevents.
+	// Defense in depth against CANCEL→retry silently resuming stale partial
+	// state and reporting false success. Must clean BOTH dirs for a coupled
+	// change-tokenization — see indexTypesFromMigrationType godoc.
 	if indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType); known {
 		for _, it := range indexTypesForCleanup {
 			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {

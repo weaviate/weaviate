@@ -23,9 +23,8 @@ import (
 
 // boolPtr is defined in handlers_indexes_gaps_test.go (same package).
 
-// TestNormalizeIndexTypeParam pins the {indexType} path alias resolution: the
-// `rangeable` write-path alias maps to the same internal token as the
-// canonical `rangeFilters`, and out-of-enum values are rejected.
+// TestNormalizeIndexTypeParam pins the `rangeable` → `rangeFilters` alias
+// mapping and out-of-enum rejection.
 func TestNormalizeIndexTypeParam(t *testing.T) {
 	cases := []struct {
 		in      string
@@ -49,8 +48,8 @@ func TestNormalizeIndexTypeParam(t *testing.T) {
 	}
 }
 
-// TestCanonicalIndexType pins that responses always spell the range index
-// canonically as rangeFilters, never the rangeable alias.
+// TestCanonicalIndexType pins that "rangeable" always renders as
+// "rangeFilters" in responses.
 func TestCanonicalIndexType(t *testing.T) {
 	assert.Equal(t, "rangeFilters", canonicalIndexType("rangeable"))
 	assert.Equal(t, "filterable", canonicalIndexType("filterable"))
@@ -72,8 +71,8 @@ func classWith(blockmax bool, props ...*models.Property) *models.Class {
 	}
 }
 
-// TestResolveUpsertPlan_Searchable covers the searchable rows of the RFC §1.5
-// outcome matrix that need no DB (create / NO_OP / algorithm / one-change).
+// TestResolveUpsertPlan_Searchable covers searchable outcome rows that need
+// no DB (create / NO_OP / algorithm / one-change).
 func TestResolveUpsertPlan_Searchable(t *testing.T) {
 	h := &indexesHandlers{}
 	cases := []struct {

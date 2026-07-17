@@ -193,17 +193,13 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 		expected, hits)
 }
 
-// cancelInFlightOrSkip submits an index upsert, polls /indexes until the
-// task shows pending/indexing, then POSTs the GA cancel sub-resource. The
-// cancel is idempotent and always returns 202; the response status
-// distinguishes a real cancel (CANCELLED) from a raced completion (NO_OP:
-// no STARTED task remained). On a raced completion the caller falls through
-// to the retry submit — which still exercises a useful adjacent path
-// (re-submit after a same-shape FINISHED task) even though it's not the bug
-// we're after.
+// cancelInFlightOrSkip submits an upsert, waits for pending/indexing, then
+// POSTs the GA cancel sub-resource (always 202; CANCELLED vs NO_OP tells
+// whether it raced task completion). On a raced completion the caller falls
+// through to the retry submit, still exercising a useful adjacent path.
 //
-// indexType is the test-local label ("searchable"/"filterable"/"rangeable");
-// it is mapped to the canonical GA URL segment before every request.
+// indexType is the test-local label ("rangeable" maps to the GA
+// "rangeFilters" URL segment).
 //
 // Returns true if cancel actually landed, false if the task finished before
 // we could cancel.
@@ -233,9 +229,6 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 	}, 30*time.Second, 50*time.Millisecond,
 		"task did not appear as indexing/pending before cancel")
 
-	// Issue cancel via POST .../index/{indexType}/cancel. Always 202; the
-	// body's status distinguishes a real cancel (CANCELLED) from a raced
-	// completion (NO_OP).
 	resp := reindexhelpers.CancelIndexRaw(t, restURI, class, prop, it)
 	require.Equal(t, http.StatusAccepted, resp.StatusCode,
 		"cancel must return 202; got %d body: %s", resp.StatusCode, resp.Body)

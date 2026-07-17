@@ -335,12 +335,10 @@ func maxInt(a, b int) int {
 	return b
 }
 
-// buildTokenizationIndexUpdate produces the GA declarative-upsert request
-// body for a change-tokenization migration. The verb wrapper is gone in the
-// GA API; the index type is passed as a path segment, so the body is just
-// the property-level fields regardless of whether the index is searchable
-// or filterable. Split out of the test body so the assertion logic above
-// stays readable.
+// buildTokenizationIndexUpdate produces the GA upsert body for a
+// change-tokenization migration. The index type is now a path segment, so
+// the body is just the property-level fields for either type. Split out so
+// the assertion logic above stays readable.
 func buildTokenizationIndexUpdate(t *testing.T, indexType, targetTok string) string {
 	t.Helper()
 	switch indexType {

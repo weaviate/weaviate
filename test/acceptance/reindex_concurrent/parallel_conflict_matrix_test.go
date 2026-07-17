@@ -11,11 +11,10 @@
 
 // Package reindex_concurrent — parallel-conflict matrix.
 //
-// Frontend hit a Sev 1 on 2026-05-14: two parallel index writes on the SAME
-// property (enable-filterable + enable-rangeFilters) both failed. Root cause
-// (per agent on the primary fix branch): strategy selection reads stale
-// state and the sentinel-dir lifecycle collides between concurrent
-// migrations targeting the same property.
+// Root cause: two parallel index writes on the SAME property (e.g.
+// enable-filterable + enable-rangeFilters) can race — strategy selection
+// reads stale state and the sentinel-dir lifecycle collides between
+// concurrent migrations on the same property.
 //
 // This file pins every realistic adjacent parallel-conflict scenario on the
 // same (collection, property) tuple as RED tests. When the primary fix
@@ -947,10 +946,9 @@ func fireParallelPUTs(t *testing.T, restURI, class, prop string, rA, rB *paralle
 	t.Logf("parallel B %s: status=%d body=%s", rB.label, rB.statusCode, rB.body)
 }
 
-// executePR issues the request stored on the parallelResult and populates
-// statusCode/body/taskID/accepted on the same struct. verb=="" is a PUT
-// upsert with r.requestBody; verb=="rebuild"/"cancel" is a bodyless POST to
-// the matching sub-resource.
+// executePR issues the stored request and populates statusCode/body/taskID/
+// accepted. verb=="" is a PUT upsert with r.requestBody; "rebuild"/"cancel"
+// is a bodyless POST to the matching sub-resource.
 func executePR(restURI, class, prop string, r *parallelResult) {
 	url := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/%s", restURI, class, prop, r.indexType)
 	method := http.MethodPut

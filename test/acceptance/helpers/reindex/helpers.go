@@ -62,10 +62,9 @@ type IndexResponse struct {
 	Body       string
 }
 
-// SubmitIndexUpsert fires PUT .../properties/{property}/index/{indexType}
-// with the supplied JSON body (the GA declarative-upsert shape, e.g.
-// `{"tokenization":"word"}` or `{}`), asserts 202, and returns the taskId.
-// For the 200 NO_OP path or negative cases use SubmitIndexUpsertRaw.
+// SubmitIndexUpsert PUTs the GA upsert body (e.g. `{"tokenization":"word"}`
+// or `{}`), asserts 202, and returns the taskId. Use SubmitIndexUpsertRaw for
+// NO_OP or negative cases.
 func SubmitIndexUpsert(t *testing.T, restURI, collection, property, indexType, jsonBody string, opts ...Option) string {
 	t.Helper()
 	resp := SubmitIndexUpsertRaw(t, restURI, collection, property, indexType, jsonBody, opts...)

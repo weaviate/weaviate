@@ -108,10 +108,9 @@ func findIndexProp(t *testing.T, resp *models.IndexStatusResponse, name string) 
 	return nil
 }
 
-// TestNamespaces_IndexesUpdate covers PUT .../properties/{prop}/index/{indexType}
-// for both principals: an invalid body must resolve then fail validation (400,
-// not 404); a valid body submits a real reindex (202). Each subtest uses its own
-// class so in-flight reindexes don't conflict.
+// TestNamespaces_IndexesUpdate covers PUT .../index/{indexType} for both
+// principals: invalid body resolves then fails validation (400, not 404);
+// valid body submits a real reindex (202). Each subtest uses its own class.
 func TestNamespaces_IndexesUpdate(t *testing.T) {
 	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)

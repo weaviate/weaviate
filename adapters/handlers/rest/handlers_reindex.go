@@ -52,12 +52,9 @@ func isNumericProperty(prop *models.Property) bool {
 	return ok && (dt == entschema.DataTypeInt || dt == entschema.DataTypeNumber || dt == entschema.DataTypeDate)
 }
 
-// searchableIndexOn reports whether the property currently has a searchable
-// inverted index — i.e. it is a text / text[] property and its
-// IndexSearchable flag is on (nil defaults to on for text types). Non-text
-// properties never have a searchable index. This is the canonical
-// "does the searchable index exist" predicate the upsert/rebuild resolvers
-// diff against, matching the flag-on logic the GET status endpoint uses.
+// searchableIndexOn reports whether prop has a searchable index: text/text[]
+// with IndexSearchable on (nil defaults to on). Canonical predicate the
+// upsert/rebuild resolvers diff against; matches the GET status logic.
 func searchableIndexOn(prop *models.Property) bool {
 	dt, ok := entschema.AsPrimitive(prop.DataType)
 	if !ok || (dt != entschema.DataTypeText && dt != entschema.DataTypeTextArray) {
@@ -66,10 +63,9 @@ func searchableIndexOn(prop *models.Property) bool {
 	return prop.IndexSearchable == nil || *prop.IndexSearchable
 }
 
-// filterableIndexOn reports whether the property currently has a filterable
-// inverted index — i.e. its data type supports one (every primitive except
-// blob / geoCoordinates / phoneNumber, and not references) and its
-// IndexFilterable flag is on (nil defaults to on for supported types).
+// filterableIndexOn reports whether prop has a filterable index: any
+// primitive except blob/geoCoordinates/phoneNumber (and not references),
+// with IndexFilterable on (nil defaults to on).
 func filterableIndexOn(prop *models.Property) bool {
 	dt, ok := entschema.AsPrimitive(prop.DataType)
 	if !ok {

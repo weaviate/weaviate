@@ -46,13 +46,9 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	api.SchemaSchemaObjectsIndexCancelHandler = schema.SchemaObjectsIndexCancelHandlerFunc(h.cancelIndex)
 }
 
-// jsonResponder writes an arbitrary status + JSON body. The reindex GA
-// endpoints (upsert/rebuild/cancel) share one submit path whose outcome
-// codes span 200/202/400/404/409/500/503, so an operation-agnostic
-// responder keeps that shared path from having to fan out into three sets
-// of operation-specific generated responders. Body-write failures panic to
-// match the generated responders' behaviour (the recovery middleware logs
-// and returns 500).
+// jsonResponder writes an arbitrary status + JSON body so the shared
+// upsert/rebuild/cancel submit path can return any of its outcome codes
+// without per-operation generated responders.
 func jsonResponder(status int, payload interface{}) middleware.Responder {
 	return middleware.ResponderFunc(func(w http.ResponseWriter, producer runtime.Producer) {
 		w.WriteHeader(status)
@@ -64,9 +60,8 @@ func jsonResponder(status int, payload interface{}) middleware.Responder {
 	})
 }
 
-// authzResponder maps an authorization error to the wire response: 403 for
-// a denied principal, 500 otherwise. Shared by the three reindex mutation
-// handlers, which all require UPDATE on the collection.
+// authzResponder maps an authz error to 403 (forbidden) or 500, shared by
+// the three reindex mutation handlers.
 func authzResponder(principal *models.Principal, err error) middleware.Responder {
 	if errors.As(err, &authzerrors.Forbidden{}) {
 		return jsonResponder(http.StatusForbidden, errPayloadFromSingleErr(principal, err))
@@ -75,13 +70,9 @@ func authzResponder(principal *models.Principal, err error) middleware.Responder
 }
 
 // normalizeIndexTypeParam maps the {indexType} path value to its internal
-// token, resolving the `rangeable` write-path alias to the same internal
-// token as the canonical `rangeFilters`. The internal token ("filterable",
-// "searchable", "rangeable") is what the migration-type and on-disk-cleanup
-// helpers expect; the canonical API spelling is restored by
-// canonicalIndexType on the way out. Returns ok=false for values outside
-// the enum (the swagger layer already rejects those with 422; this is
-// defense in depth).
+// token, resolving the `rangeable` alias to `rangeFilters`. Returns ok=false
+// for values outside the enum (defense in depth; swagger already rejects
+// those with 422).
 func normalizeIndexTypeParam(pathValue string) (internalToken string, ok bool) {
 	switch pathValue {
 	case "filterable":
@@ -94,9 +85,8 @@ func normalizeIndexTypeParam(pathValue string) (internalToken string, ok bool) {
 	return "", false
 }
 
-// canonicalIndexType maps the internal index-type token to the canonical
-// API spelling used in responses — the `rangeable` internal token surfaces
-// as `rangeFilters`; responses never echo the write-path alias.
+// canonicalIndexType maps the internal token to the API spelling used in
+// responses: "rangeable" surfaces as "rangeFilters".
 func canonicalIndexType(internalToken string) string {
 	if internalToken == "rangeable" {
 		return models.IndexStatusTypeRangeFilters
@@ -222,8 +212,6 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			if !e.applicable {
 				continue
 			}
-			// Type is the canonical API spelling — the internal "rangeable"
-			// token surfaces as "rangeFilters"; responses never echo the alias.
 			idx := &models.IndexStatus{Type: canonicalIndexType(e.indexType), Status: "ready"}
 			if e.flagOn && e.carryTokenization {
 				idx.Tokenization = prop.Tokenization
@@ -235,8 +223,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 				idx.Algorithm = searchableAlgorithm
 			}
 			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, finalizeWindow, h.appState.Logger)
-			// The task ID embeds the qualified collection; strip the caller's
-			// own namespace so status and submit responses agree.
+			// Strip the caller's namespace so status and submit responses agree.
 			if idx.TaskID != "" {
 				idx.TaskID = namespacing.StripOwnNamespace(principal, idx.TaskID)
 			}
@@ -787,11 +774,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		return
 	}
 
-	// Surface the driving task's ID on every task-driven entry (pending,
-	// indexing, failed, cancelled, finalize-window override). A coupled
-	// searchable+filterable tokenization migration is one task that matches
-	// both index entries, so both carry the same taskId here. Absent on a
-	// plain "ready" entry (which returns above via surfaceSyntheticFields).
+	// Surface the driving task's ID on every task-driven entry; absent on a
+	// plain "ready" entry. A coupled searchable+filterable migration is one
+	// task, so both entries carry the same taskId.
 	idx.TaskID = best.ID
 
 	switch bestPayload.MigrationType {
@@ -910,25 +895,11 @@ func errorResponse(principal *models.Principal, msg string) *models.ErrorRespons
 	}
 }
 
-// normalizeSearchableAlgorithm canonicalises the BM25-algorithm string the
-// caller sent on the `algorithm` field of an index upsert body. Returns the
-// lowercase model constant ("wand" / "blockmax") when the input is a
-// recognised alias, or "" when it isn't.
-//
-// The spec leaves `algorithm` a free-form string (no swagger enum) so this
-// function is the sole authority on the accepted set — which is what makes
-// the RFC-specified input aliases actually work rather than being rejected
-// at the binding layer:
-//
-//  1. Strict allowlist — the dispatcher matches the canonical value against
-//     a closed set rather than an EqualFold against a single hard-coded
-//     constant, so an added algorithm surfaces as a missing case.
-//  2. Operationally desired aliases — we accept "block-max" / "block_max"
-//     / "blockmaxwand" / "bmw" (case-insensitive) because callers in the
-//     wild have written them; the intent is unambiguous and rejecting on a
-//     punctuation difference is hostile UX. The accepted alias set is
-//     intentionally small and closed; new aliases require an explicit code
-//     change here.
+// normalizeSearchableAlgorithm canonicalises the `algorithm` field of an
+// index upsert body to the model constant ("wand"/"blockmax"), accepting
+// real-world aliases like "block-max"/"bmw" (case-insensitive). Returns ""
+// for anything else; the dispatcher's allowlist surfaces a new algorithm as
+// a missing case rather than silently accepting it.
 func normalizeSearchableAlgorithm(s string) string {
 	// Strip surrounding whitespace before any other transform — a body
 	// like {"algorithm":" blockmax "} should not be rejected on a stray
@@ -964,16 +935,11 @@ func normalizeSearchableAlgorithm(s string) string {
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
 
-// reindexCapExceededResponder returns a 429 Too Many Requests response with
-// the standard ErrorResponse body shape. It is operation-agnostic so the
-// shared submit path (upsert + rebuild) can emit the same 429 without
-// fanning out into per-operation generated responders.
+// reindexCapExceededResponder returns a 429 with the standard ErrorResponse
+// body, operation-agnostic so upsert and rebuild share the same responder.
 //
-// The status is intentionally 429 and not 503: the rejection is driven by
-// a concurrency limit specific to this caller's collection, not by the
-// cluster being unavailable. Returning 503 misled monitoring (and the
-// reindex_concurrent acceptance test asserts the cap is reached, not that
-// the service went unhealthy).
+// 429, not 503: the rejection is a per-collection concurrency limit, not
+// cluster unavailability.
 func reindexCapExceededResponder(principal *models.Principal, collection string, inflight, capLimit int) middleware.Responder {
 	body := errorResponse(principal, fmt.Sprintf(
 		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
