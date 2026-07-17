@@ -423,11 +423,18 @@ func (p *DropVectorIndexProvider) OnSwapRequested(
 // LocalCallbacksDone returns false, so the scheduler may replay this after a
 // restart. Both steps are idempotent — deleting an absent op and removing
 // already-gone schema entries are no-ops.
-func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
+//
+// Always returns nil: this provider recovers failed cleanup through separate
+// reconciliation (the orphan sweep on shard load and startup/periodic marker
+// reconciliation), not through the scheduler's finalize retry. Returning a
+// transient error here would let a passing RAFT/IO hiccup exhaust the bounded
+// retries and drive the drop to FAILED — worse than finalizing and letting
+// reconciliation converge. See [distributedtask.UnitAwareProvider.OnTaskCompleted].
+func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	payload, err := decodeDropVectorIndexPayload(task.Payload)
 	if err != nil {
 		p.logger.WithField("task", task.ID).Errorf("drop-vector: task-completion: decode payload: %v", err)
-		return
+		return nil
 	}
 	logger := p.logger.WithField("task", task.ID).WithField("collection", payload.Collection)
 
@@ -447,7 +454,7 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		}
 		logger.WithField("status", task.Status).
 			Info("drop-vector: task-completion: task did not succeed; edit ops deleted, schema marker left for operator")
-		return
+		return nil
 	}
 
 	// Delete the op before removing the schema entry so "schema entry removed ⇒ no
@@ -455,7 +462,7 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	// On failure, defer the schema removal for reconciliation rather than break it.
 	if err := p.deleteLocalEditOps(payload); err != nil {
 		logger.Errorf("drop-vector: task-completion: deleting completed edit op failed (reconcile will retry): %v", err)
-		return
+		return nil
 	}
 
 	// Only remove the schema entry once THIS task covered every current shard.
@@ -466,13 +473,13 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	uncovered, err := p.uncoveredShards(payload)
 	if err != nil {
 		logger.Errorf("drop-vector: task-completion: coverage check failed (leaving schema marker): %v", err)
-		return
+		return nil
 	}
 	if len(uncovered) > 0 {
 		logger.WithField("shards", uncovered).
 			Info("drop-vector: task-completion: shards not covered by this task (inactive at enqueue or created since); " +
 				"leaving schema marker — reconciliation re-enqueues once they are active")
-		return
+		return nil
 	}
 
 	// A replayed completion (LocalCallbacksDone=false) is epoch-blind: this task's
@@ -480,18 +487,19 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	// still running — that would free the name while the newer op strips it.
 	if blocked, err := p.activeOverlappingDrop(task, payload); err != nil {
 		logger.Errorf("drop-vector: task-completion: active-drop check failed (leaving schema marker): %v", err)
-		return
+		return nil
 	} else if blocked {
 		logger.Info("drop-vector: task-completion: a newer drop task on the same target is active; leaving its schema marker")
-		return
+		return nil
 	}
 
 	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets); err != nil {
 		// Leave the marker in place; startup reconciliation retries the removal.
 		logger.Errorf("drop-vector: task-completion: removing VectorConfig entries failed: %v", err)
-		return
+		return nil
 	}
 	logger.Info("drop-vector: task-completion: dropped vector(s) removed from schema")
+	return nil
 }
 
 // activeOverlappingDrop reports whether another ACTIVE drop task overlaps this
