@@ -109,7 +109,7 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 		return resp
 	}
 
-	plan, err := resolveRebuildPlan(class, prop, indexType)
+	plan, err := h.resolveRebuildPlan(class, prop, indexType)
 	if err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
@@ -216,6 +216,24 @@ func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection stri
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 }
 
+// searchablePropertyIsBlockmax reports whether the property's searchable
+// index is already on the blockmax algorithm. It prefers per-property bucket
+// truth over the class-wide UsingBlockMaxWAND flag, which only flips once
+// EVERY searchable property has migrated: on a multi-searchable-property
+// class one property can be blockmax while the flag is still deferred behind
+// its siblings. Falls back to the class flag when the bucket isn't observable
+// on this node (see DB.SearchablePropertyIsBlockmax).
+func (h *indexesHandlers) searchablePropertyIsBlockmax(class *models.Class, prop *models.Property) bool {
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
+		return true
+	}
+	if h.appState == nil || h.appState.DB == nil {
+		return false
+	}
+	blockmax, known := h.appState.DB.SearchablePropertyIsBlockmax(class.Class, prop.Name)
+	return known && blockmax
+}
+
 // resolveSearchableUpsert handles PUT .../index/searchable. At most one of
 // tokenization / algorithm may change per request.
 func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collection string, prop *models.Property, tok, algorithm string) (upsertPlan, error) {
@@ -240,8 +258,12 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 			return upsertPlan{}, fmt.Errorf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
 				algorithm, models.IndexStatusAlgorithmBlockmax)
 		}
-		// Already on blockmax → identical config → NO_OP.
-		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
+		// Already on blockmax → identical config → NO_OP. Use per-property
+		// truth: the class-wide UsingBlockMaxWAND flag only flips once EVERY
+		// searchable property has migrated, so a property that already
+		// migrated must NO_OP even while the class flip is deferred behind
+		// its siblings (RFC: repeat blockmax PUT → 200 NO_OP).
+		if h.searchablePropertyIsBlockmax(class, prop) {
 			return upsertPlan{noop: true}, nil
 		}
 		return upsertPlan{migrationType: db.ReindexTypeChangeAlgorithm}, nil
@@ -326,14 +348,17 @@ func resolveRangeableUpsert(class *models.Class, prop *models.Property, tok, alg
 
 // resolveRebuildPlan validates the rebuild preconditions for the internal
 // index-type token and returns the repair/rebuild migration to submit.
-func resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string) (upsertPlan, error) {
+func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.Property, indexType string) (upsertPlan, error) {
 	switch indexType {
 	case "searchable":
 		if !searchableIndexOn(prop) {
 			return upsertPlan{}, errors.New(db.NoSearchableIndexError(prop.Name))
 		}
-		// A WAND searchable index cannot be rebuilt — migrate to blockmax first.
-		if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {
+		// A WAND (map-strategy) searchable index cannot be rebuilt — migrate
+		// to blockmax first. Per-property truth: a property whose bucket is
+		// already blockmax must be rebuildable even while the class-wide flag
+		// is still deferred behind sibling properties.
+		if !h.searchablePropertyIsBlockmax(class, prop) {
 			return upsertPlan{}, errors.New("cannot rebuild a WAND searchable index — WAND is deprecated; PUT {\"algorithm\":\"blockmax\"} to migrate first")
 		}
 		return upsertPlan{migrationType: db.ReindexTypeRebuildSearchable}, nil

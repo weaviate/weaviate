@@ -155,6 +155,21 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testGAApiSurface(t, restURI)
 	})
 
+	// --- Subtest 8c: per-property blockmax NO_OP + honest per-prop status ---
+	// On a multi-searchable-property class the class-wide blockmax flip is
+	// deferred; a property that already migrated must NO_OP a repeat PUT, be
+	// rebuildable, and report algorithm=blockmax in status.
+	t.Run("PerPropertyBlockmaxNoOp", func(t *testing.T) {
+		testPerPropertyBlockmaxNoOp(t, restURI)
+	})
+
+	// --- Subtest 8d: post-DELETE synthetic entry suppression ---
+	// After a DELETE, GET /indexes must not synthesize a finalize-window
+	// "indexing@100%" entry for the just-deleted index.
+	t.Run("PostDeleteNoSyntheticEntry", func(t *testing.T) {
+		testPostDeleteNoSyntheticEntry(t, restURI)
+	})
+
 	// --- Subtest 9: Cancel verb ---
 	t.Run("CancelReindex", func(t *testing.T) {
 		testCancelReindex(t, restURI)

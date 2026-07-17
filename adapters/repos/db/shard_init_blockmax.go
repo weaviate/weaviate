@@ -16,7 +16,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -30,6 +32,55 @@ func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 		}
 	}
 	return true
+}
+
+// SearchablePropertyIsBlockmax reports the actual BlockMax-vs-WAND state of a
+// single property's searchable inverted bucket on THIS node, independent of
+// the class-wide UsingBlockMaxWAND flag.
+//
+// The class flag flips only after EVERY searchable property in the class has
+// migrated (see ReindexProvider.shouldDeferBlockmaxFlip), so on a
+// multi-searchable-property class one property can already be blockmax while
+// the class flag is still false. The GA API needs this per-property truth to
+// (a) return 200 NO_OP for a repeat blockmax PUT on an already-migrated
+// property, (b) allow rebuild on it, and (c) report its true algorithm in
+// GET /indexes — all of which otherwise contradict the property's real state
+// until the last sibling property migrates.
+//
+// known=false means the property's searchable bucket is not observable on
+// this node (collection/shards not loaded, or no searchable bucket exists) —
+// callers fall back to the class-level flag. When observable, blockmax is
+// true only if every loaded shard's searchable bucket for the property is on
+// the inverted (blockmax) strategy; a single map-strategy shard yields false.
+//
+// Read-only: it inspects bucket strategy exactly like shouldDeferBlockmaxFlip
+// and never touches the deferred-flip machinery itself.
+func (db *DB) SearchablePropertyIsBlockmax(collection, propName string) (blockmax, known bool) {
+	idx := db.GetIndex(entschema.ClassName(collection))
+	if idx == nil {
+		return false, false
+	}
+	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	var sawBucket, anyMap bool
+	idx.ForEachLoadedShard(func(_ string, sh ShardLike) error {
+		concrete, err := unwrapShard(context.Background(), sh)
+		if err != nil {
+			return nil
+		}
+		bucket := concrete.Store().Bucket(bucketName)
+		if bucket == nil {
+			return nil
+		}
+		sawBucket = true
+		if bucket.Strategy() == lsmkv.StrategyMapCollection {
+			anyMap = true
+		}
+		return nil
+	})
+	if !sawBucket {
+		return false, false
+	}
+	return !anyMap, true
 }
 
 func structToMap(obj interface{}) (newMap interface{}) {

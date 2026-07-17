@@ -173,14 +173,6 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		finalizeWindow = finalizeWindowMax
 	}
 
-	// UsingBlockMaxWAND flips cluster-wide only after every searchable
-	// bucket on every shard is blockmax; mid-flight, targetAlgorithm
-	// (set by mergeReindexStatus) carries the "incoming" signal.
-	searchableAlgorithm := models.IndexStatusAlgorithmWand
-	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-		searchableAlgorithm = models.IndexStatusAlgorithmBlockmax
-	}
-
 	// Build per-property index status.
 	props := make([]*models.PropertyIndexStatus, 0, len(class.Properties))
 	for _, prop := range class.Properties {
@@ -217,12 +209,29 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 				idx.Tokenization = prop.Tokenization
 			}
 			// Only searchable indexes have a BM25 algorithm; surface the
-			// class-level wand/blockmax state so the UI can render it
-			// honestly. Filterable / rangeable have no equivalent today.
+			// property's TRUE wand/blockmax state so the UI renders it
+			// honestly. The class-wide UsingBlockMaxWAND flag flips only
+			// after every searchable property has migrated, so a per-property
+			// check is required to avoid reporting "wand" for a property whose
+			// bucket is already blockmax. Filterable / rangeable have no
+			// equivalent today.
 			if e.indexType == "searchable" && e.flagOn {
-				idx.Algorithm = searchableAlgorithm
+				idx.Algorithm = models.IndexStatusAlgorithmWand
+				if h.searchablePropertyIsBlockmax(class, prop) {
+					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
+				}
 			}
 			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, finalizeWindow, h.appState.Logger)
+			// Suppress the post-DELETE finalize-window bleed: a synthetic
+			// "indexing@100%" entry painted from a FINISHED task whose index
+			// was deleted AFTER it finished must not surface — the caller
+			// deleted the index and must not see a phantom finalize entry.
+			// Uses the raw (pre-strip) task ID to match parsedTasks; a live
+			// re-enable is driven by a STARTED task and so is never suppressed.
+			if !e.flagOn && idx.Status == models.IndexStatusStatusIndexing &&
+				h.isPostDeleteFinalizeBleed(collection, prop.Name, canonicalIndexType(e.indexType), idx.TaskID, parsedTasks) {
+				continue
+			}
 			// Strip the caller's namespace so status and submit responses agree.
 			if idx.TaskID != "" {
 				idx.TaskID = namespacing.StripOwnNamespace(principal, idx.TaskID)
@@ -885,6 +894,45 @@ func isSyntheticStatus(s string) bool {
 		return true
 	}
 	return false
+}
+
+// isPostDeleteFinalizeBleed reports whether the synthetic "indexing@100%"
+// entry currently painted on an index status is a phantom left by
+// mergeReindexStatus's finalize-window override after the caller DELETEd the
+// index. It is a bleed iff the driving task (taskID) has FINISHED and a DELETE
+// for this (collection, property, indexType) was recorded AFTER that task
+// finished — i.e. the index was created, its task finished, and then it was
+// deleted, so the finalize window (which exists only to bridge FINISHED →
+// schema-flag-flip for a live creation) no longer applies.
+//
+// A live re-enable is driven by a STARTED task (which outranks the stale
+// FINISHED one in mergeReindexStatus's best-task pick), so its entry is never
+// suppressed here. indexType is the canonical status-type spelling, matching
+// what the DELETE handler recorded.
+func (h *indexesHandlers) isPostDeleteFinalizeBleed(collection, property, indexType, taskID string, parsedTasks []parsedReindexTask) bool {
+	if taskID == "" || h.appState == nil || h.appState.ReindexDeleteMarkers == nil {
+		return false
+	}
+	var finishedAt time.Time
+	found := false
+	for _, pt := range parsedTasks {
+		if pt.task.ID != taskID {
+			continue
+		}
+		if pt.task.Status != distributedtask.TaskStatusFinished {
+			// A live (STARTED/PREPARING/SWAPPING) task drove this entry —
+			// not the finalize-window override. Never suppress.
+			return false
+		}
+		finishedAt = pt.task.FinishedAt
+		found = true
+		break
+	}
+	if !found {
+		return false
+	}
+	deletedAt := h.appState.ReindexDeleteMarkers.LastDeleted(collection, property, indexType)
+	return !deletedAt.IsZero() && deletedAt.After(finishedAt)
 }
 
 func errorResponse(principal *models.Principal, msg string) *models.ErrorResponse {

@@ -367,7 +367,10 @@ func TestResolveRebuildPlan(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(tc.blockmax, tc.prop)
-			plan, err := resolveRebuildPlan(class, tc.prop, tc.indexType)
+			// nil appState → searchablePropertyIsBlockmax falls back to the
+			// class flag, so these class-granular cases behave as before.
+			h := &indexesHandlers{}
+			plan, err := h.resolveRebuildPlan(class, tc.prop, tc.indexType)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)

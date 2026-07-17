@@ -66,12 +66,21 @@ type reindexSubmitLockProvider interface {
 	SubmitLockFor(collection, property string) *sync.Mutex
 }
 
+// reindexDeleteMarkerRecorder records accepted property-index DELETEs so the
+// GET-indexes handler can suppress the finalize-window bleed. Interface form
+// (not the concrete *state.ReindexDeleteMarkers) keeps schemaHandlers
+// testable without the full appState graph. nil-safe at the call site.
+type reindexDeleteMarkerRecorder interface {
+	Record(collection, property, indexType string)
+}
+
 type schemaHandlers struct {
-	manager             *schemaUC.Manager
-	metricRequestsTotal restApiRequestsTotal
-	reindexTaskLister   reindexInFlightChecker
-	reindexSubmitLocks  reindexSubmitLockProvider
-	namespacesEnabled   bool
+	manager              *schemaUC.Manager
+	metricRequestsTotal  restApiRequestsTotal
+	reindexTaskLister    reindexInFlightChecker
+	reindexSubmitLocks   reindexSubmitLockProvider
+	reindexDeleteMarkers reindexDeleteMarkerRecorder
+	namespacesEnabled    bool
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -274,6 +283,14 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
+	}
+
+	// Record the accepted DELETE so GET /indexes suppresses the
+	// finalize-window "indexing@100%" bleed for this just-deleted index (the
+	// FINISHED creating task otherwise lingers as "still finalizing" for a
+	// few seconds). indexName is the canonical status-type spelling here.
+	if s.reindexDeleteMarkers != nil {
+		s.reindexDeleteMarkers.Record(qualifiedClass, params.PropertyName, indexName)
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
@@ -616,13 +633,14 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, reindexDeleteMarkers reindexDeleteMarkerRecorder, namespacesEnabled bool) {
 	h := &schemaHandlers{
-		manager:             manager,
-		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
-		reindexTaskLister:   reindexTaskLister,
-		reindexSubmitLocks:  reindexSubmitLocks,
-		namespacesEnabled:   namespacesEnabled,
+		manager:              manager,
+		metricRequestsTotal:  newSchemaRequestsTotal(metrics, logger),
+		reindexTaskLister:    reindexTaskLister,
+		reindexSubmitLocks:   reindexSubmitLocks,
+		reindexDeleteMarkers: reindexDeleteMarkers,
+		namespacesEnabled:    namespacesEnabled,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.
