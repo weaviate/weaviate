@@ -799,12 +799,54 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt reindexTracker, props []string,
 ) error {
+	t.rebuildRangeableInMemoryReps(ctx, logger, shard, props)
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
 	t.trimOlderGenerationsLocked(logger, shard, rt, props)
 	logger.Info("RunSwapOnShard: recovery path complete")
 	return nil
+}
+
+// rebuildRangeableInMemoryReps restores the INDEX_RANGEABLE_IN_MEMORY
+// contract for buckets promoted by a reindex swap: ingest buckets open
+// without an in-memory rep, so without this they'd serve range reads from
+// disk until the next open. Idempotent; failures are logged, not returned,
+// since the migration is already complete and disk-serving is a safe
+// fallback.
+func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, props []string,
+) {
+	if t.strategy.TargetStrategy() != lsmkv.StrategyRoaringSetRange ||
+		!shard.Index().Config.IndexRangeableInMemory {
+		return
+	}
+
+	store := shard.Store()
+	for _, propName := range props {
+		bucketName := t.strategy.SourceBucketName(propName)
+		bucket := store.Bucket(bucketName)
+		if bucket == nil {
+			logger.WithField("bucket", bucketName).Errorf(
+				"rangeable in-memory rebuild: bucket not found post-swap; " +
+					"property serves range queries from disk until the next bucket open",
+			)
+			continue
+		}
+		started := time.Now()
+		if err := bucket.RebuildRangeableSegmentInMemory(ctx); err != nil {
+			logger.WithField("bucket", bucketName).Errorf(
+				"rangeable in-memory rebuild failed; property serves range queries "+
+					"from disk until the next bucket open (restart, shard reload, or "+
+					"tenant reactivation): %v", err,
+			)
+			continue
+		}
+		logger.WithFields(logrus.Fields{
+			"bucket": bucketName,
+			"took":   time.Since(started).String(),
+		}).Info("rangeable in-memory index built at migration finalize; serving range queries from memory")
+	}
 }
 
 // unwrapShard extracts the concrete *Shard from a ShardLike,
@@ -1900,6 +1942,8 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		return fmt.Errorf("marking tidied: %w", err)
 	}
 	logger.Debug("runtime swap: tidy complete (ingest→main rename deferred to next restart)")
+
+	t.rebuildRangeableInMemoryReps(ctx, logger, shard, props)
 
 	// OnMigrationComplete: no-op for semantic migrations (the cluster-
 	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).

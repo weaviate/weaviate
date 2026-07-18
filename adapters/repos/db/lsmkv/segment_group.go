@@ -563,6 +563,52 @@ func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
 	return sg.compactionCallbackCtrl.Activate()
 }
 
+// buildRoaringSetRangeRep merges the current disk segments, oldest to
+// newest, into a fresh unpublished rep and returns how many were merged.
+// Caller must have paused compaction: with only flush appends possible, the
+// merged prefix stays a stable prefix of sg.segments, letting
+// installRoaringSetRangeRep catch up from the returned index.
+func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringsetrange.SegmentInMemory, int, error) {
+	sg.maintenanceLock.RLock()
+	segments := sg.segments
+	sg.maintenanceLock.RUnlock()
+
+	t := time.Now()
+	rep := roaringsetrange.NewSegmentInMemory(sg.logger)
+	for _, seg := range segments {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
+		}
+		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
+			return nil, 0, fmt.Errorf("merge segment into rangeable rep: %w", err)
+		}
+	}
+	sg.logger.WithFields(logrus.Fields{
+		"took":     time.Since(t).String(),
+		"bucket":   filepath.Base(sg.dir),
+		"segments": len(segments),
+		"size_mb":  fmt.Sprintf("%.3f", float64(rep.Size())/1024/1024),
+	}).Debug("rangeable segment-in-memory rebuilt")
+	return rep, len(segments), nil
+}
+
+// installRoaringSetRangeRep merges segments appended after the bulk build
+// (flush appends only; compaction must still be paused) and publishes the
+// rep. Caller must hold the bucket's flushLock so no flush can append a
+// segment or merge a memtable between the catch-up and the publish.
+func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentInMemory, alreadyMerged int) error {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	for _, seg := range sg.segments[alreadyMerged:] {
+		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
+			return fmt.Errorf("catch-up merge segment into rangeable rep: %w", err)
+		}
+	}
+	sg.roaringSetRangeSegmentInMemory = rep
+	return nil
+}
+
 func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {
 		if len(segments) == 0 {

@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -236,8 +237,14 @@ type Bucket struct {
 
 	// rangeableInMemoryDeferred marks a bucket whose rep was intentionally left
 	// unbuilt (reindex ingest path). Selects a diagnostic log line only;
-	// keepSegmentsInMemory alone governs read-path selection.
+	// rangeableServesFromMemory alone governs read-path selection.
 	rangeableInMemoryDeferred bool
+
+	// rangeableRepRebuilt flips once RebuildRangeableSegmentInMemory
+	// publishes a rep. Atomic: the query path reads it unlocked, and the
+	// false->true store happens under flushLock after the rep is fully
+	// built, so a reader observing true is guaranteed a populated rep.
+	rangeableRepRebuilt atomic.Bool
 
 	// Dedup for the rangeable diagnostic log lines, once per bucket-open.
 	rangeableDeferredLogOnce  sync.Once
@@ -2137,7 +2144,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 
 	case StrategyRoaringSetRange:
-		if b.keepSegmentsInMemory {
+		if b.rangeableServesFromMemory() {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
 	case StrategyInverted:

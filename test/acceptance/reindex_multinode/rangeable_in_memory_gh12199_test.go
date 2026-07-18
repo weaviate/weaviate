@@ -33,11 +33,12 @@ import (
 // This file is the weaviate/weaviate#12199 regression suite: with
 // INDEX_RANGEABLE_IN_MEMORY=true, an enable-rangeable reindex must not serve
 // empty range results from an unpopulated in-memory rep after the per-shard
-// swap (no restart required). Also pins the deferred-INFO and disk-fallback
-// WARN log signals emitted by the fix (bucket_roaring_set_range.go).
+// swap (no restart required). Also pins the disk-fallback WARN and
+// rebuild-at-finalize INFO log signals (bucket_roaring_set_range.go,
+// inverted_reindex_task_generic.go).
 const (
-	deferredINFOSubstr = "in-memory acceleration deferred until the shard is reloaded"
-	fallbackWARNSubstr = "rangeable in-memory index is empty"
+	fallbackWARNSubstr        = "rangeable in-memory index is empty"
+	rebuildFinalizeINFOSubstr = "rangeable in-memory index built at migration finalize"
 )
 
 // countInLogs returns the number of lines in a container's logs containing substr.
@@ -60,9 +61,39 @@ func countInLogs(ctx context.Context, t *testing.T, c interface {
 	return n
 }
 
+// assertRebuildFinalizeThenNoFallbackWarn requires the rebuild-at-finalize
+// INFO to fire at least once, then requires no disk-fallback WARN after the
+// last such INFO line.
+func assertRebuildFinalizeThenNoFallbackWarn(ctx context.Context, t *testing.T, container interface {
+	Logs(context.Context) (io.ReadCloser, error)
+}, failMsgInfo, failMsgWarn string,
+) {
+	t.Helper()
+	reader, err := container.Logs(ctx)
+	require.NoError(t, err, "reading container logs")
+	defer reader.Close()
+	raw, err := io.ReadAll(reader)
+	require.NoError(t, err, "draining container logs")
+
+	lines := strings.Split(string(raw), "\n")
+	lastInfoIdx := -1
+	for i, line := range lines {
+		if strings.Contains(line, rebuildFinalizeINFOSubstr) {
+			lastInfoIdx = i
+		}
+	}
+	require.GreaterOrEqual(t, lastInfoIdx, 0, failMsgInfo)
+
+	for i, line := range lines[lastInfoIdx+1:] {
+		if strings.Contains(line, fallbackWARNSubstr) {
+			t.Fatalf("%s (found at log line %d, after the rebuild-finalize INFO at line %d)", failMsgWarn, lastInfoIdx+1+i, lastInfoIdx)
+		}
+	}
+}
+
 // startSingleNodeRangeableInMemCluster starts a 1-node cluster with the
-// in-mem rangeable knob on and LOG_LEVEL=info so the deferred INFO / fallback
-// WARN are visible in the logs the assertions grep.
+// in-mem rangeable knob on and LOG_LEVEL=info so the rebuild-at-finalize
+// INFO / fallback WARN are visible in the logs the assertions grep.
 func startSingleNodeRangeableInMemCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
 	t.Helper()
 	compose, err := docker.New().
@@ -110,8 +141,8 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	container := compose.GetWeaviate().Container()
 
 	const className = "RangeableInMemAcceptance"
-	// 3 shards on the single node => 3 rangeable ingest buckets, each marked
-	// deferred, so the INFO fires per bucket.
+	// 3 shards => 3 rangeable buckets, each rebuilt at migration finalize,
+	// so the rebuild-at-finalize INFO fires per bucket.
 	createCollection(t, compose, restURI, className, 3, 1, rangeableScoreProps())
 	// Read the URI lazily at cleanup time: the restart below re-maps the host
 	// port, so a URI captured now would be stale by the time this defer runs.
@@ -136,8 +167,11 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 		"weaviate/weaviate#12199: post-swap range count must equal golden %d WITHOUT restart", gh12199Baseline,
 		"disk-fallback WARN must not fire on the fixed path; its presence means an empty in-memory rep was served (weaviate/weaviate#12199)")
 
-	assert.Positive(t, countInLogs(ctx, t, container, deferredINFOSubstr),
-		"deferred-serving INFO must fire post-swap (marker set + first disk read); absence means the deferred marker was not applied (weaviate/weaviate#12199)")
+	// Promoted buckets must serve range queries from memory immediately
+	// after the swap, no restart.
+	assertRebuildFinalizeThenNoFallbackWarn(ctx, t, container,
+		"rebuild-at-finalize INFO must fire post-swap WITHOUT restart; absence means the in-memory rep was not rebuilt synchronously at migration finalize",
+		"disk-fallback WARN must not fire after the rebuild-at-finalize INFO; its presence means a read fell back to disk after the rep was supposedly rebuilt")
 
 	// Post-restart: boot-time population rebuilds the in-memory rep from disk,
 	// so reads serve from the rep again and no fallback WARN fires.
