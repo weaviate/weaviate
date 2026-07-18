@@ -117,12 +117,11 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
@@ -159,12 +158,11 @@ func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 		if !property.HasSearchableIndex {
 			return nil
 		}
-		if _, ok := propsByName[property.Name]; !ok {
+		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
+			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+		if skip {
 			return nil
 		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
