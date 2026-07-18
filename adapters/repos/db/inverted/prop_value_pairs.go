@@ -182,6 +182,20 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 		// and merges them locally with mergeBitmapsAndOrWithDenyList before a
 		// single dbmCh send, so per-request goroutine count and channel-send count
 		// are both bounded by outerConcurrencyLimit regardless of N.
+		//
+		// Two budget/concurrency shifts from pre-chunking behavior, both benign:
+		// (a) the per-child fractional budget divisor is now numChunks (the
+		// actual concurrent-goroutine count) instead of the old
+		// min(len(children), outerConcurrencyLimit) - numChunks is always <=
+		// the old divisor, so nested Equal/range/GeoRange children get equal or
+		// marginally more budget, never less; (b) mergeBitmapsAndOrWithDenyList
+		// (called via mergeConc, sized once above from the outer ctx) now runs
+		// inside up to numChunks chunk goroutines concurrently instead of a
+		// single dedicated merger, so effective merge parallelism rises from
+		// 1x mergeConc to up to numChunks x mergeConc. This widens the existing
+		// "deliberate mild overshoot" already accepted above; the bench showed
+		// net CPU/goroutine metrics falling regardless, so the overshoot pays
+		// for itself.
 		numChunks := min(len(pv.children), outerConcurrencyLimit-1)
 		if numChunks < 1 {
 			numChunks = 1

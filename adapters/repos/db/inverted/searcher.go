@@ -579,6 +579,12 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	// across concurrent requests (GH 12242). Each chunk goroutine builds its
 	// slice of clauses sequentially, writing into its own children[] slots
 	// (distinct per goroutine, so no synchronization needed on the writes).
+	//
+	// The per-child fractional budget below is now divided by numChunks
+	// (the actual goroutine count) rather than by min(len(operands),
+	// outerConcurrencyLimit) as before chunking: numChunks is always <=
+	// the old divisor, so nested Equal/range/GeoRange children never
+	// receive less budget than before, only equal or marginally more.
 	numChunks := min(len(operands), outerConcurrencyLimit)
 	if numChunks < 1 {
 		numChunks = 1
@@ -602,7 +608,7 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 				children[i] = child
 			}
 			return nil
-		})
+		}, start, end)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)
