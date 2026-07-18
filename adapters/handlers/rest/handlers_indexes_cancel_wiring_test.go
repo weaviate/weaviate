@@ -26,9 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// fakeClusterTaskCanceler surfaces one matching STARTED task, then fails the
-// cancel apply with a caller-supplied error — driving cancelReindexTask's
-// list→apply path.
+// fakeClusterTaskCanceler is a scriptable reindexTaskCanceler test double.
 type fakeClusterTaskCanceler struct {
 	tasks     map[string][]*distributedtask.Task
 	cancelErr error
@@ -42,14 +40,8 @@ func (f fakeClusterTaskCanceler) CancelDistributedTask(context.Context, string, 
 	return f.cancelErr
 }
 
-// TestCancelReindexTask_ApplyRaceWiring pins the call-site that hands a failed
-// cancel apply to cancelApplyErrorResponse: driving the real handler (not the
-// helper), a cancel that loses the list→apply race (ErrTaskNotRunning /
-// ErrTaskDoesNotExist) must yield 202 NO_OP, a successful cancel 202 CANCELLED,
-// and a transient error 500. The sibling TestCancelReindexTask_ListToApplyRace
-// calls cancelApplyErrorResponse directly, so reverting the wiring back to an
-// inline 500 would compile-pass there; this test catches that revert
-// behaviorally.
+// TestCancelReindexTask_ApplyRaceWiring pins: cancelReindexTask must route a
+// failed cancel apply through cancelApplyErrorResponse, not an inline 500.
 func TestCancelReindexTask_ApplyRaceWiring(t *testing.T) {
 	payload := db.ReindexTaskPayload{
 		MigrationType: db.ReindexTypeChangeTokenization,

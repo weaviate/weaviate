@@ -44,15 +44,8 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
 }
 
-// reindexTaskCanceler is the narrow cluster-service surface
-// cancelReindexTask depends on: enumerate the in-flight distributed tasks
-// and apply a cancel for the matched one. The handler consumes the
-// interface (rather than reaching through appState.ClusterService) so the
-// list→apply race mapping is exercisable without a live RAFT cluster: a
-// cancel that loses to the task finishing (ErrTaskNotRunning /
-// ErrTaskDoesNotExist) is a 202 NO_OP, not a 500. Implemented in
-// production by the RAFT-backed distributed-task state (cluster/raft.Raft),
-// mirroring [reindexInFlightChecker].
+// reindexTaskCanceler abstracts the cluster service so cancelReindexTask's
+// list→apply race handling is testable without a live RAFT cluster.
 type reindexTaskCanceler interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
 	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
