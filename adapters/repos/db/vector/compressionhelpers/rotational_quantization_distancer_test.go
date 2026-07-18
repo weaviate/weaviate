@@ -1,6 +1,6 @@
 //                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+// \ \ /\\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
@@ -21,6 +21,48 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
+// dimensionMismatchCases returns the shared table of query-dimension cases
+// for an index of the given dimension: a correctly-sized query must succeed,
+// while over- and under-dimensioned queries must be rejected with
+// distancer.ErrVectorLength. Both the RQ and single-bit (BQ/RQ-bits=1) code
+// paths exercise the same guard contract, so they share this table rather
+// than duplicating it.
+func dimensionMismatchCases(dimensions int) []struct {
+	name     string
+	queryLen int
+	wantErr  bool
+} {
+	return []struct {
+		name     string
+		queryLen int
+		wantErr  bool
+	}{
+		{name: "query matches index dimensions", queryLen: dimensions},
+		{name: "query longer than index dimensions (over-dim)", queryLen: dimensions + 32, wantErr: true},
+		{name: "query shorter than index dimensions (under-dim)", queryLen: dimensions - 32, wantErr: true},
+	}
+}
+
+// assertDimensionGuard builds a query of the given length and asserts that
+// constructing a distancer for it (via newDistancer) either succeeds or fails
+// with distancer.ErrVectorLength, per wantErr. The caller supplies
+// newDistancer, which closes over the quantizer and its encoded index
+// representation so the helper stays agnostic to the concrete distancer type
+// (RQDistancer takes a []byte, BinaryRQDistancer takes a []uint64).
+func assertDimensionGuard(t *testing.T, queryLen int, wantErr bool, newDistancer func(query []float32) error) {
+	t.Helper()
+	query := make([]float32, queryLen)
+	for i := range query {
+		query[i] = float32(i%7) - 3
+	}
+	err := newDistancer(query)
+	if wantErr {
+		assert.ErrorIs(t, err, distancer.ErrVectorLength)
+	} else {
+		assert.NoError(t, err)
+	}
+}
+
 // Regression test for https://github.com/weaviate/weaviate/issues/12207:
 // a nearVector query with the wrong dimensionality against an RQ-compressed
 // HNSW index used to silently return an empty result set instead of
@@ -38,31 +80,12 @@ func TestRQDistancerQueryDimensionMismatch(t *testing.T) {
 	rq := compressionhelpers.NewRotationalQuantizer(dimensions, 42, bits, distancer.NewCosineDistanceProvider())
 	encoded := rq.Encode(indexed)
 
-	tests := []struct {
-		name     string
-		queryLen int
-		wantErr  bool
-	}{
-		{name: "query matches index dimensions", queryLen: dimensions},
-		{name: "query longer than index dimensions (over-dim)", queryLen: dimensions + 32, wantErr: true},
-		{name: "query shorter than index dimensions (under-dim)", queryLen: dimensions - 32, wantErr: true},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range dimensionMismatchCases(dimensions) {
 		t.Run(tt.name, func(t *testing.T) {
-			query := make([]float32, tt.queryLen)
-			for i := range query {
-				query[i] = float32(i%7) - 3
-			}
-
-			d := rq.NewDistancer(query)
-
-			_, err := d.Distance(encoded)
-			if tt.wantErr {
-				assert.ErrorIs(t, err, distancer.ErrVectorLength)
-			} else {
-				assert.NoError(t, err)
-			}
+			assertDimensionGuard(t, tt.queryLen, tt.wantErr, func(query []float32) error {
+				_, err := rq.NewDistancer(query).Distance(encoded)
+				return err
+			})
 		})
 	}
 }
@@ -76,34 +99,15 @@ func TestBinaryRQDistancerQueryDimensionMismatch(t *testing.T) {
 	indexed := randomUnitVector(dimensions, rng)
 
 	rq, err := compressionhelpers.NewBinaryRotationalQuantizer(dimensions, 42, distancer.NewCosineDistanceProvider())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	encoded := rq.Encode(indexed)
 
-	tests := []struct {
-		name     string
-		queryLen int
-		wantErr  bool
-	}{
-		{name: "query matches index dimensions", queryLen: dimensions},
-		{name: "query longer than index dimensions (over-dim)", queryLen: dimensions + 32, wantErr: true},
-		{name: "query shorter than index dimensions (under-dim)", queryLen: dimensions - 32, wantErr: true},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range dimensionMismatchCases(dimensions) {
 		t.Run(tt.name, func(t *testing.T) {
-			query := make([]float32, tt.queryLen)
-			for i := range query {
-				query[i] = float32(i%7) - 3
-			}
-
-			d := rq.NewDistancer(query)
-
-			_, err := d.Distance(encoded)
-			if tt.wantErr {
-				assert.ErrorIs(t, err, distancer.ErrVectorLength)
-			} else {
-				assert.NoError(t, err)
-			}
+			assertDimensionGuard(t, tt.queryLen, tt.wantErr, func(query []float32) error {
+				_, err := rq.NewDistancer(query).Distance(encoded)
+				return err
+			})
 		})
 	}
 }
