@@ -201,9 +201,10 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	})
 
 	// --- Subtest 12b: change-tokenization on filterable-only ---
-	// Frontend repro 2026-05-14: PUT {searchable:{tokenization:X}} on a
-	// filterable-only text property 400'd with "searchable bucket not
-	// found" and no alternative shape. The fix adds {filterable:{tokenization:X}}.
+	// Frontend repro 2026-05-14: PUT .../index/searchable {"tokenization":X}
+	// on a filterable-only text property 400'd with "searchable bucket not
+	// found" and no alternative shape. The fix adds PUT .../index/filterable
+	// {"tokenization":X}.
 	t.Run("ChangeTokenizationFilterable", func(t *testing.T) {
 		testChangeTokenizationFilterable(t, restURI)
 	})
