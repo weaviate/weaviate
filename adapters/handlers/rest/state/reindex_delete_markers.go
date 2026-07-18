@@ -22,16 +22,11 @@ import (
 // so 30s is generous headroom that also keeps the map bounded.
 const reindexDeleteMarkerTTL = 30 * time.Second
 
-// ReindexDeleteMarkers records, per (collection, property, indexType), the
-// most recent time a property-index DELETE was accepted, so GET /indexes can
-// tell "index was deleted after its task finished" (suppress the
-// finalize-window "indexing@100%" bleed) from a live re-enable (STARTED
-// task, never suppressed).
-//
-// Node-local and best-effort: a GET served by a different node in a
-// multi-node cluster may still show the bleed for the short finalize
-// window — acceptable, since the finalize-window override itself is
-// already a per-node, cosmetic mitigation.
+// ReindexDeleteMarkers tracks the last accepted DELETE per (collection,
+// property, indexType) so GET /indexes can suppress the finalize-window
+// bleed for a deleted index without suppressing a live re-enable.
+// Node-local and best-effort: a GET on a different node may briefly still
+// show the bleed, same as the per-node finalize-window mitigation itself.
 type ReindexDeleteMarkers struct {
 	mu      sync.Mutex
 	deleted map[string]time.Time
@@ -46,12 +41,10 @@ func reindexDeleteMarkerKey(collection, property, indexType string) string {
 	return strings.ToLower(collection) + "/" + property + "/" + indexType
 }
 
-// Record notes that a DELETE for (collection, property, indexType) was
-// accepted now. It opportunistically prunes expired entries so the map stays
-// bounded by the delete rate within the TTL.
-//
-// indexType is the canonical status-type spelling ("searchable" /
-// "filterable" / "rangeFilters") so it matches what GET /indexes queries.
+// Record marks a DELETE for (collection, property, indexType) as accepted
+// now, pruning expired entries so the map stays bounded. indexType must be
+// the canonical status-type spelling ("searchable"/"filterable"/
+// "rangeFilters") to match what GET /indexes queries.
 func (m *ReindexDeleteMarkers) Record(collection, property, indexType string) {
 	if m == nil {
 		return

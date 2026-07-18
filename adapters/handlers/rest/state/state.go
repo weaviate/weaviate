@@ -142,11 +142,9 @@ type State struct {
 	// single-node race window that any realistic UI/CLI flow can hit.
 	ReindexSubmitLocks *ReindexSubmitLocks
 
-	// ReindexDeleteMarkers records recently-accepted property-index DELETEs
-	// so GET /v1/schema/{class}/indexes can suppress the finalize-window
-	// "indexing@100%" bleed for an index that was deleted after its creating
-	// task finished. Shared between the DELETE handler (records) and the
-	// GET-indexes handler (reads). See ReindexDeleteMarkers godoc.
+	// ReindexDeleteMarkers lets GET /v1/schema/{class}/indexes suppress the
+	// finalize-window bleed for a just-deleted index. Shared between the
+	// DELETE handler (records) and GET-indexes (reads); see its godoc.
 	ReindexDeleteMarkers *ReindexDeleteMarkers
 
 	// UsageLimits gates the object-count cap only. Collections/tenants/

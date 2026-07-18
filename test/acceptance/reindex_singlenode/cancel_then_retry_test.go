@@ -194,12 +194,9 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 }
 
 // cancelInFlightOrSkip submits an upsert, waits for pending/indexing, then
-// POSTs the GA cancel sub-resource (always 202; CANCELLED vs NO_OP tells
-// whether it raced task completion). On a raced completion the caller falls
-// through to the retry submit, still exercising a useful adjacent path.
-//
-// indexType is the test-local label ("rangeable" maps to the GA
-// "rangeFilters" URL segment).
+// POSTs the GA cancel sub-resource. indexType is the test-local label
+// ("rangeable" maps to the GA "rangeFilters" segment); a raced completion
+// (NO_OP) falls through to the retry submit.
 //
 // Returns true if cancel actually landed, false if the task finished before
 // we could cancel.

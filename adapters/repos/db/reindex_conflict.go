@@ -34,22 +34,13 @@ func producesBlockmaxSearchable(t ReindexMigrationType) bool {
 	}
 }
 
-// SearchablePropertyBlockmaxFromRAFT reports whether the searchable index of
-// (collection, propName) is on blockmax, derived only from RAFT-consistent
-// state (class flag + reindex task list) so every node — including one
-// holding no shard of the collection — computes the same answer.
-//
-// classFlagBlockmax is class.InvertedIndexConfig.UsingBlockMaxWAND. The
-// property is blockmax if that flag is set, or a FINISHED reindex task
-// producing a blockmax bucket [producesBlockmaxSearchable] targeted it. The
-// class flag lags per-property truth (it flips only once every searchable
-// property has migrated), so an early-migrated property reads blockmax via
-// its completed task while the flag is still deferred.
-//
-// Accepted limitation: once a completed task ages out of the list
-// (CompletedTaskTTL), a migrated property in a permanently-partial class
-// (siblings stuck on WAND) reads back as WAND. Operator remediation
-// (re-migrate) covers it; see the GA reindex RFC.
+// SearchablePropertyBlockmaxFromRAFT reports whether (collection, propName)'s
+// searchable index is blockmax, derived only from RAFT-consistent state
+// (class flag + task list) so every node agrees regardless of local shards.
+// The class flag lags per-property truth (flips only once every property has
+// migrated), so a FINISHED task producing a blockmax bucket also counts.
+// Accepted limitation: once that task ages out of the list, a migrated
+// property in a permanently-partial class reads back as WAND until re-migrated.
 func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, propName string, reindexTasks []*distributedtask.Task) bool {
 	if classFlagBlockmax {
 		return true

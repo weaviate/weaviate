@@ -24,11 +24,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testPerPropertyBlockmaxNoOp pins per-property blockmax truth on a
-// multi-searchable-property class: NO_OP, rebuild eligibility, and status
-// algorithm must reflect each property's own migrated bucket, not the
-// class-wide flag (which stays deferred until EVERY searchable property has
-// migrated; see shouldDeferBlockmaxFlip).
+// testPerPropertyBlockmaxNoOp pins per-property blockmax truth: NO_OP,
+// rebuild eligibility, and status algorithm reflect each property's own
+// migrated bucket, not the deferred class-wide flag (shouldDeferBlockmaxFlip).
 func testPerPropertyBlockmaxNoOp(t *testing.T, restURI string) {
 	const class = "PerPropBlockmax"
 	helper.CreateClass(t, &models.Class{

@@ -350,11 +350,9 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 			return upsertPlan{}, fmt.Errorf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
 				algorithm, models.IndexStatusAlgorithmBlockmax)
 		}
-		// Already on blockmax → identical config → NO_OP. Use per-property
-		// truth: the class-wide UsingBlockMaxWAND flag only flips once EVERY
-		// searchable property has migrated, so a property that already
-		// migrated must NO_OP even while the class flip is deferred behind
-		// its siblings (RFC: repeat blockmax PUT → 200 NO_OP).
+		// Per-property truth: the class-wide flag only flips once every
+		// property has migrated, so an already-migrated property must
+		// NO_OP even while siblings are still pending.
 		if searchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
 			return upsertPlan{noop: true}, nil
 		}

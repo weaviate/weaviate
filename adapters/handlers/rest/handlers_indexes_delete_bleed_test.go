@@ -37,9 +37,8 @@ func finishedTaskAt(t *testing.T, id, collection, prop string, mt db.ReindexMigr
 	}
 }
 
-// TestIsPostDeleteFinalizeBleed pins the suppression predicate that
-// GET /indexes uses to drop the phantom "indexing@100%" finalize-window entry
-// for an index the caller just deleted.
+// Pins suppression of the phantom "indexing@100%" entry for a
+// just-deleted index.
 func TestIsPostDeleteFinalizeBleed(t *testing.T) {
 	const (
 		collection = "C"

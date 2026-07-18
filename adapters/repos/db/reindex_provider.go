@@ -2125,14 +2125,10 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	}
 }
 
-// shouldDeferBlockmaxFlip defers the cluster-wide UsingBlockMaxWAND flip
-// until every searchable property has migrated off WAND — submit is
-// per-property, so one property's completion isn't the whole class's
-// (weaviate/0-weaviate-issues#254). Derived only from RAFT-consistent state
-// (schema + task list, via [SearchablePropertyBlockmaxFromRAFT]), never
-// node-local buckets, so every node agrees. The property completing now
-// counts as blockmax despite still showing SWAPPING — we're inside its
-// finalize.
+// shouldDeferBlockmaxFlip defers the cluster-wide flip until every
+// searchable property is off WAND (weaviate/0-weaviate-issues#254), using
+// RAFT-consistent state so every node agrees. The property completing now
+// counts as done despite still showing SWAPPING, avoiding self-deferral.
 func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) (bool, error) {

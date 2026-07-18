@@ -149,14 +149,10 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 	)
 }
 
-// NoSearchableIndexError formats the operator-facing 400 returned when a
-// searchable-index operation (rebuild or algorithm change) targets a
-// property that has no searchable index. Centralised so every call site
-// emits identical phrasing.
-//
-// The inverse case ("already has a searchable index", emitted by
-// enable-searchable validation) is deliberately not unified with this
-// helper since it carries the opposite meaning.
+// NoSearchableIndexError formats the 400 for a searchable-index operation
+// (rebuild/algorithm change) on a property with no searchable index.
+// Centralised for identical phrasing across call sites; not used for the
+// inverse case (already has one), which carries the opposite meaning.
 func NoSearchableIndexError(propertyName string) string {
 	return fmt.Sprintf(
 		"property %q has no searchable index; PUT /v1/schema/{className}/properties/%s/index/searchable with a tokenization to add one first",

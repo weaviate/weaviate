@@ -219,11 +219,8 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 				}
 			}
 			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, finalizeWindow, h.appState.Logger)
-			// Suppress the post-DELETE finalize-window bleed: a synthetic
-			// "indexing@100%" entry from a FINISHED task whose index was
-			// deleted AFTER it finished must not resurface. Uses the raw
-			// (pre-strip) task ID to match parsedTasks; a live re-enable
-			// (STARTED task) is never suppressed.
+			// Suppress a stale "indexing@100%" phantom left after DELETE;
+			// idx.TaskID is still pre-strip here, matching parsedTasks.
 			if !e.flagOn && idx.Status == models.IndexStatusStatusIndexing &&
 				h.isPostDeleteFinalizeBleed(collection, prop.Name, canonicalIndexType(e.indexType), idx.TaskID, parsedTasks) {
 				continue
@@ -638,10 +635,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// Pick the most useful one to surface rather than first-in-map-order:
 	//   STARTED > FAILED ≈ CANCELLED ≈ FINISHED   (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt          (within the same priority)
-	// FINISHED tasks are KEPT (parseReindexTasks does not drop them): the
-	// TaskStatusFinished branch below uses a recent one to paint the brief
-	// "indexing@100%" finalize window until the schema flag flips, after
-	// which the base "ready" entry takes over.
+	// FINISHED tasks are KEPT: TaskStatusFinished below paints the brief
+	// "indexing@100%" finalize window until the schema flag flips.
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
 	for _, pt := range parsedTasks {
@@ -892,16 +887,10 @@ func isSyntheticStatus(s string) bool {
 	return false
 }
 
-// isPostDeleteFinalizeBleed reports whether the synthetic "indexing@100%"
-// entry on an index status is a phantom left by mergeReindexStatus's
-// finalize-window override after the caller DELETEd the index: the driving
-// task (taskID) has FINISHED, and a DELETE for this (collection, property,
-// indexType) was recorded AFTER it finished.
-//
-// A live re-enable is driven by a STARTED task (which outranks the stale
-// FINISHED one in mergeReindexStatus's best-task pick), so it is never
-// suppressed here. indexType is the canonical status-type spelling, matching
-// what the DELETE handler recorded.
+// isPostDeleteFinalizeBleed reports whether a synthetic "indexing@100%"
+// entry is a phantom: its driving task (taskID) FINISHED but the index was
+// DELETEd afterward. A STARTED task always outranks a FINISHED one, so a
+// live re-enable is never suppressed.
 func (h *indexesHandlers) isPostDeleteFinalizeBleed(collection, property, indexType, taskID string, parsedTasks []parsedReindexTask) bool {
 	if taskID == "" || h.appState == nil || h.appState.ReindexDeleteMarkers == nil {
 		return false
@@ -936,11 +925,10 @@ func errorResponse(principal *models.Principal, msg string) *models.ErrorRespons
 	}
 }
 
-// normalizeSearchableAlgorithm canonicalises the `algorithm` field of an
-// index upsert body to the model constant ("wand"/"blockmax"), accepting
-// real-world aliases like "block-max"/"bmw" (case-insensitive). Returns ""
-// for anything else; the dispatcher's allowlist surfaces a new algorithm as
-// a missing case rather than silently accepting it.
+// normalizeSearchableAlgorithm canonicalises algorithm to "wand"/"blockmax",
+// accepting aliases like "block-max"/"bmw" (case-insensitive). Returns ""
+// for anything else, so the dispatcher's allowlist treats a new algorithm
+// as a missing case, not silent acceptance.
 func normalizeSearchableAlgorithm(s string) string {
 	// Strip surrounding whitespace before any other transform — a body
 	// like {"algorithm":" blockmax "} should not be rejected on a stray
@@ -976,23 +964,10 @@ func normalizeSearchableAlgorithm(s string) string {
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
 
-// checkReindexAdmission is the pre-submit safety gate shared by the upsert
-// and rebuild paths: it decides whether a new reindex task may be admitted
-// given the current in-flight task list. Returns nil to proceed, or the
-// terminal responder to return instead:
-//
-//   - listErr != nil        → 503, FAIL CLOSED. Without the task list we can
-//     neither prove non-conflict nor enforce the per-collection cap, so
-//     admitting the submit would silently let a conflicting migration through
-//     (a correctness hole, not just an availability blip). Refuse and log
-//     loudly so the operator sees why.
-//   - unparseable payload    → 503 (an in-flight task we cannot decode; same
-//     "cannot prove non-conflict" epistemics as a list failure).
-//   - conflicting migration  → 409 naming the offending task.
-//   - cap breached           → 429.
-//
-// Split out of submitReindexTask so the gate is unit-testable without a live
-// cluster or DB (the submit path itself needs shard ownership from a real DB).
+// checkReindexAdmission is the pre-submit safety gate shared by upsert and
+// rebuild: fails closed (503) when in-flight task state can't be verified,
+// otherwise checks conflict (409) and the per-collection cap (429). Split
+// out so it's unit-testable without a live cluster/DB.
 func (h *indexesHandlers) checkReindexAdmission(principal *models.Principal, collection string,
 	migrationType db.ReindexMigrationType, properties []string,
 	tasks []*distributedtask.Task, listErr error,
@@ -1028,11 +1003,9 @@ func (h *indexesHandlers) checkReindexAdmission(principal *models.Principal, col
 	return nil
 }
 
-// reindexCapExceededResponder returns a 429 with the standard ErrorResponse
-// body, operation-agnostic so upsert and rebuild share the same responder.
-//
-// 429, not 503: the rejection is a per-collection concurrency limit, not
-// cluster unavailability.
+// reindexCapExceededResponder returns 429 (not 503 — this is a
+// per-collection concurrency limit, not cluster unavailability),
+// shared by upsert and rebuild.
 func reindexCapExceededResponder(principal *models.Principal, collection string, inflight, capLimit int) middleware.Responder {
 	body := errorResponse(principal, fmt.Sprintf(
 		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",

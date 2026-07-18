@@ -50,10 +50,7 @@ func statusOf(t *testing.T, resp middleware.Responder) (int, *models.ErrorRespon
 	return rec.Code, &body
 }
 
-// TestCheckReindexAdmission_FailsClosedOnListError pins that when the
-// in-flight task list cannot be fetched, the pre-submit gate FAILS CLOSED
-// with 503 instead of admitting an unchecked submit (which would silently
-// let a conflicting migration through).
+// Pins fail-closed: a list error must 503, never admit an unchecked submit.
 func TestCheckReindexAdmission_FailsClosedOnListError(t *testing.T) {
 	h := admissionHandler()
 
@@ -68,9 +65,7 @@ func TestCheckReindexAdmission_FailsClosedOnListError(t *testing.T) {
 		"503 body must explain why the precondition check could not run")
 }
 
-// TestCheckReindexAdmission_CapExceededReturns429 pins that with the cap's
-// worth of active tasks already in flight, the next submission is rejected
-// with 429 through the real gate — not merely counted by the count helper.
+// Pins that the cap is enforced by the real gate, not just the count helper.
 func TestCheckReindexAdmission_CapExceededReturns429(t *testing.T) {
 	h := admissionHandler()
 	const collection = "C"
@@ -103,8 +98,7 @@ func TestCheckReindexAdmission_CapExceededReturns429(t *testing.T) {
 	assert.Contains(t, body.Error[0].Message, "32")
 }
 
-// TestCheckReindexAdmission_CapMinusOneAdmits pins the lower boundary: one
-// below the cap must be admitted (nil responder → proceed).
+// Pins the boundary: one below the cap must be admitted.
 func TestCheckReindexAdmission_CapMinusOneAdmits(t *testing.T) {
 	h := admissionHandler()
 	const collection = "C"
@@ -126,9 +120,7 @@ func TestCheckReindexAdmission_CapMinusOneAdmits(t *testing.T) {
 	require.Nil(t, resp, "one below the cap must be admitted (proceed)")
 }
 
-// TestCheckReindexAdmission_ConflictReturns409 pins that an overlapping
-// in-flight migration on the same property yields 409 naming the task,
-// checked BEFORE the cap.
+// Pins that conflict (409, naming the task) is checked before the cap.
 func TestCheckReindexAdmission_ConflictReturns409(t *testing.T) {
 	h := admissionHandler()
 	const collection = "C"
@@ -151,9 +143,7 @@ func TestCheckReindexAdmission_ConflictReturns409(t *testing.T) {
 		"409 body must name the offending in-flight task")
 }
 
-// TestCheckReindexAdmission_UnparseablePayloadReturns503 pins that an
-// in-flight task with an undecodable payload fails closed (cannot prove
-// non-conflict) with 503 rather than being silently skipped.
+// Pins that an undecodable in-flight payload fails closed, not skipped.
 func TestCheckReindexAdmission_UnparseablePayloadReturns503(t *testing.T) {
 	h := admissionHandler()
 	const collection = "C"
@@ -172,8 +162,7 @@ func TestCheckReindexAdmission_UnparseablePayloadReturns503(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, code)
 }
 
-// TestCheckReindexAdmission_CleanProceeds pins the happy path: no tasks, no
-// list error → nil (proceed to submit).
+// Pins the happy path: no conflicts, no cap breach → proceed.
 func TestCheckReindexAdmission_CleanProceeds(t *testing.T) {
 	h := admissionHandler()
 	resp := h.checkReindexAdmission(nil, "C", db.ReindexTypeChangeTokenization,

@@ -22,15 +22,10 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testPostDeleteNoSyntheticEntry pins that once a DELETE for a (property,
-// indexType) is accepted, GET /indexes must never synthesize an
-// "indexing@100%" finalize-window entry for it (mergeReindexStatus's
-// FINISHED-task bridge would otherwise resurrect the just-deleted index for
-// the whole finalize window).
-//
-// Stricter than testDeleteThenReEnableIndexingBleed (which only requires the
-// bleed to eventually clear): here the entry must be absent at EVERY sample
-// across the finalize window right after the DELETE.
+// testPostDeleteNoSyntheticEntry pins that GET /indexes never synthesizes an
+// "indexing@100%" entry for a just-deleted (property, indexType). Stricter
+// than testDeleteThenReEnableIndexingBleed: the entry must be absent at
+// EVERY sample across the finalize window, not just eventually.
 func testPostDeleteNoSyntheticEntry(t *testing.T, restURI string) {
 	const class = "PostDeleteNoBleed"
 	trueVal, falseVal := true, false
