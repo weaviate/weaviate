@@ -572,23 +572,37 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
 	eg.SetLimit(outerConcurrencyLimit)
 
-	concurrencyReductionFactor := min(len(operands), outerConcurrencyLimit)
+	// Chunk operands into at most outerConcurrencyLimit contiguous groups
+	// instead of spawning one goroutine per operand: a 100K-value
+	// ContainsAny/ContainsAll used to call eg.Go() once per value here, scaling
+	// per-request goroutine creation with the value-set size and with no cap
+	// across concurrent requests (GH 12242). Each chunk goroutine builds its
+	// slice of clauses sequentially, writing into its own children[] slots
+	// (distinct per goroutine, so no synchronization needed on the writes).
+	numChunks := min(len(operands), outerConcurrencyLimit)
+	if numChunks < 1 {
+		numChunks = 1
+	}
+	chunks := chunkBounds(len(operands), numChunks)
 
-	for i, clause := range operands {
-		i, clause := i, clause
+	for _, bounds := range chunks {
+		start, end := bounds[0], bounds[1]
 		eg.Go(func() error {
-			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
-			child, err := s.buildPropValuePair(ctx, &clause, className, class)
-			// check for stopword errors on ContainsAny operator only at the end
-			if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {
-				return nil
+			ctx := concurrency.ContextWithFractionalBudget(ctx, numChunks, concurrency.GOMAXPROCS)
+			for i := start; i < end; i++ {
+				clause := operands[i]
+				child, err := s.buildPropValuePair(ctx, &clause, className, class)
+				// check for stopword errors on ContainsAny operator only at the end
+				if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {
+					continue
+				}
+				if err != nil {
+					return fmt.Errorf("nested clause at pos %d: %w", i, err)
+				}
+				children[i] = child
 			}
-			if err != nil {
-				return fmt.Errorf("nested clause at pos %d: %w", i, err)
-			}
-			children[i] = child
 			return nil
-		}, clause)
+		})
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)

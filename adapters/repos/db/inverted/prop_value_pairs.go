@@ -113,6 +113,32 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 	}
 }
 
+// chunkBounds splits [0, n) into numChunks contiguous, roughly equal-sized
+// half-open ranges [start, end), distributing any remainder across the
+// leading chunks. numChunks is clamped to [1, n]. Used to bound per-request
+// goroutine fan-out to numChunks instead of one goroutine per element.
+func chunkBounds(n, numChunks int) [][2]int {
+	if numChunks < 1 {
+		numChunks = 1
+	}
+	if numChunks > n {
+		numChunks = n
+	}
+	bounds := make([][2]int, 0, numChunks)
+	base, rem := n/numChunks, n%numChunks
+	start := 0
+	for i := 0; i < numChunks; i++ {
+		size := base
+		if i < rem {
+			size++
+		}
+		end := start + size
+		bounds = append(bounds, [2]int{start, end})
+		start = end
+	}
+	return bounds
+}
+
 func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*docBitmap, error) {
 	// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
 	// otherwise we run into situations where each subfilter on their own
@@ -147,8 +173,20 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 			dbmCh <- dbm
 		}
 	} else {
-		// resolve docIDs in parallel using goroutines
-		concurrencyReductionFactor := min(len(pv.children), outerConcurrencyLimit)
+		// Resolve docIDs in parallel, chunked to at most outerConcurrencyLimit-1
+		// goroutines instead of one goroutine per child. A ContainsAny/ContainsAll
+		// with N values produces N children here; spawning one errgroup goroutine
+		// (and one dbmCh send) per child scales goroutine creation and channel-send
+		// volume with N per request, with no cap across concurrent requests (GH
+		// 12242). Each chunk goroutine resolves its slice of children sequentially
+		// and merges them locally with mergeBitmapsAndOrWithDenyList before a
+		// single dbmCh send, so per-request goroutine count and channel-send count
+		// are both bounded by outerConcurrencyLimit regardless of N.
+		numChunks := min(len(pv.children), outerConcurrencyLimit-1)
+		if numChunks < 1 {
+			numChunks = 1
+		}
+		chunks := chunkBounds(len(pv.children), numChunks)
 
 		// collect all errors from goroutines (not only 1st one)
 		ec := errorcompounder.NewSafe()
@@ -156,25 +194,41 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 		eg, gctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
 		eg.SetLimit(outerConcurrencyLimit - 1)
 
-		for i, child := range pv.children {
-			i, child := i, child
+		for _, bounds := range chunks {
+			start, end := bounds[0], bounds[1]
 			eg.Go(func() error {
-				if err := gctx.Err(); err != nil {
-					// some child failed, skip processing
-					return nil
-				}
+				var chunkResult *docBitmap
+				for i := start; i < end; i++ {
+					if err := gctx.Err(); err != nil {
+						// some child failed, skip processing
+						if chunkResult != nil {
+							chunkResult.release()
+						}
+						return nil
+					}
 
-				ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
-				dbm, err := child.resolveDocIDs(ctx, s, limit)
-				if err != nil {
-					err = errors.Wrapf(err, "nested child %d", i)
-					ec.Add(err)
-					return err
+					ctx := concurrency.ContextWithFractionalBudget(ctx, numChunks, concurrency.GOMAXPROCS)
+					dbm, err := pv.children[i].resolveDocIDs(ctx, s, limit)
+					if err != nil {
+						err = errors.Wrapf(err, "nested child %d", i)
+						ec.Add(err)
+						if chunkResult != nil {
+							chunkResult.release()
+						}
+						return err
+					}
+					if chunkResult == nil {
+						chunkResult = dbm
+					} else {
+						chunkResult = mergeBitmapsAndOrWithDenyList(chunkResult, dbm, pv.operator, mergeConc)
+					}
 				}
-				dbmCh <- dbm
+				if chunkResult != nil {
+					dbmCh <- chunkResult
+				}
 				return nil
 			})
-			// some child failed, skip remaining children
+			// some child failed, skip remaining chunks
 			if gctx.Err() != nil {
 				break
 			}
