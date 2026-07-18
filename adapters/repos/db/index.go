@@ -942,26 +942,28 @@ func (i *Index) asyncReplicationGloballyDisabled() bool {
 }
 
 func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
+	class := i.getClass()
+	if class == nil {
+		return fmt.Errorf("update replication config: class %q not found in schema", i.Config.ClassName)
+	}
+
+	// Convert before mutating so an error can't leave a torn Config behind.
+	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
+	if err != nil {
+		return err
+	}
+
 	// The write lock must not span the fan-out: a mid-load shard holds its
 	// mutex while RLocking this config — ABBA deadlock wedging the RAFT FSM.
 	// Post-unlock loads read the new config, so no shard misses the update.
-	err := func() error {
+	func() {
 		i.replicationConfigLock.Lock()
 		defer i.replicationConfigLock.Unlock()
 
 		i.Config.ReplicationFactor = cfg.Factor
 		i.Config.DeletionStrategy = cfg.DeletionStrategy
-
-		config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
-		if err != nil {
-			return err
-		}
 		i.Config.AsyncReplicationConfig = config
-		return nil
 	}()
-	if err != nil {
-		return err
-	}
 
 	// unloaded shards will fetch the latest config when they are loaded
 	return i.applyAsyncReplicationToLoadedShards(ctx)

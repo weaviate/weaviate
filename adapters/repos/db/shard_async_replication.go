@@ -75,8 +75,8 @@ const (
 	// from hanging indefinitely and blocking rolling restarts.
 	hashtreeDumpTimeout = 30 * time.Second
 
-	minHashtreeHeight = 0
-	maxHashtreeHeight = 20
+	minHashtreeHeight = entreplication.MinHashtreeHeight
+	maxHashtreeHeight = entreplication.MaxHashtreeHeight
 
 	// minFrequency is the smallest accepted value for `frequency` in both
 	// per-class API overrides and global runtime config. Below this, hashbeats
@@ -93,17 +93,17 @@ const (
 	// at hashbeat rate would flood logs in busy clusters.
 	minLoggingFrequency = 1 * time.Second
 
-	minDiffBatchSize = 1
-	maxDiffBatchSize = 10_000
+	minDiffBatchSize = entreplication.MinDiffBatchSize
+	maxDiffBatchSize = entreplication.MaxDiffBatchSize
 
-	minPropagationLimit = 1
-	maxPropagationLimit = 100_000
+	minPropagationLimit = entreplication.MinPropagationLimit
+	maxPropagationLimit = entreplication.MaxPropagationLimit
 
-	minPropagationConcurrency = 1
-	maxPropagationConcurrency = 20
+	minPropagationConcurrency = entreplication.MinPropagationConcurrency
+	maxPropagationConcurrency = entreplication.MaxPropagationConcurrency
 
-	minPropagationBatchSize = 1
-	maxPropagationBatchSize = 1_000
+	minPropagationBatchSize = entreplication.MinPropagationBatchSize
+	maxPropagationBatchSize = entreplication.MaxPropagationBatchSize
 )
 
 // asyncReplicationClassOverrides holds per-class API values that take
