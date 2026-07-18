@@ -6,7 +6,8 @@ Demonstrates the performance benefit of enabling indexRangeFilters at runtime.
 Range queries (>, <, >=, <=) on numeric properties become dramatically faster
 after the filterable->rangeable migration, while exact-match queries stay the same.
 
-Uses the PUT /v1/schema/{collection}/indexes/{property} API with progress tracking.
+Uses the PUT /v1/schema/{collection}/properties/{property}/index/rangeFilters API
+with progress tracking.
 
 Usage:
     .venv/bin/python tools/dev/bench/demo_rangeable_reindex.py
@@ -219,10 +220,12 @@ def trigger_reindex():
     print("\nTriggering filterable -> rangeable reindex via API...")
     t0 = time.monotonic()
 
-    # Submit reindex request via the new API.
+    # Submit the filterable->rangeable migration via the GA upsert API: create
+    # the rangeFilters index on `value`. rangeFilters takes no config, so the
+    # body is empty.
     r = requests.put(
-        "http://localhost:8080/v1/schema/RangeableBench/indexes/value",
-        json={"rangeable": {"enabled": True}},
+        "http://localhost:8080/v1/schema/RangeableBench/properties/value/index/rangeFilters",
+        json={},
         timeout=30,
     )
     assert r.status_code == 202, f"Reindex submit failed: {r.status_code} {r.text}"
@@ -246,7 +249,9 @@ def trigger_reindex():
                 if prop.get("name") != "value":
                     continue
                 for idx in prop.get("indexes", []):
-                    if idx.get("type") != "rangeable":
+                    # GET /indexes reports the canonical type; `rangeable` is a
+                    # write-only alias and never appears here.
+                    if idx.get("type") != "rangeFilters":
                         continue
                     progress = idx.get("progress", 0)
                     status = idx.get("status", "unknown")

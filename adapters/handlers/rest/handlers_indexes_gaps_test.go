@@ -1024,9 +1024,10 @@ func TestReindexCapExceededResponder_StatusAndBody(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // normalizeSearchableAlgorithm — canonical aliases for the BM25 algorithm
-// name on PUT /v1/schema/{class}/indexes/{prop}. The dispatcher routes the
-// caller-supplied string through this helper, then applies a strict
-// allowlist on the canonical value (see N4 in the QA review). Adding an
+// name on PUT /v1/schema/{class}/properties/{prop}/index/searchable. The
+// dispatcher routes the caller-supplied string through this helper, then
+// applies a strict allowlist on the canonical value (see N4 in the QA
+// review). Adding an
 // alias here without updating both the dispatcher AND the swagger enum
 // would be silently ineffective; the matrix below pins the accepted shape
 // so a future refactor cannot drift either direction.

@@ -24,12 +24,11 @@ import (
 
 // testChangeTokenizationFilterable pins the journey class around
 // change-tokenization for properties with various index configurations.
-// Frontend repro 2026-05-14: PUT {"searchable":{"tokenization":X}} on a
-// filterable-only text property 400'd with "searchable bucket not found",
-// with no alternative body shape to retokenize the filterable bucket.
-// The fix adds {"filterable":{"tokenization":X}} as a new shape; this
-// test covers every (data type, IndexFilterable, IndexSearchable) state
-// against both body shapes.
+// A filterable-only text property is retokenized via
+// PUT .../index/filterable {"tokenization":X}; PUT .../index/searchable on
+// the same property is rejected ("searchable bucket not found"). This test
+// covers every (data type, IndexFilterable, IndexSearchable) state against
+// both index types.
 func testChangeTokenizationFilterable(t *testing.T, restURI string) {
 	t.Run("filterable_only_text__filterable_tokenization", func(t *testing.T) {
 		testFilterableTokenizationFilterableOnly(t, restURI, "text")

@@ -99,12 +99,14 @@ async function deleteIndex(prop, indexType) {
 }
 
 async function changeTokenization(prop, tokenization) {
-  const url = apiUrl(`/v1/schema/${CLASS}/indexes/${prop}`);
-  const body = JSON.stringify({ searchable: { tokenization } });
+  const url = apiUrl(`/v1/schema/${CLASS}/properties/${prop}/index/searchable`);
+  const body = JSON.stringify({ tokenization });
   const r = await fetch(url, { method: "PUT", headers: authHeaders(), body, cache: "no-store" });
   const text = await r.text();
-  if (r.status === 400 && /already uses tokenization/i.test(text)) {
-    return { ok: true, status: 400, note: "already broken" };
+  // Declarative upsert: tokenization already at the target is a 200 NO_OP,
+  // which for this reset button means "already in the broken state".
+  if (r.status === 200) {
+    return { ok: true, status: 200, note: "already broken" };
   }
   if (r.status !== 202) {
     return { ok: false, status: r.status, note: text.slice(0, 200) };
@@ -112,19 +114,19 @@ async function changeTokenization(prop, tokenization) {
   const parsed = JSON.parse(text);
   const taskId = parsed.taskId;
   if (!taskId) return { ok: false, status: r.status, note: "no taskId in 202 body" };
-  // Poll until terminal.
+  // Poll the collection-wide status endpoint until the searchable rebuild lands.
   const t0 = Date.now();
   while (Date.now() - t0 < 120_000) {
     await new Promise(res => setTimeout(res, 1000));
-    const statusURL = apiUrl(`/v1/schema/${CLASS}/indexes/${prop}`);
+    const statusURL = apiUrl(`/v1/schema/${CLASS}/indexes`);
     const sr = await fetch(statusURL, { headers: authHeaders(), cache: "no-store" });
     if (!sr.ok) continue;
     const sjson = await sr.json();
-    // GET /indexes returns a property entry with `indexes:[{type,status,...}]`.
-    const flagOff = (sjson.indexes || []).every(i =>
-      i.type !== "searchable" || i.status === "ready"
-    );
-    if (flagOff) return { ok: true, status: 202, note: `task ${taskId} finished` };
+    // GET /indexes returns {properties:[{name,indexes:[{type,status,...}]}]}.
+    const entry = (sjson.properties || []).find(p => p.name === prop);
+    const indexes = entry ? entry.indexes || [] : [];
+    const done = indexes.every(i => i.type !== "searchable" || i.status === "ready");
+    if (done) return { ok: true, status: 202, note: `task ${taskId} finished` };
   }
   return { ok: false, status: 202, note: `task ${taskId} did not finish within 120s` };
 }

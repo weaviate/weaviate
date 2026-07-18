@@ -56,8 +56,8 @@ import (
 //     searchable=false via the change-tokenization-filterable body
 //     shape?
 //  5. SearchableOnly_RoundTrip: same bug shape on searchable=true,
-//     filterable=false (change-tok-both is impossible here, only
-//     {"searchable":{"tokenization":X}} applies)?
+//     filterable=false (change-tok-both is impossible here, only the
+//     searchable change-tokenization applies)?
 //  6. EnableFilterableThenChangeTok: does enable-filterable's
 //     tidied.mig poison the subsequent change-tokenization migration
 //     dir state?
@@ -169,16 +169,16 @@ func TestMultiNode_ChangeTokenization_AJ_FilterableSearchable(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	t.Run("FilterableOnly_RoundTrip", func(t *testing.T) {
-		// Journey 4: round-trip via {"filterable":{"tokenization":X}}
-		// on a filterable-only property. Different reindexer
-		// (FilterableRetokenizeStrategy) but the same swap+schema-flip
-		// state machine.
+		// Journey 4: round-trip via PUT .../index/filterable
+		// {"tokenization":X} on a filterable-only property. Different
+		// reindexer (FilterableRetokenizeStrategy) but the same
+		// swap+schema-flip state machine.
 		testFilterableOnlyRoundTrip(t, compose)
 	})
 
 	t.Run("SearchableOnly_RoundTrip", func(t *testing.T) {
 		// Journey 5: filterable=false, searchable=true. The only valid
-		// body shape is {"searchable":{"tokenization":X}}. No sub-task
+		// path is PUT .../index/searchable {"tokenization":X}. No sub-task
 		// fan-out for filterable index, so a simpler shape — but still
 		// the same swap+schema-flip path.
 		testSearchableOnlyRoundTrip(t, compose)
@@ -762,9 +762,9 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	// a single change-tok-filterable updates the cluster-wide schema and
 	// rebuilds the filterable bucket. The searchable bucket is left at
 	// the old tokenization for now — exercising the divergent-bucket
-	// state. A second `{"searchable":{"tokenization":"field"}}` would be
-	// rejected by validateTokenizationChange ("already uses tokenization
-	// X") because the schema flip from step 2 already landed.
+	// state. A second PUT .../index/searchable {"tokenization":"field"}
+	// would be rejected by validateTokenizationChange ("already uses
+	// tokenization X") because the schema flip from step 2 already landed.
 	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "filterable",
 		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
