@@ -27,6 +27,7 @@ package reindex_singlenode
 //   - tenants= on a single-tenant class           -> 400
 //   - tenants=<nonexistent> on MT class           -> 400
 //   - tenants= on a semantic migration            -> 400
+//   - tenants= on a NO_OP-resolving PUT           -> 400 (not silently 200)
 //   - same-tokenization / already-filterable      -> 200 NO_OP (declarative upsert)
 //   - non-numeric for rangeFilters                -> 400
 //   - config field on rangeFilters                -> 400
@@ -182,6 +183,30 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			body:        `{"tokenization":"word"}`,
 			wantStatus:  http.StatusOK,
 			wantBodyHas: "NO_OP",
+		},
+		{
+			// NO_OP + tenants: an already-filterable prop resolves to NO_OP,
+			// but a tenants param on a single-tenant collection is still a 400.
+			// Regression guard — the NO_OP fast-path used to return 200 and
+			// silently swallow the tenants param ahead of this gate.
+			name:       "tenants on NO_OP (already-filterable) single-tenant collection",
+			collection: stClass, property: "score", indexType: "filterable",
+			body:        `{}`,
+			tenantsQS:   "?tenants=t1",
+			wantStatus:  http.StatusBadRequest,
+			wantBodyHas: "multi-tenant",
+		},
+		{
+			// NO_OP + tenants on a semantic op: same-tokenization searchable
+			// resolves to NO_OP, but tenants on a semantic migration is a 400.
+			// tenant-a exists, so this pins the semantic gate specifically (not
+			// tenant validity) firing on the NO_OP path.
+			name:       "tenants on NO_OP (same-tokenization) semantic op",
+			collection: mtClass, property: "text_word", indexType: "searchable",
+			body:        `{"tokenization":"word"}`,
+			tenantsQS:   "?tenants=tenant-a",
+			wantStatus:  http.StatusBadRequest,
+			wantBodyHas: "semantic",
 		},
 		{
 			name:       "change-tokenization invalid tokenization",

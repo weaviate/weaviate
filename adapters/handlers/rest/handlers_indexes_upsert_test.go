@@ -12,7 +12,9 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -472,4 +474,38 @@ func TestResolveRebuildPlan(t *testing.T) {
 			assert.Equal(t, tc.wantMT, plan.migrationType)
 		})
 	}
+}
+
+// TestValidateTenantScope pins the RFC §1.5/§1.10 tenants contract enforced on
+// BOTH the submit and NO_OP paths: an empty scope always passes; a tenants
+// param on a single-tenant collection or a semantic operation is a 400.
+// Regression guard for the NO_OP fast-path, which returned 200 and silently
+// swallowed a mis-scoped tenants param before the check was hoisted ahead of
+// the short-circuit.
+func TestValidateTenantScope(t *testing.T) {
+	// appState is unused: none of these cases reach the DB tenant-existence
+	// check (they return at the empty / non-MT / semantic gates first).
+	h := &indexesHandlers{}
+	ctx := context.Background()
+
+	t.Run("empty scope passes on single-tenant collection", func(t *testing.T) {
+		require.Nil(t, h.validateTenantScope(ctx, nil, "C", false, false, nil))
+	})
+	t.Run("empty scope passes on MT semantic op", func(t *testing.T) {
+		require.Nil(t, h.validateTenantScope(ctx, nil, "C", true, true, nil))
+	})
+	t.Run("tenants on single-tenant collection is 400", func(t *testing.T) {
+		resp := h.validateTenantScope(ctx, nil, "C", false, false, []string{"t1"})
+		code, body := statusOf(t, resp)
+		require.Equal(t, http.StatusBadRequest, code)
+		require.Len(t, body.Error, 1)
+		assert.Contains(t, body.Error[0].Message, "only valid for multi-tenant collections")
+	})
+	t.Run("tenants on semantic operation is 400", func(t *testing.T) {
+		resp := h.validateTenantScope(ctx, nil, "C", true, true, []string{"t1"})
+		code, body := statusOf(t, resp)
+		require.Equal(t, http.StatusBadRequest, code)
+		require.Len(t, body.Error, 1)
+		assert.Contains(t, body.Error[0].Message, "cannot be used with semantic migrations")
+	})
 }

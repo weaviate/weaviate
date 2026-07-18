@@ -93,6 +93,15 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return jsonResponder(http.StatusConflict, errorResponse(principal, plan.conflict))
 	}
 	if plan.noop {
+		// A NO_OP still carries the tenants contract (RFC §1.5/§1.10): a
+		// mis-scoped tenants param must be rejected, not silently swallowed
+		// behind the 200. semantic-ness derives from indexType here — the
+		// noop plan has no migrationType, and on PUT only rangeFilters is
+		// format-only.
+		isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
+		if resp := h.validateTenantScope(ctx, principal, collection, isMT, indexType != "rangeable", params.Tenants); resp != nil {
+			return resp
+		}
 		return jsonResponder(http.StatusOK, &models.IndexUpdateResponse{Status: reindexNoOpStatus})
 	}
 
@@ -465,6 +474,30 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 }
 
+// validateTenantScope enforces the RFC §1.5/§1.10 tenants contract: the query
+// param is honored only on a multi-tenant collection, only for a format-only
+// (non-semantic) operation, and only for existing, active tenants. Returns a
+// 400 responder on violation, nil when the (possibly empty) scope is
+// acceptable. Shared by the submit path and the NO_OP fast-path so a
+// mis-scoped request is rejected there too, never silently accepted with 200.
+func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *models.Principal, collection string, isMT, semantic bool, tenants []string) middleware.Responder {
+	if len(tenants) == 0 {
+		return nil
+	}
+	if !isMT {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal,
+			"tenants parameter is only valid for multi-tenant collections"))
+	}
+	if semantic {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal,
+			"tenants parameter cannot be used with semantic migrations; all tenants must be targeted"))
+	}
+	if err := validateTenants(h.appState.DB, ctx, collection, tenants); err != nil {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
+	}
+	return nil
+}
+
 // submitReindexTask is the shared submit path for upsert and rebuild:
 // validates tenant scope, checks conflicts/cap, and submits the distributed
 // task. Returns 202 STARTED or the mapped error, reusing the caller's RAFT
@@ -480,20 +513,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	semantic := db.IsSemanticMigration(migrationType)
 	isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 
-	// Tenant scope: only valid on MT collections, and only for format-only
-	// (non-semantic) operations.
-	if !isMT && len(tenants) > 0 {
-		return jsonResponder(http.StatusBadRequest, errorResponse(principal,
-			"tenants parameter is only valid for multi-tenant collections"))
-	}
-	if semantic && len(tenants) > 0 {
-		return jsonResponder(http.StatusBadRequest, errorResponse(principal,
-			"tenants parameter cannot be used with semantic migrations; all tenants must be targeted"))
-	}
-	if isMT && len(tenants) > 0 {
-		if err := validateTenants(h.appState.DB, ctx, collection, tenants); err != nil {
-			return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
-		}
+	if resp := h.validateTenantScope(ctx, principal, collection, isMT, semantic, tenants); resp != nil {
+		return resp
 	}
 
 	// One unit per shard per replica: each replica has its own local copy.
