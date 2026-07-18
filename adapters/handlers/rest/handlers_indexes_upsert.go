@@ -93,11 +93,9 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return jsonResponder(http.StatusConflict, errorResponse(principal, plan.conflict))
 	}
 	if plan.noop {
-		// A NO_OP still carries the tenants contract (RFC §1.5/§1.10): a
-		// mis-scoped tenants param must be rejected, not silently swallowed
-		// behind the 200. semantic-ness derives from indexType here — the
-		// noop plan has no migrationType, and on PUT only rangeFilters is
-		// format-only.
+		// NO_OP still needs the tenants-contract check (mis-scoped must
+		// 400, not silently 200). No migrationType here, so semantic-ness
+		// comes from indexType directly: only rangeable is format-only.
 		isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 		if resp := h.validateTenantScope(ctx, principal, collection, isMT, indexType != "rangeable", params.Tenants); resp != nil {
 			return resp
@@ -474,12 +472,9 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 }
 
-// validateTenantScope enforces the RFC §1.5/§1.10 tenants contract: the query
-// param is honored only on a multi-tenant collection, only for a format-only
-// (non-semantic) operation, and only for existing, active tenants. Returns a
-// 400 responder on violation, nil when the (possibly empty) scope is
-// acceptable. Shared by the submit path and the NO_OP fast-path so a
-// mis-scoped request is rejected there too, never silently accepted with 200.
+// validateTenantScope enforces the tenants contract: honored only on
+// multi-tenant, format-only operations targeting existing tenants. Shared
+// by the submit and NO_OP paths so a mis-scoped request always 400s.
 func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *models.Principal, collection string, isMT, semantic bool, tenants []string) middleware.Responder {
 	if len(tenants) == 0 {
 		return nil

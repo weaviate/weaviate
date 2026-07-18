@@ -476,15 +476,10 @@ func TestResolveRebuildPlan(t *testing.T) {
 	}
 }
 
-// TestValidateTenantScope pins the RFC §1.5/§1.10 tenants contract enforced on
-// BOTH the submit and NO_OP paths: an empty scope always passes; a tenants
-// param on a single-tenant collection or a semantic operation is a 400.
-// Regression guard for the NO_OP fast-path, which returned 200 and silently
-// swallowed a mis-scoped tenants param before the check was hoisted ahead of
-// the short-circuit.
+// TestValidateTenantScope: NO_OP must reject a mis-scoped tenants param
+// just like the submit path, not silently return 200.
 func TestValidateTenantScope(t *testing.T) {
-	// appState is unused: none of these cases reach the DB tenant-existence
-	// check (they return at the empty / non-MT / semantic gates first).
+	// appState is unused; these cases never reach the DB tenant-existence check.
 	h := &indexesHandlers{}
 	ctx := context.Background()
 

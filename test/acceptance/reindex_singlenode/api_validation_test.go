@@ -185,10 +185,7 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			wantBodyHas: "NO_OP",
 		},
 		{
-			// NO_OP + tenants: an already-filterable prop resolves to NO_OP,
-			// but a tenants param on a single-tenant collection is still a 400.
-			// Regression guard — the NO_OP fast-path used to return 200 and
-			// silently swallow the tenants param ahead of this gate.
+			// NO_OP path: a mis-scoped tenants param must still 400, not pass through silently.
 			name:       "tenants on NO_OP (already-filterable) single-tenant collection",
 			collection: stClass, property: "score", indexType: "filterable",
 			body:        `{}`,
@@ -197,10 +194,7 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			wantBodyHas: "multi-tenant",
 		},
 		{
-			// NO_OP + tenants on a semantic op: same-tokenization searchable
-			// resolves to NO_OP, but tenants on a semantic migration is a 400.
-			// tenant-a exists, so this pins the semantic gate specifically (not
-			// tenant validity) firing on the NO_OP path.
+			// NO_OP path: tenants on a semantic op must still 400, even though the op resolves to NO_OP.
 			name:       "tenants on NO_OP (same-tokenization) semantic op",
 			collection: mtClass, property: "text_word", indexType: "searchable",
 			body:        `{"tokenization":"word"}`,

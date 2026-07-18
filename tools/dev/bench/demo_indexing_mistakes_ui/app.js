@@ -103,8 +103,7 @@ async function changeTokenization(prop, tokenization) {
   const body = JSON.stringify({ tokenization });
   const r = await fetch(url, { method: "PUT", headers: authHeaders(), body, cache: "no-store" });
   const text = await r.text();
-  // Declarative upsert: tokenization already at the target is a 200 NO_OP,
-  // which for this reset button means "already in the broken state".
+  // 200 NO_OP means tokenization already matches the target, i.e. already broken.
   if (r.status === 200) {
     return { ok: true, status: 200, note: "already broken" };
   }

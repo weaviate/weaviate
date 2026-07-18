@@ -220,9 +220,8 @@ def trigger_reindex():
     print("\nTriggering filterable -> rangeable reindex via API...")
     t0 = time.monotonic()
 
-    # Submit the filterable->rangeable migration via the GA upsert API: create
-    # the rangeFilters index on `value`. rangeFilters takes no config, so the
-    # body is empty.
+    # GA upsert API: create the rangeFilters index on `value`. No config
+    # needed, so the body is empty.
     r = requests.put(
         "http://localhost:8080/v1/schema/RangeableBench/properties/value/index/rangeFilters",
         json={},
@@ -249,8 +248,7 @@ def trigger_reindex():
                 if prop.get("name") != "value":
                     continue
                 for idx in prop.get("indexes", []):
-                    # GET /indexes reports the canonical type; `rangeable` is a
-                    # write-only alias and never appears here.
+                    # `rangeable` is a write-only alias; GET /indexes reports the canonical name.
                     if idx.get("type") != "rangeFilters":
                         continue
                     progress = idx.get("progress", 0)

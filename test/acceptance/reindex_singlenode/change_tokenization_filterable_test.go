@@ -22,13 +22,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testChangeTokenizationFilterable pins the journey class around
-// change-tokenization for properties with various index configurations.
-// A filterable-only text property is retokenized via
-// PUT .../index/filterable {"tokenization":X}; PUT .../index/searchable on
-// the same property is rejected ("searchable bucket not found"). This test
-// covers every (data type, IndexFilterable, IndexSearchable) state against
-// both index types.
+// testChangeTokenizationFilterable covers change-tokenization via PUT
+// .../index/filterable and .../index/searchable across every
+// (data type, IndexFilterable, IndexSearchable) state.
 func testChangeTokenizationFilterable(t *testing.T, restURI string) {
 	t.Run("filterable_only_text__filterable_tokenization", func(t *testing.T) {
 		testFilterableTokenizationFilterableOnly(t, restURI, "text")
