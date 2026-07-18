@@ -31,11 +31,22 @@ const (
 type BinaryRotationalQuantizer struct {
 	inputDim    uint32
 	originalDim uint32
-	rotation    *compression.FastRotation
-	distancer   distancer.Provider
-	rounding    []float32
-	l2          float32
-	cos         float32
+	// legacyAmbiguousDim is true only for a quantizer restored from a
+	// persisted originalDim that exactly equals minCodeBits. Releases before
+	// this fix persisted the padded rotation dimension (always minCodeBits
+	// for any true dimension < minCodeBits) instead of the true input
+	// dimension, so a restored originalDim of exactly minCodeBits could mean
+	// either a genuine minCodeBits-dimensional index or a smaller index whose
+	// true dimension was lost to that historical bug. A freshly constructed
+	// quantizer (NewBinaryRotationalQuantizer) is never ambiguous: its
+	// originalDim always reflects the real configured dimension. See
+	// NewDistancer.
+	legacyAmbiguousDim bool
+	rotation           *compression.FastRotation
+	distancer          distancer.Provider
+	rounding           []float32
+	l2                 float32
+	cos                float32
 }
 
 func (rq *BinaryRotationalQuantizer) Data() compression.RQData {
@@ -76,11 +87,14 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 	rq := &BinaryRotationalQuantizer{
 		inputDim:    uint32(inputDim),
 		originalDim: uint32(originalDim),
-		rotation:    rotation,
-		distancer:   distancer,
-		rounding:    rounding,
-		l2:          l2,
-		cos:         cos,
+		// Freshly constructed: originalDim is always the real, unambiguous
+		// configured dimension.
+		legacyAmbiguousDim: false,
+		rotation:           rotation,
+		distancer:          distancer,
+		rounding:           rounding,
+		l2:                 l2,
+		cos:                cos,
 	}
 	return rq, nil
 }
@@ -92,18 +106,26 @@ func RestoreBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, s
 	}
 
 	originalDim := inputDim
+	// Releases before this fix persisted the padded rotation dimension
+	// instead of the true input dimension whenever the true dimension was
+	// below minCodeBits, so a persisted inputDim of exactly minCodeBits is
+	// ambiguous: it might be a genuine minCodeBits-dimensional index, or it
+	// might be a smaller index whose true dimension was clobbered by that
+	// bug. See legacyAmbiguousDim and NewDistancer.
+	legacyAmbiguousDim := inputDim == minCodeBits
 	if inputDim < minCodeBits {
 		inputDim = minCodeBits
 	}
 
 	rq := &BinaryRotationalQuantizer{
-		inputDim:    uint32(inputDim),
-		originalDim: uint32(originalDim),
-		rotation:    RestoreFastRotation(outputDim, rounds, swaps, signs),
-		distancer:   distancer,
-		rounding:    rounding,
-		cos:         cos,
-		l2:          l2,
+		inputDim:           uint32(inputDim),
+		originalDim:        uint32(originalDim),
+		legacyAmbiguousDim: legacyAmbiguousDim,
+		rotation:           RestoreFastRotation(outputDim, rounds, swaps, signs),
+		distancer:          distancer,
+		rounding:           rounding,
+		cos:                cos,
+		l2:                 l2,
 	}
 	return rq, nil
 }
@@ -372,7 +394,19 @@ func (rq *BinaryRotationalQuantizer) NewDistancer(q []float32) *BinaryRQDistance
 		// validly-shaped (but meaningless) compressed code instead of
 		// erroring, mirroring the equivalent guard in
 		// RotationalQuantizer.NewDistancer / ProductQuantizer.NewDistancer.
-		d.err = fmt.Errorf("%w: %d vs %d", distancer.ErrVectorLength, len(q), rq.originalDim)
+		//
+		// Exception: for a quantizer restored from a legacy commit
+		// log/metadata entry whose persisted dimension is ambiguously exactly
+		// minCodeBits (see legacyAmbiguousDim), a query shorter than
+		// minCodeBits cannot be distinguished from a genuinely valid query
+		// against the collection's real (smaller, but lost) dimension. Erring
+		// on the side of the pre-fix behavior here avoids rejecting valid
+		// queries against existing indexes after upgrading; the ambiguity
+		// clears once the index is recompressed under this fixed
+		// PersistCompression.
+		if !rq.legacyAmbiguousDim || len(q) >= minCodeBits {
+			d.err = fmt.Errorf("%w: %d vs %d", distancer.ErrVectorLength, len(q), rq.originalDim)
+		}
 	}
 	return d
 }
