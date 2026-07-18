@@ -112,14 +112,9 @@ func (db *DB) init(ctx context.Context) error {
 				}
 			}
 
-			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
+			asyncConfig, err := asyncReplicationConfigFromModelOrDefaults(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
 			if err != nil {
-				// Degrade to defaults instead of crash-looping so UpdateClass can repair the stored config.
-				db.logger.WithField("class", class.Class).Errorf("invalid async replication config, falling back to defaults: %v", err)
-				asyncConfig, err = asyncReplicationConfigFromModel(isMultiTenant, nil, db.logger.WithField("class", class.Class))
-				if err != nil {
-					return fmt.Errorf("async replication config: %w", err)
-				}
+				return fmt.Errorf("async replication config: %w", err)
 			}
 
 			collection := schema.ClassName(class.Class).String()

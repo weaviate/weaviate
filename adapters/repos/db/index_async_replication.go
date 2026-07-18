@@ -12,12 +12,30 @@
 package db
 
 import (
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 )
+
+// asyncReplicationConfigFromModelOrDefaults degrades invalid fields to defaults (keeping valid ones) so poisoned stored configs still load; the UpdateClass apply path must stay strict — erroring there keeps the last-valid config.
+func asyncReplicationConfigFromModelOrDefaults(multiTenancyEnabled bool, cfg *models.ReplicationAsyncConfig, logger logrus.FieldLogger) (AsyncReplicationConfig, error) {
+	config, err := asyncReplicationConfigFromModel(multiTenancyEnabled, cfg, logger)
+	if err == nil {
+		return config, nil
+	}
+
+	sanitized, dropped := entreplication.SanitizeAsyncConfig(cfg)
+	msgs := make([]string, len(dropped))
+	for i, dropErr := range dropped {
+		msgs[i] = dropErr.Error()
+	}
+	logger.Errorf("invalid async replication config, falling back to defaults for invalid fields: %s", strings.Join(msgs, "; "))
+
+	return asyncReplicationConfigFromModel(multiTenancyEnabled, sanitized, logger)
+}
 
 // asyncReplicationConfigFromModel builds an AsyncReplicationConfig from the
 // class model and multitenancy flag.

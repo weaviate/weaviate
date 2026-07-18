@@ -136,3 +136,54 @@ func TestInitDegradesInvalidStoredAsyncReplicationConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expected, index.Config.AsyncReplicationConfig)
 }
+
+func TestInitKeepsValidOverridesWhenDegradingStoredAsyncReplicationConfig(t *testing.T) {
+	freq := int64(-1)
+	height := int64(12)
+	class := &models.Class{
+		Class:               "PartiallyPoisonedAsyncCfgClass",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		ReplicationConfig: &models.ReplicationConfig{
+			Factor:      1,
+			AsyncConfig: &models.ReplicationAsyncConfig{Frequency: &freq, HashtreeHeight: &height},
+		},
+	}
+	repo := newRepoWithStoredClasses(t, singleShardState(), []*models.Class{class})
+	t.Cleanup(func() { repo.Shutdown(context.Background()) })
+
+	index := repo.GetIndex(schema.ClassName("PartiallyPoisonedAsyncCfgClass"))
+	require.NotNil(t, index)
+
+	overrides := index.Config.AsyncReplicationConfig.classOverrides
+	require.Nil(t, overrides.frequency)
+	require.NotNil(t, overrides.hashtreeHeight)
+	require.Equal(t, 12, *overrides.hashtreeHeight)
+}
+
+func TestMigratorAddClassDegradesInvalidAsyncReplicationConfig(t *testing.T) {
+	ctx := testCtx()
+	repo, migrator, _ := newLazyLoadRepo(t, singleShardState())
+	t.Cleanup(func() { repo.Shutdown(context.Background()) })
+
+	freq := int64(-1)
+	height := int64(12)
+	class := &models.Class{
+		Class:               "PoisonedAddClassCfgClass",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		ReplicationConfig: &models.ReplicationConfig{
+			Factor:      1,
+			AsyncConfig: &models.ReplicationAsyncConfig{Frequency: &freq, HashtreeHeight: &height},
+		},
+	}
+	require.NoError(t, migrator.AddClass(ctx, class))
+
+	index := repo.GetIndex(schema.ClassName("PoisonedAddClassCfgClass"))
+	require.NotNil(t, index)
+
+	overrides := index.Config.AsyncReplicationConfig.classOverrides
+	require.Nil(t, overrides.frequency)
+	require.NotNil(t, overrides.hashtreeHeight)
+	require.Equal(t, 12, *overrides.hashtreeHeight)
+}
