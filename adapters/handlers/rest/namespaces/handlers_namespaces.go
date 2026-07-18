@@ -133,14 +133,18 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 			return nsops.NewCreateNamespaceConflict().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q already exists", name)))
 		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
+			// Deleting is a transient state conflict — 409 to retry after
+			// cleanup, not the terminal-family 422.
 			return nsops.NewCreateNamespaceConflict().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted; retry after cleanup completes", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
 			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-		default:
-			return nsops.NewCreateNamespaceInternalServerError().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating namespace: %w", err)))
 		}
+		if status, ok := cerrors.HTTPStatusForNamespaceErr(err); ok && status == http.StatusUnprocessableEntity {
+			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		return nsops.NewCreateNamespaceInternalServerError().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating namespace: %w", err)))
 	}
 
 	return nsops.NewCreateNamespaceCreated().WithPayload(&models.Namespace{
@@ -185,14 +189,19 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 			return nsops.NewUpdateNamespaceNotFound().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q not found", name)))
 		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
-			return nsops.NewUpdateNamespaceConflict().WithPayload(
+			// Not a retryable conflict: the namespace never leaves deleting, so
+			// no later retry of this update can succeed. Cased explicitly for
+			// the tailored message; the status matches the family's 422.
+			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted; home_node cannot be updated", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
 			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-		default:
-			return nsops.NewUpdateNamespaceInternalServerError().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("updating namespace: %w", err)))
 		}
+		if status, ok := cerrors.HTTPStatusForNamespaceErr(err); ok && status == http.StatusUnprocessableEntity {
+			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
+		return nsops.NewUpdateNamespaceInternalServerError().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("updating namespace: %w", err)))
 	}
 
 	// Read State from the controller rather than hardcoding active so the

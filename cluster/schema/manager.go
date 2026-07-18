@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -96,6 +97,9 @@ type SchemaManager struct {
 	tenantLimit func() int
 	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
 	tenantLimitErrTemplate func() string
+	// shouldLogSlowApply controls whether slow RAFT apply diagnostics are
+	// emitted.
+	shouldLogSlowApply func() bool
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -157,6 +161,11 @@ func tenantsTransitioningAwayFromActive(tenants []*command.Tenant) []string {
 func (s *SchemaManager) SetTenantLimit(limit func() int, errTemplate func() string) {
 	s.tenantLimit = limit
 	s.tenantLimitErrTemplate = errTemplate
+}
+
+// SetShouldLogSlowApply installs the gate for slow RAFT apply diagnostics.
+func (s *SchemaManager) SetShouldLogSlowApply(fn func() bool) {
+	s.shouldLogSlowApply = fn
 }
 
 // TenantLimitEnforced reports whether a tenant cap is in effect; callers skip
@@ -951,14 +960,47 @@ func (op applyOp) validate() error {
 	return nil
 }
 
+const slowApplyThreshold = 10 * time.Second
+
+func humanizeDuration(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return d.Round(time.Millisecond).String()
+	case d < time.Minute:
+		return d.Round(10 * time.Millisecond).String()
+	default:
+		return d.Round(time.Second).String()
+	}
+}
+
 // apply does apply commands from RAFT to schema 1st and then db
 func (s *SchemaManager) apply(op applyOp) error {
 	if err := op.validate(); err != nil {
 		return fmt.Errorf("could not validate raft apply op: %w", err)
 	}
 
+	begin := time.Now()
+	var schemaTook, callbackTook, storeTook time.Duration
+	defer func() {
+		total := time.Since(begin)
+		if s.shouldLogSlowApply == nil || !s.shouldLogSlowApply() || total < slowApplyThreshold || s.log == nil {
+			return
+		}
+		s.log.WithFields(logrus.Fields{
+			"action":        "raft_apply_time",
+			"op":            op.op,
+			"took":          humanizeDuration(total),
+			"schema_took":   humanizeDuration(schemaTook),
+			"callback_took": humanizeDuration(callbackTook),
+			"store_took":    humanizeDuration(storeTook),
+		}).Warnf("raft apply held the apply loop for %s; commands queued behind it are delayed",
+			humanizeDuration(total))
+	}()
+
 	// schema applied 1st to make sure any validation happen before applying it to db
+	schemaBegin := time.Now()
 	schemaErr := op.updateSchema()
+	schemaTook = time.Since(schemaBegin)
 	if schemaErr != nil {
 		var partialErr *PartialUpdateError
 		if !op.allowPartialSchemaErr || !errors.As(schemaErr, &partialErr) {
@@ -969,11 +1011,16 @@ func (s *SchemaManager) apply(op applyOp) error {
 	if op.enableSchemaCallback && s.db != nil {
 		// TriggerSchemaUpdateCallbacks is concurrent and at
 		// this point of time schema shall be up to date.
+		callbackBegin := time.Now()
 		s.db.TriggerSchemaUpdateCallbacks()
+		callbackTook = time.Since(callbackBegin)
 	}
 
 	if !op.schemaOnly {
-		if err := op.updateStore(); err != nil {
+		storeBegin := time.Now()
+		err := op.updateStore()
+		storeTook = time.Since(storeBegin)
+		if err != nil {
 			if schemaErr != nil {
 				// Both the schema update (partial) and the DB update failed.
 				// Return both so the caller is informed of what was skipped

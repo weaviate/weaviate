@@ -26,8 +26,8 @@ import (
 type RowReaderRoaringSet struct {
 	value      []byte
 	operator   filters.Operator
-	newCursor  func() lsmkv.CursorRoaringSet
-	getter     func(key []byte) (*sroar.Bitmap, func(), error)
+	newCursor  func(context.Context) lsmkv.CursorRoaringSet
+	getter     func(ctx context.Context, key []byte) (*sroar.Bitmap, func(), error)
 	isDenyList bool
 	// keyPrefix, when non-nil, restricts cursor-based reads to keys that start
 	// with this prefix. Used for nested property buckets where multiple
@@ -42,9 +42,9 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 	keyOnly bool,
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet
-	newCursor := bucket.CursorRoaringSet
+	newCursor := bucket.CursorRoaringSetCtx
 	if keyOnly {
-		newCursor = bucket.CursorRoaringSetKeyOnly
+		newCursor = bucket.CursorRoaringSetKeyOnlyCtx
 	}
 
 	return &RowReaderRoaringSet{
@@ -151,7 +151,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 		return err
 	}
 
-	v, release, err := rr.getter(rr.fullKey())
+	v, release, err := rr.getter(ctx, rr.fullKey())
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 	readFn ReadFn, allowEqual bool,
 ) error {
-	c := rr.newCursor()
+	c := rr.newCursor(ctx)
 	defer c.Close()
 
 	fk := rr.fullKey()
@@ -201,7 +201,7 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	readFn ReadFn, allowEqual bool,
 ) error {
-	c := rr.newCursor()
+	c := rr.newCursor(ctx)
 	defer c.Close()
 
 	// When a prefix is set, start at the prefix boundary rather than the very
@@ -248,7 +248,7 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 		return fmt.Errorf("parse like value: %w", err)
 	}
 
-	c := rr.newCursor()
+	c := rr.newCursor(ctx)
 	defer c.Close()
 
 	var (

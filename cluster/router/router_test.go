@@ -2161,3 +2161,70 @@ func TestMultiTenantRouter_RoutingPlanOptions_DoNotActivateByDefault(t *testing.
 	_, err := r.BuildReadRoutingPlan(options)
 	require.NoError(t, err)
 }
+
+func TestRouter_BuildReadRoutingPlan_LocalOnly(t *testing.T) {
+	expected := []types.Replica{{NodeName: "node1", ShardName: "luke", HostAddr: "node1"}}
+
+	tests := []struct {
+		name         string
+		partitioning bool
+		localOnly    bool
+		setup        func(sg *schema.MockSchemaGetter, sr *schema.MockSchemaReader, fsm *replicationTypes.MockReplicationFSMReader)
+	}{
+		{
+			// Regression: LocalOnly must resolve replicas without OptimisticTenantStatus,
+			// so no leader read and no implicit tenant activation. No expectation on the
+			// getter ⇒ mockery fails if the tenant-status path is taken.
+			name:         "multi_tenant_local_only_skips_tenant_status",
+			partitioning: true,
+			localOnly:    true,
+			setup: func(sg *schema.MockSchemaGetter, sr *schema.MockSchemaReader, fsm *replicationTypes.MockReplicationFSMReader) {
+				sr.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{"node1"}, nil)
+				fsm.EXPECT().FilterOneShardReplicasRead("TestClass", "luke", []string{"node1"}).Return([]string{"node1"})
+			},
+		},
+		{
+			name:         "multi_tenant_default_uses_tenant_status",
+			partitioning: true,
+			localOnly:    false,
+			setup: func(sg *schema.MockSchemaGetter, sr *schema.MockSchemaReader, fsm *replicationTypes.MockReplicationFSMReader) {
+				sg.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke", mock.Anything).
+					Return(map[string]string{"luke": models.TenantActivityStatusHOT}, nil)
+				sr.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{"node1"}, nil)
+				fsm.EXPECT().FilterOneShardReplicasRead("TestClass", "luke", []string{"node1"}).Return([]string{"node1"})
+			},
+		},
+		{
+			name:         "single_tenant_local_only_noop",
+			partitioning: false,
+			localOnly:    true,
+			setup: func(sg *schema.MockSchemaGetter, sr *schema.MockSchemaReader, fsm *replicationTypes.MockReplicationFSMReader) {
+				state := createShardingStateWithShards([]string{"luke"})
+				sr.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
+				sr.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
+					return readFunc(&models.Class{Class: className}, state)
+				}).Maybe()
+				sr.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{"node1"}, nil)
+				fsm.EXPECT().FilterOneShardReplicasRead("TestClass", "luke", []string{"node1"}).Return([]string{"node1"})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sg := schema.NewMockSchemaGetter(t)
+			sr := schema.NewMockSchemaReader(t)
+			fsm := replicationTypes.NewMockReplicationFSMReader(t)
+			ns := mocks.NewMockNodeSelector("node1", "node2")
+			tt.setup(sg, sr, fsm)
+
+			r := router.NewBuilder("TestClass", tt.partitioning, ns, sg, sr, fsm).Build()
+
+			opts := r.BuildRoutingPlanOptions("luke", "luke", types.ConsistencyLevelOne, "")
+			opts.LocalOnly = tt.localOnly
+			plan, err := r.BuildReadRoutingPlan(opts)
+			require.NoError(t, err)
+			require.Equal(t, expected, plan.ReplicaSet.Replicas)
+		})
+	}
+}

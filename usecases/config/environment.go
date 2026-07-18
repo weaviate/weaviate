@@ -1008,6 +1008,7 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
+	config.ExperimentalRESTSearchEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("EXPERIMENTAL_REST_SEARCH_ENABLED")))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
@@ -1867,7 +1868,7 @@ const (
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
-	DefaultAsyncReplicationSchedulerWorkers    = 3
+	DefaultAsyncReplicationSchedulerWorkers    = 1
 	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
 	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
 	// scaleDownCh) are all sized relative to this value; exceeding it requires
@@ -1877,7 +1878,7 @@ const (
 	DefaultAsyncReplicationHashtreeInitConcurrency = 10
 	// Root pre-filter batch size: cluster-wide cap on same-collection hashtree roots
 	// compared per batched RPC. 1 disables it; <= 0 falls back to the default.
-	DefaultAsyncReplicationRootPrefilterBatchSize = 512
+	DefaultAsyncReplicationRootPrefilterBatchSize = 128
 	MaxAsyncReplicationRootPrefilterBatchSize     = 4096
 	DefaultMaximumAllowedCollectionsCount         = -1 // unlimited
 	DefaultMaximumAllowedObjectsCount             = -1 // unlimited

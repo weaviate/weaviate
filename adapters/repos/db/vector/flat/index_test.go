@@ -1784,3 +1784,57 @@ func Test_NoRace_RQ1PersistenceAndRestoration(t *testing.T) {
 		require.Equal(t, uint64(1), results2[0])
 	})
 }
+
+func Test_NoRace_Flat_SearchAfterRestartWithUnflushedData(t *testing.T) {
+	// vectors that only live in the WAL/memtable at restart (no segment
+	// flush) must remain visible to the quantized cached search: the startup
+	// preload has to iterate the memtable, not just flushed segments
+	dirName := t.TempDir()
+	ctx := context.Background()
+
+	newIndex := func(store *lsmkv.Store) *flat {
+		index, err := New(Config{
+			ID:                "unflushed-search-test",
+			RootPath:          dirName,
+			DistanceProvider:  distancer.NewCosineDistanceProvider(),
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		}, flatent.UserConfig{
+			BQ: flatent.CompressionUserConfig{Enabled: true, Cache: true, RescoreLimit: 10},
+			// the production default: with it, cache misses during search are
+			// NOT fetched from disk, so the preload must be complete
+			VectorCacheMaxObjects: flatent.DefaultVectorCacheMaxObjects,
+		}, store)
+		require.NoError(t, err)
+		return index
+	}
+
+	store := loadTestStore(t, dirName)
+	index := newIndex(store)
+	vectors := [][]float32{{4, -1, 4}, {-2, 3, 1}, {0.5, 0.5, 0.5}, {1, 0.5, 0}}
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(ctx, uint64(i), vec))
+	}
+	require.NoError(t, index.Shutdown(ctx))
+	require.NoError(t, store.Shutdown(ctx))
+
+	// reopen: the data comes back via WAL recovery into the memtable, no
+	// segments exist. PostStartup must still preload the cache from it.
+	store = loadTestStore(t, dirName)
+	defer func() { require.NoError(t, store.Shutdown(ctx)) }()
+	index = newIndex(store)
+	defer func() { require.NoError(t, index.Shutdown(ctx)) }()
+
+	// precondition: the data must be memtable-only. If this ever fails (e.g.
+	// because lsmkv starts flushing this bucket on shutdown), the scenario
+	// below no longer exercises the no-seeds fallback and needs a new setup.
+	bucket := store.Bucket(index.getCompressedBucketName())
+	require.NotNil(t, bucket)
+	require.Empty(t, bucket.QuantileKeys(16), "expected no segments, data must live in the memtable only")
+
+	index.PostStartup(ctx)
+
+	ids, _, err := index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uint64{0, 1, 2, 3}, ids,
+		"vectors recovered from the WAL must be visible to the cached search")
+}

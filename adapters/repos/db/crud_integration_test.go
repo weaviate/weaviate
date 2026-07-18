@@ -2616,6 +2616,28 @@ func TestOverwriteObjects(t *testing.T) {
 		require.Nil(t, err)
 		assert.EqualValues(t, freshRaw, found.Object())
 	})
+
+	t.Run("does not resurrect an unloaded shard", func(t *testing.T) {
+		idx := repo.GetIndex(schema.ClassName(class.Class))
+		shd, err := idx.shardResolver.ResolveShardByObjectID(context.Background(), fresh.ID, "")
+		require.Nil(t, err)
+
+		require.Nil(t, idx.UnloadLocalShard(context.Background(), shd))
+		require.Nil(t, idx.shards.Load(shd))
+
+		input := []*objects.VObject{
+			{
+				LatestObject:    fresh,
+				Vector:          fresh.Vector,
+				StaleUpdateTime: stale.LastUpdateTimeUnix,
+			},
+		}
+
+		_, err = idx.OverwriteObjects(context.Background(), shd, input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found locally")
+		assert.Nil(t, idx.shards.Load(shd), "shard must not be reloaded by OverwriteObjects")
+	})
 }
 
 func TestIndexDigestObjects(t *testing.T) {

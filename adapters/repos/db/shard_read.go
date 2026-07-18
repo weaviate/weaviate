@@ -154,6 +154,10 @@ func (s *Shard) MultiObjectRawByID(ctx context.Context, ids []strfmt.UUID) ([][]
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	for i, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 		if err != nil {
 			return nil, err
@@ -181,6 +185,10 @@ func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	for i, q := range query {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		idBytes, err := uuid.MustParse(q.ID).MarshalBinary()
 		if err != nil {
 			return nil, err
@@ -222,7 +230,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		return nil, fmt.Errorf("invalid final UUID %q: %w", finalUUID, err)
 	}
 
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+	// Digest mode: only the header is read below, so skip the full value copy.
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -278,7 +287,8 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	cursor := bucket.Cursor()
+	// Digest mode: only the header is read below (localTime), skip the full value.
+	cursor := bucket.CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	firstUUID, err := uuid.Parse(sourceDigests[0].ID)
@@ -545,7 +555,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(),
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version()).
-			WithTokenizationResolver(s.TokenizationFor)
+			WithTokenizationResolver(s.TokenizationFor).
+			WithSearchableBucketPinningResolver(s.PinTokenizationAndSearchableBucket)
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
 			return nil, nil, err
@@ -1031,7 +1042,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	}
 	s.AppendChangeLogDelete(idBytes, logTime)
 
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime, logTime); err != nil {
 		return errors.Wrap(err, "object deletion in hashtree")
 	}
 

@@ -12,11 +12,34 @@
 package errors
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
+
+// HTTPStatusForNamespaceErr maps a namespace/collection lifecycle sentinel
+// to its REST status: the terminal family (deleting, not-empty,
+// invalid-state, suspended) renders 422, a resuming namespace renders 503.
+// ok is false for anything else, so the caller falls through to its own
+// default.
+func HTTPStatusForNamespaceErr(err error) (status int, ok bool) {
+	switch {
+	case errors.Is(err, namespaces.ErrNamespaceResuming):
+		return http.StatusServiceUnavailable, true
+	case errors.Is(err, namespaces.ErrNamespaceDeleting),
+		errors.Is(err, namespaces.ErrNamespaceNotEmpty),
+		errors.Is(err, namespaces.ErrInvalidState),
+		errors.Is(err, namespaces.ErrNamespaceSuspended),
+		errors.Is(err, namespaces.ErrCollectionSuspended):
+		return http.StatusUnprocessableEntity, true
+	default:
+		return 0, false
+	}
+}
 
 // ErrPayloadFromSingleErr builds a single-message ErrorResponse with the
 // principal's own namespace prefix stripped from err. Pass nil for global
