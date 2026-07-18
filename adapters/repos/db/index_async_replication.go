@@ -12,20 +12,12 @@
 package db
 
 import (
-	"fmt"
-	"math"
-	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
+	entreplication "github.com/weaviate/weaviate/entities/replication"
 )
-
-// maxDurationMillis is the largest int64 millisecond value that still fits in
-// a time.Duration (nanoseconds) without wrapping. Used to reject schema inputs
-// that would otherwise overflow during the *time.Millisecond conversion and
-// silently clamp to the minimum.
-const maxDurationMillis = int64(math.MaxInt64 / int64(time.Millisecond))
 
 // asyncReplicationConfigFromModel builds an AsyncReplicationConfig from the
 // class model and multitenancy flag.
@@ -44,6 +36,9 @@ const maxDurationMillis = int64(math.MaxInt64 / int64(time.Millisecond))
 // Effective(), so removing an env var restores the per-class schema value
 // without any schema mutation.
 //
+// Rejection is delegated to entreplication.ValidateAsyncConfig, shared with
+// proposal-time schema validation so the reject-set cannot drift.
+//
 // Frequency minimums (minFrequency, minFrequencyWhilePropagating) are enforced
 // by clamping sub-minimum values up to the minimum and emitting a Warn log
 // entry via the supplied logger. This is intentionally lenient so that
@@ -51,6 +46,10 @@ const maxDurationMillis = int64(math.MaxInt64 / int64(time.Millisecond))
 // the runtime defensive clamp in Effective() would otherwise be the only
 // safety net and would silence the legacy values without operator visibility.
 func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.ReplicationAsyncConfig, logger logrus.FieldLogger) (config AsyncReplicationConfig, err error) {
+	if err := entreplication.ValidateAsyncConfig(cfg); err != nil {
+		return AsyncReplicationConfig{}, err
+	}
+
 	// ---- Code defaults (tier 1) ----
 	if multiTenancyEnabled {
 		config.hashtreeHeight = defaultHashtreeHeightMultiTenant
@@ -73,24 +72,15 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 	}
 
 	// ---- Per-class API / schema overrides (tier 2) ----
-	// Validate each API value and store it as a pointer in classOverrides.
-	// Nil pointer means "not set by the user" — Effective() will skip it.
+	// Store each validated API value as a pointer in classOverrides. Nil
+	// pointer means "not set by the user" — Effective() will skip it.
 
 	if cfg.HashtreeHeight != nil {
-		v, err := optParseInt("", int(*cfg.HashtreeHeight), minHashtreeHeight, maxHashtreeHeight)
-		if err != nil {
-			return AsyncReplicationConfig{}, fmt.Errorf("hashtreeHeight: %w", err)
-		}
+		v := int(*cfg.HashtreeHeight)
 		config.classOverrides.hashtreeHeight = &v
 	}
 
 	if cfg.Frequency != nil {
-		if *cfg.Frequency < 0 {
-			return AsyncReplicationConfig{}, fmt.Errorf("frequency must be >= 0")
-		}
-		if *cfg.Frequency > maxDurationMillis {
-			return AsyncReplicationConfig{}, fmt.Errorf("frequency too large: %d ms exceeds max %d ms", *cfg.Frequency, maxDurationMillis)
-		}
 		v := time.Duration(*cfg.Frequency) * time.Millisecond
 		if v < minFrequency {
 			logger.WithFields(logrus.Fields{
@@ -105,12 +95,6 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 	}
 
 	if cfg.FrequencyWhilePropagating != nil {
-		if *cfg.FrequencyWhilePropagating < 0 {
-			return AsyncReplicationConfig{}, fmt.Errorf("frequencyWhilePropagating must be >= 0")
-		}
-		if *cfg.FrequencyWhilePropagating > maxDurationMillis {
-			return AsyncReplicationConfig{}, fmt.Errorf("frequencyWhilePropagating too large: %d ms exceeds max %d ms", *cfg.FrequencyWhilePropagating, maxDurationMillis)
-		}
 		v := time.Duration(*cfg.FrequencyWhilePropagating) * time.Millisecond
 		if v < minFrequencyWhilePropagating {
 			logger.WithFields(logrus.Fields{
@@ -126,94 +110,48 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 
 	if cfg.LoggingFrequency != nil {
 		v := time.Duration(*cfg.LoggingFrequency) * time.Second
-		if v <= 0 {
-			return AsyncReplicationConfig{}, fmt.Errorf("loggingFrequency must be > 0")
-		}
 		config.classOverrides.loggingFrequency = &v
 	}
 
 	if cfg.DiffBatchSize != nil {
-		v, err := optParseInt("", int(*cfg.DiffBatchSize), minDiffBatchSize, maxDiffBatchSize)
-		if err != nil {
-			return AsyncReplicationConfig{}, fmt.Errorf("diffBatchSize: %w", err)
-		}
+		v := int(*cfg.DiffBatchSize)
 		config.classOverrides.diffBatchSize = &v
 	}
 
 	if cfg.DiffPerNodeTimeout != nil {
 		v := time.Duration(*cfg.DiffPerNodeTimeout) * time.Second
-		if v <= 0 {
-			return AsyncReplicationConfig{}, fmt.Errorf("diffPerNodeTimeout must be > 0")
-		}
 		config.classOverrides.diffPerNodeTimeout = &v
 	}
 
 	if cfg.PrePropagationTimeout != nil {
 		v := time.Duration(*cfg.PrePropagationTimeout) * time.Second
-		if v <= 0 {
-			return AsyncReplicationConfig{}, fmt.Errorf("prePropagationTimeout must be > 0")
-		}
 		config.classOverrides.prePropagationTimeout = &v
 	}
 
 	if cfg.PropagationTimeout != nil {
 		v := time.Duration(*cfg.PropagationTimeout) * time.Second
-		if v <= 0 {
-			return AsyncReplicationConfig{}, fmt.Errorf("propagationTimeout must be > 0")
-		}
 		config.classOverrides.propagationTimeout = &v
 	}
 
 	if cfg.PropagationLimit != nil {
-		v, err := optParseInt("", int(*cfg.PropagationLimit), minPropagationLimit, maxPropagationLimit)
-		if err != nil {
-			return AsyncReplicationConfig{}, fmt.Errorf("propagationLimit: %w", err)
-		}
+		v := int(*cfg.PropagationLimit)
 		config.classOverrides.propagationLimit = &v
 	}
 
 	if cfg.PropagationConcurrency != nil {
-		v, err := optParseInt("", int(*cfg.PropagationConcurrency), minPropagationConcurrency, maxPropagationConcurrency)
-		if err != nil {
-			return AsyncReplicationConfig{}, fmt.Errorf("propagationConcurrency: %w", err)
-		}
+		v := int(*cfg.PropagationConcurrency)
 		config.classOverrides.propagationConcurrency = &v
 	}
 
 	if cfg.PropagationBatchSize != nil {
-		v, err := optParseInt("", int(*cfg.PropagationBatchSize), minPropagationBatchSize, maxPropagationBatchSize)
-		if err != nil {
-			return AsyncReplicationConfig{}, fmt.Errorf("propagationBatchSize: %w", err)
-		}
+		v := int(*cfg.PropagationBatchSize)
 		config.classOverrides.propagationBatchSize = &v
 	}
 
 	if cfg.PropagationDelay != nil {
 		v := time.Duration(*cfg.PropagationDelay) * time.Millisecond
-		if v < 0 {
-			return AsyncReplicationConfig{}, fmt.Errorf("propagationDelay must be >= 0")
-		}
 		config.classOverrides.propagationDelay = &v
 	}
 
 	return config, nil
-}
-
-// optParseInt parses s as an integer when non-empty, otherwise uses defaultVal.
-// Returns an error if the resolved value is outside [minVal, maxVal].
-func optParseInt(s string, defaultVal, minVal, maxVal int) (val int, err error) {
-	if s == "" {
-		val = defaultVal
-	} else {
-		val, err = strconv.Atoi(s)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	if val < minVal || val > maxVal {
-		return 0, fmt.Errorf("value %d out of range: min %d, max %d", val, minVal, maxVal)
-	}
-
-	return val, nil
 }
