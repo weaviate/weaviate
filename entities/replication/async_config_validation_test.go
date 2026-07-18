@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -84,4 +85,62 @@ func TestValidateAsyncConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSanitizeAsyncConfig(t *testing.T) {
+	i64 := func(v int64) *int64 { return &v }
+
+	tests := []struct {
+		name        string
+		cfg         *models.ReplicationAsyncConfig
+		want        *models.ReplicationAsyncConfig
+		wantDropped []string
+	}{
+		{name: "nil config"},
+		{name: "empty config", cfg: &models.ReplicationAsyncConfig{}, want: &models.ReplicationAsyncConfig{}},
+		{
+			name: "all valid untouched",
+			cfg:  &models.ReplicationAsyncConfig{HashtreeHeight: i64(12), Frequency: i64(30_000), PropagationConcurrency: i64(5)},
+			want: &models.ReplicationAsyncConfig{HashtreeHeight: i64(12), Frequency: i64(30_000), PropagationConcurrency: i64(5)},
+		},
+		{
+			name:        "invalid frequency dropped, valid height kept",
+			cfg:         &models.ReplicationAsyncConfig{HashtreeHeight: i64(12), Frequency: i64(-1)},
+			want:        &models.ReplicationAsyncConfig{HashtreeHeight: i64(12)},
+			wantDropped: []string{"frequency must be >= 0"},
+		},
+		{
+			name:        "multiple invalid dropped in field order, valid kept",
+			cfg:         &models.ReplicationAsyncConfig{HashtreeHeight: i64(99), Frequency: i64(-1), LoggingFrequency: i64(0), PropagationConcurrency: i64(5)},
+			want:        &models.ReplicationAsyncConfig{PropagationConcurrency: i64(5)},
+			wantDropped: []string{"hashtreeHeight: value 99 out of range: min 0, max 20", "frequency must be >= 0", "loggingFrequency must be > 0"},
+		},
+		{
+			name:        "frequency overflow dropped",
+			cfg:         &models.ReplicationAsyncConfig{Frequency: i64(MaxDurationMillis + 1)},
+			want:        &models.ReplicationAsyncConfig{},
+			wantDropped: []string{"frequency too large"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sanitized, dropped := SanitizeAsyncConfig(tt.cfg)
+			assert.Equal(t, tt.want, sanitized)
+			require.Len(t, dropped, len(tt.wantDropped))
+			for i, wantErr := range tt.wantDropped {
+				assert.ErrorContains(t, dropped[i], wantErr)
+			}
+			assert.NoError(t, ValidateAsyncConfig(sanitized))
+		})
+	}
+}
+
+func TestSanitizeAsyncConfigDoesNotMutateInput(t *testing.T) {
+	freq := int64(-1)
+	cfg := &models.ReplicationAsyncConfig{Frequency: &freq}
+	_, dropped := SanitizeAsyncConfig(cfg)
+	require.Len(t, dropped, 1)
+	require.NotNil(t, cfg.Frequency)
+	require.Equal(t, int64(-1), *cfg.Frequency)
 }
