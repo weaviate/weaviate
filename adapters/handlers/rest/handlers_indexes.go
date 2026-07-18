@@ -847,14 +847,9 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	})
 }
 
-// cancelApplyErrorResponse maps a cancel-apply failure to HTTP. If the task
-// left STARTED (finished/cancelled/failed → ErrTaskNotRunning) or its
-// versioned entry was removed (cleaned up/superseded → ErrTaskDoesNotExist)
-// between the task-list read above and this apply — the list-read→apply race
-// — there is nothing left to cancel, so it is a no-op (202 NO_OP), not a 500,
-// per the reindex GA RFC §1.8. These are the only two permanent sentinels
-// CancelTask can return; transient failures (RAFT unavailable, ctx cancelled)
-// stay 500.
+// cancelApplyErrorResponse: ErrTaskNotRunning/ErrTaskDoesNotExist mean the
+// task already finished or was removed before this apply (list→apply race),
+// so that's a no-op (202), not a 500.
 func (h *indexesHandlers) cancelApplyErrorResponse(
 	err error, principal *models.Principal, collection, propertyName, indexType string,
 ) middleware.Responder {

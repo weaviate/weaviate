@@ -27,21 +27,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestCancelReindexTask_ListToApplyRace pins the reindex-cancel race: the
-// handler reads the task list (sees the target STARTED), the task flips to a
-// terminal state, and the cancel apply then fails with a permanent FSM
-// rejection. Per reindex GA RFC §1.8 "already finished" must be 202 NO_OP,
-// not 500 (which is reserved for genuine internal errors).
-//
-// The errors below reproduce exactly what ClusterService.CancelDistributedTask
-// returns to the handler: applyDistributedTaskCommand runs
-// RehydratePermanentRejection over the apply error and wraps it in
-// "executing command: %w", so the sentinel is errors.Is-matchable on both the
-// local-leader (raw wrapped) and remote-leader (marker-rehydrated) paths.
+// TestCancelReindexTask_ListToApplyRace pins: cancel apply failing with
+// ErrTaskNotRunning/ErrTaskDoesNotExist (list→apply race) must be 202 NO_OP,
+// not 500.
 func TestCancelReindexTask_ListToApplyRace(t *testing.T) {
 	h := &indexesHandlers{appState: &state.State{Logger: logrus.New()}}
 	principal := &models.Principal{Username: "u1"}
 
+	// remote mimics the wrapped+rehydrated error shape a remote-leader RPC
+	// returns, so the sentinel is still errors.Is-matchable.
 	remote := func(marker string) error {
 		return fmt.Errorf("executing command: %w",
 			distributedtask.RehydratePermanentRejection(
@@ -71,9 +65,6 @@ func TestCancelReindexTask_ListToApplyRace(t *testing.T) {
 			wantNoOp: true,
 		},
 		{
-			// Same list→apply window: the versioned task was cleaned up or
-			// superseded, so CancelTask's findVersionedTaskWithLock returns
-			// ErrTaskDoesNotExist — still "nothing to cancel", still NO_OP.
 			name:     "remote-leader rehydrated ErrTaskDoesNotExist",
 			err:      remote("[dtm-perm/task-not-exist] task ns/t/3 does not exist"),
 			wantNoOp: true,
