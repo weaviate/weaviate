@@ -748,8 +748,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	if err := h.appState.ClusterService.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
-			fmt.Sprintf("cancelling task: %v", err)))
+		return h.cancelApplyErrorResponse(err, principal, collection, propertyName, indexType)
 	}
 
 	// Drain the local reindex goroutine BEFORE cleaning partial on-disk
@@ -846,6 +845,34 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		TaskID: namespacing.StripOwnNamespace(principal, target.ID),
 		Status: "CANCELLED",
 	})
+}
+
+// cancelApplyErrorResponse maps a cancel-apply failure to HTTP. If the task
+// left STARTED (finished/cancelled/failed → ErrTaskNotRunning) or its
+// versioned entry was removed (cleaned up/superseded → ErrTaskDoesNotExist)
+// between the task-list read above and this apply — the list-read→apply race
+// — there is nothing left to cancel, so it is a no-op (202 NO_OP), not a 500,
+// per the reindex GA RFC §1.8. These are the only two permanent sentinels
+// CancelTask can return; transient failures (RAFT unavailable, ctx cancelled)
+// stay 500.
+func (h *indexesHandlers) cancelApplyErrorResponse(
+	err error, principal *models.Principal, collection, propertyName, indexType string,
+) middleware.Responder {
+	if errors.Is(err, distributedtask.ErrTaskNotRunning) ||
+		errors.Is(err, distributedtask.ErrTaskDoesNotExist) {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"audit_event": "reindex_task_cancel_noop",
+			"collection":  collection,
+			"property":    propertyName,
+			"index_type":  indexType,
+			"principal":   principalUsername(principal),
+		}).Infof("cancel: task no longer running when applying cancel (%v); returning NO_OP", err)
+		return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
+			Status: reindexCancelStatusNoOp,
+		})
+	}
+	return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
+		fmt.Sprintf("cancelling task: %v", err)))
 }
 
 // reindexCancelStatusNoOp is the IndexUpdateResponse.Status value the
