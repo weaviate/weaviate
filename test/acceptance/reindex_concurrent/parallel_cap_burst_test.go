@@ -12,18 +12,13 @@
 package reindex_concurrent
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
@@ -78,21 +73,9 @@ func TestParallelCapBurst(t *testing.T) {
 	)
 	numProps := capLimit + overCap
 
-	// One text property per submit; IndexFilterable=false so
-	// {"filterable":{"enabled":true}} passes validation for every property.
-	props := make([]*models.Property, 0, numProps)
-	for i := 0; i < numProps; i++ {
-		props = append(props, &models.Property{
-			Name:            fmt.Sprintf("prop_%02d", i),
-			DataType:        []string{"text"},
-			Tokenization:    "word",
-			IndexFilterable: reindexhelpers.BoolPtr(false),
-			IndexSearchable: reindexhelpers.BoolPtr(true),
-		})
-	}
 	helper.CreateClass(t, &models.Class{
 		Class:      collection,
-		Properties: props,
+		Properties: reindexhelpers.CapBurstProps(numProps),
 	})
 
 	// A modest corpus so the admitted migrations outlive the submit-burst
@@ -113,57 +96,15 @@ func TestParallelCapBurst(t *testing.T) {
 	}
 	helper.CreateObjectsBatch(t, objects)
 
-	type submitResult struct {
-		prop       string
-		statusCode int
-		body       string
-		err        error
-	}
-
-	// Start barrier: every goroutine blocks on the gate until the main
-	// goroutine closes it, so all requests leave as simultaneously as the
-	// HTTP stack allows. Results are collected per index — no assertions
-	// inside the goroutines (require.* must run on the test goroutine).
-	gate := make(chan struct{})
-	results := make([]submitResult, numProps)
+	// All submits leave as one truly parallel burst (start-barrier
+	// orchestration and per-property result collection live in the shared
+	// helper; no assertions inside the burst goroutines).
 	client := &http.Client{Timeout: 60 * time.Second}
+	results, err := reindexhelpers.FireIndexUpdateBurst(client, restURI, collection,
+		`{"filterable":{"enabled":true}}`, numProps)
+	require.NoError(t, err)
 
-	var g errgroup.Group
-	for i := 0; i < numProps; i++ {
-		g.Go(func() error {
-			<-gate
-			prop := fmt.Sprintf("prop_%02d", i)
-			status, body, err := fireIndexUpdate(client, restURI, collection, prop,
-				`{"filterable":{"enabled":true}}`)
-			results[i] = submitResult{prop: prop, statusCode: status, body: body, err: err}
-			return nil
-		})
-	}
-	close(gate)
-	require.NoError(t, g.Wait())
-
-	var accepted, tooMany int
-	for _, res := range results {
-		require.NoError(t, res.err, "request for %s failed at transport level", res.prop)
-		switch res.statusCode {
-		case http.StatusAccepted:
-			accepted++
-		case http.StatusTooManyRequests:
-			tooMany++
-			var errResp models.ErrorResponse
-			require.NoError(t, json.Unmarshal([]byte(res.body), &errResp),
-				"429 body must decode to the standard ErrorResponse shape: %s", res.body)
-			require.NotEmpty(t, errResp.Error)
-			assert.Contains(t, errResp.Error[0].Message, collection,
-				"429 message must name the capped collection")
-		default:
-			t.Fatalf("unexpected status %d for %s: %s", res.statusCode, res.prop, res.body)
-		}
-	}
-	assert.Equal(t, capLimit, accepted,
-		"exactly the cap may be admitted, no matter how parallel the burst")
-	assert.Equal(t, overCap, tooMany,
-		"the over-cap remainder must be rejected with 429")
+	accepted := reindexhelpers.AssertCapBurstOutcome(t, results, collection, capLimit, overCap)
 
 	// Let every admitted task run to completion so container teardown happens
 	// against a quiet node. Any FAILED/CANCELLED task aborts the poll early —
@@ -193,28 +134,4 @@ func TestParallelCapBurst(t *testing.T) {
 	require.Empty(t, terminalProblem)
 	require.Equal(t, accepted, finishedSeen,
 		"every admitted task must reach FINISHED")
-}
-
-// fireIndexUpdate fires PUT /v1/schema/{collection}/indexes/{property} and
-// reports the raw outcome. It performs no assertions so it is safe to call
-// from errgroup goroutines.
-func fireIndexUpdate(client *http.Client, restURI, collection, property, jsonBody string) (int, string, error) {
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	if err != nil {
-		return 0, "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, "", err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return resp.StatusCode, "", err
-	}
-	return resp.StatusCode, string(body), nil
 }
