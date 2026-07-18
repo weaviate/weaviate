@@ -43,6 +43,28 @@ def test_pq_dims_match(collection_factory: CollectionFactory):
     )
 
 
+def assert_wrong_dims_rejected(col):
+    """Populate col with VEC_DIMS-wide vectors, then assert that nearVector
+    queries with the wrong dimensionality raise the standard "vector lengths
+    don't match" error.
+
+    Both an over- and an under-dimensioned query are exercised, since the two
+    used to fail differently, to guard against regressions in either direction.
+    """
+    with col.batch.dynamic() as batch:
+        for i in range(OBJ_NUM):
+            batch.add_object(properties={"someText": f"object-{i}"}, vector=generate_vec(VEC_DIMS))
+
+    for wrong_dims in (VEC_DIMS + 32, VEC_DIMS - 32):
+        with pytest.raises(WeaviateQueryError) as exc:
+            col.query.near_vector(
+                near_vector=generate_vec(wrong_dims),
+                limit=2,
+                return_metadata=MetadataQuery(distance=True),
+            )
+        assert "vector lengths don't match" in str(exc.value)
+
+
 # Regression tests for https://github.com/weaviate/weaviate/issues/12207:
 # a nearVector query with the wrong dimensionality against an RQ-compressed
 # (any bits) or BQ-compressed (under-dimensioned) HNSW index used to silently
@@ -61,18 +83,7 @@ def test_rq_dims_match(collection_factory: CollectionFactory, bits: int):
         ),
     )
 
-    with col.batch.dynamic() as batch:
-        for i in range(OBJ_NUM):
-            batch.add_object(properties={"someText": f"object-{i}"}, vector=generate_vec(VEC_DIMS))
-
-    for wrong_dims in (VEC_DIMS + 32, VEC_DIMS - 32):
-        with pytest.raises(WeaviateQueryError) as exc:
-            col.query.near_vector(
-                near_vector=generate_vec(wrong_dims),
-                limit=2,
-                return_metadata=MetadataQuery(distance=True),
-            )
-        assert "vector lengths don't match" in str(exc.value)
+    assert_wrong_dims_rejected(col)
 
 
 def test_bq_dims_match(collection_factory: CollectionFactory):
@@ -84,22 +95,10 @@ def test_bq_dims_match(collection_factory: CollectionFactory):
         ),
     )
 
-    with col.batch.dynamic() as batch:
-        for i in range(OBJ_NUM):
-            batch.add_object(properties={"someText": f"object-{i}"}, vector=generate_vec(VEC_DIMS))
-
-    # Over-dimensioned queries already error before this fix (they cross a
-    # 64-bit block boundary); under-dimensioned queries within the same
-    # block did not. Cover both to guard against regressions in either
-    # direction.
-    for wrong_dims in (VEC_DIMS + 32, VEC_DIMS - 32):
-        with pytest.raises(WeaviateQueryError) as exc:
-            col.query.near_vector(
-                near_vector=generate_vec(wrong_dims),
-                limit=2,
-                return_metadata=MetadataQuery(distance=True),
-            )
-        assert "vector lengths don't match" in str(exc.value)
+    # For BQ specifically, over-dimensioned queries already errored before this
+    # fix (they cross a 64-bit block boundary); under-dimensioned queries within
+    # the same block did not.
+    assert_wrong_dims_rejected(col)
 
 
 def generate_vec(dims):
