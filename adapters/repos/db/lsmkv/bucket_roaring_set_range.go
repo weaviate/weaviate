@@ -100,9 +100,12 @@ func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
 	if b.rangeableInMemoryDeferred {
 		b.rangeableDeferredLogOnce.Do(func() {
 			b.logger.WithField("bucket", b.dir).Info(
-				"rangeable property serving from disk; in-memory acceleration " +
-					"deferred until the shard is reloaded. Reload the shard or " +
-					"restart the node to rebuild the in-memory index.",
+				"rangeable property serving from disk; in-memory acceleration is " +
+					"deferred. If a migration is in progress, this resolves " +
+					"automatically when it finalizes. If it persists after the " +
+					"migration has finished, the finalize rebuild failed; repair " +
+					"with rebuild:true (PUT /v1/schema/<collection>/indexes/<property> " +
+					`{"rangeable":{"rebuild":true}}) or by reloading the shard/restarting the node.`,
 			)
 		})
 	}

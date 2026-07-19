@@ -316,6 +316,27 @@ func TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity(t *testing.T) {
 		`{"rangeable":{"enabled":true}}`)
 	reindexhelpers.AwaitReindexLive(t, restURI, taskID)
 
+	// What this overwrite does and does not prove about the double-write /
+	// fold-order window: AwaitReindexLive only guarantees the task has
+	// reached a live task-level status (STARTED/PREPARING/SWAPPING); it says
+	// nothing about how far uuidObjectsIteratorAsync's UUID-ascending disk
+	// cursor has scanned. moverID and the non-mover seed IDs are both
+	// SHA1-derived from unrelated name strings (uuid.NewSHA1), so movers
+	// land pseudo-randomly across the whole cursor keyspace rather than
+	// clustered at the start or end - backfill therefore encounters a
+	// roughly uniform spread of movers throughout its pass, not all-before
+	// or all-after this overwrite, which gives good statistical odds that
+	// this run exercises both orderings (some movers already copied to the
+	// ingest bucket at oldValue, relying on the double-write add-callback to
+	// carry newValue forward; others scanned fresh at newValue after this
+	// point). It is not a hard per-mover guarantee: a sufficiently fast
+	// overwrite relative to backfill start could in principle land before
+	// the cursor has passed any mover. A hard guarantee would need a
+	// per-object "backfilled" signal (e.g. a log line or counter on the
+	// backfill hot path); deliberately not added for one test. Instead this
+	// test asserts the invariant that must hold under EITHER ordering -
+	// every mover ends up at newValue and none at oldValue - which is the
+	// property weaviate/weaviate#12199 actually cares about.
 	updates := make([]map[string]interface{}, 0, moverCount)
 	for i := 0; i < moverCount; i++ {
 		updates = append(updates, map[string]interface{}{

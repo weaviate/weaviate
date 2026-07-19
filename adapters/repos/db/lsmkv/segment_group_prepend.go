@@ -70,10 +70,13 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 
 	// Reject splicing into a RoaringSetRange group with an active in-memory
 	// rep: an older-onto-newer merge could let a stale value win, and an
-	// unrebuilt rep would silently serve empty/partial results. The rep
-	// pointer is set once in newSegmentGroup and never reassigned, so this
-	// read needs no lock.
-	if sg.strategy == StrategyRoaringSetRange && sg.roaringSetRangeSegmentInMemory != nil {
+	// unrebuilt rep would silently serve empty/partial results. The pointer
+	// is published under maintenanceLock.Lock() by installRoaringSetRangeRep,
+	// so pair the read with maintenanceLock.RLock() here.
+	sg.maintenanceLock.RLock()
+	hasInMemoryRep := sg.strategy == StrategyRoaringSetRange && sg.roaringSetRangeSegmentInMemory != nil
+	sg.maintenanceLock.RUnlock()
+	if hasInMemoryRep {
 		return fmt.Errorf("%w (bucket=%s)", ErrPrependWouldDesyncInMemoryRep, filepath.Base(sg.dir))
 	}
 

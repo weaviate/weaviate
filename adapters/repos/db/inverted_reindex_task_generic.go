@@ -2545,8 +2545,9 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
 		logger.WithField("props", props).Info(
 			"rangeable properties are serving from disk during reindex ingest; " +
-				"in-memory acceleration resumes at the next bucket open (node " +
-				"restart, shard reload, or tenant reactivation).",
+				"in-memory acceleration is restored automatically when the migration " +
+				"finalizes. A node restart, shard reload, or tenant reactivation only " +
+				"repairs this if that automatic rebuild fails.",
 		)
 	}
 

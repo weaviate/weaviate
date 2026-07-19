@@ -596,16 +596,27 @@ func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringse
 // (flush appends only; compaction must still be paused) and publishes the
 // rep. Caller must hold the bucket's flushLock so no flush can append a
 // segment or merge a memtable between the catch-up and the publish.
+//
+// Lock scope: the catch-up merge only reads sg.segments, so it runs under
+// maintenanceLock.RLock() like buildRoaringSetRangeRep's bulk merge. The
+// pointer publish is a write and is upgraded to maintenanceLock.Lock() for
+// just that one assignment, pairing with the RLock() reads in
+// PrependSegmentsFromBucket and elsewhere. Splitting the two keeps the
+// (unbounded) catch-up merge from holding the exclusive lock.
 func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentInMemory, alreadyMerged int) error {
 	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+	segments := sg.segments[alreadyMerged:]
+	sg.maintenanceLock.RUnlock()
 
-	for _, seg := range sg.segments[alreadyMerged:] {
+	for _, seg := range segments {
 		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
 			return fmt.Errorf("catch-up merge segment into rangeable rep: %w", err)
 		}
 	}
+
+	sg.maintenanceLock.Lock()
 	sg.roaringSetRangeSegmentInMemory = rep
+	sg.maintenanceLock.Unlock()
 	return nil
 }
 
