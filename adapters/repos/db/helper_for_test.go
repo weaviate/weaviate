@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -491,10 +492,13 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
-		HFreshEnabled:          true,
-		replicator:             replicator,
-		router:                 mockRouter,
-		db:                     repo,
+		// Required for in-memory rangeable reads (readerRoaringSetRangeFromSegmentInMemo);
+		// nil here nil-derefs on bufPool.CloneToBuf.
+		bitmapBufPool: roaringset.NewBitmapBufPoolNoop(),
+		HFreshEnabled: true,
+		replicator:    replicator,
+		router:        mockRouter,
+		db:            repo,
 	}
 	{
 		var presetDetectors map[string]*stopwords.Detector

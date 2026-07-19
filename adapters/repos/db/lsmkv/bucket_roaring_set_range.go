@@ -76,8 +76,12 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 				b.rangeableFallbackWarnOnce.Do(func() {
 					b.logger.WithField("bucket", b.dir).Warnf(
 						"rangeable in-memory index is empty but %d disk segment(s) exist; "+
-							"serving from disk (results remain correct). Reload the shard or "+
-							"restart the node to rebuild the in-memory index.", n,
+							"falling back to reading directly from disk. Results may be "+
+							"incorrect if the disk segment(s) are corrupt or unreadable - "+
+							"restarting the node will NOT repair this (it re-reads the same "+
+							"segments). Re-run the reindex with rebuild:true "+
+							`(PUT /v1/schema/<collection>/indexes/<property> `+
+							`{"rangeable":{"rebuild":true}}) to rebuild the index.`, n,
 					)
 				})
 				// Benign TOCTOU: the rep only empties via mass-delete, and the

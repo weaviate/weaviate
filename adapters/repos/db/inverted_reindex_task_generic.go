@@ -139,6 +139,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -231,6 +232,14 @@ type ShardReindexTaskGeneric struct {
 	// drop()-vs-MkdirAll race deterministic. Always set — no test-only
 	// branch runs in production.
 	trackerMkdirGuard func(shard ShardLike) func(func() error) error
+
+	// rebuildRangeableRepFn is the dispatch function for
+	// [rebuildRangeableInMemoryReps]'s per-prop bucket rebuild call.
+	// Defaults to a thin wrapper around
+	// [lsmkv.Bucket.RebuildRangeableSegmentInMemory]; tests substitute a
+	// wrapper to inject a rebuild failure. Always set - no test-only branch
+	// runs in production.
+	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -264,6 +273,9 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 		return shard.Index().withCloseRLockGuard
 	}
 	t.registerDoubleWriteCallbacksFn = t.registerDoubleWriteCallbacks
+	t.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
+		return b.RebuildRangeableSegmentInMemory(ctx)
+	}
 	return t
 }
 
@@ -799,7 +811,13 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt reindexTracker, props []string,
 ) error {
-	t.rebuildRangeableInMemoryReps(ctx, logger, shard, props)
+	// Ordering contract: the rangeable rebuild MUST run, and MUST be
+	// checked, before OnMigrationComplete. See the identical contract
+	// comment at the runtimeSwap call site for the full reasoning - it
+	// applies unchanged to this recovery-path mirror.
+	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
+		return err
+	}
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
@@ -811,35 +829,60 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 // rebuildRangeableInMemoryReps restores the INDEX_RANGEABLE_IN_MEMORY
 // contract for buckets promoted by a reindex swap: ingest buckets open
 // without an in-memory rep, so without this they'd serve range reads from
-// disk until the next open. Idempotent; failures are logged, not returned,
-// since the migration is already complete and disk-serving is a safe
-// fallback.
+// disk until the next open. Idempotent.
+//
+// A rebuild failure is returned, not merely logged: disk fallback is not
+// always safe ([ReaderRoaringSetRange] parses a corrupt-but-size-preserved
+// segment header as empty, producing wrong results with no operator
+// signal), so this must drive the migration to FAILED, not a silent
+// FINISHED.
+//
+// Per-prop failures are collected via errorcompounder so one doesn't hide
+// another. Context-cancellation is the one exception: it's returned
+// immediately, %w-wrapping context.Canceled unchanged, so
+// [runPerUnitPhase]'s errors.Is check still routes graceful shutdown to
+// the transient ack path instead of a permanent FAILED - wrapping it in
+// the compounder would lose that identity.
 func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
-) {
+) error {
 	if t.strategy.TargetStrategy() != lsmkv.StrategyRoaringSetRange ||
 		!shard.Index().Config.IndexRangeableInMemory {
-		return
+		return nil
 	}
 
+	className := shard.Index().Config.ClassName.String()
 	store := shard.Store()
+	ec := errorcompounder.New()
 	for _, propName := range props {
 		bucketName := t.strategy.SourceBucketName(propName)
+		repairCmd := fmt.Sprintf(`PUT /v1/schema/%s/indexes/%s {"rangeable":{"rebuild":true}}`,
+			className, propName)
+
 		bucket := store.Bucket(bucketName)
 		if bucket == nil {
-			logger.WithField("bucket", bucketName).Errorf(
-				"rangeable in-memory rebuild: bucket not found post-swap; " +
-					"property serves range queries from disk until the next bucket open",
+			err := fmt.Errorf(
+				"rangeable index for property %q could not be activated for in-memory "+
+					"serving: bucket %q not found post-swap. Repair: %s",
+				propName, bucketName, repairCmd,
 			)
+			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
+			ec.Add(err)
 			continue
 		}
+
 		started := time.Now()
-		if err := bucket.RebuildRangeableSegmentInMemory(ctx); err != nil {
-			logger.WithField("bucket", bucketName).Errorf(
-				"rangeable in-memory rebuild failed; property serves range queries "+
-					"from disk until the next bucket open (restart, shard reload, or "+
-					"tenant reactivation): %v", err,
+		if err := t.rebuildRangeableRepFn(ctx, bucket); err != nil {
+			if errors.Is(err, context.Canceled) {
+				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w", propName, err)
+			}
+			wrapped := fmt.Errorf(
+				"rangeable index for property %q built and data intact, but could not be "+
+					"activated for in-memory serving: %w. Repair: %s",
+				propName, err, repairCmd,
 			)
+			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
+			ec.Add(wrapped)
 			continue
 		}
 		logger.WithFields(logrus.Fields{
@@ -847,6 +890,7 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 			"took":   time.Since(started).String(),
 		}).Info("rangeable in-memory index built at migration finalize; serving range queries from memory")
 	}
+	return ec.ToError()
 }
 
 // unwrapShard extracts the concrete *Shard from a ShardLike,
@@ -1413,6 +1457,14 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 				return zerotime, false, err
 			}
 		}
+		// Same ordering contract as runtimeSwap: the rebuild must be
+		// checked before OnMigrationComplete. This branch is a second path
+		// to OnMigrationComplete (re-entry after tidied.mig is already on
+		// disk); skipping the check here would let a retry flip the schema
+		// without the rebuild ever succeeding.
+		if err = t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
+			return zerotime, false, err
+		}
 		err = t.strategy.OnMigrationComplete(ctx, shard)
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)
@@ -1943,7 +1995,20 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: tidy complete (ingest→main rename deferred to next restart)")
 
-	t.rebuildRangeableInMemoryReps(ctx, logger, shard, props)
+	// Ordering contract: rebuild must be checked before OnMigrationComplete.
+	//
+	// Unlike the semantic-migration family (see [IsSemanticMigration]),
+	// FilterableToRangeableStrategy.OnMigrationComplete is not gated by
+	// task-terminal status - it RAFT-commits IndexRangeFilters=true
+	// directly and unconditionally the first time any shard's swap reaches
+	// this line. Skipping the rebuild check would flip the schema to
+	// advertise range-query support while this shard's reads are still
+	// falling back to disk (or a corrupt segment silently parsed as empty -
+	// see [rebuildRangeableInMemoryReps]). Checking first keeps this shard
+	// on the pre-migration path until a repair succeeds.
+	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
+		return err
+	}
 
 	// OnMigrationComplete: no-op for semantic migrations (the cluster-
 	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).

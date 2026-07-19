@@ -130,5 +130,20 @@ func ParseHeader(data []byte) (*Header, error) {
 		return nil, fmt.Errorf("unsupported version %d", out.Version)
 	}
 
+	// Every writer sets IndexStart >= HeaderSize (an empty segment has
+	// IndexStart == HeaderSize exactly); a smaller value is only reachable
+	// via a corrupted/truncated/zeroed file. Left undetected, downstream
+	// readers either panic slicing contents[HeaderSize:IndexStart], or -
+	// on the mmap/section-reader path - construct a zero-length reader and
+	// silently treat the segment as empty (data loss, not a crash). Reject
+	// it here, at the single choke point every segment open goes through.
+	if out.IndexStart < uint64(HeaderSize) {
+		return nil, fmt.Errorf(
+			"corrupt segment header: index start %d is before the header end (%d); "+
+				"segment file is truncated, zeroed, or otherwise corrupted",
+			out.IndexStart, HeaderSize,
+		)
+	}
+
 	return out, nil
 }
