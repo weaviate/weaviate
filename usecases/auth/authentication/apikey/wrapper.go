@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 type ApiKey struct {
@@ -26,12 +27,12 @@ type ApiKey struct {
 	Dynamic *DBUser
 }
 
-func New(cfg config.Config, logger logrus.FieldLogger) (*ApiKey, error) {
+func New(cfg config.Config, logger logrus.FieldLogger, nsExister namespaces.Exister) (*ApiKey, error) {
 	static, err := NewStatic(cfg)
 	if err != nil {
 		return nil, err
 	}
-	dynamic, err := NewDBUser(cfg.Persistence.DataPath, cfg.Authentication.DBUsers.Enabled, logger)
+	dynamic, err := NewDBUser(cfg.Persistence.DataPath, cfg.Authentication.DBUsers.Enabled, logger, nsExister)
 	if err != nil {
 		return nil, err
 	}

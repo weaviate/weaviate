@@ -45,7 +45,7 @@ func TestInvalidApiKey(t *testing.T) {
 					APIKey:  config.StaticAPIKey{Enabled: testCase.staticEnabled, AllowedKeys: []string{"valid-key"}, Users: []string{"user1"}},
 				},
 			}
-			wrapper, err := New(conf, logger)
+			wrapper, err := New(conf, logger, activeExister{})
 			require.NoError(t, err)
 
 			_, err = wrapper.ValidateAndExtract("invalid-key", nil)
@@ -79,7 +79,7 @@ func TestValidStaticKey(t *testing.T) {
 					APIKey:  config.StaticAPIKey{Enabled: testCase.staticEnabled, AllowedKeys: []string{"valid-key"}, Users: []string{"user1"}},
 				},
 			}
-			wrapper, err := New(conf, logger)
+			wrapper, err := New(conf, logger, activeExister{})
 			require.NoError(t, err)
 
 			principal, err := wrapper.ValidateAndExtract("valid-key", nil)
@@ -118,7 +118,7 @@ func TestValidDynamicKey(t *testing.T) {
 					APIKey:  config.StaticAPIKey{Enabled: testCase.staticEnabled, AllowedKeys: []string{"valid-key"}, Users: []string{"user1"}},
 				},
 			}
-			wrapper, err := New(conf, logger)
+			wrapper, err := New(conf, logger, activeExister{})
 			require.NoError(t, err)
 
 			userId := "id"
