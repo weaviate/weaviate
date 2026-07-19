@@ -72,6 +72,9 @@ func (a *ApiKey) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	principal, err := validate(token, scopes)
 	if err != nil {
+		if msg, ok := namespaces.PublicMessage(err); ok {
+			return nil, errors.New(401, "unauthorized: %s", msg)
+		}
 		return nil, errors.New(401, "unauthorized: %v", err)
 	}
 	return principal, nil
