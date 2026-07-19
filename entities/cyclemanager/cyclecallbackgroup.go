@@ -340,10 +340,12 @@ func (c *cycleCallbackGroup) mutateCallback(ctx context.Context, callbackId uint
 		runningCtx := meta.runningCtx
 		running := runningCtx != nil && runningCtx.Err() == nil
 
+		prevShouldAbort := meta.shouldAbort
 		if err := onMetaFound(callbackId, meta, running); err != nil {
 			c.Unlock()
 			return err
 		}
+		postShouldAbort := meta.shouldAbort
 		if !running {
 			c.Unlock()
 			return nil
@@ -364,7 +366,15 @@ func (c *cycleCallbackGroup) mutateCallback(ctx context.Context, callbackId uint
 				// was not changed. If not, loop will finish on runningCtx.Err() != nil check
 				continue
 			}
-			// input ctx expired
+			// input ctx expired while the callback is still running and the caller
+			// treats the mutation as failed. Roll back shouldAbort to avoid silently
+			// aborting every subsequent cycle, unless a racing activate/deactivate
+			// changed the flag in the meantime.
+			c.Lock()
+			if meta, ok := c.callbacks[callbackId]; ok && meta.shouldAbort == postShouldAbort {
+				meta.shouldAbort = prevShouldAbort
+			}
+			c.Unlock()
 			return ctx.Err()
 		}
 	}
