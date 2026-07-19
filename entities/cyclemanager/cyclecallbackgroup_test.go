@@ -2036,7 +2036,46 @@ func TestCycleCallback_Parallel_DeactivateCtxCancelledWhileRunning(t *testing.T)
 	testDeactivateCtxCancelledWhileRunning(t, 2)
 }
 
+// ctxCancelledWhileRunningSpec parameterizes testCtxCancelledWhileRunning with
+// the controller op under test (Deactivate or Unregister): which op is invoked
+// with the cancellable ctx, which op-specific assertions run after it failed,
+// and the op-specific regression block at the end.
+type ctxCancelledWhileRunningSpec struct {
+	// mutate is the controller op called with the cancellable ctx while the
+	// callback is still running.
+	mutate func(ctrl CycleCallbackCtrl, ctx context.Context) error
+	// afterFailedMutate runs right after mutate returned context.Canceled
+	// (may be nil); the shared body already asserts the shouldAbort flag
+	// was restored.
+	afterFailedMutate func(t *testing.T, ctrl CycleCallbackCtrl)
+	// tail is the op-specific regression block proving the regular flow is
+	// unaffected by the failed op. startedCounter reports how often the
+	// callback body has run so far.
+	tail func(t *testing.T, callbacks CycleCallbackGroup, ctrl CycleCallbackCtrl,
+		shouldNotAbort ShouldAbortCallback, startedCounter func() int)
+}
+
 func testDeactivateCtxCancelledWhileRunning(t *testing.T, routinesLimit int) {
+	testCtxCancelledWhileRunning(t, routinesLimit, ctxCancelledWhileRunningSpec{
+		mutate: func(ctrl CycleCallbackCtrl, ctx context.Context) error {
+			return ctrl.Deactivate(ctx)
+		},
+		tail: func(t *testing.T, callbacks CycleCallbackGroup, ctrl CycleCallbackCtrl,
+			shouldNotAbort ShouldAbortCallback, startedCounter func() int,
+		) {
+			// regular deactivate/activate flow is unaffected
+			require.NoError(t, ctrl.Deactivate(context.Background()))
+			assert.False(t, callbacks.CycleCallback(shouldNotAbort))
+			assert.Equal(t, 2, startedCounter())
+
+			require.NoError(t, ctrl.Activate())
+			assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+			assert.Equal(t, 3, startedCounter())
+		},
+	})
+}
+
+func testCtxCancelledWhileRunning(t *testing.T, routinesLimit int, spec ctxCancelledWhileRunningSpec) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	shouldNotAbort := func() bool { return false }
@@ -2074,25 +2113,28 @@ func testDeactivateCtxCancelledWhileRunning(t *testing.T, routinesLimit int) {
 	}()
 	<-chStarted
 
-	// deactivate with ctx cancelled while the callback is still running
-	ctxDeactivate, cancelDeactivate := context.WithCancel(ctx)
-	chDeactivated := make(chan error, 1)
+	// mutate with ctx cancelled while the callback is still running
+	ctxMutate, cancelMutate := context.WithCancel(ctx)
+	chMutated := make(chan error, 1)
 	go func() {
-		chDeactivated <- ctrl.Deactivate(ctxDeactivate)
+		chMutated <- spec.mutate(ctrl, ctxMutate)
 	}()
 
-	// wait for the abort flag to make sure deactivate mutated the callback
+	// wait for the abort flag to make sure the op mutated the callback
 	// and is now waiting for the running one to finish
 	require.Eventually(t, isShouldAbort, time.Second, time.Millisecond)
-	cancelDeactivate()
+	cancelMutate()
 
-	err := <-chDeactivated
+	err := <-chMutated
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 
-	// failed deactivate must not leave the abort flag behind,
+	// the failed op must not leave the abort flag behind,
 	// otherwise it would silently abort every subsequent cycle
 	assert.False(t, isShouldAbort())
+	if spec.afterFailedMutate != nil {
+		spec.afterFailedMutate(t, ctrl)
+	}
 
 	close(chGate)
 	assert.True(t, <-chCycle1)
@@ -2101,14 +2143,8 @@ func testDeactivateCtxCancelledWhileRunning(t *testing.T, routinesLimit int) {
 	assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 	assert.Equal(t, 2, startedCounter)
 
-	// regular deactivate/activate flow is unaffected
-	require.NoError(t, ctrl.Deactivate(ctx))
-	assert.False(t, callbacks.CycleCallback(shouldNotAbort))
-	assert.Equal(t, 2, startedCounter)
-
-	require.NoError(t, ctrl.Activate())
-	assert.True(t, callbacks.CycleCallback(shouldNotAbort))
-	assert.Equal(t, 3, startedCounter)
+	// op-specific regression block
+	spec.tail(t, callbacks, ctrl, shouldNotAbort, func() int { return startedCounter })
 }
 
 func TestCycleCallback_Sequential_UnregisterCtxCancelledWhileRunning(t *testing.T) {
@@ -2120,73 +2156,22 @@ func TestCycleCallback_Parallel_UnregisterCtxCancelledWhileRunning(t *testing.T)
 }
 
 func testUnregisterCtxCancelledWhileRunning(t *testing.T, routinesLimit int) {
-	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
-	shouldNotAbort := func() bool { return false }
-
-	chStarted := make(chan struct{}, 1)
-	chGate := make(chan struct{})
-	startedCounter := 0
-	callback := func(shouldAbort ShouldAbortCallback) bool {
-		if shouldAbort() {
-			return false
-		}
-		startedCounter++
-		if startedCounter == 1 {
-			chStarted <- struct{}{}
-		}
-		<-chGate
-		return true
-	}
-
-	callbacks := NewCallbackGroup("id", logger, routinesLimit)
-	ctrl := callbacks.Register("c", callback)
-
-	// single registered callback gets id 0
-	isShouldAbort := func() bool {
-		group := callbacks.(*cycleCallbackGroup)
-		group.Lock()
-		defer group.Unlock()
-		return group.callbacks[0].shouldAbort
-	}
-
-	// 1st cycle with the callback blocking on the gate
-	chCycle1 := make(chan bool, 1)
-	go func() {
-		chCycle1 <- callbacks.CycleCallback(shouldNotAbort)
-	}()
-	<-chStarted
-
-	// unregister with ctx cancelled while the callback is still running
-	ctxUnregister, cancelUnregister := context.WithCancel(ctx)
-	chUnregistered := make(chan error, 1)
-	go func() {
-		chUnregistered <- ctrl.Unregister(ctxUnregister)
-	}()
-
-	// wait for the abort flag to make sure unregister mutated the callback
-	// and is now waiting for the running one to finish
-	require.Eventually(t, isShouldAbort, time.Second, time.Millisecond)
-	cancelUnregister()
-
-	err := <-chUnregistered
-	require.Error(t, err)
-	assert.ErrorIs(t, err, context.Canceled)
-
-	// failed unregister must neither leave the abort flag behind nor drop
-	// the callback, otherwise it would silently abort every subsequent cycle
-	assert.False(t, isShouldAbort())
-	assert.True(t, ctrl.IsActive())
-
-	close(chGate)
-	assert.True(t, <-chCycle1)
-
-	// subsequent cycle executes the callback again
-	assert.True(t, callbacks.CycleCallback(shouldNotAbort))
-	assert.Equal(t, 2, startedCounter)
-
-	// regular unregister is unaffected
-	require.NoError(t, ctrl.Unregister(ctx))
-	assert.False(t, callbacks.CycleCallback(shouldNotAbort))
-	assert.Equal(t, 2, startedCounter)
+	testCtxCancelledWhileRunning(t, routinesLimit, ctxCancelledWhileRunningSpec{
+		mutate: func(ctrl CycleCallbackCtrl, ctx context.Context) error {
+			return ctrl.Unregister(ctx)
+		},
+		afterFailedMutate: func(t *testing.T, ctrl CycleCallbackCtrl) {
+			// failed unregister must not drop the callback either,
+			// otherwise every subsequent cycle would lose it
+			assert.True(t, ctrl.IsActive())
+		},
+		tail: func(t *testing.T, callbacks CycleCallbackGroup, ctrl CycleCallbackCtrl,
+			shouldNotAbort ShouldAbortCallback, startedCounter func() int,
+		) {
+			// regular unregister is unaffected
+			require.NoError(t, ctrl.Unregister(context.Background()))
+			assert.False(t, callbacks.CycleCallback(shouldNotAbort))
+			assert.Equal(t, 2, startedCounter())
+		},
+	})
 }
