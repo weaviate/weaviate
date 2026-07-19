@@ -572,17 +572,10 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
 	eg.SetLimit(outerConcurrencyLimit)
 
-	// Chunk operands into at most outerConcurrencyLimit contiguous groups
-	// instead of spawning one goroutine per operand: a 100K-value
-	// ContainsAny/ContainsAll used to call eg.Go() once per value here, scaling
-	// per-request goroutine creation with the value-set size and with no cap
-	// across concurrent requests (GH 12242). Each chunk goroutine builds its
-	// slice of clauses sequentially, writing into its own children[] slots
-	// (distinct per goroutine, so no synchronization needed on the writes).
-	//
-	// The per-child fractional budget divisor is numChunks, always <=
-	// min(len(operands), outerConcurrencyLimit), so nested Equal/range/
-	// GeoRange children never get less budget than the unchunked path.
+	// Chunk operands into at most outerConcurrencyLimit groups instead of one
+	// goroutine per operand, bounding goroutine/channel fan-out for large
+	// ContainsAny/ContainsAll value sets (GH 12242). Each goroutine writes only
+	// its own children[] slice, so no synchronization is needed.
 	numChunks := min(len(operands), outerConcurrencyLimit)
 	if numChunks < 1 {
 		numChunks = 1

@@ -113,10 +113,8 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 	}
 }
 
-// chunkBounds splits [0, n) into numChunks contiguous, roughly equal-sized
-// half-open ranges [start, end), distributing any remainder across the
-// leading chunks. numChunks is clamped to [1, n]. Used to bound per-request
-// goroutine fan-out to numChunks instead of one goroutine per element.
+// chunkBounds splits [0, n) into numChunks contiguous, roughly equal ranges
+// (remainder distributed to the leading chunks); numChunks is clamped to [1, n].
 func chunkBounds(n, numChunks int) [][2]int {
 	if numChunks < 1 {
 		numChunks = 1
@@ -182,12 +180,6 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 		// and merges them locally with mergeBitmapsAndOrWithDenyList before a
 		// single dbmCh send, so per-request goroutine count and channel-send count
 		// are both bounded by outerConcurrencyLimit regardless of N.
-		//
-		// mergeConc (above) now runs inside up to numChunks concurrent chunk
-		// goroutines, widening the "deliberate mild overshoot" already noted
-		// above. The per-child fractional budget divisor is numChunks, always
-		// <= min(len(children), outerConcurrencyLimit), so nested Equal/range/
-		// GeoRange children never get less budget than the unchunked path.
 		numChunks := min(len(pv.children), outerConcurrencyLimit-1)
 		if numChunks < 1 {
 			numChunks = 1
