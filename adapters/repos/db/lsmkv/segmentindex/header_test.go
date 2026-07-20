@@ -20,9 +20,8 @@ import (
 )
 
 func BenchmarkParseHeader(b *testing.B) {
-	// All-zero data is rejected as corrupt (see
-	// TestParseHeader_RejectsIndexStartBeforeHeaderEnd); use a minimal
-	// valid empty-segment header instead.
+	// All-zero data is now rejected as corrupt; use a minimal valid
+	// empty-segment header instead.
 	var buf bytes.Buffer
 	_, err := (&Header{IndexStart: uint64(HeaderSize)}).WriteTo(&buf)
 	require.NoError(b, err)
@@ -36,8 +35,7 @@ func BenchmarkParseHeader(b *testing.B) {
 }
 
 // TestParseHeader_RejectsIndexStartBeforeHeaderEnd pins weaviate/weaviate#12199:
-// IndexStart before HeaderSize (a corrupted/zeroed segment) must be
-// rejected, not silently parsed as a valid empty segment.
+// IndexStart before HeaderSize must be rejected, not parsed as empty.
 func TestParseHeader_RejectsIndexStartBeforeHeaderEnd(t *testing.T) {
 	t.Run("all-zero header (size-preserved zeroed segment)", func(t *testing.T) {
 		data := make([]byte, HeaderSize)
