@@ -322,6 +322,11 @@ func TestCreateNamespace_LifecycleErrorsReturn422(t *testing.T) {
 			require.NotNil(t, parsed.Payload)
 			require.Len(t, parsed.Payload.Error, 1)
 			assert.Contains(t, parsed.Payload.Error[0].Message, tc.wantSubstr)
+			// This API is excluded from namespaces.PublicMessage: its callers
+			// hold manage_namespaces, so the body keeps the name. The neutral
+			// copy also contains tc.wantSubstr, so only this assertion catches
+			// a cleanup that wires PublicMessage in here.
+			assert.Contains(t, parsed.Payload.Error[0].Message, "customer1")
 		})
 	}
 }

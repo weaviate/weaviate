@@ -51,13 +51,8 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: namespace is required on namespace-enabled clusters", ErrBadRequest)
 	}
 
-	if req.Namespace != "" {
-		if !m.namespaces.Exists(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceGone, req.Namespace)
-		}
-		if !m.namespaces.IsActive(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, req.Namespace)
-		}
+	if err := usecasesNamespaces.RequireActive(m.namespaces, req.Namespace); err != nil {
+		return fmt.Errorf("%w: %q", err, req.Namespace)
 	}
 
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)

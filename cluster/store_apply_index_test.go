@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -57,6 +58,87 @@ func setupTestData(t *testing.T, initialIndex uint64) (MockStore, *raft.Log) {
 	}
 
 	return mockStore, log
+}
+
+// testNamespace is the namespace the state-change cases seed and flip.
+const testNamespace = "customer1"
+
+// namespaceStateLog builds a real CHANGE_NAMESPACE_STATE entry. The
+// sub-command carries the command policy version, so only store.Apply's own
+// l.Index can reach StateChangeIndex.
+func namespaceStateLog(index uint64, target api.NamespaceState) *raft.Log {
+	return &raft.Log{
+		Index: index,
+		Type:  raft.LogCommand,
+		Data: cmdAsBytes("", api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE,
+			api.ChangeNamespaceStateRequest{
+				Name:        testNamespace,
+				TargetState: target,
+				Version:     api.NamespaceLatestCommandPolicyVersion,
+			}, nil),
+	}
+}
+
+// applyNamespaceState drives log through store.Apply and reads the namespace back.
+func applyNamespaceState(t *testing.T, ms MockStore, log *raft.Log) api.Namespace {
+	t.Helper()
+	resp, ok := ms.store.Apply(log).(Response)
+	require.True(t, ok)
+	require.NoError(t, resp.Error)
+	ns, ok := ms.cfg.NamespacesController.GetNamespace(testNamespace)
+	require.True(t, ok)
+	return ns
+}
+
+func TestStore_ApplyIndex_NamespaceStateChange(t *testing.T) {
+	const initialIndex uint64 = 100
+
+	seed := func(t *testing.T) MockStore {
+		t.Helper()
+		ms, _ := setupTestData(t, initialIndex)
+		require.NoError(t, ms.cfg.NamespacesController.Create(
+			api.Namespace{Name: testNamespace, HomeNodes: []string{"Node-1"}}))
+		return ms
+	}
+
+	t.Run("accepted flip records the applied log index", func(t *testing.T) {
+		ms := seed(t)
+		ns := applyNamespaceState(t, ms, namespaceStateLog(initialIndex+1, api.NamespaceStateSuspended))
+
+		assert.Equal(t, api.NamespaceStateSuspended, ns.State)
+		assert.Equal(t, initialIndex+1, ns.StateChangeIndex,
+			"the recorded index must be the RAFT log index, not the command policy version")
+	})
+
+	t.Run("successive flips record increasing indexes", func(t *testing.T) {
+		ms := seed(t)
+		first := applyNamespaceState(t, ms, namespaceStateLog(initialIndex+1, api.NamespaceStateSuspended))
+		second := applyNamespaceState(t, ms, namespaceStateLog(initialIndex+5, api.NamespaceStateResuming))
+
+		assert.Equal(t, initialIndex+5, second.StateChangeIndex)
+		assert.Greater(t, second.StateChangeIndex, first.StateChangeIndex)
+	})
+
+	t.Run("same-state re-apply at a higher index leaves the recorded index alone", func(t *testing.T) {
+		ms := seed(t)
+		flipped := applyNamespaceState(t, ms, namespaceStateLog(initialIndex+1, api.NamespaceStateSuspended))
+		reapplied := applyNamespaceState(t, ms, namespaceStateLog(initialIndex+9, api.NamespaceStateSuspended))
+
+		assert.Equal(t, flipped.StateChangeIndex, reapplied.StateChangeIndex,
+			"a re-applied command must not advance the recorded index")
+	})
+
+	t.Run("metadata-only voter still records the flip", func(t *testing.T) {
+		ms := seed(t)
+		ms.store.cfg.MetadataOnlyVoters = true
+
+		// Namespace state is metadata, so a metadata-only voter must track
+		// it. The indexer has no expectations set: any call to it fails.
+		ns := applyNamespaceState(t, ms, namespaceStateLog(initialIndex+1, api.NamespaceStateSuspended))
+
+		assert.Equal(t, api.NamespaceStateSuspended, ns.State)
+		assert.Equal(t, initialIndex+1, ns.StateChangeIndex)
+	})
 }
 
 func TestStore_ApplyIndex(t *testing.T) {
