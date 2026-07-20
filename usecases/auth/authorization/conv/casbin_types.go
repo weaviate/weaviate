@@ -137,10 +137,9 @@ func casbinSegment(name string) string {
 }
 
 // unwrapCasbinSegment reverses casbinSegment for read-back: it strips the
-// confinement group so a GET returns the submitted pattern. fromCasbinResource
-// has already restored '*' from '.*'. A bare segment, or a "(...)" a user typed
-// literally (its body carries no '|'/'^'/'$', so casbinSegment never wrapped it),
-// is returned unchanged.
+// confinement group so a GET returns the submitted pattern. A bare segment, or
+// a "(...)" a user typed literally (its body carries no '|'/'^'/'$', so
+// casbinSegment never wrapped it), is returned unchanged.
 func unwrapCasbinSegment(name string) string {
 	prefix, body := namespaceQualifier(name)
 	if len(body) >= 2 && body[0] == '(' && body[len(body)-1] == ')' && strings.ContainsAny(body, "|^$") {

@@ -114,7 +114,7 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 			}
 		}
 		if p := perm.Users; p != nil && p.Users != nil {
-			add(validateRegexTarget("user", *p.Users))
+			add(validateRegexTarget("users", *p.Users))
 		}
 		if p := perm.Groups; p != nil && p.Group != nil {
 			add(validateRegexTarget("group", *p.Group))
