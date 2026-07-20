@@ -364,6 +364,24 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 		return upsertPlan{}, errors.New("at most one configuration change per request: set either tokenization or algorithm, not both — issue two requests")
 	}
 
+	// Validate the algorithm value BEFORE the in-flight guard below: an
+	// invalid or deprecated algorithm (e.g. "wand", garbage) must 400
+	// regardless of whether a searchable migration is in flight. The
+	// active-task guard treats any non-empty algorithm as a match, so without
+	// this an unsupported value would be swallowed as a spurious 200 NO_OP.
+	if algorithm != "" {
+		switch normalizeSearchableAlgorithm(algorithm) {
+		case models.IndexStatusAlgorithmBlockmax:
+			// supported target
+		case models.IndexStatusAlgorithmWand:
+			return upsertPlan{}, fmt.Errorf("algorithm %q is deprecated; only %q is accepted as a target",
+				models.IndexStatusAlgorithmWand, models.IndexStatusAlgorithmBlockmax)
+		default:
+			return upsertPlan{}, fmt.Errorf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
+				algorithm, models.IndexStatusAlgorithmBlockmax)
+		}
+	}
+
 	// An in-flight task converging this index owns the outcome: a matching
 	// request NO-OPs, a differing one 409s. Checked before the schema read
 	// below to avoid a stale NO_OP mid-migration.
@@ -383,19 +401,10 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 
 	switch {
 	case algorithm != "":
-		// Algorithm change targets an existing searchable index only.
+		// Algorithm change targets an existing searchable index only; the
+		// value itself was validated above (blockmax is the only target).
 		if !exists {
 			return upsertPlan{}, errors.New(db.NoSearchableIndexError(prop.Name))
-		}
-		switch normalizeSearchableAlgorithm(algorithm) {
-		case models.IndexStatusAlgorithmBlockmax:
-			// supported target
-		case models.IndexStatusAlgorithmWand:
-			return upsertPlan{}, fmt.Errorf("algorithm %q is deprecated; only %q is accepted as a target",
-				models.IndexStatusAlgorithmWand, models.IndexStatusAlgorithmBlockmax)
-		default:
-			return upsertPlan{}, fmt.Errorf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
-				algorithm, models.IndexStatusAlgorithmBlockmax)
 		}
 		// Per-property truth: the class-wide flag only flips once every
 		// property has migrated, so an already-migrated property must
@@ -700,26 +709,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		return resp
 	}
 
-	// Defense in depth against CANCEL→retry silently resuming stale partial
-	// state and reporting false success. Must clean BOTH dirs for a coupled
-	// change-tokenization — see indexTypesFromMigrationType godoc.
-	//
-	// Fail CLOSED on a cleanup error: a failed submit is loud and recoverable,
-	// but proceeding risks the new task short-circuiting on stale state and
-	// reporting a false success instead.
-	if indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType); known {
-		for _, it := range indexTypesForCleanup {
-			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
-				h.appState.Logger.WithFields(logrus.Fields{
-					"collection":     collection,
-					"property":       propertyName,
-					"migration_type": migrationType,
-					"index_type":     it,
-				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
-				return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-					"pre-submit cleanup of stale partial reindex state failed; refusing to submit to avoid a task that short-circuits on stale state and reports a false success — operator inspection of the migration state is required"))
-			}
-		}
+	if resp := h.cleanStalePartialStateOrFail(ctx, principal, h.appState.DB, collection, propertyName, migrationType); resp != nil {
+		return resp
 	}
 
 	// Semantic migrations opt into the two-phase RAFT PREP barrier; MT
@@ -754,6 +745,53 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: "STARTED",
 	})
+}
+
+// stalePartialStateCleaner scrubs a property's partial reindex sidecar dirs
+// for one index type. *db.DB satisfies it.
+type stalePartialStateCleaner interface {
+	CleanStalePartialReindexState(ctx context.Context, collection, propertyName, indexType string) error
+}
+
+// cleanStalePartialStateOrFail runs the pre-submit stale-state scrub for every
+// index type migrationType touches, returning a terminal responder on failure
+// and nil to proceed.
+//
+// Defense in depth against CANCEL→retry silently resuming stale partial state
+// and reporting false success; a coupled change-tokenization must clean BOTH
+// dirs — see indexTypesFromMigrationType godoc.
+//
+// Fails CLOSED in two cases: (1) an unknown migration type, whose index-type
+// set can't be resolved, so the scrub would be silently skipped — the exact
+// Sev-1 data-loss gap the scrub guards; (2) a scrub error. A failed submit is
+// loud and recoverable; proceeding risks a task short-circuiting on stale
+// state and reporting a false success.
+func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
+	cleaner stalePartialStateCleaner, collection, propertyName string, migrationType db.ReindexMigrationType,
+) middleware.Responder {
+	indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType)
+	if !known {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"collection":     collection,
+			"property":       propertyName,
+			"migration_type": migrationType,
+		}).Errorf("submit: unknown migration type %q — cannot resolve index types for pre-submit stale-state cleanup; refusing submit", migrationType)
+		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
+			"internal error: unknown migration type; refusing to submit to avoid skipping stale-state cleanup that guards against silent data loss — please report this"))
+	}
+	for _, it := range indexTypesForCleanup {
+		if err := cleaner.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
+			h.appState.Logger.WithFields(logrus.Fields{
+				"collection":     collection,
+				"property":       propertyName,
+				"migration_type": migrationType,
+				"index_type":     it,
+			}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
+			return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
+				"pre-submit cleanup of stale partial reindex state failed; refusing to submit to avoid a task that short-circuits on stale state and reports a false success — operator inspection of the migration state is required"))
+		}
+	}
+	return nil
 }
 
 // mapSubmitTaskError classifies an AddDistributedTask error: an FSM

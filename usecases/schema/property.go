@@ -221,7 +221,13 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		if prop.IndexSearchable != nil && *prop.IndexSearchable {
 			notExists := false
 			prop.IndexSearchable = &notExists
-			updateFields = []string{command.PropertyFieldIndexSearchable}
+			// Clear the durable blockmax stamp in the same masked write: it
+			// must not outlive the searchable index it describes, or a later
+			// re-enable would resolve stale blockmax truth from a leftover
+			// stamp. Replacing the pointer (not writing through it) keeps the
+			// FSM's shared value untouched, like the flag flip above.
+			prop.SearchableBlockmax = nil
+			updateFields = []string{command.PropertyFieldIndexSearchable, command.PropertyFieldSearchableBlockmax}
 		} else {
 			// nothing to do — no RAFT write
 			return false, nil

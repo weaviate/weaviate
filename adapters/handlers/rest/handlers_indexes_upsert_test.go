@@ -164,6 +164,38 @@ func TestResolveSearchableUpsert_Option2(t *testing.T) {
 	}
 }
 
+// TestResolveSearchableUpsert_InvalidAlgorithmErrorsEvenInFlight pins S1: an
+// invalid or deprecated algorithm must 400 even while a searchable migration
+// is in flight. requestMatchesActiveSearchable treats any non-empty algorithm
+// as a match, so without validating the value first the active-task guard
+// swallowed "wand"/garbage as a spurious 200 NO_OP.
+func TestResolveSearchableUpsert_InvalidAlgorithmErrorsEvenInFlight(t *testing.T) {
+	on, off := boolPtr(true), boolPtr(false)
+	prop := textProp("t", "word", on, off)
+	// A change-algorithm task on the SAME property is in flight.
+	inFlight := []*distributedtask.Task{
+		activeReindexTask("T1", "C", db.ReindexTypeChangeAlgorithm, "", distributedtask.TaskStatusStarted, "t"),
+	}
+	h := &indexesHandlers{}
+	for _, tc := range []struct {
+		name      string
+		algorithm string
+		wantMsg   string
+	}{
+		{"wand is deprecated", "wand", "deprecated"},
+		{"garbage is unsupported", "sriracha", "unsupported algorithm"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			class := classWith(false, prop)
+			plan, err := h.resolveSearchableUpsert(class, "C", prop, "", tc.algorithm, inFlight)
+			require.Error(t, err, "invalid algorithm must 400 even mid-migration, not NO_OP")
+			assert.Contains(t, err.Error(), tc.wantMsg)
+			assert.False(t, plan.noop, "must not be a NO_OP")
+			assert.Empty(t, plan.conflict, "must not be a conflict")
+		})
+	}
+}
+
 // TestResolveUpsertPlan_Searchable covers searchable outcome rows that need
 // no DB (create / NO_OP / algorithm / one-change).
 func TestResolveUpsertPlan_Searchable(t *testing.T) {
