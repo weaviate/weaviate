@@ -652,9 +652,10 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			// a class deleted mid-request: both producers (index.go's bm25
-			// all-properties expansion and bm25_searcher's twin) share this
-			// phrasing, which the not-found marker classifies as 404
+			// a class deleted mid-request, in bm25_searcher's phrasing —
+			// classified 404 by the not-found marker. index.go's twin
+			// ("class ... not found in schema") does not match and stays a
+			// 500: a known residual, see the design doc's residuals list.
 			name:       "class deleted mid-request",
 			err:        pkgerrors.Wrap(fmt.Errorf("could not find class Movie in schema"), "explorer: get class"),
 			wantStatus: http.StatusNotFound,

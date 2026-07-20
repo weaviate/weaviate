@@ -2167,9 +2167,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		cl := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
 		if cl == nil {
-			// phrased like bm25_searcher's twin so API-tier not-found
-			// classification treats both the same
-			return nil, nil, fmt.Errorf("could not find class %s in schema", i.Config.ClassName)
+			return nil, nil, fmt.Errorf("class %s not found in schema", i.Config.ClassName)
 		}
 
 		propHash := cl.Properties

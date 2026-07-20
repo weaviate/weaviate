@@ -410,18 +410,20 @@ Decision log for the three settled points:
 **2026-07-20 (Copilot review):** a bm25 with empty `queryProperties` on a
 collection that has no searchable property at all used to surface the
 engine's untyped all-properties-expansion error as a 500. The handler now
-pre-checks it with `checkKeywordSearchable` (422, using the engine's own
-`searchparams.PropertyHasSearchableIndex` predicate so the definitions
-cannot drift). Explicit `queryProperties` stay the searcher's to reject
-(typed `MissingIndexError` → 422).
+pre-checks it with `checkKeywordSearchable` (422, using the
+`entities/searchparams` copy of the engine's searchability predicate —
+byte-identical today, de-duplication tracked in §6). Explicit
+`queryProperties` stay the searcher's to reject (typed
+`MissingIndexError` → 422).
 
 From the follow-up review (2026-07-20): a `queryProperties` entry naming
 no schema property is a **400** like `returnProperties` (shared schema
 lookup, `^boost` suffix stripped first) — only an existing property
-without a searchable index is the searcher's 422. And the
-class-deleted-mid-request error from the bm25 all-properties expansion
-now shares bm25_searcher's phrasing, so the not-found marker classifies
-it as 404 in both phrasings (pinned in `TestHandlerTraverserErrorMapping`).
+without a searchable index is the searcher's 422. The reviewer's
+class-deleted-mid-request finding (the bm25 all-properties expansion
+phrases the condition so the not-found marker misses it → 500, while
+bm25_searcher's twin phrasing → 404) was deliberately **not** fixed:
+engine code stays untouched, the narrow race stays a 500 — see §6.
 
 ### Files
 
@@ -749,3 +751,53 @@ re-issue the same request:
   (`additionalProperties: false` — a breaking change, see the decision log).
 - **Dedicated `requests_total` metric** (the graphql sibling handler has
   one) — deferred to GA.
+
+---
+
+## 6. Known residuals & tracked follow-ups
+
+Standing items surfaced by reviews, deliberately not (yet) fixed in the
+endpoint PRs. Each stays listed here until it lands or is retired.
+
+- **Typed shard errors degrade to 500 across the internal cluster API**
+  ([#12278](https://github.com/weaviate/weaviate/issues/12278)): the 422
+  contracts backed by typed shard errors (a `where` on a property with its
+  inverted index disabled; a keyword-queried property without a searchable
+  index) hold on a single node only — served remotely, the type dies at
+  the cluster boundary (opaque 500, retried per replica). Fix sketch and
+  the multi-node regression tests are in the issue. Predates this family:
+  near-text shipped the `where` case.
+- **Class deleted mid-request can 500 (bm25 all-properties expansion).**
+  `index.go` phrases the condition "class %s not found in schema", which
+  the handler's not-found marker does not match; `bm25_searcher`'s twin
+  ("could not find class %s in schema") classifies as 404. Decision
+  (2026-07-20): leave the engine message untouched; the narrow race stays
+  a 500 until the marker is replaced by a typed sentinel (next item).
+- **`ErrClassNotFound` sentinel** (TODO also at the marker in
+  `handler.go`): the string marker is a fallback over many producers; a
+  typed sentinel upstream retires the marker and the residual above.
+- **`PropertyHasSearchableIndex` is duplicated**: `entities/searchparams`
+  and `adapters/repos/db/inverted` carry byte-identical copies (likewise
+  `HasSearchableIndex`); the keyword pre-check uses the entities copy.
+  De-duplicate by delegating the adapters copies to entities so the
+  definitions genuinely cannot drift.
+- **Whitespace-only `query` is an undecided contract**: `"  "` passes the
+  swagger `required`, tokenizes to zero terms and returns 200/empty on the
+  keyword endpoints, while an explicit empty string is a 400. Decide:
+  trim → 400 (and sweep near-text's concepts the same way), or pin the
+  200 with a test.
+- **Undeclared statuses drop their body in generated clients**: an
+  unexpected status (e.g. a 502 on an endpoint that declares none) flows
+  through the responder's `default:` as a bare status whose payload
+  generated clients discard. Consider collapsing to a declared 500 with
+  the `ErrorResponse` payload.
+- **Authz sweep special-cases accumulate**: three sweep files gain one
+  body special-case per endpoint. Fold each file's cases into a
+  `map[path]body` table.
+- **SonarCloud counts generated-operation duplication** against every
+  endpoint PR (~56 lines per sibling operation); needs server-side
+  `sonar.cpd.exclusions` for the generated trees (workspace admin).
+- **The e2e near-text suite (weaviate-e2e-tests) asserts a pre-envelope,
+  snake_case contract** and will fail against current builds; needs a
+  realignment pass (the endpoint-plan prompt lives in that repo's
+  `test_plans/`).
