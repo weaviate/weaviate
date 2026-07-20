@@ -818,9 +818,10 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// touchesSearchable / touchesFilterable — exhaustive switch, including a
-// panic on unknown ReindexMigrationType so a future type cannot silently
-// bypass the conflict check.
+// touchesSearchable / touchesFilterable — exhaustive classification with a
+// fail-safe default: an unknown ReindexMigrationType returns true (never
+// panics) because these predicates are reachable from the RAFT FSM apply
+// path, where a panic is a cluster-wide poison pill.
 // -----------------------------------------------------------------------------
 
 func TestTouchesSearchable(t *testing.T) {
@@ -831,6 +832,7 @@ func TestTouchesSearchable(t *testing.T) {
 		{db.ReindexTypeChangeAlgorithm, true},
 		{db.ReindexTypeChangeTokenization, true},
 		{db.ReindexTypeEnableSearchable, true},
+		{db.ReindexTypeRebuildSearchable, true},
 		{db.ReindexTypeRepairFilterable, false},
 		{db.ReindexTypeEnableFilterable, false},
 		{db.ReindexTypeEnableRangeable, false},
@@ -852,6 +854,7 @@ func TestTouchesFilterable(t *testing.T) {
 		{db.ReindexTypeEnableFilterable, true},
 		{db.ReindexTypeChangeAlgorithm, false},
 		{db.ReindexTypeEnableSearchable, false},
+		{db.ReindexTypeRebuildSearchable, false},
 		{db.ReindexTypeEnableRangeable, false},
 	}
 	for _, tc := range cases {
@@ -861,20 +864,18 @@ func TestTouchesFilterable(t *testing.T) {
 	}
 }
 
-func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
+func TestTouchesSearchable_UnknownTypeFailsSafe(t *testing.T) {
+	require.NotPanics(t, func() {
+		require.True(t, db.TouchesSearchable(db.ReindexMigrationType("phantom")),
+			"unknown type must fail safe (conservatively touches), never panic the FSM apply path")
+	})
 }
 
-func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
+func TestTouchesFilterable_UnknownTypeFailsSafe(t *testing.T) {
+	require.NotPanics(t, func() {
+		require.True(t, db.TouchesFilterable(db.ReindexMigrationType("phantom")),
+			"unknown type must fail safe (conservatively touches), never panic the FSM apply path")
+	})
 }
 
 // -----------------------------------------------------------------------------

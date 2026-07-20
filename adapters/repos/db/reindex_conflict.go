@@ -109,12 +109,12 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
-	// Sanity-check the migration types via the exhaustive bucket-touch
-	// predicates so an unknown ReindexMigrationType still panics
-	// loudly at the conflict-check boundary rather than slipping
-	// through as "no conflict". Result values are intentionally
-	// discarded — the conflict rule below does not depend on which
-	// buckets are touched, only that both types are known.
+	// Keep the bucket-touch classifiers on the production path (results
+	// discarded — the conflict rule below is property-overlap only and
+	// deliberately does NOT branch on bucket type; see the Sev1 note
+	// above). Their fail-safe default means a peer-written unknown type
+	// reaching this apply path degrades to a conservative classification
+	// instead of panicking the RAFT FSM.
 	_ = TouchesSearchable(newType)
 	_ = TouchesFilterable(newType)
 	_ = TouchesSearchable(existType)
@@ -162,19 +162,22 @@ func ReindexPropsOverlap(a, b []string) bool {
 }
 
 // TouchesSearchable reports whether migration type t writes to the
-// searchable bucket. Implemented as an exhaustive switch so that a
-// newly-added [ReindexMigrationType] cannot silently be treated as
-// "doesn't touch searchable" — the default case panics with a clear
-// message, surfacing the gap on the first request that exercises the
-// new type. This matters because [typesConflictReason] relies on
-// these answers (via the sanity-check at its entry) to gate
-// concurrent reindex submissions: a positive-list miss would allow
-// conflicting writes to the same bucket through.
+// searchable bucket.
+//
+// The default arm FAILS SAFE (returns true) rather than panicking: this
+// predicate is reachable from [CheckConflict], which runs in the RAFT
+// FSM AddTask apply path on every node. A panic there is a cluster-wide
+// poison pill — replayed on restart — so an unrecognized type (e.g. a
+// peer-written migration from a newer binary) must degrade to the
+// conservative "touches" answer, never crash the FSM. Every known type
+// is still classified explicitly so the exhaustive-switch tests catch a
+// missing classification at development time.
 func TouchesSearchable(t ReindexMigrationType) bool {
 	switch t {
 	case ReindexTypeChangeAlgorithm,
 		ReindexTypeChangeTokenization,
-		ReindexTypeEnableSearchable:
+		ReindexTypeEnableSearchable,
+		ReindexTypeRebuildSearchable:
 		return true
 	case ReindexTypeRepairFilterable,
 		ReindexTypeChangeTokenizationFilterable,
@@ -183,13 +186,14 @@ func TouchesSearchable(t ReindexMigrationType) bool {
 		ReindexTypeRepairRangeable:
 		return false
 	default:
-		panic(fmt.Sprintf("TouchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
+		return true
 	}
 }
 
 // TouchesFilterable reports whether migration type t writes to the
-// filterable bucket. Same exhaustive-switch contract as
-// [TouchesSearchable].
+// filterable bucket. Same fail-safe default contract as
+// [TouchesSearchable] — an unrecognized type returns true rather than
+// panicking the RAFT FSM apply path.
 func TouchesFilterable(t ReindexMigrationType) bool {
 	switch t {
 	case ReindexTypeRepairFilterable,
@@ -200,10 +204,11 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 	case ReindexTypeChangeAlgorithm,
 		ReindexTypeEnableSearchable,
 		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
+		ReindexTypeRepairRangeable,
+		ReindexTypeRebuildSearchable:
 		return false
 	default:
-		panic(fmt.Sprintf("TouchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))
+		return true
 	}
 }
 
