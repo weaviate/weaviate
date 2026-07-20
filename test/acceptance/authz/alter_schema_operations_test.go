@@ -86,12 +86,16 @@ func TestAuthzDeleteClassPropertyIndex(t *testing.T) {
 		require.True(t, errors.As(err, &forbidden))
 	})
 
-	t.Run("succeed to delete filterable index with update_collections permission", func(t *testing.T) {
-		roleName := "updateCollections"
+	// DELETE per-property index rewrites indexed data, so it demands Collections
+	// data+metadata (symmetric with PUT/rebuild/cancel); update_collections
+	// alone no longer authorizes it.
+	t.Run("succeed to delete filterable index with update_collections + update_data permission", func(t *testing.T) {
+		roleName := "updateCollectionsAndData"
 		role := &models.Role{
 			Name: &roleName,
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(className).Permission(),
+				helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(className).Permission(),
 			},
 		}
 		helper.CreateRole(t, sharedRootKey, role)
@@ -103,12 +107,13 @@ func TestAuthzDeleteClassPropertyIndex(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("succeed to delete searchable index with update_collections permission", func(t *testing.T) {
-		roleName := "updateCollections"
+	t.Run("succeed to delete searchable index with update_collections + update_data permission", func(t *testing.T) {
+		roleName := "updateCollectionsAndData"
 		role := &models.Role{
 			Name: &roleName,
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(className).Permission(),
+				helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(className).Permission(),
 			},
 		}
 		helper.CreateRole(t, sharedRootKey, role)
