@@ -276,10 +276,13 @@ func validateTokenizationChange(
 	}
 
 	// change-tokenization preserves the bucket's existing strategy, so derive
-	// it from RAFT-consistent state (class flag + task list) rather than a
-	// per-node shard probe, which fails on a node holding no shard.
+	// it from RAFT-consistent state (durable stamp, else class flag / task
+	// list) rather than a per-node shard probe, which fails on a node holding
+	// no shard. The stamp is what keeps a stamped-blockmax property on
+	// StrategyInverted after its migration task has aged out — without it this
+	// hop silently rewrote the blockmax bucket as WAND.
 	return lsmkv.DefaultSearchableStrategy(
-		searchablePropertyIsBlockmax(class, propName, reindexTasks)), nil
+		db.SearchablePropertyIsBlockmax(class, propName, reindexTasks)), nil
 }
 
 // buildUnitSpecs creates UnitSpec entries with GroupID = shardName (= tenant

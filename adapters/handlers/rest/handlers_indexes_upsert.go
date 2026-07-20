@@ -262,15 +262,6 @@ func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection stri
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 }
 
-// searchablePropertyIsBlockmax reports whether the property's searchable
-// index is on blockmax, derived only from RAFT-consistent state (class flag
-// + task list) so every node agrees regardless of shards held locally.
-// See [db.SearchablePropertyBlockmaxFromRAFT].
-func searchablePropertyIsBlockmax(class *models.Class, propName string, reindexTasks []*distributedtask.Task) bool {
-	classFlag := class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND
-	return db.SearchablePropertyBlockmaxFromRAFT(classFlag, class.Class, propName, reindexTasks)
-}
-
 // activeSearchableTaskFor returns the in-flight task (if any) converging this
 // property's searchable index, and whether it already targets what this
 // request asks for.
@@ -353,7 +344,7 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 		// Per-property truth: the class-wide flag only flips once every
 		// property has migrated, so an already-migrated property must
 		// NO_OP even while siblings are still pending.
-		if searchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+		if db.SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
 			return upsertPlan{noop: true}, nil
 		}
 		return upsertPlan{migrationType: db.ReindexTypeChangeAlgorithm}, nil
@@ -446,7 +437,7 @@ func (h *indexesHandlers) resolveRebuildPlan(class *models.Class, prop *models.P
 		// to blockmax first. Per-property truth: a property whose bucket is
 		// already blockmax must be rebuildable even while the class-wide flag
 		// is still deferred behind sibling properties.
-		if !searchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+		if !db.SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
 			return upsertPlan{}, errors.New("cannot rebuild a WAND searchable index — WAND is deprecated; PUT {\"algorithm\":\"blockmax\"} to migrate first")
 		}
 		return upsertPlan{migrationType: db.ReindexTypeRebuildSearchable}, nil

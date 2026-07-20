@@ -495,7 +495,17 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		strategy := lsmkv.DefaultSearchableStrategy(s.usingBlockMaxWAND)
+		// The per-property stamp overrides the class-level flag upward: a
+		// brand-new tenant shard on a permanently-partial class creates a
+		// blockmax bucket for an already-migrated (stamped) property instead of
+		// defaulting to the class-wide WAND flag. s.usingBlockMaxWAND stays the
+		// base — it carries the node-local disk reconciliation from
+		// shard_init_lsm — and a nil stamp leaves that base untouched.
+		blockmax := s.usingBlockMaxWAND
+		if prop.SearchableBlockmax != nil {
+			blockmax = *prop.SearchableBlockmax
+		}
+		strategy := lsmkv.DefaultSearchableStrategy(blockmax)
 		searchableBucketOpts := makeBucketOptions(strategy)
 
 		if s.class.InvertedIndexConfig != nil {

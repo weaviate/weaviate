@@ -214,7 +214,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			// migrated). Filterable / rangeable have no equivalent today.
 			if e.indexType == "searchable" && e.flagOn {
 				idx.Algorithm = models.IndexStatusAlgorithmWand
-				if searchablePropertyIsBlockmax(class, prop.Name, activeTasks[db.ReindexNamespace]) {
+				if db.SearchablePropertyIsBlockmax(class, prop.Name, activeTasks[db.ReindexNamespace]) {
 					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
 				}
 			}

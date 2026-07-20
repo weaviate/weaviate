@@ -18,29 +18,75 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // producesBlockmaxSearchable reports whether completing a migration type
 // leaves the property's searchable bucket on blockmax. change-tokenization is
 // excluded: it rewrites bucket contents but preserves the existing strategy.
+//
+// Exhaustive switch — a newly-added [ReindexMigrationType] that produces a
+// blockmax searchable bucket must be listed explicitly, or it panics here
+// rather than being silently read as WAND (the same fail-loud contract as
+// [TouchesSearchable] / [TouchesFilterable]).
 func producesBlockmaxSearchable(t ReindexMigrationType) bool {
 	switch t {
 	case ReindexTypeChangeAlgorithm,
 		ReindexTypeEnableSearchable,
 		ReindexTypeRebuildSearchable:
 		return true
-	default:
+	case ReindexTypeChangeTokenization,
+		ReindexTypeChangeTokenizationFilterable,
+		ReindexTypeRepairFilterable,
+		ReindexTypeEnableFilterable,
+		ReindexTypeEnableRangeable,
+		ReindexTypeRepairRangeable:
 		return false
+	default:
+		panic(fmt.Sprintf("producesBlockmaxSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
 	}
 }
 
-// SearchablePropertyBlockmaxFromRAFT reports whether (collection, propName)'s
-// searchable index is blockmax, derived only from RAFT-consistent state
-// (class flag + task list) so every node agrees regardless of local shards.
-// The class flag lags per-property truth (flips only once every property has
-// migrated), so a FINISHED task producing a blockmax bucket also counts.
-// Accepted limitation: once that task ages out of the list, a migrated
-// property in a permanently-partial class reads back as WAND until re-migrated.
+// SearchablePropertyIsBlockmax resolves whether (class, propName)'s searchable
+// (BM25) bucket is blockmax, from RAFT-consistent state only, so every node
+// agrees regardless of which shards it holds. Precedence:
+//
+//  1. the durable per-property stamp SearchableBlockmax, if set — this is the
+//     fix: it survives the completed-task list ageing out and the same-tick
+//     sibling wedge, neither of which the legacy derivation below could;
+//  2. otherwise the legacy class-flag / FINISHED-task derivation
+//     ([SearchablePropertyBlockmaxFromRAFT]), which still covers pre-stamp
+//     migrations whose task is live or whose class flag has already flipped.
+//
+// The stamp is only ever written true (WAND is the unstamped default), so a
+// non-nil stamp is always true in practice; the pointer distinguishes
+// "stamped" from "unknown/not-stamped", it is not a tri-state.
+//
+// This is the single resolver every read site must route through. Passing a
+// nil reindexTasks is valid where the caller has no task list (e.g. shard
+// init): the stamp and class flag still resolve, the task-list fallback simply
+// contributes nothing.
+func SearchablePropertyIsBlockmax(class *models.Class, propName string, reindexTasks []*distributedtask.Task) bool {
+	for _, p := range class.Properties {
+		if p.Name == propName {
+			if p.SearchableBlockmax != nil {
+				return *p.SearchableBlockmax
+			}
+			break
+		}
+	}
+	classFlag := class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND
+	return SearchablePropertyBlockmaxFromRAFT(classFlag, class.Class, propName, reindexTasks)
+}
+
+// SearchablePropertyBlockmaxFromRAFT is the legacy per-property blockmax
+// derivation from RAFT-consistent state (class flag + task list), used as the
+// fallback by [SearchablePropertyIsBlockmax] when a property carries no durable
+// stamp. The class flag lags per-property truth (flips only once every property
+// has migrated), so a FINISHED task producing a blockmax bucket also counts.
+// Its historical hole — once that task ages out, a migrated property in a
+// permanently-partial class read back as WAND — is exactly what the stamp layer
+// in [SearchablePropertyIsBlockmax] closes for post-stamp migrations.
 func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, propName string, reindexTasks []*distributedtask.Task) bool {
 	if classFlagBlockmax {
 		return true

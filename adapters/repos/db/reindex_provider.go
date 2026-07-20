@@ -2178,7 +2178,6 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	}
 	reindexTasks := tasksByNS[ReindexNamespace]
 
-	classFlag := class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND
 	completing := make(map[string]struct{}, len(payload.Properties))
 	for _, prop := range payload.Properties {
 		completing[prop] = struct{}{}
@@ -2190,7 +2189,10 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 		if _, ok := completing[prop.Name]; ok {
 			continue // finalizing to blockmax now
 		}
-		if !SearchablePropertyBlockmaxFromRAFT(classFlag, payload.Collection, prop.Name, reindexTasks) {
+		// Route through the durable-stamp resolver: a sibling stamped by its own
+		// change-algorithm completion (this or an earlier tick) no longer forces
+		// a spurious defer once its task has aged out or is still SWAPPING.
+		if !SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
 			logger.WithField("property", prop.Name).Info("reindex provider: change-algorithm cutover deferred — a sibling searchable property is still on WAND (its migration will complete the flip)")
 			return true, nil
 		}
