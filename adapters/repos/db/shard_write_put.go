@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -233,6 +234,11 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		// nil while a shard is being created/activated/torn down; guard so a racing write returns instead of panicking the node
+		return objectInsertStatus{}, enterrors.NewErrUnprocessable(
+			fmt.Errorf("objects bucket for shard %q is not ready", s.name))
+	}
 	var prevObj *storobj.Object
 
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,
