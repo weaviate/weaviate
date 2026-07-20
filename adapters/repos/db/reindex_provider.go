@@ -1853,45 +1853,59 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 		return
 	}
 	for _, propName := range payload.Properties {
-		// Rebuild every index type the migration could have torn — we can't
-		// tell from here which sub-task failed, and rebuild is idempotent on
-		// a healthy index. Each index type is its own GA rebuild call.
-		var repairIndexTypes []string
-		switch payload.MigrationType {
-		case ReindexTypeChangeTokenization,
-			ReindexTypeEnableSearchable,
-			ReindexTypeChangeAlgorithm,
-			ReindexTypeRebuildSearchable:
-			repairIndexTypes = []string{"filterable", "searchable"}
-		case ReindexTypeChangeTokenizationFilterable,
-			ReindexTypeEnableFilterable,
-			ReindexTypeRepairFilterable:
-			repairIndexTypes = []string{"filterable"}
-		case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-			repairIndexTypes = []string{"rangeFilters"}
-		default:
-			// Fallback for any future migration type: rebuild everything.
-			repairIndexTypes = []string{"filterable", "searchable", "rangeFilters"}
-		}
-		repairCommands := make([]string, 0, len(repairIndexTypes))
-		for _, indexType := range repairIndexTypes {
-			repairCommands = append(repairCommands, fmt.Sprintf(
-				"POST /v1/schema/%s/properties/%s/index/%s/rebuild",
-				payload.Collection, propName, indexType))
-		}
+		repairCommands := repairCommandsForFailedMigration(payload, propName)
 		logger.WithFields(map[string]any{
 			"property":       propName,
 			"migration_type": payload.MigrationType,
 			"repair_command": strings.Join(repairCommands, " && "),
 		}).Errorf(
-			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
-				"that committed their swap BEFORE the failure left the "+
-				"canonical inverted bucket holding new-tokenization "+
-				"data while the schema reverted to pre-migration state "+
-				"— issue the repair_command above to rebuild the "+
-				"affected inverted index(es) from raw objects against "+
-				"the current schema",
+			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks that "+
+				"committed before the failure may have left the canonical "+
+				"inverted bucket inconsistent with the schema (which reverted "+
+				"to the pre-migration state) — issue the repair_command above "+
+				"to recover the affected index(es)",
 			payload.MigrationType, payload.Collection, propName)
+	}
+}
+
+// repairCommandsForFailedMigration returns the operator REST command(s) to
+// recover property propName after payload's semantic migration FAILED.
+//
+// enable-* and change-algorithm never flip their target flag on failure (the
+// schema reverts to pre-migration state), so a POST .../rebuild would 400:
+// enable-* leaves no index to rebuild ("use enable to create one"), and
+// change-algorithm leaves the searchable index on WAND ("migrate to blockmax
+// first"). Those get the PUT that re-runs the migration instead. Retokenize
+// migrations (change-tokenization[-filterable]) act on a pre-existing bucket a
+// partial swap may have torn, so rebuilding it against the current schema is
+// the correct repair.
+func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName string) []string {
+	c := payload.Collection
+	rebuild := func(indexType string) string {
+		return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/rebuild", c, propName, indexType)
+	}
+	put := func(indexType, body string) string {
+		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", c, propName, indexType, body)
+	}
+	switch payload.MigrationType {
+	case ReindexTypeEnableSearchable:
+		tok := payload.TargetTokenization
+		if tok == "" {
+			tok = "<tokenization>"
+		}
+		return []string{put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))}
+	case ReindexTypeEnableFilterable:
+		return []string{put("filterable", "{}")}
+	case ReindexTypeChangeAlgorithm:
+		return []string{put("searchable", `{"algorithm":"blockmax"}`)}
+	case ReindexTypeChangeTokenization:
+		return []string{rebuild("filterable"), rebuild("searchable")}
+	case ReindexTypeChangeTokenizationFilterable:
+		return []string{rebuild("filterable")}
+	default:
+		// Unknown/future semantic type: conservatively rebuild every inverted
+		// index and let the operator inspect.
+		return []string{rebuild("filterable"), rebuild("searchable"), rebuild("rangeFilters")}
 	}
 }
 
