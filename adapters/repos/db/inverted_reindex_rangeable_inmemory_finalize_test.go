@@ -63,9 +63,8 @@ func firstErrorEntry(hook *test.Hook) *logrus.Entry {
 	return nil
 }
 
-// newRangeableFinalizeTestShard builds a shard+index with a unique class
-// name and the rangeable in-memory knob on, ready for object loading and a
-// reindex task to be constructed against it.
+// newRangeableFinalizeTestShard builds a shard+index with the rangeable
+// in-memory knob enabled.
 func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string) (context.Context, *Shard, *Index, string) {
 	t.Helper()
 	ctx := testCtx()
@@ -80,8 +79,7 @@ func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string) (contex
 	return ctx, shard, idx, className
 }
 
-// putRangeableTestObjects loads numObjects deterministic test objects into
-// shard, cycling the rangeable prop's value per filterableToRangeableNumDistinctValues.
+// putRangeableTestObjects loads numObjects test objects into shard.
 func putRangeableTestObjects(t *testing.T, ctx context.Context, shard *Shard, className string, numObjects int) {
 	t.Helper()
 	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
