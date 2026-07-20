@@ -1100,7 +1100,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 				sm.On("UpdateProperty", tt.wantAuthName, mock.Anything, mock.Anything).Return(nil)
 			}
 
-			err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
+			_, err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
 				tt.inputName, "title", "filterable")
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
@@ -1227,9 +1227,10 @@ func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testin
 			sm.On("UpdateProperty", "Movies", mock.Anything, mock.Anything).Return(
 				fmt.Errorf("reindex task is in flight on this property"))
 
-			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", "title", idx.indexName)
 			require.Error(t, err, "UpdateProperty was mocked to fail")
+			require.False(t, wrote, "a failed UpdateProperty must not report a RAFT write")
 
 			// The CRITICAL assertion: after the failed apply, the FSM's
 			// Property struct's pointer field for this index name must
@@ -1327,10 +1328,69 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 				}),
 			).Return(nil)
 
-			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", tc.fsmProp.Name, tc.indexName)
 			require.NoError(t, err)
+			require.True(t, wrote, "flipping the flag off must report a RAFT write")
 			sm.AssertExpectations(t)
+		})
+	}
+}
+
+// TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff pins that deleting an
+// index whose flag is already off is a node-local no-op: it performs NO RAFT
+// write (UpdateProperty is never called) and reports wrote=false. The handler
+// relies on wrote=false to skip recording a GET-suppression delete marker,
+// which would otherwise mask a lagging follower's true state (3A).
+func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		indexName string
+		fsmProp   *models.Property
+	}{
+		{
+			indexName: "filterable",
+			fsmProp: &models.Property{
+				Name: "title", DataType: schema.DataTypeText.PropString(),
+				IndexFilterable: boolPtr(false), IndexSearchable: boolPtr(true), Tokenization: "word",
+			},
+		},
+		{
+			indexName: "searchable",
+			fsmProp: &models.Property{
+				Name: "title", DataType: schema.DataTypeText.PropString(),
+				IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(false), Tokenization: "word",
+			},
+		},
+		{
+			indexName: "rangeFilters",
+			fsmProp: &models.Property{
+				Name: "size", DataType: schema.DataTypeNumber.PropString(),
+				IndexFilterable: boolPtr(true), IndexRangeFilters: boolPtr(false),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.indexName, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, false)
+
+			fsmClass := &models.Class{
+				Class:      "Movies",
+				Vectorizer: "none",
+				Properties: []*models.Property{tc.fsmProp},
+			}
+			sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
+			// No UpdateProperty expectation: a no-op must not reach RAFT.
+
+			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+				"Movies", tc.fsmProp.Name, tc.indexName)
+			require.NoError(t, err)
+			require.False(t, wrote,
+				"deleting an already-off index must be a no-op (no RAFT write) so no masking marker is recorded")
+			sm.AssertNotCalled(t, "UpdateProperty", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 }

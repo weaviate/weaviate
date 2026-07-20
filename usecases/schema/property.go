@@ -119,26 +119,31 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
-// DeleteClassPropertyIndex deletes collection's property index
+// DeleteClassPropertyIndex deletes collection's property index. The bool return
+// reports whether a RAFT write was actually performed: false for a node-local
+// no-op (the index flag was already off), true when the flag was flipped via
+// UpdateProperty. Callers use this to avoid synthesizing state (e.g. a
+// GET-suppression delete marker) for a no-op that never reached RAFT — which
+// would mask a lagging follower whose FSM hasn't yet applied the real flip.
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
-) error {
+) (bool, error) {
 	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
-		return err
+		return false, err
 	}
 
 	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+		return false, fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if propertyName == "" {
-		return fmt.Errorf("property name cannot be empty")
+		return false, fmt.Errorf("property name cannot be empty")
 	}
 
 	// [SchemaReader.ReadOnlyClass] returns a SHALLOW clone of the live
@@ -169,7 +174,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		}
 	}
 	if prop == nil {
-		return fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
+		return false, fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
 	}
 
 	// We track the *single* field being mutated so we can pass a
@@ -204,8 +209,8 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			prop.IndexFilterable = &notExists
 			updateFields = []string{command.PropertyFieldIndexFilterable}
 		} else {
-			// nothing to do
-			return nil
+			// nothing to do — no RAFT write
+			return false, nil
 		}
 	case "searchable":
 		if prop.IndexSearchable != nil && *prop.IndexSearchable {
@@ -213,8 +218,8 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			prop.IndexSearchable = &notExists
 			updateFields = []string{command.PropertyFieldIndexSearchable}
 		} else {
-			// nothing to do
-			return nil
+			// nothing to do — no RAFT write
+			return false, nil
 		}
 	case "rangeFilters":
 		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
@@ -222,20 +227,20 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			prop.IndexRangeFilters = &notExists
 			updateFields = []string{command.PropertyFieldIndexRangeFilters}
 		} else {
-			// nothing to do
-			return nil
+			// nothing to do — no RAFT write
+			return false, nil
 		}
 	default:
-		return fmt.Errorf("invalid property index type: %s", indexName)
+		return false, fmt.Errorf("invalid property index type: %s", indexName)
 	}
 
 	if err := h.validatePropertyIndexing(prop); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop, updateFields...); err != nil {
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,

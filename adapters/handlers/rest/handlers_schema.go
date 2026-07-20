@@ -294,7 +294,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		indexName = "rangeFilters"
 	}
 
-	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
+	wrote, err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, indexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -307,11 +307,15 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		}
 	}
 
-	// Record the accepted DELETE so GET /indexes suppresses the
-	// finalize-window "indexing@100%" bleed for this just-deleted index (the
-	// FINISHED creating task otherwise lingers as "still finalizing" for a
-	// few seconds). indexName is the canonical status-type spelling here.
-	if s.reindexDeleteMarkers != nil {
+	// Record the delete marker ONLY when the DELETE performed a real RAFT write
+	// (the flag was on). A node-local no-op (flag already off) never hit RAFT,
+	// so recording a suppression marker for it would mask a lagging follower
+	// whose FSM hasn't yet applied the flag-flip: GET /indexes'
+	// finalize-window suppression (isPostDeleteFinalizeBleed) would then hide an
+	// index that follower still legitimately reports, resurrecting/desyncing it.
+	// The marker only exists to suppress the FINISHED-creating-task
+	// "indexing@100%" bleed, which only arises after a real delete anyway.
+	if wrote && s.reindexDeleteMarkers != nil {
 		s.reindexDeleteMarkers.Record(qualifiedClass, params.PropertyName, indexName)
 	}
 
