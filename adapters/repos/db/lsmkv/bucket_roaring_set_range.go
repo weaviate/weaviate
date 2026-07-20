@@ -77,8 +77,8 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 					b.logger.WithField("bucket", b.dir).Warnf(
 						"rangeable in-memory index is empty but %d disk segment(s) exist; "+
 							"serving from disk instead. Results may be incorrect if those "+
-							"segments are corrupt or unreadable; re-run the reindex with "+
-							"rebuild:true to repair.", n,
+							"segments are corrupt or unreadable; rebuild the index to "+
+							"repair it.", n,
 					)
 				})
 				// Benign TOCTOU: the rep only empties via mass-delete, and the
@@ -100,8 +100,8 @@ func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
 				"rangeable property serving range queries from disk; in-memory " +
 					"serving is restored automatically when the migration finalizes. " +
 					"If it persists after the migration has finished, the finalize " +
-					"rebuild failed; re-run the reindex with rebuild:true or reload " +
-					"the shard to repair.",
+					"rebuild failed; rebuild the index or reload the shard to " +
+					"repair it.",
 			)
 		})
 	}
