@@ -611,9 +611,10 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 
 	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
 
-	// Capture the property's submit-time tokenization so a post-restart
-	// FSM replay of an older task can't override a newer task's schema flip
-	// (see OriginalTokenization godoc on ReindexTaskPayload).
+	// Record the property's submit-time tokenization for RAFT-log diagnostics
+	// only — the field has no runtime reader (see OriginalTokenization godoc on
+	// ReindexTaskPayload). Stale-replay override of a newer task's schema flip
+	// is prevented by FINISHED-status replay suppression, not by this field.
 	var originalTok string
 	if migrationType == db.ReindexTypeChangeTokenization ||
 		migrationType == db.ReindexTypeChangeTokenizationFilterable ||
