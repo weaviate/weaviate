@@ -212,7 +212,8 @@ func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 	case http.StatusInternalServerError:
 		return aggregateops.NewAggregateInternalServerError().WithPayload(payload)
 	default:
-		// statuses without a declared response
+		// statuses the handler never produces itself; the declared 401/503
+		// are answered above it (security layer, op-mode middleware)
 		return middleware.Error(apiErr.Status, payload)
 	}
 }
