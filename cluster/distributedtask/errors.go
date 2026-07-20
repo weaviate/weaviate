@@ -89,7 +89,7 @@ var (
 	// ErrTaskConflict matches a [ConflictDetector.CheckConflict] rejection: the
 	// new task overlaps an in-flight task on shared on-disk state. Deterministic
 	// across nodes and not retryable until the in-flight task terminates, so it
-	// rides [ErrPermanentRejection] — letting the REST submit path map it to 409
+	// wraps [ErrPermanentRejection] — letting the REST submit path map it to 409
 	// rather than 500.
 	ErrTaskConflict = errors.New("task conflicts with an in-flight task")
 )

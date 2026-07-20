@@ -113,7 +113,7 @@ func (p *ReindexProvider) reconcileClassSearchableBlockmax(ctx context.Context, 
 	}
 	// Only the partial-class case needs seeding: with the class flag already
 	// blockmax, nil stamps resolve to blockmax via the class flag anyway, so
-	// there is nothing to repair and no reason to storm RAFT.
+	// there is nothing to repair.
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
 		return
 	}

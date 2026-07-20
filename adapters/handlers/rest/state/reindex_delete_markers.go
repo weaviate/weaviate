@@ -37,7 +37,7 @@ type ReindexDeleteMarkers struct {
 	deleted map[string]time.Time
 }
 
-// NewReindexDeleteMarkers returns an initialised tracker.
+// NewReindexDeleteMarkers returns an initialized tracker.
 func NewReindexDeleteMarkers() *ReindexDeleteMarkers {
 	return &ReindexDeleteMarkers{deleted: map[string]time.Time{}}
 }

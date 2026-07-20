@@ -70,9 +70,9 @@ func authzResponder(principal *models.Principal, err error) middleware.Responder
 }
 
 // normalizeIndexTypeParam maps the {indexType} path value to its internal
-// token, resolving the `rangeable` alias to `rangeFilters`. Returns ok=false
-// for values outside the enum (defense in depth; swagger already rejects
-// those with 422).
+// token, folding both API spellings `rangeFilters` and `rangeable` to the
+// internal token `rangeable`. Returns ok=false for values outside the enum
+// (defense in depth; swagger already rejects those with 422).
 func normalizeIndexTypeParam(pathValue string) (internalToken string, ok bool) {
 	switch pathValue {
 	case "filterable":
@@ -501,15 +501,12 @@ const reindexCancelDrainTimeout = 10 * time.Second
 // Outside the window, flagOn==false cannot legitimately mean "swap
 // pending" — either the swap failed silently (logged as "swap
 // INCOMPLETE" elsewhere) or the swap completed and DELETE flipped the
-// flag back to false (the frontend repro on 2026-05-14 in
-// https://github.com/weaviate/weaviate/issues/10675 — "indexing(1) bleed"). In both cases
-// surfacing the override would be a status lie. The trade-off in
-// production: between task FINISHED and the schema flag flip, a
-// caller polling the GET endpoint will see "indexing@100%" for up to
-// 10s, then briefly see an empty searchable entry, then see "ready"
-// once the flag flips. The brief empty entry is the original UX gap
-// that the override was added to bridge (fd4bfab7cb); we accept it
-// here as the lesser evil compared to the unbounded bleed.
+// flag back to false (weaviate/weaviate#10675, the "indexing(1) bleed").
+// Either way surfacing the override would be a status lie. The trade-off:
+// between task FINISHED and the schema flip a GET caller sees
+// "indexing@100%" for up to 10s, then a brief empty searchable entry,
+// then "ready". That brief empty entry is the UX gap the override
+// bridges; we accept it as the lesser evil versus the unbounded bleed.
 const (
 	finalizeWindowMin = 3 * time.Second
 	// Aliased from state so the post-DELETE marker TTL (state.reindexDelete-
@@ -823,8 +820,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// reindexFinalizeWindow. If flagOn is still false past this
 		// window, the only realistic causes are:
 		//   - the swap completed (flag flipped true) and a subsequent
-		//     DELETE flipped it back to false (the frontend repro on
-		//     2026-05-14 #10675 — "indexing(1) bleed");
+		//     DELETE flipped it back to false (weaviate/weaviate#10675,
+		//     the "indexing(1) bleed");
 		//   - the swap failed silently (logged loudly by
 		//     OnGroupCompleted's "swap INCOMPLETE" branch).
 		// In neither case do we want a synthetic "indexing@100%" entry —
@@ -1107,26 +1104,16 @@ func countStartedTasksForCollection(collection string, tasks []*distributedtask.
 // payload we cannot decode — in which case we cannot prove non-conflict
 // and the caller must reject the submit.
 //
-// Two tasks conflict if they touch the same index bucket type for the same
-// property. Every migration type is property-scoped: the property the task
-// targets is the one named in payload.Properties. An empty Properties list
-// is reserved for a future whole-collection rebuild and is treated as
-// matching any property for conflict purposes.
+// A conflict is any two tasks touching the same index bucket type on the same
+// property. The bucket classification and the conflict predicate live once in
+// the db package ([db.TypesConflictReason] over [db.ReindexBucketEffect]) and
+// are shared with the FSM-deterministic apply-time check, so the two paths
+// can't drift; this pre-flight only consumes them. An empty Properties list is
+// reserved for a future whole-collection rebuild and matches any property here.
 //
-// The bucket types each migration touches on its targeted property:
-//   - change-algorithm:     searchable bucket (Map/WAND → Blockmax)
-//   - rebuild-searchable:   searchable bucket (rebuild in place)
-//   - repair-filterable:    filterable bucket
-//   - enable-searchable:    searchable bucket (from scratch)
-//   - enable-filterable:    filterable bucket (from scratch)
-//   - change-tokenization:  searchable + filterable buckets
-//   - enable-rangeable:     rangeable bucket — no cross-type conflicts
-//
-// Unparseable payloads (e.g. payload schema change across versions, RAFT
-// replay of a task from an older binary) are treated as a hard error
-// rather than silently skipped: silent-skip would let a real bucket-level
-// conflict slip through and allow a second task to race against the
-// in-flight one.
+// Unparseable payloads (schema change across versions, RAFT replay of an older
+// binary's task) are a hard error, not a silent skip: skipping would let a
+// real bucket-level conflict race the in-flight task.
 func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	newProps []string, tasks []*distributedtask.Task,
 ) (string, error) {
@@ -1141,12 +1128,11 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 				"in-flight reindex task %q has an unparseable payload; cannot verify conflict; "+
 					"retry after operator inspects the task: %w", task.ID, err)
 		}
-		// Successfully parsed but informationally empty: a `{}` payload, or
-		// one missing Collection / MigrationType. This is the same epistemic
-		// state as unparseable — we cannot prove non-conflict — so we
-		// refuse for the same reason. Most realistic cause: an older binary
-		// wrote a payload shape we no longer recognize and the missing fields
-		// dropped to their zero values during Unmarshal.
+		// Parsed but informationally empty (`{}`, or missing Collection /
+		// MigrationType): we can't prove non-conflict any more than for an
+		// unparseable payload, so refuse for the same reason. Most likely an
+		// older binary wrote a shape we no longer recognize and the fields
+		// zeroed on Unmarshal.
 		if payload.Collection == "" || payload.MigrationType == "" {
 			return "", fmt.Errorf(
 				"in-flight reindex task %q has an empty Collection or MigrationType "+

@@ -298,8 +298,8 @@ func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection stri
 }
 
 // hasUnverifiableInFlightTask reports whether any in-flight reindex task has
-// an untrustworthy payload (undecodable, or missing Collection/MigrationType):
-// same epistemic gap as [checkReindexConflict], so the NO_OP path must fail
+// an untrustworthy payload (undecodable, or missing Collection/MigrationType).
+// Same unverifiable case as [checkReindexConflict], so the NO_OP path must fail
 // closed rather than return a false 200.
 func hasUnverifiableInFlightTask(reindexTasks []*distributedtask.Task) bool {
 	_, _, found := firstActiveReindexTask(reindexTasks, decodeUndecodableIsHit, func(p db.ReindexTaskPayload) bool {

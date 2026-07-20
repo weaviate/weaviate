@@ -28,14 +28,13 @@ import (
 // [SearchablePropertyBlockmaxFromRAFT]). One switch is the source of truth
 // for all three.
 //
-// ok is false for an unrecognized type — the forward-compat hot path for a
-// rolling upgrade observing a newer peer's task type. It MUST NOT panic (peer
-// input panicking would be a cross-version DoS), so unknown types fail SAFE:
-// touches=true (conflict rejects a racing submit) and producesBlockmax=true
-// (post-GA the only realistic direction; under-reporting would let a
-// re-submitted change-algorithm corrupt an already-blockmax bucket).
-// Exhaustiveness is enforced by TestReindexBucketEffect_Exhaustive, not a
-// production panic.
+// ok is false for an unrecognized type — the forward-compat path for a rolling
+// upgrade observing a newer peer's task type. It must never panic on a peer's
+// input, so unknown types fail SAFE: touches=true (conflict rejects a racing
+// submit) and producesBlockmax=true (the only realistic direction post-GA;
+// under-reporting would let a re-submitted change-algorithm corrupt an
+// already-blockmax bucket). Exhaustiveness is enforced by
+// TestReindexBucketEffect_Exhaustive, not a production panic.
 func ReindexBucketEffect(t ReindexMigrationType) (touchesSearchable, touchesFilterable, producesBlockmax, ok bool) {
 	switch t {
 	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable, ReindexTypeEnableSearchable:
@@ -61,11 +60,11 @@ func producesBlockmaxSearchable(t ReindexMigrationType) bool {
 
 // SearchablePropertyIsBlockmax resolves whether (class, propName)'s searchable
 // bucket is blockmax, from RAFT-consistent state only. Precedence: (1) the
-// durable per-property stamp if set (survives task-list ageout and the
-// same-tick sibling wedge), else (2) the legacy class-flag/FINISHED-task
-// derivation ([SearchablePropertyBlockmaxFromRAFT]). nil reindexTasks is valid
-// when the caller has none (e.g. shard init). Every read site must route
-// through this resolver.
+// durable per-property stamp if set (survives task-list ageout and a same-tick
+// sibling migration), else (2) the class-flag/FINISHED-task derivation
+// ([SearchablePropertyBlockmaxFromRAFT]). nil reindexTasks is valid when the
+// caller has none (e.g. shard init). Every read site must route through this
+// resolver.
 func SearchablePropertyIsBlockmax(class *models.Class, propName string, reindexTasks []*distributedtask.Task) bool {
 	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
 		return blockmax
@@ -105,12 +104,12 @@ func SearchablePropertyIsBlockmaxParsed(class *models.Class, propName string, fi
 	return ok
 }
 
-// SearchablePropertyBlockmaxFromRAFT is the legacy per-property blockmax
-// derivation (class flag + task list), used as [SearchablePropertyIsBlockmax]'s
-// fallback when a property carries no durable stamp. Its historical hole —
-// once a FINISHED task ages out, a migrated property in a permanently-partial
-// class reads back as WAND — is what the stamp layer closes for post-stamp
-// migrations.
+// SearchablePropertyBlockmaxFromRAFT derives per-property blockmax truth from
+// the class flag plus the FINISHED task list. It is [SearchablePropertyIs-
+// Blockmax]'s fallback when a property carries no durable stamp. It cannot see
+// a migration whose FINISHED task has aged out: such a property in a
+// permanently-partial class reads back as WAND, which is why the stamp is the
+// primary source and this is only the fallback.
 func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, propName string, reindexTasks []*distributedtask.Task) bool {
 	if classFlagBlockmax {
 		return true
