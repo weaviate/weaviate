@@ -133,7 +133,7 @@ type sgConfig struct {
 	maxSegmentSize               int64
 	cleanupInterval              time.Duration
 	enableChecksumValidation     bool
-	keepSegmentsInMemory         bool
+	keepMergedSegmentsInMemory   bool
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
@@ -532,7 +532,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.averagePropLength.Store(&stats)
 
 	case StrategyRoaringSetRange:
-		if cfg.keepSegmentsInMemory {
+		if cfg.keepMergedSegmentsInMemory {
 			t := time.Now()
 			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory(sg.logger)
 			for _, seg := range sg.segments {

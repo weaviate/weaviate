@@ -1105,7 +1105,7 @@ func Test_Filters_Int(t *testing.T) {
 			bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
 			err := store.CreateOrLoadBucket(context.Background(), bucketName,
 				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
-				lsmkv.WithKeepSegmentsInMemory(true),
+				lsmkv.WithKeepMergedSegmentsInMemory(true),
 				lsmkv.WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 			)
 			require.NoError(t, err)

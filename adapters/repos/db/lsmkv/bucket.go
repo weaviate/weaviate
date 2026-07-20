@@ -197,9 +197,10 @@ type Bucket struct {
 	// ensuring segment files have integrity before reading them.
 	enableChecksumValidation bool
 
-	// keep segments in memory for more performant search
+	// keep one always-merged in-memory form (additions minus deletions)
+	// for more performant search
 	// (currently used by roaringsetrange inverted indexes)
-	keepSegmentsInMemory bool
+	keepMergedSegmentsInMemory bool
 
 	// pool of buffers for bitmaps merges
 	// (currently used by roaringsetrange inverted indexes)
@@ -327,7 +328,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			maxSegmentSize:               b.maxSegmentSize,
 			cleanupInterval:              b.segmentsCleanupInterval,
 			enableChecksumValidation:     b.enableChecksumValidation,
-			keepSegmentsInMemory:         b.keepSegmentsInMemory,
+			keepMergedSegmentsInMemory:   b.keepMergedSegmentsInMemory,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
 			lazyPropertyLengths:          b.lazyPropertyLengths,
@@ -2017,7 +2018,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 
 	case StrategyRoaringSetRange:
-		if b.keepSegmentsInMemory {
+		if b.keepMergedSegmentsInMemory {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
 	case StrategyInverted:

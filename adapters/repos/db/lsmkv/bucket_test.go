@@ -1372,9 +1372,9 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReaderInMemo(t *testing
 			segments:                       []Segment{},
 			roaringSetRangeSegmentInMemory: segInMemo,
 		},
-		strategy:             StrategyRoaringSetRange,
-		keepSegmentsInMemory: true,
-		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
+		strategy:                   StrategyRoaringSetRange,
+		keepMergedSegmentsInMemory: true,
+		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
 	}
 
 	// validate initial data before making any changes
@@ -1524,9 +1524,9 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 			segments:                       []Segment{},
 			roaringSetRangeSegmentInMemory: roaringsetrange.NewSegmentInMemory(logger),
 		},
-		strategy:             StrategyRoaringSetRange,
-		keepSegmentsInMemory: true,
-		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
+		strategy:                   StrategyRoaringSetRange,
+		keepMergedSegmentsInMemory: true,
+		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
 	}
 
 	active, freeRefs, err := b.getActiveMemtableForWrite()
