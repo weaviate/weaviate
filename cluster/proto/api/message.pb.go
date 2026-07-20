@@ -26,49 +26,53 @@ const (
 type ApplyRequest_Type int32
 
 const (
-	ApplyRequest_TYPE_UNSPECIFIED                                                ApplyRequest_Type = 0
-	ApplyRequest_TYPE_ADD_CLASS                                                  ApplyRequest_Type = 1
-	ApplyRequest_TYPE_UPDATE_CLASS                                               ApplyRequest_Type = 2
-	ApplyRequest_TYPE_DELETE_CLASS                                               ApplyRequest_Type = 3
-	ApplyRequest_TYPE_RESTORE_CLASS                                              ApplyRequest_Type = 4
-	ApplyRequest_TYPE_ADD_PROPERTY                                               ApplyRequest_Type = 5
-	ApplyRequest_TYPE_UPDATE_PROPERTY                                            ApplyRequest_Type = 6
-	ApplyRequest_TYPE_UPDATE_SHARD_STATUS                                        ApplyRequest_Type = 10
-	ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD                                       ApplyRequest_Type = 11
-	ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD                                  ApplyRequest_Type = 12
-	ApplyRequest_TYPE_ADD_TENANT                                                 ApplyRequest_Type = 16
-	ApplyRequest_TYPE_UPDATE_TENANT                                              ApplyRequest_Type = 17
-	ApplyRequest_TYPE_DELETE_TENANT                                              ApplyRequest_Type = 18
-	ApplyRequest_TYPE_TENANT_PROCESS                                             ApplyRequest_Type = 19
-	ApplyRequest_TYPE_CREATE_ALIAS                                               ApplyRequest_Type = 40
-	ApplyRequest_TYPE_REPLACE_ALIAS                                              ApplyRequest_Type = 41
-	ApplyRequest_TYPE_DELETE_ALIAS                                               ApplyRequest_Type = 42
-	ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS                                   ApplyRequest_Type = 60
-	ApplyRequest_TYPE_DELETE_ROLES                                               ApplyRequest_Type = 61
-	ApplyRequest_TYPE_REMOVE_PERMISSIONS                                         ApplyRequest_Type = 62
-	ApplyRequest_TYPE_ADD_ROLES_FOR_USER                                         ApplyRequest_Type = 63
-	ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER                                      ApplyRequest_Type = 64
-	ApplyRequest_TYPE_UPSERT_USER                                                ApplyRequest_Type = 80
-	ApplyRequest_TYPE_DELETE_USER                                                ApplyRequest_Type = 81
-	ApplyRequest_TYPE_ROTATE_USER_API_KEY                                        ApplyRequest_Type = 82
-	ApplyRequest_TYPE_SUSPEND_USER                                               ApplyRequest_Type = 83
-	ApplyRequest_TYPE_ACTIVATE_USER                                              ApplyRequest_Type = 84
-	ApplyRequest_TYPE_CREATE_USER_WITH_KEY                                       ApplyRequest_Type = 85
-	ApplyRequest_TYPE_ADD_NAMESPACE                                              ApplyRequest_Type = 90
-	ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE                                  ApplyRequest_Type = 91
-	ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE                                     ApplyRequest_Type = 92
-	ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY                                    ApplyRequest_Type = 93
-	ApplyRequest_TYPE_UPDATE_NAMESPACE                                           ApplyRequest_Type = 94
-	ApplyRequest_TYPE_REPLICATION_REPLICATE                                      ApplyRequest_Type = 200
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE                         ApplyRequest_Type = 201
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR                       ApplyRequest_Type = 202
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL                               ApplyRequest_Type = 203
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE                               ApplyRequest_Type = 204
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE                               ApplyRequest_Type = 205
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE                ApplyRequest_Type = 206
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL                           ApplyRequest_Type = 207
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION                 ApplyRequest_Type = 208
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS                    ApplyRequest_Type = 209
+	ApplyRequest_TYPE_UNSPECIFIED                                 ApplyRequest_Type = 0
+	ApplyRequest_TYPE_ADD_CLASS                                   ApplyRequest_Type = 1
+	ApplyRequest_TYPE_UPDATE_CLASS                                ApplyRequest_Type = 2
+	ApplyRequest_TYPE_DELETE_CLASS                                ApplyRequest_Type = 3
+	ApplyRequest_TYPE_RESTORE_CLASS                               ApplyRequest_Type = 4
+	ApplyRequest_TYPE_ADD_PROPERTY                                ApplyRequest_Type = 5
+	ApplyRequest_TYPE_UPDATE_PROPERTY                             ApplyRequest_Type = 6
+	ApplyRequest_TYPE_UPDATE_SHARD_STATUS                         ApplyRequest_Type = 10
+	ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD                        ApplyRequest_Type = 11
+	ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD                   ApplyRequest_Type = 12
+	ApplyRequest_TYPE_ADD_TENANT                                  ApplyRequest_Type = 16
+	ApplyRequest_TYPE_UPDATE_TENANT                               ApplyRequest_Type = 17
+	ApplyRequest_TYPE_DELETE_TENANT                               ApplyRequest_Type = 18
+	ApplyRequest_TYPE_TENANT_PROCESS                              ApplyRequest_Type = 19
+	ApplyRequest_TYPE_CREATE_ALIAS                                ApplyRequest_Type = 40
+	ApplyRequest_TYPE_REPLACE_ALIAS                               ApplyRequest_Type = 41
+	ApplyRequest_TYPE_DELETE_ALIAS                                ApplyRequest_Type = 42
+	ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS                    ApplyRequest_Type = 60
+	ApplyRequest_TYPE_DELETE_ROLES                                ApplyRequest_Type = 61
+	ApplyRequest_TYPE_REMOVE_PERMISSIONS                          ApplyRequest_Type = 62
+	ApplyRequest_TYPE_ADD_ROLES_FOR_USER                          ApplyRequest_Type = 63
+	ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER                       ApplyRequest_Type = 64
+	ApplyRequest_TYPE_UPSERT_USER                                 ApplyRequest_Type = 80
+	ApplyRequest_TYPE_DELETE_USER                                 ApplyRequest_Type = 81
+	ApplyRequest_TYPE_ROTATE_USER_API_KEY                         ApplyRequest_Type = 82
+	ApplyRequest_TYPE_SUSPEND_USER                                ApplyRequest_Type = 83
+	ApplyRequest_TYPE_ACTIVATE_USER                               ApplyRequest_Type = 84
+	ApplyRequest_TYPE_CREATE_USER_WITH_KEY                        ApplyRequest_Type = 85
+	ApplyRequest_TYPE_ADD_NAMESPACE                               ApplyRequest_Type = 90
+	ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE                   ApplyRequest_Type = 91
+	ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE                      ApplyRequest_Type = 92
+	ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY                     ApplyRequest_Type = 93
+	ApplyRequest_TYPE_UPDATE_NAMESPACE                            ApplyRequest_Type = 94
+	ApplyRequest_TYPE_REPLICATION_REPLICATE                       ApplyRequest_Type = 200
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE          ApplyRequest_Type = 201
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR        ApplyRequest_Type = 202
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL                ApplyRequest_Type = 203
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE                ApplyRequest_Type = 204
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE                ApplyRequest_Type = 205
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE ApplyRequest_Type = 206
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL            ApplyRequest_Type = 207
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION  ApplyRequest_Type = 208
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS     ApplyRequest_Type = 209
+	// Deprecated: kept for backward compat with existing Raft logs.
+	//
+	// Deprecated: Marked as deprecated in api/message.proto.
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD                           ApplyRequest_Type = 210
 	ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION                        ApplyRequest_Type = 211
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD                 ApplyRequest_Type = 212
 	ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE                             ApplyRequest_Type = 213
@@ -135,6 +139,7 @@ var (
 		207: "TYPE_REPLICATION_REPLICATE_DELETE_ALL",
 		208: "TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION",
 		209: "TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS",
+		210: "TYPE_REPLICATION_REPLICATE_SYNC_SHARD",
 		211: "TYPE_REPLICATION_REGISTER_SCHEMA_VERSION",
 		212: "TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD",
 		213: "TYPE_REPLICATION_NODE_REACHED_STATE",
@@ -197,6 +202,7 @@ var (
 		"TYPE_REPLICATION_REPLICATE_DELETE_ALL":                           207,
 		"TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION":                 208,
 		"TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS":                    209,
+		"TYPE_REPLICATION_REPLICATE_SYNC_SHARD":                           210,
 		"TYPE_REPLICATION_REGISTER_SCHEMA_VERSION":                        211,
 		"TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD":                 212,
 		"TYPE_REPLICATION_NODE_REACHED_STATE":                             213,
@@ -2276,13 +2282,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xdf\x12\n" +
+	"\x12NotifyPeerResponse\"\xe0\x12\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xbb\x11\n" +
+	"subCommand\"\xbc\x11\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2327,7 +2333,8 @@ const file_api_message_proto_rawDesc = "" +
 	"0TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE\x10\xce\x01\x12*\n" +
 	"%TYPE_REPLICATION_REPLICATE_DELETE_ALL\x10\xcf\x01\x124\n" +
 	"/TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION\x10\xd0\x01\x121\n" +
-	",TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS\x10\xd1\x01\x12-\n" +
+	",TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS\x10\xd1\x01\x12.\n" +
+	"%TYPE_REPLICATION_REPLICATE_SYNC_SHARD\x10\xd2\x01\x1a\x02\b\x01\x12-\n" +
 	"(TYPE_REPLICATION_REGISTER_SCHEMA_VERSION\x10\xd3\x01\x124\n" +
 	"/TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD\x10\xd4\x01\x12(\n" +
 	"#TYPE_REPLICATION_NODE_REACHED_STATE\x10\xd5\x01\x120\n" +
@@ -2344,7 +2351,7 @@ const file_api_message_proto_rawDesc = "" +
 	"*TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS\x10\xb1\x02\x12)\n" +
 	"$TYPE_DISTRIBUTED_TASK_MARK_FINALIZED\x10\xb2\x02\x125\n" +
 	"0TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK\x10\xb3\x02\x12:\n" +
-	"5TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK\x10\xb4\x02\"\x04\bc\x10c\"\x06\b\xd2\x01\x10\xd2\x01*%TYPE_REPLICATION_REPLICATE_SYNC_SHARD\"A\n" +
+	"5TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK\x10\xb4\x02\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
 	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xaa\b\n" +

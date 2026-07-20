@@ -164,8 +164,8 @@ func TestStore_Apply_CommandTypes(t *testing.T) {
 			cmdData:     nil,
 		},
 		{
-			name:    "reserved SyncShard wire value applies as a no-op",
-			cmdType: api.ApplyRequest_Type(210),
+			name:    "deprecated SyncShard wire value applies as an explicit no-op",
+			cmdType: api.ApplyRequest_Type(210), // raw wire value: pins acceptance independent of the generated constant
 			setupMocks: func(ms MockStore) {
 			},
 			expectError: false,
