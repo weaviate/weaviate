@@ -24,27 +24,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-// TestAuthzReindexIndexEndpointsDeny is the RBAC deny contract for the GA
-// resource-oriented per-property index endpoints (RFC v1.39):
-//
-//	PUT    /v1/schema/{class}/properties/{prop}/index/{indexType}          (upsert)
-//	POST   /v1/schema/{class}/properties/{prop}/index/{indexType}/rebuild
-//	POST   /v1/schema/{class}/properties/{prop}/index/{indexType}/cancel
-//	DELETE /v1/schema/{class}/properties/{prop}/index/{indexType}
-//	GET    /v1/schema/{class}/indexes
-//
-// Each mutation authorizes UPDATE on the collection (update_collections)
-// before it reads the class/property, so an unauthorized principal always
-// gets 403 — never a 404/422 that would leak resource existence. GET
-// authorizes READ on the collection metadata (read_collections). This test
-// pins that:
-//
-//  1. a permissionless principal is denied on every endpoint;
-//  2. read_collections is insufficient for the four mutations, yet does
-//     authorize the read-only GET (positive control: the harness returns
-//     non-403 when the caller IS authorized, so the 403s are meaningful);
-//  3. permissions scoped to a DIFFERENT collection do not authorize the
-//     target collection (RBAC resource scoping).
+// TestAuthzReindexIndexEndpointsDeny pins the RBAC deny contract for the
+// per-property index endpoints: mutations require UPDATE (always 403, never a
+// leaking 404/422); GET requires READ. Also covers read-only and
+// wrong-collection grants not authorizing the target.
 func TestAuthzReindexIndexEndpointsDeny(t *testing.T) {
 	adminAuth := helper.CreateAuth(sharedRootKey)
 	customUser := "custom-user"
@@ -80,10 +63,9 @@ func TestAuthzReindexIndexEndpointsDeny(t *testing.T) {
 	helper.CreateClassAuth(t, makeClass(otherClass), sharedRootKey)
 	defer deleteObjectClass(t, otherClass, adminAuth)
 
-	// Each entry calls one mutation endpoint against targetClass with the
-	// given key and reports whether the call came back as 403 Forbidden. The
-	// Forbidden type is per-operation, so the errors.As target lives inside
-	// each closure.
+	// Each entry calls one mutation endpoint and reports whether it came back
+	// 403 Forbidden. The Forbidden type is per-operation, so errors.As lives
+	// inside each closure.
 	type endpoint struct {
 		name string
 		call func(key string) (err error, forbidden bool)
@@ -169,10 +151,8 @@ func TestAuthzReindexIndexEndpointsDeny(t *testing.T) {
 			require.True(t, forbidden, "%s: expected 403 Forbidden with a read-only role, got %v", ep.name, err)
 		}
 
-		// Positive control: read_collections DOES authorize the read-only GET.
-		// This proves the harness returns non-403 when the caller is
-		// authorized, so the 403s above are a real deny and not a blanket
-		// reject of everything.
+		// Positive control: read_collections DOES authorize GET, proving the
+		// 403s above are a real deny, not a blanket reject.
 		err, forbidden := getIndexes(targetClass, customKey)
 		require.False(t, forbidden, "GET .../indexes must not be forbidden with read_collections")
 		require.NoError(t, err, "GET .../indexes must succeed with read_collections, got %v", err)

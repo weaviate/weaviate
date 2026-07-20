@@ -22,8 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// rawTask builds an in-flight task with an arbitrary raw payload (used to
-// inject an undecodable / informationally-empty payload).
+// rawTask builds a task with an arbitrary raw payload (undecodable or empty).
 func rawTask(id string, status distributedtask.TaskStatus, payload string) *distributedtask.Task {
 	return &distributedtask.Task{
 		Namespace:      db.ReindexNamespace,
@@ -34,11 +33,8 @@ func rawTask(id string, status distributedtask.TaskStatus, payload string) *dist
 }
 
 // TestResolveUpsertPlan_NoopFailsClosedOnUndecodableTask pins that a would-be
-// NO_OP fails closed (failClosed → 503) when an in-flight task has an
-// undecodable or informationally-empty payload: the NO_OP path returns before
-// the submit path's checkReindexConflict runs, so without this the caller gets
-// a false 200 while an undecodable migration might be moving the property to a
-// contradictory state.
+// NO_OP fails closed (503) when an in-flight task has an undecodable payload,
+// rather than returning a false 200.
 func TestResolveUpsertPlan_NoopFailsClosedOnUndecodableTask(t *testing.T) {
 	on, off := boolPtr(true), boolPtr(false)
 

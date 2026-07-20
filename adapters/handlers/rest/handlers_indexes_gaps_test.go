@@ -42,13 +42,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestValidateTokenizationChange_StampedBlockmaxKeepsInverted pins the exact
-// corrupting hop of weaviate/weaviate#12252. change-tokenization derives the
-// searchable bucket strategy for its reindex; a property migrated to blockmax
-// in a permanently-partial class (class flag never flipped) whose FINISHED task
-// has aged out MUST still derive StrategyInverted. Deriving StrategyMapCollection
-// bakes a WAND bucket into the RAFT task payload and silently downgrades the
-// blockmax index with term-frequency-wrong BM25 lengths — no error surfaced.
+// TestValidateTokenizationChange_StampedBlockmaxKeepsInverted pins
+// weaviate/weaviate#12252: a stamped-blockmax property must derive
+// StrategyInverted (not StrategyMapCollection) after its migration task ages out.
 func TestValidateTokenizationChange_StampedBlockmaxKeepsInverted(t *testing.T) {
 	tr := true
 	class := &models.Class{
@@ -812,10 +808,9 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// TouchesSearchable / TouchesFilterable — an unknown (peer-written)
-// ReindexMigrationType must NOT panic on the forward-compat hot path; it fails
-// SAFE (conservatively touches the bucket). Exhaustiveness is enforced at
-// dev-time by db.TestReindexBucketEffect_Exhaustive, not a production panic.
+// TouchesSearchable / TouchesFilterable: an unknown (peer-written) type must
+// not panic (forward-compat) — it fails safe by conservatively touching the
+// bucket. Exhaustiveness is enforced by db.TestReindexBucketEffect_Exhaustive.
 // -----------------------------------------------------------------------------
 
 func TestTouchesSearchable(t *testing.T) {

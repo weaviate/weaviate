@@ -231,13 +231,10 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}
 
-	// Authorize BEFORE the conflict pre-flight below. The pre-flight can surface
-	// an in-flight foreign task's existence (its redacted error still reveals
-	// "a task is in flight"), and manager.DeleteClassPropertyIndex only
-	// authorizes deep inside its own body — so without this an unprivileged
-	// caller reaches the pre-flight first. Same verb+resource the manager
-	// enforces (UPDATE + CollectionsMetadata), so no legitimate caller is newly
-	// rejected; nil-safe for unit tests that construct schemaHandlers directly.
+	// Authorize BEFORE the conflict pre-flight below: it can leak "a task is in
+	// flight" to an unprivileged caller, and manager.DeleteClassPropertyIndex
+	// only authorizes deep inside its own body. nil-safe for tests constructing
+	// schemaHandlers directly.
 	if s.authorizer != nil {
 		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
 			authorization.CollectionsMetadata(qualifiedClass)...); err != nil {
@@ -307,14 +304,10 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		}
 	}
 
-	// Record the delete marker ONLY when the DELETE performed a real RAFT write
-	// (the flag was on). A node-local no-op (flag already off) never hit RAFT,
-	// so recording a suppression marker for it would mask a lagging follower
-	// whose FSM hasn't yet applied the flag-flip: GET /indexes'
-	// finalize-window suppression (isPostDeleteFinalizeBleed) would then hide an
-	// index that follower still legitimately reports, resurrecting/desyncing it.
-	// The marker only exists to suppress the FINISHED-creating-task
-	// "indexing@100%" bleed, which only arises after a real delete anyway.
+	// Only record the marker when the DELETE performed a real RAFT write: a
+	// node-local no-op (flag already off) never hit RAFT, so recording a
+	// suppression marker would mask a lagging follower whose FSM hasn't yet
+	// applied the flip, hiding an index it still legitimately reports.
 	if wrote && s.reindexDeleteMarkers != nil {
 		s.reindexDeleteMarkers.Record(qualifiedClass, params.PropertyName, indexName)
 	}
@@ -364,11 +357,9 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			// the apply side; mirror that here so the REST caller
 			// doesn't get a spurious "ok-then-FAILED" two-step.
 			//
-			// This branch fires BEFORE the collection filter below, so task.ID
-			// may be namespace-qualified to a collection the caller can't see;
-			// StripErrorMessage only strips the caller's own namespace. Log the
-			// ID server-side; return a message without it. className /
-			// propertyName are the caller's own inputs, so echoing them is safe.
+			// This fires BEFORE the collection filter, so task.ID may name a
+			// namespace the caller can't see (StripErrorMessage strips only the
+			// caller's own). Log it server-side instead.
 			if s.logger != nil {
 				s.logger.WithField("task_id", task.ID).
 					Errorf("refusing property mutation on %s.%s: in-flight reindex task has an unparseable payload: %v", className, propertyName, err)

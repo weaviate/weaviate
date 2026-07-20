@@ -32,22 +32,16 @@ const (
 	searchableBlockmaxRepairInterval = 5 * time.Minute
 )
 
-// RunSearchableBlockmaxRepair closes the v1.38→v1.39 upgrade residual: a class
-// migrated to blockmax by a pre-stamp binary, in a permanently-partial class
-// (class flag never flipped), whose FINISHED task has aged out of the DTM list.
-// Such a property has a genuinely-blockmax searchable bucket on disk but a nil
-// stamp and a false class flag, so the legacy derivation reads it back as WAND
-// with no live task to save it.
+// RunSearchableBlockmaxRepair closes the v1.38→v1.39 upgrade residual: a
+// property genuinely migrated to blockmax on disk, in a permanently-partial
+// class whose FINISHED task has aged out, has a nil stamp and false class
+// flag — the legacy derivation reads it back as WAND.
 //
-// The repair seeds the durable stamp from on-disk truth: a shard-holder that
-// observes StrategyInverted for a nil-stamp searchable bucket writes the stamp
-// ONCE via RAFT. Node-local state is used only as a one-time seeder — reads stay
-// RAFT-consistent afterward, so this does not reintroduce the node-locality bug
-// the stamp fixes. Idempotent (skips already-stamped props) and safe on a
-// shardless node (it simply never seeds and relies on the durable stamp another
-// shard-holder writes).
-//
-// Launch in a goroutine; it runs until ctx is cancelled.
+// A shard-holder observing StrategyInverted for a nil-stamp bucket seeds the
+// durable stamp ONCE via RAFT; reads stay RAFT-consistent afterward, so this
+// doesn't reintroduce the node-locality bug the stamp fixes. Idempotent and
+// safe on a shardless node. Launch in a goroutine; runs until ctx is
+// cancelled.
 func (p *ReindexProvider) RunSearchableBlockmaxRepair(ctx context.Context) {
 	if p.schemaManager == nil || p.db == nil || p.taskLister == nil {
 		return

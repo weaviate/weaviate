@@ -1338,10 +1338,9 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 }
 
 // TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff pins that deleting an
-// index whose flag is already off is a node-local no-op: it performs NO RAFT
-// write (UpdateProperty is never called) and reports wrote=false. The handler
-// relies on wrote=false to skip recording a GET-suppression delete marker,
-// which would otherwise mask a lagging follower's true state (3A).
+// already-off index performs no RAFT write and reports wrote=false, which the
+// handler needs to skip recording a GET-suppression delete marker for a
+// write that never happened.
 func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 	t.Parallel()
 

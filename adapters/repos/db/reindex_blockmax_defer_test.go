@@ -29,13 +29,10 @@ func (s taskListerStub) ListDistributedTasks(context.Context) (map[string][]*dis
 	return map[string][]*distributedtask.Task{ReindexNamespace: s.tasks}, nil
 }
 
-// TestShouldDeferBlockmaxFlip_StampBreaksWedge pins the read half of the
-// same-tick sibling wedge fix. change-algorithm defers the cluster-wide class
-// flag flip until every OTHER searchable property is already blockmax. Reading
-// that from the durable stamp (not the FINISHED-task list) means: once a sibling
-// has been stamped by its own cutover — as it is, before this defer check runs —
-// the completing task no longer spuriously defers, so the second of two siblings
-// completing in the same tick flips the flag instead of both wedging forever.
+// TestShouldDeferBlockmaxFlip_StampBreaksWedge pins the same-tick sibling
+// wedge fix: reading the durable stamp (not the FINISHED-task list) lets the
+// second of two siblings completing in the same tick flip the class flag,
+// instead of both wedging forever.
 func TestShouldDeferBlockmaxFlip_StampBreaksWedge(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()

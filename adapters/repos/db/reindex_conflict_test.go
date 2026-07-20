@@ -230,12 +230,10 @@ func TestSearchablePropertyBlockmaxFromRAFT(t *testing.T) {
 	}
 }
 
-// TestSearchablePropertyIsBlockmax_TruthTable pins the stamp-first resolver over
-// the full (classFlag, stamp, taskList) space. The load-bearing row is the one
-// both QA rounds missed: a stamped-blockmax property with the class flag OFF and
-// an EMPTY (aged-out) task list must resolve to blockmax — the legacy
-// derivation returned WAND there, silently corrupting BM25 on the next
-// change-tokenization.
+// TestSearchablePropertyIsBlockmax_TruthTable pins the stamp-first resolver
+// across (classFlag, stamp, taskList); the load-bearing row is a
+// stamped-blockmax property with flag OFF and an aged-out (empty) task list,
+// which must resolve to blockmax, not the legacy WAND fallback.
 func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
 	finishedBlockmaxTask := func() []*distributedtask.Task {
 		payload, err := json.Marshal(ReindexTaskPayload{
@@ -278,10 +276,9 @@ func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
 }
 
 // TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed pins that the
-// pre-parsed GET-handler variant (SF-4: O(tasks+properties), no per-property
-// re-unmarshal) resolves identically to the task-list SearchablePropertyIsBlockmax
-// across the full (stamp, classFlag, finished-task) space. The set is built the
-// same way the GET handler builds it.
+// pre-parsed GET-handler variant resolves identically to
+// SearchablePropertyIsBlockmax across the full (stamp, classFlag,
+// finished-task) space.
 func TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed(t *testing.T) {
 	ptr := func(b bool) *bool { return &b }
 	finishedTask := func(mt ReindexMigrationType, props ...string) *distributedtask.Task {
@@ -339,11 +336,9 @@ func TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed(t *testing.T) {
 	}
 }
 
-// allReindexMigrationTypesForTest must list every ReindexMigrationType. The
-// compiler cannot enforce that, so keep it in sync with the constants in
-// reindex_provider_payload.go by hand — TestReindexBucketEffect_Exhaustive
-// iterates it and fails if any entry is unclassified, which is what keeps the
-// production fail-safe default (rather than a panic) honest.
+// allReindexMigrationTypesForTest must list every ReindexMigrationType (kept
+// in sync by hand); TestReindexBucketEffect_Exhaustive fails if any entry here
+// is unclassified, keeping the production fail-safe default honest.
 var allReindexMigrationTypesForTest = []ReindexMigrationType{
 	ReindexTypeChangeAlgorithm,
 	ReindexTypeRebuildSearchable,
@@ -356,20 +351,13 @@ var allReindexMigrationTypesForTest = []ReindexMigrationType{
 	ReindexTypeChangeTokenizationFilterable,
 }
 
-// TestReindexBucketEffect_Exhaustive pins the bucket-effect classification for
-// every migration type AND enforces exhaustiveness in place of the old
-// production panic: a newly-added [ReindexMigrationType] that is not explicitly
-// classified fails here (dev-time fail-loud) instead of DoS-ing an older node
-// that observes it from a newer peer during a rolling upgrade.
-//
-// An unknown type must fail SAFE, never panic: touches both buckets (so a
-// concurrent submit conflicts rather than races) and is assumed to produce
-// blockmax (post-GA direction; under-reporting would re-run change-algorithm on
-// an already-inverted bucket → downgrade corruption).
+// TestReindexBucketEffect_Exhaustive replaces the old production panic:
+// enforces at dev-time that every ReindexMigrationType is explicitly
+// classified, and pins the fail-safe defaults (touches both buckets, produces
+// blockmax) for an unrecognized type.
 func TestReindexBucketEffect_Exhaustive(t *testing.T) {
-	// The documented classification for every known type. Adding a
-	// ReindexMigrationType to allReindexMigrationTypesForTest without a row here
-	// fails the "every listed type is covered" assertion below.
+	// Adding a ReindexMigrationType here without a row below fails the "every
+	// listed type is covered" assertion.
 	want := map[ReindexMigrationType]struct {
 		touchesSearchable bool
 		touchesFilterable bool

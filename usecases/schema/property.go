@@ -119,12 +119,10 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
-// DeleteClassPropertyIndex deletes collection's property index. The bool return
-// reports whether a RAFT write was actually performed: false for a node-local
-// no-op (the index flag was already off), true when the flag was flipped via
-// UpdateProperty. Callers use this to avoid synthesizing state (e.g. a
-// GET-suppression delete marker) for a no-op that never reached RAFT — which
-// would mask a lagging follower whose FSM hasn't yet applied the real flip.
+// DeleteClassPropertyIndex deletes collection's property index. The bool
+// return reports whether a RAFT write occurred (false for a node-local no-op,
+// when the flag was already off) — callers use it to avoid synthesizing state
+// for a write that never reached RAFT.
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
 ) (bool, error) {

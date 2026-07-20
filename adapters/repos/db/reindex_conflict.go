@@ -21,43 +21,21 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// ReindexBucketEffect classifies migration type t by which inverted-index
-// buckets it writes and whether completing it leaves the property's searchable
-// (BM25) bucket on blockmax:
+// ReindexBucketEffect classifies migration type t: which inverted-index
+// buckets it writes (touchesSearchable/touchesFilterable, gating conflict
+// detection and idempotency checks) and whether completing it leaves the
+// searchable bucket on blockmax (producesBlockmax, feeding
+// [SearchablePropertyBlockmaxFromRAFT]). One switch is the source of truth
+// for all three.
 //
-//   - touchesSearchable / touchesFilterable gate concurrent-submission conflict
-//     detection ([typesConflictReason]) and the in-flight idempotency checks
-//     ([activeSearchableTaskFor]).
-//   - producesBlockmax feeds [SearchablePropertyBlockmaxFromRAFT]: a FINISHED
-//     task of a producesBlockmax type leaves the property's BM25 bucket on
-//     blockmax. change-tokenization is deliberately false — it rewrites bucket
-//     contents but preserves the existing strategy.
-//
-// One switch is the single source of truth so the three predicates below can't
-// drift on the same enum.
-//
-// ok is false for an UNRECOGNIZED type. This is the forward-compatibility hot
-// path: during a rolling upgrade an older node observes task types written by a
-// newer peer, and both the PUT hot path (activeSearchableTaskFor) and the
-// RAFT-apply CheckConflict path run this against peer-written input. It MUST NOT
-// panic — a peer-written type panicking those paths is a cross-version DoS. So
-// the default fails SAFE:
-//
-//   - touchesSearchable / touchesFilterable = true: an unknown type is
-//     conservatively assumed to touch BOTH buckets, so conflict detection
-//     rejects a concurrent submit (409/503) rather than letting two migrations
-//     race on shared bucket state.
-//   - producesBlockmax = true: post-GA, blockmax is the target strategy and WAND
-//     is deprecated, so no new migration produces WAND — assuming an unknown
-//     FINISHED searchable migration produced blockmax matches the only realistic
-//     forward direction. Defaulting FALSE would under-report blockmax and let a
-//     `PUT {algorithm:blockmax}` re-run change-algorithm against an already
-//     inverted bucket → downgrade corruption. Over-reporting at worst no-ops a
-//     genuinely-needed migration (recoverable); under-reporting corrupts (not).
-//
-// Exhaustiveness is enforced by TestReindexBucketEffect_Exhaustive (dev-time
-// fail-loud over every declared type) rather than a production panic — the
-// panic would be the very cross-version DoS described above.
+// ok is false for an unrecognized type — the forward-compat hot path for a
+// rolling upgrade observing a newer peer's task type. It MUST NOT panic (peer
+// input panicking would be a cross-version DoS), so unknown types fail SAFE:
+// touches=true (conflict rejects a racing submit) and producesBlockmax=true
+// (post-GA the only realistic direction; under-reporting would let a
+// re-submitted change-algorithm corrupt an already-blockmax bucket).
+// Exhaustiveness is enforced by TestReindexBucketEffect_Exhaustive, not a
+// production panic.
 func ReindexBucketEffect(t ReindexMigrationType) (touchesSearchable, touchesFilterable, producesBlockmax, ok bool) {
 	switch t {
 	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable, ReindexTypeEnableSearchable:
@@ -82,24 +60,12 @@ func producesBlockmaxSearchable(t ReindexMigrationType) bool {
 }
 
 // SearchablePropertyIsBlockmax resolves whether (class, propName)'s searchable
-// (BM25) bucket is blockmax, from RAFT-consistent state only, so every node
-// agrees regardless of which shards it holds. Precedence:
-//
-//  1. the durable per-property stamp SearchableBlockmax, if set — this is the
-//     fix: it survives the completed-task list ageing out and the same-tick
-//     sibling wedge, neither of which the legacy derivation below could;
-//  2. otherwise the legacy class-flag / FINISHED-task derivation
-//     ([SearchablePropertyBlockmaxFromRAFT]), which still covers pre-stamp
-//     migrations whose task is live or whose class flag has already flipped.
-//
-// The stamp is only ever written true (WAND is the unstamped default), so a
-// non-nil stamp is always true in practice; the pointer distinguishes
-// "stamped" from "unknown/not-stamped", it is not a tri-state.
-//
-// This is the single resolver every read site must route through. Passing a
-// nil reindexTasks is valid where the caller has no task list (e.g. shard
-// init): the stamp and class flag still resolve, the task-list fallback simply
-// contributes nothing.
+// bucket is blockmax, from RAFT-consistent state only. Precedence: (1) the
+// durable per-property stamp if set (survives task-list ageout and the
+// same-tick sibling wedge), else (2) the legacy class-flag/FINISHED-task
+// derivation ([SearchablePropertyBlockmaxFromRAFT]). nil reindexTasks is valid
+// when the caller has none (e.g. shard init). Every read site must route
+// through this resolver.
 func SearchablePropertyIsBlockmax(class *models.Class, propName string, reindexTasks []*distributedtask.Task) bool {
 	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
 		return blockmax
@@ -128,13 +94,9 @@ func searchableStampOrClassFlag(class *models.Class, propName string) (blockmax,
 	return false, false
 }
 
-// SearchablePropertyIsBlockmaxParsed is [SearchablePropertyIsBlockmax] for the
-// GET-indexes handler, which iterates every property and has already
-// unmarshaled the reindex task payloads once. finishedBlockmaxProps is the set
-// of property names on this collection left on blockmax by a FINISHED
-// blockmax-producing task; using it keeps the per-property resolution O(1)
-// instead of re-scanning and re-unmarshaling the task list per property. The
-// stamp-first fast path is preserved.
+// SearchablePropertyIsBlockmaxParsed is [SearchablePropertyIsBlockmax] using a
+// pre-computed finishedBlockmaxProps set (built once by the GET-indexes
+// handler) instead of a raw task list, so per-property resolution is O(1).
 func SearchablePropertyIsBlockmaxParsed(class *models.Class, propName string, finishedBlockmaxProps map[string]struct{}) bool {
 	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
 		return blockmax
@@ -144,13 +106,11 @@ func SearchablePropertyIsBlockmaxParsed(class *models.Class, propName string, fi
 }
 
 // SearchablePropertyBlockmaxFromRAFT is the legacy per-property blockmax
-// derivation from RAFT-consistent state (class flag + task list), used as the
-// fallback by [SearchablePropertyIsBlockmax] when a property carries no durable
-// stamp. The class flag lags per-property truth (flips only once every property
-// has migrated), so a FINISHED task producing a blockmax bucket also counts.
-// Its historical hole — once that task ages out, a migrated property in a
-// permanently-partial class read back as WAND — is exactly what the stamp layer
-// in [SearchablePropertyIsBlockmax] closes for post-stamp migrations.
+// derivation (class flag + task list), used as [SearchablePropertyIsBlockmax]'s
+// fallback when a property carries no durable stamp. Its historical hole —
+// once a FINISHED task ages out, a migrated property in a permanently-partial
+// class reads back as WAND — is what the stamp layer closes for post-stamp
+// migrations.
 func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, propName string, reindexTasks []*distributedtask.Task) bool {
 	if classFlagBlockmax {
 		return true
@@ -263,11 +223,9 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
-	// The conflict rule is property-overlap only; it does not consult the
-	// bucket-touch predicates. An unknown (peer-written) migration type is
-	// handled fail-safe by [ReindexBucketEffect] wherever it IS consulted —
-	// here an unknown type on an overlapping property still conflicts, so no
-	// per-type recognition is needed at this boundary.
+	// Conflict is property-overlap only; it doesn't consult bucket-touch
+	// predicates, so an unknown (peer-written) type on an overlapping
+	// property still conflicts without needing recognition here.
 	if !ReindexPropsOverlap(newProps, existProps) {
 		return ""
 	}

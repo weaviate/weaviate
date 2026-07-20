@@ -1176,9 +1176,7 @@ func initReindexAndDistributedTasks(
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
-	// Read-repair for the v1.38→v1.39 upgrade residual: seed the durable
-	// searchableBlockmax stamp from on-disk truth for pre-stamp migrations in a
-	// permanently-partial class whose task has aged out. See
+	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
 	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
 	enterrors.GoWrapper(func() {
 		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)

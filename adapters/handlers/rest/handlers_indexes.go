@@ -154,11 +154,8 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// merge below doesn't re-unmarshal each task N times.
 	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace])
 
-	// Precompute (once) the property set left on blockmax by a FINISHED
-	// blockmax-producing task on this collection, so the per-property blockmax
-	// resolution below is O(1) and doesn't re-scan + re-unmarshal every task
-	// payload per property (SF-4). The stamp / class-flag fast paths still take
-	// precedence inside SearchablePropertyIsBlockmaxParsed.
+	// Precompute once so per-property resolution below is O(1); stamp/class-flag
+	// fast paths still take precedence in SearchablePropertyIsBlockmaxParsed.
 	finishedBlockmaxProps := make(map[string]struct{})
 	for _, pt := range parsedTasks {
 		if pt.task.Status != distributedtask.TaskStatusFinished {
@@ -277,16 +274,10 @@ func principalUsername(principal *models.Principal) string {
 	return principal.Username
 }
 
-// findCancelTargetTask returns the in-flight reindex task (and its parsed
-// payload) targeting (collection, propertyName, indexType), or nil if none is
-// in flight.
-//
-// "In flight" is [distributedtask.TaskStatus.IsActive] (STARTED, PREPARING, or
-// SWAPPING) — the SAME predicate the conflict gate uses. A narrower
-// STARTED-only match would return NO_OP for a task that has reached PREPARING /
-// SWAPPING, yet that task still blocks a follow-up PUT with a 409 naming it, so
-// the operator could neither cancel nor supersede it. Matching IsActive keeps
-// cancel and conflict detection consistent.
+// findCancelTargetTask returns the in-flight reindex task (and payload)
+// targeting (collection, propertyName, indexType), or nil if none. "In
+// flight" matches IsActive (STARTED/PREPARING/SWAPPING) — same predicate the
+// conflict gate uses, so a task past STARTED remains cancellable.
 func findCancelTargetTask(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload) {
 	for _, task := range tasks {
 		if !task.Status.IsActive() {
@@ -995,24 +986,18 @@ func normalizeSearchableAlgorithm(s string) string {
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
 
-// checkReindexAdmission is the pre-submit safety gate shared by upsert and
-// rebuild: checks conflict (409/503-on-unverifiable) and the per-collection cap
-// (429) against the caller's already-fetched task snapshot. Split out so it's
-// unit-testable without a live cluster/DB. The fail-closed 503 for an
-// unreachable task store lives earlier, in [listReindexTasks] (which produces
-// the snapshot passed here).
+// checkReindexAdmission checks conflict (409, or 503 if unverifiable) and the
+// per-collection cap (429) against an already-fetched task snapshot. The
+// fail-closed 503 for an unreachable task store lives in [listReindexTasks].
 func (h *indexesHandlers) checkReindexAdmission(principal *models.Principal, collection string,
 	migrationType db.ReindexMigrationType, properties []string,
 	tasks []*distributedtask.Task,
 ) middleware.Responder {
 	reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks)
 	if checkErr != nil {
-		// An in-flight task has an unparseable/empty payload — we cannot prove
-		// non-conflict, so refuse rather than race. checkErr names the offending
-		// task ID for operators, but this branch fires BEFORE the collection
-		// filter, so that ID may belong to a namespace the caller can't see and
-		// StripErrorMessage only strips the caller's own namespace. Log the
-		// detail server-side; return a generic 503 so no foreign task ID leaks.
+		// checkErr may name a task ID in a namespace the caller can't see, and
+		// StripErrorMessage only strips the caller's own namespace — so log the
+		// detail server-side and return a generic 503 instead of checkErr.Error().
 		h.appState.Logger.WithField("collection", collection).
 			Errorf("submit: cannot verify reindex conflict, failing closed: %v", checkErr)
 		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,

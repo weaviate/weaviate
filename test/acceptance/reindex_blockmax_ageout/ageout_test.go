@@ -9,14 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package reindex_blockmax_ageout is the integrated regression for the silent
-// BM25 corruption of weaviate/weaviate#12252: a searchable property migrated to
-// blockmax in a permanently-partial class (class flag never flips), read back as
-// WAND once its FINISHED migration task ages out of the DTM list. Both prior QA
-// rounds missed this by never forcing the aged-out state; this suite forces it
-// with DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS=0 (GC on the next tick) so the
-// assertions run against a genuinely EMPTY task list, where only the durable
-// per-property stamp keeps reads correct.
+// Package reindex_blockmax_ageout is the regression for weaviate/weaviate#12252:
+// a searchable property migrated to blockmax in a permanently-partial class
+// reads back as WAND once its FINISHED task ages out of the DTM list. Runs
+// with DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS=0 so assertions hit a
+// genuinely empty task list, where only the durable per-property stamp keeps
+// reads correct.
 package reindex_blockmax_ageout
 
 import (
@@ -39,15 +37,11 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-// Two title values with the SAME total token count but DIFFERENT distinct-term
-// counts. BM25 doc length is the total token count on blockmax (StrategyInverted,
-// calcPropLenInverted) but the distinct-term/item count on WAND (map,
-// calcPropLenMap). So for the shared query term "banana" (tf=1 in both):
-//   - correct blockmax → equal doc length (5) → equal scores;
-//   - silent WAND downgrade → shortTitle length 2 < longTitle length 5 →
-//     shortTitle scores strictly higher.
-//
-// Asserting score equality therefore fails the instant the bucket is corrupted.
+// shortTitle/longTitle have equal token counts but different distinct-term
+// counts. BM25 doc length is token count on blockmax but distinct-term count
+// on WAND, so for query term "banana" (tf=1 in both): correct blockmax gives
+// equal doc length → equal scores; a WAND downgrade gives shortTitle a
+// shorter length → a strictly higher score. Score equality is the test.
 const (
 	shortTitle = "banana apple apple apple apple" // 5 tokens, 2 distinct
 	longTitle  = "banana cherry mango date fig"   // 5 tokens, 5 distinct
@@ -98,12 +92,9 @@ func testAgedOutPartialClass(t *testing.T, restURI string) {
 	createDoc(t, class, shortTitle, "")
 	createDoc(t, class, longTitle, "")
 
-	// Migrate ONLY title to blockmax; body stays WAND → class is permanently
-	// partial and the class flag never flips. Under TTL=0 the FINISHED task is
-	// GC'd before AwaitReindexFinished could observe it, so wait for the task to
-	// complete AND drain (awaitTaskGone) — which also gives us exactly the
-	// aged-out empty-list state — then confirm the durable blockmax effect,
-	// which is what proves the migration succeeded and survives the GC.
+	// Migrate ONLY title; body stays WAND so the class is permanently partial.
+	// Under TTL=0 the FINISHED task is GC'd almost immediately, so wait for it
+	// to drain (awaitTaskGone) — that's exactly the aged-out empty-list state.
 	migrate := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "title", "searchable", `{"algorithm":"blockmax"}`)
 	awaitTaskGone(t, restURI, migrate)
 	require.Empty(t, reindexTasksFor(t, restURI, class), "task list must be empty (aged out)")
@@ -138,10 +129,9 @@ func testAgedOutPartialClass(t *testing.T, restURI string) {
 	assertEqualBananaScores(t, class, "", "after change-tokenization on the aged-out blockmax property")
 }
 
-// testNewTenantShardBlockmax covers assertion (v): a tenant shard created AFTER
-// the property was stamped must build a blockmax searchable bucket, even though
-// the class flag is still false. Verified behaviorally via the BM25 length model
-// on the new tenant.
+// testNewTenantShardBlockmax covers assertion (v): a tenant shard created
+// after the property was stamped must build a blockmax bucket even though the
+// class flag is still false, verified via the BM25 length model.
 func testNewTenantShardBlockmax(t *testing.T, restURI string) {
 	const class = "AgeOutMT"
 	bm25Class(t, class, true)
@@ -231,9 +221,8 @@ func reindexTasksFor(t *testing.T, restURI, class string) []models.DistributedTa
 	return out
 }
 
-// awaitTaskGone blocks until the task has been GC'd out of the DTM list, i.e.
-// the FINISHED task has aged out (TTL=0). This is the state both QA rounds
-// never reached.
+// awaitTaskGone blocks until the task has been GC'd out of the DTM list (the
+// FINISHED task has aged out under TTL=0).
 func awaitTaskGone(t *testing.T, restURI, taskID string) {
 	t.Helper()
 	require.Eventually(t, func() bool {

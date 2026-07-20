@@ -95,9 +95,8 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_MultipleProperties(t
 }
 
 // TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut pins that
-// enable-* and change-algorithm emit the re-run PUT, not a /rebuild that would
-// 400 (enable-* left no index; change-algorithm left the searchable index on
-// WAND). Retokenize migrations keep /rebuild since their bucket pre-exists.
+// enable-*/change-algorithm emit the re-run PUT (a /rebuild would 400: no
+// index, or still WAND). Retokenize migrations keep /rebuild.
 func TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut(t *testing.T) {
 	cases := []struct {
 		name        string

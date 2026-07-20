@@ -114,11 +114,9 @@ func TestReindexDeleteMarkers(t *testing.T) {
 
 	t.Run("case-fold asymmetry is pinned (current behavior, not an endorsement)", func(t *testing.T) {
 		// reindexDeleteMarkerKey lowercases `collection` but leaves `property`
-		// and `indexType` verbatim. That asymmetry is deliberate today: the
-		// GET-status bleed suppression keys off the exact canonical indexType
-		// spelling ("searchable"/"filterable"/"rangeFilters"). This test pins
-		// the asymmetry so a future change that starts or stops folding any of
-		// the three fields is a conscious edit here, not a silent behavior drift.
+		// and `indexType` verbatim (GET-status suppression keys off the exact
+		// canonical indexType spelling). Pinned so a change here is deliberate,
+		// not silent drift.
 		assert.Equal(t, "mycollection/Title/searchable",
 			reindexDeleteMarkerKey("MyCollection", "Title", "searchable"),
 			"collection must fold to lower-case; property and indexType must be preserved verbatim")

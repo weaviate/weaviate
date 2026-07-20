@@ -275,12 +275,10 @@ func validateTokenizationChange(
 		return "", fmt.Errorf("property %q already uses tokenization %q", propName, targetTokenization)
 	}
 
-	// change-tokenization preserves the bucket's existing strategy, so derive
-	// it from RAFT-consistent state (durable stamp, else class flag / task
-	// list) rather than a per-node shard probe, which fails on a node holding
-	// no shard. The stamp is what keeps a stamped-blockmax property on
-	// StrategyInverted after its migration task has aged out — without it this
-	// hop silently rewrote the blockmax bucket as WAND.
+	// change-tokenization preserves the bucket's existing strategy, derived
+	// from RAFT-consistent state (durable stamp, else class flag/task list)
+	// rather than a per-node shard probe. The stamp is what keeps a
+	// stamped-blockmax property on StrategyInverted after its task ages out.
 	return lsmkv.DefaultSearchableStrategy(
 		db.SearchablePropertyIsBlockmax(class, propName, reindexTasks)), nil
 }

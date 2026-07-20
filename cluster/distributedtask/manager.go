@@ -333,10 +333,8 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 			existing = append(existing, t)
 		}
 		if err := cd.CheckConflict(r.Payload, existing); err != nil {
-			// Ride the permanent-rejection sentinel so the REST submit path
-			// (and any cross-node caller after the gRPC round-trip via
-			// [RehydratePermanentRejection]) can classify this as a 409
-			// Conflict rather than a 500 — see [ErrTaskConflict].
+			// Ride the permanent-rejection sentinel (see [ErrTaskConflict]) so
+			// the REST submit path classifies this as 409, not 500.
 			return wrapPermanent(ErrTaskConflict,
 				fmt.Sprintf("task %s/%s conflicts with existing task: %v", r.Namespace, r.Id, err))
 		}

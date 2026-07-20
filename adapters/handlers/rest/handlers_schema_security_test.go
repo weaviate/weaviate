@@ -52,11 +52,9 @@ func (r *recordingReindexLister) ListDistributedTasks(context.Context) (map[stri
 	return nil, nil
 }
 
-// TestCheckReindexConflictForPropertyMutation_RedactsForeignTaskID pins that an
-// undecodable in-flight task's (possibly foreign-namespace) ID is NOT returned
-// to the caller — StripErrorMessage only strips the caller's own namespace, so
-// echoing task.ID leaked a cross-tenant identifier. The operator can still act:
-// the ID is logged server-side.
+// TestCheckReindexConflictForPropertyMutation_RedactsForeignTaskID pins that a
+// foreign-namespace task ID is never returned to the caller (only logged
+// server-side) — StripErrorMessage only strips the caller's own namespace.
 func TestCheckReindexConflictForPropertyMutation_RedactsForeignTaskID(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := logrus.New()
@@ -86,8 +84,7 @@ func TestCheckReindexConflictForPropertyMutation_RedactsForeignTaskID(t *testing
 }
 
 // TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight pins that an
-// unprivileged caller gets 403 BEFORE the conflict pre-flight (the redaction
-// site) runs — the authz that governs this operation must not be reached only
+// unprivileged caller gets 403 before the conflict pre-flight runs, not only
 // deep inside manager.DeleteClassPropertyIndex.
 func TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight(t *testing.T) {
 	lister := &recordingReindexLister{}

@@ -166,11 +166,9 @@ func (h *indexesHandlers) listReindexTasks(ctx context.Context, principal *model
 	return reindexTasksOrFailClosed(ctx, principal, h.appState.ClusterService, h.appState.Logger)
 }
 
-// reindexTasksOrFailClosed lists the reindex-namespace tasks from lister,
-// failing closed with a 503 responder rather than deriving blockmax /
-// idempotency / conflict decisions from a partial view. Split from
-// [listReindexTasks] so the live fail-closed path is unit-testable with a fake
-// lister (the concrete cluster service cannot be made to error in a unit test).
+// reindexTasksOrFailClosed lists reindex-namespace tasks from lister, failing
+// closed (503) rather than deriving decisions from a partial view. Split from
+// [listReindexTasks] so this path is unit-testable with a fake lister.
 func reindexTasksOrFailClosed(ctx context.Context, principal *models.Principal, lister distributedtask.TaskLister, logger logrus.FieldLogger) ([]*distributedtask.Task, middleware.Responder) {
 	tasks, err := lister.ListDistributedTasks(ctx)
 	if err != nil {
@@ -286,23 +284,20 @@ func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection stri
 		return plan, err
 	}
 
-	// A NO_OP claims "already in the desired state" and returns 200 BEFORE the
-	// submit path's checkReindexConflict runs — so an in-flight task with an
-	// undecodable payload (which could be migrating this property to a
-	// contradictory state) would be silently skipped. We can't decode it to
-	// prove otherwise, so refuse the false 200 and fail closed with 503,
-	// matching the submit path's posture.
+	// A NO_OP returns 200 before the submit path's conflict check runs, so an
+	// undecodable in-flight task (which might be migrating this property to a
+	// contradictory state) must fail closed (503) here instead of silently
+	// slipping through as a false 200.
 	if plan.noop && hasUnverifiableInFlightTask(reindexTasks) {
 		return upsertPlan{failClosed: true}, nil
 	}
 	return plan, nil
 }
 
-// hasUnverifiableInFlightTask reports whether any in-flight (IsActive) reindex
-// task has a payload we cannot trust: undecodable, or decoded but missing
-// Collection / MigrationType. Same epistemic state as [checkReindexConflict] —
-// we cannot prove such a task is not migrating the target property, so the
-// NO_OP path must fail closed rather than return a false 200.
+// hasUnverifiableInFlightTask reports whether any in-flight reindex task has
+// an untrustworthy payload (undecodable, or missing Collection/MigrationType):
+// same epistemic gap as [checkReindexConflict], so the NO_OP path must fail
+// closed rather than return a false 200.
 func hasUnverifiableInFlightTask(reindexTasks []*distributedtask.Task) bool {
 	for _, t := range reindexTasks {
 		if !t.Status.IsActive() {
@@ -437,10 +432,9 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 }
 
 // activeFilterableTaskFor returns the in-flight task (if any) writing this
-// property's filterable bucket, and whether it already converges to what this
-// request asks for. currentTok is the property's present tokenization: an
-// in-flight enable-filterable builds with the current tokenization and carries
-// no explicit target, so a create request converges to it.
+// property's filterable bucket, and whether it already converges to the
+// request. currentTok is the property's tokenization (enable-filterable
+// builds with it and carries no explicit target).
 func activeFilterableTaskFor(collection, propName, tok, currentTok string, reindexTasks []*distributedtask.Task) (task *distributedtask.Task, matches bool) {
 	for _, t := range reindexTasks {
 		if !t.Status.IsActive() {
@@ -484,14 +478,10 @@ func resolveFilterableUpsert(collection string, prop *models.Property, tok, algo
 		return upsertPlan{}, errors.New("the algorithm field is only valid for a searchable index")
 	}
 
-	// An in-flight task writing this filterable bucket owns the outcome
-	// (declarative idempotency): a request converging to the same target
-	// NO-OPs; a specific requested change to a DIFFERENT target 409s. Checked
-	// before the schema read so a mid-migration repeat doesn't fall through to
-	// a spurious downstream conflict. An empty body (no requested change) with
-	// a non-matching in-flight retokenize falls through to the flag diff, which
-	// NO_OPs on the already-existing index — mirroring searchable's empty-body
-	// behaviour.
+	// An in-flight task writing this bucket owns the outcome: a converging
+	// request NO-OPs, a different requested target 409s — checked before the
+	// schema read so a mid-migration repeat doesn't fall through to a
+	// spurious conflict.
 	if task, matches := activeFilterableTaskFor(collection, prop.Name, tok, prop.Tokenization, reindexTasks); task != nil {
 		if matches {
 			return upsertPlan{noop: true}, nil
@@ -710,14 +700,9 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	// state and reporting false success. Must clean BOTH dirs for a coupled
 	// change-tokenization — see indexTypesFromMigrationType godoc.
 	//
-	// Fail CLOSED on a cleanup error rather than log-and-continue: proceeding
-	// could let the new task short-circuit on the stale state (OnAfterLsmInit's
-	// IsTidied check) and report a false success — the Sev-1 silent data loss
-	// that cleanup exists to prevent (see indexTypesFromMigrationType / Journey
-	// 7). The Index-level cleanup returns aggregated errors precisely so the
-	// caller can refuse the submit. A failed submit is loud and recoverable; a
-	// false success is neither. (ErrBucketNotFound races are swallowed inside
-	// the shard cleanup, so a returned error is a genuine failure.)
+	// Fail CLOSED on a cleanup error: a failed submit is loud and recoverable,
+	// but proceeding risks the new task short-circuiting on stale state and
+	// reporting a false success instead.
 	if indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType); known {
 		for _, it := range indexTypesForCleanup {
 			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
@@ -767,12 +752,10 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	})
 }
 
-// mapSubmitTaskError classifies an AddDistributedTask error. The FSM-level
-// ConflictDetector rejects a task that races another node's concurrent submit
-// on overlapping properties; that is a 409 Conflict, not a 500. The specific
-// task IDs (which could name a different property's task) are logged
-// server-side, not returned to the caller. Every other failure is a genuine
-// infra error → 500.
+// mapSubmitTaskError classifies an AddDistributedTask error: an FSM
+// ConflictDetector rejection (a racing concurrent submit) maps to 409, with
+// the task ID logged server-side rather than returned. Everything else is a
+// genuine infra error → 500.
 func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collection, taskID string, err error) middleware.Responder {
 	if errors.Is(err, distributedtask.ErrTaskConflict) {
 		h.appState.Logger.WithFields(logrus.Fields{

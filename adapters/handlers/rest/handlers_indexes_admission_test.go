@@ -173,11 +173,8 @@ func (f fakeTaskLister) ListDistributedTasks(context.Context) (map[string][]*dis
 	return f.tasks, f.err
 }
 
-// Pins the LIVE fail-closed 503 path: when listing in-flight tasks fails, the
-// submit must reject with 503 rather than derive preconditions from a partial
-// view. This is the path that actually runs in production (the old
-// checkReindexAdmission listErr branch was dead — no caller passed a non-nil
-// error).
+// Pins the live fail-closed 503 path: a list failure must reject rather than
+// derive preconditions from a partial view.
 func TestReindexTasksOrFailClosed_ListErrorReturns503(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)

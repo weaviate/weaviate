@@ -1868,17 +1868,10 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 	}
 }
 
-// repairCommandsForFailedMigration returns the operator REST command(s) to
-// recover property propName after payload's semantic migration FAILED.
-//
-// enable-* and change-algorithm never flip their target flag on failure (the
-// schema reverts to pre-migration state), so a POST .../rebuild would 400:
-// enable-* leaves no index to rebuild ("use enable to create one"), and
-// change-algorithm leaves the searchable index on WAND ("migrate to blockmax
-// first"). Those get the PUT that re-runs the migration instead. Retokenize
-// migrations (change-tokenization[-filterable]) act on a pre-existing bucket a
-// partial swap may have torn, so rebuilding it against the current schema is
-// the correct repair.
+// repairCommandsForFailedMigration returns the operator command(s) to recover
+// propName after payload's migration FAILED. enable-*/change-algorithm never
+// flip their flag on failure, so /rebuild would 400 — those re-run via PUT
+// instead; retokenize migrations rebuild the pre-existing bucket.
 func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName string) []string {
 	c := payload.Collection
 	rebuild := func(indexType string) string {
@@ -2125,10 +2118,9 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		return nil
 
 	case ReindexTypeChangeAlgorithm:
-		// Stamp this task's own properties blockmax FIRST and unconditionally,
-		// so per-property truth is durable (survives the completed-task list
-		// ageing out) and a sibling's later same-tick defer check reads the
-		// stamp instead of a not-yet-FINISHED task.
+		// Stamp FIRST and unconditionally: per-property truth must be durable
+		// before a sibling's same-tick defer check runs, or that sibling would
+		// read a not-yet-FINISHED task instead of this stamp.
 		if err := p.stampSearchableBlockmax(ctx, payload.Collection, payload.Properties); err != nil {
 			return fmt.Errorf("stamp searchableBlockmax: %w", err)
 		}
@@ -2152,13 +2144,11 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	}
 }
 
-// stampSearchableBlockmax durably records that each of propNames on collection
-// now has a blockmax (StrategyInverted) searchable bucket, via a masked
-// per-property RAFT UpdateProperty. Idempotent at the mutator level: a property
-// already stamped is skipped (the mutate re-reads fresh class state), so
-// repeated OnTaskCompleted firings, post-restart replays, and the read-repair
-// pass produce at most one commit per property. Shared by the change-algorithm
-// cutover and the shard-init read-repair ([RunSearchableBlockmaxRepair]).
+// stampSearchableBlockmax durably records propNames as blockmax on collection
+// via a masked RAFT UpdateProperty. Idempotent (already-stamped properties are
+// skipped), so repeated firings/replays/read-repair produce at most one commit
+// per property. Shared by the change-algorithm cutover and
+// [RunSearchableBlockmaxRepair].
 func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collection string, propNames []string) error {
 	trueVal := true
 	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, collection, propNames,
@@ -2205,9 +2195,8 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 		if _, ok := completing[prop.Name]; ok {
 			continue // finalizing to blockmax now
 		}
-		// Route through the durable-stamp resolver: a sibling stamped by its own
-		// change-algorithm completion (this or an earlier tick) no longer forces
-		// a spurious defer once its task has aged out or is still SWAPPING.
+		// Durable-stamp resolver: a sibling stamped by its own completion no
+		// longer forces a spurious defer once its task ages out or is SWAPPING.
 		if !SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
 			logger.WithField("property", prop.Name).Info("reindex provider: change-algorithm cutover deferred — a sibling searchable property is still on WAND (its migration will complete the flip)")
 			return true, nil

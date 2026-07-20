@@ -21,10 +21,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// TestFindCancelTargetTask_IsActive pins that cancel targets every in-flight
-// status (STARTED/PREPARING/SWAPPING), not just STARTED — otherwise a
-// PREPARING/SWAPPING task returns NO_OP on cancel yet still 409s a follow-up
-// PUT, leaving the operator with no way forward.
+// TestFindCancelTargetTask_IsActive pins that cancel matches every in-flight
+// status (STARTED/PREPARING/SWAPPING), not just STARTED.
 func TestFindCancelTargetTask_IsActive(t *testing.T) {
 	mk := func(status distributedtask.TaskStatus) *distributedtask.Task {
 		return activeReindexTask("C:enable-filterable:p:aaaa", "C",
