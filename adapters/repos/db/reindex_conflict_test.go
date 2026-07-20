@@ -277,6 +277,68 @@ func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
 	}
 }
 
+// TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed pins that the
+// pre-parsed GET-handler variant (SF-4: O(tasks+properties), no per-property
+// re-unmarshal) resolves identically to the task-list SearchablePropertyIsBlockmax
+// across the full (stamp, classFlag, finished-task) space. The set is built the
+// same way the GET handler builds it.
+func TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed(t *testing.T) {
+	ptr := func(b bool) *bool { return &b }
+	finishedTask := func(mt ReindexMigrationType, props ...string) *distributedtask.Task {
+		payload, err := json.Marshal(ReindexTaskPayload{Collection: "C", MigrationType: mt, Properties: props})
+		require.NoError(t, err)
+		return &distributedtask.Task{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: string(mt)},
+			Status:         distributedtask.TaskStatusFinished,
+			Payload:        payload,
+		}
+	}
+
+	tests := []struct {
+		name      string
+		classFlag bool
+		stamp     *bool
+		tasks     []*distributedtask.Task
+	}{
+		{name: "stamp true, flag off, empty tasks", classFlag: false, stamp: ptr(true)},
+		{name: "stamp false, flag off", classFlag: false, stamp: ptr(false)},
+		{name: "nil stamp, flag on", classFlag: true, stamp: nil},
+		{name: "nil stamp, flag off, finished change-algorithm on prop", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeChangeAlgorithm, "text")}},
+		{name: "nil stamp, flag off, finished change-tokenization on prop (not blockmax)", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeChangeTokenization, "text")}},
+		{name: "nil stamp, flag off, finished blockmax task on OTHER prop", classFlag: false, stamp: nil, tasks: []*distributedtask.Task{finishedTask(ReindexTypeRebuildSearchable, "other")}},
+		{name: "nil stamp, flag off, empty tasks", classFlag: false, stamp: nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:               "C",
+				InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: tc.classFlag},
+				Properties:          []*models.Property{{Name: "text", SearchableBlockmax: tc.stamp}},
+			}
+
+			// Build the set exactly as the GET handler does.
+			finishedBlockmaxProps := make(map[string]struct{})
+			for _, task := range tc.tasks {
+				if task.Status != distributedtask.TaskStatusFinished {
+					continue
+				}
+				var p ReindexTaskPayload
+				require.NoError(t, json.Unmarshal(task.Payload, &p))
+				if _, _, producesBlockmax, _ := ReindexBucketEffect(p.MigrationType); !producesBlockmax {
+					continue
+				}
+				for _, prop := range p.Properties {
+					finishedBlockmaxProps[prop] = struct{}{}
+				}
+			}
+
+			want := SearchablePropertyIsBlockmax(class, "text", tc.tasks)
+			got := SearchablePropertyIsBlockmaxParsed(class, "text", finishedBlockmaxProps)
+			require.Equal(t, want, got, "parsed variant must match the task-list resolver")
+		})
+	}
+}
+
 // TestReindexBucketEffect_Exhaustive pins the bucket-effect classification for
 // every migration type AND enforces exhaustiveness in place of the old
 // production panic: a newly-added [ReindexMigrationType] that is not explicitly

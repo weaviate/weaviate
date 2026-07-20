@@ -101,16 +101,46 @@ func producesBlockmaxSearchable(t ReindexMigrationType) bool {
 // init): the stamp and class flag still resolve, the task-list fallback simply
 // contributes nothing.
 func SearchablePropertyIsBlockmax(class *models.Class, propName string, reindexTasks []*distributedtask.Task) bool {
+	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
+		return blockmax
+	}
+	// classFlag is false here (else resolved would be true), so the task-list
+	// fallback carries the whole decision.
+	return SearchablePropertyBlockmaxFromRAFT(false, class.Class, propName, reindexTasks)
+}
+
+// searchableStampOrClassFlag applies the first two precedence tiers of
+// [SearchablePropertyIsBlockmax] — the durable per-property stamp, then the
+// class-wide flag. resolved is false when neither tier decides and the caller
+// must consult the FINISHED reindex-task list.
+func searchableStampOrClassFlag(class *models.Class, propName string) (blockmax, resolved bool) {
 	for _, p := range class.Properties {
 		if p.Name == propName {
 			if p.SearchableBlockmax != nil {
-				return *p.SearchableBlockmax
+				return *p.SearchableBlockmax, true
 			}
 			break
 		}
 	}
-	classFlag := class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND
-	return SearchablePropertyBlockmaxFromRAFT(classFlag, class.Class, propName, reindexTasks)
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
+		return true, true
+	}
+	return false, false
+}
+
+// SearchablePropertyIsBlockmaxParsed is [SearchablePropertyIsBlockmax] for the
+// GET-indexes handler, which iterates every property and has already
+// unmarshaled the reindex task payloads once. finishedBlockmaxProps is the set
+// of property names on this collection left on blockmax by a FINISHED
+// blockmax-producing task; using it keeps the per-property resolution O(1)
+// instead of re-scanning and re-unmarshaling the task list per property. The
+// stamp-first fast path is preserved.
+func SearchablePropertyIsBlockmaxParsed(class *models.Class, propName string, finishedBlockmaxProps map[string]struct{}) bool {
+	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
+		return blockmax
+	}
+	_, ok := finishedBlockmaxProps[propName]
+	return ok
 }
 
 // SearchablePropertyBlockmaxFromRAFT is the legacy per-property blockmax

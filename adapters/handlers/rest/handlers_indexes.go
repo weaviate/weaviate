@@ -154,6 +154,27 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// merge below doesn't re-unmarshal each task N times.
 	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace])
 
+	// Precompute (once) the property set left on blockmax by a FINISHED
+	// blockmax-producing task on this collection, so the per-property blockmax
+	// resolution below is O(1) and doesn't re-scan + re-unmarshal every task
+	// payload per property (SF-4). The stamp / class-flag fast paths still take
+	// precedence inside SearchablePropertyIsBlockmaxParsed.
+	finishedBlockmaxProps := make(map[string]struct{})
+	for _, pt := range parsedTasks {
+		if pt.task.Status != distributedtask.TaskStatusFinished {
+			continue
+		}
+		if !strings.EqualFold(pt.payload.Collection, collection) {
+			continue
+		}
+		if _, _, producesBlockmax, _ := db.ReindexBucketEffect(pt.payload.MigrationType); !producesBlockmax {
+			continue
+		}
+		for _, p := range pt.payload.Properties {
+			finishedBlockmaxProps[p] = struct{}{}
+		}
+	}
+
 	// finalizeWindow bounds the "FINISHED but flag-off → indexing@100%"
 	// override in mergeReindexStatus. The legitimate window is at most
 	// one DTM scheduler tick (the gap between task FINISHED and the
@@ -214,7 +235,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			// migrated). Filterable / rangeable have no equivalent today.
 			if e.indexType == "searchable" && e.flagOn {
 				idx.Algorithm = models.IndexStatusAlgorithmWand
-				if db.SearchablePropertyIsBlockmax(class, prop.Name, activeTasks[db.ReindexNamespace]) {
+				if db.SearchablePropertyIsBlockmaxParsed(class, prop.Name, finishedBlockmaxProps) {
 					idx.Algorithm = models.IndexStatusAlgorithmBlockmax
 				}
 			}
