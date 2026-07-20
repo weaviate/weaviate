@@ -492,13 +492,11 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
-		// Required for in-memory rangeable reads (readerRoaringSetRangeFromSegmentInMemo);
-		// nil here nil-derefs on bufPool.CloneToBuf.
-		bitmapBufPool: roaringset.NewBitmapBufPoolNoop(),
-		HFreshEnabled: true,
-		replicator:    replicator,
-		router:        mockRouter,
-		db:            repo,
+		bitmapBufPool:          roaringset.NewBitmapBufPoolNoop(),
+		HFreshEnabled:          true,
+		replicator:             replicator,
+		router:                 mockRouter,
+		db:                     repo,
 	}
 	{
 		var presetDetectors map[string]*stopwords.Detector
