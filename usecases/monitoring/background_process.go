@@ -30,6 +30,7 @@ const (
 	ProcessCompaction       BackgroundProcess = "compaction"
 	ProcessTombstoneCleanup BackgroundProcess = "tombstone_cleanup"
 	ProcessAsyncReplication BackgroundProcess = "async_replication"
+	ProcessAsyncIndexing    BackgroundProcess = "async_indexing"
 	ProcessTTLDeletion      BackgroundProcess = "ttl_deletion"
 	ProcessReplicaMovement  BackgroundProcess = "replica_movement"
 )
