@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"

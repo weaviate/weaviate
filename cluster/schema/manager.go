@@ -92,6 +92,9 @@ type SchemaManager struct {
 	tenantLimit func() int
 	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
 	tenantLimitErrTemplate func() string
+	// shouldLogSlowApply controls whether slow RAFT apply diagnostics are
+	// emitted.
+	shouldLogSlowApply func() bool
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -153,6 +156,11 @@ func tenantsTransitioningAwayFromActive(tenants []*command.Tenant) []string {
 func (s *SchemaManager) SetTenantLimit(limit func() int, errTemplate func() string) {
 	s.tenantLimit = limit
 	s.tenantLimitErrTemplate = errTemplate
+}
+
+// SetShouldLogSlowApply installs the gate for slow RAFT apply diagnostics.
+func (s *SchemaManager) SetShouldLogSlowApply(fn func() bool) {
+	s.shouldLogSlowApply = fn
 }
 
 // TenantLimitEnforced reports whether a tenant cap is in effect; callers skip
@@ -945,7 +953,7 @@ func (s *SchemaManager) apply(op applyOp) error {
 	var schemaTook, callbackTook, storeTook time.Duration
 	defer func() {
 		total := time.Since(begin)
-		if total < slowApplyThreshold || s.log == nil {
+		if s.shouldLogSlowApply == nil || !s.shouldLogSlowApply() || total < slowApplyThreshold || s.log == nil {
 			return
 		}
 		s.log.WithFields(logrus.Fields{

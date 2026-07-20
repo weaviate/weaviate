@@ -503,6 +503,10 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
 
+	if strategy == segmentindex.StrategyInverted {
+		sg.reconcileAveragePropertyLength(oldLeft, oldRight, newSegment)
+	}
+
 	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)
 
 	sg.metrics.DecSegmentTotalByStrategy(sg.strategy)

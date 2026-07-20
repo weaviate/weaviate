@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -187,7 +188,7 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -196,7 +197,7 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -246,7 +247,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
 				return
 			}
-			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -259,7 +260,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
 				return
 			}
-			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -318,7 +319,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				return
 			}
 			for name := range req.Roles {
-				if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
+				if err := usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(name)); err != nil {
 					ret.Error = err
 					return
 				}
@@ -335,15 +336,20 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
 		f = func() {
-			// A role can't be assigned to a subject in a namespace that's gone or
-			// being deleted; otherwise a late assignment would leave a grouping row
-			// behind after the cleanup cascade has emptied the namespace.
+			// A role can't be assigned to a subject in a namespace that is not
+			// active; while deleting, a late assignment would also leave a
+			// grouping row behind after the cleanup cascade has emptied it.
 			req := &api.AddRolesForUsersRequest{}
 			if err := json.Unmarshal(cmd.SubCommand, req); err != nil {
 				ret.Error = fmt.Errorf("unmarshal add-roles-for-user subcommand: %w", err)
 				return
 			}
-			if err := requireNamespaceActive(st.namespaceManager, subjectNamespace(req.User)); err != nil {
+			subjectNS, err := subjectNamespace(req.User)
+			if err != nil {
+				ret.Error = fmt.Errorf("resolve namespace of subject %q: %w", req.User, err)
+				return
+			}
+			if err := usecasesNamespaces.RequireActive(st.namespaceManager, subjectNS); err != nil {
 				ret.Error = err
 				return
 			}
@@ -497,6 +503,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.MarkTaskFinalized(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FAILED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.MarkTaskFailed(&cmd)
+		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK:
 		f = func() {
 			ret.Error = st.distributedTasksManager.RecordPostCompletionAck(&cmd)
@@ -507,8 +517,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 
 	default:
-		// This could occur when a new command has been introduced in a later app version
-		// At this point, we need to panic so that the app undergo an upgrade during restart
+		// A command introduced by a newer app version. Log and no-op rather than
+		// panic: a crash would wedge the FSM on every unknown entry during a
+		// rolling upgrade. The applied index still advances, so the node stays
+		// consistent and skips the command's effect until it upgrades.
 		const msg = "consider upgrading to newer version"
 		st.log.WithFields(logrus.Fields{
 			"type":  cmd.Type,

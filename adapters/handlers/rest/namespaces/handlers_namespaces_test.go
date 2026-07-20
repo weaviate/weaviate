@@ -244,11 +244,8 @@ func TestCreateNamespace_UnprocessableEntity(t *testing.T) {
 	}
 }
 
-// TestCreateNamespace_Conflict checks that create returns 409 in two
-// cases: when the name belongs to an active namespace, and when the name
-// belongs to one that is still being deleted. Both map to the same
-// response type, so the test also asserts each carries its own distinct
-// message so clients can tell the two situations apart.
+// TestCreateNamespace_Conflict checks the 409 paths: an existing name and a
+// namespace mid-deletion both return Conflict with a distinguishing message.
 func TestCreateNamespace_Conflict(t *testing.T) {
 	principal := &models.Principal{}
 	cases := []struct {
@@ -262,7 +259,7 @@ func TestCreateNamespace_Conflict(t *testing.T) {
 			wantSubstr: "already exists",
 		},
 		{
-			name:       "is being deleted",
+			name:       "being deleted",
 			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, "customer1"),
 			wantSubstr: "being deleted",
 		},
@@ -279,6 +276,57 @@ func TestCreateNamespace_Conflict(t *testing.T) {
 			require.NotNil(t, parsed.Payload)
 			require.Len(t, parsed.Payload.Error, 1)
 			assert.Contains(t, parsed.Payload.Error[0].Message, tc.wantSubstr)
+		})
+	}
+}
+
+// TestCreateNamespace_LifecycleErrorsReturn422 checks that the namespace
+// lifecycle sentinels render 422 with a message that distinguishes them.
+func TestCreateNamespace_LifecycleErrorsReturn422(t *testing.T) {
+	principal := &models.Principal{}
+	cases := []struct {
+		name       string
+		raftErr    error
+		wantSubstr string
+	}{
+		{
+			name:       "namespace suspended",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceSuspended, "customer1"),
+			wantSubstr: "suspended",
+		},
+		{
+			name:       "collection suspended",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrCollectionSuspended, "customer1"),
+			wantSubstr: "suspended",
+		},
+		{
+			name:       "namespace still has resources",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceNotEmpty, "customer1"),
+			wantSubstr: "owned resources",
+		},
+		{
+			name:       "namespace in invalid state",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrInvalidState, "customer1"),
+			wantSubstr: "invalid state",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, authz, raft := newHandler(t)
+			authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
+			raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1"}).Return(nil, 0, tc.raftErr)
+
+			res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			parsed, ok := res.(*nsops.CreateNamespaceUnprocessableEntity)
+			require.True(t, ok, "expected 422, got %T", res)
+			require.NotNil(t, parsed.Payload)
+			require.Len(t, parsed.Payload.Error, 1)
+			assert.Contains(t, parsed.Payload.Error[0].Message, tc.wantSubstr)
+			// This API is excluded from namespaces.PublicMessage: its callers
+			// hold manage_namespaces, so the body keeps the name. The neutral
+			// copy also contains tc.wantSubstr, so only this assertion catches
+			// a cleanup that wires PublicMessage in here.
+			assert.Contains(t, parsed.Payload.Error[0].Message, "customer1")
 		})
 	}
 }
@@ -444,9 +492,21 @@ func TestUpdateNamespace_RaftErrorMapping(t *testing.T) {
 			wantTyped: &nsops.UpdateNamespaceNotFound{},
 		},
 		{
-			name:      "ErrNamespaceDeleting → 409",
+			// No retry can succeed: cleanup removes the namespace, so a
+			// later update 404s.
+			name:      "ErrNamespaceDeleting → 422",
 			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, "customer1"),
-			wantTyped: &nsops.UpdateNamespaceConflict{},
+			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
+		},
+		{
+			name:      "ErrNamespaceSuspended → 422",
+			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceSuspended, "customer1"),
+			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
+		},
+		{
+			name:      "ErrCollectionSuspended → 422",
+			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrCollectionSuspended, "customer1"),
+			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
 		},
 		{
 			name:      "ErrBadRequest → 422",

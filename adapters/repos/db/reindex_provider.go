@@ -1560,7 +1560,12 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 // Skips the flip on non-SWAPPING terminal states (FAILED / CANCELLED) so
 // the schema remains pre-migration when the cluster-wide migration didn't
 // succeed.
-func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
+//
+// Returns a non-nil error on the SWAPPING path when the flip fails: wrapped
+// in [distributedtask.ErrTaskCompletionPermanent] when unrecoverable, plain
+// when transient (weaviate/0-weaviate-issues#297). Terminal-status cleanup
+// always returns nil.
+func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
 	p.clearTaskCaches(task.TaskDescriptor)
@@ -1587,15 +1592,16 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
 			}
 		}
-		return
+		return nil
 	}
 	if payloadErr != nil {
 		logger.Errorf("reindex provider: task-completion: failed to load payload; schema flip will not run: %v", payloadErr)
-		return
+		// An unparsable payload never becomes parsable — permanent.
+		return fmt.Errorf("load payload for schema flip: %w: %w", payloadErr, distributedtask.ErrTaskCompletionPermanent)
 	}
 	if !IsSemanticMigration(payload.MigrationType) {
 		// Format-only migrations flip their metadata inside RunSwapOnShard.
-		return
+		return nil
 	}
 
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
@@ -1606,7 +1612,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		// Leave the overlay in place: buckets are NEW-tokenized but the
 		// schema is still pre-flip on this node — the overlay keeps queries
 		// aligned until either a retry lands or TokenizationFor self-clears.
-		return
+		return fmt.Errorf("schema flip: %w", err)
 	}
 
 	if IsTokenizationChangingMigration(payload.MigrationType) {
@@ -1629,6 +1635,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 			})
 		}
 	}
+
+	return nil
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
@@ -2034,9 +2042,10 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			return fmt.Errorf("flip tokenization: %w", err)
 		}
 		if len(missing) > 0 {
-			// Single-property migration; a missing property between submit
-			// and finalize is a hard error.
-			return fmt.Errorf("property %v not found in class %q at finalize", missing, payload.Collection)
+			// Single-property migration: a property deleted between submit
+			// and finalize can never be flipped — permanent (weaviate/0-weaviate-issues#297).
+			return fmt.Errorf("property %v not found in class %q at finalize: %w",
+				missing, payload.Collection, distributedtask.ErrTaskCompletionPermanent)
 		}
 		logger.WithField("tokenization", payload.TargetTokenization).
 			Info("reindex provider: change-tokenization cutover committed")
@@ -2192,8 +2201,19 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 		if task == nil {
 			continue
 		}
+		task := task
+		// onPropSwapped covers the recovery/resume path; the live Phase-2a
+		// loop uses swapPropAtomic (see the field docs on both).
 		task.onPropSwapped = func(propName string) {
 			shard.SetTokenizationOverlay(propName, target)
+		}
+		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
+			rt reindexTracker, propIdx int, propName string,
+		) (*lsmkv.Bucket, error) {
+			return shard.SwapBucketAndSetOverlay(propName, target,
+				func() (*lsmkv.Bucket, error) {
+					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+				})
 		}
 	}
 	return true

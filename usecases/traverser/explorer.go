@@ -241,7 +241,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		if errors.As(err, &e) {
 			return nil, e
 		}
-		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, fmt.Errorf("explorer: get class: vector search: %w", err)
 	}
 
 	res = e.applyBoostIfNeeded(res, params.Boost, false)
@@ -249,7 +249,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
 		if err != nil {
-			return nil, errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, fmt.Errorf("explorer: get class: extend: %w", err)
 		}
 	}
 
@@ -268,13 +268,13 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 ) ([]search.Result, models.Vector, error) {
 	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
+		return nil, nil, fmt.Errorf("explorer: get class: vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 	}
 
 	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass,
 		params.ClassName, targetVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
+		return nil, nil, fmt.Errorf("explorer: get class: validate target vector: %w", err)
 	}
 
 	// MMR is terminal and per-window: fetch deep enough to reach offset+limit, boost
@@ -414,7 +414,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 			vec, err := e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
 			if err != nil {
-				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
+				return fmt.Errorf("explorer: get class: vectorize search vector: %w", enterrors.NewErrQueryVectorization(err))
 			}
 			searchVectors[i] = vec
 			return nil
@@ -435,7 +435,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 	res, err := e.searcher.VectorSearch(ctx, params, targetVectors, searchVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, nil, fmt.Errorf("explorer: get class: vector search: %w", err)
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -450,7 +450,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, nil, errors.Errorf("grouper: %v", err)
+			return nil, nil, fmt.Errorf("grouper: %w", err)
 		}
 
 		res = grouped
@@ -471,7 +471,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
 		if err != nil {
-			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, nil, fmt.Errorf("explorer: get class: extend: %w", err)
 		}
 	}
 	e.trackUsageGet(res, params)
@@ -554,7 +554,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, errors.Errorf("grouper: %v", err)
+			return nil, fmt.Errorf("grouper: %w", err)
 		}
 
 		res = grouped
@@ -570,7 +570,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, params.ModuleParams)
 		if err != nil {
-			return nil, errors.Errorf("explorer: list class: extend: %v", err)
+			return nil, fmt.Errorf("explorer: list class: extend: %w", err)
 		}
 	}
 
@@ -615,7 +615,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 		keep, err := e.keepObjectsWithTTL(params, res, searchStartTime)
 		if err != nil {
-			return nil, errors.Errorf("object ttl filtering: %v", err)
+			return nil, fmt.Errorf("object ttl filtering: %w", err)
 		}
 		if !keep {
 			continue
@@ -654,7 +654,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 				targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
 				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
 				if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
-					return nil, errors.Errorf("additional: %s for class: %v", err, params.ClassName)
+					return nil, fmt.Errorf("additional: %w for class: %v", err, params.ClassName)
 				}
 
 				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
@@ -804,12 +804,12 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 
 	vector, targetVector, err := e.vectorFromExploreParams(ctx, params)
 	if err != nil {
-		return nil, errors.Errorf("vectorize params: %v", err)
+		return nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 	}
 
 	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil)
 	if err != nil {
-		return nil, errors.Errorf("vector search: %v", err)
+		return nil, fmt.Errorf("vector search: %w", err)
 	}
 
 	e.trackUsageExplore(res, params)
@@ -819,7 +819,7 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 		item.Beacon = crossref.NewLocalhost(item.ClassName, item.ID).String()
 		err = e.appendResultsIfSimilarityThresholdMet(item, &results, params)
 		if err != nil {
-			return nil, errors.Errorf("append results based on similarity: %s", err)
+			return nil, fmt.Errorf("append results based on similarity: %w", err)
 		}
 	}
 
@@ -892,7 +892,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 		// TODO: cross class
 		vector, targetVector, err := e.nearParamsVector.crossClassVectorFromNearObjectParams(ctx, params.NearObject)
 		if err != nil {
-			return nil, "", errors.Errorf("nearObject params: %v", err)
+			return nil, "", fmt.Errorf("nearObject params: %w", err)
 		}
 
 		return vector, targetVector, nil
@@ -912,7 +912,7 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 			paramName, paramValue, e.nearParamsVector.findVector,
 		)
 		if err != nil {
-			return nil, "", errors.Errorf("vectorize params: %v", err)
+			return nil, "", fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 		}
 		return vector, targetVector, nil
 	}

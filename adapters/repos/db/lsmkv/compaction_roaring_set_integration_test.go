@@ -90,7 +90,7 @@ func verifyBucketAgainstControl(t *testing.T, b *Bucket, control []*sroar.Bitmap
 		binary.LittleEndian.PutUint64(key, uint64(i))
 
 		func() {
-			actual, release, err := b.RoaringSetGet(key)
+			actual, release, err := b.RoaringSetGet(context.Background(), key)
 			require.NoError(t, err)
 			defer release()
 
@@ -597,7 +597,7 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			})
 
 			t.Run("verify that objects exist before compaction", func(t *testing.T) {
-				res, release, err := bucket.RoaringSetGet(key)
+				res, release, err := bucket.RoaringSetGet(context.Background(), key)
 				require.NoError(t, err)
 				defer release()
 
@@ -620,7 +620,7 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			})
 
 			t.Run("verify that objects exist after compaction", func(t *testing.T) {
-				res, release, err := bucket.RoaringSetGet(key)
+				res, release, err := bucket.RoaringSetGet(context.Background(), key)
 				require.NoError(t, err)
 				defer release()
 

@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -106,7 +107,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	if nearObject != nil {
 		vector, _, err := v.vectorFromNearObjectParams(ctx, className, nearObject, tenant, targetVector)
 		if err != nil {
-			return nil, errors.Errorf("nearObject params: %v", err)
+			return nil, fmt.Errorf("nearObject params: %w", err)
 		}
 
 		return vector, nil
@@ -187,7 +188,7 @@ func (v *nearParamsVector) targetFromModules(className string, paramValue interf
 	if v.modulesProvider != nil {
 		targetVector, err := v.modulesProvider.TargetsFromSearchParam(className, paramValue)
 		if err != nil {
-			return nil, errors.Errorf("vectorize params: %v", err)
+			return nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 		}
 		return targetVector, nil
 	}
@@ -200,7 +201,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 	if v.modulesProvider != nil {
 		isMultiVector, err := v.modulesProvider.IsTargetVectorMultiVector(className, targetVector)
 		if err != nil {
-			return nil, errors.Errorf("is target vector: %s multi vector: %v", targetVector, err)
+			return nil, fmt.Errorf("is target vector: %s multi vector: %w", targetVector, err)
 		}
 
 		if isMultiVector {
@@ -208,7 +209,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 				className, targetVector, tenant, paramName, paramValue, v.findMultiVector,
 			)
 			if err != nil {
-				return nil, errors.Errorf("vectorize params: %v", err)
+				return nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 			}
 			return vector, nil
 		} else {
@@ -216,7 +217,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 				className, targetVector, tenant, paramName, paramValue, v.findVector,
 			)
 			if err != nil {
-				return nil, errors.Errorf("vectorize params: %v", err)
+				return nil, fmt.Errorf("vectorize params: %w", enterrors.NewErrQueryVectorization(err))
 			}
 			return vector, nil
 		}

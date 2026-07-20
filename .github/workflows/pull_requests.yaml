@@ -330,22 +330,30 @@ jobs:
             exit 0
           fi
   Unit-Tests:
-    name: unit tests
+    name: unit tests (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "adapters"
+            test: "--unit-only-adapters"
+          - name: "non-adapters"
+            test: "--unit-only-non-adapters"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
         uses: ./.github/actions/setup-go
       - name: Unit test
-        run: ./test/run.sh --unit-only
+        run: ./test/run.sh ${{ matrix.test }}
       - name: Archive code coverage results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: coverage-report-unit
+          name: coverage-report-unit-${{ matrix.name }}
           path: coverage-unit.txt
   Integration-Tests:
     name: integration tests (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     strategy:
       fail-fast: false
       matrix:
@@ -375,7 +383,7 @@ jobs:
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     strategy:
       fail-fast: false
       matrix:
@@ -632,7 +640,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     strategy:
       fail-fast: false
       matrix:
@@ -848,10 +856,16 @@ jobs:
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Download coverage artifacts integration
+      - name: Download coverage unit adapters
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: coverage-report-unit
+          name: coverage-report-unit-adapters
+          path: coverage-unit-adapters
+      - name: Download coverage unit non-adapters
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-report-unit-non-adapters
+          path: coverage-unit-non-adapters
       - name: Download coverage integration without vector package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -866,7 +880,7 @@ jobs:
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
         with:
           fail_ci_if_error: false
-          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt
+          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
     name: compile and upload binaries

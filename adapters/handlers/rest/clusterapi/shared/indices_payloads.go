@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -235,7 +236,14 @@ func rowToError(v map[string]interface{}) error {
 // This is because all replication POST/PUT methods mistakenly double send the vector in both storobj and models.Object
 // This function ensures that the models.Object vectors are nil and that only the storobj vectors are sent
 func marshallStorObj(in *storobj.Object) ([]byte, error) {
-	obj := storobj.Object{
+	obj := networkStorObj(in)
+	return obj.MarshalBinary()
+}
+
+// networkStorObj builds the shallow copy of in that the PUT-path network
+// encoding serializes (see marshallStorObj for why the copy exists).
+func networkStorObj(in *storobj.Object) storobj.Object {
+	return storobj.Object{
 		MarshallerVersion: in.MarshallerVersion,
 		Object: models.Object{
 			Additional:         in.Object.Additional,
@@ -259,7 +267,6 @@ func marshallStorObj(in *storobj.Object) ([]byte, error) {
 		Vectors:        in.Vectors,
 		MultiVectors:   in.MultiVectors,
 	}
-	return obj.MarshalBinary()
 }
 
 // unmarshallStorObj converts a byte slice received over the network into a *storobj.Object
@@ -348,90 +355,115 @@ func (p objectListPayload) SetContentTypeHeaderReq(r *http.Request) {
 	r.Header.Set("content-type", p.MIME())
 }
 
+// objectListAllProps mirrors what storobj.(*Object).MarshalBinary includes:
+// everything. It is the addProps set of the non-optional Marshal path.
+var objectListAllProps = additional.Properties{
+	Vector:                  true,
+	IncludeAllTargetVectors: true,
+}
+
+// prepare runs the storobj sizing pass per object, returning prepared
+// marshals plus total framed size (8-byte length prefix + object bytes) so
+// callers wrapping the list in a larger payload can allocate one exact buffer.
+func (p objectListPayload) prepare(in []*storobj.Object, method string, addProps additional.Properties) ([]storobj.PreparedMarshal, int, error) {
+	prepared := make([]storobj.PreparedMarshal, 0, len(in))
+	totalSize := 0
+
+	for _, ind := range in {
+		if ind == nil {
+			continue
+		}
+
+		var pm storobj.PreparedMarshal
+		var err error
+		switch method {
+		case MethodPut:
+			// Need to take vectors out of models.Object into storobj
+			obj := networkStorObj(ind)
+			pm, err = obj.PrepareMarshalOptional(addProps)
+		case MethodGet:
+			// Don't need to modify anything since GET requests don't double send
+			pm, err = ind.PrepareMarshalOptional(addProps)
+		default:
+			return nil, 0, fmt.Errorf("unsupported operation type: %s", method)
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+
+		prepared = append(prepared, pm)
+		totalSize += 8 + pm.Len()
+	}
+
+	return prepared, totalSize, nil
+}
+
+// marshalTo writes the framed object list into buf, which must be exactly
+// the total size returned by prepare.
+func (p objectListPayload) marshalTo(buf []byte, prepared []storobj.PreparedMarshal) error {
+	offset := 0
+	for i := range prepared {
+		objLen := prepared[i].Len()
+		binary.LittleEndian.PutUint64(buf[offset:offset+8], uint64(objLen))
+		offset += 8
+		if err := prepared[i].MarshalTo(buf[offset : offset+objLen]); err != nil {
+			return err
+		}
+		offset += objLen
+	}
+	return nil
+}
+
 func (p objectListPayload) Marshal(in []*storobj.Object, method string) ([]byte, error) {
-	// NOTE: This implementation is not optimized for allocation efficiency,
-	// reserve 1024 byte per object which is rather arbitrary
-	out := make([]byte, 0, 1024*len(in))
-
-	reusableLengthBuf := make([]byte, 8)
-	for _, ind := range in {
-		if ind != nil {
-			var bytes []byte
-			var err error
-			switch method {
-			case MethodPut:
-				// Need to take vectors out of models.Object into storobj
-				bytes, err = marshallStorObj(ind)
-			case MethodGet:
-				// Don't need to modify anything since GET requests don't double send
-				bytes, err = ind.MarshalBinary()
-			default:
-				return nil, fmt.Errorf("unsupported operation type: %s", method)
-			}
-			if err != nil {
-				return nil, err
-			}
-
-			length := uint64(len(bytes))
-			binary.LittleEndian.PutUint64(reusableLengthBuf, length)
-
-			out = append(out, reusableLengthBuf...)
-			out = append(out, bytes...)
-		}
+	prepared, size, err := p.prepare(in, method, objectListAllProps)
+	if err != nil {
+		return nil, err
 	}
 
+	out := make([]byte, size)
+	if err := p.marshalTo(out, prepared); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
-// MarshalWithAdditional is like Marshal but uses MarshalBinaryOptional to conditionally
-// include vectors and properties based on the additional.Properties parameter.
-// This reduces network bandwidth by not transmitting vectors when they are not requested.
+// MarshalWithAdditional is like Marshal but conditionally includes vectors
+// and properties per addProps, reducing bandwidth when they aren't requested.
 func (p objectListPayload) MarshalWithAdditional(in []*storobj.Object, addProps additional.Properties) ([]byte, error) {
-	// NOTE: This implementation is not optimized for allocation efficiency,
-	// reserve 1024 byte per object which is rather arbitrary
-	out := make([]byte, 0, 1024*len(in))
-
-	reusableLengthBuf := make([]byte, 8)
-	for _, ind := range in {
-		if ind != nil {
-			bytes, err := ind.MarshalBinaryOptional(addProps)
-			if err != nil {
-				return nil, err
-			}
-
-			length := uint64(len(bytes))
-			binary.LittleEndian.PutUint64(reusableLengthBuf, length)
-
-			out = append(out, reusableLengthBuf...)
-			out = append(out, bytes...)
-		}
+	prepared, size, err := p.prepare(in, MethodGet, addProps)
+	if err != nil {
+		return nil, err
 	}
 
+	out := make([]byte, size)
+	if err := p.marshalTo(out, prepared); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
+// Unmarshal decodes a framed object list from sub-slices of in; the storobj
+// decoder copies everything it retains, so decoded objects hold no
+// reference into in once Unmarshal returns.
 func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Object, error) {
 	var out []*storobj.Object
 
-	reusableLengthBuf := make([]byte, 8)
-	r := bytes.NewReader(in)
+	offset := 0
+	for offset < len(in) {
+		if len(in)-offset < 8 {
+			return nil, fmt.Errorf("object list: truncated length prefix: %d bytes remaining", len(in)-offset)
+		}
+		payloadLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+		offset += 8
 
-	for {
-		_, err := r.Read(reusableLengthBuf)
-		if errors.Is(err, io.EOF) {
-			break
+		if payloadLen > uint64(len(in)-offset) {
+			return nil, fmt.Errorf("payload read: object payload length %d exceeds remaining %d bytes", payloadLen, len(in)-offset)
 		}
-		if err != nil {
-			return nil, err
-		}
-
-		payloadBytes := make([]byte, binary.LittleEndian.Uint64(reusableLengthBuf))
-		_, err = r.Read(payloadBytes)
-		if err != nil {
-			return nil, fmt.Errorf("payload read: %w", err)
-		}
+		payloadBytes := in[offset : offset+int(payloadLen)]
+		offset += int(payloadLen)
 
 		var obj *storobj.Object
+		var err error
 		switch method {
 		case MethodPut:
 			// Need to add vectors back to models.Object from storobj
@@ -836,26 +868,25 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 	dists []float32,
 ) ([]byte, error) {
-	reusableLengthBuf := make([]byte, 8)
-	var out []byte
-	objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs, MethodGet)
+	prepared, objsLength, err := IndicesPayloads.ObjectList.prepare(objs, MethodGet, objectListAllProps)
 	if err != nil {
 		return nil, err
 	}
 
-	objsLength := uint64(len(objsBytes))
-	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
+	out := make([]byte, 8+objsLength+8+len(dists)*4)
 
-	out = append(out, reusableLengthBuf...)
-	out = append(out, objsBytes...)
+	binary.LittleEndian.PutUint64(out[:8], uint64(objsLength))
+	offset := 8
 
-	distsLength := uint64(len(dists))
-	binary.LittleEndian.PutUint64(reusableLengthBuf, distsLength)
-	out = append(out, reusableLengthBuf...)
+	if err := IndicesPayloads.ObjectList.marshalTo(out[offset:offset+objsLength], prepared); err != nil {
+		return nil, err
+	}
+	offset += objsLength
 
-	distsBuf := make([]byte, distsLength*4)
-	byteops.CopySliceToBytes(distsBuf, dists)
-	out = append(out, distsBuf...)
+	binary.LittleEndian.PutUint64(out[offset:offset+8], uint64(len(dists)))
+	offset += 8
+
+	byteops.CopySliceToBytes(out[offset:offset+len(dists)*4], dists)
 
 	return out, nil
 }
@@ -866,28 +897,11 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
 	dists []float32, addProps additional.Properties, queryProfiles []helpers.ShardQueryProfile,
 ) ([]byte, error) {
-	reusableLengthBuf := make([]byte, 8)
-	var out []byte
-	objsBytes, err := IndicesPayloads.ObjectList.MarshalWithAdditional(objs, addProps)
+	prepared, objsLength, err := IndicesPayloads.ObjectList.prepare(objs, MethodGet, addProps)
 	if err != nil {
 		return nil, err
 	}
 
-	objsLength := uint64(len(objsBytes))
-	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
-
-	out = append(out, reusableLengthBuf...)
-	out = append(out, objsBytes...)
-
-	distsLength := uint64(len(dists))
-	binary.LittleEndian.PutUint64(reusableLengthBuf, distsLength)
-	out = append(out, reusableLengthBuf...)
-
-	distsBuf := make([]byte, distsLength*4)
-	byteops.CopySliceToBytes(distsBuf, dists)
-	out = append(out, distsBuf...)
-
-	// Append optional profile data.
 	var profilesBytes []byte
 	if len(queryProfiles) > 0 {
 		profilesBytes, err = json.Marshal(queryProfiles)
@@ -895,9 +909,26 @@ func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
 			return nil, fmt.Errorf("marshal query profiles: %w", err)
 		}
 	}
-	binary.LittleEndian.PutUint64(reusableLengthBuf, uint64(len(profilesBytes)))
-	out = append(out, reusableLengthBuf...)
-	out = append(out, profilesBytes...)
+
+	out := make([]byte, 8+objsLength+8+len(dists)*4+8+len(profilesBytes))
+
+	binary.LittleEndian.PutUint64(out[:8], uint64(objsLength))
+	offset := 8
+
+	if err := IndicesPayloads.ObjectList.marshalTo(out[offset:offset+objsLength], prepared); err != nil {
+		return nil, err
+	}
+	offset += objsLength
+
+	binary.LittleEndian.PutUint64(out[offset:offset+8], uint64(len(dists)))
+	offset += 8
+
+	byteops.CopySliceToBytes(out[offset:offset+len(dists)*4], dists)
+	offset += len(dists) * 4
+
+	binary.LittleEndian.PutUint64(out[offset:offset+8], uint64(len(profilesBytes)))
+	offset += 8
+	copy(out[offset:], profilesBytes)
 
 	return out, nil
 }

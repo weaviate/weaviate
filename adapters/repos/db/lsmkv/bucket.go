@@ -92,6 +92,12 @@ type Bucket struct {
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
 	flushLock sync.RWMutex
+
+	// lifetimeLock pins this bucket for a whole read (RLock via
+	// Store.AcquireBucketForRead); Shutdown takes Lock() first, draining all
+	// pins before freeing mmap'd segments (no drain timeout — timeout-then-free
+	// would SEGFAULT a reader). Order: lifetimeLock OUTER, flushLock INNER.
+	lifetimeLock sync.RWMutex
 	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
 	// designed assuming a single triggerer at a time (the periodic flush
 	// callback or a control-plane caller — backup, runtime migration,
@@ -1662,6 +1668,26 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
+	// Drain all in-flight read pins first (see the lifetimeLock doc); the
+	// heartbeat makes a wedged drain diagnosable.
+	drained := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-drained:
+				return
+			case <-t.C:
+				b.logger.WithField("dir", b.dir).
+					Warn("bucket shutdown still draining in-flight read pins")
+			}
+		}
+	}, b.logger)
+	b.lifetimeLock.Lock()
+	close(drained)
+	defer b.lifetimeLock.Unlock()
+
 	defer GlobalBucketRegistry.Remove(b.GetDir())
 
 	start := time.Now()
@@ -2106,14 +2132,10 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
 	case StrategyInverted:
-		// update property length only on flush
-		// we don't need to do it on compactions,
-		// as it is not currently tracking deletions
-		avg, count := seg.getInvertedData().avgPropertyLengthsAvg, seg.getInvertedData().avgPropertyLengthsCount
-		if count > 0 {
-			b.disk.averagePropSum.Add(uint64(avg * float64(count)))
-			b.disk.averagePropCount.Add(count)
-		}
+		// A flush only adds the new segment's live docs; deletes are subtracted
+		// later at compaction, once the tombstoned docs' lengths drop out of the
+		// merged segment (reconcileAveragePropertyLength).
+		b.disk.countSegmentAveragePropLength(seg)
 	}
 
 	return nil
@@ -2300,25 +2322,34 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 	// active memtable
 	output[len(view.Disk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
-	// Memtable tombstones are invariant within a consistent view: read once and
-	// OR into a single bitmap shared by every term.
-	memTombstones := sroar.NewBitmap()
-	var activeTombstones *sroar.Bitmap
+	// Memtable tombstones are invariant within a consistent view. ReadOnlyTombstones
+	// returns a shared immutable snapshot, so reuse it directly when only one memtable
+	// carries tombstones; allocate a merged bitmap only when both are present.
+	var activeTombstones, flushingTombstones *sroar.Bitmap
 	if view.Active != nil {
 		activeTombstones, err = view.Active.ReadOnlyTombstones()
 		if err != nil {
 			view.ReleaseView()
 			return nil, nil, func() {}, fmt.Errorf("active tombstones: %w", err)
 		}
-		memTombstones.Or(activeTombstones)
 	}
 	if view.Flushing != nil {
-		flushingTombstones, err := view.Flushing.ReadOnlyTombstones()
+		flushingTombstones, err = view.Flushing.ReadOnlyTombstones()
 		if err != nil {
 			view.ReleaseView()
 			return nil, nil, func() {}, fmt.Errorf("flushing tombstones: %w", err)
 		}
-		memTombstones.Or(flushingTombstones)
+	}
+	var memTombstones *sroar.Bitmap
+	switch {
+	case activeTombstones != nil && flushingTombstones != nil:
+		memTombstones = sroar.Or(activeTombstones, flushingTombstones)
+	case activeTombstones != nil:
+		memTombstones = activeTombstones
+	case flushingTombstones != nil:
+		memTombstones = flushingTombstones
+	default:
+		memTombstones = sroar.NewBitmap()
 	}
 
 	// One index descent per (segment, term): diskNodes/diskNodeOk cache the node

@@ -135,8 +135,15 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 
 	l.shardOpts.promMetrics.StartLoadingShard()
 
+	// Re-read the class so schema changes made while the shard was cold take
+	// effect at load. Fall back to the captured snapshot if it was dropped.
+	class := l.shardOpts.index.getClass()
+	if class == nil {
+		class = l.shardOpts.class
+	}
+
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
+		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
 		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
 		l.shardOpts.bitmapBufPool)
 	if err != nil {
