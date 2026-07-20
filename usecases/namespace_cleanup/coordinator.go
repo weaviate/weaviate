@@ -14,9 +14,9 @@
 //
 // Deletion is split into a fast synchronous half and a slow
 // asynchronous half. The DELETE handler flips the namespace to
-// deleting, drains its DB users, and returns 202. This package then
-// removes the rest on a periodic tick: aliases, then classes, then
-// the namespace entry itself. Aliases come before classes because an
+// deleting and returns 202. This package then removes the contents on
+// a periodic tick: DB users, then aliases, then classes, then the
+// namespace entry itself. Aliases come before classes because an
 // alias points at a class. Class deletion is the slow part, which is
 // why it lives here rather than in the request path.
 //
@@ -26,9 +26,6 @@
 // cluster needs an after-the-fact cleanup path regardless; once that
 // path exists, routing the bulk of the work through it is cheaper
 // than duplicating the logic in the request handler.
-//
-// The user delete is re-run as a safety net whenever leftover users remain,
-// in case the handler crashed between marking and the eager drain.
 //
 // Every step is a separate replicated command, so any failure is
 // retried on the next tick. Because the coordinator's view of what
@@ -179,7 +176,7 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, namespace stri
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Skip the no-op RAFT entry when no users remain to redrain.
+	// Skip the no-op RAFT entry when no users remain.
 	if len(c.users.UsersInNamespace(namespace)) > 0 {
 		if err := c.raft.DeleteUsersInNamespace(ctx, namespace); err != nil {
 			return err

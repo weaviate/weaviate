@@ -65,10 +65,6 @@ func (m *mockRaft) ChangeNamespaceState(ctx context.Context, name string, target
 	return uint64(args.Int(0)), args.Error(1)
 }
 
-func (m *mockRaft) DeleteUsersInNamespace(ctx context.Context, name string) error {
-	return m.Called(ctx, name).Error(0)
-}
-
 func (m *mockRaft) GetNamespaces(names ...string) ([]cmd.Namespace, error) {
 	// Convert variadic to []interface{} for Called.
 	args := make([]interface{}, len(names))
@@ -663,21 +659,15 @@ func TestGetNamespace_OK(t *testing.T) {
 // deleteNamespace
 // -----------------------------------------------------------------------------
 
-// TestDeleteNamespace_TwoPhase exercises the two-phase delete: each case
-// configures the ChangeNamespaceState and (optionally) DeleteUsersInNamespace
-// mocks and asserts the expected typed HTTP response. The happy path also
-// covers the idempotent recall: deleting → deleting returns nil, the user
-// drain is a no-op, and the handler returns 202 again.
-func TestDeleteNamespace_TwoPhase(t *testing.T) {
+// TestDeleteNamespace flips the namespace to deleting and asserts the typed
+// HTTP response. The auth guard invalidates the namespace's keys, so the
+// handler issues no user drain; the cleanup tick reclaims the rows.
+func TestDeleteNamespace(t *testing.T) {
 	principal := &models.Principal{}
 	cases := []struct {
 		name           string
 		changeStateErr error
-		// When the test exercises the user-drain step, drainErr is set.
-		// callDrain controls whether the mock expectation is registered.
-		callDrain bool
-		drainErr  error
-		wantTyped any
+		wantTyped      any
 	}{
 		{
 			name:           "ChangeNamespaceState returns ErrNotFound → 404",
@@ -690,19 +680,7 @@ func TestDeleteNamespace_TwoPhase(t *testing.T) {
 			wantTyped:      &nsops.DeleteNamespaceInternalServerError{},
 		},
 		{
-			name:      "DeleteUsersInNamespace untyped error → 500",
-			callDrain: true,
-			drainErr:  errors.New("dynusers boom"),
-			wantTyped: &nsops.DeleteNamespaceInternalServerError{},
-		},
-		{
 			name:      "happy path returns 202",
-			callDrain: true,
-			wantTyped: &nsops.DeleteNamespaceAccepted{},
-		},
-		{
-			name:      "idempotent re-call returns 202",
-			callDrain: true,
 			wantTyped: &nsops.DeleteNamespaceAccepted{},
 		},
 	}
@@ -711,12 +689,10 @@ func TestDeleteNamespace_TwoPhase(t *testing.T) {
 			h, authz, raft := newHandler(t)
 			authz.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Namespaces("customer1")[0]).Return(nil)
 			raft.On("ChangeNamespaceState", mock.Anything, "customer1", cmd.NamespaceStateDeleting).Return(0, tc.changeStateErr)
-			if tc.callDrain {
-				raft.On("DeleteUsersInNamespace", mock.Anything, "customer1").Return(tc.drainErr)
-			}
 
 			res := h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 			assert.IsType(t, tc.wantTyped, res)
+			raft.AssertNotCalled(t, "DeleteUsersInNamespace")
 		})
 	}
 }

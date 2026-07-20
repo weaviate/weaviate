@@ -141,7 +141,7 @@ func configureCrons(appState *state.State, serverShutdownCtx context.Context) *c
 }
 
 func configureAPIKey(appState *state.State) *apikey.ApiKey {
-	c, err := apikey.New(appState.ServerConfig.Config, appState.Logger)
+	c, err := apikey.New(appState.ServerConfig.Config, appState.Logger, appState.NamespacesController)
 	if err != nil {
 		appState.Logger.WithField("action", "api_keys_init").WithError(err).Fatal("apikey client could not start up")
 		os.Exit(1)

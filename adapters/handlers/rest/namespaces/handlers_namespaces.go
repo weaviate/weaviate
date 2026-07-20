@@ -38,7 +38,6 @@ type NamespaceRaftGetter interface {
 	AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespace, uint64, error)
 	UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error)
 	ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
-	DeleteUsersInNamespace(ctx context.Context, name string) error
 	GetNamespaces(names ...string) ([]cmd.Namespace, error)
 	StorageCandidates() []string
 }
@@ -267,11 +266,9 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 		return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	// Two-phase delete. First flip to deleting; the apply handler is
-	// idempotent on already-deleting (returns nil). Then issue the
-	// namespace-scoped user delete. Order matters: marking first ensures
-	// the dynusers active-namespace gate rejects any concurrent CreateUser
-	// before we drain the user list.
+	// Flip to deleting; the apply handler is idempotent on already-deleting
+	// (returns nil). Keys in the namespace stop authenticating as soon as the
+	// flip applies, and the rows are reclaimed by the cleanup tick.
 	if _, err := h.raft.ChangeNamespaceState(ctx, name, cmd.NamespaceStateDeleting); err != nil {
 		if errors.Is(err, usecasesNamespaces.ErrNotFound) {
 			return nsops.NewDeleteNamespaceNotFound().WithPayload(
@@ -279,10 +276,6 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 		}
 		return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
 			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("marking namespace for deletion: %w", err)))
-	}
-	if err := h.raft.DeleteUsersInNamespace(ctx, name); err != nil {
-		return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("deleting users in namespace: %w", err)))
 	}
 
 	return nsops.NewDeleteNamespaceAccepted()
