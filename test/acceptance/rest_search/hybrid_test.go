@@ -83,20 +83,9 @@ func TestRESTSearchHybrid(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 
-	// no searchable property: the keyword leg has nothing to expand to
-	ledgerClass := &models.Class{
-		Class:      "Ledger",
-		Vectorizer: "text2vec-contextionary",
-		Properties: []*models.Property{
-			{Name: "year", DataType: schema.DataTypeInt.PropString()},
-			{
-				Name: "code", DataType: schema.DataTypeText.PropString(),
-				IndexSearchable: func() *bool { b := false; return &b }(),
-			},
-		},
-	}
-
-	classes := []*models.Class{songClass, zineClass, zettelClass, ledgerClass}
+	// vectorized but with no searchable property: the keyword leg has
+	// nothing to expand to, while the vector leg works
+	classes := []*models.Class{songClass, zineClass, zettelClass, unsearchableLedgerClass("text2vec-contextionary")}
 	for _, class := range classes {
 		helper.CreateClass(t, class)
 	}
@@ -153,24 +142,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 
 		// the vector leg returns every object by distance, so both songs come
 		// back; the keyword match must rank first
-		res := results(t, out)
-		require.Len(t, res, 2)
-		_, ok := out["tookMs"].(float64)
-		assert.True(t, ok, "tookMs missing or not a number: %v", out)
-
-		prev := float64(-1)
-		for i := range res {
-			h := hit(t, out, i)
-			id := idOf(t, h)
-			require.True(t, strfmt.IsUUID(id), "id is not a UUID: %q", id)
-			metadata := metadataOf(t, h)
-			score, ok := metadata["score"].(float64)
-			require.True(t, ok, "score missing in metadata: %v", metadata)
-			if prev >= 0 {
-				assert.LessOrEqual(t, score, prev, "fused scores must descend")
-			}
-			prev = score
-		}
+		assertScoredHits(t, out, 2, false)
 		assert.Equal(t, hybridSong1ID.String(), idOf(t, hit(t, out, 0)))
 	})
 

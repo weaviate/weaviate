@@ -116,6 +116,51 @@ func idOf(t *testing.T, h map[string]interface{}) string {
 	return id
 }
 
+// unsearchableLedgerClass has no searchable property: ints are never
+// keyword-searchable and its sole text property disables its searchable
+// index.
+func unsearchableLedgerClass(vectorizer string) *models.Class {
+	return &models.Class{
+		Class:      "Ledger",
+		Vectorizer: vectorizer,
+		Properties: []*models.Property{
+			{Name: "year", DataType: schema.DataTypeInt.PropString()},
+			{
+				Name: "code", DataType: schema.DataTypeText.PropString(),
+				IndexSearchable: func() *bool { b := false; return &b }(),
+			},
+		},
+	}
+}
+
+// assertScoredHits asserts the scored-envelope shape shared by the keyword
+// and hybrid endpoints: tookMs present, every hit a UUID id with a score in
+// its metadata, scores descending. requirePositive additionally demands
+// every score be above zero (bm25; hybrid's relative-score fusion may
+// normalize the last hit to 0).
+func assertScoredHits(t *testing.T, out map[string]interface{}, wantHits int, requirePositive bool) {
+	t.Helper()
+	res := results(t, out)
+	require.Len(t, res, wantHits)
+	_, ok := out["tookMs"].(float64)
+	assert.True(t, ok, "tookMs missing or not a number: %v", out)
+
+	prev := float64(-1)
+	for i := range res {
+		h := hit(t, out, i)
+		require.True(t, strfmt.IsUUID(idOf(t, h)), "id is not a UUID: %v", h)
+		score, ok := metadataOf(t, h)["score"].(float64)
+		require.True(t, ok, "score missing in metadata: %v", h)
+		if requirePositive {
+			assert.Greater(t, score, float64(0))
+		}
+		if prev >= 0 {
+			assert.LessOrEqual(t, score, prev, "scores must descend")
+		}
+		prev = score
+	}
+}
+
 func movieClass() *models.Class {
 	return &models.Class{
 		Class:      "Movie",
