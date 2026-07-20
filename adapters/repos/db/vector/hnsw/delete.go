@@ -34,6 +34,7 @@ import (
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type breakCleanUpTombstonedNodesFunc func() bool
@@ -329,6 +330,10 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	if !ok {
 		return executed, nil
 	}
+
+	// mark as active only once real cleanup work begins; empty cycles do not
+	// count as runs
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessTombstoneCleanup)()
 
 	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
 	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())

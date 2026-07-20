@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -196,6 +197,7 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 			}).Debug("collection ticker fired - starting collection cycle")
 
 			enterrors.GoWrapper(func() {
+				defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessUsageCollection)()
 				if err := b.collectAndUploadUsage(ctx); err != nil {
 					b.logger.WithError(err).Error("Failed to collect and upload usage data")
 					b.metrics.OperationTotal.WithLabelValues("collect_and_upload", "error").Inc()
