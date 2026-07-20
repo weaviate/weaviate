@@ -37,9 +37,37 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// TestValidateTokenizationChange_StampedBlockmaxKeepsInverted pins the exact
+// corrupting hop of weaviate/weaviate#12252. change-tokenization derives the
+// searchable bucket strategy for its reindex; a property migrated to blockmax
+// in a permanently-partial class (class flag never flipped) whose FINISHED task
+// has aged out MUST still derive StrategyInverted. Deriving StrategyMapCollection
+// bakes a WAND bucket into the RAFT task payload and silently downgrades the
+// blockmax index with term-frequency-wrong BM25 lengths — no error surfaced.
+func TestValidateTokenizationChange_StampedBlockmaxKeepsInverted(t *testing.T) {
+	tr := true
+	class := &models.Class{
+		Class:               "C",
+		InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: false}, // partial: flag never flipped
+		Properties: []*models.Property{{
+			Name:               "text",
+			DataType:           []string{"text"},
+			Tokenization:       models.PropertyTokenizationWord,
+			IndexSearchable:    &tr,
+			SearchableBlockmax: &tr, // durably stamped blockmax
+		}},
+	}
+	// nil task list == the FINISHED migration task has aged out of the DTM.
+	strategy, err := validateTokenizationChange(class, "text", models.PropertyTokenizationWhitespace, nil)
+	require.NoError(t, err)
+	require.Equal(t, lsmkv.StrategyInverted, strategy,
+		"stamped-blockmax property must keep StrategyInverted after its migration task ages out")
+}
 
 // -----------------------------------------------------------------------------
 // propsOverlap — property-scope correctness, including prefix-similar names.

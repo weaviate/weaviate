@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // TestReindexPropsOverlap pins the property-overlap rule that
@@ -229,6 +230,73 @@ func TestSearchablePropertyBlockmaxFromRAFT(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// TestSearchablePropertyIsBlockmax_TruthTable pins the stamp-first resolver over
+// the full (classFlag, stamp, taskList) space. The load-bearing row is the one
+// both QA rounds missed: a stamped-blockmax property with the class flag OFF and
+// an EMPTY (aged-out) task list must resolve to blockmax — the legacy
+// derivation returned WAND there, silently corrupting BM25 on the next
+// change-tokenization.
+func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
+	finishedBlockmaxTask := func() []*distributedtask.Task {
+		payload, err := json.Marshal(ReindexTaskPayload{
+			Collection: "C", MigrationType: ReindexTypeChangeAlgorithm, Properties: []string{"text"},
+		})
+		require.NoError(t, err)
+		return []*distributedtask.Task{{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t"},
+			Status:         distributedtask.TaskStatusFinished,
+			Payload:        payload,
+		}}
+	}
+	ptr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name      string
+		classFlag bool
+		stamp     *bool
+		tasks     []*distributedtask.Task
+		want      bool
+	}{
+		{name: "stamp true, class flag off, aged-out (empty) task list → blockmax [the fix]", classFlag: false, stamp: ptr(true), tasks: nil, want: true},
+		{name: "stamp true, class flag off, unrelated live tasks → blockmax", classFlag: false, stamp: ptr(true), tasks: finishedBlockmaxTask(), want: true},
+		{name: "stamp false, class flag off → WAND", classFlag: false, stamp: ptr(false), tasks: nil, want: false},
+		{name: "stamp false, class flag on → stamp-first wins (unreachable in prod; stamp is only ever written true)", classFlag: true, stamp: ptr(false), tasks: nil, want: false},
+		{name: "nil stamp, class flag on → blockmax (nil-backfill / all-migrated + snapshot from old node)", classFlag: true, stamp: nil, tasks: nil, want: true},
+		{name: "nil stamp, class flag off, finished blockmax task → blockmax (legacy fallback, task still in TTL window)", classFlag: false, stamp: nil, tasks: finishedBlockmaxTask(), want: true},
+		{name: "nil stamp, class flag off, empty task list → WAND (legacy hole; reachable only for pre-stamp migrations, closed by read-repair)", classFlag: false, stamp: nil, tasks: nil, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:               "C",
+				InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: tc.classFlag},
+				Properties:          []*models.Property{{Name: "text", SearchableBlockmax: tc.stamp}},
+			}
+			require.Equal(t, tc.want, SearchablePropertyIsBlockmax(class, "text", tc.tasks))
+		})
+	}
+}
+
+// TestProducesBlockmaxSearchable_FailLoud pins the exhaustive switch: known
+// blockmax-producing types return true, known non-blockmax types return false,
+// and a newly-added (unlisted) type PANICS rather than being silently read as
+// WAND.
+func TestProducesBlockmaxSearchable_FailLoud(t *testing.T) {
+	for _, mt := range []ReindexMigrationType{
+		ReindexTypeChangeAlgorithm, ReindexTypeEnableSearchable, ReindexTypeRebuildSearchable,
+	} {
+		require.True(t, producesBlockmaxSearchable(mt), "%s should produce blockmax", mt)
+	}
+	for _, mt := range []ReindexMigrationType{
+		ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable,
+		ReindexTypeRepairFilterable, ReindexTypeEnableFilterable,
+		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable,
+	} {
+		require.False(t, producesBlockmaxSearchable(mt), "%s should not produce blockmax", mt)
+	}
+	require.Panics(t, func() { producesBlockmaxSearchable(ReindexMigrationType("bogus-future-type")) })
 }
 
 // TestCheckConflict_AcceptsNonOverlapping pins the happy path:
