@@ -299,6 +299,47 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 	})
 }
 
+// TestManager_CancelTask_RejectsNonStartedActive pins the FSM contract the
+// REST cancel handler depends on: CancelTask aborts only STARTED tasks, so a
+// task that reached PREPARING or SWAPPING (units done, mid-swap) is rejected
+// with the matchable ErrTaskNotRunning sentinel. cancelReindexTask maps that
+// to an idempotent 202 NO_OP rather than a 500.
+func TestManager_CancelTask_RejectsNonStartedActive(t *testing.T) {
+	const (
+		ns      = "test"
+		taskID  = "1"
+		version = uint64(10)
+	)
+	cancel := func(t *testing.T, h *testHarness) error {
+		return h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace:             ns,
+			Id:                    taskID,
+			Version:               version,
+			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+	}
+
+	t.Run("SWAPPING task rejected with ErrTaskNotRunning", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		addTaskWithUnits(t, h, ns, taskID, version, []string{"su-1"})
+		completeUnit(t, h, ns, taskID, version, "node-1", "su-1")
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusSwapping, tasks[ns][0].Status)
+
+		require.ErrorIs(t, cancel(t, h), ErrTaskNotRunning)
+	})
+
+	t.Run("PREPARING task rejected with ErrTaskNotRunning", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		addBarrierTaskWithUnits(t, h, ns, taskID, version, []string{"su-1"})
+		completeUnit(t, h, ns, taskID, version, "node-1", "su-1")
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusPreparing, tasks[ns][0].Status)
+
+		require.ErrorIs(t, cancel(t, h), ErrTaskNotRunning)
+	})
+}
+
 func TestManager_CleanUpTask_Failures(t *testing.T) {
 	t.Run("task does not exist", func(t *testing.T) {
 		var (

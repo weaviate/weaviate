@@ -208,7 +208,11 @@ func (h *indexesHandlers) cancelIndex(params schema.SchemaObjectsIndexCancelPara
 		return resp
 	}
 
-	return h.cancelReindexTask(ctx, collection, params.PropertyName, indexType, principal)
+	if h.appState.ClusterService == nil {
+		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+			"cluster service unavailable; cannot cancel reindex task"))
+	}
+	return h.cancelReindexTask(ctx, h.appState.ClusterService, collection, params.PropertyName, indexType, principal)
 }
 
 // qualifyAndAuthorize resolves and authorizes UPDATE on the collection

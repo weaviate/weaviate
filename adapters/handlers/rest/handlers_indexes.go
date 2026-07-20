@@ -276,8 +276,11 @@ func principalUsername(principal *models.Principal) string {
 
 // findCancelTargetTask returns the in-flight reindex task (and payload)
 // targeting (collection, propertyName, indexType), or nil if none. "In
-// flight" matches IsActive (STARTED/PREPARING/SWAPPING) — same predicate the
-// conflict gate uses, so a task past STARTED remains cancellable.
+// flight" matches IsActive (STARTED/PREPARING/SWAPPING) — the same predicate
+// the conflict gate uses. Selecting a PREPARING/SWAPPING task here does not
+// imply the FSM will cancel it: CancelTask only aborts STARTED tasks, so a
+// target past STARTED (units done, mid-swap) resolves to an idempotent 202
+// NO_OP in cancelReindexTask, not an error.
 func findCancelTargetTask(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload) {
 	for _, task := range tasks {
 		if !task.Status.IsActive() {
@@ -301,6 +304,14 @@ func findCancelTargetTask(tasks []*distributedtask.Task, collection, propertyNam
 	return nil, db.ReindexTaskPayload{}
 }
 
+// reindexTaskCanceller is the slice of the cluster service the cancel path
+// needs. *cluster.Service satisfies it (both methods hang off the embedded
+// *Raft).
+type reindexTaskCanceller interface {
+	distributedtask.TaskLister
+	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+}
+
 // cancelReindexTask finds the in-flight reindex task targeting
 // (collection, propertyName, indexType) and asks DTM to cancel it.
 //
@@ -322,13 +333,13 @@ func findCancelTargetTask(tasks []*distributedtask.Task, collection, propertyNam
 // terminates the local handle; the task's ctx (the provider's per-task
 // ctx via runningHandles) is then cancelled, and the worker goroutine
 // returns.
-func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
-	if h.appState.ClusterService == nil {
-		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
-			"cluster service unavailable; cannot cancel reindex task"))
-	}
-
-	tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
+//
+// svc is the cluster service (production passes appState.ClusterService).
+// Abstracting the two calls behind reindexTaskCanceller lets the
+// idempotent-cancel error mapping be exercised against a real
+// distributedtask.Manager without standing up a RAFT stack.
+func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTaskCanceller, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	tasks, err := svc.ListDistributedTasks(ctx)
 	if err != nil {
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			fmt.Sprintf("listing tasks: %v", err)))
@@ -354,9 +365,27 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		})
 	}
 
-	if err := h.appState.ClusterService.CancelDistributedTask(
+	if err := svc.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
+		// The FSM only cancels STARTED tasks. A target that reached
+		// PREPARING/SWAPPING (units done, mid-swap) — or completed in the
+		// race between the list above and this apply — is rejected with
+		// ErrTaskNotRunning. There is nothing left to cancel, so this is an
+		// idempotent NO_OP (202), not an infra failure (500).
+		if errors.Is(err, distributedtask.ErrTaskNotRunning) {
+			h.appState.Logger.WithFields(logrus.Fields{
+				"audit_event": "reindex_task_cancel_noop",
+				"collection":  collection,
+				"property":    propertyName,
+				"index_type":  indexType,
+				"taskID":      target.ID,
+				"principal":   principalUsername(principal),
+			}).Info("cancel: task no longer running (past STARTED or completed mid-request); returning NO_OP")
+			return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
+				Status: reindexCancelStatusNoOp,
+			})
+		}
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			fmt.Sprintf("cancelling task: %v", err)))
 	}
