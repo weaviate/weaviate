@@ -99,39 +99,39 @@ func testAgedOutPartialClass(t *testing.T, restURI string) {
 	createDoc(t, class, longTitle, "")
 
 	// Migrate ONLY title to blockmax; body stays WAND → class is permanently
-	// partial and the class flag never flips.
+	// partial and the class flag never flips. Under TTL=0 the FINISHED task is
+	// GC'd before AwaitReindexFinished could observe it, so wait for the task to
+	// complete AND drain (awaitTaskGone) — which also gives us exactly the
+	// aged-out empty-list state — then confirm the durable blockmax effect,
+	// which is what proves the migration succeeded and survives the GC.
 	migrate := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "title", "searchable", `{"algorithm":"blockmax"}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, migrate)
-	reindexhelpers.AwaitReindexViaIndexes(t, restURI, class, "title", "searchable")
-	require.False(t, helper.GetClass(t, class).InvertedIndexConfig.UsingBlockMaxWAND,
-		"class flip must stay deferred while body is still WAND")
-
-	// Baseline: post-change-algorithm, title is blockmax → equal doc lengths.
-	assertEqualBananaScores(t, class, "", "after change-algorithm (blockmax baseline)")
-
-	// Force the aged-out state: the FINISHED task must leave the DTM list.
 	awaitTaskGone(t, restURI, migrate)
 	require.Empty(t, reindexTasksFor(t, restURI, class), "task list must be empty (aged out)")
 
 	// (i) GET reports blockmax for the migrated property against an empty list.
 	require.Equal(t, "blockmax", searchableAlgorithm(t, restURI, class, "title"))
 	require.Equal(t, "wand", searchableAlgorithm(t, restURI, class, "body"))
+	require.False(t, helper.GetClass(t, class).InvertedIndexConfig.UsingBlockMaxWAND,
+		"class flip must stay deferred while body is still WAND")
+
+	// Baseline: title migrated to blockmax → equal doc lengths.
+	assertEqualBananaScores(t, class, "", "after change-algorithm, task aged out (blockmax baseline)")
 
 	// (ii) PUT {algorithm:blockmax} on the already-migrated property → 200 NO_OP.
 	putResp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, class, "title", "searchable", `{"algorithm":"blockmax"}`)
 	require.Equal(t, http.StatusOK, putResp.StatusCode, "repeat blockmax PUT must be NO_OP: %s", putResp.Body)
 	require.Contains(t, putResp.Body, "NO_OP")
 
-	// (iii) rebuild is accepted (not 400 "cannot rebuild a WAND searchable index").
+	// (iii) rebuild is accepted (not 400 "cannot rebuild a WAND searchable
+	// index"). RebuildIndex asserts the 202; drain it before the next submit.
 	rebuild := reindexhelpers.RebuildIndex(t, restURI, class, "title", "searchable")
-	reindexhelpers.AwaitReindexFinished(t, restURI, rebuild)
 	awaitTaskGone(t, restURI, rebuild)
 
 	// (iv) THE corrupting hop: change-tokenization submitted against the empty
 	// task list must derive StrategyInverted from the stamp and keep the bucket
 	// blockmax. Assert the BM25 length model, not just a 200.
 	retok := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "title", "searchable", `{"tokenization":"whitespace"}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, retok)
+	awaitTaskGone(t, restURI, retok)
 	reindexhelpers.AwaitTokenizationVisible(t, restURI, class, "title", "whitespace")
 	require.Equal(t, "blockmax", searchableAlgorithm(t, restURI, class, "title"),
 		"change-tokenization on a stamped-blockmax property must not downgrade it to WAND")
@@ -152,10 +152,11 @@ func testNewTenantShardBlockmax(t *testing.T, restURI string) {
 	createDoc(t, class, longTitle, "t1")
 
 	migrate := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "title", "searchable", `{"algorithm":"blockmax"}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, migrate)
+	awaitTaskGone(t, restURI, migrate) // completes + drains under TTL=0
+	require.Equal(t, "blockmax", searchableAlgorithm(t, restURI, class, "title"),
+		"title must be stamped blockmax after the migration")
 	require.False(t, helper.GetClass(t, class).InvertedIndexConfig.UsingBlockMaxWAND,
 		"class flip must stay deferred while body is still WAND")
-	awaitTaskGone(t, restURI, migrate)
 
 	// New tenant → new shard, created after the stamp is durable.
 	helper.CreateTenants(t, class, []*models.Tenant{{Name: "t2", ActivityStatus: models.TenantActivityStatusHOT}})
