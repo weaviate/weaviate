@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SearchNearTextRequest Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (`SearchCommon`) with the near-text-specific `query`, `certainty`, `distance` and `target_vector`.
+// SearchNearTextRequest Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (`SearchCommon`) with the near-text-specific `query`, `certainty`, `distance` and `targetVector`.
 //
 // swagger:model SearchNearTextRequest
 type SearchNearTextRequest struct {
@@ -42,7 +42,7 @@ type SearchNearTextRequest struct {
 	Query []string `json:"query"`
 
 	// The named vector to search. Required when the collection has more than one named vector.
-	TargetVector string `json:"target_vector,omitempty"`
+	TargetVector string `json:"targetVector,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -62,7 +62,7 @@ func (m *SearchNearTextRequest) UnmarshalJSON(raw []byte) error {
 
 		Query []string `json:"query"`
 
-		TargetVector string `json:"target_vector,omitempty"`
+		TargetVector string `json:"targetVector,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -95,7 +95,7 @@ func (m SearchNearTextRequest) MarshalJSON() ([]byte, error) {
 
 		Query []string `json:"query"`
 
-		TargetVector string `json:"target_vector,omitempty"`
+		TargetVector string `json:"targetVector,omitempty"`
 	}
 
 	dataAO1.Certainty = m.Certainty

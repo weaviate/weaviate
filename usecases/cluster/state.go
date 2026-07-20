@@ -112,6 +112,8 @@ type Config struct {
 	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
 	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
 	RaftBootstrapExpect int
+	// RaftBootstrapTimeout bounds the startup join retry; mirrors RAFT_BOOTSTRAP_TIMEOUT.
+	RaftBootstrapTimeout time.Duration
 }
 
 type AuthConfig struct {
@@ -223,6 +225,10 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	}
 
 	if len(joinAddr) > 0 {
+		timeout := userConfig.RaftBootstrapTimeout
+		if timeout <= 0 {
+			timeout = joinTimeout
+		}
 		joinHost := extractHost(joinAddr[0])
 		if _, err := net.LookupIP(joinHost); err != nil {
 			logger.WithFields(logrus.Fields{
@@ -231,24 +237,20 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 			}).Warnf("specified hostname to join cluster cannot be resolved. This is fine "+
 				"if this is the first node of a new cluster, but problematic otherwise: %v", err)
 		} else if err := backoff.Retry(func() error {
+			// Retry for every seed: even a single node can be racing DNS after a
+			// reschedule, where the join target briefly points at a dead pod IP.
 			_, err := state.list.Join(joinAddr)
-			if err != nil && userConfig.RaftBootstrapExpect <= 1 {
-				// A sole seed has no peer coming up behind it, so a failed join is
-				// a misconfiguration rather than a race. Waiting cannot fix it.
-				return backoff.Permanent(err)
-			}
 			return err
-		}, utils.NewExponentialBackoff(joinInitialInterval, joinTimeout)); err != nil {
+		}, utils.NewExponentialBackoff(joinInitialInterval, timeout)); err != nil {
 			entry := logger.WithFields(logrus.Fields{
 				"action":          "memberlist_init",
 				"remote_hostname": joinAddr,
 			})
 			if userConfig.RaftBootstrapExpect <= 1 {
-				entry.Errorf("memberlist join not successful: %v", err)
-				return nil, errors.Wrap(err, "join cluster")
+				entry.Warnf("memberlist join not successful, continuing as single-node cluster: %v", err)
+			} else {
+				entry.Warnf("memberlist join not successful, periodic rejoin will retry: %v", err)
 			}
-			// The periodic rejoin below still converges the cluster.
-			entry.Warnf("memberlist join not successful, periodic rejoin will retry: %v", err)
 		}
 	}
 

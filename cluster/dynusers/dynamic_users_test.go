@@ -28,37 +28,37 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// newNamespacesMock returns an Exister mock that reports `known` as active
-// namespaces (Exists and IsActive both return true).
+// newNamespacesMock returns an Exister mock reporting every known name as an
+// active namespace; any other name is missing.
 func newNamespacesMock(t *testing.T, known ...string) *usecasesNamespaces.MockExister {
 	t.Helper()
-	m := &usecasesNamespaces.MockExister{}
-	m.Test(t)
-	set := make(map[string]struct{}, len(known))
+	states := make(map[string]cmd.NamespaceState, len(known))
 	for _, n := range known {
-		set[n] = struct{}{}
+		states[n] = cmd.NamespaceStateActive
 	}
-	m.On("Exists", mock.AnythingOfType("string")).Return(func(name string) bool {
-		_, ok := set[name]
-		return ok
-	}).Maybe()
-	m.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
-		_, ok := set[name]
-		return ok
-	}).Maybe()
-	return m
+	return newNamespacesMockInState(t, states)
 }
 
-// newNamespacesMockDeleting reports `name` as existing-but-deleting
-// (Exists=true, IsActive=false).
-func newNamespacesMockDeleting(t *testing.T, name string) *usecasesNamespaces.MockExister {
+// newNamespacesMockInState returns an Exister mock reporting each named
+// namespace in the given state; any other name is missing.
+func newNamespacesMockInState(t *testing.T, states map[string]cmd.NamespaceState) *usecasesNamespaces.MockExister {
 	t.Helper()
 	m := &usecasesNamespaces.MockExister{}
 	m.Test(t)
-	m.On("Exists", mock.AnythingOfType("string")).Return(func(n string) bool {
-		return n == name
+	exists := func(name string) bool {
+		_, ok := states[name]
+		return ok
+	}
+	m.On("Exists", mock.AnythingOfType("string")).Return(exists).Maybe()
+	m.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
+		return states[name] == cmd.NamespaceStateActive
 	}).Maybe()
-	m.On("IsActive", mock.AnythingOfType("string")).Return(false).Maybe()
+	m.On("GetNamespace", mock.AnythingOfType("string")).Return(
+		func(name string) cmd.Namespace {
+			return cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}, State: states[name]}
+		},
+		exists,
+	).Maybe()
 	return m
 }
 
@@ -114,8 +114,26 @@ func TestManager_CreateUser(t *testing.T) {
 		{
 			name:      "deleting namespace returns ErrNamespaceDeleting",
 			namespace: "ns1",
-			makeMock:  func(t *testing.T) *usecasesNamespaces.MockExister { return newNamespacesMockDeleting(t, "ns1") },
+			makeMock: func(t *testing.T) *usecasesNamespaces.MockExister {
+				return newNamespacesMockInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateDeleting})
+			},
 			wantErrIs: usecasesNamespaces.ErrNamespaceDeleting,
+		},
+		{
+			name:      "suspended namespace returns ErrNamespaceSuspended",
+			namespace: "ns1",
+			makeMock: func(t *testing.T) *usecasesNamespaces.MockExister {
+				return newNamespacesMockInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateSuspended})
+			},
+			wantErrIs: usecasesNamespaces.ErrNamespaceSuspended,
+		},
+		{
+			name:      "resuming namespace returns ErrNamespaceResuming",
+			namespace: "ns1",
+			makeMock: func(t *testing.T) *usecasesNamespaces.MockExister {
+				return newNamespacesMockInState(t, map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateResuming})
+			},
+			wantErrIs: usecasesNamespaces.ErrNamespaceResuming,
 		},
 	}
 

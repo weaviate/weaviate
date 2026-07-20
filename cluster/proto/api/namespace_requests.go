@@ -24,6 +24,10 @@ type Namespace struct {
 	Name      string
 	HomeNodes []string
 	State     NamespaceState
+	// StateChangeIndex is the RAFT log index of the last accepted State flip.
+	// Treat 0 as unknown, not "never flipped": an older binary re-writing a
+	// snapshot drops the field silently.
+	StateChangeIndex uint64
 }
 
 // Primary returns the namespace's home node, or "" if unset.
@@ -43,6 +47,12 @@ const (
 	// NamespaceStateDeleting rejects create-like operations; the entity is
 	// removed once cleanup empties it.
 	NamespaceStateDeleting NamespaceState = "deleting"
+	// NamespaceStateSuspended rejects create-like operations; the entity and
+	// everything it owns are retained.
+	NamespaceStateSuspended NamespaceState = "suspended"
+	// NamespaceStateResuming rejects create-like operations while the
+	// namespace is on its way back to active.
+	NamespaceStateResuming NamespaceState = "resuming"
 )
 
 // AddNamespaceRequest is the RAFT apply payload for creating a namespace.

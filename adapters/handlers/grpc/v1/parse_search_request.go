@@ -292,6 +292,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			}
 		}
 
+		if req.HybridSearch.NearText != nil && req.HybridSearch.NearText.Selection != nil {
+			return dto.GetParams{}, errors.New("hybrid: selection must be set on the top-level hybrid search, not on the near_text sub-search")
+		}
+		if req.HybridSearch.NearVector != nil && req.HybridSearch.NearVector.Selection != nil {
+			return dto.GetParams{}, errors.New("hybrid: selection must be set on the top-level hybrid search, not on the near_vector sub-search")
+		}
+
 		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -431,7 +438,22 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
 	if out.Selection != nil {
-		for _, tv := range targetVectors {
+		if mmr := out.Selection.MMR; mmr != nil {
+			if mmr.Limit == 0 {
+				return dto.GetParams{}, errors.New("MMR limit must be at least 1")
+			}
+			if out.Pagination.Limit > 0 && int(mmr.Limit) > out.Pagination.Limit {
+				return dto.GetParams{}, fmt.Errorf("MMR limit (%d) cannot be larger than the query limit (%d)", mmr.Limit, out.Pagination.Limit)
+			}
+			if mmr.Balance < 0 || mmr.Balance > 1 {
+				return dto.GetParams{}, errors.New("MMR balance must be between 0 and 1")
+			}
+		}
+		selectionTargets := targetVectors
+		if len(selectionTargets) == 0 {
+			selectionTargets = []string{""}
+		}
+		for _, tv := range selectionTargets {
 			if isTargetVectorMultiVector(class, tv) {
 				return dto.GetParams{}, fmt.Errorf("MMR selection is not supported with multi-vector indexes (target vector %q)", tv)
 			}
