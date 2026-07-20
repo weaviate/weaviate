@@ -339,6 +339,23 @@ func TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed(t *testing.T) {
 	}
 }
 
+// allReindexMigrationTypesForTest must list every ReindexMigrationType. The
+// compiler cannot enforce that, so keep it in sync with the constants in
+// reindex_provider_payload.go by hand — TestReindexBucketEffect_Exhaustive
+// iterates it and fails if any entry is unclassified, which is what keeps the
+// production fail-safe default (rather than a panic) honest.
+var allReindexMigrationTypesForTest = []ReindexMigrationType{
+	ReindexTypeChangeAlgorithm,
+	ReindexTypeRebuildSearchable,
+	ReindexTypeRepairFilterable,
+	ReindexTypeEnableRangeable,
+	ReindexTypeRepairRangeable,
+	ReindexTypeEnableFilterable,
+	ReindexTypeEnableSearchable,
+	ReindexTypeChangeTokenization,
+	ReindexTypeChangeTokenizationFilterable,
+}
+
 // TestReindexBucketEffect_Exhaustive pins the bucket-effect classification for
 // every migration type AND enforces exhaustiveness in place of the old
 // production panic: a newly-added [ReindexMigrationType] that is not explicitly
@@ -351,8 +368,8 @@ func TestSearchablePropertyIsBlockmaxParsed_MatchesUnparsed(t *testing.T) {
 // an already-inverted bucket → downgrade corruption).
 func TestReindexBucketEffect_Exhaustive(t *testing.T) {
 	// The documented classification for every known type. Adding a
-	// ReindexMigrationType to AllReindexMigrationTypes without a row here fails
-	// the "every listed type is covered" assertion below.
+	// ReindexMigrationType to allReindexMigrationTypesForTest without a row here
+	// fails the "every listed type is covered" assertion below.
 	want := map[ReindexMigrationType]struct {
 		touchesSearchable bool
 		touchesFilterable bool
@@ -369,10 +386,10 @@ func TestReindexBucketEffect_Exhaustive(t *testing.T) {
 		ReindexTypeRepairRangeable:              {false, false, false},
 	}
 
-	for _, mt := range AllReindexMigrationTypes() {
+	for _, mt := range allReindexMigrationTypesForTest {
 		exp, hasRow := want[mt]
 		require.Truef(t, hasRow,
-			"migration type %q is in AllReindexMigrationTypes but has no expected row in this test — classify it", mt)
+			"migration type %q is in allReindexMigrationTypesForTest but has no expected row in this test — classify it", mt)
 
 		ts, tf, pb, ok := ReindexBucketEffect(mt)
 		require.Truef(t, ok,

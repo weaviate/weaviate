@@ -56,8 +56,8 @@ import (
 //     genuinely-needed migration (recoverable); under-reporting corrupts (not).
 //
 // Exhaustiveness is enforced by TestReindexBucketEffect_Exhaustive (dev-time
-// fail-loud over [AllReindexMigrationTypes]) rather than a production panic —
-// the panic would be the very cross-version DoS described above.
+// fail-loud over every declared type) rather than a production panic — the
+// panic would be the very cross-version DoS described above.
 func ReindexBucketEffect(t ReindexMigrationType) (touchesSearchable, touchesFilterable, producesBlockmax, ok bool) {
 	switch t {
 	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable, ReindexTypeEnableSearchable:

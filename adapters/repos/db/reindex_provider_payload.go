@@ -84,25 +84,6 @@ const (
 	ReindexTypeChangeTokenizationFilterable ReindexMigrationType = "change-tokenization-filterable"
 )
 
-// AllReindexMigrationTypes is the canonical enumeration of every defined
-// [ReindexMigrationType]. Keep it in sync when adding a constant above:
-// TestReindexBucketEffect_Exhaustive iterates this list and fails if any entry
-// is not explicitly classified by [ReindexBucketEffect], which is what makes
-// the forward-compat fail-safe default (rather than a panic) safe to ship.
-func AllReindexMigrationTypes() []ReindexMigrationType {
-	return []ReindexMigrationType{
-		ReindexTypeChangeAlgorithm,
-		ReindexTypeRebuildSearchable,
-		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableSearchable,
-		ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
-	}
-}
-
 // ReindexTaskPayload is the JSON-serialized payload stored in the DTM task.
 type ReindexTaskPayload struct {
 	MigrationType      ReindexMigrationType `json:"migrationType"`
