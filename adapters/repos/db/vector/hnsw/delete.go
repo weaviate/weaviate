@@ -298,7 +298,7 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	return err
 }
 
-func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (executed bool, err error) {
+func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
 	if !h.tombstoneCleanupRunning.CompareAndSwap(false, true) {
 		return false, errors.New("tombstone cleanup already running")
 	}
@@ -325,7 +325,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return resetCtx.Err() != nil || shouldAbort()
 	}
 
-	executed = false
+	executed := false
 	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
 	if !ok {
 		return executed, nil
