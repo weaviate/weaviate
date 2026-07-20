@@ -573,9 +573,8 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	eg.SetLimit(outerConcurrencyLimit)
 
 	// Chunk operands into at most outerConcurrencyLimit groups instead of one
-	// goroutine per operand, bounding goroutine/channel fan-out for large
-	// ContainsAny/ContainsAll value sets (GH 12242). Each goroutine writes only
-	// its own children[] slice, so no synchronization is needed.
+	// goroutine per operand, to bound fan-out for large ContainsAny/ContainsAll
+	// value sets (GH 12242). Each goroutine writes only its own children[] slice.
 	numChunks := min(len(operands), outerConcurrencyLimit)
 	if numChunks < 1 {
 		numChunks = 1

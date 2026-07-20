@@ -21,10 +21,17 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// maxBatchViewHoldKeys caps how many keys share one lsmkv.BucketConsistentView.
+// Larger ranges are split into sequential slabs, each acquiring its own view,
+// so a held view never stalls compaction cleanup for longer than one slab.
+const maxBatchViewHoldKeys = 500
 
 type propValuePair struct {
 	prop     string
@@ -137,6 +144,62 @@ func chunkBounds(n, numChunks int) [][2]int {
 	return bounds
 }
 
+// flatEqualChildrenBucket returns the shared lsmkv.Bucket if every child of
+// pv is a non-nested OperatorEqual leaf against the same roaring-set bucket
+// (the shape ContainsAny/ContainsAll desugar into), or nil otherwise. Batch
+// view acquisition is only safe when every read targets the same bucket.
+func (pv *propValuePair) flatEqualChildrenBucket(s *Searcher) *lsmkv.Bucket {
+	if len(pv.children) == 0 {
+		return nil
+	}
+	first := pv.children[0]
+	if first.operator != filters.OperatorEqual || first.nested.isNested {
+		return nil
+	}
+	bucketName := first.getBucketName()
+	if bucketName == "" {
+		return nil
+	}
+	b := s.store.Bucket(bucketName)
+	if b == nil || b.Strategy() != lsmkv.StrategyRoaringSet {
+		return nil
+	}
+	for _, child := range pv.children[1:] {
+		if child.operator != filters.OperatorEqual || child.nested.isNested || child.getBucketName() != bucketName {
+			return nil
+		}
+	}
+	return b
+}
+
+// resolveFlatEqualSlab resolves pv.children[start:end] (caller-bounded to
+// <=maxBatchViewHoldKeys) sequentially under one shared
+// lsmkv.BucketConsistentView instead of one view per value.
+func resolveFlatEqualSlab(ctx context.Context, s *Searcher, pv *propValuePair, bucket *lsmkv.Bucket,
+	start, end, limit, mergeConc int,
+) (*docBitmap, error) {
+	view := bucket.GetConsistentView()
+	defer view.ReleaseView()
+	viewCtx := lsmkv.ContextWithConsistentView(ctx, view)
+
+	var result *docBitmap
+	for i := start; i < end; i++ {
+		dbm, err := pv.children[i].resolveDocIDs(viewCtx, s, limit)
+		if err != nil {
+			if result != nil {
+				result.release()
+			}
+			return nil, errors.Wrapf(err, "nested child %d", i)
+		}
+		if result == nil {
+			result = dbm
+		} else {
+			result = mergeBitmapsAndOrWithDenyList(result, dbm, pv.operator, mergeConc)
+		}
+	}
+	return result, nil
+}
+
 func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*docBitmap, error) {
 	// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
 	// otherwise we run into situations where each subfilter on their own
@@ -158,28 +221,42 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 		processDocIDs(maxN, pv.operator, dbmCh, resultCh, mergeConc)
 	}, s.logger)
 
+	// non-nil only for the ContainsAny/ContainsAll flat-equal shape; enables
+	// batch view acquisition below instead of one view per value.
+	batchViewBucket := pv.flatEqualChildrenBucket(s)
+
 	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
 	if outerConcurrencyLimit <= 1 {
-		// resolve docIDs sequentially in main goroutine
-		for i, child := range pv.children {
-			dbm, err2 := child.resolveDocIDs(ctx, s, limit)
-			if err2 != nil {
-				// break on first error
-				err = errors.Wrapf(err2, "nested child %d", i)
-				break
+		if batchViewBucket != nil {
+			// resolve docIDs sequentially in main goroutine, batching the
+			// consistent view across <=maxBatchViewHoldKeys-key slabs
+			for slabStart := 0; slabStart < len(pv.children); slabStart += maxBatchViewHoldKeys {
+				slabEnd := min(slabStart+maxBatchViewHoldKeys, len(pv.children))
+				dbm, err2 := resolveFlatEqualSlab(ctx, s, pv, batchViewBucket, slabStart, slabEnd, limit, mergeConc)
+				if err2 != nil {
+					err = err2
+					break
+				}
+				if dbm != nil {
+					dbmCh <- dbm
+				}
 			}
-			dbmCh <- dbm
+		} else {
+			// resolve docIDs sequentially in main goroutine
+			for i, child := range pv.children {
+				dbm, err2 := child.resolveDocIDs(ctx, s, limit)
+				if err2 != nil {
+					// break on first error
+					err = errors.Wrapf(err2, "nested child %d", i)
+					break
+				}
+				dbmCh <- dbm
+			}
 		}
 	} else {
 		// Resolve docIDs in parallel, chunked to at most outerConcurrencyLimit-1
-		// goroutines instead of one goroutine per child. A ContainsAny/ContainsAll
-		// with N values produces N children here; spawning one errgroup goroutine
-		// (and one dbmCh send) per child scales goroutine creation and channel-send
-		// volume with N per request, with no cap across concurrent requests (GH
-		// 12242). Each chunk goroutine resolves its slice of children sequentially
-		// and merges them locally with mergeBitmapsAndOrWithDenyList before a
-		// single dbmCh send, so per-request goroutine count and channel-send count
-		// are both bounded by outerConcurrencyLimit regardless of N.
+		// goroutines instead of one goroutine per child, which previously scaled
+		// goroutine/channel-send count with N unbounded across requests (GH 12242).
 		numChunks := min(len(pv.children), outerConcurrencyLimit-1)
 		if numChunks < 1 {
 			numChunks = 1
@@ -195,6 +272,43 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 		for _, bounds := range chunks {
 			start, end := bounds[0], bounds[1]
 			eg.Go(func() error {
+				if batchViewBucket != nil {
+					// process this chunk's range in <=maxBatchViewHoldKeys slabs,
+					// each under one shared consistent view
+					var chunkResult *docBitmap
+					for slabStart := start; slabStart < end; slabStart += maxBatchViewHoldKeys {
+						if err := gctx.Err(); err != nil {
+							// some chunk failed, skip remaining slabs
+							if chunkResult != nil {
+								chunkResult.release()
+							}
+							return nil
+						}
+						slabEnd := min(slabStart+maxBatchViewHoldKeys, end)
+						childCtx := concurrency.ContextWithFractionalBudget(ctx, numChunks, concurrency.GOMAXPROCS)
+						slabResult, err := resolveFlatEqualSlab(childCtx, s, pv, batchViewBucket, slabStart, slabEnd, limit, mergeConc)
+						if err != nil {
+							ec.Add(err)
+							if chunkResult != nil {
+								chunkResult.release()
+							}
+							return err
+						}
+						if slabResult == nil {
+							continue
+						}
+						if chunkResult == nil {
+							chunkResult = slabResult
+						} else {
+							chunkResult = mergeBitmapsAndOrWithDenyList(chunkResult, slabResult, pv.operator, mergeConc)
+						}
+					}
+					if chunkResult != nil {
+						dbmCh <- chunkResult
+					}
+					return nil
+				}
+
 				var chunkResult *docBitmap
 				for i := start; i < end; i++ {
 					if err := gctx.Err(); err != nil {
@@ -377,9 +491,17 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator, m
 // If slice of size 0 or 1 is provided, it is returned without any change.
 // Merge is performed starting from bitmap with most containers for OR operator
 // or starting from bitmap with least containers for AND operator.
+//
+// A pure-allowlist OR batch routes through fastOrMerge's single-pass FastOr
+// instead; FastOr has no deny-list algebra, so any other shape falls through
+// to the pairwise reduce below.
 func mergeDocIDs(operator filters.Operator, dbms []*docBitmap, maxConc int) []*docBitmap {
 	if len(dbms) <= 1 {
 		return dbms
+	}
+
+	if operator == filters.OperatorOr && allAllowLists(dbms) {
+		return []*docBitmap{fastOrMerge(dbms)}
 	}
 
 	for i := 0; i < len(dbms)-1; i++ {
@@ -387,6 +509,45 @@ func mergeDocIDs(operator filters.Operator, dbms []*docBitmap, maxConc int) []*d
 	}
 
 	return dbms[:1]
+}
+
+// allAllowLists reports whether every docBitmap in dbms is an allowlist;
+// FastOr has no deny-list algebra, so it's only safe when this holds.
+func allAllowLists(dbms []*docBitmap) bool {
+	for _, dbm := range dbms {
+		if dbm.IsDenyList() {
+			return false
+		}
+	}
+	return true
+}
+
+// fastOrMerge unions every docBitmap in dbms (all confirmed allowlists by
+// the caller) in a single sroar.FastOr pass instead of the M-1 pairwise
+// OrConc reduce.
+//
+// Never calls sroar.FastParOr: FastParOr v0.0.15 (bitmap.go:1176-1195) has a
+// data race between its launching goroutine's `append` and concurrent
+// indexed writes from already-spawned goroutines into the same slice -- a
+// bug in the vendored dependency, not this call site. The parallelism it
+// would offer is redundant anyway, since every fastOrMerge call already runs
+// inside one of resolveDocIDsAndOr's chunk goroutines.
+//
+// FastOr always allocates a fresh destination bitmap for the >1-input case
+// reached here, so every input's buffer can be released immediately after.
+func fastOrMerge(dbms []*docBitmap) *docBitmap {
+	bitmaps := make([]*sroar.Bitmap, len(dbms))
+	for i, dbm := range dbms {
+		bitmaps[i] = dbm.docIDs
+	}
+
+	merged := sroar.FastOr(bitmaps...)
+
+	for _, dbm := range dbms {
+		dbm.release()
+	}
+
+	return &docBitmap{docIDs: merged, isDenyList: false, release: func() {}}
 }
 
 // fetchDocIDs resolves a value filter on a flat (non-nested) property.

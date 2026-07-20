@@ -379,3 +379,86 @@ func TestSearcher_ContainsAny_CancellationMidChunk(t *testing.T) {
 			"merely theoretical); if this ever fails, re-check cancelDelay/numValues against "+
 			"current hardware speed", attempts)
 }
+
+// TestSearcher_ContainsAny_DeleteThenReaddAcrossSegments guards oldest->newest
+// fold order across segment boundaries: deletes for "tombstone-readd" and
+// "deleted-forever" land in a segment newer than their additions, so a
+// wrong-order fold would resurrect a deleted doc ID.
+func TestSearcher_ContainsAny_DeleteThenReaddAcrossSegments(t *testing.T) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	const propName = "inverted-text-roaringset"
+
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { store.Shutdown(context.Background()) })
+
+	maxDocID := uint64(100)
+	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, nil, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+
+	bucketName := helpers.BucketFromPropNameLSM(propName)
+	require.NoError(t, store.CreateOrLoadBucket(
+		context.Background(), bucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+	))
+	bucket := store.Bucket(bucketName)
+
+	// segment 1 (oldest)
+	require.NoError(t, bucket.RoaringSetAddList([]byte("disk-seg1-only"), []uint64{1, 2, 3}))
+	require.NoError(t, bucket.RoaringSetAddList([]byte("tombstone-readd"), []uint64{10, 11}))
+	require.NoError(t, bucket.RoaringSetAddList([]byte("deleted-forever"), []uint64{20}))
+	require.NoError(t, bucket.RoaringSetAddList([]byte("shared-across-segments"), []uint64{30}))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// segment 2 (newer): deletes land here, newer than the additions
+	require.NoError(t, bucket.RoaringSetRemoveOne([]byte("tombstone-readd"), 10))
+	require.NoError(t, bucket.RoaringSetRemoveOne([]byte("deleted-forever"), 20))
+	require.NoError(t, bucket.RoaringSetAddList([]byte("disk-seg2-only"), []uint64{40, 41}))
+	require.NoError(t, bucket.RoaringSetAddList([]byte("shared-across-segments"), []uint64{31}))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// active memtable (never flushed)
+	require.NoError(t, bucket.RoaringSetAddList([]byte("tombstone-readd"), []uint64{12}))
+	require.NoError(t, bucket.RoaringSetAddList([]byte("shared-across-segments"), []uint64{32}))
+
+	values := []string{
+		"disk-seg1-only", "disk-seg2-only", "tombstone-readd", "deleted-forever",
+		"shared-across-segments", "never-existed",
+	}
+
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.ContainsAny,
+			On:       &filters.Path{Class: className, Property: schema.PropertyName(propName)},
+			Value:    &filters.Value{Value: values, Type: schema.DataTypeText},
+		},
+	}
+
+	allowList, err := searcher.DocIDs(context.Background(), filter, additional.Properties{}, className)
+	require.NoError(t, err)
+	defer allowList.Close()
+
+	got := allowList.Slice()
+	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
+
+	// hand-computed oracle, independent of the code under test: tombstone-readd
+	// nets to {11,12}, deleted-forever nets to {}, shared-across-segments
+	// accumulates to {30,31,32}.
+	want := []uint64{1, 2, 3, 11, 12, 30, 31, 32, 40, 41}
+	sort.Slice(want, func(i, j int) bool { return want[i] < want[j] })
+
+	require.Equal(t, want, got,
+		"ContainsAny over a delete-then-readd-across-segments fixture must fold oldest->newest "+
+			"through the floor's batch-acquired view + FastOr union: 'tombstone-readd' must resolve "+
+			"to {11,12} (not resurrect 10), 'deleted-forever' must contribute zero doc IDs (not error, "+
+			"not resurrect 20), and 'shared-across-segments' must accumulate across all three storage "+
+			"layers to {30,31,32}")
+}

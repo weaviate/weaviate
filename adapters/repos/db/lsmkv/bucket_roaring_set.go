@@ -116,10 +116,17 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return active.roaringSetAddBitmap(key, bm)
 }
 
-// RoaringSetGet consults ctx only for the concurrency budget, not for cancellation.
+// RoaringSetGet consults ctx for the concurrency budget and, if attached via
+// ContextWithConsistentView, a pre-acquired view scoped to this bucket to
+// reuse instead of acquiring a fresh one -- ctx is not otherwise consulted
+// for cancellation.
 func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitmap, release func(), err error) {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return nil, noopRelease, err
+	}
+
+	if view, ok := b.consistentViewFromCtx(ctx); ok {
+		return b.roaringSetGetFromConsistentView(ctx, view, key)
 	}
 
 	view := b.GetConsistentView()

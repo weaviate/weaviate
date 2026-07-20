@@ -685,6 +685,28 @@ func (cv BucketConsistentView) ReleaseView() {
 	cv.release()
 }
 
+type consistentViewCtxKey struct{}
+
+// ContextWithConsistentView attaches an already-acquired BucketConsistentView
+// to ctx so reads scoped to the same Bucket reuse it instead of each
+// individually acquiring/releasing their own. The caller retains ownership:
+// it must still call view.ReleaseView() once every read using this context
+// has completed.
+func ContextWithConsistentView(ctx context.Context, view BucketConsistentView) context.Context {
+	return context.WithValue(ctx, consistentViewCtxKey{}, view)
+}
+
+// consistentViewFromCtx returns the view ctx carries only if it was acquired
+// for this bucket; a view attached for a different bucket is ignored
+// (ok=false) since using it here would silently read the wrong data.
+func (b *Bucket) consistentViewFromCtx(ctx context.Context) (BucketConsistentView, bool) {
+	v, ok := ctx.Value(consistentViewCtxKey{}).(BucketConsistentView)
+	if !ok || v.Bucket != b {
+		return BucketConsistentView{}, false
+	}
+	return v, true
+}
+
 // GetConsistentView returns a consistent view of the bucket that can be used
 // for multiple reads without acquiring locks for each read. The caller must
 // call ReleaseView() on the returned view when done to avoid blocking compactions.
