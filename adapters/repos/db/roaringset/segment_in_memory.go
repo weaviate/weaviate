@@ -131,4 +131,4 @@ func (s *SegmentInMemory) countPendingMemtables() int {
 	return s.pending.Len()
 }
 
-var noopRelease = func() {}
+var noopRelease = func() { /* nothing to release when the key was not found */ }
