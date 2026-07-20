@@ -125,12 +125,15 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 	}
 
 	// Step 5: Atomic prepend under maintenanceLock.
-	sg.maintenanceLock.Lock()
-	newSegments := make([]Segment, 0, len(initialized)+len(sg.segments))
-	newSegments = append(newSegments, initialized...)
-	newSegments = append(newSegments, sg.segments...)
-	sg.segments = newSegments
-	sg.maintenanceLock.Unlock()
+	func() {
+		sg.maintenanceLock.Lock()
+		defer sg.maintenanceLock.Unlock()
+
+		newSegments := make([]Segment, 0, len(initialized)+len(sg.segments))
+		newSegments = append(newSegments, initialized...)
+		newSegments = append(newSegments, sg.segments...)
+		sg.segments = newSegments
+	}()
 
 	// Update metrics and the average-property-length accounting for the newly
 	// added segments. The accounting has to land before the deferred

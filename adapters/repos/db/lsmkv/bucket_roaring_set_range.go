@@ -69,8 +69,8 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	if b.rangeableServesFromMemory() {
 		// Invariant: the rep must mirror disk. If unpopulated while disk
 		// segments exist, fall back to disk and warn once. Check emptiness
-		// first so the hot path pays one IsEmpty() under the rep's RLock and
-		// never holds maintenanceLock too.
+		// first so the hot path pays one IsUnpopulated() call under the
+		// rep's RLock and never holds maintenanceLock too.
 		if b.disk.roaringSetRangeSegmentInMemory.IsUnpopulated() {
 			if n := b.disk.roaringSetRangeDiskSegmentCount(); n > 0 {
 				b.rangeableFallbackWarnOnce.Do(func() {
@@ -171,12 +171,21 @@ func (b *Bucket) RebuildRangeableSegmentInMemory(ctx context.Context) error {
 		return nil
 	}
 
-	if err := b.disk.pauseCompaction(ctx); err != nil {
+	// Ref-counted at the bucket level so a concurrent snapshot, digest
+	// scan, or another rebuild shares one pause instead of one resuming
+	// under the other (bucket.go:481-516; weaviate/0-weaviate-issues#251 +
+	// weaviate/weaviate#11486). A failed pause leaves the count exactly
+	// where it started, so compaction is never left disabled.
+	if err := b.pauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction for rangeable in-memory rebuild: %w", err)
 	}
-	defer b.disk.resumeCompaction(context.Background())
+	defer func() {
+		if resumeErr := b.resumeCompaction(context.Background()); resumeErr != nil {
+			b.logger.Errorf("resume compaction after rangeable in-memory rebuild: %v", resumeErr)
+		}
+	}()
 
-	rep, bulkMerged, err := b.disk.buildRoaringSetRangeRep(ctx)
+	rep, alreadyMerged, releaseBuilt, err := b.disk.buildRoaringSetRangeRep(ctx)
 	if err != nil {
 		return fmt.Errorf("build rangeable in-memory rep: %w", err)
 	}
@@ -184,7 +193,7 @@ func (b *Bucket) RebuildRangeableSegmentInMemory(ctx context.Context) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
-	if err := b.disk.installRoaringSetRangeRep(rep, bulkMerged); err != nil {
+	if err := b.disk.installRoaringSetRangeRep(rep, alreadyMerged, releaseBuilt); err != nil {
 		return fmt.Errorf("install rangeable in-memory rep: %w", err)
 	}
 	b.rangeableRepRebuilt.Store(true)

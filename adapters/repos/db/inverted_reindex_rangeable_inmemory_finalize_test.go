@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -167,4 +168,80 @@ func TestFilterableToRangeable_RebuildFailure_OnAfterLsmInitAsyncIsTidiedBranch(
 	assert.True(t, wrapped.migrationCompleted, "OnMigrationComplete must fire once the rebuild succeeds")
 	assert.Greater(t, calls.Load(), callsBeforeRetry,
 		"the IsTidied-on-entry branch must re-invoke the rebuild before OnMigrationComplete, not skip it")
+}
+
+// TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation pins
+// weaviate/weaviate#12215 findings 6+9: a bucket-not-found nil, which has
+// legitimate tolerated sources (store shutdown draining, a property dropped
+// mid-migration), must not be turned into a permanent hard failure when the
+// context is already done. It must return the context error directly so the
+// caller's errors.Is(err, context.Canceled) routing still works - not go
+// through errorcompounder, which drops the %w chain.
+func TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation(t *testing.T) {
+	const numObjects = 5
+	propName := filterableToRangeablePropName
+	ctx := testCtx()
+	className := "RangeableNilBucketCtxCancel_" + uuid.NewString()[:8]
+	class := newFilterableToRangeableTestClass(className)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false,
+		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+
+	// A prop whose bucket was never created: store.Bucket(...) returns nil
+	// for it regardless of context state, giving a deterministic nil-bucket
+	// branch without needing to race a real shutdown.
+	missingPropName := "never_created_prop"
+	require.Nil(t, shard.Store().Bucket(task.strategy.SourceBucketName(missingPropName)),
+		"precondition: no bucket exists for this prop")
+
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	err := task.rebuildRangeableInMemoryReps(cancelledCtx, idx.logger, shard, []string{missingPropName})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled,
+		"a cancelled context must route directly, preserving errors.Is compatibility")
+	assert.NotContains(t, err.Error(), "not found post-swap",
+		"a cancelled context must short-circuit before the hard-fail message is built")
+}
+
+// TestRebuildRangeableInMemoryReps_NilBucketHardFailsWithoutCancellation
+// pins the complementary case: absent context cancellation, a nil bucket is
+// still reported as a hard, per-prop failure (findings 6+9 must not weaken
+// the existing behavior when nothing is actually shutting down).
+func TestRebuildRangeableInMemoryReps_NilBucketHardFailsWithoutCancellation(t *testing.T) {
+	const numObjects = 5
+	propName := filterableToRangeablePropName
+	ctx := testCtx()
+	className := "RangeableNilBucketHardFail_" + uuid.NewString()[:8]
+	class := newFilterableToRangeableTestClass(className)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false,
+		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+
+	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+
+	missingPropName := "never_created_prop"
+	require.Nil(t, shard.Store().Bucket(task.strategy.SourceBucketName(missingPropName)))
+
+	err := task.rebuildRangeableInMemoryReps(ctx, idx.logger, shard, []string{missingPropName})
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, context.Canceled))
+	assert.Contains(t, err.Error(), "not found post-swap")
 }

@@ -643,7 +643,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		//    RunPrepareOnShard first): ingest buckets are loaded in
 		//    the LSM store. Do the in-memory atomic SwapBucketPointer
 		//    via [runtimeSwap]. Disk rename is deferred to next
-		//    startup via OnBeforeLsmInit's recoverRuntimeSwapBuckets.
+		//    startup via [FinalizeCompletedMigrations].
 		//  - **Recovery fallback**: ingest buckets are NOT loaded.
 		//    In practice this is rare — post-restart, OnBeforeLsmInit's
 		//    IsMerged && !IsSwapped branch typically does the disk
@@ -852,9 +852,16 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 
 		bucket := store.Bucket(bucketName)
 		if bucket == nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				// A missing bucket has legitimate tolerated sources (store
+				// shutdown draining, a property dropped mid-migration) that
+				// converge on their own; only report this as a hard failure
+				// once we know the caller isn't already shutting down.
+				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w", propName, ctxErr)
+			}
 			err := fmt.Errorf(
 				"rangeable index for property %q could not be activated for in-memory "+
-					"serving: bucket %q not found post-swap. Rebuild the index to repair it.",
+					"serving: bucket %q not found post-swap, rebuild the index to repair it",
 				propName, bucketName,
 			)
 			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
@@ -864,12 +871,12 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 
 		started := time.Now()
 		if err := t.rebuildRangeableRepFn(ctx, bucket); err != nil {
-			if errors.Is(err, context.Canceled) {
+			if ctxErr := ctx.Err(); ctxErr != nil {
 				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w", propName, err)
 			}
 			wrapped := fmt.Errorf(
 				"rangeable index for property %q built and data intact, but could not be "+
-					"activated for in-memory serving: %w. Rebuild the index to repair it.",
+					"activated for in-memory serving: %w, rebuild the index to repair it",
 				propName, err,
 			)
 			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
@@ -1975,10 +1982,10 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// markTidied signals that all on-disk cleanup that can be done inline
 	// has been done. The LIVE bucket's dir (ingest_<gen>) is still at its
 	// pre-swap name — that rename to the canonical name is deferred to
-	// next-restart recovery (OnBeforeLsmInit → recoverRuntimeSwapBuckets)
-	// because renaming a dir whose buckets are mmap'd by the in-memory
-	// store would corrupt the segment registry. At restart time, nothing
-	// has loaded that dir yet, so the rename is safe.
+	// next startup via [FinalizeCompletedMigrations], because renaming a
+	// dir whose buckets are mmap'd by the in-memory store would corrupt
+	// the segment registry. At restart time, nothing has loaded that dir
+	// yet, so the rename is safe.
 	if err := rt.markTidied(); err != nil {
 		return fmt.Errorf("marking tidied: %w", err)
 	}

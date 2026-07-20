@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -60,9 +61,9 @@ func TestSegmentGroupRoaringSetRangeRep_BuildThenCatchUp(t *testing.T) {
 	require.NoError(t, b.FlushAndSwitch())
 	require.Equal(t, 2, b.disk.Len())
 
-	rep, merged, err := b.disk.buildRoaringSetRangeRep(ctx)
+	rep, merged, release, err := b.disk.buildRoaringSetRangeRep(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 2, merged)
+	require.Len(t, merged, 2)
 	require.Nil(t, b.disk.roaringSetRangeSegmentInMemory, "build alone must not publish")
 
 	// Race window: a flush lands a new tail segment between build and install.
@@ -70,7 +71,7 @@ func TestSegmentGroupRoaringSetRangeRep_BuildThenCatchUp(t *testing.T) {
 	require.NoError(t, b.FlushAndSwitch())
 	require.Equal(t, 3, b.disk.Len())
 
-	require.NoError(t, b.disk.installRoaringSetRangeRep(rep, merged))
+	require.NoError(t, b.disk.installRoaringSetRangeRep(rep, merged, release))
 	assert.Same(t, rep, b.disk.roaringSetRangeSegmentInMemory, "install must publish the built rep")
 
 	b.rangeableRepRebuilt.Store(true)
@@ -91,7 +92,7 @@ func TestSegmentGroupRoaringSetRangeRep_BuildRespectsContextCancel(t *testing.T)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, _, err := sg.buildRoaringSetRangeRep(ctx)
+	_, _, _, err := sg.buildRoaringSetRangeRep(ctx)
 	require.ErrorIs(t, err, context.Canceled)
 }
 
@@ -345,4 +346,76 @@ func TestBucketRebuildRangeableSegmentInMemory_ConcurrentReadsAndWrites(t *testi
 	for i := uint64(1); i <= writerCount; i++ {
 		assert.Equal(t, []uint64{(writerBase + i) * 10}, readEqual(t, b, writerBase+i), "writer value %d lost or corrupted", i)
 	}
+}
+
+// TestSegmentGroupRoaringSetRangeRep_ShutdownDuringRebuildBlocksNotPanics
+// pins weaviate/weaviate#12215 findings 2+3: a shutdown() racing the
+// finalize rebuild must block on the rebuild's held segment refs
+// (waitForReferenceCountToReachZero) instead of nil-ing sg.segments out from
+// under the merge. Run with -race.
+func TestSegmentGroupRoaringSetRangeRep_ShutdownDuringRebuildBlocksNotPanics(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+
+	require.NoError(t, b.RoaringSetRangeAdd(1, 100))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.RoaringSetRangeAdd(2, 200))
+	require.NoError(t, b.FlushAndSwitch())
+	require.Equal(t, 2, b.disk.Len())
+
+	rep, merged, release, err := b.disk.buildRoaringSetRangeRep(ctx)
+	require.NoError(t, err)
+	require.Len(t, merged, 2)
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- b.Shutdown(ctx) }()
+
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("shutdown completed while the rebuild still held segment refs (want: blocked): %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	require.NoError(t, b.disk.installRoaringSetRangeRep(rep, merged, release))
+
+	select {
+	case err := <-shutdownDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not complete after the rebuild released its segment refs")
+	}
+}
+
+// TestSegmentGroupRoaringSetRangeRep_InstallAfterGroupShutdownNoPanic pins
+// weaviate/weaviate#12215 finding 3: installRoaringSetRangeRep must not
+// slice-bounds panic when the group's segments were nil'd out (shutdown)
+// between build and install.
+func TestSegmentGroupRoaringSetRangeRep_InstallAfterGroupShutdownNoPanic(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+	t.Cleanup(func() { b.Shutdown(ctx) })
+
+	require.NoError(t, b.RoaringSetRangeAdd(1, 100))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.RoaringSetRangeAdd(2, 200))
+	require.NoError(t, b.FlushAndSwitch())
+	require.Equal(t, 2, b.disk.Len())
+
+	rep, merged, release, err := b.disk.buildRoaringSetRangeRep(ctx)
+	require.NoError(t, err)
+	require.Len(t, merged, 2)
+
+	// Simulate a concurrent shutdown() completing between build and
+	// install: sg.segments = nil, exactly as SegmentGroup.shutdown does
+	// under maintenanceLock.Lock() after waitForReferenceCountToReachZero.
+	b.disk.maintenanceLock.Lock()
+	b.disk.segments = nil
+	b.disk.maintenanceLock.Unlock()
+
+	require.NotPanics(t, func() {
+		err = b.disk.installRoaringSetRangeRep(rep, merged, release)
+	})
+	require.NoError(t, err)
 }

@@ -563,24 +563,31 @@ func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
 	return sg.compactionCallbackCtrl.Activate()
 }
 
-// buildRoaringSetRangeRep merges the current disk segments, oldest to
-// newest, into a fresh unpublished rep and returns how many were merged.
+// buildRoaringSetRangeRep merges a consistent, ref-counted view of the
+// current disk segments, oldest to newest, into a fresh unpublished rep.
 // Caller must have paused compaction: with only flush appends possible, the
-// merged prefix stays a stable prefix of sg.segments, letting
-// installRoaringSetRangeRep catch up from the returned index.
-func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringsetrange.SegmentInMemory, int, error) {
-	sg.maintenanceLock.RLock()
-	segments := sg.segments
-	sg.maintenanceLock.RUnlock()
+// merged segments stay a stable prefix of any later view, letting
+// installRoaringSetRangeRep catch up from there.
+//
+// The returned release must stay uncalled until installRoaringSetRangeRep
+// has run (it takes ownership and releases on every return path): holding
+// the incRef this whole span is what keeps a concurrent shutdown() from
+// closing these segments mid-merge, since shutdown()'s own
+// waitForReferenceCountToReachZero blocks on our refcount instead of racing
+// us for sg.segments.
+func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringsetrange.SegmentInMemory, []Segment, func(), error) {
+	segments, release := sg.getConsistentViewOfSegments()
 
 	t := time.Now()
 	rep := roaringsetrange.NewSegmentInMemory(sg.logger)
 	for _, seg := range segments {
 		if err := ctx.Err(); err != nil {
-			return nil, 0, err
+			release()
+			return nil, nil, nil, err
 		}
 		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
-			return nil, 0, fmt.Errorf("merge segment into rangeable rep: %w", err)
+			release()
+			return nil, nil, nil, fmt.Errorf("merge segment into rangeable rep: %w", err)
 		}
 	}
 	sg.logger.WithFields(logrus.Fields{
@@ -589,24 +596,43 @@ func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringse
 		"segments": len(segments),
 		"size_mb":  fmt.Sprintf("%.3f", float64(rep.Size())/1024/1024),
 	}).Debug("rangeable segment-in-memory rebuilt")
-	return rep, len(segments), nil
+	return rep, segments, release, nil
 }
 
 // installRoaringSetRangeRep merges segments appended after the bulk build
 // (flush appends only; compaction must stay paused) and publishes the rep.
 // Caller must hold the bucket's flushLock so no flush can append or merge
-// between the catch-up and the publish.
+// between the catch-up and the publish. releaseBuilt is buildRoaringSetRangeRep's
+// release for alreadyMerged; it always runs (defer), on every return path,
+// so a group shut down mid-rebuild is never blocked past this call.
 //
-// Catch-up reads sg.segments under maintenanceLock.RLock(); the pointer
-// publish is upgraded to Lock() for just that one assignment, so the
-// (unbounded) catch-up merge never holds the exclusive lock. This publish
-// pairs with the RLock() guard read in PrependSegmentsFromBucket.
-func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentInMemory, alreadyMerged int) error {
-	sg.maintenanceLock.RLock()
-	segments := sg.segments[alreadyMerged:]
-	sg.maintenanceLock.RUnlock()
+// Catch-up takes its own consistent, ref-counted view. With compaction
+// paused for the whole build+install span, appends only grow the tail, so
+// this view is always a superset of alreadyMerged and the suffix past it is
+// exactly what's new. The pointer publish is done under
+// maintenanceLock.Lock() for just that one assignment. This publish pairs
+// with the RLock() guard read in PrependSegmentsFromBucket.
+func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentInMemory, alreadyMerged []Segment, releaseBuilt func()) error {
+	defer releaseBuilt()
 
-	for _, seg := range segments {
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	catchUpFrom := len(alreadyMerged)
+	if catchUpFrom > len(segments) {
+		// Unreachable while compaction stays paused for the whole
+		// build+install span (the segment list can then only grow). Guard
+		// against a slice-bounds panic anyway if that assumption is ever
+		// violated by a future change.
+		sg.logger.WithFields(logrus.Fields{
+			"bucket":         filepath.Base(sg.dir),
+			"already_merged": catchUpFrom,
+			"current":        len(segments),
+		}).Debug("rangeable rep catch-up: segment count shrank since bulk build, skipping catch-up merge")
+		catchUpFrom = len(segments)
+	}
+
+	for _, seg := range segments[catchUpFrom:] {
 		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
 			return fmt.Errorf("catch-up merge segment into rangeable rep: %w", err)
 		}
