@@ -26,10 +26,9 @@ import (
 )
 
 // ErrRangeableRepUnpopulatedAfterRebuild is returned by
-// RebuildRangeableSegmentInMemory when the rebuilt rep is unpopulated while
-// disk segments exist. Publication is refused (rangeableRepRebuilt stays
-// false) and the bucket keeps serving from disk; the caller degrades to
-// WARN-and-continue instead of failing the migration.
+// RebuildRangeableSegmentInMemory when the rebuilt rep is empty but disk
+// segments exist; publication is refused and the bucket keeps serving from
+// disk.
 var ErrRangeableRepUnpopulatedAfterRebuild = errors.New(
 	"rangeable in-memory rebuild produced an empty representation while disk segments " +
 		"exist; leaving disk-serving in place",
@@ -75,9 +74,9 @@ func (b *Bucket) rangeableServesFromMemory() bool {
 	return b.keepSegmentsInMemory || b.rangeableRepRebuilt.Load()
 }
 
-// RangeableServesFromMemory is the exported form of rangeableServesFromMemory,
-// for callers outside this package (e.g. the reindex finalize log) that need
-// to log truthfully about which path is actually serving.
+// RangeableServesFromMemory exports rangeableServesFromMemory so
+// out-of-package callers (e.g. reindex finalize logging) can report which
+// path is actually serving.
 func (b *Bucket) RangeableServesFromMemory() bool {
 	return b.rangeableServesFromMemory()
 }
@@ -85,20 +84,17 @@ func (b *Bucket) RangeableServesFromMemory() bool {
 func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
-	// D2 (weaviate/weaviate#12215): a rep published via
-	// RebuildRangeableSegmentInMemory is validated once, at install time,
-	// against this exact discriminant before the flag is set - a reader
-	// observing it can trust the rep unconditionally, no per-read check.
+	// A rep published via RebuildRangeableSegmentInMemory was already
+	// validated at install time against this same discriminant, so a reader
+	// can trust it unconditionally here without a per-read check.
 	if b.rangeableRepRebuilt.Load() {
 		return b.readerRoaringSetRangeFromSegmentInMemo()
 	}
 
 	if b.keepSegmentsInMemory {
-		// Boot-time population (segment_group.go's newSegmentGroup) has no
-		// equivalent install-time gate, so this path keeps the original
-		// per-read discriminant and disk fallback. Check emptiness first
-		// so the hot path pays one IsUnpopulated() call under the rep's
-		// RLock and never holds maintenanceLock too.
+		// Boot-time population has no install-time gate, so this path still
+		// needs the per-read check; checking emptiness first keeps the hot
+		// path to one IsUnpopulated() call under the rep's RLock.
 		if b.disk.roaringSetRangeSegmentInMemory.IsUnpopulated() {
 			if n := b.disk.roaringSetRangeDiskSegmentCount(); n > 0 {
 				b.rangeableFallbackWarnOnce.Do(func() {
@@ -199,11 +195,10 @@ func (b *Bucket) RebuildRangeableSegmentInMemory(ctx context.Context) error {
 		return nil
 	}
 
-	// Ref-counted at the bucket level so a concurrent snapshot, digest
-	// scan, or another rebuild shares one pause instead of one resuming
-	// under the other (bucket.go:481-516; weaviate/0-weaviate-issues#251 +
-	// weaviate/weaviate#11486). A failed pause leaves the count exactly
-	// where it started, so compaction is never left disabled.
+	// Ref-counted at the bucket level so a concurrent snapshot, digest scan,
+	// or rebuild shares one pause instead of racing to resume under each
+	// other. A failed pause leaves the count where it started, so
+	// compaction is never left disabled.
 	if err := b.pauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction for rangeable in-memory rebuild: %w", err)
 	}
@@ -225,12 +220,10 @@ func (b *Bucket) RebuildRangeableSegmentInMemory(ctx context.Context) error {
 		return fmt.Errorf("install rangeable in-memory rep: %w", err)
 	}
 
-	// Finding 8 / D2: gate publication on the same discriminant the
-	// per-read boot-time path uses, evaluated once here instead of on
-	// every read. A rep that folds empty while disk segments exist is not
-	// trustworthy for any reason (corrupt segment, a bug in this rebuild);
-	// refuse to publish and leave disk-serving in place rather than
-	// advertise memory-serving for a rep that does not mirror disk.
+	// Gate publication on the same discriminant the per-read path uses,
+	// evaluated once here: a rep that folds empty while disk segments exist
+	// isn't trustworthy, so refuse to publish rather than advertise
+	// memory-serving for a rep that doesn't mirror disk.
 	if rep.IsUnpopulated() {
 		if n := b.disk.roaringSetRangeDiskSegmentCount(); n > 0 {
 			b.logger.WithField("bucket", b.dir).Warnf(

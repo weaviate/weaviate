@@ -1041,9 +1041,6 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 	return nil
 }
 
-// IncRangeableInMemoryRebuildDegraded records a rangeable in-memory rebuild
-// at reindex finalize degrading to disk serving (WARN-and-continue) instead
-// of activating in-memory acceleration.
 func (m *PrometheusMetrics) IncRangeableInMemoryRebuildDegraded(className, shardName, propName string) {
 	m.RangeableInMemoryRebuildDegraded.With(prometheus.Labels{
 		"class_name": className,

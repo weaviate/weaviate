@@ -829,22 +829,14 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 // disk until the next open. Idempotent.
 //
 // A rebuild failure degrades to disk serving (WARN-and-continue) instead of
-// failing the migration: by the time this runs, the data work (prepend,
-// swap, tidy) has already committed, so failing the whole migration over a
-// read-side accelerator would take a replica's queries down
-// (MissingFilterableIndexError) while a sibling replica's successful
-// rebuild has already RAFT-committed the schema flag cluster-wide. Disk
-// serving is always correct; only the acceleration is deferred to the next
-// restart. Every degrade still logs at ERROR and increments a metric, so it
-// stays loud and dashboard-visible without taking queries down. See the
-// architect decision memo (board Conversations/2026-07/
-// 2026-07-20-1334__architect__finding5-d1-memo.md, weaviate/weaviate#12215
-// finding 5 / D1).
+// failing the migration: data work (prepend, swap, tidy) has already
+// committed, disk serving is always correct, and only the in-memory
+// acceleration is deferred to next restart. Every degrade still logs at
+// ERROR and increments a metric so it stays visible.
 //
-// context-cancellation is the one case that still aborts this function
-// with a non-nil error, so [runPerUnitPhase]'s errors.Is(context.Canceled)
-// check keeps routing to the transient ack path instead of a permanent
-// FAILED or a false FINISHED.
+// context.Canceled is the one error this function still returns, so
+// [runPerUnitPhase]'s errors.Is(context.Canceled) check keeps routing to
+// the transient ack path instead of a permanent FAILED or false FINISHED.
 func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
@@ -862,10 +854,9 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 		bucket := store.Bucket(bucketName)
 		if bucket == nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				// A missing bucket has legitimate tolerated sources (store
-				// shutdown draining, a property dropped mid-migration) that
-				// converge on their own; only report this as a hard failure
-				// once we know the caller isn't already shutting down.
+				// Missing buckets have legitimate transient causes (shutdown
+				// draining, a property dropped mid-migration); only treat this
+				// as a hard failure once we know the caller isn't shutting down.
 				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w", propName, ctxErr)
 			}
 			err := fmt.Errorf(
@@ -881,10 +872,9 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 		started := time.Now()
 		if err := t.rebuildRangeableRepFn(ctx, bucket); err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				// Wrap both: ctxErr guarantees errors.Is(context.Canceled)
-				// works regardless of what the underlying rebuild error
-				// happens to be (it may not itself wrap ctx.Err()); err is
-				// kept for diagnostics.
+				// Wrap ctxErr too: it guarantees errors.Is(context.Canceled)
+				// works even if the underlying err doesn't itself wrap
+				// ctx.Err(); err is kept for diagnostics.
 				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w: %w", propName, ctxErr, err)
 			}
 			wrapped := fmt.Errorf(

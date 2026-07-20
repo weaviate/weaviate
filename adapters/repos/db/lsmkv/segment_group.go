@@ -563,27 +563,20 @@ func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
 	return sg.compactionCallbackCtrl.Activate()
 }
 
-// buildRoaringSetRangeRep merges a consistent, ref-counted view of the
-// current disk segments, oldest to newest, into a fresh unpublished rep.
-// Caller must have paused compaction: with only flush appends possible, the
-// merged segments stay a stable prefix of any later view, letting
-// installRoaringSetRangeRep catch up from there.
+// buildRoaringSetRangeRep merges the current disk segments (ref-counted,
+// oldest to newest) into a fresh unpublished rep. Caller must have paused
+// compaction so the merged segments stay a stable prefix for
+// installRoaringSetRangeRep's catch-up.
 //
-// The returned release must stay uncalled until installRoaringSetRangeRep
-// has run (it takes ownership and releases on every return path): holding
-// the incRef this whole span is what keeps a concurrent shutdown() from
-// closing these segments mid-merge, since shutdown()'s own
-// waitForReferenceCountToReachZero blocks on our refcount instead of racing
-// us for sg.segments.
+// Caller must not call the returned release until installRoaringSetRangeRep
+// returns: holding the ref keeps a concurrent shutdown() from closing these
+// segments mid-merge.
 func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringsetrange.SegmentInMemory, []Segment, func(), error) {
 	segments, release := sg.getConsistentViewOfSegments()
 
 	if sg.allocChecker != nil {
-		// allocChecker is optional. The fold below builds an unbounded
-		// full property representation (segment_group_compaction.go:308-320
-		// is the same guard for compaction); on a memory-constrained node
-		// this refusal is an ordinary error that degrades to disk serving
-		// at the caller rather than risking an OOM kill.
+		// Unbounded full-property build; refuse on memory pressure so the
+		// caller degrades to disk serving instead of risking an OOM kill.
 		var totalSize int64
 		for _, seg := range segments {
 			totalSize += seg.Size()
@@ -623,17 +616,14 @@ func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringse
 
 // installRoaringSetRangeRep merges segments appended after the bulk build
 // (flush appends only; compaction must stay paused) and publishes the rep.
-// Caller must hold the bucket's flushLock so no flush can append or merge
-// between the catch-up and the publish. releaseBuilt is buildRoaringSetRangeRep's
-// release for alreadyMerged; it always runs (defer), on every return path,
-// so a group shut down mid-rebuild is never blocked past this call.
+// Caller must hold the bucket's flushLock so no flush races the catch-up
+// with the publish. releaseBuilt always runs via defer, so a group shut
+// down mid-rebuild is never blocked past this call.
 //
-// Catch-up takes its own consistent, ref-counted view. With compaction
-// paused for the whole build+install span, appends only grow the tail, so
-// this view is always a superset of alreadyMerged and the suffix past it is
-// exactly what's new. The pointer publish is done under
-// maintenanceLock.Lock() for just that one assignment. This publish pairs
-// with the RLock() guard read in PrependSegmentsFromBucket.
+// Compaction staying paused for the whole span means appends only grow the
+// tail, so the catch-up view is always a superset of alreadyMerged. The
+// publish assignment pairs maintenanceLock.Lock() here with the RLock()
+// guard in PrependSegmentsFromBucket.
 func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentInMemory, alreadyMerged []Segment, releaseBuilt func()) error {
 	defer releaseBuilt()
 
@@ -642,10 +632,8 @@ func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentIn
 
 	catchUpFrom := len(alreadyMerged)
 	if catchUpFrom > len(segments) {
-		// Unreachable while compaction stays paused for the whole
-		// build+install span (the segment list can then only grow). Guard
-		// against a slice-bounds panic anyway if that assumption is ever
-		// violated by a future change.
+		// Should be unreachable while compaction stays paused (segments
+		// only grow); guard defensively against a slice-bounds panic.
 		sg.logger.WithFields(logrus.Fields{
 			"bucket":         filepath.Base(sg.dir),
 			"already_merged": catchUpFrom,

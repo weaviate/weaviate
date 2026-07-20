@@ -31,12 +31,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// Regression tests for weaviate/weaviate#12215 findings 5+8+D2
-// (WARN-and-continue): a non-cancellation rebuild failure at migration
-// finalize must degrade to disk serving, not fail the migration. See the
-// architect decision memo (board Conversations/2026-07/
-// 2026-07-20-1334__architect__finding5-d1-memo.md). Failures are injected
-// via the rebuildRangeableRepFn seam since the real failure window is too
+// Regression tests for weaviate/weaviate#12215: a non-cancellation rebuild
+// failure at migration finalize must degrade to disk serving
+// (WARN-and-continue), not fail the migration. Failures are injected via
+// the rebuildRangeableRepFn seam since the real failure window is too
 // narrow to hit black-box.
 
 // newRangeableInMemoryTestTask installs a fault-injecting rebuildRangeableRepFn.
@@ -85,11 +83,9 @@ func runReindexToCompletionOrError(t *testing.T, ctx context.Context, task *Shar
 }
 
 // setupRangeableFinalizeDegradeFixture builds a shard, injects a
-// permanently failing rebuild, and drives the migration to completion.
-// Per finding 5 (WARN-and-continue), a non-cancellation rebuild failure
-// must NOT fail the migration: OnMigrationComplete still runs, the
-// migration finishes, and range queries serve correct (if unaccelerated)
-// results from disk.
+// permanently failing rebuild, and drives the migration to completion: a
+// non-cancellation rebuild failure must not fail the migration, so
+// OnMigrationComplete still runs and range queries serve disk results.
 func setupRangeableFinalizeDegradeFixture(t *testing.T, classNamePrefix string) (
 	context.Context, *Shard, *Index, string, *ShardReindexTaskGeneric,
 	*testFilterableToRangeableStrategyWrapper, *atomic.Bool, *atomic.Int32, *test.Hook,
@@ -108,9 +104,8 @@ func setupRangeableFinalizeDegradeFixture(t *testing.T, classNamePrefix string) 
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(ctx) })
 
-	// Swap in a hook-capturing logger before the task is constructed (the
-	// task captures idx.logger by value at construction time), so the
-	// ERROR log this fixture drives can be asserted on.
+	// The task captures idx.logger by value at construction, so swap in a
+	// hook-capturing logger first to assert on the ERROR log this fixture drives.
 	hookLogger, hook := test.NewNullLogger()
 	idx.logger = hookLogger
 
@@ -130,10 +125,9 @@ func setupRangeableFinalizeDegradeFixture(t *testing.T, classNamePrefix string) 
 }
 
 // TestRangeableFinalize_RebuildFailure_ServesDiskNotMissingIndexError pins
-// weaviate/weaviate#12215 finding 5 (memo test 1): a non-cancellation
-// rebuild failure at finalize must FINISH the migration, flip the ready
-// flag, and serve correct disk results - never a permanent FAILED and
-// never a MissingFilterableIndexError on the affected replica.
+// weaviate/weaviate#12215: a non-cancellation rebuild failure at finalize
+// must FINISH the migration and serve correct disk results, never a
+// permanent FAILED or MissingFilterableIndexError.
 func TestRangeableFinalize_RebuildFailure_ServesDiskNotMissingIndexError(t *testing.T) {
 	propName := filterableToRangeablePropName
 	_, shard, _, _, _, wrapped, _, calls, hook := setupRangeableFinalizeDegradeFixture(t, "RangeableRebuildDegrade_")
@@ -166,9 +160,9 @@ func TestRangeableFinalize_RebuildFailure_ServesDiskNotMissingIndexError(t *test
 	assert.GreaterOrEqual(t, testutil.ToFloat64(metric), float64(1), "a degrade must increment the metric (memo test 7)")
 }
 
-// TestRangeableFinalize_RebuildCancellation_RoutesTransient pins memo test
-// 2: cancellation must still abort the rebuild loudly (not WARN-and-
-// continue), so the scheduler's transient-ack routing is preserved.
+// TestRangeableFinalize_RebuildCancellation_RoutesTransient pins
+// weaviate/weaviate#12215: cancellation must still abort the rebuild
+// loudly, preserving the scheduler's transient-ack routing.
 func TestRangeableFinalize_RebuildCancellation_RoutesTransient(t *testing.T) {
 	const numObjects = 5
 	propName := filterableToRangeablePropName
@@ -209,10 +203,10 @@ func TestRangeableFinalize_RebuildCancellation_RoutesTransient(t *testing.T) {
 		"a cancelled context must route directly through the rebuild-error branch too, preserving errors.Is compatibility")
 }
 
-// TestRangeableFinalize_DataWorkFailure_StillFAILED pins memo test 3: a
-// data-work (swap) failure - as opposed to a rebuild failure - must still
-// fail the migration. WARN-and-continue is scoped to the acceleration step
-// only; it must not broaden into the data path.
+// TestRangeableFinalize_DataWorkFailure_StillFAILED pins
+// weaviate/weaviate#12215: a data-work (swap) failure, unlike a rebuild
+// failure, must still fail the migration - WARN-and-continue is scoped to
+// the acceleration step only.
 func TestRangeableFinalize_DataWorkFailure_StillFAILED(t *testing.T) {
 	const numObjects = 5
 	propName := filterableToRangeablePropName
@@ -243,16 +237,8 @@ func TestRangeableFinalize_DataWorkFailure_StillFAILED(t *testing.T) {
 }
 
 // TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults
-// is the shard-level equivalent of memo test 6 (multi-replica staggered
-// flip). The full multi-node docker acceptance version was assessed and
-// deliberately not built in this pass: the test/docker harness has no
-// per-node env-var override (WithWeaviateEnv applies to every node), this
-// repo has no precedent for an env-gated fault-injection hook in the
-// production binary, and a docker-exec file-corruption race would be
-// exactly the flaky timing-dependent gate this memo warns against. This
-// test proves the same behavior at shard granularity instead: two
-// independent replicas, one succeeds, one's rebuild fails, both must
-// converge to correct results.
+// pins weaviate/weaviate#12215: two replicas where one's rebuild fails,
+// verifying both converge to identical, correct results.
 func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t *testing.T) {
 	const numObjects = 25
 	propName := filterableToRangeablePropName
@@ -285,15 +271,11 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	require.True(t, bucketA.RangeableServesFromMemory())
 
 	// Replica B: rebuild is fault-injected to fail. In a real cluster the
-	// schema flag is already committed cluster-wide by replica A by this
-	// point; this replica's own OnMigrationComplete must still run
-	// independently so its LOCAL ready flag converges too (finding 5).
-	// wrappedB.migrationCompleted is the load-bearing proxy for that flag
-	// here: this harness's test wrapper intentionally skips the real
-	// setRangeableLocallyReady side effect (see
-	// testFilterableToRangeableStrategyWrapper's doc comment) so unit
-	// tests don't need a full schema/RAFT harness; that side effect is
-	// unchanged, existing production code, not touched by this task.
+	// schema flag is already committed cluster-wide by replica A here;
+	// replica B's own OnMigrationComplete must still run so its local ready
+	// flag converges too. wrappedB.migrationCompleted proxies that flag
+	// since this harness's wrapper skips the real setRangeableLocallyReady
+	// side effect.
 	ctxB, shardB, idxB, classNameB := newReplica("RangeableMultiReplicaB_")
 	failing := &atomic.Bool{}
 	failing.Store(true)
@@ -338,12 +320,10 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 }
 
 // TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation pins
-// weaviate/weaviate#12215 findings 6+9: a bucket-not-found nil, which has
-// legitimate tolerated sources (store shutdown draining, a property dropped
-// mid-migration), must not be turned into a permanent hard failure when the
-// context is already done. It must return the context error directly so the
-// caller's errors.Is(err, context.Canceled) routing still works - not go
-// through errorcompounder, which drops the %w chain.
+// weaviate/weaviate#12215: a nil bucket (a legitimate, tolerated condition)
+// must not become a hard failure when the context is already done - it
+// must return the context error directly so errors.Is(err, context.Canceled)
+// still works.
 func TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation(t *testing.T) {
 	const numObjects = 5
 	propName := filterableToRangeablePropName
@@ -382,11 +362,9 @@ func TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation(t *test
 }
 
 // TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation
-// pins the complementary case: absent context cancellation, a nil bucket
-// now degrades WARN-and-continue too (finding 5 folds the nil-bucket
-// hard-fail into the same non-propagating path as any other rebuild
-// failure), logging at ERROR and incrementing the degrade metric instead
-// of failing the migration.
+// pins weaviate/weaviate#12215: absent cancellation, a nil bucket also
+// degrades WARN-and-continue (ERROR log + metric) instead of failing the
+// migration.
 func TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation(t *testing.T) {
 	const numObjects = 5
 	propName := filterableToRangeablePropName

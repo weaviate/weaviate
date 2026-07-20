@@ -293,11 +293,9 @@ func TestBucketRebuildRangeableSegmentInMemory_ConcurrentReadsAndWrites(t *testi
 	}
 }
 
-// TestSegmentGroupRoaringSetRangeRep_ShutdownDuringRebuildBlocksNotPanics
-// pins weaviate/weaviate#12215 findings 2+3: a shutdown() racing the
-// finalize rebuild must block on the rebuild's held segment refs
-// (waitForReferenceCountToReachZero) instead of nil-ing sg.segments out from
-// under the merge. Run with -race.
+// TestSegmentGroupRoaringSetRangeRep_ShutdownDuringRebuildBlocksNotPanics pins
+// weaviate/weaviate#12215: shutdown must block on the rebuild's held segment
+// refs, not race its merge. Run with -race.
 func TestSegmentGroupRoaringSetRangeRep_ShutdownDuringRebuildBlocksNotPanics(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -333,9 +331,8 @@ func TestSegmentGroupRoaringSetRangeRep_ShutdownDuringRebuildBlocksNotPanics(t *
 }
 
 // TestSegmentGroupRoaringSetRangeRep_InstallAfterGroupShutdownNoPanic pins
-// weaviate/weaviate#12215 finding 3: installRoaringSetRangeRep must not
-// slice-bounds panic when the group's segments were nil'd out (shutdown)
-// between build and install.
+// weaviate/weaviate#12215: installRoaringSetRangeRep must not slice-bounds
+// panic when segments were nil'd out (shutdown) between build and install.
 func TestSegmentGroupRoaringSetRangeRep_InstallAfterGroupShutdownNoPanic(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -380,10 +377,8 @@ func (alwaysRefuseAllocChecker) CheckMappingAndReserve(numberMappings int64, res
 func (alwaysRefuseAllocChecker) Refresh(updateMappings bool) {}
 
 // TestSegmentGroupRoaringSetRangeRep_AllocCheckerRefusalSoftDegrades pins
-// weaviate/weaviate#12215 finding 4: an allocChecker refusal on the
-// rebuild's fold must be an ordinary error (not a panic or an OOM), so it
-// can soft-degrade to disk serving at the caller instead of risking a node
-// kill on a memory-constrained host.
+// weaviate/weaviate#12215: an allocChecker refusal must be an ordinary
+// error, not a panic, so the caller can soft-degrade to disk serving.
 func TestSegmentGroupRoaringSetRangeRep_AllocCheckerRefusalSoftDegrades(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -408,10 +403,8 @@ func TestSegmentGroupRoaringSetRangeRep_AllocCheckerRefusalSoftDegrades(t *testi
 }
 
 // TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish pins
-// weaviate/weaviate#12215 finding 8 / D2 (memo test 4): a rebuild whose rep
-// folds empty while disk segments exist (e.g. every row deleted) must not
-// publish - rangeableRepRebuilt stays false, the disk-serving diagnostic is
-// logged, and reads still return correct (disk) results.
+// weaviate/weaviate#12215: a rebuild whose rep folds empty while disk
+// segments exist (e.g. all rows deleted) must not publish.
 func TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -427,10 +420,9 @@ func TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish(t *testing.T) 
 	b.SetMemtableThreshold(1e9)
 	defer b.Shutdown(ctx)
 
-	// Add then remove the same docID under the same value, each flushed to
-	// its own segment, so bitmaps[0] folds empty while >0 disk segments
-	// (tombstone-bearing) exist - the same shape finding 7 documents for a
-	// legitimately all-deleted property.
+	// Add then remove the same docID under the same value, flushed to
+	// separate segments, so bitmaps[0] folds empty while disk segments
+	// (tombstone-bearing) still exist - the all-deleted-property shape.
 	require.NoError(t, b.RoaringSetRangeAdd(1, 100))
 	require.NoError(t, b.FlushAndSwitch())
 	require.NoError(t, b.RoaringSetRangeRemove(1, 100))
@@ -447,13 +439,9 @@ func TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish(t *testing.T) 
 	assert.Empty(t, readEqual(t, b, 1), "disk-path read must still return the correct (empty) result")
 }
 
-// TestReaderRoaringSetRange_PublishedFlagTrusted pins weaviate/weaviate#12215
-// D2 (memo test 5): once RebuildRangeableSegmentInMemory has validated and
-// published a rep (rangeableRepRebuilt==true), reads never re-run the
-// per-read unpopulated+disk-segments discriminant - install-time validation
-// replaced it. A validated, published rep must never trigger the per-read
-// fallback WARN, proving the read path is a direct memory-path dispatch for
-// this flag rather than a re-checked one.
+// TestReaderRoaringSetRange_PublishedFlagTrusted pins weaviate/weaviate#12215:
+// once published (rangeableRepRebuilt==true), reads must trust the rep and
+// never re-run the per-read unpopulated+disk-segments fallback check.
 func TestReaderRoaringSetRange_PublishedFlagTrusted(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
