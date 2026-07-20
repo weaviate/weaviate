@@ -117,7 +117,7 @@ func (b *BM25Searcher) wandBlock(
 				termCounts = append(termCounts, queryTerms)
 
 				minimumOrTokensMatch := params.MinimumOrTokensMatch
-				if params.SearchOperator == common_filters.SearchOperatorAnd {
+				if common_filters.IsAndOperator(params.SearchOperator) {
 					minimumOrTokensMatch = len(queryTerms)
 				}
 
@@ -161,14 +161,14 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, false, fmt.Errorf("after createBlockTerm: %w", ctx.Err())
 	}
 
-	// Cross-property AND: when enabled and all searched properties fall under a
-	// single tokenization group, every query token must appear in at least one of
-	// the searched properties (tokens may be spread across them) rather than all
+	// OPERATOR_AND_CROSS: when all searched properties fall under a single
+	// tokenization group, every query token must appear in at least one of the
+	// searched properties (tokens may be spread across them) rather than all
 	// tokens within one property. A single non-empty group guarantees one shared
 	// queryTerms list / index space; otherwise we fall back to per-property AND.
 	crossPropAnd := false
 	var crossPropQueryTerms []string
-	if params.SearchOperator == common_filters.SearchOperatorAnd && params.MatchTokensAcrossProperties {
+	if params.SearchOperator == common_filters.SearchOperatorAndCross {
 		nonEmptyGroups := 0
 		var groupKey string
 		for tok, propNames := range stats.propNamesByTokenization {
@@ -256,7 +256,7 @@ func (b *BM25Searcher) wandBlock(
 
 			eg.Go(func() (err error) {
 				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
-				if params.SearchOperator == common_filters.SearchOperatorAnd {
+				if common_filters.IsAndOperator(params.SearchOperator) {
 					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], stats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				} else {
 					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], stats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)

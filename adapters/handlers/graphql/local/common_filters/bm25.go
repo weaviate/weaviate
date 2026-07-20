@@ -19,9 +19,18 @@ import (
 )
 
 var (
-	SearchOperatorAnd = "OPERATOR_AND"
-	SearchOperatorOr  = "OPERATOR_OR"
+	SearchOperatorAnd      = "OPERATOR_AND"
+	SearchOperatorOr       = "OPERATOR_OR"
+	SearchOperatorAndCross = "OPERATOR_AND_CROSS"
 )
+
+// IsAndOperator reports whether the operator requires every query token to match
+// — either all within a single property (AND) or spread across the searched
+// properties (AND_CROSS). Both use the per-property AND path when cross-property
+// matching does not apply.
+func IsAndOperator(operator string) bool {
+	return operator == SearchOperatorAnd || operator == SearchOperatorAndCross
+}
 
 func GenerateBM25SearchOperatorFields(prefixName string) *graphql.InputObjectFieldConfig {
 	searchesPrefixName := prefixName + "Searches"
@@ -44,16 +53,16 @@ func GenerateBM25SearchOperatorFields(prefixName string) *graphql.InputObjectFie
 									Value:       SearchOperatorOr,
 									Description: "At least one token must match",
 								},
+								"AndCross": &graphql.EnumValueConfig{
+									Value:       SearchOperatorAndCross,
+									Description: "All tokens must match, but they may be spread across the searched properties (rather than all within one property)",
+								},
 							},
 						}),
 					},
 					"minimumOrTokensMatch": &graphql.InputObjectFieldConfig{
 						Description: "The minimum number of tokens that should match (only for OR operator)",
 						Type:        graphql.Int,
-					},
-					"matchTokensAcrossProperties": &graphql.InputObjectFieldConfig{
-						Description: "When true and operator is And, a document matches if every token is present in at least one searched property (tokens may be spread across properties)",
-						Type:        graphql.Boolean,
 					},
 				},
 			},
@@ -88,9 +97,6 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 		args.SearchOperator = operator["operator"].(string)
 		if operator["minimumOrTokensMatch"] != nil {
 			args.MinimumOrTokensMatch = int(operator["minimumOrTokensMatch"].(int))
-		}
-		if operator["matchTokensAcrossProperties"] != nil {
-			args.MatchTokensAcrossProperties = operator["matchTokensAcrossProperties"].(bool)
 		}
 	}
 

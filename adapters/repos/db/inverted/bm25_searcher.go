@@ -371,7 +371,7 @@ func (b *BM25Searcher) wandFromStats(
 				allQueryTerms = append(allQueryTerms, queryTerm)
 			}
 			minimumOrTokensMatchByTokenization := params.MinimumOrTokensMatch
-			if params.SearchOperator == common_filters.SearchOperatorAnd {
+			if common_filters.IsAndOperator(params.SearchOperator) {
 				minimumOrTokensMatchByTokenization = len(queryTerms)
 			}
 			if minimumOrTokensMatchByTokenization < minimumOrTokensMatch {

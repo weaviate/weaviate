@@ -81,6 +81,10 @@ const (
 	SearchOperatorOptions_OPERATOR_UNSPECIFIED SearchOperatorOptions_Operator = 0
 	SearchOperatorOptions_OPERATOR_OR          SearchOperatorOptions_Operator = 1
 	SearchOperatorOptions_OPERATOR_AND         SearchOperatorOptions_Operator = 2
+	// OPERATOR_AND_CROSS: a document matches if every query token appears in at
+	// least one of the searched properties (tokens may be spread across
+	// properties), rather than all tokens within a single property.
+	SearchOperatorOptions_OPERATOR_AND_CROSS SearchOperatorOptions_Operator = 3
 )
 
 // Enum value maps for SearchOperatorOptions_Operator.
@@ -89,11 +93,13 @@ var (
 		0: "OPERATOR_UNSPECIFIED",
 		1: "OPERATOR_OR",
 		2: "OPERATOR_AND",
+		3: "OPERATOR_AND_CROSS",
 	}
 	SearchOperatorOptions_Operator_value = map[string]int32{
 		"OPERATOR_UNSPECIFIED": 0,
 		"OPERATOR_OR":          1,
 		"OPERATOR_AND":         2,
+		"OPERATOR_AND_CROSS":   3,
 	}
 )
 
@@ -417,12 +423,8 @@ type SearchOperatorOptions struct {
 	state                protoimpl.MessageState         `protogen:"open.v1"`
 	Operator             SearchOperatorOptions_Operator `protobuf:"varint,1,opt,name=operator,proto3,enum=weaviate.v1.SearchOperatorOptions_Operator" json:"operator,omitempty"`
 	MinimumOrTokensMatch *int32                         `protobuf:"varint,2,opt,name=minimum_or_tokens_match,json=minimumOrTokensMatch,proto3,oneof" json:"minimum_or_tokens_match,omitempty"`
-	// When true and operator is OPERATOR_AND, a document matches if every query
-	// token appears in at least one of the searched properties (tokens may be
-	// spread across properties) instead of all tokens within a single property.
-	MatchTokensAcrossProperties *bool `protobuf:"varint,3,opt,name=match_tokens_across_properties,json=matchTokensAcrossProperties,proto3,oneof" json:"match_tokens_across_properties,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SearchOperatorOptions) Reset() {
@@ -467,13 +469,6 @@ func (x *SearchOperatorOptions) GetMinimumOrTokensMatch() int32 {
 		return *x.MinimumOrTokensMatch
 	}
 	return 0
-}
-
-func (x *SearchOperatorOptions) GetMatchTokensAcrossProperties() bool {
-	if x != nil && x.MatchTokensAcrossProperties != nil {
-		return *x.MatchTokensAcrossProperties
-	}
-	return false
 }
 
 type Hybrid struct {
@@ -1703,17 +1698,16 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x06_limitB\n" +
 	"\n" +
 	"\b_balanceB\v\n" +
-	"\tselection\"\xee\x02\n" +
+	"\tselection\"\x99\x02\n" +
 	"\x15SearchOperatorOptions\x12G\n" +
 	"\boperator\x18\x01 \x01(\x0e2+.weaviate.v1.SearchOperatorOptions.OperatorR\boperator\x12:\n" +
-	"\x17minimum_or_tokens_match\x18\x02 \x01(\x05H\x00R\x14minimumOrTokensMatch\x88\x01\x01\x12H\n" +
-	"\x1ematch_tokens_across_properties\x18\x03 \x01(\bH\x01R\x1bmatchTokensAcrossProperties\x88\x01\x01\"G\n" +
+	"\x17minimum_or_tokens_match\x18\x02 \x01(\x05H\x00R\x14minimumOrTokensMatch\x88\x01\x01\"_\n" +
 	"\bOperator\x12\x18\n" +
 	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vOPERATOR_OR\x10\x01\x12\x10\n" +
-	"\fOPERATOR_AND\x10\x02B\x1a\n" +
-	"\x18_minimum_or_tokens_matchB!\n" +
-	"\x1f_match_tokens_across_properties\"\x91\a\n" +
+	"\fOPERATOR_AND\x10\x02\x12\x16\n" +
+	"\x12OPERATOR_AND_CROSS\x10\x03B\x1a\n" +
+	"\x18_minimum_or_tokens_match\"\x91\a\n" +
 	"\x06Hybrid\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1e\n" +
 	"\n" +

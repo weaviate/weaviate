@@ -50,13 +50,13 @@ message SearchOperatorOptions {
     OPERATOR_UNSPECIFIED = 0;
     OPERATOR_OR = 1;
     OPERATOR_AND = 2;
+    // OPERATOR_AND_CROSS: a document matches if every query token appears in at
+    // least one of the searched properties (tokens may be spread across
+    // properties), rather than all tokens within a single property.
+    OPERATOR_AND_CROSS = 3;
   }
   Operator operator = 1;
   optional int32 minimum_or_tokens_match = 2;
-  // When true and operator is OPERATOR_AND, a document matches if every query
-  // token appears in at least one of the searched properties (tokens may be
-  // spread across properties) instead of all tokens within a single property.
-  optional bool match_tokens_across_properties = 3;
 }
 
 message Hybrid {

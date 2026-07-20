@@ -294,7 +294,7 @@ func TestBM25FCrossPropertyAnd(t *testing.T) {
 		return 0, false
 	}
 
-	kwrCross := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: query, SearchOperator: common_filters.SearchOperatorAnd, MatchTokensAcrossProperties: true}
+	kwrCross := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: query, SearchOperator: common_filters.SearchOperatorAndCross}
 	resCross, scoresCross, err := idx.objectSearch(context.TODO(), 1000, nil, kwrCross, nil, nil, addit, nil, "", 0, props)
 	require.Nil(t, err)
 
