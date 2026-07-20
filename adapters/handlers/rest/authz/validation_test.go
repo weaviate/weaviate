@@ -59,6 +59,27 @@ func TestValidatePermissions(t *testing.T) {
 			expectedErr: "not a valid class name",
 		},
 		{
+			name: "lowercase collection name is uppercased, not rejected",
+			permissions: []*models.Permission{
+				{
+					Collections: &models.PermissionCollections{
+						Collection: String("wrong_collection"),
+					},
+				},
+			},
+		},
+		{
+			name: "lowercase collection name in an alias permission is uppercased, not rejected",
+			permissions: []*models.Permission{
+				{
+					Aliases: &models.PermissionAliases{
+						Collection: String("wrong_collection"),
+						Alias:      String("my_alias"),
+					},
+				},
+			},
+		},
+		{
 			name: "invalid tenant name with space",
 			permissions: []*models.Permission{
 				{

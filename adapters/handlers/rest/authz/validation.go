@@ -62,7 +62,12 @@ func validatePermissions(allowEmpty bool, permissions ...*models.Permission) err
 				multiErr = errors.Join(multiErr, err)
 			}
 		}
+		// Uppercased first, because conv stores the target uppercased and that is the
+		// form the matcher sees. Only the first character is uppercased, so in an
+		// alternation the later branches keep their case: "movies|books" is stored as
+		// "Movies|books" and never matches "Books".
 		className := func(name string) {
+			name = schema.UppercaseClassName(name)
 			_, err := schema.ValidateClassNameIncludesRegex(name)
 			add(err)
 			add(validateRegexTarget("collection", name))
