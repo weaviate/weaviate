@@ -117,6 +117,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 ) (*models.Class, uint64, error) {
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
+	clearInternalPropertyFields(cls.Properties...)
 
 	// originalClassName must be passed to validateCanAddClass below: the
 	// qualified form ("<ns>:<Class>") fails ValidateClassName because
@@ -766,6 +767,21 @@ func setPropertyDefaults(props ...*models.Property) {
 	setPropertyDefaultIndexing(props...)
 	for _, prop := range props {
 		setNestedPropertiesDefaults(prop.NestedProperties)
+	}
+}
+
+// clearInternalPropertyFields nils out RAFT-internal per-property fields on
+// client-provided properties so they can only ever be set from inside the
+// engine. SearchableBlockmax is derived from the on-disk bucket strategy (at
+// migration cutover and by the startup read-repair); a client-seeded value
+// would be a wrong stamp the read-repair never corrects, since it only touches
+// nil stamps. Create paths only — the migration stamp path must keep its value,
+// and UpdateProperty's DeepEqual guard already blocks external mutation.
+func clearInternalPropertyFields(props ...*models.Property) {
+	for _, prop := range props {
+		if prop != nil {
+			prop.SearchableBlockmax = nil
+		}
 	}
 }
 

@@ -88,6 +88,9 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 			return nil, 0, err
 		}
 	}
+	// Strip RAFT-internal fields unconditionally (including merge-existing
+	// props, which the loop above skips) so a client can never seed them.
+	clearInternalPropertyFields(newProps...)
 
 	if err := h.setNewPropDefaults(class, newProps...); err != nil {
 		return nil, 0, err
