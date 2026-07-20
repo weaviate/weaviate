@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -88,7 +89,8 @@ func TestBatchTokenizerWithEmptyProperties(t *testing.T) {
 			cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector, nil)
 			tokenizer := batch.ReturnBatchTokenizer(1, "", false)
 			vectorizer := objectsvectorizer.New()
-			encoderCache := batch.NewEncoderCache()
+			logger, _ := test.NewNullLogger()
+			encoderCache := batch.NewEncoderCache(logger)
 			skipObjects := make([]bool, len(tt.objects))
 			texts, tokenCounts, skippedObjects, skipAll, err := tokenizer(context.TODO(), tt.objects, skipObjects, cfg, vectorizer, encoderCache)
 			require.NoError(t, err)
@@ -184,7 +186,8 @@ func BenchmarkBatchVectorizer(b *testing.B) {
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]any{"vectorizeClassName": false}}
 
 	vectorizer := objectsvectorizer.New()
-	encoderCache := batch.NewEncoderCache()
+	logger, _ := test.NewNullLogger()
+	encoderCache := batch.NewEncoderCache(logger)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _, _, _, err := tokenizer(ctx, []*models.Object{}, []bool{false}, cfg, vectorizer, encoderCache)
