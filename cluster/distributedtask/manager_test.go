@@ -109,6 +109,13 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 		err := h.manager.AddTask(c, 100)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated conflict")
+		// The rejection must be classifiable as a conflict (→ REST 409),
+		// end-to-end via errors.Is on the sentinel + umbrella. Without this
+		// the REST submit path maps every AddTask error to 500.
+		require.ErrorIs(t, err, ErrTaskConflict,
+			"a CheckConflict rejection must ride the ErrTaskConflict sentinel")
+		require.ErrorIs(t, err, ErrPermanentRejection,
+			"conflict rejections must classify as permanent (FailedPrecondition on the wire)")
 
 		// Confirm the task was NOT registered.
 		tasks, err2 := h.manager.ListDistributedTasks(context.Background())

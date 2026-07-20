@@ -85,6 +85,16 @@ var (
 	// failed arrives — refusing here avoids overwriting a terminal
 	// status the operator (or fail-fast path) committed in the meantime.
 	ErrTaskNotInFinalizingState = errors.New("task is not in finalizing state")
+
+	// ErrTaskConflict matches a [ConflictDetector.CheckConflict] rejection at
+	// [Manager.AddTask]: the new task overlaps an already in-flight task on
+	// shared on-disk state. Stable and deterministic (every node's FSM reaches
+	// the same decision) and not retryable until the in-flight task terminates,
+	// so it rides the [ErrPermanentRejection] umbrella (FailedPrecondition on
+	// the wire). Distinct from the other sentinels above (which are
+	// recorder/finalize rejections) so the REST submit path can map it to 409
+	// Conflict rather than 500.
+	ErrTaskConflict = errors.New("task conflicts with an in-flight task")
 )
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
@@ -118,6 +128,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrUnitAlreadyTerminal, "unit-terminal"},
 	{ErrUnitWrongNode, "unit-wrong-node"},
 	{ErrTaskNotInFinalizingState, "task-not-finalizing"},
+	{ErrTaskConflict, "task-conflict"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

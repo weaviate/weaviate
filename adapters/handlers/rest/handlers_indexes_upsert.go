@@ -672,15 +672,13 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
 			ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
 		); err != nil {
-			return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-				fmt.Sprintf("submitting task: %v", err)))
+			return h.mapSubmitTaskError(principal, collection, taskID, err)
 		}
 	} else {
 		if err := h.appState.ClusterService.AddDistributedTaskWithBarrier(
 			ctx, db.ReindexNamespace, taskID, payload, unitIDs, semantic,
 		); err != nil {
-			return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-				fmt.Sprintf("submitting task: %v", err)))
+			return h.mapSubmitTaskError(principal, collection, taskID, err)
 		}
 	}
 
@@ -699,4 +697,24 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: "STARTED",
 	})
+}
+
+// mapSubmitTaskError classifies an AddDistributedTask error. The FSM-level
+// ConflictDetector rejects a task that races another node's concurrent submit
+// on overlapping properties; that is a 409 Conflict, not a 500. The specific
+// task IDs (which could name a different property's task) are logged
+// server-side, not returned to the caller. Every other failure is a genuine
+// infra error → 500.
+func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collection, taskID string, err error) middleware.Responder {
+	if errors.Is(err, distributedtask.ErrTaskConflict) {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"collection": collection,
+			"taskID":     taskID,
+		}).Infof("submit: cluster conflict check rejected task: %v", err)
+		return jsonResponder(http.StatusConflict, errorResponse(principal,
+			"a conflicting reindex task on the same property is already in flight "+
+				"(a concurrent submit won the race); wait for it to finish or cancel it before retrying"))
+	}
+	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
+		fmt.Sprintf("submitting task: %v", err)))
 }
