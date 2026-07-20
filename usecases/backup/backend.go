@@ -247,6 +247,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	desc.Status = backup.Transferring
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
+
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
+
 	defer func() {
 		//  release indexes under all conditions
 		u.releaseIndexes(classes, desc.ID)

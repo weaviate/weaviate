@@ -99,7 +99,9 @@ func (r *restorer) restore(
 			StartedAt: time.Now().UTC(),
 			Status:    backup.Transferring,
 		}
+		backgroundDone := monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessRestore)
 		defer func() {
+			backgroundDone()
 			status.CompletedAt = time.Now().UTC()
 			if err == nil {
 				status.Status = backup.Success
