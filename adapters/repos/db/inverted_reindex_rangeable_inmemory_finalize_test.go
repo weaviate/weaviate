@@ -63,6 +63,32 @@ func firstErrorEntry(hook *test.Hook) *logrus.Entry {
 	return nil
 }
 
+// newRangeableFinalizeTestShard builds a shard+index with a unique class
+// name and the rangeable in-memory knob on, ready for object loading and a
+// reindex task to be constructed against it.
+func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string) (context.Context, *Shard, *Index, string) {
+	t.Helper()
+	ctx := testCtx()
+	className := classNamePrefix + uuid.NewString()[:8]
+	class := newFilterableToRangeableTestClass(className)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false,
+		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(ctx) })
+	return ctx, shard, idx, className
+}
+
+// putRangeableTestObjects loads numObjects deterministic test objects into
+// shard, cycling the rangeable prop's value per filterableToRangeableNumDistinctValues.
+func putRangeableTestObjects(t *testing.T, ctx context.Context, shard *Shard, className string, numObjects int) {
+	t.Helper()
+	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+}
+
 // runReindexToCompletionOrError drives OnAfterLsmInit + OnAfterLsmInitAsync
 // to convergence, returning the first error encountered (nil if the
 // migration converged cleanly).
@@ -94,24 +120,14 @@ func setupRangeableFinalizeDegradeFixture(t *testing.T, classNamePrefix string) 
 	const numObjects = 25
 	propName := filterableToRangeablePropName
 
-	ctx := testCtx()
-	className := classNamePrefix + uuid.NewString()[:8]
-	class := newFilterableToRangeableTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false,
-		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, classNamePrefix)
 
 	// The task captures idx.logger by value at construction, so swap in a
 	// hook-capturing logger first to assert on the ERROR log this fixture drives.
 	hookLogger, hook := test.NewNullLogger()
 	idx.logger = hookLogger
 
-	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	putRangeableTestObjects(t, ctx, shard, className, numObjects)
 
 	failing := &atomic.Bool{}
 	failing.Store(true)
@@ -164,21 +180,9 @@ func TestRangeableFinalize_RebuildFailure_ServesDiskNotMissingIndexError(t *test
 // weaviate/weaviate#12215: cancellation must still abort the rebuild
 // loudly, preserving the scheduler's transient-ack routing.
 func TestRangeableFinalize_RebuildCancellation_RoutesTransient(t *testing.T) {
-	const numObjects = 5
 	propName := filterableToRangeablePropName
-	ctx := testCtx()
-	className := "RangeableRebuildCancel_" + uuid.NewString()[:8]
-	class := newFilterableToRangeableTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false,
-		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableRebuildCancel_")
+	putRangeableTestObjects(t, ctx, shard, className, 5)
 
 	// Drive the migration to completion first so the rangeable bucket
 	// exists: cancellation must route through the rebuild-error branch
@@ -208,21 +212,9 @@ func TestRangeableFinalize_RebuildCancellation_RoutesTransient(t *testing.T) {
 // failure, must still fail the migration - WARN-and-continue is scoped to
 // the acceleration step only.
 func TestRangeableFinalize_DataWorkFailure_StillFAILED(t *testing.T) {
-	const numObjects = 5
 	propName := filterableToRangeablePropName
-	ctx := testCtx()
-	className := "RangeableDataWorkFail_" + uuid.NewString()[:8]
-	class := newFilterableToRangeableTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false,
-		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableDataWorkFail_")
+	putRangeableTestObjects(t, ctx, shard, className, 5)
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
 	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
@@ -244,17 +236,8 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	propName := filterableToRangeablePropName
 
 	newReplica := func(classNamePrefix string) (context.Context, *Shard, *Index, string) {
-		ctx := testCtx()
-		className := classNamePrefix + uuid.NewString()[:8]
-		class := newFilterableToRangeableTestClass(className)
-		shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-			false, false, false,
-			func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
-		shard := shd.(*Shard)
-		t.Cleanup(func() { shard.Shutdown(ctx) })
-		for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
-			require.NoError(t, shard.PutObject(ctx, obj))
-		}
+		ctx, shard, idx, className := newRangeableFinalizeTestShard(t, classNamePrefix)
+		putRangeableTestObjects(t, ctx, shard, className, numObjects)
 		return ctx, shard, idx, className
 	}
 
@@ -325,21 +308,9 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 // must return the context error directly so errors.Is(err, context.Canceled)
 // still works.
 func TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation(t *testing.T) {
-	const numObjects = 5
 	propName := filterableToRangeablePropName
-	ctx := testCtx()
-	className := "RangeableNilBucketCtxCancel_" + uuid.NewString()[:8]
-	class := newFilterableToRangeableTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false,
-		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
-
-	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableNilBucketCtxCancel_")
+	putRangeableTestObjects(t, ctx, shard, className, 5)
 
 	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
 
@@ -366,24 +337,13 @@ func TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation(t *test
 // degrades WARN-and-continue (ERROR log + metric) instead of failing the
 // migration.
 func TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation(t *testing.T) {
-	const numObjects = 5
 	propName := filterableToRangeablePropName
-	ctx := testCtx()
-	className := "RangeableNilBucketDegrade_" + uuid.NewString()[:8]
-	class := newFilterableToRangeableTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false,
-		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
-	shard := shd.(*Shard)
-	t.Cleanup(func() { shard.Shutdown(ctx) })
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableNilBucketDegrade_")
 
 	hookLogger, hook := test.NewNullLogger()
 	idx.logger = hookLogger
 
-	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	putRangeableTestObjects(t, ctx, shard, className, 5)
 
 	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
 
