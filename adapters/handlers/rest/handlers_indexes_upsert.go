@@ -171,7 +171,7 @@ func (h *indexesHandlers) listReindexTasks(ctx context.Context, principal *model
 func reindexTasksOrFailClosed(ctx context.Context, principal *models.Principal, lister distributedtask.TaskLister, logger logrus.FieldLogger) ([]*distributedtask.Task, middleware.Responder) {
 	tasks, err := lister.ListDistributedTasks(ctx)
 	if err != nil {
-		logger.Errorf("submit: failing closed — cannot list in-flight distributed tasks to verify reindex preconditions: %v; rejecting with 503 rather than deriving blockmax/idempotency from a partial view", err)
+		logger.Errorf("submit: failing closed — cannot list in-flight distributed tasks to verify reindex preconditions: %v", err)
 		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			fmt.Sprintf("cannot verify reindex preconditions: listing in-flight tasks failed (%v); retry once the task store is reachable", err)))
 	}
