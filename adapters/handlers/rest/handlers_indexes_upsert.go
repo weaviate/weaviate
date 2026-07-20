@@ -13,7 +13,6 @@ package rest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -303,42 +302,24 @@ func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection stri
 // same epistemic gap as [checkReindexConflict], so the NO_OP path must fail
 // closed rather than return a false 200.
 func hasUnverifiableInFlightTask(reindexTasks []*distributedtask.Task) bool {
-	for _, t := range reindexTasks {
-		if !t.Status.IsActive() {
-			continue
-		}
-		var p db.ReindexTaskPayload
-		if err := json.Unmarshal(t.Payload, &p); err != nil {
-			return true
-		}
-		if p.Collection == "" || p.MigrationType == "" {
-			return true
-		}
-	}
-	return false
+	_, _, found := firstActiveReindexTask(reindexTasks, decodeUndecodableIsHit, func(p db.ReindexTaskPayload) bool {
+		return p.Collection == "" || p.MigrationType == ""
+	})
+	return found
 }
 
 // activeSearchableTaskFor returns the in-flight task (if any) converging this
 // property's searchable index, and whether it already targets what this
 // request asks for.
 func activeSearchableTaskFor(collection, propName, tok, algorithm string, reindexTasks []*distributedtask.Task) (task *distributedtask.Task, matches bool) {
-	for _, t := range reindexTasks {
-		if !t.Status.IsActive() {
-			continue
-		}
-		var p db.ReindexTaskPayload
-		if err := json.Unmarshal(t.Payload, &p); err != nil {
-			continue
-		}
-		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propName) {
-			continue
-		}
-		if !db.TouchesSearchable(p.MigrationType) {
-			continue
-		}
-		return t, requestMatchesActiveSearchable(p.MigrationType, p.TargetTokenization, tok, algorithm)
+	t, p, found := firstActiveReindexTask(reindexTasks, decodeSkip, func(p db.ReindexTaskPayload) bool {
+		return strings.EqualFold(p.Collection, collection) && slices.Contains(p.Properties, propName) &&
+			db.TouchesSearchable(p.MigrationType)
+	})
+	if !found {
+		return nil, false
 	}
-	return nil, false
+	return t, requestMatchesActiveSearchable(p.MigrationType, p.TargetTokenization, tok, algorithm)
 }
 
 // requestMatchesActiveSearchable reports whether an in-flight migration
@@ -449,23 +430,14 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 // request. currentTok is the property's tokenization (enable-filterable
 // builds with it and carries no explicit target).
 func activeFilterableTaskFor(collection, propName, tok, currentTok string, reindexTasks []*distributedtask.Task) (task *distributedtask.Task, matches bool) {
-	for _, t := range reindexTasks {
-		if !t.Status.IsActive() {
-			continue
-		}
-		var p db.ReindexTaskPayload
-		if err := json.Unmarshal(t.Payload, &p); err != nil {
-			continue
-		}
-		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propName) {
-			continue
-		}
-		if !db.TouchesFilterable(p.MigrationType) {
-			continue
-		}
-		return t, requestMatchesActiveFilterable(p.MigrationType, p.TargetTokenization, tok, currentTok)
+	t, p, found := firstActiveReindexTask(reindexTasks, decodeSkip, func(p db.ReindexTaskPayload) bool {
+		return strings.EqualFold(p.Collection, collection) && slices.Contains(p.Properties, propName) &&
+			db.TouchesFilterable(p.MigrationType)
+	})
+	if !found {
+		return nil, false
 	}
-	return nil, false
+	return t, requestMatchesActiveFilterable(p.MigrationType, p.TargetTokenization, tok, currentTok)
 }
 
 // requestMatchesActiveFilterable reports whether an in-flight filterable
@@ -538,22 +510,14 @@ func resolveFilterableUpsert(collection string, prop *models.Property, tok, algo
 // in-flight enable/repair on this property is convergent — there is no
 // "different target" to conflict on.
 func activeRangeableTaskFor(collection, propName string, reindexTasks []*distributedtask.Task) *distributedtask.Task {
-	for _, t := range reindexTasks {
-		if !t.Status.IsActive() {
-			continue
-		}
-		var p db.ReindexTaskPayload
-		if err := json.Unmarshal(t.Payload, &p); err != nil {
-			continue
-		}
+	t, _, _ := firstActiveReindexTask(reindexTasks, decodeSkip, func(p db.ReindexTaskPayload) bool {
 		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propName) {
-			continue
+			return false
 		}
-		if matches, _ := migrationTypeTargetsIndex(p.MigrationType, "rangeable"); matches {
-			return t
-		}
-	}
-	return nil
+		matches, _ := migrationTypeTargetsIndex(p.MigrationType, "rangeable")
+		return matches
+	})
+	return t
 }
 
 // resolveRangeableUpsert handles PUT .../index/rangeFilters (internal token
@@ -671,30 +635,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 
 	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
 
-	// Record the property's submit-time tokenization for RAFT-log diagnostics
-	// only — the field has no runtime reader (see OriginalTokenization godoc on
-	// ReindexTaskPayload). Stale-replay override of a newer task's schema flip
-	// is prevented by FINISHED-status replay suppression, not by this field.
-	var originalTok string
-	if migrationType == db.ReindexTypeChangeTokenization ||
-		migrationType == db.ReindexTypeChangeTokenizationFilterable ||
-		migrationType == db.ReindexTypeEnableSearchable {
-		if p := findProperty(class, propertyName); p != nil {
-			originalTok = p.Tokenization
-		}
-	}
-
-	payload := db.ReindexTaskPayload{
-		MigrationType:        migrationType,
-		Collection:           collection,
-		Properties:           properties,
-		TargetTokenization:   plan.targetTok,
-		OriginalTokenization: originalTok,
-		BucketStrategy:       plan.bucketStrategy,
-		Tenants:              tenants,
-		UnitToNode:           unitToNode,
-		UnitToShard:          unitToShard,
-	}
+	payload := buildReindexPayload(class, collection, properties, plan, tenants, unitToShard, unitToNode)
 
 	// Human-readable task ID with a random suffix for uniqueness.
 	// Format: "Collection:migration-type:property:ab3f".
@@ -745,6 +686,34 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: "STARTED",
 	})
+}
+
+// buildReindexPayload assembles the RAFT task payload. OriginalTokenization is
+// the property's submit-time tokenization, recorded for RAFT-log diagnostics
+// only — it has no runtime reader (see its godoc on ReindexTaskPayload);
+// stale-replay of a newer task's schema flip is prevented by FINISHED-status
+// replay suppression, not by this field.
+func buildReindexPayload(class *models.Class, collection string, properties []string, plan upsertPlan,
+	tenants []string, unitToShard, unitToNode map[string]string,
+) db.ReindexTaskPayload {
+	var originalTok string
+	if mt := plan.migrationType; mt == db.ReindexTypeChangeTokenization ||
+		mt == db.ReindexTypeChangeTokenizationFilterable || mt == db.ReindexTypeEnableSearchable {
+		if p := findProperty(class, properties[0]); p != nil {
+			originalTok = p.Tokenization
+		}
+	}
+	return db.ReindexTaskPayload{
+		MigrationType:        plan.migrationType,
+		Collection:           collection,
+		Properties:           properties,
+		TargetTokenization:   plan.targetTok,
+		OriginalTokenization: originalTok,
+		BucketStrategy:       plan.bucketStrategy,
+		Tenants:              tenants,
+		UnitToNode:           unitToNode,
+		UnitToShard:          unitToShard,
+	}
 }
 
 // stalePartialStateCleaner scrubs a property's partial reindex sidecar dirs

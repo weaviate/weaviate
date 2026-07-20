@@ -282,26 +282,14 @@ func principalUsername(principal *models.Principal) string {
 // target past STARTED (units done, mid-swap) resolves to an idempotent 202
 // NO_OP in cancelReindexTask, not an error.
 func findCancelTargetTask(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload) {
-	for _, task := range tasks {
-		if !task.Status.IsActive() {
-			continue
+	task, payload, _ := firstActiveReindexTask(tasks, decodeSkip, func(p db.ReindexTaskPayload) bool {
+		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propertyName) {
+			return false
 		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
-		if !strings.EqualFold(payload.Collection, collection) {
-			continue
-		}
-		if !slices.Contains(payload.Properties, propertyName) {
-			continue
-		}
-		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
-			continue
-		}
-		return task, payload
-	}
-	return nil, db.ReindexTaskPayload{}
+		matches, _ := migrationTypeTargetsIndex(p.MigrationType, indexType)
+		return matches
+	})
+	return task, payload
 }
 
 // reindexTaskCanceller is the slice of the cluster service the cancel path
@@ -602,6 +590,50 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 		return indexType == "filterable", true
 	}
 	return false, false
+}
+
+// decodeErrorPolicy controls how firstActiveReindexTask treats a task whose
+// payload cannot be decoded.
+type decodeErrorPolicy int
+
+const (
+	// decodeSkip: an undecodable in-flight task is ignored (the read /
+	// idempotency match sites — the submit-time conflict gate flags it
+	// instead, so treating it as "no task" here is safe).
+	decodeSkip decodeErrorPolicy = iota
+	// decodeUndecodableIsHit: an undecodable in-flight task counts as a match
+	// (fail closed — the caller can't verify it, so it must not derive a
+	// trustworthy NO_OP). Used by the unverifiable-task scan.
+	decodeUndecodableIsHit
+)
+
+// firstActiveReindexTask returns the first active (IsActive) reindex task whose
+// decoded payload satisfies match, plus its payload. On a decode error, policy
+// decides: decodeSkip continues; decodeUndecodableIsHit returns that task as a
+// match with a zero payload. It factors the shared IsActive + unmarshal loop
+// out of the five per-index task-lookup helpers so each keeps only its match
+// predicate and decode policy.
+func firstActiveReindexTask(
+	tasks []*distributedtask.Task,
+	policy decodeErrorPolicy,
+	match func(db.ReindexTaskPayload) bool,
+) (*distributedtask.Task, db.ReindexTaskPayload, bool) {
+	for _, t := range tasks {
+		if !t.Status.IsActive() {
+			continue
+		}
+		var p db.ReindexTaskPayload
+		if err := json.Unmarshal(t.Payload, &p); err != nil {
+			if policy == decodeUndecodableIsHit {
+				return t, db.ReindexTaskPayload{}, true
+			}
+			continue
+		}
+		if match(p) {
+			return t, p, true
+		}
+	}
+	return nil, db.ReindexTaskPayload{}, false
 }
 
 // parsedReindexTask pairs a distributed task with its already-unmarshalled
