@@ -845,20 +845,17 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 		return nil
 	}
 
-	className := shard.Index().Config.ClassName.String()
 	store := shard.Store()
 	ec := errorcompounder.New()
 	for _, propName := range props {
 		bucketName := t.strategy.SourceBucketName(propName)
-		repairCmd := fmt.Sprintf(`PUT /v1/schema/%s/indexes/%s {"rangeable":{"rebuild":true}}`,
-			className, propName)
 
 		bucket := store.Bucket(bucketName)
 		if bucket == nil {
 			err := fmt.Errorf(
 				"rangeable index for property %q could not be activated for in-memory "+
-					"serving: bucket %q not found post-swap. Repair: %s",
-				propName, bucketName, repairCmd,
+					"serving: bucket %q not found post-swap. Rebuild the index to repair it.",
+				propName, bucketName,
 			)
 			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
 			ec.Add(err)
@@ -872,8 +869,8 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 			}
 			wrapped := fmt.Errorf(
 				"rangeable index for property %q built and data intact, but could not be "+
-					"activated for in-memory serving: %w. Repair: %s",
-				propName, err, repairCmd,
+					"activated for in-memory serving: %w. Rebuild the index to repair it.",
+				propName, err,
 			)
 			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
 			ec.Add(wrapped)
