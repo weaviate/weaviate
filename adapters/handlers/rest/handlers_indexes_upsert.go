@@ -709,6 +709,15 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	// Defense in depth against CANCEL→retry silently resuming stale partial
 	// state and reporting false success. Must clean BOTH dirs for a coupled
 	// change-tokenization — see indexTypesFromMigrationType godoc.
+	//
+	// Fail CLOSED on a cleanup error rather than log-and-continue: proceeding
+	// could let the new task short-circuit on the stale state (OnAfterLsmInit's
+	// IsTidied check) and report a false success — the Sev-1 silent data loss
+	// that cleanup exists to prevent (see indexTypesFromMigrationType / Journey
+	// 7). The Index-level cleanup returns aggregated errors precisely so the
+	// caller can refuse the submit. A failed submit is loud and recoverable; a
+	// false success is neither. (ErrBucketNotFound races are swallowed inside
+	// the shard cleanup, so a returned error is a genuine failure.)
 	if indexTypesForCleanup, known := indexTypesFromMigrationType(migrationType); known {
 		for _, it := range indexTypesForCleanup {
 			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
@@ -717,7 +726,9 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 					"property":       propertyName,
 					"migration_type": migrationType,
 					"index_type":     it,
-				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
+				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
+				return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
+					"pre-submit cleanup of stale partial reindex state failed; refusing to submit to avoid a task that short-circuits on stale state and reports a false success — operator inspection of the migration state is required"))
 			}
 		}
 	}
