@@ -65,6 +65,11 @@ func (m *mockRaft) ChangeNamespaceState(ctx context.Context, name string, target
 	return uint64(args.Int(0)), args.Error(1)
 }
 
+func (m *mockRaft) ChangeNamespaceStateIfUnchanged(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error) {
+	args := m.Called(ctx, name, target)
+	return uint64(args.Int(0)), args.Error(1)
+}
+
 func (m *mockRaft) GetNamespaces(names ...string) ([]cmd.Namespace, error) {
 	// Convert variadic to []interface{} for Called.
 	args := make([]interface{}, len(names))

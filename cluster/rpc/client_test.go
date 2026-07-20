@@ -161,6 +161,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrNamespaceSuspended", send: namespaces.ErrNamespaceSuspended},
 		{name: "ErrCollectionSuspended", send: namespaces.ErrCollectionSuspended},
 		{name: "ErrNamespaceResuming", send: namespaces.ErrNamespaceResuming},
+		{name: "ErrStateChangedConcurrently", send: namespaces.ErrStateChangedConcurrently},
 		{name: "ErrNotFound", send: namespaces.ErrNotFound},
 		{name: "ErrNotLeader", send: types.ErrNotLeader},
 		{name: "ErrLeaderNotFound", send: types.ErrLeaderNotFound},
@@ -270,6 +271,7 @@ func TestFromRPCError_SentinelMessagesMutuallyNonSubstring(t *testing.T) {
 				{name: "ErrNamespaceNotEmpty", err: namespaces.ErrNamespaceNotEmpty},
 				{name: "ErrInvalidState", err: namespaces.ErrInvalidState},
 				{name: "ErrInvalidStateTransition", err: namespaces.ErrInvalidStateTransition},
+				{name: "ErrStateChangedConcurrently", err: namespaces.ErrStateChangedConcurrently},
 				{name: "ErrMTDisabled", err: schema.ErrMTDisabled},
 			},
 		},
@@ -308,12 +310,24 @@ func TestFromRPCError_UnrecognizedNotLeaderMessagePassesThrough(t *testing.T) {
 	require.NotErrorIs(t, parsed, types.ErrLeaderNotFound)
 }
 
-// TestNamespaceResuming_NotRetryable checks ErrNamespaceResuming maps to
-// FailedPrecondition and that code is not in the Apply/Query retry set, so
-// a resuming rejection is never silently retried.
-func TestNamespaceResuming_NotRetryable(t *testing.T) {
-	st, ok := status.FromError(toRPCError(namespaces.ErrNamespaceResuming))
-	require.True(t, ok)
-	require.Equal(t, codes.FailedPrecondition, st.Code())
+// TestDeterministicRejections_NotRetryable checks that these rejections map
+// to FailedPrecondition and that the code is not in the Apply/Query retry
+// set, so the caller sees them immediately instead of after the full backoff
+// schedule. Retrying is the caller's decision, not the transport's.
+func TestDeterministicRejections_NotRetryable(t *testing.T) {
+	sentinels := []struct {
+		name string
+		send error
+	}{
+		{name: "ErrNamespaceResuming", send: namespaces.ErrNamespaceResuming},
+		{name: "ErrStateChangedConcurrently", send: namespaces.ErrStateChangedConcurrently},
+	}
+	for _, tc := range sentinels {
+		t.Run(tc.name, func(t *testing.T) {
+			st, ok := status.FromError(toRPCError(tc.send))
+			require.True(t, ok)
+			require.Equal(t, codes.FailedPrecondition, st.Code())
+		})
+	}
 	require.NotContains(t, serviceConfig, "FAILED_PRECONDITION")
 }

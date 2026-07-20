@@ -79,15 +79,63 @@ func (s *Raft) UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, e
 	return s.Execute(ctx, command)
 }
 
-// ChangeNamespaceState proposes a ChangeNamespaceState RAFT command and
-// returns the apply version. The apply side returns [namespaces.ErrNotFound]
-// for unknown namespaces and [namespaces.ErrInvalidStateTransition] for
-// forbidden transitions; same-state transitions are idempotent.
+// ChangeNamespaceState proposes an unconditional ChangeNamespaceState RAFT
+// command and returns the apply version. The apply side returns
+// [namespaces.ErrNotFound] for unknown namespaces and
+// [namespaces.ErrInvalidStateTransition] for forbidden transitions;
+// same-state transitions are idempotent. Callers that must not overwrite a
+// concurrent flip use ChangeNamespaceStateIfUnchanged instead.
 func (s *Raft) ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error) {
+	return s.changeNamespaceState(ctx, name, target, 0)
+}
+
+// ChangeNamespaceStateIfUnchanged proposes the flip only if the namespace's
+// state has not changed since this call read it.
+//
+// Execute re-proposes when leadership is lost, without knowing whether the
+// first attempt committed. Suspend and resume can each undo the other, so an
+// unconditional retry can revert a flip that succeeded in between — and that
+// flip's caller was already told it worked. The retry carries the index read
+// here, so the apply refuses it instead. The refused caller gets
+// [namespaces.ErrStateChangedConcurrently] and re-reads before deciding
+// again. Returns [namespaces.ErrNotFound] when the namespace does not exist.
+//
+// The read happens once, here, above Execute. Reading inside Execute's retry
+// would fetch a fresh index on every re-propose, which would always match
+// and leave the precondition doing nothing. The value itself need not be
+// current: the apply compares against authoritative state, so an old index
+// can only cause a spurious refusal, never a wrong accept.
+func (s *Raft) ChangeNamespaceStateIfUnchanged(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error) {
+	expectedIndex, err := s.stateChangeIndex(name)
+	if err != nil {
+		return 0, err
+	}
+	return s.changeNamespaceState(ctx, name, target, expectedIndex)
+}
+
+// stateChangeIndex reads the namespace's current StateChangeIndex. Anything
+// other than exactly one row is [namespaces.ErrNotFound]: GetNamespaces
+// omits names it cannot find, and returning 0 for a missing namespace would
+// propose the flip with no precondition.
+func (s *Raft) stateChangeIndex(name string) (uint64, error) {
+	got, err := s.GetNamespaces(name)
+	if err != nil {
+		return 0, err
+	}
+	if len(got) != 1 {
+		return 0, fmt.Errorf("%w: %q", usecasesNamespaces.ErrNotFound, name)
+	}
+	return got[0].StateChangeIndex, nil
+}
+
+// changeNamespaceState proposes the flip. expectedIndex of 0 applies
+// unconditionally.
+func (s *Raft) changeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState, expectedIndex uint64) (uint64, error) {
 	req := cmd.ChangeNamespaceStateRequest{
-		Name:        name,
-		TargetState: target,
-		Version:     cmd.NamespaceLatestCommandPolicyVersion,
+		Name:                     name,
+		TargetState:              target,
+		Version:                  cmd.NamespaceLatestCommandPolicyVersion,
+		ExpectedStateChangeIndex: expectedIndex,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {

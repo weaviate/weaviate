@@ -38,6 +38,7 @@ type NamespaceRaftGetter interface {
 	AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespace, uint64, error)
 	UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error)
 	ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
+	ChangeNamespaceStateIfUnchanged(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
 	GetNamespaces(names ...string) ([]cmd.Namespace, error)
 	StorageCandidates() []string
 }

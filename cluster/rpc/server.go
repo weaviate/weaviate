@@ -245,6 +245,7 @@ func toRPCError(err error) error {
 		errors.Is(err, namespaces.ErrNamespaceSuspended),
 		errors.Is(err, namespaces.ErrCollectionSuspended),
 		errors.Is(err, namespaces.ErrNamespaceResuming),
+		errors.Is(err, namespaces.ErrStateChangedConcurrently),
 		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
 	case errors.Is(err, namespaces.ErrAlreadyExists):

@@ -78,6 +78,12 @@ var (
 	// ErrNamespaceResuming is returned when an operation targets a namespace
 	// that is resuming.
 	ErrNamespaceResuming = errors.New("namespace is resuming")
+
+	// ErrStateChangedConcurrently is returned by ChangeState when the stored
+	// StateChangeIndex no longer matches the one the caller read before
+	// proposing, meaning another state change applied in between. Callers
+	// re-read and decide again rather than retrying blindly.
+	ErrStateChangedConcurrently = errors.New("namespace state changed concurrently")
 )
 
 // reservedNames are refused at Create time. Kept as a package variable (not a
@@ -215,15 +221,46 @@ func (c *Controller) Update(ns cmd.Namespace) error {
 	return nil
 }
 
-// ChangeState transitions a namespace into target and records raftIndex as
-// the index of that flip. Pass the RAFT log index of the applied command,
-// never a command policy version. Same-state transitions are idempotent,
-// return nil, and leave the recorded index alone, so re-applying a command
-// cannot advance it. Returns [ErrBadRequest] when target is not a recognized
-// state, [ErrNotFound] when the namespace does not exist, and
+// StateChange carries the two RAFT indexes a state flip needs: one is
+// written, the other is compared. Named fields rather than two uint64
+// parameters, which a caller could swap without the compiler noticing.
+type StateChange struct {
+	// AppliedIndex is this apply's RAFT log index. A successful flip stores
+	// it as the namespace's new StateChangeIndex.
+	AppliedIndex uint64
+	// ExpectedIndex is the StateChangeIndex the flip requires the namespace
+	// to still be at. 0 skips the check.
+	ExpectedIndex uint64
+}
+
+// ChangeState transitions a namespace into target and records
+// sc.AppliedIndex as the index of that flip.
+//
+// A nonzero sc.ExpectedIndex makes the flip conditional: it is refused with
+// [ErrStateChangedConcurrently] unless the stored StateChangeIndex still
+// matches, which is what stops a re-proposed command from undoing a state
+// change made after it was first proposed. Because the comparison runs here,
+// at apply time, against authoritative state, an out-of-date expected value
+// can only refuse a flip that should have applied — never accept one that
+// should not — and every node reaches the same verdict on replay.
+//
+// The precondition is checked after the same-state short-circuit, so
+// re-applying an uncontended command still returns nil, and before
+// transition legality, so a flip whose index moved reports that rather than
+// the transition rules of whatever state it now finds.
+//
+// Same-state transitions are idempotent, return nil, and leave the recorded
+// index alone, so re-applying a command cannot advance it. Returns
+// [ErrBadRequest] when target is not a recognized state or sc.AppliedIndex
+// is 0, [ErrNotFound] when the namespace does not exist, and
 // [ErrInvalidStateTransition] when the transition is forbidden (e.g.
 // deleting back to active).
-func (c *Controller) ChangeState(name string, target cmd.NamespaceState, raftIndex uint64) error {
+func (c *Controller) ChangeState(name string, target cmd.NamespaceState, sc StateChange) error {
+	// A stored 0 reads back as "unknown", so the next conditional flip would
+	// propose with no precondition at all.
+	if sc.AppliedIndex == 0 {
+		return fmt.Errorf("%w: applied index must not be 0", ErrBadRequest)
+	}
 	if !isKnownState(target) {
 		return fmt.Errorf("%w: unknown namespace state %q", ErrBadRequest, target)
 	}
@@ -237,12 +274,16 @@ func (c *Controller) ChangeState(name string, target cmd.NamespaceState, raftInd
 	if ns.State == target {
 		return nil
 	}
+	if sc.ExpectedIndex != 0 && ns.StateChangeIndex != sc.ExpectedIndex {
+		return fmt.Errorf("%w: %q moved to index %d, expected %d",
+			ErrStateChangedConcurrently, name, ns.StateChangeIndex, sc.ExpectedIndex)
+	}
 	if _, legal := stateTransitions[ns.State][target]; !legal {
 		return fmt.Errorf("%w: %q is %s, cannot transition to %s",
 			ErrInvalidStateTransition, name, ns.State, target)
 	}
 	ns.State = target
-	ns.StateChangeIndex = raftIndex
+	ns.StateChangeIndex = sc.AppliedIndex
 	return nil
 }
 

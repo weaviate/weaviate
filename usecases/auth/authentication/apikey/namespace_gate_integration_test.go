@@ -59,14 +59,17 @@ func TestNamespaceGate_SuspendResumeDelete(t *testing.T) {
 		index    uint64
 		wantBody string // "" means login must succeed
 	}{
-		{target: cmd.NamespaceStateSuspended, index: 1, wantBody: "unauthorized: instance suspended"},
-		{target: cmd.NamespaceStateResuming, index: 2, wantBody: "unauthorized: instance resuming, retry shortly"},
-		{target: cmd.NamespaceStateActive, index: 3, wantBody: ""},
-		{target: cmd.NamespaceStateDeleting, index: 4, wantBody: "unauthorized: instance unavailable"},
+		// Indexes continue past the two creates above; one RAFT log index
+		// belongs to one command.
+		{target: cmd.NamespaceStateSuspended, index: 3, wantBody: "unauthorized: instance suspended"},
+		{target: cmd.NamespaceStateResuming, index: 4, wantBody: "unauthorized: instance resuming, retry shortly"},
+		{target: cmd.NamespaceStateActive, index: 5, wantBody: ""},
+		{target: cmd.NamespaceStateDeleting, index: 6, wantBody: "unauthorized: instance unavailable"},
 	}
 
 	for _, step := range steps {
-		require.NoError(t, ctrl.ChangeState("customer1", step.target, step.index))
+		require.NoError(t, ctrl.ChangeState("customer1", step.target,
+			namespaces.StateChange{AppliedIndex: step.index}))
 
 		err := login(key1)
 		if step.wantBody == "" {

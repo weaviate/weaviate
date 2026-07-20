@@ -73,13 +73,14 @@ const (
 
 // changeStateCmd fills both Version fields the way the real call path does:
 // the sub-command carries the command policy version, the outer request
-// carries the RAFT log index.
-func changeStateCmd(t *testing.T, name string, target cmd.NamespaceState, raftIndex uint64) *cmd.ApplyRequest {
+// carries the RAFT log index. expectedIndex of 0 applies unconditionally.
+func changeStateCmd(t *testing.T, name string, target cmd.NamespaceState, raftIndex, expectedIndex uint64) *cmd.ApplyRequest {
 	t.Helper()
 	payload, err := json.Marshal(cmd.ChangeNamespaceStateRequest{
-		Name:        name,
-		TargetState: target,
-		Version:     cmd.NamespaceLatestCommandPolicyVersion,
+		Name:                     name,
+		TargetState:              target,
+		Version:                  cmd.NamespaceLatestCommandPolicyVersion,
+		ExpectedStateChangeIndex: expectedIndex,
 	})
 	require.NoError(t, err)
 	return &cmd.ApplyRequest{SubCommand: payload, Version: raftIndex}
@@ -105,9 +106,9 @@ func seedNamespace(t *testing.T, m *Manager, name string, seedState cmd.Namespac
 	}
 	if seedState == cmd.NamespaceStateResuming {
 		// resuming is only reachable from suspended.
-		require.NoError(t, m.ChangeState(changeStateCmd(t, name, cmd.NamespaceStateSuspended, seedIndex)))
+		require.NoError(t, m.ChangeState(changeStateCmd(t, name, cmd.NamespaceStateSuspended, seedIndex, 0)))
 	}
-	require.NoError(t, m.ChangeState(changeStateCmd(t, name, seedState, seedIndex)))
+	require.NoError(t, m.ChangeState(changeStateCmd(t, name, seedState, seedIndex, 0)))
 }
 
 func TestNewManager_RequiredArgsPanic(t *testing.T) {
@@ -139,10 +140,11 @@ func TestManager_Add(t *testing.T) {
 
 func TestManager_ChangeState(t *testing.T) {
 	tests := []struct {
-		name      string
-		seedState cmd.NamespaceState // empty = no namespace exists
-		target    cmd.NamespaceState
-		wantErr   error
+		name          string
+		seedState     cmd.NamespaceState // empty = no namespace exists
+		target        cmd.NamespaceState
+		expectedIndex uint64 // 0 = unconditional
+		wantErr       error
 	}{
 		{name: "active -> deleting flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateDeleting},
 		{name: "active -> active is idempotent", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateActive},
@@ -154,6 +156,10 @@ func TestManager_ChangeState(t *testing.T) {
 		{name: "active -> suspended flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateSuspended},
 		{name: "suspended -> resuming flips state", seedState: cmd.NamespaceStateSuspended, target: cmd.NamespaceStateResuming},
 		{name: "resuming -> active flips state", seedState: cmd.NamespaceStateResuming, target: cmd.NamespaceStateActive},
+		// The expected index must survive the sub-command round-trip; the
+		// controller owns the exhaustive precondition table.
+		{name: "matching expected index flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateSuspended, expectedIndex: createIndex},
+		{name: "stale expected index is refused", seedState: cmd.NamespaceStateSuspended, target: cmd.NamespaceStateActive, expectedIndex: createIndex, wantErr: usecasesNamespaces.ErrStateChangedConcurrently},
 	}
 
 	for _, tc := range tests {
@@ -161,7 +167,7 @@ func TestManager_ChangeState(t *testing.T) {
 			m := newTestManager(t)
 			seedNamespace(t, m, "customer1", tc.seedState)
 
-			err := m.ChangeState(changeStateCmd(t, "customer1", tc.target, flipIndex))
+			err := m.ChangeState(changeStateCmd(t, "customer1", tc.target, flipIndex, tc.expectedIndex))
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.wantErr)
@@ -264,7 +270,7 @@ func TestManager_RemoveEntity_Leftovers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTestManagerWithLeftovers(t, tc.leftovers, tc.leftovers, tc.rbac)
 			require.NoError(t, m.Add(addCmd(t, "customer1")))
-			require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting, seedIndex)))
+			require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting, seedIndex, 0)))
 
 			err := m.RemoveEntity(removeEntityCmd(t, "customer1"))
 			if tc.wantErr != nil {

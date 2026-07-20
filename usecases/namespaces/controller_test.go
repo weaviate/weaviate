@@ -12,6 +12,7 @@
 package namespaces
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -80,9 +81,9 @@ func seedNamespace(t *testing.T, c *Controller, name string, seedState cmd.Names
 	}
 	if seedState == cmd.NamespaceStateResuming {
 		// resuming is only reachable from suspended.
-		require.NoError(t, c.ChangeState(name, cmd.NamespaceStateSuspended, seedIndex))
+		require.NoError(t, c.ChangeState(name, cmd.NamespaceStateSuspended, StateChange{AppliedIndex: seedIndex}))
 	}
-	require.NoError(t, c.ChangeState(name, seedState, seedIndex))
+	require.NoError(t, c.ChangeState(name, seedState, StateChange{AppliedIndex: seedIndex}))
 }
 
 func TestValidateName(t *testing.T) {
@@ -224,7 +225,7 @@ func TestController_Create_StoresActiveState(t *testing.T) {
 func TestController_Create_RejectsDeletingWithDistinctSentinel(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, createIndex))
-	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, StateChange{AppliedIndex: seedIndex}))
 
 	err := c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, createIndex)
 	require.Error(t, err)
@@ -272,7 +273,7 @@ func TestController_ChangeState(t *testing.T) {
 			c := newTestController(t)
 			seedNamespace(t, c, "customer1", tc.seedState)
 
-			err := c.ChangeState("customer1", tc.target, flipIndex)
+			err := c.ChangeState("customer1", tc.target, StateChange{AppliedIndex: flipIndex})
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.wantErr)
@@ -298,6 +299,185 @@ func TestController_ChangeState(t *testing.T) {
 				"only an accepted flip records the index; a same-state re-apply leaves it alone")
 		})
 	}
+}
+
+// TestController_ChangeState_Precondition covers the expected-index
+// precondition and, through the last four rows, the order it is evaluated in:
+// after the same-state short-circuit and before transition legality.
+func TestController_ChangeState_Precondition(t *testing.T) {
+	tests := []struct {
+		name          string
+		seedState     cmd.NamespaceState // empty = no namespace exists
+		target        cmd.NamespaceState
+		appliedIndex  uint64 // 0 only in the row that pins the guard
+		expectedIndex uint64
+		wantErr       error
+		wantState     cmd.NamespaceState
+		wantIndex     uint64
+	}{
+		{
+			name:          "zero applied index is rejected",
+			seedState:     cmd.NamespaceStateActive,
+			target:        cmd.NamespaceStateSuspended,
+			appliedIndex:  0,
+			expectedIndex: createIndex,
+			wantErr:       ErrBadRequest,
+			wantState:     cmd.NamespaceStateActive,
+			wantIndex:     createIndex,
+		},
+		{
+			name:          "index matching the create applies",
+			seedState:     cmd.NamespaceStateActive,
+			target:        cmd.NamespaceStateSuspended,
+			appliedIndex:  flipIndex,
+			expectedIndex: createIndex,
+			wantState:     cmd.NamespaceStateSuspended,
+			wantIndex:     flipIndex,
+		},
+		{
+			name:          "index matching an earlier flip applies",
+			seedState:     cmd.NamespaceStateSuspended,
+			target:        cmd.NamespaceStateActive,
+			appliedIndex:  flipIndex,
+			expectedIndex: seedIndex,
+			wantState:     cmd.NamespaceStateActive,
+			wantIndex:     flipIndex,
+		},
+		{
+			name:          "zero index applies unconditionally",
+			seedState:     cmd.NamespaceStateSuspended,
+			target:        cmd.NamespaceStateActive,
+			appliedIndex:  flipIndex,
+			expectedIndex: 0,
+			wantState:     cmd.NamespaceStateActive,
+			wantIndex:     flipIndex,
+		},
+		{
+			name:          "index behind the stored one is refused",
+			seedState:     cmd.NamespaceStateSuspended,
+			target:        cmd.NamespaceStateActive,
+			appliedIndex:  flipIndex,
+			expectedIndex: createIndex,
+			wantErr:       ErrStateChangedConcurrently,
+			wantState:     cmd.NamespaceStateSuspended,
+			wantIndex:     seedIndex,
+		},
+		{
+			name:          "index ahead of the stored one is refused",
+			seedState:     cmd.NamespaceStateActive,
+			target:        cmd.NamespaceStateSuspended,
+			appliedIndex:  flipIndex,
+			expectedIndex: flipIndex,
+			wantErr:       ErrStateChangedConcurrently,
+			wantState:     cmd.NamespaceStateActive,
+			wantIndex:     createIndex,
+		},
+		{
+			name:          "max uint64 index is refused like any other mismatch",
+			seedState:     cmd.NamespaceStateActive,
+			target:        cmd.NamespaceStateSuspended,
+			appliedIndex:  flipIndex,
+			expectedIndex: math.MaxUint64,
+			wantErr:       ErrStateChangedConcurrently,
+			wantState:     cmd.NamespaceStateActive,
+			wantIndex:     createIndex,
+		},
+		{
+			name:          "missing namespace reports absence, not a lost race",
+			target:        cmd.NamespaceStateSuspended,
+			appliedIndex:  flipIndex,
+			expectedIndex: flipIndex,
+			wantErr:       ErrNotFound,
+		},
+		{
+			// A second operator issuing a flip that already applied: its index
+			// is stale, but identical intent must not fail.
+			name:          "same-state short-circuit wins over a stale index",
+			seedState:     cmd.NamespaceStateSuspended,
+			target:        cmd.NamespaceStateSuspended,
+			appliedIndex:  flipIndex,
+			expectedIndex: createIndex,
+			wantState:     cmd.NamespaceStateSuspended,
+			wantIndex:     seedIndex,
+		},
+		{
+			name:          "deleting with a stale index reports the lost race",
+			seedState:     cmd.NamespaceStateDeleting,
+			target:        cmd.NamespaceStateSuspended,
+			appliedIndex:  flipIndex,
+			expectedIndex: createIndex,
+			wantErr:       ErrStateChangedConcurrently,
+			wantState:     cmd.NamespaceStateDeleting,
+			wantIndex:     seedIndex,
+		},
+		{
+			name:          "deleting with a matching index reports the illegal transition",
+			seedState:     cmd.NamespaceStateDeleting,
+			target:        cmd.NamespaceStateSuspended,
+			appliedIndex:  flipIndex,
+			expectedIndex: seedIndex,
+			wantErr:       ErrInvalidStateTransition,
+			wantState:     cmd.NamespaceStateDeleting,
+			wantIndex:     seedIndex,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestController(t)
+			seedNamespace(t, c, "customer1", tc.seedState)
+
+			err := c.ChangeState("customer1", tc.target, StateChange{
+				AppliedIndex:  tc.appliedIndex,
+				ExpectedIndex: tc.expectedIndex,
+			})
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			if tc.seedState == "" {
+				assert.False(t, nsExists(c, "customer1"))
+				return
+			}
+			got, ok := c.GetNamespace("customer1")
+			require.True(t, ok)
+			assert.Equal(t, tc.wantState, got.State)
+			assert.Equal(t, tc.wantIndex, got.StateChangeIndex)
+		})
+	}
+}
+
+// TestController_ChangeState_StaleRetryCannotRevert is the reason the
+// precondition exists: a suspend whose caller lost leadership is re-proposed
+// after an operator resumed, and must not silently undo that resume.
+func TestController_ChangeState_StaleRetryCannotRevert(t *testing.T) {
+	const (
+		suspendIndex uint64 = 6
+		resumeIndex  uint64 = 7
+	)
+	c := newTestController(t)
+	seedNamespace(t, c, "customer1", cmd.NamespaceStateActive)
+
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateSuspended, StateChange{
+		AppliedIndex: suspendIndex, ExpectedIndex: createIndex,
+	}))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateActive, StateChange{
+		AppliedIndex: resumeIndex, ExpectedIndex: suspendIndex,
+	}))
+
+	// The re-proposed suspend still carries the index it read before the resume.
+	err := c.ChangeState("customer1", cmd.NamespaceStateSuspended, StateChange{
+		AppliedIndex: resumeIndex + 1, ExpectedIndex: createIndex,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrStateChangedConcurrently)
+
+	got, ok := c.GetNamespace("customer1")
+	require.True(t, ok)
+	assert.Equal(t, cmd.NamespaceStateActive, got.State, "the resume must survive the stale retry")
+	assert.Equal(t, resumeIndex, got.StateChangeIndex)
 }
 
 func TestController_RemoveEntity(t *testing.T) {
@@ -348,7 +528,7 @@ func TestController_Update(t *testing.T) {
 			if tc.seedState != "" {
 				require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, createIndex))
 				if tc.seedState == cmd.NamespaceStateDeleting {
-					require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
+					require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, StateChange{AppliedIndex: seedIndex}))
 				}
 			}
 			err := c.Update(tc.input)
@@ -374,7 +554,7 @@ func TestController_Update(t *testing.T) {
 func TestController_RecreateAfterRemoval(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, createIndex))
-	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, StateChange{AppliedIndex: seedIndex}))
 	require.NoError(t, c.RemoveEntity("customer1"))
 
 	// The re-created namespace takes the index of the create that made it, so
@@ -391,8 +571,8 @@ func TestController_ListDeleting(t *testing.T) {
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, createIndex))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-1"}}, createIndex))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer3", HomeNodes: []string{"node-1"}}, createIndex))
-	require.NoError(t, c.ChangeState("customer3", cmd.NamespaceStateDeleting, seedIndex))
-	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
+	require.NoError(t, c.ChangeState("customer3", cmd.NamespaceStateDeleting, StateChange{AppliedIndex: seedIndex}))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, StateChange{AppliedIndex: seedIndex}))
 
 	assert.Equal(t, []string{"customer1", "customer3"}, c.ListDeleting())
 }
@@ -515,7 +695,7 @@ func TestController_GetNamespace(t *testing.T) {
 	assert.True(t, nsExists(c, "customer1"))
 	assert.False(t, nsExists(c, "never-existed"))
 
-	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, seedIndex))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting, StateChange{AppliedIndex: seedIndex}))
 	require.NoError(t, c.RemoveEntity("customer1"))
 	assert.False(t, nsExists(c, "customer1"))
 }
@@ -536,7 +716,7 @@ func TestController_SnapshotRestoreRoundtrip(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-a"}}, createIndex))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-b"}}, createIndex))
-	require.NoError(t, c.ChangeState("customer2", cmd.NamespaceStateSuspended, flipIndex))
+	require.NoError(t, c.ChangeState("customer2", cmd.NamespaceStateSuspended, StateChange{AppliedIndex: flipIndex}))
 
 	snap, err := c.Snapshot()
 	require.NoError(t, err)
