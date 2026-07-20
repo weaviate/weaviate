@@ -59,7 +59,7 @@ func TestPaginateResults(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := paginateResults(mk(tt.n), tt.offset, tt.lim)
+			got := (&Explorer{}).paginateResults(mk(tt.n), tt.offset, tt.lim)
 			assert.Equal(t, tt.want, ids(got))
 		})
 	}
@@ -97,6 +97,36 @@ func Test_Explorer_VectorSelectionPagination(t *testing.T) {
 	for _, n := range page1 {
 		assert.NotContains(t, page2, n)
 	}
+}
+
+// Test_Explorer_RerankerAfterMMR: under MMR, module extension (rerankers) must
+// run after diversification on the vector path, receiving the final MMR page —
+// matching the hybrid path where ListExploreAdditionalExtend follows selection.
+func Test_Explorer_RerankerAfterMMR(t *testing.T) {
+	searcher := &fakeVectorSearcher{}
+	searcher.On("VectorSearch", mock.Anything, mock.Anything).Return(makeHybridVectorResults(20), nil)
+	searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, results []search.Result) ([]search.Result, error) {
+		reversed := make([]search.Result, len(results))
+		for i := range results {
+			reversed[i] = results[len(results)-1-i]
+		}
+		return reversed, nil
+	}
+	spy := &spyModulesProvider{fakeModulesProvider: &fakeModulesProvider{}}
+	explorer := newTestExplorer(searcher, spy)
+
+	res, err := explorer.GetClass(context.Background(), dto.GetParams{
+		ClassName:  "TestClass",
+		Pagination: &filters.Pagination{Offset: 0, Limit: 10},
+		NearVector: &searchparams.NearVector{Vectors: []models.Vector{[]float32{0.1, 0.2, 0.3}}},
+		Selection:  mmrSel(3, 0),
+	})
+	require.NoError(t, err)
+	require.Len(t, res, 3)
+
+	require.Len(t, spy.extendCalls, 1, "module extension must run exactly once")
+	assert.Equal(t, []strfmt.UUID{"id-09", "id-08", "id-07"}, spy.extendCalls[0],
+		"reranker must receive the diversified MMR page, not the pre-MMR pool")
 }
 
 func Test_Explorer_VectorSelectionVectorStripping(t *testing.T) {

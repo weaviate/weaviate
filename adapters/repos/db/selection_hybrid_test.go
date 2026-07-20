@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -130,4 +131,68 @@ func TestDiversifyResults(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, out)
 	})
+
+	t.Run("slots past the page keep relevance order", func(t *testing.T) {
+		// limit=2 means only the first two slots need MMR order; the rest must
+		// be the unselected candidates in their original relevance order.
+		results := resultsFromVecs("", [][]float32{clusterA1, clusterA2, clusterA3, clusterB})
+		out, err := diversifyResults(ctx, mmrSelection(2, 0), "", prov, results, false)
+		require.NoError(t, err)
+		require.Len(t, out, 4)
+		assert.Equal(t, strfmtUUID(0), out[0].ID)
+		assert.Equal(t, strfmtUUID(3), out[1].ID, "page slots must be MMR-ordered")
+		assert.Equal(t, []string{string(strfmtUUID(1)), string(strfmtUUID(2))},
+			ids(out[2:]), "tail must keep relevance order")
+	})
+
+	t.Run("vectorless slot inside the page still gets enough MMR candidates", func(t *testing.T) {
+		// Positions 1 and 3 are vectorless and keep their slots, so a page of 3
+		// only consumes two diversified candidates.
+		results := resultsFromVecs("", [][]float32{clusterA1, nil, clusterA2, nil, clusterA3, clusterB})
+		out, err := diversifyResults(ctx, mmrSelection(3, 0), "", prov, results, false)
+		require.NoError(t, err)
+		require.Len(t, out, 6)
+		assert.Equal(t, strfmtUUID(0), out[0].ID)
+		assert.Equal(t, strfmtUUID(1), out[1].ID, "vectorless hit lost its rank: %v", ids(out))
+		assert.Equal(t, strfmtUUID(5), out[2].ID, "expected the diverse candidate in the page: %v", ids(out))
+		assert.Equal(t, strfmtUUID(3), out[3].ID, "vectorless hit lost its rank: %v", ids(out))
+	})
+}
+
+// countingDistProvider wraps a distancer.Provider and counts SingleDist calls.
+type countingDistProvider struct {
+	distancer.Provider
+	calls *int
+}
+
+func (c countingDistProvider) SingleDist(a, b []float32) (float32, error) {
+	*c.calls++
+	return c.Provider.SingleDist(a, b)
+}
+
+// TestDiversifyResultsBoundedWork pins that MMR only orders the page, not the
+// whole window: a full ordering of a window of n candidates costs O(n²)
+// distance evaluations, page-bounded selection costs O(page × n).
+func TestDiversifyResultsBoundedWork(t *testing.T) {
+	const window, page = 200, 10
+
+	vecs := make([][]float32, window)
+	for i := range vecs {
+		theta := float64(i) / float64(window) * 2 * math.Pi
+		vecs[i] = []float32{float32(math.Cos(theta)), float32(math.Sin(theta))}
+	}
+	results := resultsFromVecs("", vecs)
+
+	calls := 0
+	prov := countingDistProvider{Provider: distancer.NewCosineDistanceProvider(), calls: &calls}
+
+	out, err := diversifyResults(context.Background(), mmrSelection(page, 0.5), "", prov, results, false)
+	require.NoError(t, err)
+	require.Len(t, out, window, "full-length output contract must hold")
+	assert.Equal(t, strfmtUUID(0), out[0].ID, "most relevant candidate leads the page")
+
+	// page-bounded: ≤ (page-1) rounds × window scans. A full ordering would
+	// need ~window²/2 ≈ 20000 evaluations.
+	assert.LessOrEqual(t, calls, page*window,
+		"MMR must not compute a full ordering of the window")
 }

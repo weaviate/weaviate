@@ -199,6 +199,49 @@ func Test_Explorer_HybridSelection(t *testing.T) {
 		assert.Equal(t, []string{"Item 09", "Item 08", "Item 07"}, idsFromResponse(res))
 	})
 
+	t.Run("boost re-ranks only the Boost.Depth-deep fused pool", func(t *testing.T) {
+		searcher := &fakeVectorSearcher{}
+		explorer := newTestExplorer(searcher, getFakeModulesProvider())
+
+		// likes increases with index, so an unbounded boost(weight=1) would put
+		// Item 49 first. With Depth=20 only fused ranks [0:20) may be promoted.
+		results := makeHybridVectorResults(50)
+		for i := range results {
+			results[i].Schema.(map[string]any)["likes"] = float64(i * 100)
+		}
+		searcher.On("VectorSearch", mock.Anything, mock.Anything).Return(results, nil)
+
+		var diversifyInput []string
+		searcher.diversifyFn = func(sel *searchparams.Selection, class, target string, in []search.Result) ([]search.Result, error) {
+			diversifyInput = make([]string, len(in))
+			for i, r := range in {
+				diversifyInput[i] = r.Schema.(map[string]any)["name"].(string)
+			}
+			return in, nil
+		}
+
+		params := dto.GetParams{
+			ClassName:    "TestClass",
+			Pagination:   &filters.Pagination{Offset: 0, Limit: 10},
+			HybridSearch: &searchparams.HybridSearch{Query: "foo", Alpha: 1, Vector: []float32{0.1, 0.2, 0.3}},
+			Boost:        likesBoost(1.0, 20), // Depth = 20
+			Selection:    mmrSel(3, 1),
+		}
+
+		res, err := explorer.GetClass(context.Background(), params)
+		require.NoError(t, err)
+		require.Len(t, res, 3)
+
+		require.Len(t, diversifyInput, 10)
+		assert.Equal(t, "Item 19", diversifyInput[0],
+			"boost pool must be truncated to Boost.Depth: candidates below Depth may not be promoted")
+		for _, name := range diversifyInput {
+			assert.LessOrEqual(t, name, "Item 19",
+				"fused rank beyond Boost.Depth leaked into the MMR window: %v", diversifyInput)
+		}
+		assert.Equal(t, []string{"Item 19", "Item 18", "Item 17"}, idsFromResponse(res))
+	})
+
 	t.Run("Boost.Depth deepens the leg fetch, MMR over top Limit", func(t *testing.T) {
 		searcher := &fakeVectorSearcher{}
 		explorer := newTestExplorer(searcher, getFakeModulesProvider())

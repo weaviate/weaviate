@@ -292,9 +292,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		boost := origParams.Boost
 		selectionFn = func(ctx context.Context, fused []search.Result) ([]search.Result, error) {
 			if boost != nil && boost.Weight > 0 {
+				// Boost re-ranks only the Depth-deep relevance pool. The fused list
+				// can be much deeper (both legs fetch ≥ QueryHybridMaximumResults),
+				// and candidates below Depth must not be promoted into the window.
+				fused = e.paginateResults(fused, 0, e.mmrFetchDepth(boost, offset+pool))
 				fused = boostScoreAndSort(fused, boost)
 			}
-			fused = paginateResults(fused, offset, pool)
+			fused = e.paginateResults(fused, offset, pool)
 			return e.searcher.DiversifyResults(ctx, origParams.Selection, origParams.ClassName, selTargetVector, fused, false)
 		}
 	}

@@ -79,7 +79,11 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 	vecForID := func(_ context.Context, id uint64) ([]float32, error) {
 		return vecs[id], nil
 	}
-	sel, err := selector.New(selection, distProv.SingleDist, vecForID, diverseCount)
+	// Both callers keep only the first MMR.Limit output slots, so only the
+	// vectored slots within that page need a diversified order. Selection scans
+	// all candidates per emitted item, so a full ordering would cost
+	// O(window²) distance evaluations instead of O(page × window).
+	sel, err := selector.New(selection, distProv.SingleDist, vecForID, pageVectorSlots(hasVector, selection.MMR, len(results)))
 	if err != nil {
 		return nil, fmt.Errorf("mmr: %w", err)
 	}
@@ -94,6 +98,20 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 	selectedIDs, _, err := sel.Select(ctx, ids, queryDists)
 	if err != nil {
 		return nil, fmt.Errorf("mmr: %w", err)
+	}
+
+	// Fill the slots past the page with the unselected candidates in their
+	// original relevance order, preserving the full-length output contract.
+	if len(selectedIDs) < diverseCount {
+		chosen := make([]bool, diverseCount)
+		for _, id := range selectedIDs {
+			chosen[id] = true
+		}
+		for i := 0; i < diverseCount; i++ {
+			if !chosen[i] {
+				selectedIDs = append(selectedIDs, uint64(i))
+			}
+		}
 	}
 
 	mmrOrder := make([]search.Result, len(selectedIDs))
@@ -115,6 +133,23 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 		}
 	}
 	return out, nil
+}
+
+// pageVectorSlots counts the vectored slots within the first MMR.Limit output
+// positions — the number of diversified candidates the page can consume.
+// Vectorless results keep their slot, so positions map 1:1 to the input.
+func pageVectorSlots(hasVector []bool, mmr *searchparams.SelectionMMR, n int) int {
+	limit := n
+	if l := int(mmr.Limit); l > 0 && l < limit {
+		limit = l
+	}
+	slots := 0
+	for i := 0; i < limit; i++ {
+		if hasVector[i] {
+			slots++
+		}
+	}
+	return slots
 }
 
 func resultVector(r *search.Result, targetVector string) ([]float32, bool) {
