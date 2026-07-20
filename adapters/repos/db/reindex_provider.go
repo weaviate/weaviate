@@ -2088,14 +2088,19 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			return fmt.Errorf("enable-searchable without targetTokenization in payload")
 		}
 		trueVal := true
+		// EnableSearchableStrategy.TargetStrategy() is hardcoded blockmax, so
+		// stamp SearchableBlockmax alongside the flag flip — one RAFT commit.
 		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
-			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization},
+			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization, api.PropertyFieldSearchableBlockmax},
 			func(prop *models.Property) bool {
-				if prop.IndexSearchable != nil && *prop.IndexSearchable && prop.Tokenization == payload.TargetTokenization {
+				if prop.IndexSearchable != nil && *prop.IndexSearchable &&
+					prop.Tokenization == payload.TargetTokenization &&
+					prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
 					return false
 				}
 				prop.IndexSearchable = &trueVal
 				prop.Tokenization = payload.TargetTokenization
+				prop.SearchableBlockmax = &trueVal
 				return true
 			})
 		if err != nil {
@@ -2106,8 +2111,16 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		return nil
 
 	case ReindexTypeChangeAlgorithm:
-		// Defer until every local searchable bucket is blockmax — submit is
-		// per-property, so the class may still have map buckets.
+		// Stamp this task's own properties blockmax FIRST and unconditionally,
+		// so per-property truth is durable (survives the completed-task list
+		// ageing out) and a sibling's later same-tick defer check reads the
+		// stamp instead of a not-yet-FINISHED task.
+		if err := p.stampSearchableBlockmax(ctx, payload); err != nil {
+			return fmt.Errorf("stamp searchableBlockmax: %w", err)
+		}
+		// Defer the cluster-wide class-flag flip until every local searchable
+		// bucket is blockmax — submit is per-property, so the class may still
+		// have map buckets.
 		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
 			return err
 		} else if defer_ {
@@ -2123,6 +2136,25 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// IsSemanticMigration above gates this; reaching here is a programming error.
 		return fmt.Errorf("unexpected semantic migration type %q in task-completion", payload.MigrationType)
 	}
+}
+
+// stampSearchableBlockmax durably records that each of payload.Properties now
+// has a blockmax (StrategyInverted) searchable bucket, via a masked per-property
+// RAFT UpdateProperty. Idempotent at the mutator level: a property already
+// stamped is skipped, so repeated OnTaskCompleted firings and post-restart
+// replays produce at most one commit per property.
+func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, payload *ReindexTaskPayload) error {
+	trueVal := true
+	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+		[]string{api.PropertyFieldSearchableBlockmax},
+		func(prop *models.Property) bool {
+			if prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
+				return false
+			}
+			prop.SearchableBlockmax = &trueVal
+			return true
+		})
+	return err
 }
 
 // shouldDeferBlockmaxFlip defers the cluster-wide flip until every
