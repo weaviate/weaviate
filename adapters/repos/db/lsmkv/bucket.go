@@ -2494,14 +2494,11 @@ func (b *Bucket) GetKeysCount() (uint32, error) {
 		if err != nil {
 			return 0, err
 		}
-		// If the disk segments have no keys, we need to create a new bloom filter to
-		// combine the memtable keys with. The bloom filter is sized to 1.5x the number of
+		// No disk filter to add into: size a fresh one to 1.5x this memtable's
+		// key count, leaving headroom for the second memtable's keys.
 		if segmentsBloom == nil {
 			segmentsBloom = bloom.NewWithEstimates(uint(len(keys)*3/2), 0.001)
 		}
-		// The memtable filter is sized independently of the disk segments, so a
-		// merge conflict is expected; on conflict keep whichever filter
-		// estimates the larger cardinality.
 		for _, key := range keys {
 			segmentsBloom.Add(key)
 		}
