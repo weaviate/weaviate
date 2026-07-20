@@ -233,12 +233,11 @@ type ShardReindexTaskGeneric struct {
 	// branch runs in production.
 	trackerMkdirGuard func(shard ShardLike) func(func() error) error
 
-	// rebuildRangeableRepFn is the dispatch function for
-	// [rebuildRangeableInMemoryReps]'s per-prop bucket rebuild call.
-	// Defaults to a thin wrapper around
-	// [lsmkv.Bucket.RebuildRangeableSegmentInMemory]; tests substitute a
-	// wrapper to inject a rebuild failure. Always set - no test-only branch
-	// runs in production.
+	// rebuildRangeableRepFn dispatches [rebuildRangeableInMemoryReps]'s
+	// per-prop bucket rebuild; defaults to
+	// [lsmkv.Bucket.RebuildRangeableSegmentInMemory], tests substitute a
+	// failure-injecting wrapper. Always set - no test-only branch runs in
+	// production.
 	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
 }
 
@@ -811,10 +810,8 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt reindexTracker, props []string,
 ) error {
-	// Ordering contract: the rangeable rebuild MUST run, and MUST be
-	// checked, before OnMigrationComplete. See the identical contract
-	// comment at the runtimeSwap call site for the full reasoning - it
-	// applies unchanged to this recovery-path mirror.
+	// Ordering contract: rebuild must run and be checked before
+	// OnMigrationComplete (see runtimeSwap for the full reasoning).
 	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
 		return err
 	}
@@ -831,18 +828,15 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 // without an in-memory rep, so without this they'd serve range reads from
 // disk until the next open. Idempotent.
 //
-// A rebuild failure is returned, not merely logged: disk fallback is not
-// always safe ([ReaderRoaringSetRange] parses a corrupt-but-size-preserved
-// segment header as empty, producing wrong results with no operator
-// signal), so this must drive the migration to FAILED, not a silent
-// FINISHED.
+// A rebuild failure is returned, not merely logged: disk fallback isn't
+// always safe (a corrupt-but-size-preserved segment header parses as empty,
+// producing wrong results with no operator signal), so this must FAIL the
+// migration rather than FINISH it silently.
 //
 // Per-prop failures are collected via errorcompounder so one doesn't hide
-// another. Context-cancellation is the one exception: it's returned
-// immediately, %w-wrapping context.Canceled unchanged, so
-// [runPerUnitPhase]'s errors.Is check still routes graceful shutdown to
-// the transient ack path instead of a permanent FAILED - wrapping it in
-// the compounder would lose that identity.
+// another, except context-cancellation, which returns immediately so
+// [runPerUnitPhase]'s errors.Is(context.Canceled) check still routes to the
+// transient ack path instead of a permanent FAILED.
 func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
@@ -1457,11 +1451,9 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 				return zerotime, false, err
 			}
 		}
-		// Same ordering contract as runtimeSwap: the rebuild must be
-		// checked before OnMigrationComplete. This branch is a second path
-		// to OnMigrationComplete (re-entry after tidied.mig is already on
-		// disk); skipping the check here would let a retry flip the schema
-		// without the rebuild ever succeeding.
+		// Same ordering contract as runtimeSwap (see there for reasoning):
+		// this re-entry branch must recheck the rebuild too, or a retry
+		// could flip the schema without it ever succeeding.
 		if err = t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
 			return zerotime, false, err
 		}
@@ -1997,15 +1989,13 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 
 	// Ordering contract: rebuild must be checked before OnMigrationComplete.
 	//
-	// Unlike the semantic-migration family (see [IsSemanticMigration]),
+	// Unlike the semantic-migration family ([IsSemanticMigration]),
 	// FilterableToRangeableStrategy.OnMigrationComplete is not gated by
 	// task-terminal status - it RAFT-commits IndexRangeFilters=true
-	// directly and unconditionally the first time any shard's swap reaches
-	// this line. Skipping the rebuild check would flip the schema to
-	// advertise range-query support while this shard's reads are still
-	// falling back to disk (or a corrupt segment silently parsed as empty -
-	// see [rebuildRangeableInMemoryReps]). Checking first keeps this shard
-	// on the pre-migration path until a repair succeeds.
+	// unconditionally the first time any shard's swap reaches this line.
+	// Skipping the check would advertise range-query support while this
+	// shard still falls back to disk (or a corrupt segment parsed as empty
+	// - see [rebuildRangeableInMemoryReps]).
 	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
 		return err
 	}

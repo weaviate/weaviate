@@ -68,9 +68,9 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 
 	if b.rangeableServesFromMemory() {
 		// Invariant: the rep must mirror disk. If unpopulated while disk
-		// segments exist (mass-delete, or a population gap), fall back to disk
-		// and warn once. Check emptiness first so the hot path pays one
-		// IsEmpty() under the rep's RLock and never holds maintenanceLock too.
+		// segments exist, fall back to disk and warn once. Check emptiness
+		// first so the hot path pays one IsEmpty() under the rep's RLock and
+		// never holds maintenanceLock too.
 		if b.disk.roaringSetRangeSegmentInMemory.IsUnpopulated() {
 			if n := b.disk.roaringSetRangeDiskSegmentCount(); n > 0 {
 				b.rangeableFallbackWarnOnce.Do(func() {
@@ -150,27 +150,19 @@ func (b *Bucket) readerRoaringSetRangeFromSegmentInMemo() ReaderRoaringSetRange 
 	return roaringsetrange.NewCombinedReader(readers, release, concurrency.SROAR_MERGE, b.logger)
 }
 
-// RebuildRangeableSegmentInMemory builds the in-memory rep from disk segments
-// and switches range reads to in-memory serving, without a bucket reopen.
-// No-op if already serving from memory. Not safe for concurrent
+// RebuildRangeableSegmentInMemory builds the in-memory rep from disk
+// segments and switches range reads to in-memory serving, without a bucket
+// reopen. No-op if already serving from memory. Not safe for concurrent
 // self-invocation; the single finalize call site guarantees this.
 //
-// The rep only needs disk-segment coverage: readers compose it with the
-// flushing/active memtables, and later flushes merge into it once the
-// rebuilt flag is set (atomicallyAddDiskSegmentAndRemoveFlushing).
-//
 // Lock choreography, in order:
-//  1. Compaction is paused, so the segment set can only grow, by flush
-//     appends at the tail. A concurrent compaction could otherwise replace
-//     mid-list segments and re-order add/delete layers relative to newer
-//     flushes, corrupting the merge.
-//  2. The bulk merge runs WITHOUT flushLock so writes and flushes stay
-//     unblocked for its whole (potentially long) duration.
-//  3. Under flushLock: segments flushed during the bulk merge are caught up
-//     from the tail, the rep is published, and the serving flag is set. A
-//     flush whose segment-add had not yet entered the lock proceeds after
-//     us, sees the flag set, and merges its memtable into the rep, so no
-//     write is lost in either interleaving.
+//  1. Compaction is paused so the segment set can only grow via tail flush
+//     appends; a concurrent compaction could reorder add/delete layers and
+//     corrupt the merge.
+//  2. The bulk merge runs without flushLock so writes/flushes stay unblocked.
+//  3. Under flushLock, segments flushed during the merge are caught up, the
+//     rep is published, and the serving flag is set - so a racing flush
+//     either merges before us or sees the flag after, never losing a write.
 func (b *Bucket) RebuildRangeableSegmentInMemory(ctx context.Context) error {
 	if err := CheckStrategyRoaringSetRange(b.strategy); err != nil {
 		return err

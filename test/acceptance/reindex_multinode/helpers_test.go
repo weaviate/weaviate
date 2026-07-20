@@ -944,10 +944,8 @@ func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAf
 	return late
 }
 
-// awaitRangeCountSettledNoFallback polls until the range count converges to
-// expected, then asserts the disk-fallback WARN (fallbackWARNSubstr) never
-// appeared in container's logs. countFailMsgFmt/countFailArg follow
-// require.Eventually's msgAndArgs convention.
+// awaitRangeCountSettledNoFallback polls until the range count converges,
+// then asserts the disk-fallback WARN never appeared in the container logs.
 func awaitRangeCountSettledNoFallback(
 	ctx context.Context, t *testing.T,
 	container interface {
@@ -979,10 +977,9 @@ type rangeCountProbeCounters struct {
 	queryErrors atomic.Int64
 }
 
-// startRangeCountPolling launches one goroutine per node in [1, nodeCount],
-// firing a range-count query every 50ms until stopCh closes. Tallies
-// runs/errors/wrong-counts and invokes onWrong/onError per event; both run
-// concurrently from their own goroutine and must be goroutine-safe.
+// startRangeCountPolling launches one goroutine per node, firing a
+// range-count query every 50ms until stopCh closes. onWrong/onError run
+// concurrently and must be goroutine-safe.
 func startRangeCountPolling(
 	compose *docker.DockerCompose, className string, lo, hi, expected, nodeCount int,
 	onWrong func(nodeIdx, got int), onError func(nodeIdx int, err error),

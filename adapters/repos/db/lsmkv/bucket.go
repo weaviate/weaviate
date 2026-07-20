@@ -241,9 +241,9 @@ type Bucket struct {
 	rangeableInMemoryDeferred bool
 
 	// rangeableRepRebuilt flips once RebuildRangeableSegmentInMemory
-	// publishes a rep. Atomic: the query path reads it unlocked, and the
-	// false->true store happens under flushLock after the rep is fully
-	// built, so a reader observing true is guaranteed a populated rep.
+	// publishes a rep. Atomic and read unlocked; the false->true store
+	// happens under flushLock after the rep is fully built, so a reader
+	// observing true is guaranteed a populated rep.
 	rangeableRepRebuilt atomic.Bool
 
 	// Dedup for the rangeable diagnostic log lines, once per bucket-open.

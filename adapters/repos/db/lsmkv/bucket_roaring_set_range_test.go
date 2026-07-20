@@ -314,9 +314,9 @@ func TestRoaringSetRangeKeepSegmentsInMemoryOverride(t *testing.T) {
 	})
 }
 
-// Pins weaviate/weaviate#12199: an unpopulated rep with disk segments present
-// must fall back to disk and WARN once. Rep and disk hold different docIDs so
-// the result proves which path served the read.
+// Pins weaviate/weaviate#12199: an unpopulated rep with disk segments must
+// fall back to disk and WARN once (rep/disk use different docIDs to prove
+// which path served the read).
 func TestRoaringSetRangeDiskFallback(t *testing.T) {
 	const value = uint64(5)
 

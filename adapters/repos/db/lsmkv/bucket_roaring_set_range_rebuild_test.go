@@ -181,8 +181,8 @@ func TestBucketRebuildRangeableSegmentInMemory_WrongStrategy(t *testing.T) {
 }
 
 // TestBucketRebuildRangeableSegmentInMemory_FlushAfterPublishMergesIntoRep
-// pins that a flush completing after publish merges into the rep rather
-// than being lost (regression: gating on keepSegmentsInMemory alone).
+// pins that a flush completing after publish merges into the rep, not lost
+// (regression: gating on keepSegmentsInMemory alone).
 func TestBucketRebuildRangeableSegmentInMemory_FlushAfterPublishMergesIntoRep(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -202,9 +202,8 @@ func TestBucketRebuildRangeableSegmentInMemory_FlushAfterPublishMergesIntoRep(t 
 }
 
 // TestRoaringSetRangeBucket_CorruptZeroedSegmentHeaderRejectedAtOpen pins
-// weaviate/weaviate#12199: a size-preserved all-zero segment header must
-// fail loudly at reopen, not be silently accepted as an empty segment
-// (data loss) or panic/hang the read path.
+// weaviate/weaviate#12199: a size-preserved all-zero header must fail
+// loudly at reopen, not be silently accepted as empty (data loss).
 func TestRoaringSetRangeBucket_CorruptZeroedSegmentHeaderRejectedAtOpen(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

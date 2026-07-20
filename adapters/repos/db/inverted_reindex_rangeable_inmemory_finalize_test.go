@@ -26,17 +26,12 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Regression tests for weaviate/weaviate#12199: a rangeable in-memory
-// rebuild failure at migration finalize must drive the migration to FAILED,
-// not a silent FINISHED that leaves the shard serving from disk.
-//
-// Failures are injected via the rebuildRangeableRepFn seam rather than
-// reproduced black-box, since the real failure window is too narrow to hit
-// reliably.
+// Regression tests for weaviate/weaviate#12199: a rebuild failure at
+// migration finalize must drive the migration to FAILED, not a silent
+// FINISHED. Failures are injected via the rebuildRangeableRepFn seam since
+// the real failure window is too narrow to hit black-box.
 
 // newRangeableInMemoryTestTask installs a fault-injecting rebuildRangeableRepFn.
-// failing is a pointer so callers can flip it on/off on the same task
-// instance; calls counts invocations.
 func newRangeableInMemoryTestTask(t *testing.T, idx *Index, className, propName string, failing *atomic.Bool, calls *atomic.Int32,
 ) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
@@ -52,7 +47,7 @@ func newRangeableInMemoryTestTask(t *testing.T, idx *Index, className, propName 
 }
 
 // assertRebuildFailureMessage checks the FAILED message names the property
-// and states that in-memory activation, not the migration data, failed.
+// and blames activation, not data loss.
 func assertRebuildFailureMessage(t *testing.T, err error, propName string) {
 	t.Helper()
 	require.Error(t, err)
@@ -60,11 +55,8 @@ func assertRebuildFailureMessage(t *testing.T, err error, propName string) {
 	assert.Contains(t, err.Error(), "could not be activated for in-memory serving")
 }
 
-// setupRangeableFinalizeFailureFixture builds a shard with objects, installs
-// a failing rebuildRangeableRepFn, drives the migration through
-// OnAfterLsmInit/OnAfterLsmInitAsync until the injected failure surfaces, and
-// asserts the resulting FAILED message. classNamePrefix lets each caller
-// keep its own class-name prefix in the generated class name.
+// setupRangeableFinalizeFailureFixture builds a shard, injects a failing
+// rebuild, and drives the migration until it FAILs.
 func setupRangeableFinalizeFailureFixture(t *testing.T, classNamePrefix string) (
 	context.Context, *Shard, *Index, string, *ShardReindexTaskGeneric,
 	*testFilterableToRangeableStrategyWrapper, *atomic.Bool, *atomic.Int32,
@@ -110,10 +102,10 @@ func setupRangeableFinalizeFailureFixture(t *testing.T, classNamePrefix string) 
 	return ctx, shard, idx, className, task, wrapped, failing, calls
 }
 
-// TestFilterableToRangeable_RebuildFailure_RuntimeSwapAndRecoveryPath pins:
-// a rebuild failure returns a property-named error, blocks OnMigrationComplete,
-// and leaves on-disk swap/tidy state intact for retry - on both the
-// runtimeSwap and finalizeMigrationAfterRecovery call sites.
+// TestFilterableToRangeable_RebuildFailure_RuntimeSwapAndRecoveryPath pins: a
+// rebuild failure blocks OnMigrationComplete and leaves swap/tidy state
+// intact for retry, on both the runtimeSwap and finalizeMigrationAfterRecovery
+// call sites.
 func TestFilterableToRangeable_RebuildFailure_RuntimeSwapAndRecoveryPath(t *testing.T) {
 	propName := filterableToRangeablePropName
 	ctx, shard, idx, className, task, wrapped, failing, calls := setupRangeableFinalizeFailureFixture(t, "RangeableRebuildFail_")
@@ -128,8 +120,8 @@ func TestFilterableToRangeable_RebuildFailure_RuntimeSwapAndRecoveryPath(t *test
 	assert.True(t, rt.IsTidied(), "on-disk tidy must complete even though the rebuild failed - "+
 		"only in-memory activation is blocked, not the already-committed swap")
 
-	// Simulates a restart: fresh task instance dispatches to
-	// finalizeMigrationAfterRecovery since IsTidied() is already true.
+	// Fresh task instance: IsTidied() is already true, so this dispatches
+	// to finalizeMigrationAfterRecovery.
 	callsBeforeRecovery := calls.Load()
 	task2, wrapped2 := newRangeableInMemoryTestTask(t, idx, className, propName, failing, calls)
 	err = task2.RunSwapOnShard(ctx, shard)
@@ -138,8 +130,8 @@ func TestFilterableToRangeable_RebuildFailure_RuntimeSwapAndRecoveryPath(t *test
 	assert.Greater(t, calls.Load(), callsBeforeRecovery,
 		"finalizeMigrationAfterRecovery must re-invoke the rebuild, not skip it because tidied.mig is already set")
 
-	// Repair: fix the fault and retry - on-disk state from the failed
-	// attempts must converge.
+	// Repair: fix the fault and retry; on-disk state from failed attempts
+	// must converge.
 	failing.Store(false)
 	task3, wrapped3 := newRangeableInMemoryTestTask(t, idx, className, propName, failing, calls)
 	require.NoError(t, task3.RunSwapOnShard(ctx, shard),
@@ -154,9 +146,8 @@ func TestFilterableToRangeable_RebuildFailure_RuntimeSwapAndRecoveryPath(t *test
 }
 
 // TestFilterableToRangeable_RebuildFailure_OnAfterLsmInitAsyncIsTidiedBranch
-// pins: retrying via OnAfterLsmInitAsync's IsTidied-on-entry branch (distinct
-// from RunSwapOnShard's recovery path) must re-check the rebuild before
-// firing OnMigrationComplete, not bypass it.
+// pins: the IsTidied-on-entry retry branch (distinct from RunSwapOnShard)
+// must re-check the rebuild before OnMigrationComplete.
 func TestFilterableToRangeable_RebuildFailure_OnAfterLsmInitAsyncIsTidiedBranch(t *testing.T) {
 	ctx, shard, _, _, task, wrapped, failing, calls := setupRangeableFinalizeFailureFixture(t, "RangeableRebuildFailTidiedBranch_")
 
@@ -167,8 +158,7 @@ func TestFilterableToRangeable_RebuildFailure_OnAfterLsmInitAsyncIsTidiedBranch(
 	require.True(t, rt.IsTidied(),
 		"precondition: the retry below must land on the IsTidied-on-entry branch, not runtimeSwap")
 
-	// Retry on the same task instance - the call shape that used to bypass
-	// the rebuild check.
+	// Retry without recreating the task; the rebuild is re-checked here too.
 	callsBeforeRetry := calls.Load()
 	failing.Store(false)
 	rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
