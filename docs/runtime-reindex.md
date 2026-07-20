@@ -59,8 +59,8 @@ together into a small REST surface rooted at
 ### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
 Declaratively upsert one inverted index. `{indexType}` is one of
-`filterable`, `searchable`, `rangeFilters` (`rangeable` is accepted as a
-write-only alias for `rangeFilters`; GET always reports `rangeFilters`).
+`filterable`, `searchable`, `rangeFilters` (`rangeable`, the former Preview
+name, is accepted as a write-only alias; GET returns `rangeFilters`).
 
 The body (`IndexUpsertRequest`) carries only configuration, never a verb:
 `tokenization` (searchable / filterable) and `algorithm` (searchable
