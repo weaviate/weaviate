@@ -51,13 +51,8 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: namespace is required on namespace-enabled clusters", ErrBadRequest)
 	}
 
-	if req.Namespace != "" {
-		if !m.namespaces.Exists(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceGone, req.Namespace)
-		}
-		if !m.namespaces.IsActive(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, req.Namespace)
-		}
+	if err := usecasesNamespaces.RequireActive(m.namespaces, req.Namespace); err != nil {
+		return fmt.Errorf("%w: %q", err, req.Namespace)
 	}
 
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
@@ -152,11 +147,11 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Rebuild *apikey.User for the wire to keep the response shape stable;
+	// Rebuild the wire type to keep the response shape stable;
 	// these pointers are local and never shared.
-	wireUsers := make(map[string]*apikey.User, len(users))
+	wireUsers := make(map[string]*cmd.UserWire, len(users))
 	for id, v := range users {
-		wireUsers[id] = &apikey.User{
+		wireUsers[id] = &cmd.UserWire{
 			Id:                 v.Id,
 			Active:             v.Active,
 			InternalIdentifier: v.InternalIdentifier,

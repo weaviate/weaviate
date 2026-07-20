@@ -29,6 +29,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -114,6 +115,7 @@ type DBUser struct {
 	memoryOnlyData memoryOnlyData
 	path           string
 	enabled        bool
+	nsExister      namespaces.Exister
 }
 
 type DBUserSnapshot struct {
@@ -144,7 +146,10 @@ type memoryOnlyData struct {
 	importedApiKeysBlocked [][sha256.Size]byte
 }
 
-func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, error) {
+func NewDBUser(path string, enabled bool, logger logrus.FieldLogger, nsExister namespaces.Exister) (*DBUser, error) {
+	if nsExister == nil {
+		panic("apikey: namespaces exister must not be nil")
+	}
 	fullpath := fmt.Sprintf("%s/raft/db_users/", path)
 	err := createStorage(fullpath + FileName)
 	if err != nil {
@@ -171,7 +176,8 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 			weakKeyStorageById:     &sync.Map{},
 			importedApiKeysBlocked: make([][sha256.Size]byte, 0),
 		},
-		enabled: enabled,
+		enabled:   enabled,
+		nsExister: nsExister,
 	}
 
 	// we save every change to file after a request is done, EXCEPT the lastUsedAt time as we do not want to write to a
@@ -466,7 +472,12 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) != 1 {
 			continue
 		}
-		if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
+		u := c.data.Users[userId]
+		if u == nil {
+			// the user record is missing though its key resolved; fail closed
+			return nil, fmt.Errorf("invalid token")
+		}
+		if !u.Active {
 			return nil, fmt.Errorf("user deactivated")
 		}
 
@@ -475,15 +486,15 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 		}
 
 		// imported keys are always without a namespace, something is seriously wrong here
-		if c.data.Users[userId].Namespace != "" {
-			return nil, fmt.Errorf("imported key with namespace %v", c.data.Users[userId].Namespace)
+		if u.Namespace != "" {
+			return nil, fmt.Errorf("imported key with namespace %v", u.Namespace)
 		}
 
 		// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 		// user, only recording one of them is good enough
-		if c.data.Users[userId].TryLock() {
-			c.data.Users[userId].LastUsedAt = time.Now()
-			c.data.Users[userId].Unlock()
+		if u.TryLock() {
+			u.LastUsedAt = time.Now()
+			u.Unlock()
 		}
 
 		return &models.Principal{
@@ -536,24 +547,32 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		return nil, err
 	}
 
-	if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
+	u := c.data.Users[userId]
+	if u == nil {
+		// the user record is missing though its key resolved; fail closed
+		return nil, fmt.Errorf("invalid token")
+	}
+	if !u.Active {
 		return nil, fmt.Errorf("user deactivated")
 	}
 	if _, ok := c.data.UserKeyRevoked[userId]; ok {
 		return nil, fmt.Errorf("key is revoked")
 	}
+	if err := namespaces.RequireActive(c.nsExister, u.Namespace); err != nil {
+		return nil, err
+	}
 
 	// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 	// user, only recording one of them is good enough
-	if c.data.Users[userId].TryLock() {
-		c.data.Users[userId].LastUsedAt = time.Now()
-		c.data.Users[userId].Unlock()
+	if u.TryLock() {
+		u.LastUsedAt = time.Now()
+		u.Unlock()
 	}
 
 	return &models.Principal{
 		Username:         userId,
 		UserType:         models.UserTypeInputDb,
-		Namespace:        c.data.Users[userId].Namespace,
+		Namespace:        u.Namespace,
 		IsGlobalOperator: false,
 	}, nil
 }

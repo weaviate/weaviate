@@ -56,7 +56,9 @@ type addPropertyLazyFixture struct {
 	schemaClass *models.Class
 }
 
-func newAddPropertyLazyFixture(t *testing.T, className string, shardState *sharding.State) *addPropertyLazyFixture {
+// newLazyLoadRepo wires a lazy-load-enabled repo whose shards start cold.
+// It registers no Shutdown cleanup — callers own the repo's lifecycle.
+func newLazyLoadRepo(t *testing.T, shardState *sharding.State) (*DB, *Migrator, *fakeSchemaGetter) {
 	t.Helper()
 	ctx := testCtx()
 	logger, _ := test.NewNullLogger()
@@ -97,9 +99,15 @@ func newAddPropertyLazyFixture(t *testing.T, className string, shardState *shard
 	require.NoError(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.NoError(t, repo.WaitForStartup(ctx))
-	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
-	migrator := NewMigrator(repo, logger, "node1")
+	return repo, NewMigrator(repo, logger, "node1"), schemaGetter
+}
+
+func newAddPropertyLazyFixture(t *testing.T, className string, shardState *sharding.State) *addPropertyLazyFixture {
+	t.Helper()
+	ctx := testCtx()
+	repo, migrator, schemaGetter := newLazyLoadRepo(t, shardState)
+	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
 	require.NoError(t, migrator.AddClass(ctx, newClassWithWarmProp(className)))
 	// Serve a distinct class object from getClass() so that only the code path
@@ -283,5 +291,19 @@ func TestAddProperty_ColdShardLoadFailureDoesNotPanic(t *testing.T) {
 	})
 	for name, shard := range cold {
 		require.False(t, shard.isLoaded(), "cold shard %q must remain unloaded", name)
+	}
+}
+
+// Resuming maintenance cycles after a backup must not force-load cold shards:
+// an unloaded shard has no running cycles to resume.
+func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
+	ctx := testCtx()
+	f := newAddPropertyLazyFixture(t, "ResumeMaintenance", multiShardState())
+	cold := f.coldShards(t)
+
+	require.NoError(t, f.index.resumeMaintenanceCycles(ctx))
+
+	for name, shard := range cold {
+		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
 	}
 }
