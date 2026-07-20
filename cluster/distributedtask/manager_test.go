@@ -453,6 +453,49 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 	})
 }
 
+// TestManager_CleanUpTask_TTLZeroBoundary pins the too-fresh boundary at
+// TTL=0. The manager uses Since <= TTL, so a task is too fresh at Since==0
+// (0 <= 0) and cleanable only once Since is strictly positive. This is the
+// counterpart to the scheduler's TTL <= Since eligibility (already true at
+// Since==0): the asymmetry means a same-instant cleanup is rejected and
+// succeeds only on a later tick, so cleanup never races a reader that just
+// observed the FINISHED task.
+func TestManager_CleanUpTask_TTLZeroBoundary(t *testing.T) {
+	const (
+		ns  = "test"
+		id  = "1"
+		ver = uint64(10)
+	)
+	h := newTestHarness(t)
+	h.completedTaskTTL = 0
+	h.init(t)
+
+	// ms-align the fake clock so FinishedAt (ms precision) equals Now exactly,
+	// making Since==0 deterministic rather than a sub-ms remainder.
+	if rem := h.clock.Now().UnixNano() % int64(time.Millisecond); rem != 0 {
+		h.clock.Advance(time.Duration(int64(time.Millisecond) - rem))
+	}
+	finishedMs := h.clock.Now().UnixMilli()
+
+	addTaskWithUnits(t, h, ns, id, ver, []string{"su-1"})
+	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace: ns, Id: id, Version: ver, CancelledAtUnixMillis: finishedMs,
+	})))
+
+	cleanUp := func() error {
+		return h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+			Namespace: ns, Id: id, Version: ver,
+		}))
+	}
+
+	require.ErrorContains(t, cleanUp(), "too fresh",
+		"at Since==0 the manager rejects cleanup (Since <= TTL) even at TTL=0")
+
+	h.clock.Advance(time.Millisecond)
+	require.NoError(t, cleanUp(),
+		"once Since is strictly positive the TTL=0 task is cleanable")
+}
+
 func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	var (
 		h   = newTestHarness(t).init(t)
