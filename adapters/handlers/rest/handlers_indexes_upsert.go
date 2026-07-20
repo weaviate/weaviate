@@ -254,9 +254,9 @@ func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection stri
 	case "searchable":
 		return h.resolveSearchableUpsert(class, collection, prop, tok, algorithm, reindexTasks)
 	case "filterable":
-		return resolveFilterableUpsert(prop, tok, algorithm)
+		return resolveFilterableUpsert(collection, prop, tok, algorithm, reindexTasks)
 	case "rangeable":
-		return resolveRangeableUpsert(class, prop, tok, algorithm)
+		return resolveRangeableUpsert(class, collection, prop, tok, algorithm, reindexTasks)
 	}
 	// Unreachable: normalizeIndexTypeParam already validated the token.
 	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
@@ -379,11 +379,74 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 	}
 }
 
+// activeFilterableTaskFor returns the in-flight task (if any) writing this
+// property's filterable bucket, and whether it already converges to what this
+// request asks for. currentTok is the property's present tokenization: an
+// in-flight enable-filterable builds with the current tokenization and carries
+// no explicit target, so a create request converges to it.
+func activeFilterableTaskFor(collection, propName, tok, currentTok string, reindexTasks []*distributedtask.Task) (task *distributedtask.Task, matches bool) {
+	for _, t := range reindexTasks {
+		if !t.Status.IsActive() {
+			continue
+		}
+		var p db.ReindexTaskPayload
+		if err := json.Unmarshal(t.Payload, &p); err != nil {
+			continue
+		}
+		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propName) {
+			continue
+		}
+		if !db.TouchesFilterable(p.MigrationType) {
+			continue
+		}
+		return t, requestMatchesActiveFilterable(p.MigrationType, p.TargetTokenization, tok, currentTok)
+	}
+	return nil, false
+}
+
+// requestMatchesActiveFilterable reports whether an in-flight filterable
+// migration already converges to what a PUT .../index/filterable asks for.
+func requestMatchesActiveFilterable(activeType db.ReindexMigrationType, activeTargetTok, tok, currentTok string) bool {
+	switch activeType {
+	case db.ReindexTypeEnableFilterable:
+		// Builds with the property's current tokenization; a create request
+		// (empty tok, or one equal to the current tokenization) converges.
+		return tok == "" || tok == currentTok
+	case db.ReindexTypeChangeTokenizationFilterable, db.ReindexTypeChangeTokenization:
+		// Retokenizing: converges iff the same target tokenization is asked
+		// for. An empty-tok request expresses no target and does not match.
+		return tok != "" && activeTargetTok == tok
+	default:
+		return false
+	}
+}
+
 // resolveFilterableUpsert handles PUT .../index/filterable.
-func resolveFilterableUpsert(prop *models.Property, tok, algorithm string) (upsertPlan, error) {
+func resolveFilterableUpsert(collection string, prop *models.Property, tok, algorithm string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
 	if algorithm != "" {
 		return upsertPlan{}, errors.New("the algorithm field is only valid for a searchable index")
 	}
+
+	// An in-flight task writing this filterable bucket owns the outcome
+	// (declarative idempotency): a request converging to the same target
+	// NO-OPs; a specific requested change to a DIFFERENT target 409s. Checked
+	// before the schema read so a mid-migration repeat doesn't fall through to
+	// a spurious downstream conflict. An empty body (no requested change) with
+	// a non-matching in-flight retokenize falls through to the flag diff, which
+	// NO_OPs on the already-existing index — mirroring searchable's empty-body
+	// behaviour.
+	if task, matches := activeFilterableTaskFor(collection, prop.Name, tok, prop.Tokenization, reindexTasks); task != nil {
+		if matches {
+			return upsertPlan{noop: true}, nil
+		}
+		if tok != "" {
+			return upsertPlan{conflict: fmt.Sprintf(
+				"reindex task %q is already migrating filterable property %q to a different target; "+
+					"wait for it to finish or cancel it before requesting a different change",
+				task.ID, prop.Name)}, nil
+		}
+	}
+
 	exists := filterableIndexOn(prop)
 
 	if !exists {
@@ -410,13 +473,42 @@ func resolveFilterableUpsert(prop *models.Property, tok, algorithm string) (upse
 	return upsertPlan{migrationType: db.ReindexTypeChangeTokenizationFilterable, targetTok: tok}, nil
 }
 
+// activeRangeableTaskFor returns the in-flight task (if any) writing this
+// property's rangeFilters bucket. rangeFilters takes no configuration, so any
+// in-flight enable/repair on this property is convergent — there is no
+// "different target" to conflict on.
+func activeRangeableTaskFor(collection, propName string, reindexTasks []*distributedtask.Task) *distributedtask.Task {
+	for _, t := range reindexTasks {
+		if !t.Status.IsActive() {
+			continue
+		}
+		var p db.ReindexTaskPayload
+		if err := json.Unmarshal(t.Payload, &p); err != nil {
+			continue
+		}
+		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propName) {
+			continue
+		}
+		if matches, _ := migrationTypeTargetsIndex(p.MigrationType, "rangeable"); matches {
+			return t
+		}
+	}
+	return nil
+}
+
 // resolveRangeableUpsert handles PUT .../index/rangeFilters (internal token
 // "rangeable"). The rangeFilters index takes no configuration fields.
-func resolveRangeableUpsert(class *models.Class, prop *models.Property, tok, algorithm string) (upsertPlan, error) {
+func resolveRangeableUpsert(class *models.Class, collection string, prop *models.Property, tok, algorithm string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
 	if tok != "" || algorithm != "" {
 		return upsertPlan{}, errors.New("the rangeFilters index takes no configuration fields; send an empty body {}")
 	}
 	if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+		return upsertPlan{noop: true}, nil
+	}
+	// An in-flight enable-rangeable converging this index makes a repeat PUT
+	// declaratively idempotent (200 NO_OP) rather than a spurious 409 from the
+	// downstream conflict check.
+	if activeRangeableTaskFor(collection, prop.Name, reindexTasks) != nil {
 		return upsertPlan{noop: true}, nil
 	}
 	if err := validateRangeableProperties(class, []string{prop.Name}); err != nil {
