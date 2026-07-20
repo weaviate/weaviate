@@ -393,19 +393,92 @@ func Test_Filters_Int(t *testing.T) {
 		}
 	}
 
-	t.Run("strategy set", func(t *testing.T) {
-		propName := "inverted-without-frequency-set"
-		bucketName := helpers.BucketFromPropNameLSM(propName)
-		require.NoError(t, store.CreateOrLoadBucket(context.Background(),
-			bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
+	// filterTestBucketOps abstracts the bucket operations the filter test
+	// suite exercises, so that each index strategy runs the exact same suite.
+	type filterTestBucketOps struct {
+		importData func(bucket *lsmkv.Bucket, valueBytes []byte, ids []uint64) error
+		update     func(bucket *lsmkv.Bucket, valueBytes []byte) error
+		restore    func(bucket *lsmkv.Bucket, valueBytes []byte) error
+	}
+
+	setCollectionOps := filterTestBucketOps{
+		importData: func(bucket *lsmkv.Bucket, valueBytes []byte, ids []uint64) error {
+			return bucket.SetAdd(valueBytes, idsToBinaryList(ids))
+		},
+		update: func(bucket *lsmkv.Bucket, valueBytes []byte) error {
+			return bucket.SetAdd(valueBytes, idsToBinaryList([]uint64{21}))
+		},
+		restore: func(bucket *lsmkv.Bucket, valueBytes []byte) error {
+			return bucket.SetDeleteSingle(valueBytes, idsToBinaryList([]uint64{21})[0])
+		},
+	}
+
+	roaringSetOps := filterTestBucketOps{
+		importData: func(bucket *lsmkv.Bucket, valueBytes []byte, ids []uint64) error {
+			return bucket.RoaringSetAddList(valueBytes, ids)
+		},
+		update: func(bucket *lsmkv.Bucket, valueBytes []byte) error {
+			return bucket.RoaringSetAddOne(valueBytes, 21)
+		},
+		restore: func(bucket *lsmkv.Bucket, valueBytes []byte) error {
+			return bucket.RoaringSetRemoveOne(valueBytes, 21)
+		},
+	}
+
+	roaringSetRangeOps := filterTestBucketOps{
+		importData: func(bucket *lsmkv.Bucket, valueBytes []byte, ids []uint64) error {
+			return bucket.RoaringSetRangeAdd(binary.BigEndian.Uint64(valueBytes), ids...)
+		},
+		update: func(bucket *lsmkv.Bucket, valueBytes []byte) error {
+			return bucket.RoaringSetRangeAdd(binary.BigEndian.Uint64(valueBytes), 21)
+		},
+		restore: func(bucket *lsmkv.Bucket, valueBytes []byte) error {
+			return bucket.RoaringSetRangeRemove(binary.BigEndian.Uint64(valueBytes), 21)
+		},
+	}
+
+	// Expected doc ids per test case (in the order the cases appear in run
+	// below), before and after the update. Strategies indexing every value of
+	// a doc (set, roaringset) share one expectation, roaringsetrange, which
+	// indexes a single value per doc, has its own.
+	multiValueExpectedLists := [][2]*sroar.Bitmap{
+		{roaringset.NewBitmap(7, 14), roaringset.NewBitmap(7, 14, 21)},
+		{
+			sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
+			sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
+		},
+		{roaringset.NewBitmap(7, 8, 14, 16), roaringset.NewBitmap(7, 8, 14, 16, 21)},
+		{roaringset.NewBitmap(14), roaringset.NewBitmap(14)},
+		{
+			roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16),
+			roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 21),
+		},
+		{
+			roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+			roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21),
+		},
+	}
+
+	rangeValueExpectedLists := [][2]*sroar.Bitmap{
+		{roaringset.NewBitmap(7), roaringset.NewBitmap(7, 21)},
+		{
+			roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16),
+			roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21),
+		},
+		{roaringset.NewBitmap(7, 8), roaringset.NewBitmap(7, 8, 21)},
+		{roaringset.NewBitmap(), roaringset.NewBitmap()},
+		{roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 15, 16), roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 15, 16, 21)},
+		{roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13), roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 21)},
+	}
+
+	run := func(t *testing.T, propName string, bucketName string, ops filterTestBucketOps, expectedLists [][2]*sroar.Bitmap) {
 		bucket := store.Bucket(bucketName)
 
 		t.Run("import data", func(t *testing.T) {
 			for _, idx := range fakeInvertedIndex {
-				idValues := idsToBinaryList(idx.ids)
 				valueBytes, err := entinverted.LexicographicallySortableInt64(idx.val)
 				require.NoError(t, err)
-				require.NoError(t, bucket.SetAdd(valueBytes, idValues))
+				require.NoError(t, ops.importData(bucket, valueBytes, idx.ids))
 			}
 
 			require.Nil(t, bucket.FlushAndSwitch())
@@ -427,8 +500,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: roaringset.NewBitmap(7, 14),
-				expectedListAfterUpdate:  roaringset.NewBitmap(7, 14, 21),
+				expectedListBeforeUpdate: expectedLists[0][0],
+				expectedListAfterUpdate:  expectedLists[0][1],
 			},
 			{
 				name: "not equal",
@@ -446,8 +519,8 @@ func Test_Filters_Int(t *testing.T) {
 					},
 				},
 				// For NotEqual, all doc ids not matching will be returned, up to `maxDocID`
-				expectedListBeforeUpdate: sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
-				expectedListAfterUpdate:  sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
+				expectedListBeforeUpdate: expectedLists[1][0],
+				expectedListAfterUpdate:  expectedLists[1][1],
 			},
 			{
 				name: "exact match - or filter",
@@ -480,8 +553,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 14, 16),
-				expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 14, 16, 21),
+				expectedListBeforeUpdate: expectedLists[2][0],
+				expectedListAfterUpdate:  expectedLists[2][1],
 			},
 			{
 				name: "exact match - and filter",
@@ -514,8 +587,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: roaringset.NewBitmap(14),
-				expectedListAfterUpdate:  roaringset.NewBitmap(14),
+				expectedListBeforeUpdate: expectedLists[3][0],
+				expectedListAfterUpdate:  expectedLists[3][1],
 			},
 			{
 				name: "range match - or filter",
@@ -548,8 +621,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16),
-				expectedListAfterUpdate:  roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 21),
+				expectedListBeforeUpdate: expectedLists[4][0],
+				expectedListAfterUpdate:  expectedLists[4][1],
 			},
 			{
 				name: "range match - and filter",
@@ -582,8 +655,8 @@ func Test_Filters_Int(t *testing.T) {
 						},
 					},
 				},
-				expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
-				expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21),
+				expectedListBeforeUpdate: expectedLists[5][0],
+				expectedListAfterUpdate:  expectedLists[5][1],
 			},
 		}
 		notTests := make([]test, len(tests))
@@ -605,8 +678,7 @@ func Test_Filters_Int(t *testing.T) {
 
 				t.Run("update", func(t *testing.T) {
 					valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
-					idsBinary := idsToBinaryList([]uint64{21})
-					require.Nil(t, bucket.SetAdd(valueBytes, idsBinary))
+					require.Nil(t, ops.update(bucket, valueBytes))
 				})
 
 				t.Run("after update", func(t *testing.T) {
@@ -620,243 +692,23 @@ func Test_Filters_Int(t *testing.T) {
 				})
 
 				t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
-					idsList := idsToBinaryList([]uint64{21})
 					valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
-					require.NoError(t, bucket.SetDeleteSingle(valueBytes, idsList[0]))
+					require.NoError(t, ops.restore(bucket, valueBytes))
 				})
 			})
 		}
+	}
+
+	t.Run("strategy set", func(t *testing.T) {
+		propName := "inverted-without-frequency-set"
+		bucketName := helpers.BucketFromPropNameLSM(propName)
+		require.NoError(t, store.CreateOrLoadBucket(context.Background(),
+			bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
+
+		run(t, propName, bucketName, setCollectionOps, multiValueExpectedLists)
 	})
 
 	t.Run("strategy roaringset", func(t *testing.T) {
-		run := func(t *testing.T, propName string, bucketName string) {
-			bucket := store.Bucket(bucketName)
-
-			t.Run("import data", func(t *testing.T) {
-				for _, idx := range fakeInvertedIndex {
-					valueBytes, err := entinverted.LexicographicallySortableInt64(idx.val)
-					require.NoError(t, err)
-					require.NoError(t, bucket.RoaringSetAddList(valueBytes, idx.ids))
-				}
-
-				require.Nil(t, bucket.FlushAndSwitch())
-			})
-
-			tests := []test{
-				{
-					name: "exact match - single level",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    "foo",
-								Property: schema.PropertyName(propName),
-							},
-							Value: &filters.Value{
-								Value: 7,
-								Type:  schema.DataTypeInt,
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(7, 14),
-					expectedListAfterUpdate:  roaringset.NewBitmap(7, 14, 21),
-				},
-				{
-					name: "not equal",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorNotEqual,
-							On: &filters.Path{
-								Class:    "foo",
-								Property: schema.PropertyName(propName),
-							},
-							Value: &filters.Value{
-								Value: 13,
-								Type:  schema.DataTypeInt,
-							},
-						},
-					},
-					// For NotEqual, all doc ids not matching will be returned, up to `maxDocID`
-					expectedListBeforeUpdate: sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
-					expectedListAfterUpdate:  sroar.Prefill(maxDocID).AndNot(roaringset.NewBitmap(13)),
-				},
-				{
-					name: "exact match - or filter",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorOr,
-							Operands: []filters.Clause{
-								{
-									Operator: filters.OperatorEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 7,
-										Type:  schema.DataTypeInt,
-									},
-								},
-								{
-									Operator: filters.OperatorEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 8,
-										Type:  schema.DataTypeInt,
-									},
-								},
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 14, 16),
-					expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 14, 16, 21),
-				},
-				{
-					name: "exact match - and filter",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorAnd,
-							Operands: []filters.Clause{
-								{
-									Operator: filters.OperatorEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 7,
-										Type:  schema.DataTypeInt,
-									},
-								},
-								{
-									Operator: filters.OperatorEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 14,
-										Type:  schema.DataTypeInt,
-									},
-								},
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(14),
-					expectedListAfterUpdate:  roaringset.NewBitmap(14),
-				},
-				{
-					name: "range match - or filter",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorOr,
-							Operands: []filters.Clause{
-								{
-									Operator: filters.OperatorLessThanEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 7,
-										Type:  schema.DataTypeInt,
-									},
-								},
-								{
-									Operator: filters.OperatorGreaterThan,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 14,
-										Type:  schema.DataTypeInt,
-									},
-								},
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16),
-					expectedListAfterUpdate:  roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 21),
-				},
-				{
-					name: "range match - and filter",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorAnd,
-							Operands: []filters.Clause{
-								{
-									Operator: filters.OperatorGreaterThanEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 7,
-										Type:  schema.DataTypeInt,
-									},
-								},
-								{
-									Operator: filters.OperatorLessThan,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 14,
-										Type:  schema.DataTypeInt,
-									},
-								},
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
-					expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21),
-				},
-			}
-			notTests := make([]test, len(tests))
-			for i := range tests {
-				notTests[i] = createNotTest(tests[i])
-			}
-
-			for _, test := range append(tests, notTests...) {
-				t.Run(test.name, func(t *testing.T) {
-					t.Run("before update", func(t *testing.T) {
-						res, err := searcher.DocIDs(context.Background(), test.filter,
-							additional.Properties{}, className)
-						assert.NoError(t, err)
-						for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
-							assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
-						}
-						res.Close()
-					})
-
-					t.Run("update", func(t *testing.T) {
-						valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
-						require.Nil(t, bucket.RoaringSetAddOne(valueBytes, 21))
-					})
-
-					t.Run("after update", func(t *testing.T) {
-						res, err := searcher.DocIDs(context.Background(), test.filter,
-							additional.Properties{}, className)
-						assert.NoError(t, err)
-						for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
-							assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
-						}
-						res.Close()
-					})
-
-					t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
-						valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
-						require.NoError(t, bucket.RoaringSetRemoveOne(valueBytes, 21))
-					})
-				})
-			}
-		}
-
 		t.Run("segments on disk", func(t *testing.T) {
 			propName := "inverted-roaringset-on-disk"
 			bucketName := helpers.BucketFromPropNameLSM(propName)
@@ -866,7 +718,7 @@ func Test_Filters_Int(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			run(t, propName, bucketName)
+			run(t, propName, bucketName, roaringSetOps, multiValueExpectedLists)
 		})
 
 		t.Run("segment in memory", func(t *testing.T) {
@@ -879,238 +731,11 @@ func Test_Filters_Int(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			run(t, propName, bucketName)
+			run(t, propName, bucketName, roaringSetOps, multiValueExpectedLists)
 		})
 	})
 
 	t.Run("strategy roaringsetrange", func(t *testing.T) {
-		run := func(t *testing.T, propName string, bucketName string) {
-			bucket := store.Bucket(bucketName)
-
-			t.Run("import data", func(t *testing.T) {
-				for _, idx := range fakeInvertedIndex {
-					valueBytes, err := entinverted.LexicographicallySortableInt64(idx.val)
-					require.NoError(t, err)
-					require.NoError(t, bucket.RoaringSetRangeAdd(binary.BigEndian.Uint64(valueBytes), idx.ids...))
-				}
-
-				require.Nil(t, bucket.FlushAndSwitch())
-			})
-
-			tests := []test{
-				{
-					name: "exact match - single level",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    "foo",
-								Property: schema.PropertyName(propName),
-							},
-							Value: &filters.Value{
-								Value: 7,
-								Type:  schema.DataTypeInt,
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(7),
-					expectedListAfterUpdate:  roaringset.NewBitmap(7, 21),
-				},
-				{
-					name: "not equal",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorNotEqual,
-							On: &filters.Path{
-								Class:    "foo",
-								Property: schema.PropertyName(propName),
-							},
-							Value: &filters.Value{
-								Value: 13,
-								Type:  schema.DataTypeInt,
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16),
-					expectedListAfterUpdate:  roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21),
-				},
-				{
-					name: "exact match - or filter",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorOr,
-							Operands: []filters.Clause{
-								{
-									Operator: filters.OperatorEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 7,
-										Type:  schema.DataTypeInt,
-									},
-								},
-								{
-									Operator: filters.OperatorEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 8,
-										Type:  schema.DataTypeInt,
-									},
-								},
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(7, 8),
-					expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 21),
-				},
-				{
-					name: "exact match - and filter",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorAnd,
-							Operands: []filters.Clause{
-								{
-									Operator: filters.OperatorEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 7,
-										Type:  schema.DataTypeInt,
-									},
-								},
-								{
-									Operator: filters.OperatorEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 14,
-										Type:  schema.DataTypeInt,
-									},
-								},
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(),
-					expectedListAfterUpdate:  roaringset.NewBitmap(),
-				},
-				{
-					name: "range match - or filter",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorOr,
-							Operands: []filters.Clause{
-								{
-									Operator: filters.OperatorLessThanEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 7,
-										Type:  schema.DataTypeInt,
-									},
-								},
-								{
-									Operator: filters.OperatorGreaterThan,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 14,
-										Type:  schema.DataTypeInt,
-									},
-								},
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 15, 16),
-					expectedListAfterUpdate:  roaringset.NewBitmap(2, 3, 4, 5, 6, 7, 15, 16, 21),
-				},
-				{
-					name: "range match - and filter",
-					filter: &filters.LocalFilter{
-						Root: &filters.Clause{
-							Operator: filters.OperatorAnd,
-							Operands: []filters.Clause{
-								{
-									Operator: filters.OperatorGreaterThanEqual,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 7,
-										Type:  schema.DataTypeInt,
-									},
-								},
-								{
-									Operator: filters.OperatorLessThan,
-									On: &filters.Path{
-										Class:    "foo",
-										Property: schema.PropertyName(propName),
-									},
-									Value: &filters.Value{
-										Value: 14,
-										Type:  schema.DataTypeInt,
-									},
-								},
-							},
-						},
-					},
-					expectedListBeforeUpdate: roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13),
-					expectedListAfterUpdate:  roaringset.NewBitmap(7, 8, 9, 10, 11, 12, 13, 21),
-				},
-			}
-			notTests := make([]test, len(tests))
-			for i := range tests {
-				notTests[i] = createNotTest(tests[i])
-			}
-
-			for _, test := range append(tests, notTests...) {
-				t.Run(test.name, func(t *testing.T) {
-					t.Run("before update", func(t *testing.T) {
-						res, err := searcher.DocIDs(context.Background(), test.filter,
-							additional.Properties{}, className)
-						assert.NoError(t, err)
-						for _, expectedId := range test.expectedListBeforeUpdate.ToArray() {
-							assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
-						}
-						res.Close()
-					})
-
-					t.Run("update", func(t *testing.T) {
-						valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
-						require.Nil(t, bucket.RoaringSetRangeAdd(binary.BigEndian.Uint64(valueBytes), 21))
-					})
-
-					t.Run("after update", func(t *testing.T) {
-						res, err := searcher.DocIDs(context.Background(), test.filter,
-							additional.Properties{}, className)
-						assert.NoError(t, err)
-						for _, expectedId := range test.expectedListAfterUpdate.ToArray() {
-							assert.True(t, res.Contains(expectedId), "expected id %d not found in result", expectedId)
-						}
-						res.Close()
-					})
-
-					t.Run("restore inverted index, so we can run test suite again", func(t *testing.T) {
-						valueBytes, _ := entinverted.LexicographicallySortableInt64(7)
-						require.NoError(t, bucket.RoaringSetRangeRemove(binary.BigEndian.Uint64(valueBytes), 21))
-					})
-				})
-			}
-		}
-
 		t.Run("segments on disk", func(t *testing.T) {
 			propName := "inverted-roaringsetrange-on-disk"
 			bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
@@ -1118,7 +743,7 @@ func Test_Filters_Int(t *testing.T) {
 				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange))
 			require.NoError(t, err)
 
-			run(t, propName, bucketName)
+			run(t, propName, bucketName, roaringSetRangeOps, rangeValueExpectedLists)
 		})
 
 		t.Run("segment in memory", func(t *testing.T) {
@@ -1131,7 +756,7 @@ func Test_Filters_Int(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			run(t, propName, bucketName)
+			run(t, propName, bucketName, roaringSetRangeOps, rangeValueExpectedLists)
 		})
 	})
 }

@@ -114,26 +114,9 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 		}
 	}()
 
-	if view.Flushing != nil {
-		flushing, flushErr := view.Flushing.roaringSetGet(key)
-		if flushErr != nil {
-			if !errors.Is(flushErr, lsmkv.NotFound) {
-				err = flushErr
-				return nil, noopRelease, err
-			}
-		} else {
-			layers = append(layers, flushing)
-		}
-	}
-
-	activeBM, activeErr := view.Active.roaringSetGet(key)
-	if activeErr != nil {
-		if !errors.Is(activeErr, lsmkv.NotFound) {
-			err = activeErr
-			return nil, noopRelease, err
-		}
-	} else {
-		layers = append(layers, activeBM)
+	layers, err = appendRoaringSetMemtableLayers(layers, view, key)
+	if err != nil {
+		return nil, noopRelease, err
 	}
 
 	return layers.Flatten(false, maxConc), diskRelease, nil
@@ -177,27 +160,39 @@ func (b *Bucket) roaringSetGetFromConsistentViewInMemo(
 		layers = append(layers, layer)
 	}
 
+	layers, err = appendRoaringSetMemtableLayers(layers, view, key)
+	if err != nil {
+		return nil, noopRelease, err
+	}
+
+	return layers.Flatten(false, maxConc), rootRelease, nil
+}
+
+// appendRoaringSetMemtableLayers appends the flushing (if any) and active
+// memtable layers for key on top of layers, tolerating NotFound, so that the
+// caller can flatten persisted and in-memory state into one bitmap.
+func appendRoaringSetMemtableLayers(
+	layers roaringset.BitmapLayers, view BucketConsistentView, key []byte,
+) (roaringset.BitmapLayers, error) {
 	if view.Flushing != nil {
-		flushing, flushErr := view.Flushing.roaringSetGet(key)
-		if flushErr != nil {
-			if !errors.Is(flushErr, lsmkv.NotFound) {
-				err = flushErr
-				return nil, noopRelease, err
+		flushing, err := view.Flushing.roaringSetGet(key)
+		if err != nil {
+			if !errors.Is(err, lsmkv.NotFound) {
+				return nil, err
 			}
 		} else {
 			layers = append(layers, flushing)
 		}
 	}
 
-	activeBM, activeErr := view.Active.roaringSetGet(key)
-	if activeErr != nil {
-		if !errors.Is(activeErr, lsmkv.NotFound) {
-			err = activeErr
-			return nil, noopRelease, err
+	activeBM, err := view.Active.roaringSetGet(key)
+	if err != nil {
+		if !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
 		}
 	} else {
 		layers = append(layers, activeBM)
 	}
 
-	return layers.Flatten(false, maxConc), rootRelease, nil
+	return layers, nil
 }
