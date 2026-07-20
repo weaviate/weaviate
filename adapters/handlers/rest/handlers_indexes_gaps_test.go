@@ -42,9 +42,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestValidateTokenizationChange_StampedBlockmaxKeepsInverted pins
-// weaviate/weaviate#12252: a stamped-blockmax property must derive
-// StrategyInverted (not StrategyMapCollection) after its migration task ages out.
+// TestValidateTokenizationChange_StampedBlockmaxKeepsInverted pins that a
+// stamped-blockmax property derives StrategyInverted, not StrategyMapCollection,
+// after its migration task ages out.
 func TestValidateTokenizationChange_StampedBlockmaxKeepsInverted(t *testing.T) {
 	tr := true
 	class := &models.Class{

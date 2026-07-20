@@ -20,17 +20,10 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestSegmentGroupReconcileMapToInverted pins the segment_group strategy
-// reconcile branch the §4 non-corruption guarantee rests on: a bucket opened
-// as StrategyMapCollection whose first on-disk segment is StrategyInverted must
-// reconcile its live strategy to Inverted, so a map/BM25 read walks the
-// inverted segments instead of misparsing them as map postings.
-//
-// The branch (segment_group.go, `else if b.strategy == StrategyMapCollection
-// && sg.segments[0].getStrategy() == StrategyInverted`) carries a
-// `TODO ... remove before final release`. If it is deleted at GA, re-running
-// change-algorithm on an already-blockmax property becomes corrupting rather
-// than merely wasteful — this test fails the moment the branch is gone.
+// TestSegmentGroupReconcileMapToInverted pins that reopening a bucket as
+// StrategyMapCollection whose first segment is StrategyInverted reconciles to
+// Inverted — the TODO-marked branch a re-run change-algorithm depends on to
+// avoid silently corrupting map/BM25 reads.
 func TestSegmentGroupReconcileMapToInverted(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

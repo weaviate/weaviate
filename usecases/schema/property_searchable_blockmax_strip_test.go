@@ -21,13 +21,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestCreatePaths_StripClientSetSearchableBlockmax pins that the internal
-// per-property SearchableBlockmax stamp cannot be seeded by a client on the
-// create paths. It is derived from the on-disk bucket strategy (migration
-// cutover + startup read-repair); a client-seeded value would be a wrong stamp
-// the read-repair never corrects (it only touches nil stamps). We assert on the
-// property that actually reaches the RAFT schemaManager, not just the returned
-// class.
+// TestCreatePaths_StripClientSetSearchableBlockmax pins that a client-set
+// SearchableBlockmax is nilled on every create path (only read-repair should
+// seed it) — asserted on the property that reaches schemaManager, not the
+// returned class.
 func TestCreatePaths_StripClientSetSearchableBlockmax(t *testing.T) {
 	ctx := context.Background()
 	tr := true

@@ -274,10 +274,9 @@ func principalUsername(principal *models.Principal) string {
 	return principal.Username
 }
 
-// findCancelTargetTask returns the in-flight reindex task (and payload)
-// targeting (collection, propertyName, indexType), or nil. "In flight" is
-// IsActive (STARTED/PREPARING/SWAPPING); a PREPARING/SWAPPING target the FSM
-// won't STARTED-cancel resolves to a 202 NO_OP in cancelReindexTask, not error.
+// findCancelTargetTask returns the in-flight (STARTED/PREPARING/SWAPPING)
+// reindex task matching (collection, propertyName, indexType), or nil.
+// cancelReindexTask turns a non-STARTED match into a 202 NO_OP, not an error.
 func findCancelTargetTask(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload) {
 	task, payload, _ := firstActiveReindexTask(tasks, decodeSkip, func(p db.ReindexTaskPayload) bool {
 		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propertyName) {
@@ -351,8 +350,8 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 	if err := svc.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
-		// PREPARING/SWAPPING (mid-swap) or completed-in-the-race targets the FSM
-		// rejects with ErrTaskNotRunning: nothing to cancel, so NO_OP not 500.
+		// A PREPARING/SWAPPING or already-completed target makes the FSM
+		// reject with ErrTaskNotRunning: nothing to cancel, so NO_OP, not 500.
 		if errors.Is(err, distributedtask.ErrTaskNotRunning) {
 			h.appState.Logger.WithFields(logrus.Fields{
 				"audit_event": "reindex_task_cancel_noop",
@@ -502,15 +501,12 @@ const reindexCancelDrainTimeout = 10 * time.Second
 // pending" — either the swap failed silently (logged as "swap
 // INCOMPLETE" elsewhere) or the swap completed and DELETE flipped the
 // flag back to false (weaviate/weaviate#10675, the "indexing(1) bleed").
-// Either way surfacing the override would be a status lie. The trade-off:
-// between task FINISHED and the schema flip a GET caller sees
-// "indexing@100%" for up to 10s, then a brief empty searchable entry,
-// then "ready". That brief empty entry is the UX gap the override
-// bridges; we accept it as the lesser evil versus the unbounded bleed.
+// Either way, surfacing the override past the window would be a lie; we
+// accept a brief empty-entry gap in the happy path as the lesser evil.
 const (
 	finalizeWindowMin = 3 * time.Second
-	// Aliased from state so the post-DELETE marker TTL (state.reindexDelete-
-	// MarkerTTL) stays derived from the same ceiling — see its godoc.
+	// Aliased from state so the post-DELETE marker TTL (state.reindexDeleteMarkerTTL)
+	// stays derived from the same ceiling — see its godoc.
 	finalizeWindowMax = state.FinalizeWindowMax
 )
 
@@ -1104,16 +1100,11 @@ func countStartedTasksForCollection(collection string, tasks []*distributedtask.
 // payload we cannot decode — in which case we cannot prove non-conflict
 // and the caller must reject the submit.
 //
-// A conflict is any two tasks touching the same index bucket type on the same
-// property. The bucket classification and the conflict predicate live once in
-// the db package ([db.TypesConflictReason] over [db.ReindexBucketEffect]) and
-// are shared with the FSM-deterministic apply-time check, so the two paths
-// can't drift; this pre-flight only consumes them. An empty Properties list is
-// reserved for a future whole-collection rebuild and matches any property here.
-//
-// Unparseable payloads (schema change across versions, RAFT replay of an older
-// binary's task) are a hard error, not a silent skip: skipping would let a
-// real bucket-level conflict race the in-flight task.
+// A conflict is two tasks touching the same bucket type on the same property
+// (empty Properties matches any). Classification lives once in db
+// ([db.TypesConflictReason] over [db.ReindexBucketEffect]), shared with the
+// FSM apply-time check so the two paths can't drift. Unparseable payloads
+// fail closed rather than skip silently.
 func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	newProps []string, tasks []*distributedtask.Task,
 ) (string, error) {
@@ -1128,11 +1119,9 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 				"in-flight reindex task %q has an unparseable payload; cannot verify conflict; "+
 					"retry after operator inspects the task: %w", task.ID, err)
 		}
-		// Parsed but informationally empty (`{}`, or missing Collection /
-		// MigrationType): we can't prove non-conflict any more than for an
-		// unparseable payload, so refuse for the same reason. Most likely an
-		// older binary wrote a shape we no longer recognize and the fields
-		// zeroed on Unmarshal.
+		// Parsed but empty (`{}`, or missing Collection/MigrationType) is the
+		// same unprovable-non-conflict state as unparseable, so it's refused
+		// too — likely an older binary's shape whose fields zeroed on Unmarshal.
 		if payload.Collection == "" || payload.MigrationType == "" {
 			return "", fmt.Errorf(
 				"in-flight reindex task %q has an empty Collection or MigrationType "+

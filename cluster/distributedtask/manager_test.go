@@ -109,9 +109,8 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 		err := h.manager.AddTask(c, 100)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated conflict")
-		// The rejection must be classifiable as a conflict (→ REST 409),
-		// end-to-end via errors.Is on the sentinel + umbrella. Without this
-		// the REST submit path maps every AddTask error to 500.
+		// The rejection must be classifiable as a conflict (→ REST 409) via
+		// errors.Is on the sentinel + umbrella, end-to-end.
 		require.ErrorIs(t, err, ErrTaskConflict,
 			"a CheckConflict rejection must ride the ErrTaskConflict sentinel")
 		require.ErrorIs(t, err, ErrPermanentRejection,
@@ -299,11 +298,9 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 	})
 }
 
-// TestManager_CancelTask_RejectsNonStartedActive pins the FSM contract the
-// REST cancel handler depends on: CancelTask aborts only STARTED tasks, so a
-// task that reached PREPARING or SWAPPING (units done, mid-swap) is rejected
-// with the matchable ErrTaskNotRunning sentinel. cancelReindexTask maps that
-// to an idempotent 202 NO_OP rather than a 500.
+// TestManager_CancelTask_RejectsNonStartedActive pins that CancelTask aborts
+// only STARTED tasks: a task that reached PREPARING/SWAPPING is rejected with
+// ErrTaskNotRunning, which cancelReindexTask maps to 202 NO_OP, not 500.
 func TestManager_CancelTask_RejectsNonStartedActive(t *testing.T) {
 	const (
 		ns      = "test"
@@ -454,12 +451,10 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 }
 
 // TestManager_CleanUpTask_TTLZeroBoundary pins the too-fresh boundary at
-// TTL=0. The manager uses Since <= TTL, so a task is too fresh at Since==0
-// (0 <= 0) and cleanable only once Since is strictly positive. This is the
-// counterpart to the scheduler's TTL <= Since eligibility (already true at
-// Since==0): the asymmetry means a same-instant cleanup is rejected and
-// succeeds only on a later tick, so cleanup never races a reader that just
-// observed the FINISHED task.
+// TTL=0: the manager rejects cleanup while Since<=TTL, so Since==0 is
+// rejected and only a later tick (Since>0) succeeds — the asymmetry with the
+// scheduler's TTL<=Since eligibility (already true at Since==0) ensures
+// cleanup never races a reader that just observed the FINISHED task.
 func TestManager_CleanUpTask_TTLZeroBoundary(t *testing.T) {
 	const (
 		ns  = "test"

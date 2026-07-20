@@ -288,19 +288,17 @@ func resolveUpsertPlan(class *models.Class, collection string, prop *models.Prop
 	}
 
 	// A NO_OP returns 200 before the submit path's conflict check runs, so an
-	// undecodable in-flight task (which might be migrating this property to a
-	// contradictory state) must fail closed (503) here instead of silently
-	// slipping through as a false 200.
+	// undecodable in-flight task must fail closed (503) here rather than slip
+	// through as a false 200.
 	if plan.noop && hasUnverifiableInFlightTask(reindexTasks) {
 		return upsertPlan{failClosed: true}, nil
 	}
 	return plan, nil
 }
 
-// hasUnverifiableInFlightTask reports whether any in-flight reindex task has
-// an untrustworthy payload (undecodable, or missing Collection/MigrationType).
-// Same unverifiable case as [checkReindexConflict], so the NO_OP path must fail
-// closed rather than return a false 200.
+// hasUnverifiableInFlightTask reports whether any in-flight task has an
+// untrustworthy payload (undecodable, or missing Collection/MigrationType) —
+// the same unverifiable case [checkReindexConflict] fails closed on.
 func hasUnverifiableInFlightTask(reindexTasks []*distributedtask.Task) bool {
 	_, _, found := firstActiveReindexTask(reindexTasks, decodeUndecodableIsHit, func(p db.ReindexTaskPayload) bool {
 		return p.Collection == "" || p.MigrationType == ""
@@ -425,8 +423,7 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 
 // activeFilterableTaskFor returns the in-flight task (if any) writing this
 // property's filterable bucket, and whether it already converges to the
-// request. currentTok is the property's tokenization (enable-filterable
-// builds with it and carries no explicit target).
+// request. currentTok is enable-filterable's implicit target tokenization.
 func activeFilterableTaskFor(collection, propName, tok, currentTok string, reindexTasks []*distributedtask.Task) (task *distributedtask.Task, matches bool) {
 	t, p, found := firstActiveReindexTask(reindexTasks, decodeSkip, func(p db.ReindexTaskPayload) bool {
 		return strings.EqualFold(p.Collection, collection) && slices.Contains(p.Properties, propName) &&
@@ -462,9 +459,8 @@ func resolveFilterableUpsert(collection string, prop *models.Property, tok, algo
 	}
 
 	// An in-flight task writing this bucket owns the outcome: a converging
-	// request NO-OPs, a different requested target 409s — checked before the
-	// schema read so a mid-migration repeat doesn't fall through to a
-	// spurious conflict.
+	// request NO-OPs, a different target 409s — checked before the schema
+	// read to avoid a spurious mid-migration conflict.
 	if task, matches := activeFilterableTaskFor(collection, prop.Name, tok, prop.Tokenization, reindexTasks); task != nil {
 		if matches {
 			return upsertPlan{noop: true}, nil
@@ -504,9 +500,8 @@ func resolveFilterableUpsert(collection string, prop *models.Property, tok, algo
 }
 
 // activeRangeableTaskFor returns the in-flight task (if any) writing this
-// property's rangeFilters bucket. rangeFilters takes no configuration, so any
-// in-flight enable/repair on this property is convergent — there is no
-// "different target" to conflict on.
+// property's rangeFilters bucket. No config means any in-flight enable/repair
+// is convergent — there's no "different target" to conflict on.
 func activeRangeableTaskFor(collection, propName string, reindexTasks []*distributedtask.Task) *distributedtask.Task {
 	t, _, _ := firstActiveReindexTask(reindexTasks, decodeSkip, func(p db.ReindexTaskPayload) bool {
 		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propName) {
@@ -640,9 +635,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	taskID := fmt.Sprintf("%s:%s:%s:%s", collection, migrationType, properties[0], shortRandomSuffix())
 
 	// Conflict + concurrency-cap checks against the caller's RAFT snapshot,
-	// serialized by the caller's submit lock against parallel DELETE and
-	// submits. The fail-closed 503 for an unreachable task store already fired
-	// in listReindexTasks when this snapshot was fetched.
+	// serialized by the caller's submit lock against parallel DELETE/submits.
+	// The fail-closed 503 for an unreachable store already fired in listReindexTasks.
 	if resp := h.checkReindexAdmission(principal, collection, migrationType, properties,
 		reindexTasks); resp != nil {
 		return resp
@@ -719,11 +713,9 @@ type stalePartialStateCleaner interface {
 }
 
 // cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
-// type migrationType touches (a coupled change-tokenization cleans both),
-// returning a terminal responder or nil to proceed. Guards CANCEL→retry
-// resuming stale partial state and reporting false success. Fails CLOSED on an
-// unknown type (scrub would be silently skipped — the Sev-1 gap it guards) and
-// on a scrub error: a failed submit is loud and recoverable.
+// type migrationType touches, returning a terminal responder or nil to
+// proceed. Guards CANCEL→retry resuming stale state as a false success; fails
+// closed on an unknown type or a scrub error rather than skip silently.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
 	cleaner stalePartialStateCleaner, collection, propertyName string, migrationType db.ReindexMigrationType,
 ) middleware.Responder {
@@ -752,10 +744,9 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 	return nil
 }
 
-// mapSubmitTaskError classifies an AddDistributedTask error: an FSM
-// ConflictDetector rejection (a racing concurrent submit) maps to 409, with
-// the task ID logged server-side rather than returned. Everything else is a
-// genuine infra error → 500.
+// mapSubmitTaskError classifies an AddDistributedTask error: an FSM conflict
+// (racing concurrent submit) maps to 409 with the task ID logged server-side,
+// not returned; everything else is a 500.
 func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collection, taskID string, err error) middleware.Responder {
 	if errors.Is(err, distributedtask.ErrTaskConflict) {
 		h.appState.Logger.WithFields(logrus.Fields{

@@ -19,10 +19,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// White-box on purpose: the TTL constant, the key builder, and the backing
-// map are all package-private, and pinning TTL expiry / prune eviction /
-// the case-fold asymmetry requires reaching them directly rather than
-// waiting 30s of wall-clock per boundary case.
+// White-box on purpose: the TTL constant, key builder, and backing map are
+// package-private; pinning TTL expiry, prune eviction, and the case-fold
+// asymmetry needs direct access rather than 30s of real wall-clock waits.
 func TestReindexDeleteMarkers(t *testing.T) {
 	t.Run("record then LastDeleted round-trip", func(t *testing.T) {
 		m := NewReindexDeleteMarkers()
@@ -47,9 +46,8 @@ func TestReindexDeleteMarkers(t *testing.T) {
 	})
 
 	t.Run("TTL boundary: within TTL is live, beyond TTL is expired", func(t *testing.T) {
-		// Margins are ±1s against a 30s TTL — orders of magnitude above any
-		// test-execution jitter, so the boundary is deterministic. Ages are
-		// derived from the constant so the test tracks a TTL change.
+		// Margins are ±1s — orders of magnitude above test jitter — and ages
+		// are derived from the constant so the test tracks a TTL change.
 		cases := []struct {
 			name string
 			age  time.Duration
@@ -87,8 +85,6 @@ func TestReindexDeleteMarkers(t *testing.T) {
 
 		m.Record("Live", "title", "searchable")
 
-		// Record evicts all three expired entries and adds exactly one fresh
-		// one: net map size shrinks from 3 to 1.
 		assert.Len(t, m.deleted, 1, "prune must evict every expired marker, leaving only the fresh one")
 		_, freshPresent := m.deleted[reindexDeleteMarkerKey("Live", "title", "searchable")]
 		assert.True(t, freshPresent, "the freshly recorded marker must remain")
@@ -113,10 +109,9 @@ func TestReindexDeleteMarkers(t *testing.T) {
 	})
 
 	t.Run("case-fold asymmetry is pinned (current behavior, not an endorsement)", func(t *testing.T) {
-		// reindexDeleteMarkerKey lowercases `collection` but leaves `property`
-		// and `indexType` verbatim (GET-status suppression keys off the exact
-		// canonical indexType spelling). Pinned so a change here is deliberate,
-		// not silent drift.
+		// reindexDeleteMarkerKey lowercases collection but keeps property/indexType
+		// verbatim — GET-status suppression keys off the exact canonical
+		// indexType spelling.
 		assert.Equal(t, "mycollection/Title/searchable",
 			reindexDeleteMarkerKey("MyCollection", "Title", "searchable"),
 			"collection must fold to lower-case; property and indexType must be preserved verbatim")

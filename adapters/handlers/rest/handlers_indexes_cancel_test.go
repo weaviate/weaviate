@@ -75,8 +75,7 @@ func TestFindCancelTargetTask_IsActive(t *testing.T) {
 
 // realFSMCanceller adapts a real distributedtask.Manager to
 // reindexTaskCanceller so the cancel handler's error mapping runs against
-// genuine FSM rejections — no RAFT stack, but the same ErrTaskNotRunning
-// the wire path rehydrates.
+// genuine FSM rejections (ErrTaskNotRunning) without a RAFT stack.
 type realFSMCanceller struct{ mgr *distributedtask.Manager }
 
 func (c realFSMCanceller) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
@@ -96,9 +95,8 @@ func (c realFSMCanceller) CancelDistributedTask(_ context.Context, namespace, ta
 	return c.mgr.CancelTask(&api.ApplyRequest{SubCommand: sub})
 }
 
-// seedReindexTask adds a reindex task to mgr and drives it to target through
-// the real FSM: PREPARING via the barrier path, SWAPPING via the no-barrier
-// path, STARTED left un-completed.
+// seedReindexTask drives a task through the real FSM to target: PREPARING
+// via the barrier path, SWAPPING via the no-barrier path, STARTED as-is.
 func seedReindexTask(t *testing.T, mgr *distributedtask.Manager, id, collection, property string,
 	mt db.ReindexMigrationType, target distributedtask.TaskStatus,
 ) {
@@ -152,12 +150,8 @@ func cancelResponse(t *testing.T, resp middleware.Responder) (int, string) {
 	return rec.Code, body.Status
 }
 
-// TestCancelReindexTask_NonStartedTaskIsNoOp pins M1: cancelling a task that
-// reached PREPARING/SWAPPING (units done, mid-swap) round-trips through the
-// real FSM, which rejects with ErrTaskNotRunning, and the handler maps that
-// to an idempotent 202 NO_OP — not a 500. Regression guard for SF-2, which
-// widened findCancelTargetTask to select PREPARING/SWAPPING targets that the
-// FSM's STARTED-only CancelTask then rejects.
+// TestCancelReindexTask_NonStartedTaskIsNoOp pins that a PREPARING/SWAPPING
+// target rejected by the FSM (ErrTaskNotRunning) maps to 202 NO_OP, not 500.
 func TestCancelReindexTask_NonStartedTaskIsNoOp(t *testing.T) {
 	principal := &models.Principal{Username: "tester"}
 	for _, tc := range []struct {
@@ -183,8 +177,8 @@ func TestCancelReindexTask_NonStartedTaskIsNoOp(t *testing.T) {
 	}
 }
 
-// TestCancelReindexTask_StartedTaskCancels pins the happy path stays intact: a
-// STARTED task cancels through the real FSM and returns 202 CANCELLED.
+// TestCancelReindexTask_StartedTaskCancels pins the happy path: a STARTED
+// task cancels through the real FSM and returns 202 CANCELLED.
 func TestCancelReindexTask_StartedTaskCancels(t *testing.T) {
 	mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
 	seedReindexTask(t, mgr, "C:enable-filterable:p:aaaa", "C", "p",

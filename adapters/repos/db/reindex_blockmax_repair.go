@@ -33,16 +33,12 @@ const (
 	searchableBlockmaxRepairInterval = 5 * time.Minute
 )
 
-// RunSearchableBlockmaxRepair closes the v1.38→v1.39 upgrade residual: a
-// nil-stamp searchable property genuinely on blockmax, in a permanently-partial
-// class, reads back as WAND once its FINISHED task ages out. It seeds the
-// durable stamp from two sources, whichever proves blockmax first: a loaded
-// shard's StrategyInverted bucket, or a still-present FINISHED blockmax task
-// (which closes the cold/unloaded-shard window before that task ages out, and
-// works even on a shardless node). Every shard-holder runs it; the stamp write
-// is idempotent and RAFT-consistent, so concurrent seeds don't reintroduce the
-// node-locality bug the stamp fixes. Launch in a goroutine; runs until ctx is
-// cancelled.
+// RunSearchableBlockmaxRepair closes the v1.38→v1.39 upgrade residual: in a
+// permanently-partial class, a nil-stamp property genuinely on blockmax reads
+// back as WAND once its FINISHED task ages out. It seeds the stamp from
+// whichever proves blockmax first — a loaded shard's inverted bucket, or a
+// still-present FINISHED task — idempotently and RAFT-consistently, so
+// concurrent seeds across shard-holders can't reintroduce the bug being fixed.
 func (p *ReindexProvider) RunSearchableBlockmaxRepair(ctx context.Context) {
 	if p.schemaManager == nil || p.db == nil || p.taskLister == nil {
 		return
@@ -129,9 +125,8 @@ func (p *ReindexProvider) reconcileClassSearchableBlockmax(ctx context.Context, 
 	}
 
 	// Observe on-disk truth on loaded shards only (never force-load a lazy
-	// shard just to probe): a searchable bucket that is StrategyInverted is
-	// genuinely blockmax. Skipped entirely on a shardless node, which still
-	// seeds from FINISHED-task evidence below.
+	// shard to probe): StrategyInverted means genuinely blockmax. A shardless
+	// node skips this and seeds from FINISHED-task evidence below instead.
 	observed := make(map[string]bool, len(candidates))
 	if idx := p.db.GetIndex(entschema.ClassName(class.Class)); idx != nil {
 		_ = idx.ForEachLoadedShard(func(_ string, shard ShardLike) error {

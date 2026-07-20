@@ -2144,11 +2144,10 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	}
 }
 
-// stampSearchableBlockmax durably records propNames as blockmax on collection
-// via a masked RAFT UpdateProperty. Idempotent (already-stamped properties are
-// skipped), so repeated firings/replays/read-repair produce at most one commit
-// per property. Shared by the change-algorithm cutover and
-// [RunSearchableBlockmaxRepair].
+// stampSearchableBlockmax durably records propNames as blockmax via a masked
+// RAFT UpdateProperty. Idempotent — already-stamped properties are skipped —
+// so repeated firings/replays/read-repair produce at most one commit per
+// property. Shared by the change-algorithm cutover and [RunSearchableBlockmaxRepair].
 func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collection string, propNames []string) error {
 	trueVal := true
 	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, collection, propNames,

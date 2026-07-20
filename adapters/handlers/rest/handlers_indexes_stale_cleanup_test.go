@@ -37,10 +37,9 @@ func (f *fakeStaleCleaner) CleanStalePartialReindexState(_ context.Context, _, _
 	return f.err
 }
 
-// TestCleanStalePartialStateOrFail pins S2: the pre-submit stale-state scrub
-// fails CLOSED on an unknown migration type (no silent skip of the cleanup
-// whose absence is a Sev-1 data-loss root cause) and on a scrub error, and
-// otherwise cleans every index type the migration touches before proceeding.
+// TestCleanStalePartialStateOrFail pins that the pre-submit stale-state scrub
+// fails closed on an unknown migration type or a scrub error, and otherwise
+// cleans every index type the migration touches before proceeding.
 func TestCleanStalePartialStateOrFail(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)

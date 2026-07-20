@@ -117,10 +117,10 @@ func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 		"nil lookup must allow (same path as unwired)")
 }
 
-// TestAnyLiveReindexForShard_CleanupInProgress pins the OR-d cleanup branch: the
-// DTM task has flipped terminal (activity lookup false) but autoCleanupAfter-
-// Terminal is still draining the sidecar buckets, so the gate must still refuse
-// — a backup mid-cleanup would capture torn __reindex/__ingest state.
+// TestAnyLiveReindexForShard_CleanupInProgress pins the OR-d cleanup branch:
+// once the DTM task goes terminal (activity lookup false) but
+// autoCleanupAfterTerminal is still draining sidecars, the gate must still
+// refuse — a backup mid-cleanup would capture torn __reindex/__ingest state.
 func TestAnyLiveReindexForShard_CleanupInProgress(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{})) // no live task

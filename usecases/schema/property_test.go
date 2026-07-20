@@ -1351,11 +1351,10 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 	}
 }
 
-// TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp pins S5: dropping
-// the searchable index clears the durable SearchableBlockmax stamp in the same
-// masked write, so the stamp can't outlive the index it describes and resolve
-// stale blockmax truth on a later re-enable. The FSM's own property pointer is
-// left untouched (mutation happens on a defensive copy).
+// TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp pins that
+// dropping the searchable index clears the durable SearchableBlockmax stamp
+// in the same masked write, so it can't outlive the index and resolve stale
+// truth on re-enable.
 func TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp(t *testing.T) {
 	t.Parallel()
 	handler, sm := newTestHandlerWithNamespaces(t, false)

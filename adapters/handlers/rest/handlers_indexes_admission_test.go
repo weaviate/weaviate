@@ -52,10 +52,8 @@ func statusOf(t *testing.T, resp middleware.Responder) (int, *models.ErrorRespon
 	return rec.Code, &body
 }
 
-// TestCheckReindexAdmission exercises the admission gate: conflict (409, naming
-// the task) is checked before the cap (429); an undecodable in-flight payload
-// fails closed (503) without leaking the task ID; a clean or below-cap request
-// proceeds. wantCode==0 means "proceed" (nil responder).
+// TestCheckReindexAdmission pins admission ordering: conflict (409) before
+// cap (429), fail-closed (503) without leaking the task ID, and proceed.
 func TestCheckReindexAdmission(t *testing.T) {
 	const collection = "C"
 

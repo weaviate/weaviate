@@ -68,24 +68,19 @@ func (r repairResidualReader) ReadOnlyClass(string) *models.Class          { ret
 func (r repairResidualReader) WaitForUpdate(context.Context, uint64) error { return nil }
 
 // TestReconcileClassSearchableBlockmax_BackfillsResidualStamp pins the
-// v1.38→v1.39 upgrade read-repair: a searchable property genuinely migrated to
-// blockmax on disk, in a permanently-partial class (class flag false), with a
-// nil stamp and no live task, reads back as WAND. The repair must observe the
-// on-disk StrategyInverted bucket and seed the durable stamp via the masked
-// RAFT UpdateProperty — and only for the prop that is actually blockmax on disk.
-//
-// This is the SOLE mechanism closing the pre-stamp residual; the ageout e2e
-// stamps at cutover and never exercises the backfill.
+// v1.38→v1.39 read-repair: a nil-stamp property genuinely blockmax on disk, in
+// a permanently-partial class with no live task, resolves as WAND until the
+// repair observes the on-disk StrategyInverted bucket and seeds the stamp —
+// only for the prop actually blockmax on disk.
 func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 	ctx := testCtx()
 	className := "BlockmaxRepairResidual"
 	tr := true
 
-	// Build the on-disk residual directly: init the shard with propX stamped
-	// blockmax (→ StrategyInverted bucket) and propY unstamped in a partial
-	// class (→ StrategyMapCollection bucket). The per-prop stamp override at
-	// shard_init_properties.go drives the bucket strategy, so the two searchable
-	// buckets diverge exactly as they would after a real partial-class migration.
+	// Build the on-disk residual directly: propX stamped blockmax gets a
+	// StrategyInverted bucket, propY (unstamped, partial class) gets
+	// StrategyMapCollection — the per-prop override in shard_init_properties.go
+	// reproduces exactly what a real partial-class migration leaves on disk.
 	initClass := &models.Class{
 		Class:             className,
 		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
@@ -132,10 +127,9 @@ func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	capMgr := &capturingSchemaManager{}
 	reader := repairResidualReader{class: residualClass}
-	// Real schema.Manager wired to fakes: the stamp write routes through the
-	// Handler's (unexported) schemaManager/schemaReader, so NewHandler is the
-	// only way to inject the capture. mgr.ReadOnlyClass resolves via the
-	// embedded SchemaReader.
+	// Real schema.Manager wired to fakes: the stamp write routes through
+	// Handler's unexported schemaManager/schemaReader, so NewHandler is the
+	// only way to inject the capture; mgr.ReadOnlyClass resolves via the embedded SchemaReader.
 	h, err := schemauc.NewHandler(reader, capMgr, nil, logger, nil, nil, config.Config{},
 		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil)
 	require.NoError(t, err)
@@ -173,11 +167,9 @@ func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 		"post-repair: with the seeded stamp the resolver reads blockmax")
 }
 
-// TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless pins
-// the cold/unloaded-shard window closure: a nil-stamp searchable property with
-// no on-disk observation here (no local shard) is still seeded from a FINISHED
-// blockmax-producing task in the RAFT list — while the task is still present,
-// before it ages out — so the truth survives the ageout. A prop with no
+// TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless
+// pins that a nil-stamp property with no local shard is still seeded from a
+// FINISHED blockmax-producing task before it ages out; a prop with no
 // FINISHED task is left untouched.
 func TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless(t *testing.T) {
 	ctx := testCtx()

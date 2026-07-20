@@ -231,11 +231,10 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}
 
-	// Authorize BEFORE the conflict pre-flight below: it can leak "a task is in
-	// flight" to an unprivileged caller, and manager.DeleteClassPropertyIndex
-	// only authorizes deep inside its own body. nil-safe for tests constructing
-	// schemaHandlers directly. Collections (data+metadata), like PUT/rebuild/
-	// cancel: dropping an index rewrites data, not metadata only.
+	// Authorize BEFORE the conflict pre-flight: it can leak "a task is in
+	// flight" to an unprivileged caller, and DeleteClassPropertyIndex only
+	// authorizes deep in its own body. Collections (data+metadata): dropping
+	// an index rewrites data, not just metadata.
 	if s.authorizer != nil {
 		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
 			authorization.Collections(qualifiedClass)...); err != nil {
@@ -305,10 +304,9 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		}
 	}
 
-	// Only record the marker when the DELETE performed a real RAFT write: a
-	// node-local no-op (flag already off) never hit RAFT, so recording a
-	// suppression marker would mask a lagging follower whose FSM hasn't yet
-	// applied the flip, hiding an index it still legitimately reports.
+	// Only record the marker on a real RAFT write: a node-local no-op (flag
+	// already off) never hit RAFT, so marking it would suppress a lagging
+	// follower's legitimate report before its FSM applies the flip.
 	if wrote && s.reindexDeleteMarkers != nil {
 		s.reindexDeleteMarkers.Record(qualifiedClass, params.PropertyName, indexName)
 	}

@@ -91,10 +91,8 @@ func TestCheckReindexConflictForPropertyMutation_RedactsForeignTaskID(t *testing
 }
 
 // TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight pins that an
-// unprivileged caller gets 403 before the conflict pre-flight runs, not only
-// deep inside manager.DeleteClassPropertyIndex, AND that the demanded
-// permission is Collections (data + metadata) — symmetric with PUT/rebuild/
-// cancel, not the weaker metadata-only.
+// unprivileged caller gets 403 before the conflict pre-flight runs, and that
+// the demanded permission is Collections (data+metadata), not metadata-only.
 func TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight(t *testing.T) {
 	lister := &recordingReindexLister{}
 	authz := &denyAuthorizer{forbidden: authzerrors.NewForbidden(

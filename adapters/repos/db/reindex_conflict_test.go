@@ -351,10 +351,9 @@ var allReindexMigrationTypesForTest = []ReindexMigrationType{
 	ReindexTypeChangeTokenizationFilterable,
 }
 
-// TestReindexBucketEffect_Exhaustive replaces the old production panic:
-// enforces at dev-time that every ReindexMigrationType is explicitly
-// classified, and pins the fail-safe defaults (touches both buckets, produces
-// blockmax) for an unrecognized type.
+// TestReindexBucketEffect_Exhaustive enforces at dev-time that every
+// ReindexMigrationType is explicitly classified, and pins the fail-safe
+// defaults (touches both buckets, produces blockmax) for an unrecognized type.
 func TestReindexBucketEffect_Exhaustive(t *testing.T) {
 	// Adding a ReindexMigrationType here without a row below fails the "every
 	// listed type is covered" assertion.

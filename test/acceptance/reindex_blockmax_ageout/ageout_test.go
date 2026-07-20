@@ -9,12 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package reindex_blockmax_ageout is the regression for weaviate/weaviate#12252:
-// a searchable property migrated to blockmax in a permanently-partial class
-// reads back as WAND once its FINISHED task ages out of the DTM list. Runs
-// with DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS=0 so assertions hit a
-// genuinely empty task list, where only the durable per-property stamp keeps
-// reads correct.
+// Package reindex_blockmax_ageout pins that a searchable property migrated
+// to blockmax in a permanently-partial class reads back as WAND once its
+// FINISHED task ages out of the DTM list. Runs with
+// DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS=0 for a genuinely empty task
+// list, where only the durable per-property stamp keeps reads correct.
 package reindex_blockmax_ageout
 
 import (
@@ -38,10 +37,9 @@ import (
 )
 
 // shortTitle/longTitle have equal token counts but different distinct-term
-// counts. BM25 doc length is token count on blockmax but distinct-term count
-// on WAND, so for query term "banana" (tf=1 in both): correct blockmax gives
-// equal doc length → equal scores; a WAND downgrade gives shortTitle a
-// shorter length → a strictly higher score. Score equality is the test.
+// counts: BM25 doc length is token count on blockmax, distinct-term count on
+// WAND. For query term "banana" (tf=1 in both), blockmax scores them equally;
+// a WAND downgrade gives shortTitle a shorter length and a higher score.
 const (
 	shortTitle = "banana apple apple apple apple" // 5 tokens, 2 distinct
 	longTitle  = "banana cherry mango date fig"   // 5 tokens, 5 distinct

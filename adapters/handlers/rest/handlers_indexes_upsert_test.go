@@ -163,11 +163,9 @@ func TestResolveSearchableUpsert_Option2(t *testing.T) {
 	}
 }
 
-// TestResolveSearchableUpsert_InvalidAlgorithmErrorsEvenInFlight pins S1: an
-// invalid or deprecated algorithm must 400 even while a searchable migration
-// is in flight. requestMatchesActiveSearchable treats any non-empty algorithm
-// as a match, so without validating the value first the active-task guard
-// swallowed "wand"/garbage as a spurious 200 NO_OP.
+// TestResolveSearchableUpsert_InvalidAlgorithmErrorsEvenInFlight pins that an
+// invalid/deprecated algorithm 400s even mid-migration — validated before the
+// active-task guard, which otherwise matches any non-empty algorithm as NO_OP.
 func TestResolveSearchableUpsert_InvalidAlgorithmErrorsEvenInFlight(t *testing.T) {
 	on, off := boolPtr(true), boolPtr(false)
 	prop := textProp("t", "word", on, off)

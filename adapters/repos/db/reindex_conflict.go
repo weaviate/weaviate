@@ -21,20 +21,16 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// ReindexBucketEffect classifies migration type t: which inverted-index
-// buckets it writes (touchesSearchable/touchesFilterable, gating conflict
-// detection and idempotency checks) and whether completing it leaves the
-// searchable bucket on blockmax (producesBlockmax, feeding
-// [SearchablePropertyBlockmaxFromRAFT]). One switch is the source of truth
-// for all three.
+// ReindexBucketEffect is the single source of truth for which buckets a
+// migration type touches (gates conflict/idempotency checks) and whether
+// completing it produces blockmax (feeds [SearchablePropertyBlockmaxFromRAFT]).
 //
-// ok is false for an unrecognized type — the forward-compat path for a rolling
-// upgrade observing a newer peer's task type. It must never panic on a peer's
-// input, so unknown types fail SAFE: touches=true (conflict rejects a racing
-// submit) and producesBlockmax=true (the only realistic direction post-GA;
-// under-reporting would let a re-submitted change-algorithm corrupt an
-// already-blockmax bucket). Exhaustiveness is enforced by
-// TestReindexBucketEffect_Exhaustive, not a production panic.
+// ok is false only for an unrecognized type — forward-compat for a rolling
+// upgrade observing a newer peer's task; must never panic on peer input. Such
+// types fail safe: touches=true rejects a racing submit, producesBlockmax=true
+// assumes the only realistic post-GA direction (under-reporting risks
+// corrupting an already-blockmax bucket). Exhaustiveness lives in
+// TestReindexBucketEffect_Exhaustive.
 func ReindexBucketEffect(t ReindexMigrationType) (touchesSearchable, touchesFilterable, producesBlockmax, ok bool) {
 	switch t {
 	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable, ReindexTypeEnableSearchable:
@@ -59,12 +55,11 @@ func producesBlockmaxSearchable(t ReindexMigrationType) bool {
 }
 
 // SearchablePropertyIsBlockmax resolves whether (class, propName)'s searchable
-// bucket is blockmax, from RAFT-consistent state only. Precedence: (1) the
-// durable per-property stamp if set (survives task-list ageout and a same-tick
-// sibling migration), else (2) the class-flag/FINISHED-task derivation
-// ([SearchablePropertyBlockmaxFromRAFT]). nil reindexTasks is valid when the
-// caller has none (e.g. shard init). Every read site must route through this
-// resolver.
+// bucket is blockmax, from RAFT-consistent state only. Precedence: the durable
+// per-property stamp if set (survives task-list ageout and same-tick sibling
+// migrations), else the class-flag/FINISHED-task derivation
+// ([SearchablePropertyBlockmaxFromRAFT]). nil reindexTasks is valid (e.g.
+// shard init). Every read site must route through this resolver.
 func SearchablePropertyIsBlockmax(class *models.Class, propName string, reindexTasks []*distributedtask.Task) bool {
 	if blockmax, resolved := searchableStampOrClassFlag(class, propName); resolved {
 		return blockmax
@@ -105,11 +100,9 @@ func SearchablePropertyIsBlockmaxParsed(class *models.Class, propName string, fi
 }
 
 // SearchablePropertyBlockmaxFromRAFT derives per-property blockmax truth from
-// the class flag plus the FINISHED task list. It is [SearchablePropertyIs-
-// Blockmax]'s fallback when a property carries no durable stamp. It cannot see
-// a migration whose FINISHED task has aged out: such a property in a
-// permanently-partial class reads back as WAND, which is why the stamp is the
-// primary source and this is only the fallback.
+// the class flag plus the FINISHED task list — [SearchablePropertyIsBlockmax]'s
+// fallback when a property carries no durable stamp. It can't see a migration
+// whose task has aged out, which is why the stamp is the primary source.
 func SearchablePropertyBlockmaxFromRAFT(classFlagBlockmax bool, collection, propName string, reindexTasks []*distributedtask.Task) bool {
 	if classFlagBlockmax {
 		return true
