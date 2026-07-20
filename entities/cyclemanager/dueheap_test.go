@@ -119,28 +119,77 @@ func TestDueHeap_PopOrder(t *testing.T) {
 
 func TestDueHeap_Compact(t *testing.T) {
 	base := time.Now().UnixNano()
-
-	h := &dueHeap{}
-	for i := 0; i < 20; i++ {
-		// Interleave "keep" (even) and "drop" (odd) ids across a range of due
-		// times so compaction has a multi-level heap to rebuild.
-		h.push(dueEntry{callbackId: uint32(i), due: base + int64(i%7)*int64(time.Second), schedGen: 1})
+	// entries builds n entries across a range of due times so a surviving subset
+	// forms a multi-level heap for compaction to rebuild.
+	entries := func(n int) []dueEntry {
+		es := make([]dueEntry, n)
+		for i := 0; i < n; i++ {
+			es[i] = dueEntry{callbackId: uint32(i), due: base + int64(i%7)*int64(time.Second), schedGen: 1}
+		}
+		return es
 	}
 
-	h.compact(func(e dueEntry) bool { return e.callbackId%2 == 0 })
-
-	// Only even ids survive.
-	require.Len(t, *h, 10)
-	for _, e := range *h {
-		assert.Zero(t, e.callbackId%2, "odd id %d should have been dropped", e.callbackId)
+	tests := []struct {
+		name    string
+		entries []dueEntry
+		keep    func(dueEntry) bool
+		wantIds []uint32 // surviving callbackIds, in any order (nil = none)
+	}{
+		{
+			name:    "empty heap",
+			entries: nil,
+			keep:    func(dueEntry) bool { return true },
+			wantIds: nil,
+		},
+		{
+			name:    "keep none",
+			entries: entries(10),
+			keep:    func(dueEntry) bool { return false },
+			wantIds: nil,
+		},
+		{
+			name:    "keep all",
+			entries: entries(5),
+			keep:    func(dueEntry) bool { return true },
+			wantIds: []uint32{0, 1, 2, 3, 4},
+		},
+		{
+			name:    "keep one",
+			entries: entries(6),
+			keep:    func(e dueEntry) bool { return e.callbackId == 3 },
+			wantIds: []uint32{3},
+		},
+		{
+			name:    "keep even across multi-level heap",
+			entries: entries(20),
+			keep:    func(e dueEntry) bool { return e.callbackId%2 == 0 },
+			wantIds: []uint32{0, 2, 4, 6, 8, 10, 12, 14, 16, 18},
+		},
 	}
 
-	// The invariant is restored: pops come out in non-decreasing due order.
-	var prev int64 = -1
-	for len(*h) > 0 {
-		e := h.pop()
-		assert.GreaterOrEqual(t, e.due, prev, "pop out of order")
-		prev = e.due
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &dueHeap{}
+			for _, e := range tt.entries {
+				h.push(e)
+			}
+
+			h.compact(tt.keep)
+
+			gotIds := make([]uint32, 0, len(*h))
+			for _, e := range *h {
+				gotIds = append(gotIds, e.callbackId)
+			}
+			assert.ElementsMatch(t, tt.wantIds, gotIds, "survivors")
+
+			// The invariant is restored: pops come out in non-decreasing due order.
+			var prev int64 = -1
+			for len(*h) > 0 {
+				e := h.pop()
+				assert.GreaterOrEqual(t, e.due, prev, "pop out of order")
+				prev = e.due
+			}
+		})
 	}
 }
 

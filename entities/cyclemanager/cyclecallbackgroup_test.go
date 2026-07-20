@@ -14,6 +14,7 @@ package cyclemanager
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -212,7 +213,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 			atomic.AddInt64(&counter, 1)
 			return true
 		})
-		require.Nil(t, ctrl.Unregister(ctx))
+		require.NoError(t, ctrl.Unregister(ctx))
 
 		assert.False(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(0), atomic.LoadInt64(&counter))
@@ -238,7 +239,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		<-chStarted
 		start := time.Now()
 		time.Sleep(25 * time.Millisecond)
-		require.Nil(t, ctrl.Unregister(ctx))
+		require.NoError(t, ctrl.Unregister(ctx))
 		du := time.Since(start)
 		<-chFinished
 
@@ -326,8 +327,8 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 			atomic.AddInt64(&c2, 1)
 			return true
 		})
-		require.Nil(t, ctrl1.Unregister(ctx))
-		require.Nil(t, ctrl2.Unregister(ctx))
+		require.NoError(t, ctrl1.Unregister(ctx))
+		require.NoError(t, ctrl2.Unregister(ctx))
 
 		assert.False(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(0), atomic.LoadInt64(&c1))
@@ -347,7 +348,7 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 			atomic.AddInt64(&c2, 1)
 			return true
 		})
-		require.Nil(t, ctrl1.Unregister(ctx))
+		require.NoError(t, ctrl1.Unregister(ctx))
 
 		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(0), atomic.LoadInt64(&c1))
@@ -397,8 +398,8 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 				atomic.AddInt64(&c4, 1)
 				return true
 			})
-			require.Nil(t, ctrl3.Unregister(ctx))
-			require.Nil(t, ctrl4.Unregister(ctx))
+			require.NoError(t, ctrl3.Unregister(ctx))
+			require.NoError(t, ctrl4.Unregister(ctx))
 
 			// release lets c1 and c2 finish tick 1; closed channel unblocks
 			// c1 and c2 again in tick 2 without stalling.
@@ -427,7 +428,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 			atomic.AddInt64(&counter, 1)
 			return true
 		})
-		require.Nil(t, ctrl.Deactivate(ctx))
+		require.NoError(t, ctrl.Deactivate(ctx))
 
 		assert.False(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(0), atomic.LoadInt64(&counter))
@@ -460,7 +461,7 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 			// When Deactivate returns, counter==1 proves it waited for the
 			// callback to run to completion (its last act before returning).
 			go func() { close(release) }()
-			require.Nil(t, ctrl.Deactivate(ctx))
+			require.NoError(t, ctrl.Deactivate(ctx))
 			<-chFinished
 
 			assert.Equal(t, int64(1), atomic.LoadInt64(&counter))
@@ -623,8 +624,8 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 				atomic.AddInt64(&c4, 1)
 				return true
 			})
-			require.Nil(t, ctrl3.Deactivate(ctx))
-			require.Nil(t, ctrl4.Deactivate(ctx))
+			require.NoError(t, ctrl3.Deactivate(ctx))
+			require.NoError(t, ctrl4.Deactivate(ctx))
 
 			close(release)
 			<-chFinished
@@ -761,8 +762,8 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 			atomic.AddInt64(&c2, 1)
 			return true
 		})
-		require.Nil(t, ctrl1.Unregister(ctx))
-		require.Nil(t, ctrl2.Unregister(ctx))
+		require.NoError(t, ctrl1.Unregister(ctx))
+		require.NoError(t, ctrl2.Unregister(ctx))
 
 		assert.False(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(0), atomic.LoadInt64(&c1))
@@ -782,7 +783,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 			atomic.AddInt64(&c2, 1)
 			return true
 		})
-		require.Nil(t, ctrl1.Unregister(ctx))
+		require.NoError(t, ctrl1.Unregister(ctx))
 
 		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(0), atomic.LoadInt64(&c1))
@@ -812,7 +813,7 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 			atomic.AddInt64(&c4, 1)
 			return true
 		})
-		require.Nil(t, ctrl3.Unregister(ctx))
+		require.NoError(t, ctrl3.Unregister(ctx))
 
 		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(1), atomic.LoadInt64(&c1))
@@ -820,19 +821,19 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		assert.Equal(t, int64(0), atomic.LoadInt64(&c3))
 		assert.Equal(t, int64(1), atomic.LoadInt64(&c4))
 
-		require.Nil(t, ctrl1.Unregister(ctx))
+		require.NoError(t, ctrl1.Unregister(ctx))
 
 		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(1), atomic.LoadInt64(&c1))
 		assert.Equal(t, int64(2), atomic.LoadInt64(&c2))
 		assert.Equal(t, int64(2), atomic.LoadInt64(&c4))
 
-		require.Nil(t, ctrl4.Unregister(ctx))
+		require.NoError(t, ctrl4.Unregister(ctx))
 
 		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(3), atomic.LoadInt64(&c2))
 
-		require.Nil(t, ctrl2.Unregister(ctx))
+		require.NoError(t, ctrl2.Unregister(ctx))
 
 		assert.False(t, callbacks.CycleCallback(shouldNotAbort))
 	})
@@ -869,8 +870,8 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 			// c1 is running (sequential mode); c2 and c3 are not yet
 			// dispatched. Unregister sees running=false for both and
 			// deletes them immediately under the lock.
-			require.Nil(t, ctrl2.Unregister(ctx))
-			require.Nil(t, ctrl3.Unregister(ctx))
+			require.NoError(t, ctrl2.Unregister(ctx))
+			require.NoError(t, ctrl3.Unregister(ctx))
 			close(release)
 			<-chFinished
 
@@ -900,8 +901,8 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 			atomic.AddInt64(&c2, 1)
 			return true
 		})
-		require.Nil(t, ctrl1.Deactivate(ctx))
-		require.Nil(t, ctrl2.Deactivate(ctx))
+		require.NoError(t, ctrl1.Deactivate(ctx))
+		require.NoError(t, ctrl2.Deactivate(ctx))
 
 		assert.False(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(0), atomic.LoadInt64(&c1))
@@ -921,7 +922,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 			atomic.AddInt64(&c2, 1)
 			return true
 		})
-		require.Nil(t, ctrl1.Deactivate(ctx))
+		require.NoError(t, ctrl1.Deactivate(ctx))
 
 		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(0), atomic.LoadInt64(&c1))
@@ -951,7 +952,7 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 			atomic.AddInt64(&c4, 1)
 			return true
 		})
-		require.Nil(t, ctrl3.Deactivate(ctx))
+		require.NoError(t, ctrl3.Deactivate(ctx))
 
 		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(1), atomic.LoadInt64(&c1))
@@ -959,19 +960,19 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		assert.Equal(t, int64(0), atomic.LoadInt64(&c3))
 		assert.Equal(t, int64(1), atomic.LoadInt64(&c4))
 
-		require.Nil(t, ctrl1.Deactivate(ctx))
+		require.NoError(t, ctrl1.Deactivate(ctx))
 
 		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(1), atomic.LoadInt64(&c1))
 		assert.Equal(t, int64(2), atomic.LoadInt64(&c2))
 		assert.Equal(t, int64(2), atomic.LoadInt64(&c4))
 
-		require.Nil(t, ctrl4.Deactivate(ctx))
+		require.NoError(t, ctrl4.Deactivate(ctx))
 
 		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
 		assert.Equal(t, int64(3), atomic.LoadInt64(&c2))
 
-		require.Nil(t, ctrl2.Deactivate(ctx))
+		require.NoError(t, ctrl2.Deactivate(ctx))
 
 		assert.False(t, callbacks.CycleCallback(shouldNotAbort))
 	})
@@ -1008,8 +1009,8 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 			// c1 is running (sequential mode); c2 and c3 are queued but
 			// not dispatched. Deactivate sees running=false for both and
 			// commits active=false immediately under the lock.
-			require.Nil(t, ctrl2.Deactivate(ctx))
-			require.Nil(t, ctrl3.Deactivate(ctx))
+			require.NoError(t, ctrl2.Deactivate(ctx))
+			require.NoError(t, ctrl3.Deactivate(ctx))
 			close(release)
 			<-chFinished
 
@@ -1272,126 +1273,102 @@ func liveEntryCount(g *cycleCallbackGroup, callbackId uint32) int {
 	return count
 }
 
-func TestCycleCallback_SingleLiveEntry_AfterRegister(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
-
-	g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true })
-
+// assertLiveEntries locks g and asserts it holds exactly wantMetas registered
+// callbacks, each with exactly one live (current-schedGen) heap entry — the
+// scheduling invariant the group must hold after any register/activate/abort/
+// teardown sequence.
+func assertLiveEntries(t *testing.T, g *cycleCallbackGroup, wantMetas int) {
+	t.Helper()
 	g.Lock()
 	defer g.Unlock()
 
-	require.Len(t, g.metas, 1)
-	var callbackId uint32
-	for id := range g.metas {
-		callbackId = id
-	}
-	assert.Equal(t, 1, liveEntryCount(g, callbackId))
-}
-
-func TestCycleCallback_SingleLiveEntry_DeactivateThenActivate(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
-
-	ctrl := g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true })
-	require.NoError(t, ctrl.Deactivate(context.Background()))
-	require.NoError(t, ctrl.Activate())
-
-	g.Lock()
-	defer g.Unlock()
-
-	var callbackId uint32
-	for id := range g.metas {
-		callbackId = id
-	}
-	assert.Equal(t, 1, liveEntryCount(g, callbackId))
-}
-
-func TestCycleCallback_SingleLiveEntry_ActivateDuringDrain(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	g := NewCallbackGroup("id", logger, 2).(*cycleCallbackGroup)
-
-	started := make(chan struct{})
-	release := make(chan struct{})
-
-	ctrl := g.Register("blocking", func(shouldAbort ShouldAbortCallback) bool {
-		close(started)
-		<-release
-		return true
-	})
-
-	done := make(chan bool, 1)
-	go func() {
-		done <- g.CycleCallback(func() bool { return false })
-	}()
-	<-started
-
-	// Activate while the entry is in-flight (drained from heap, executing).
-	require.NoError(t, ctrl.Activate())
-	close(release)
-	<-done
-
-	// After the tick completes (teardown reschedules), exactly one live entry.
-	g.Lock()
-	defer g.Unlock()
-
-	var callbackId uint32
-	for id := range g.metas {
-		callbackId = id
-	}
-	assert.Equal(t, 1, liveEntryCount(g, callbackId))
-}
-
-func TestCycleCallback_AbortRestoresEntries(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	g := NewCallbackGroup("id", logger, 4).(*cycleCallbackGroup)
-
-	const total = 5
-	for i := 0; i < total; i++ {
-		g.Register(fmt.Sprintf("c%d", i), func(shouldAbort ShouldAbortCallback) bool {
-			return true
-		})
-	}
-
-	// Abort the entire tick; every drained entry must be restored.
-	g.CycleCallback(func() bool { return true })
-
-	g.Lock()
-	defer g.Unlock()
-
-	assert.Len(t, g.metas, total)
-	liveTotal := 0
-	for callbackId := range g.metas {
-		liveTotal += liveEntryCount(g, callbackId)
-	}
-	assert.Equal(t, total, liveTotal)
-}
-
-func TestCycleCallback_SequentialAbortRestoresRemainder(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
-
-	const total = 4
-	var counter int64
-	for i := 0; i < total; i++ {
-		g.Register(fmt.Sprintf("c%d", i), func(shouldAbort ShouldAbortCallback) bool {
-			atomic.AddInt64(&counter, 1)
-			return true
-		})
-	}
-
-	// Abort once the first callback has run.
-	g.CycleCallback(func() bool { return atomic.LoadInt64(&counter) >= 1 })
-	assert.Equal(t, int64(1), atomic.LoadInt64(&counter))
-
-	g.Lock()
-	defer g.Unlock()
-
-	// Every registered callback must have exactly one live entry.
+	assert.Len(t, g.metas, wantMetas)
 	for callbackId := range g.metas {
 		assert.Equal(t, 1, liveEntryCount(g, callbackId),
-			"callbackId %d has wrong live-entry count", callbackId)
+			"callbackId %d must have exactly one live entry", callbackId)
 	}
+}
+
+// TestCycleCallback_SingleLiveEntry checks the group keeps exactly one live heap
+// entry per callback across sequences that each risk leaving a duplicate or
+// dropping the entry: a plain register, a deactivate+activate cycle, and an
+// activate while the callback is mid-run.
+func TestCycleCallback_SingleLiveEntry(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("after register", func(t *testing.T) {
+		g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+		g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true })
+		assertLiveEntries(t, g, 1)
+	})
+
+	t.Run("deactivate then activate", func(t *testing.T) {
+		g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+		ctrl := g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true })
+		require.NoError(t, ctrl.Deactivate(context.Background()))
+		require.NoError(t, ctrl.Activate())
+		assertLiveEntries(t, g, 1)
+	})
+
+	t.Run("activate during drain", func(t *testing.T) {
+		g := NewCallbackGroup("id", logger, 2).(*cycleCallbackGroup)
+		started := make(chan struct{})
+		release := make(chan struct{})
+		ctrl := g.Register("blocking", func(shouldAbort ShouldAbortCallback) bool {
+			close(started)
+			<-release
+			return true
+		})
+
+		done := make(chan bool, 1)
+		go func() { done <- g.CycleCallback(func() bool { return false }) }()
+		<-started
+
+		// Activate while the entry is in-flight (drained from heap, executing).
+		require.NoError(t, ctrl.Activate())
+		close(release)
+		<-done
+
+		// After the tick completes (teardown reschedules), exactly one live entry.
+		assertLiveEntries(t, g, 1)
+	})
+}
+
+// TestCycleCallback_AbortRestoresEntries checks that entries drained for a tick
+// that is then aborted are restored, so every callback keeps its live entry —
+// both when the whole parallel tick aborts and when a sequential tick aborts
+// partway through.
+func TestCycleCallback_AbortRestoresEntries(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("parallel full abort", func(t *testing.T) {
+		g := NewCallbackGroup("id", logger, 4).(*cycleCallbackGroup)
+		const total = 5
+		for i := 0; i < total; i++ {
+			g.Register(fmt.Sprintf("c%d", i), func(shouldAbort ShouldAbortCallback) bool { return true })
+		}
+
+		// Abort the entire tick; every drained entry must be restored.
+		g.CycleCallback(func() bool { return true })
+		assertLiveEntries(t, g, total)
+	})
+
+	t.Run("sequential partial abort", func(t *testing.T) {
+		g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+		const total = 4
+		var counter int64
+		for i := 0; i < total; i++ {
+			g.Register(fmt.Sprintf("c%d", i), func(shouldAbort ShouldAbortCallback) bool {
+				atomic.AddInt64(&counter, 1)
+				return true
+			})
+		}
+
+		// Abort once the first callback has run; the remainder must be restored.
+		g.CycleCallback(func() bool { return atomic.LoadInt64(&counter) >= 1 })
+		assert.Equal(t, int64(1), atomic.LoadInt64(&counter))
+		assertLiveEntries(t, g, total)
+	})
 }
 
 func TestCycleCallback_StaleEntryBoundedGrowth(t *testing.T) {
@@ -1427,7 +1404,7 @@ func TestCycleCallback_StaleEntryBoundedGrowth(t *testing.T) {
 	assert.Equal(t, 1, liveEntries, "exactly one live entry")
 	// Compaction keeps the heap bounded by the registered-callback count, no matter
 	// how many Deactivate/Activate cycles churn through it.
-	assert.LessOrEqual(t, len(g.heap), 2*len(g.metas)+8,
+	assert.LessOrEqual(t, len(g.heap), heapCompactThreshold(len(g.metas)),
 		"heap stays bounded regardless of churn")
 }
 
@@ -1460,7 +1437,7 @@ func TestCycleCallback_CompactHeapKeepsInvariant(t *testing.T) {
 
 	// Compaction bounds the total entry count (some bounded stale entries may
 	// remain between compactions; only the count is capped, not stale presence).
-	assert.LessOrEqual(t, len(g.heap), 2*len(g.metas)+8, "heap bounded after churn")
+	assert.LessOrEqual(t, len(g.heap), heapCompactThreshold(len(g.metas)), "heap bounded after churn")
 
 	// Every callback still has exactly one live (current-schedGen) entry, so it
 	// will still fire; stragglers, if any, are stale duplicates.
@@ -1518,7 +1495,7 @@ func TestCycleCallback_RegisterDuringCompaction(t *testing.T) {
 	g.Unlock()
 	// Registering "fresh" raises metas to metasBefore+1; the heap must exceed that
 	// post-register threshold so schedule actually compacts mid-registration.
-	require.Greater(t, heapBefore, 2*(metasBefore+1)+8,
+	require.Greater(t, heapBefore, heapCompactThreshold(metasBefore+1),
 		"setup must leave the heap over the post-register compaction threshold")
 
 	g.Register("fresh", func(shouldAbort ShouldAbortCallback) bool { return true })
@@ -1584,20 +1561,6 @@ func TestCycleCallback_DeactivatePriorityClaimedButNotStarted(t *testing.T) {
 	assert.Equal(t, int64(0), atomic.LoadInt64(&bodyEntered))
 }
 
-func TestCycleCallback_UnregisterNilOnAbsentID(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
-
-	// unregister is called via a ctrl that holds the ID, but we can test via a
-	// freshly created ctrl pointing to a non-existent callbackId.
-	ctrl := &cycleCallbackCtrl{
-		callbackId:       99,
-		callbackCustomId: "ghost",
-		unregister:       g.unregister,
-	}
-	assert.Nil(t, ctrl.Unregister(context.Background()))
-}
-
 // TestCycleCallback_ControlErrorBranches covers the early-return error paths of
 // the control operations: acting on an absent callback id, and acting with an
 // already-cancelled context.
@@ -1617,6 +1580,8 @@ func TestCycleCallback_ControlErrorBranches(t *testing.T) {
 
 		assert.ErrorIs(t, ghost.Activate(), ErrorCallbackNotFound)
 		assert.ErrorIs(t, ghost.Deactivate(context.Background()), ErrorCallbackNotFound)
+		// Unregister of an absent id is a no-op success, not an error.
+		assert.NoError(t, ghost.Unregister(context.Background()))
 	})
 
 	t.Run("pre-cancelled context", func(t *testing.T) {
@@ -2112,6 +2077,167 @@ func TestCycleCallback_ConcurrentWaiters(t *testing.T) {
 	})
 }
 
+// TestCycleCallback_NilIntervalsRunsEveryTick covers a callback with no intervals:
+// WithIntervals(nil) is a no-op option, so intervals stays nil and computeNextDue
+// takes its nil branch, leaving the due-time at the group epoch — due on every tick.
+func TestCycleCallback_NilIntervalsRunsEveryTick(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	shouldNotAbort := func() bool { return false }
+
+	var counter int64
+	g := NewCallbackGroup("id", logger, 1)
+	g.Register("c", func(shouldAbort ShouldAbortCallback) bool {
+		atomic.AddInt64(&counter, 1)
+		return true
+	}, WithIntervals(nil))
+
+	for i := 0; i < 3; i++ {
+		require.True(t, g.CycleCallback(shouldNotAbort))
+	}
+	assert.Equal(t, int64(3), atomic.LoadInt64(&counter),
+		"nil-interval callback must run on every tick")
+}
+
+// TestCycleCallback_CompactionThresholdBoundary pins the strict-greater-than
+// comparison in schedule: with one live meta heapCompactThreshold(1) is 10, so a
+// schedule that lands the heap at exactly 10 must not compact, while one that
+// lands it at 11 must. A >= mutation would compact in the at-threshold case.
+func TestCycleCallback_CompactionThresholdBoundary(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	cases := []struct {
+		name        string
+		stale       int // stale entries present before the boundary schedule
+		wantCompact bool
+	}{
+		{name: "at threshold keeps entries", stale: 8, wantCompact: false}, // 8 stale +1 live, +1 pushed = 10
+		{name: "over threshold compacts", stale: 9, wantCompact: true},     // 9 stale +1 live, +1 pushed = 11
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+			g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true },
+				WithIntervals(NewFixedIntervals(time.Hour)))
+
+			g.Lock()
+			defer g.Unlock()
+
+			var meta *cycleCallbackMeta
+			for _, m := range g.metas {
+				meta = m
+			}
+
+			// Rebuild a known heap: one live entry plus `stale` entries whose
+			// callbackIds are absent from metas, so compaction (if it runs) drops them.
+			g.heap = dueHeap{}
+			g.heap.push(dueEntry{callbackId: meta.callbackId, due: 0, schedGen: meta.schedGen})
+			for i := 0; i < tc.stale; i++ {
+				g.heap.push(dueEntry{callbackId: 1000 + uint32(i), due: int64(i + 1), schedGen: 1})
+			}
+			require.Len(t, g.heap, tc.stale+1)
+
+			g.schedule(meta) // pushes one more, crossing (or not) the boundary
+
+			if tc.wantCompact {
+				assert.Len(t, g.heap, 1, "compaction drops the stale entries, keeping the live one")
+			} else {
+				assert.Len(t, g.heap, tc.stale+2, "no compaction at exactly the threshold")
+			}
+		})
+	}
+}
+
+// TestCycleCallback_UnregisterAllDropsHeap covers reclaiming the heap once the
+// last meta is gone: schedule's size-based compaction can never run again with no
+// live metas, so unregistering the last callback must drop the heap outright.
+func TestCycleCallback_UnregisterAllDropsHeap(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+
+	const n = 100
+	ctrls := make([]CycleCallbackCtrl, n)
+	for i := 0; i < n; i++ {
+		ctrls[i] = g.Register(fmt.Sprintf("c%d", i),
+			func(shouldAbort ShouldAbortCallback) bool { return true },
+			WithIntervals(NewFixedIntervals(time.Hour)))
+	}
+	for i := 0; i < n; i++ {
+		require.NoError(t, ctrls[i].Unregister(context.Background()))
+	}
+
+	g.Lock()
+	defer g.Unlock()
+	assert.Empty(t, g.metas, "every callback unregistered")
+	assert.Empty(t, g.heap, "heap dropped once the last meta is unregistered")
+}
+
+// TestCycleCallback_ParallelWorkerGoexitReschedules covers the parallel dispatch
+// path when every worker exits abnormally: each callback calls runtime.Goexit,
+// which kills its worker. Metas a worker picked up are rescheduled by endRun;
+// metas left buffered in the (closed) channel are rescheduled by the post-Wait
+// drain. Either way no meta — all popped from the heap by drainDue — is lost.
+func TestCycleCallback_ParallelWorkerGoexitReschedules(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	g := NewCallbackGroup("id", logger, 4).(*cycleCallbackGroup)
+
+	const n = 8 // more than routinesLimit, so some metas stay buffered
+	for i := 0; i < n; i++ {
+		g.Register(fmt.Sprintf("c%d", i), func(shouldAbort ShouldAbortCallback) bool {
+			runtime.Goexit()
+			return true
+		})
+	}
+
+	g.CycleCallback(func() bool { return false })
+
+	// Every callback must still hold exactly one live heap entry, so the next tick
+	// will run it.
+	assertLiveEntries(t, g, n)
+}
+
+// TestCycleCallback_DeactivateWhileRunningPreventsRerun covers the interaction the
+// deactivate retry loop exists for: endRun reschedules a still-active callback
+// mid-teardown, so deactivate must observe the finished run, commit active=false,
+// and — together with drainDue's active check — keep it from running on later ticks.
+func TestCycleCallback_DeactivateWhileRunningPreventsRerun(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	synctest.Test(t, func(t *testing.T) {
+		var counter int64
+		started := make(chan struct{})
+		release := make(chan struct{})
+
+		callbacks := NewCallbackGroup("id", logger, 1)
+		ctrl := callbacks.Register("c", func(shouldAbort ShouldAbortCallback) bool {
+			atomic.AddInt64(&counter, 1)
+			close(started)
+			<-release
+			return true
+		})
+
+		tickDone := make(chan struct{})
+		go func() {
+			callbacks.CycleCallback(func() bool { return false })
+			close(tickDone)
+		}()
+		<-started
+
+		deactivated := make(chan error, 1)
+		go func() { deactivated <- ctrl.Deactivate(context.Background()) }()
+		synctest.Wait() // deactivate is parked waiting on the in-flight run
+
+		close(release)
+		require.NoError(t, <-deactivated)
+		<-tickDone
+
+		// A later tick must not run the now-deactivated callback.
+		assert.False(t, callbacks.CycleCallback(func() bool { return false }))
+		assert.Equal(t, int64(1), atomic.LoadInt64(&counter),
+			"deactivated callback must not run on a later tick")
+	})
+}
+
 // BenchmarkCycleCallback measures the hot-path allocation profile with a single
 // always-due no-op callback on a sequential (routinesLimit=1) group, so no
 // worker-goroutine allocations contaminate the measurement.
@@ -2128,12 +2254,10 @@ func BenchmarkCycleCallback(b *testing.B) {
 	}
 }
 
-// TestCycleCallback_AllocRegression asserts that the per-CycleCallback allocation count
-// stays within a tight bound. Because the done channel is now allocated lazily
-// (only when a Deactivate/Unregister waiter needs it), the no-waiter hot path
-// has no make(chan struct{}) at all. If someone (a) reintroduces a
-// per-invocation abort closure OR (b) reverts to eager done-channel allocation,
-// the count rises by at least 1 and the test fails.
+// TestCycleCallback_AllocRegression bounds the per-CycleCallback allocation count.
+// The done channel is lazy (allocated only when a Deactivate/Unregister waiter
+// needs it) and dueHeap pushes/pops by value (no container/heap any-boxing);
+// reverting either raises the count and fails the test.
 func TestCycleCallback_AllocRegression(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	g := NewCallbackGroup("alloc", logger, 1)
@@ -2144,13 +2268,9 @@ func TestCycleCallback_AllocRegression(t *testing.T) {
 		g.CycleCallback(shouldNotAbort)
 	})
 
-	// Alloc breakdown per CycleCallback call (1 total):
-	//   1. drainDue: append([]*cycleCallbackMeta, meta) — fresh result slice per tick
-	// The concrete dueHeap pushes/pops dueEntry by value (no container/heap
-	// any-boxing), the abort closure is built once in Register, and the done
-	// channel is lazy — none of those allocate on the no-waiter hot path. A
-	// reintroduced per-invocation abort closure, eager done-channel allocation,
-	// or a return to container/heap's any-boxing would raise the count.
+	// Allocs per call that runs one callback (1): drainDue's result slice, fresh
+	// per tick. The abort closure is built once in Register (not per run) and the
+	// done channel is lazy, so neither adds to the run path.
 	const maxAllocs = 1
 	assert.LessOrEqual(t, allocs, float64(maxAllocs),
 		"CycleCallback allocs per run: got %.1f, want <= %d",

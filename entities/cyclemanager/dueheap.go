@@ -25,10 +25,9 @@ type dueEntry struct {
 	schedGen   uint64
 }
 
-// dueHeap is a min-heap of dueEntry ordered by due (earliest first). The
-// heap operations are implemented directly on the concrete slice, rather than
-// through container/heap, so push/pop pass dueEntry by value and never box it
-// into an any — container/heap's any-based Push/Pop allocate on every call.
+// dueHeap is a min-heap of dueEntry ordered by due (earliest first). Operations
+// are implemented directly on the slice rather than via container/heap, whose
+// any-typed Push/Pop would box each dueEntry and allocate on every call.
 type dueHeap []dueEntry
 
 // push adds e and sifts it up to restore the min-heap invariant.
@@ -46,7 +45,7 @@ func (h *dueHeap) push(e dueEntry) {
 	}
 }
 
-// pop removes and returns the earliest-due entry. Caller must check Len() > 0.
+// pop removes and returns the earliest-due entry. Caller must ensure len(*h) > 0.
 func (h *dueHeap) pop() dueEntry {
 	a := *h
 	n := len(a) - 1
