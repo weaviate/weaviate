@@ -12,8 +12,6 @@
 package roaringset
 
 import (
-	"sync"
-
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -27,19 +25,17 @@ import (
 type SegmentInMemory struct {
 	logger logrus.FieldLogger
 
-	bitmaps       map[string]*sroar.Bitmap
-	bitmapsLock   *entsync.ReadPreferringRWMutex
-	memtables     []*BinarySearchTree // flushed memtables, waiting to be merged into bitmaps
-	memtablesLock *sync.Mutex
+	bitmaps     map[string]*sroar.Bitmap
+	bitmapsLock *entsync.ReadPreferringRWMutex
+	pending     *PendingMerges[*BinarySearchTree] // flushed memtables, waiting to be merged into bitmaps
 }
 
 func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
 	return &SegmentInMemory{
-		logger:        logger,
-		bitmaps:       map[string]*sroar.Bitmap{},
-		bitmapsLock:   entsync.NewReadPreferringRWMutex(),
-		memtables:     make([]*BinarySearchTree, 0, 8),
-		memtablesLock: new(sync.Mutex),
+		logger:      logger,
+		bitmaps:     map[string]*sroar.Bitmap{},
+		bitmapsLock: entsync.NewReadPreferringRWMutex(),
+		pending:     NewPendingMerges[*BinarySearchTree](),
 	}
 }
 
@@ -71,14 +67,9 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 }
 
 func (s *SegmentInMemory) MergeMemtableEventually(memtable *BinarySearchTree) {
-	s.memtablesLock.Lock()
-	s.memtables = append(s.memtables, memtable)
-	ln := len(s.memtables)
-	s.memtablesLock.Unlock()
-
 	// run background merge only once,
 	// handle also all memtables added while merge is performed
-	if ln == 1 {
+	if s.pending.Add(memtable) {
 		errors.GoWrapper(s.mergeMemtables, s.logger)
 	}
 }
@@ -87,18 +78,7 @@ func (s *SegmentInMemory) mergeMemtables() {
 	s.bitmapsLock.Lock()
 	defer s.bitmapsLock.Unlock()
 
-	i := 0
-	for {
-		s.memtablesLock.Lock()
-		if i == len(s.memtables) {
-			s.memtables = s.memtables[:0]
-			s.memtablesLock.Unlock()
-			return
-		}
-		memtable := s.memtables[i]
-		i++
-		s.memtablesLock.Unlock()
-
+	s.pending.Drain(func(memtable *BinarySearchTree) {
 		for _, node := range memtable.FlattenInOrder() {
 			bm, ok := s.bitmaps[string(node.Key)]
 			if !ok {
@@ -111,13 +91,13 @@ func (s *SegmentInMemory) mergeMemtables() {
 				delete(s.bitmaps, string(node.Key))
 			}
 		}
-	}
+	})
 }
 
 // Get returns the merged bitmap for key as a pooled clone plus the snapshot of
 // memtables still pending merge. Pending trees are immutable once extracted
 // from their memtable, so they can be read after the locks are released.
-// Lock order is always bitmapsLock -> memtablesLock, never reversed.
+// Lock order is always bitmapsLock -> pending queue lock, never reversed.
 func (s *SegmentInMemory) Get(key []byte, bufPool BitmapBufPool,
 ) (root BitmapLayer, release func(), found bool, pending []*BinarySearchTree) {
 	s.bitmapsLock.RLock()
@@ -131,12 +111,7 @@ func (s *SegmentInMemory) Get(key []byte, bufPool BitmapBufPool,
 		found = true
 	}
 
-	s.memtablesLock.Lock()
-	if len(s.memtables) > 0 {
-		pending = make([]*BinarySearchTree, len(s.memtables))
-		copy(pending, s.memtables)
-	}
-	s.memtablesLock.Unlock()
+	pending = s.pending.Snapshot()
 
 	return root, release, found, pending
 }
@@ -153,10 +128,7 @@ func (s *SegmentInMemory) Size() int {
 }
 
 func (s *SegmentInMemory) countPendingMemtables() int {
-	s.memtablesLock.Lock()
-	defer s.memtablesLock.Unlock()
-
-	return len(s.memtables)
+	return s.pending.Len()
 }
 
 var noopRelease = func() {}

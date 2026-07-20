@@ -1208,23 +1208,9 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	require.NoError(t, active.roaringSetAddBitmap([]byte("key1"), bitmapFromSlice([]uint64{2})))
 
 	// Simulate a FlushAndSwitch() running concurrently
-	switchComplete := make(chan struct{})
-	flushComplete := make(chan struct{})
-	go func() {
-		// Switch active -> flushing, new empty active installed
-		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableRoaringSet(nil), nil
-		})
-		require.NoError(t, err)
-		require.True(t, switched)
-		close(switchComplete)
-
-		b.waitForZeroWriters(b.flushing)
-
-		seg := flushRoaringSetTestMemtableIntoTestSegment(b.flushing)
-		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
-		close(flushComplete)
-	}()
+	switchComplete, flushComplete := simulateFlushAndSwitchConcurrently(t, &b,
+		func() (memtable, error) { return newTestMemtableRoaringSet(nil), nil },
+		flushRoaringSetTestMemtableIntoTestSegment)
 
 	// Ensure the switch has happened (we still hold a writer ref to the old active)
 	<-switchComplete
@@ -1459,23 +1445,9 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 	require.NoError(t, active.roaringSetRangeAdd(key1, 2))
 
 	// Simulate a FlushAndSwitch() running concurrently
-	switchComplete := make(chan struct{})
-	flushComplete := make(chan struct{})
-	go func() {
-		// Switch active -> flushing, new empty active installed
-		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableRoaringSetRange(nil), nil
-		})
-		require.NoError(t, err)
-		require.True(t, switched)
-		close(switchComplete)
-
-		b.waitForZeroWriters(b.flushing)
-
-		seg := flushRoaringSetRangeTestMemtableIntoTestSegment(b.flushing)
-		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
-		close(flushComplete)
-	}()
+	switchComplete, flushComplete := simulateFlushAndSwitchConcurrently(t, &b,
+		func() (memtable, error) { return newTestMemtableRoaringSetRange(nil), nil },
+		flushRoaringSetRangeTestMemtableIntoTestSegment)
 
 	// Ensure the switch has happened (we still hold a writer ref to the old active)
 	<-switchComplete
@@ -1534,23 +1506,9 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 	require.NoError(t, active.roaringSetRangeAdd(key1, 2))
 
 	// Simulate a FlushAndSwitch() running concurrently
-	switchComplete := make(chan struct{})
-	flushComplete := make(chan struct{})
-	go func() {
-		// Switch active -> flushing, new empty active installed
-		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableRoaringSetRange(nil), nil
-		})
-		require.NoError(t, err)
-		require.True(t, switched)
-		close(switchComplete)
-
-		b.waitForZeroWriters(b.flushing)
-
-		seg := flushRoaringSetRangeTestMemtableIntoTestSegment(b.flushing)
-		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
-		close(flushComplete)
-	}()
+	switchComplete, flushComplete := simulateFlushAndSwitchConcurrently(t, &b,
+		func() (memtable, error) { return newTestMemtableRoaringSetRange(nil), nil },
+		flushRoaringSetRangeTestMemtableIntoTestSegment)
 
 	// Ensure the switch has happened (we still hold a writer ref to the old active)
 	<-switchComplete
@@ -1671,23 +1629,9 @@ func TestBucketRoaringSetStrategyWriteVsFlushInMemo(t *testing.T) {
 	require.NoError(t, active.roaringSetAddBitmap(key, bitmapFromSlice([]uint64{2})))
 
 	// Simulate a FlushAndSwitch() running concurrently
-	switchComplete := make(chan struct{})
-	flushComplete := make(chan struct{})
-	go func() {
-		// Switch active -> flushing, new empty active installed
-		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
-			return newTestMemtableRoaringSet(nil), nil
-		})
-		require.NoError(t, err)
-		require.True(t, switched)
-		close(switchComplete)
-
-		b.waitForZeroWriters(b.flushing)
-
-		seg := flushRoaringSetTestMemtableIntoTestSegment(b.flushing)
-		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
-		close(flushComplete)
-	}()
+	switchComplete, flushComplete := simulateFlushAndSwitchConcurrently(t, &b,
+		func() (memtable, error) { return newTestMemtableRoaringSet(nil), nil },
+		flushRoaringSetTestMemtableIntoTestSegment)
 
 	// Ensure the switch has happened (we still hold a writer ref to the old active)
 	<-switchComplete
@@ -2507,6 +2451,35 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 	}
 
 	return &testMemtable{Memtable: m}
+}
+
+// simulateFlushAndSwitchConcurrently runs a flush-and-switch cycle in a
+// goroutine so the caller can keep writing through a stale active reference
+// meanwhile: switch active -> flushing (makeActive installs the new active),
+// wait for outstanding writers, then persist the flushing memtable via
+// flushToSegment and swap it for a disk segment. The returned channels are
+// closed when the switch resp. the flush completed.
+func simulateFlushAndSwitchConcurrently(t *testing.T, b *Bucket, makeActive func() (memtable, error),
+	flushToSegment func(memtable) *fakeSegment,
+) (switchComplete, flushComplete chan struct{}) {
+	t.Helper()
+
+	switchComplete = make(chan struct{})
+	flushComplete = make(chan struct{})
+	go func() {
+		// Switch active -> flushing, new empty active installed
+		switched, err := b.atomicallySwitchMemtable(makeActive)
+		require.NoError(t, err)
+		require.True(t, switched)
+		close(switchComplete)
+
+		b.waitForZeroWriters(b.flushing)
+
+		seg := flushToSegment(b.flushing)
+		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+		close(flushComplete)
+	}()
+	return switchComplete, flushComplete
 }
 
 func flushReplaceTestMemtableIntoTestSegment(m memtable) *fakeSegment {
