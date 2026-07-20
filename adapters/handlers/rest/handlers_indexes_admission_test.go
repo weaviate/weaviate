@@ -145,8 +145,13 @@ func TestCheckReindexAdmission_UnparseablePayloadReturns503(t *testing.T) {
 	resp := h.checkReindexAdmission(nil, collection, db.ReindexTypeChangeTokenization,
 		[]string{"p"}, []*distributedtask.Task{bad})
 
-	code, _ := statusOf(t, resp)
+	code, body := statusOf(t, resp)
 	require.Equal(t, http.StatusServiceUnavailable, code)
+	// The offending task ID (potentially a foreign namespace) must not leak
+	// into the caller-facing 503 — it is logged server-side instead.
+	require.Len(t, body.Error, 1)
+	assert.NotContains(t, body.Error[0].Message, "mystery",
+		"the in-flight task ID must not leak to the caller")
 }
 
 // Pins the happy path: no conflicts, no cap breach → proceed.

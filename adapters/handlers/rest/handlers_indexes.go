@@ -1007,10 +1007,16 @@ func (h *indexesHandlers) checkReindexAdmission(principal *models.Principal, col
 ) middleware.Responder {
 	reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks)
 	if checkErr != nil {
-		// An in-flight task has an unparseable payload — we cannot prove
-		// non-conflict, so refuse rather than race. 503 so the caller
-		// retries after an operator inspects the in-flight task.
-		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal, checkErr.Error()))
+		// An in-flight task has an unparseable/empty payload — we cannot prove
+		// non-conflict, so refuse rather than race. checkErr names the offending
+		// task ID for operators, but this branch fires BEFORE the collection
+		// filter, so that ID may belong to a namespace the caller can't see and
+		// StripErrorMessage only strips the caller's own namespace. Log the
+		// detail server-side; return a generic 503 so no foreign task ID leaks.
+		h.appState.Logger.WithField("collection", collection).
+			Errorf("submit: cannot verify reindex conflict, failing closed: %v", checkErr)
+		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+			"cannot verify reindex preconditions: an in-flight reindex task has an unparseable or incomplete payload; retry after an operator inspects the task store"))
 	}
 	if reason != "" {
 		return jsonResponder(http.StatusConflict, errorResponse(principal, reason))

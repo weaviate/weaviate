@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
@@ -76,10 +77,12 @@ type reindexDeleteMarkerRecorder interface {
 
 type schemaHandlers struct {
 	manager              *schemaUC.Manager
+	authorizer           authorization.Authorizer
 	metricRequestsTotal  restApiRequestsTotal
 	reindexTaskLister    reindexInFlightChecker
 	reindexSubmitLocks   reindexSubmitLockProvider
 	reindexDeleteMarkers reindexDeleteMarkerRecorder
+	logger               logrus.FieldLogger
 	namespacesEnabled    bool
 }
 
@@ -228,6 +231,26 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}
 
+	// Authorize BEFORE the conflict pre-flight below. The pre-flight can surface
+	// an in-flight foreign task's existence (its redacted error still reveals
+	// "a task is in flight"), and manager.DeleteClassPropertyIndex only
+	// authorizes deep inside its own body — so without this an unprivileged
+	// caller reaches the pre-flight first. Same verb+resource the manager
+	// enforces (UPDATE + CollectionsMetadata), so no legitimate caller is newly
+	// rejected; nil-safe for unit tests that construct schemaHandlers directly.
+	if s.authorizer != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
+			authorization.CollectionsMetadata(qualifiedClass)...); err != nil {
+			s.metricRequestsTotal.logError(params.ClassName, err)
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+					WithPayload(errPayloadFromSingleErr(principal, err))
+			}
+			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		}
+	}
+
 	// Serialize with the reindex-submit REST handler on the same
 	// (collection, property) tuple. Without this lock, a parallel
 	// PUT /v1/schema/{class}/properties/{prop}/index/{indexType} (which
@@ -336,10 +359,20 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			// Unparseable payload in flight is a hard reject reason on
 			// the apply side; mirror that here so the REST caller
 			// doesn't get a spurious "ok-then-FAILED" two-step.
+			//
+			// This branch fires BEFORE the collection filter below, so task.ID
+			// may be namespace-qualified to a collection the caller can't see;
+			// StripErrorMessage only strips the caller's own namespace. Log the
+			// ID server-side; return a message without it. className /
+			// propertyName are the caller's own inputs, so echoing them is safe.
+			if s.logger != nil {
+				s.logger.WithField("task_id", task.ID).
+					Errorf("refusing property mutation on %s.%s: in-flight reindex task has an unparseable payload: %v", className, propertyName, err)
+			}
 			return fmt.Sprintf(
-				"in-flight reindex task %q has unparseable payload; "+
-					"refusing property mutation on %s.%s until the task "+
-					"is inspected", task.ID, className, propertyName)
+				"an in-flight reindex task has an unparseable payload; "+
+					"refusing property mutation on %s.%s until an operator "+
+					"inspects the task store", className, propertyName)
 		}
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
@@ -632,13 +665,15 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, reindexDeleteMarkers reindexDeleteMarkerRecorder, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, reindexDeleteMarkers reindexDeleteMarkerRecorder, namespacesEnabled bool) {
 	h := &schemaHandlers{
 		manager:              manager,
+		authorizer:           authorizer,
 		metricRequestsTotal:  newSchemaRequestsTotal(metrics, logger),
 		reindexTaskLister:    reindexTaskLister,
 		reindexSubmitLocks:   reindexSubmitLocks,
 		reindexDeleteMarkers: reindexDeleteMarkers,
+		logger:               logger,
 		namespacesEnabled:    namespacesEnabled,
 	}
 
