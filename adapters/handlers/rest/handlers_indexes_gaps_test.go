@@ -812,9 +812,10 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// touchesSearchable / touchesFilterable — exhaustive switch, including a
-// panic on unknown ReindexMigrationType so a future type cannot silently
-// bypass the conflict check.
+// TouchesSearchable / TouchesFilterable — an unknown (peer-written)
+// ReindexMigrationType must NOT panic on the forward-compat hot path; it fails
+// SAFE (conservatively touches the bucket). Exhaustiveness is enforced at
+// dev-time by db.TestReindexBucketEffect_Exhaustive, not a production panic.
 // -----------------------------------------------------------------------------
 
 func TestTouchesSearchable(t *testing.T) {
@@ -855,20 +856,18 @@ func TestTouchesFilterable(t *testing.T) {
 	}
 }
 
-func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
+func TestTouchesSearchable_FailsSafeOnUnknownType(t *testing.T) {
+	var got bool
+	require.NotPanics(t, func() { got = db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
+		"an unknown (peer-written) type must not panic on the forward-compat hot path")
+	require.True(t, got, "an unknown type must conservatively be treated as touching searchable")
 }
 
-func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
-	require.PanicsWithValue(t,
-		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
-		"unknown migration type must panic so the gap is caught loudly",
-	)
+func TestTouchesFilterable_FailsSafeOnUnknownType(t *testing.T) {
+	var got bool
+	require.NotPanics(t, func() { got = db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
+		"an unknown (peer-written) type must not panic on the forward-compat hot path")
+	require.True(t, got, "an unknown type must conservatively be treated as touching filterable")
 }
 
 // -----------------------------------------------------------------------------
