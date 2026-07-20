@@ -183,4 +183,50 @@ func TestAuthzReindexIndexEndpointsDeny(t *testing.T) {
 		require.Error(t, err, "GET .../indexes: a read grant on another collection must not authorize the target")
 		require.True(t, forbidden, "GET .../indexes: expected 403 Forbidden, got %v", err)
 	})
+
+	t.Run("update_collections alone is insufficient (update_data required)", func(t *testing.T) {
+		roleName := "reindexMetaOnly"
+		role := &models.Role{
+			Name: &roleName,
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(targetClass).Permission(),
+			},
+		}
+		helper.CreateRole(t, sharedRootKey, role)
+		defer helper.DeleteRole(t, sharedRootKey, roleName)
+		helper.AssignRoleToUser(t, sharedRootKey, roleName, customUser)
+		defer helper.RevokeRoleFromUser(t, sharedRootKey, roleName, customUser)
+
+		// All four index write verbs demand Collections (data + metadata);
+		// metadata alone must still 403.
+		for _, ep := range mutations {
+			err, forbidden := ep.call(customKey)
+			require.Error(t, err, "%s: update_collections without update_data must not authorize a mutation", ep.name)
+			require.True(t, forbidden, "%s: expected 403 without update_data, got %v", ep.name, err)
+		}
+	})
+
+	// LAST subtest: the authorized mutations execute and mutate the target
+	// (DELETE drops the index), so nothing after may depend on class state.
+	t.Run("update_collections + update_data authorizes every mutation", func(t *testing.T) {
+		roleName := "reindexDataAndMeta"
+		role := &models.Role{
+			Name: &roleName,
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(targetClass).Permission(),
+				helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(targetClass).Permission(),
+			},
+		}
+		helper.CreateRole(t, sharedRootKey, role)
+		defer helper.DeleteRole(t, sharedRootKey, roleName)
+		helper.AssignRoleToUser(t, sharedRootKey, roleName, customUser)
+		defer helper.RevokeRoleFromUser(t, sharedRootKey, roleName, customUser)
+
+		// Not 403: a downstream 202/400/409 is fine — only authz is under test.
+		for _, ep := range mutations {
+			_, forbidden := ep.call(customKey)
+			require.False(t, forbidden,
+				"%s: update_collections + update_data must authorize the mutation (not 403)", ep.name)
+		}
+	})
 }

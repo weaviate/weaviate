@@ -167,8 +167,30 @@ entry render as `indexing@100%` for up to 10s (the bound, see
 "None" between task FINISHED and the schema-flag flip, which was the
 user-visible face of weaviate/weaviate#10675.
 
-Read-access is gated on `READ` of `CollectionsMetadata`; `PUT`/`DELETE`
-require the stronger `UPDATE` on `Collections`.
+### RBAC
+
+Authorization is symmetric across every index write verb: `PUT` (upsert),
+`POST .../rebuild`, `POST .../cancel`, and `DELETE` all require `UPDATE` on
+`Collections`, which resolves to **both** `update_collections` (metadata) and
+`update_data`. A per-property index write rewrites indexed data, so metadata
+permission alone is insufficient — a caller with only `update_collections`
+gets `403`.
+
+`GET .../indexes` requires `READ` on `CollectionsMetadata`, i.e.
+`read_collections`.
+
+| Verb | Permissions |
+| --- | --- |
+| `GET .../indexes` | `read_collections` |
+| `PUT .../index/{indexType}` | `update_collections` + `update_data` |
+| `POST .../index/{indexType}/rebuild` | `update_collections` + `update_data` |
+| `POST .../index/{indexType}/cancel` | `update_collections` + `update_data` |
+| `DELETE .../index/{indexType}` | `update_collections` + `update_data` |
+
+Mutations authorize before any conflict/in-flight pre-flight, so an
+unprivileged caller never learns whether a reindex is running (no `404`/`409`
+leak). The REST handler and the manager (`DeleteClassPropertyIndex`) enforce
+the same permission.
 
 ## 3. End-to-end lifecycle
 

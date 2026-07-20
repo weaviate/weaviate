@@ -28,18 +28,25 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-// denyAuthorizer denies every request with a Forbidden error.
-type denyAuthorizer struct{ forbidden authzerrors.Forbidden }
+// denyAuthorizer denies every request with a Forbidden error and records the
+// last (verb, resources) it was asked to authorize, so tests can assert which
+// permission an endpoint demands.
+type denyAuthorizer struct {
+	forbidden authzerrors.Forbidden
+	verb      string
+	resources []string
+}
 
-func (d denyAuthorizer) Authorize(context.Context, *models.Principal, string, ...string) error {
+func (d *denyAuthorizer) Authorize(_ context.Context, _ *models.Principal, verb string, resources ...string) error {
+	d.verb, d.resources = verb, resources
 	return d.forbidden
 }
 
-func (d denyAuthorizer) AuthorizeSilent(context.Context, *models.Principal, string, ...string) error {
+func (d *denyAuthorizer) AuthorizeSilent(context.Context, *models.Principal, string, ...string) error {
 	return d.forbidden
 }
 
-func (d denyAuthorizer) FilterAuthorizedResources(context.Context, *models.Principal, string, ...string) ([]string, error) {
+func (d *denyAuthorizer) FilterAuthorizedResources(context.Context, *models.Principal, string, ...string) ([]string, error) {
 	return nil, d.forbidden
 }
 
@@ -85,15 +92,18 @@ func TestCheckReindexConflictForPropertyMutation_RedactsForeignTaskID(t *testing
 
 // TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight pins that an
 // unprivileged caller gets 403 before the conflict pre-flight runs, not only
-// deep inside manager.DeleteClassPropertyIndex.
+// deep inside manager.DeleteClassPropertyIndex, AND that the demanded
+// permission is Collections (data + metadata) — symmetric with PUT/rebuild/
+// cancel, not the weaker metadata-only.
 func TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight(t *testing.T) {
 	lister := &recordingReindexLister{}
+	authz := &denyAuthorizer{forbidden: authzerrors.NewForbidden(
+		&models.Principal{Username: "u"}, authorization.UPDATE, "Movies")}
 	h := &schemaHandlers{
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
-		authorizer: denyAuthorizer{forbidden: authzerrors.NewForbidden(
-			&models.Principal{Username: "u"}, authorization.UPDATE, "Movies")},
-		reindexTaskLister: lister,
-		logger:            logrus.New(),
+		authorizer:          authz,
+		reindexTaskLister:   lister,
+		logger:              logrus.New(),
 	}
 
 	resp := h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{
@@ -106,4 +116,7 @@ func TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight(t *testing.T
 	require.True(t, ok, "an unprivileged caller must get 403")
 	require.False(t, lister.consulted,
 		"authz must run BEFORE the conflict pre-flight so the leak site is unreachable to unprivileged callers")
+	require.Equal(t, authorization.UPDATE, authz.verb)
+	require.Equal(t, authorization.Collections("Movies"), authz.resources,
+		"DELETE per-property index must demand Collections (data+metadata), not metadata-only")
 }

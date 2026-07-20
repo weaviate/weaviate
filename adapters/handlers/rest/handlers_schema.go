@@ -235,9 +235,13 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// flight" to an unprivileged caller, and manager.DeleteClassPropertyIndex
 	// only authorizes deep inside its own body. nil-safe for tests constructing
 	// schemaHandlers directly.
+	//
+	// Require Collections (data + metadata), matching PUT/rebuild/cancel: a
+	// per-property index DELETE rewrites indexed data, so it is symmetric with
+	// the other index write verbs, not a metadata-only mutation.
 	if s.authorizer != nil {
 		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
-			authorization.CollectionsMetadata(qualifiedClass)...); err != nil {
+			authorization.Collections(qualifiedClass)...); err != nil {
 			s.metricRequestsTotal.logError(params.ClassName, err)
 			if errors.As(err, &authzerrors.Forbidden{}) {
 				return schema.NewSchemaObjectsPropertiesDeleteForbidden().

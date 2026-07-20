@@ -134,7 +134,11 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		return false, err
 	}
 
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+	// Require Collections (data + metadata), symmetric with PUT/rebuild/cancel:
+	// dropping a per-property index rewrites indexed data, so it is an index
+	// write verb, not a metadata-only mutation. Kept consistent with the REST
+	// handler pre-authz in deleteClassPropertyIndex.
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
 		return false, err
 	}
 
