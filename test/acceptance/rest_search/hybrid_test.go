@@ -319,6 +319,15 @@ func TestRESTSearchHybrid(t *testing.T) {
 		require.Equal(t, http.StatusNotFound, status, "%v", out)
 	})
 
+	t.Run("unknown property in queryProperties is a 400", func(t *testing.T) {
+		status, out := postHybrid(t, "Song", map[string]interface{}{
+			"query":           "spaceship",
+			"queryProperties": []string{"titel"},
+		})
+		require.Equal(t, http.StatusBadRequest, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "no such prop")
+	})
+
 	t.Run("no searchable properties: keyword leg 422 below alpha 1, skipped at 1", func(t *testing.T) {
 		// with queryProperties omitted the keyword leg expands to all
 		// searchable properties; a collection with none must be a 422, not

@@ -1046,6 +1046,27 @@ func TestHybridNoSearchableProperties(t *testing.T) {
 	})
 }
 
+func TestHybridUnknownQueryProperty(t *testing.T) {
+	// same contract as bm25: an entry naming no schema property is a 400;
+	// an existing property without a searchable index is the searcher's 422
+	for name, body := range map[string]string{
+		"unknown":            `{"query":"space","queryProperties":["titel"]}`,
+		"unknown with boost": `{"query":"space","queryProperties":["titel^2"]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, apiErr := buildHybrid(t, movieClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "no such prop")
+		})
+	}
+
+	t.Run("existing but non-searchable is the searcher's to reject", func(t *testing.T) {
+		_, apiErr := buildHybrid(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
+		assert.Nil(t, apiErr)
+	})
+}
+
 func TestHybridTargetVectors(t *testing.T) {
 	t.Run("legacy vector collection needs no target", func(t *testing.T) {
 		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space"}`)

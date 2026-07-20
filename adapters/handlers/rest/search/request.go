@@ -239,6 +239,10 @@ func (h *Handler) buildHybridParams(class *models.Class, className string, body 
 	}
 	out.HybridSearch = hybrid
 
+	if apiErr := validateQueryProperties(class, body.QueryProperties); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
 	// the keyword leg only runs below alpha 1; at alpha 1 a collection
 	// without searchable properties is legitimately pure-vector searchable
 	if hybrid.Alpha < 1 {
