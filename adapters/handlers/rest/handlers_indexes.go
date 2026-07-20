@@ -256,7 +256,40 @@ func principalUsername(principal *models.Principal) string {
 	return principal.Username
 }
 
-// cancelReindexTask finds the STARTED reindex task targeting
+// findCancelTargetTask returns the in-flight reindex task (and its parsed
+// payload) targeting (collection, propertyName, indexType), or nil if none is
+// in flight.
+//
+// "In flight" is [distributedtask.TaskStatus.IsActive] (STARTED, PREPARING, or
+// SWAPPING) — the SAME predicate the conflict gate uses. A narrower
+// STARTED-only match would return NO_OP for a task that has reached PREPARING /
+// SWAPPING, yet that task still blocks a follow-up PUT with a 409 naming it, so
+// the operator could neither cancel nor supersede it. Matching IsActive keeps
+// cancel and conflict detection consistent.
+func findCancelTargetTask(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload) {
+	for _, task := range tasks {
+		if !task.Status.IsActive() {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+		if !slices.Contains(payload.Properties, propertyName) {
+			continue
+		}
+		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
+			continue
+		}
+		return task, payload
+	}
+	return nil, db.ReindexTaskPayload{}
+}
+
+// cancelReindexTask finds the in-flight reindex task targeting
 // (collection, propertyName, indexType) and asks DTM to cancel it.
 //
 // Idempotent cancel: by the time this runs the caller's (collection,
@@ -289,30 +322,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			fmt.Sprintf("listing tasks: %v", err)))
 	}
 
-	// Find the STARTED task that targets this (collection, prop, indexType).
-	var target *distributedtask.Task
-	var targetPayload db.ReindexTaskPayload
-	for _, task := range tasks[db.ReindexNamespace] {
-		if task.Status != distributedtask.TaskStatusStarted {
-			continue
-		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
-		if !strings.EqualFold(payload.Collection, collection) {
-			continue
-		}
-		if !slices.Contains(payload.Properties, propertyName) {
-			continue
-		}
-		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
-			continue
-		}
-		target = task
-		targetPayload = payload
-		break
-	}
+	target, targetPayload := findCancelTargetTask(tasks[db.ReindexNamespace], collection, propertyName, indexType)
 
 	if target == nil {
 		// Idempotent cancel: caller's (collection, property) is known to
