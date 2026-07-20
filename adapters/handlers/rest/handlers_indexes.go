@@ -539,30 +539,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	if h.appState.ClusterService != nil {
 		tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
 		if err == nil {
-			reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
-			if checkErr != nil {
-				// An in-flight task has an unparseable payload — we cannot
-				// prove the new submit doesn't conflict with it, so refuse
-				// rather than race. Return 503 so the caller knows to retry
-				// after an operator inspects the in-flight task.
-				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, checkErr.Error()))
-			}
-			if reason != "" {
-				return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, reason))
-			}
-			// Per-collection cap on concurrent STARTED reindex tasks. Without
-			// this a caller scripting `for p in $(properties); do PUT
-			// .../indexes/$p; done` against an N-property collection submits N
-			// independent RAFT tasks, each fanning out ingest+backup buckets
-			// on every replica. The LSM compaction layer and disk would not
-			// survive that. Reject with 429 once the cap is reached — the
-			// semantics ("retry later, you're over a concurrency limit") map
-			// exactly to RFC 6585's Too Many Requests, not to 503's "server
-			// is unavailable". Returning 503 here misled callers and
-			// monitoring into thinking the cluster was unhealthy rather than
-			// rate-limiting them.
-			if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
-				return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
+			if resp := h.checkReindexAdmission(principal, collection, migrationType, properties, tasks[db.ReindexNamespace]); resp != nil {
+				return resp
 			}
 		}
 	}
@@ -1402,6 +1380,40 @@ func countStartedTasksForCollection(collection string, tasks []*distributedtask.
 		}
 	}
 	return n
+}
+
+// checkReindexAdmission runs the REST-boundary conflict + per-collection-cap
+// pre-flight against an already-fetched task snapshot. Returns nil when the
+// submit may proceed, or a typed responder (503 unverifiable / 409 conflict /
+// 429 cap) otherwise.
+func (h *indexesHandlers) checkReindexAdmission(principal *models.Principal, collection string,
+	migrationType db.ReindexMigrationType, properties []string, tasks []*distributedtask.Task,
+) middleware.Responder {
+	reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks)
+	if checkErr != nil {
+		// checkErr can name the ID of a foreign in-flight task (unparseable or
+		// informationally-empty payload) whose namespace the caller can't see,
+		// and StripErrorMessage strips only the caller's own namespace. Log the
+		// detail server-side; return a generic message so the task ID can't
+		// leak. Fail closed (503): we couldn't prove non-conflict.
+		h.appState.Logger.WithField("collection", collection).
+			Errorf("submit: cannot verify reindex conflict, failing closed: %v", checkErr)
+		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
+			"cannot verify reindex preconditions: an in-flight reindex task has an unparseable or incomplete payload; retry after an operator inspects the task store"))
+	}
+	if reason != "" {
+		return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, reason))
+	}
+	// Per-collection cap on concurrent STARTED reindex tasks. Without this a
+	// caller scripting `for p in $(properties); do PUT .../indexes/$p; done`
+	// against an N-property collection submits N independent RAFT tasks, each
+	// fanning out ingest+backup buckets on every replica — the LSM compaction
+	// layer and disk would not survive that. 429 (RFC 6585) not 503: this is a
+	// concurrency limit, not cluster unavailability.
+	if inflight := countStartedTasksForCollection(collection, tasks); inflight >= maxConcurrentReindexPerCollection {
+		return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
+	}
+	return nil
 }
 
 // checkReindexConflict checks if a new reindex task would conflict with any
