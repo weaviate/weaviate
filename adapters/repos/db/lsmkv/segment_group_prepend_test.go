@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,20 +29,36 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// createTestBucketRoaringSet creates a RoaringSet bucket in the given
-// directory, suitable for testing PrependSegmentsFromBucket.
-func createTestBucketRoaringSet(t *testing.T, ctx context.Context, dir string) *Bucket {
+// createTestBucketWithOptionsAndLogger creates a bucket with the given
+// options and logger, applying the two settings every test bucket in this
+// package needs (no on-disk root, memtable auto-flush disabled). Shared by
+// every createTestBucket* helper below so the strategy-specific option
+// lists are the only thing that differs between them.
+func createTestBucketWithOptionsAndLogger(t *testing.T, ctx context.Context, dir string, logger logrus.FieldLogger, opts ...BucketOption) *Bucket {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-	opts := []BucketOption{
-		WithStrategy(StrategyRoaringSet),
-		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
-	}
 	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.NoError(t, err)
 	b.SetMemtableThreshold(1e9) // prevent auto-flush
 	return b
+}
+
+// createTestBucketWithOptions is createTestBucketWithOptionsAndLogger with
+// a discarded null logger, for tests that don't assert on log output.
+func createTestBucketWithOptions(t *testing.T, ctx context.Context, dir string, opts ...BucketOption) *Bucket {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	return createTestBucketWithOptionsAndLogger(t, ctx, dir, logger, opts...)
+}
+
+// createTestBucketRoaringSet creates a RoaringSet bucket in the given
+// directory, suitable for testing PrependSegmentsFromBucket.
+func createTestBucketRoaringSet(t *testing.T, ctx context.Context, dir string) *Bucket {
+	t.Helper()
+	return createTestBucketWithOptions(t, ctx, dir,
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+	)
 }
 
 func TestSegmentGroup_PrependSegments(t *testing.T) {
@@ -659,17 +676,25 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 
 func createTestBucketRoaringSetRange(t *testing.T, ctx context.Context, dir string, keepSegmentsInMemory bool) *Bucket {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-	opts := []BucketOption{
+	return createTestBucketWithOptions(t, ctx, dir,
 		WithStrategy(StrategyRoaringSetRange),
 		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
 		WithKeepSegmentsInMemory(keepSegmentsInMemory),
-	}
-	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-	require.NoError(t, err)
-	b.SetMemtableThreshold(1e9)
-	return b
+	)
+}
+
+// createTestBucketRoaringSetRangeWithHook is createTestBucketRoaringSetRange
+// with the log hook preserved, for tests asserting on log output (the
+// default null logger's hook is otherwise discarded).
+func createTestBucketRoaringSetRangeWithHook(t *testing.T, ctx context.Context, dir string, keepSegmentsInMemory bool) (*Bucket, *test.Hook) {
+	t.Helper()
+	logger, hook := test.NewNullLogger()
+	b := createTestBucketWithOptionsAndLogger(t, ctx, dir, logger,
+		WithStrategy(StrategyRoaringSetRange),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithKeepSegmentsInMemory(keepSegmentsInMemory),
+	)
+	return b, hook
 }
 
 // TestSegmentGroup_PrependSegments_RoaringSetRangeGuard pins the
@@ -935,18 +960,13 @@ func TestApplyTimestampShift(t *testing.T) {
 // createTestBucket creates a bucket with the given strategy.
 func createTestBucket(t *testing.T, ctx context.Context, dir, strategy string) *Bucket {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
 	opts := []BucketOption{
 		WithStrategy(strategy),
 	}
 	if strategy == StrategyRoaringSet {
 		opts = append(opts, WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 	}
-	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-	require.NoError(t, err)
-	b.SetMemtableThreshold(1e9)
-	return b
+	return createTestBucketWithOptions(t, ctx, dir, opts...)
 }
 
 // assertRoaringSetContains verifies that getting the key from the bucket

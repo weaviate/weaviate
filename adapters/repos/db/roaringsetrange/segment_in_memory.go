@@ -68,6 +68,9 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 		}
 	}
 	for ; ok; key, layer, ok = cursor.Next() {
+		if int(key) >= len(s.bitmaps) {
+			return fmt.Errorf("invalid key %d from merged segment cursor: exceeds rangeable bitmap count %d", key, len(s.bitmaps))
+		}
 		s.bitmaps[key].OrConc(layer.Additions, concurrency.SROAR_MERGE)
 	}
 	return nil

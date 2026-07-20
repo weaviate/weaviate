@@ -570,9 +570,19 @@ func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
 //
 // Caller must not call the returned release until installRoaringSetRangeRep
 // returns: holding the ref keeps a concurrent shutdown() from closing these
-// segments mid-merge.
+// segments mid-merge. The view's release is deferred here and only
+// suppressed on the success return, so a panic mid-merge (an unvalidated
+// cursor key, a corrupt segment) still releases the ref instead of leaking
+// it - a leaked ref hangs the next shutdown() forever in the no-timeout
+// waitForReferenceCountToReachZero.
 func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringsetrange.SegmentInMemory, []Segment, func(), error) {
 	segments, release := sg.getConsistentViewOfSegments()
+	ownershipTransferred := false
+	defer func() {
+		if !ownershipTransferred {
+			release()
+		}
+	}()
 
 	if sg.allocChecker != nil {
 		// Unbounded full-property build; refuse on memory pressure so the
@@ -582,7 +592,6 @@ func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringse
 			totalSize += seg.Size()
 		}
 		if err := sg.allocChecker.CheckAlloc(totalSize); err != nil {
-			release()
 			sg.logger.WithFields(logrus.Fields{
 				"action":   "rangeable_inmemory_rebuild",
 				"event":    "rebuild_skipped_oom",
@@ -597,11 +606,9 @@ func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringse
 	rep := roaringsetrange.NewSegmentInMemory(sg.logger)
 	for _, seg := range segments {
 		if err := ctx.Err(); err != nil {
-			release()
 			return nil, nil, nil, err
 		}
 		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
-			release()
 			return nil, nil, nil, fmt.Errorf("merge segment into rangeable rep: %w", err)
 		}
 	}
@@ -611,6 +618,7 @@ func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringse
 		"segments": len(segments),
 		"size_mb":  fmt.Sprintf("%.3f", float64(rep.Size())/1024/1024),
 	}).Debug("rangeable segment-in-memory rebuilt")
+	ownershipTransferred = true
 	return rep, segments, release, nil
 }
 

@@ -190,6 +190,41 @@ func TestSegmentInMemory(t *testing.T) {
 	})
 }
 
+// outOfRangeSecondKeyCursor yields a valid first key (0) then an
+// out-of-range key, reproducing a corrupt/truncated segment without
+// needing a real byte-corrupt fixture.
+type outOfRangeSecondKeyCursor struct{ step int }
+
+func (c *outOfRangeSecondKeyCursor) First() (uint8, roaringset.BitmapLayer, bool) {
+	c.step = 0
+	return c.Next()
+}
+
+func (c *outOfRangeSecondKeyCursor) Next() (uint8, roaringset.BitmapLayer, bool) {
+	defer func() { c.step++ }()
+	switch c.step {
+	case 0:
+		return 0, roaringset.BitmapLayer{Additions: sroar.NewBitmap(), Deletions: sroar.NewBitmap()}, true
+	case 1:
+		return 200, roaringset.BitmapLayer{Additions: sroar.NewBitmap()}, true
+	default:
+		return 0, roaringset.BitmapLayer{}, false
+	}
+}
+
+// TestSegmentInMemoryMergeSegmentByCursor_RejectsOutOfRangeKey pins
+// weaviate/weaviate#12215: a key past the fixed 65-entry bitmap array
+// (only reachable from a corrupt/truncated segment) must return an
+// ordinary error instead of an out-of-range panic.
+func TestSegmentInMemoryMergeSegmentByCursor_RejectsOutOfRangeKey(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	s := NewSegmentInMemory(logger)
+
+	err := s.MergeSegmentByCursor(&outOfRangeSecondKeyCursor{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid key")
+}
+
 func TestSegmentInMemoryReader(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	mt1, mt2, mt3 := createTestMemtables(logger)

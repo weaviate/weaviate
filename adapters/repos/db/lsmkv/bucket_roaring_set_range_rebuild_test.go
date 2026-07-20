@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -362,6 +361,56 @@ func TestSegmentGroupRoaringSetRangeRep_InstallAfterGroupShutdownNoPanic(t *test
 	require.NoError(t, err)
 }
 
+// TestSegmentGroupRoaringSetRangeRep_PanicMidMergeReleasesView pins
+// weaviate/weaviate#12215: a panic mid-merge (an unvalidated cursor key
+// from a corrupt segment, reproduced here via a fake segment whose cursor
+// panics) must still release the consistent view's segment refs. Without
+// the deferred release, the leaked ref hangs the next shutdown() forever
+// in the no-timeout waitForReferenceCountToReachZero - this test bounds
+// that wait with a timeout so a regression fails loudly instead of
+// hanging the run.
+func TestSegmentGroupRoaringSetRangeRep_PanicMidMergeReleasesView(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+
+	require.NoError(t, b.RoaringSetRangeAdd(1, 100))
+	require.NoError(t, b.FlushAndSwitch())
+	require.Equal(t, 1, b.disk.Len(), "need a real baseline segment to check its ref returns to zero")
+
+	realSeg := b.disk.segments[0]
+	require.Zero(t, realSeg.getRefs(), "precondition: no view held yet")
+
+	panicky := newFakeRoaringSetRangeSegment(nil, sroar.NewBitmap())
+	b.disk.maintenanceLock.Lock()
+	b.disk.segments = append(b.disk.segments, panicky)
+	b.disk.maintenanceLock.Unlock()
+
+	func() {
+		defer func() {
+			require.NotNil(t, recover(), "the fake segment's cursor must panic to reproduce the mid-merge fault")
+		}()
+		b.disk.buildRoaringSetRangeRep(ctx)
+		t.Fatal("expected a panic mid-merge, got a normal return")
+	}()
+
+	assert.Zero(t, realSeg.getRefs(), "the deferred release must run despite the panic, leaving no leaked ref")
+	assert.Zero(t, panicky.getRefs(), "the fake segment's ref must also be released")
+
+	b.disk.maintenanceLock.Lock()
+	b.disk.segments = b.disk.segments[:1]
+	b.disk.maintenanceLock.Unlock()
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- b.Shutdown(ctx) }()
+	select {
+	case err := <-shutdownDone:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown hung: a leaked segment ref from the mid-merge panic never released")
+	}
+}
+
 // alwaysRefuseAllocChecker refuses every allocation, simulating a
 // memory-constrained node.
 type alwaysRefuseAllocChecker struct{}
@@ -408,16 +457,7 @@ func TestSegmentGroupRoaringSetRangeRep_AllocCheckerRefusalSoftDegrades(t *testi
 func TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	logger, hook := test.NewNullLogger()
-	opts := []BucketOption{
-		WithStrategy(StrategyRoaringSetRange),
-		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
-		WithKeepSegmentsInMemory(false),
-	}
-	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-	require.NoError(t, err)
-	b.SetMemtableThreshold(1e9)
+	b, hook := createTestBucketRoaringSetRangeWithHook(t, ctx, dir, false)
 	defer b.Shutdown(ctx)
 
 	// Add then remove the same docID under the same value, flushed to
@@ -429,7 +469,7 @@ func TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish(t *testing.T) 
 	require.NoError(t, b.FlushAndSwitch())
 	require.Equal(t, 2, b.disk.Len())
 
-	err = b.RebuildRangeableSegmentInMemory(ctx)
+	err := b.RebuildRangeableSegmentInMemory(ctx)
 	require.ErrorIs(t, err, ErrRangeableRepUnpopulatedAfterRebuild)
 	assert.False(t, b.rangeableRepRebuilt.Load(), "an unpopulated rep with disk segments must not publish")
 
@@ -439,22 +479,40 @@ func TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish(t *testing.T) 
 	assert.Empty(t, readEqual(t, b, 1), "disk-path read must still return the correct (empty) result")
 }
 
+// deleteAllRangeableCursor is a minimal roaringsetrange.SegmentCursor that
+// deletes every docID in the given bitmap and adds nothing, used to drain
+// a published rep directly (bypassing the normal write path) so a test can
+// tell whether a read consulted the live rep or a stale/fallback source.
+type deleteAllRangeableCursor struct {
+	deletions *sroar.Bitmap
+	yielded   bool
+}
+
+func (c *deleteAllRangeableCursor) First() (uint8, roaringset.BitmapLayer, bool) {
+	c.yielded = false
+	return c.Next()
+}
+
+func (c *deleteAllRangeableCursor) Next() (uint8, roaringset.BitmapLayer, bool) {
+	if c.yielded {
+		return 0, roaringset.BitmapLayer{}, false
+	}
+	c.yielded = true
+	return 0, roaringset.BitmapLayer{Additions: sroar.NewBitmap(), Deletions: c.deletions}, true
+}
+
 // TestReaderRoaringSetRange_PublishedFlagTrusted pins weaviate/weaviate#12215:
-// once published (rangeableRepRebuilt==true), reads must trust the rep and
-// never re-run the per-read unpopulated+disk-segments fallback check.
+// once published (rangeableRepRebuilt==true), reads must trust the rep
+// unconditionally and never re-run the per-read unpopulated+disk-segments
+// fallback check. Proven by draining the published rep directly (docID 100
+// still exists on disk) and asserting the read still returns the now-stale
+// in-memory (empty) result with no WARN - if the per-read check ran, it
+// would detect "unpopulated with disk segments present" and fall back to
+// disk, returning the correct [100] with a WARN instead.
 func TestReaderRoaringSetRange_PublishedFlagTrusted(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	logger, hook := test.NewNullLogger()
-	opts := []BucketOption{
-		WithStrategy(StrategyRoaringSetRange),
-		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
-		WithKeepSegmentsInMemory(false),
-	}
-	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-	require.NoError(t, err)
-	b.SetMemtableThreshold(1e9)
+	b, hook := createTestBucketRoaringSetRangeWithHook(t, ctx, dir, false)
 	defer b.Shutdown(ctx)
 
 	require.NoError(t, b.RoaringSetRangeAdd(1, 100))
@@ -462,9 +520,15 @@ func TestReaderRoaringSetRange_PublishedFlagTrusted(t *testing.T) {
 	require.NoError(t, b.RebuildRangeableSegmentInMemory(ctx))
 	require.True(t, b.rangeableRepRebuilt.Load())
 
+	require.Equal(t, []uint64{100}, readEqual(t, b, 1), "precondition: the rep serves the real value before draining")
+
+	require.NoError(t, b.disk.roaringSetRangeSegmentInMemory.MergeSegmentByCursor(
+		&deleteAllRangeableCursor{deletions: roaringset.NewBitmap(100)}))
+
 	for range 3 {
-		assert.Equal(t, []uint64{100}, readEqual(t, b, 1))
+		assert.Empty(t, readEqual(t, b, 1),
+			"the fast path must serve the drained (stale) in-memory rep, not fall back to disk (which still has docID 100)")
 	}
 	assert.Zero(t, countLogLevel(hook, logrus.WarnLevel),
-		"a validated, published rep must never trigger the per-read fallback WARN")
+		"a validated, published rep must never trigger the per-read fallback WARN, even when unpopulated")
 }
