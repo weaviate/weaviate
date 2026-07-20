@@ -116,13 +116,11 @@ func TestTypesConflictReason(t *testing.T) {
 	}
 }
 
-// TestTouchesBucket_RebuildSearchableIsExhaustive pins rebuild-searchable's
-// presence in both bucket-touch switches; a missing case panics via default.
-func TestTouchesBucket_RebuildSearchableIsExhaustive(t *testing.T) {
-	require.NotPanics(t, func() {
-		require.True(t, TouchesSearchable(ReindexTypeRebuildSearchable))
-		require.False(t, TouchesFilterable(ReindexTypeRebuildSearchable))
-	})
+// TestTouchesBucket_RebuildSearchable pins rebuild-searchable's bucket-touch
+// classification (searchable yes, filterable no) via the public accessors.
+func TestTouchesBucket_RebuildSearchable(t *testing.T) {
+	require.True(t, TouchesSearchable(ReindexTypeRebuildSearchable))
+	require.False(t, TouchesFilterable(ReindexTypeRebuildSearchable))
 }
 
 // TestTypesConflictReason_RebuildSearchableDoesNotPanic pins that an
@@ -279,24 +277,57 @@ func TestSearchablePropertyIsBlockmax_TruthTable(t *testing.T) {
 	}
 }
 
-// TestProducesBlockmaxSearchable_FailLoud pins the exhaustive switch: known
-// blockmax-producing types return true, known non-blockmax types return false,
-// and a newly-added (unlisted) type PANICS rather than being silently read as
-// WAND.
-func TestProducesBlockmaxSearchable_FailLoud(t *testing.T) {
-	for _, mt := range []ReindexMigrationType{
-		ReindexTypeChangeAlgorithm, ReindexTypeEnableSearchable, ReindexTypeRebuildSearchable,
-	} {
-		require.True(t, producesBlockmaxSearchable(mt), "%s should produce blockmax", mt)
+// TestReindexBucketEffect_Exhaustive pins the bucket-effect classification for
+// every migration type AND enforces exhaustiveness in place of the old
+// production panic: a newly-added [ReindexMigrationType] that is not explicitly
+// classified fails here (dev-time fail-loud) instead of DoS-ing an older node
+// that observes it from a newer peer during a rolling upgrade.
+//
+// An unknown type must fail SAFE, never panic: touches both buckets (so a
+// concurrent submit conflicts rather than races) and is assumed to produce
+// blockmax (post-GA direction; under-reporting would re-run change-algorithm on
+// an already-inverted bucket → downgrade corruption).
+func TestReindexBucketEffect_Exhaustive(t *testing.T) {
+	// The documented classification for every known type. Adding a
+	// ReindexMigrationType to AllReindexMigrationTypes without a row here fails
+	// the "every listed type is covered" assertion below.
+	want := map[ReindexMigrationType]struct {
+		touchesSearchable bool
+		touchesFilterable bool
+		producesBlockmax  bool
+	}{
+		ReindexTypeChangeAlgorithm:              {true, false, true},
+		ReindexTypeRebuildSearchable:            {true, false, true},
+		ReindexTypeEnableSearchable:             {true, false, true},
+		ReindexTypeChangeTokenization:           {true, true, false},
+		ReindexTypeChangeTokenizationFilterable: {false, true, false},
+		ReindexTypeRepairFilterable:             {false, true, false},
+		ReindexTypeEnableFilterable:             {false, true, false},
+		ReindexTypeEnableRangeable:              {false, false, false},
+		ReindexTypeRepairRangeable:              {false, false, false},
 	}
-	for _, mt := range []ReindexMigrationType{
-		ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeRepairFilterable, ReindexTypeEnableFilterable,
-		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable,
-	} {
-		require.False(t, producesBlockmaxSearchable(mt), "%s should not produce blockmax", mt)
+
+	for _, mt := range AllReindexMigrationTypes() {
+		exp, hasRow := want[mt]
+		require.Truef(t, hasRow,
+			"migration type %q is in AllReindexMigrationTypes but has no expected row in this test — classify it", mt)
+
+		ts, tf, pb, ok := ReindexBucketEffect(mt)
+		require.Truef(t, ok,
+			"migration type %q is not explicitly classified by ReindexBucketEffect (hit the fail-safe default) — add an explicit case", mt)
+		require.Equalf(t, exp.touchesSearchable, ts, "%s touchesSearchable", mt)
+		require.Equalf(t, exp.touchesFilterable, tf, "%s touchesFilterable", mt)
+		require.Equalf(t, exp.producesBlockmax, pb, "%s producesBlockmax", mt)
 	}
-	require.Panics(t, func() { producesBlockmaxSearchable(ReindexMigrationType("bogus-future-type")) })
+
+	// An unknown (peer-written) type must fail SAFE, not panic.
+	ts, tf, pb, ok := ReindexBucketEffect(ReindexMigrationType("bogus-future-type"))
+	require.False(t, ok, "unknown type must report ok=false")
+	require.True(t, ts, "unknown type must conservatively touch searchable")
+	require.True(t, tf, "unknown type must conservatively touch filterable")
+	require.True(t, pb, "unknown type must be assumed blockmax (post-GA safe direction)")
+	require.NotPanics(t, func() { _ = producesBlockmaxSearchable(ReindexMigrationType("bogus-future-type")) },
+		"unknown type must never panic on the forward-compat hot path")
 }
 
 // TestCheckConflict_AcceptsNonOverlapping pins the happy path:

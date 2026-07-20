@@ -21,30 +21,64 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// producesBlockmaxSearchable reports whether completing a migration type
-// leaves the property's searchable bucket on blockmax. change-tokenization is
-// excluded: it rewrites bucket contents but preserves the existing strategy.
+// ReindexBucketEffect classifies migration type t by which inverted-index
+// buckets it writes and whether completing it leaves the property's searchable
+// (BM25) bucket on blockmax:
 //
-// Exhaustive switch — a newly-added [ReindexMigrationType] that produces a
-// blockmax searchable bucket must be listed explicitly, or it panics here
-// rather than being silently read as WAND (the same fail-loud contract as
-// [TouchesSearchable] / [TouchesFilterable]).
-func producesBlockmaxSearchable(t ReindexMigrationType) bool {
+//   - touchesSearchable / touchesFilterable gate concurrent-submission conflict
+//     detection ([typesConflictReason]) and the in-flight idempotency checks
+//     ([activeSearchableTaskFor]).
+//   - producesBlockmax feeds [SearchablePropertyBlockmaxFromRAFT]: a FINISHED
+//     task of a producesBlockmax type leaves the property's BM25 bucket on
+//     blockmax. change-tokenization is deliberately false — it rewrites bucket
+//     contents but preserves the existing strategy.
+//
+// One switch is the single source of truth so the three predicates below can't
+// drift on the same enum.
+//
+// ok is false for an UNRECOGNIZED type. This is the forward-compatibility hot
+// path: during a rolling upgrade an older node observes task types written by a
+// newer peer, and both the PUT hot path (activeSearchableTaskFor) and the
+// RAFT-apply CheckConflict path run this against peer-written input. It MUST NOT
+// panic — a peer-written type panicking those paths is a cross-version DoS. So
+// the default fails SAFE:
+//
+//   - touchesSearchable / touchesFilterable = true: an unknown type is
+//     conservatively assumed to touch BOTH buckets, so conflict detection
+//     rejects a concurrent submit (409/503) rather than letting two migrations
+//     race on shared bucket state.
+//   - producesBlockmax = true: post-GA, blockmax is the target strategy and WAND
+//     is deprecated, so no new migration produces WAND — assuming an unknown
+//     FINISHED searchable migration produced blockmax matches the only realistic
+//     forward direction. Defaulting FALSE would under-report blockmax and let a
+//     `PUT {algorithm:blockmax}` re-run change-algorithm against an already
+//     inverted bucket → downgrade corruption. Over-reporting at worst no-ops a
+//     genuinely-needed migration (recoverable); under-reporting corrupts (not).
+//
+// Exhaustiveness is enforced by TestReindexBucketEffect_Exhaustive (dev-time
+// fail-loud over [AllReindexMigrationTypes]) rather than a production panic —
+// the panic would be the very cross-version DoS described above.
+func ReindexBucketEffect(t ReindexMigrationType) (touchesSearchable, touchesFilterable, producesBlockmax, ok bool) {
 	switch t {
-	case ReindexTypeChangeAlgorithm,
-		ReindexTypeEnableSearchable,
-		ReindexTypeRebuildSearchable:
-		return true
-	case ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeRepairFilterable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
-		return false
+	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable, ReindexTypeEnableSearchable:
+		return true, false, true, true
+	case ReindexTypeChangeTokenization:
+		return true, true, false, true
+	case ReindexTypeChangeTokenizationFilterable, ReindexTypeRepairFilterable, ReindexTypeEnableFilterable:
+		return false, true, false, true
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		return false, false, false, true
 	default:
-		panic(fmt.Sprintf("producesBlockmaxSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
+		return true, true, true, false
 	}
+}
+
+// producesBlockmaxSearchable reports whether completing a migration type leaves
+// the property's searchable bucket on blockmax. Thin accessor over
+// [ReindexBucketEffect] (see there for the unknown-type policy).
+func producesBlockmaxSearchable(t ReindexMigrationType) bool {
+	_, _, producesBlockmax, _ := ReindexBucketEffect(t)
+	return producesBlockmax
 }
 
 // SearchablePropertyIsBlockmax resolves whether (class, propName)'s searchable
@@ -199,17 +233,11 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
-	// Sanity-check the migration types via the exhaustive bucket-touch
-	// predicates so an unknown ReindexMigrationType still panics
-	// loudly at the conflict-check boundary rather than slipping
-	// through as "no conflict". Result values are intentionally
-	// discarded — the conflict rule below does not depend on which
-	// buckets are touched, only that both types are known.
-	_ = TouchesSearchable(newType)
-	_ = TouchesFilterable(newType)
-	_ = TouchesSearchable(existType)
-	_ = TouchesFilterable(existType)
-
+	// The conflict rule is property-overlap only; it does not consult the
+	// bucket-touch predicates. An unknown (peer-written) migration type is
+	// handled fail-safe by [ReindexBucketEffect] wherever it IS consulted —
+	// here an unknown type on an overlapping property still conflicts, so no
+	// per-type recognition is needed at this boundary.
 	if !ReindexPropsOverlap(newProps, existProps) {
 		return ""
 	}
@@ -251,52 +279,19 @@ func ReindexPropsOverlap(a, b []string) bool {
 	return false
 }
 
-// TouchesSearchable reports whether migration type t writes to the
-// searchable bucket. Implemented as an exhaustive switch so that a
-// newly-added [ReindexMigrationType] cannot silently be treated as
-// "doesn't touch searchable" — the default case panics with a clear
-// message, surfacing the gap on the first request that exercises the
-// new type. This matters because [typesConflictReason] relies on
-// these answers (via the sanity-check at its entry) to gate
-// concurrent reindex submissions: a positive-list miss would allow
-// conflicting writes to the same bucket through.
+// TouchesSearchable reports whether migration type t writes to the searchable
+// bucket. Thin accessor over [ReindexBucketEffect] (see there for the
+// unknown-type policy).
 func TouchesSearchable(t ReindexMigrationType) bool {
-	switch t {
-	case ReindexTypeChangeAlgorithm,
-		ReindexTypeChangeTokenization,
-		ReindexTypeEnableSearchable,
-		ReindexTypeRebuildSearchable:
-		return true
-	case ReindexTypeRepairFilterable,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
-		return false
-	default:
-		panic(fmt.Sprintf("TouchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
-	}
+	touchesSearchable, _, _, _ := ReindexBucketEffect(t)
+	return touchesSearchable
 }
 
-// TouchesFilterable reports whether migration type t writes to the
-// filterable bucket. Same exhaustive-switch contract as
-// [TouchesSearchable].
+// TouchesFilterable reports whether migration type t writes to the filterable
+// bucket. Thin accessor over [ReindexBucketEffect].
 func TouchesFilterable(t ReindexMigrationType) bool {
-	switch t {
-	case ReindexTypeRepairFilterable,
-		ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
-		ReindexTypeEnableFilterable:
-		return true
-	case ReindexTypeChangeAlgorithm,
-		ReindexTypeEnableSearchable,
-		ReindexTypeRebuildSearchable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable:
-		return false
-	default:
-		panic(fmt.Sprintf("TouchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))
-	}
+	_, touchesFilterable, _, _ := ReindexBucketEffect(t)
+	return touchesFilterable
 }
 
 // CheckPropertyUpdate implements
