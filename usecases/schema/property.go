@@ -134,10 +134,8 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		return false, err
 	}
 
-	// Require Collections (data + metadata), symmetric with PUT/rebuild/cancel:
-	// dropping a per-property index rewrites indexed data, so it is an index
-	// write verb, not a metadata-only mutation. Kept consistent with the REST
-	// handler pre-authz in deleteClassPropertyIndex.
+	// Collections (data+metadata), matching the REST pre-authz and the other
+	// index write verbs: dropping an index rewrites data, not metadata only.
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
 		return false, err
 	}
@@ -221,11 +219,8 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		if prop.IndexSearchable != nil && *prop.IndexSearchable {
 			notExists := false
 			prop.IndexSearchable = &notExists
-			// Clear the durable blockmax stamp in the same masked write: it
-			// must not outlive the searchable index it describes, or a later
-			// re-enable would resolve stale blockmax truth from a leftover
-			// stamp. Replacing the pointer (not writing through it) keeps the
-			// FSM's shared value untouched, like the flag flip above.
+			// Clear the blockmax stamp in the same masked write: it must not
+			// outlive its index, or a re-enable resolves stale blockmax truth.
 			prop.SearchableBlockmax = nil
 			updateFields = []string{command.PropertyFieldIndexSearchable, command.PropertyFieldSearchableBlockmax}
 		} else {

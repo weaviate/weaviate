@@ -275,12 +275,9 @@ func principalUsername(principal *models.Principal) string {
 }
 
 // findCancelTargetTask returns the in-flight reindex task (and payload)
-// targeting (collection, propertyName, indexType), or nil if none. "In
-// flight" matches IsActive (STARTED/PREPARING/SWAPPING) — the same predicate
-// the conflict gate uses. Selecting a PREPARING/SWAPPING task here does not
-// imply the FSM will cancel it: CancelTask only aborts STARTED tasks, so a
-// target past STARTED (units done, mid-swap) resolves to an idempotent 202
-// NO_OP in cancelReindexTask, not an error.
+// targeting (collection, propertyName, indexType), or nil. "In flight" is
+// IsActive (STARTED/PREPARING/SWAPPING); a PREPARING/SWAPPING target the FSM
+// won't STARTED-cancel resolves to a 202 NO_OP in cancelReindexTask, not error.
 func findCancelTargetTask(tasks []*distributedtask.Task, collection, propertyName, indexType string) (*distributedtask.Task, db.ReindexTaskPayload) {
 	task, payload, _ := firstActiveReindexTask(tasks, decodeSkip, func(p db.ReindexTaskPayload) bool {
 		if !strings.EqualFold(p.Collection, collection) || !slices.Contains(p.Properties, propertyName) {
@@ -322,10 +319,8 @@ type reindexTaskCanceller interface {
 // ctx via runningHandles) is then cancelled, and the worker goroutine
 // returns.
 //
-// svc is the cluster service (production passes appState.ClusterService).
-// Abstracting the two calls behind reindexTaskCanceller lets the
-// idempotent-cancel error mapping be exercised against a real
-// distributedtask.Manager without standing up a RAFT stack.
+// svc is appState.ClusterService in production; the interface lets the
+// idempotent-cancel error mapping be tested against a real Manager.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTaskCanceller, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	tasks, err := svc.ListDistributedTasks(ctx)
 	if err != nil {
@@ -356,11 +351,8 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 	if err := svc.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
-		// The FSM only cancels STARTED tasks. A target that reached
-		// PREPARING/SWAPPING (units done, mid-swap) — or completed in the
-		// race between the list above and this apply — is rejected with
-		// ErrTaskNotRunning. There is nothing left to cancel, so this is an
-		// idempotent NO_OP (202), not an infra failure (500).
+		// PREPARING/SWAPPING (mid-swap) or completed-in-the-race targets the FSM
+		// rejects with ErrTaskNotRunning: nothing to cancel, so NO_OP not 500.
 		if errors.Is(err, distributedtask.ErrTaskNotRunning) {
 			h.appState.Logger.WithFields(logrus.Fields{
 				"audit_event": "reindex_task_cancel_noop",
@@ -369,7 +361,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, svc reindexTask
 				"index_type":  indexType,
 				"taskID":      target.ID,
 				"principal":   principalUsername(principal),
-			}).Info("cancel: task no longer running (past STARTED or completed mid-request); returning NO_OP")
+			}).Info("cancel: task no longer running; returning NO_OP")
 			return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
 				Status: reindexCancelStatusNoOp,
 			})
@@ -520,7 +512,9 @@ const reindexCancelDrainTimeout = 10 * time.Second
 // here as the lesser evil compared to the unbounded bleed.
 const (
 	finalizeWindowMin = 3 * time.Second
-	finalizeWindowMax = 10 * time.Second
+	// Aliased from state so the post-DELETE marker TTL (state.reindexDelete-
+	// MarkerTTL) stays derived from the same ceiling — see its godoc.
+	finalizeWindowMax = state.FinalizeWindowMax
 )
 
 // indexTypesFromMigrationType returns the canonical inverted-index types
@@ -597,22 +591,18 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 type decodeErrorPolicy int
 
 const (
-	// decodeSkip: an undecodable in-flight task is ignored (the read /
-	// idempotency match sites — the submit-time conflict gate flags it
-	// instead, so treating it as "no task" here is safe).
+	// decodeSkip ignores an undecodable task (the submit-time conflict gate
+	// flags it, so the match sites treat it as "no task").
 	decodeSkip decodeErrorPolicy = iota
-	// decodeUndecodableIsHit: an undecodable in-flight task counts as a match
-	// (fail closed — the caller can't verify it, so it must not derive a
-	// trustworthy NO_OP). Used by the unverifiable-task scan.
+	// decodeUndecodableIsHit counts an undecodable task as a match — the
+	// unverifiable scan fails closed rather than derive a trustworthy NO_OP.
 	decodeUndecodableIsHit
 )
 
-// firstActiveReindexTask returns the first active (IsActive) reindex task whose
-// decoded payload satisfies match, plus its payload. On a decode error, policy
-// decides: decodeSkip continues; decodeUndecodableIsHit returns that task as a
-// match with a zero payload. It factors the shared IsActive + unmarshal loop
-// out of the five per-index task-lookup helpers so each keeps only its match
-// predicate and decode policy.
+// firstActiveReindexTask returns the first active task whose decoded payload
+// satisfies match. On a decode error, policy decides: decodeSkip continues,
+// decodeUndecodableIsHit returns that task as a match. Factors the shared
+// IsActive + unmarshal loop out of the five per-index lookup helpers.
 func firstActiveReindexTask(
 	tasks []*distributedtask.Task,
 	policy decodeErrorPolicy,

@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
@@ -33,14 +34,14 @@ const (
 )
 
 // RunSearchableBlockmaxRepair closes the v1.38→v1.39 upgrade residual: a
-// property genuinely migrated to blockmax on disk, in a permanently-partial
-// class whose FINISHED task has aged out, has a nil stamp and false class
-// flag — the legacy derivation reads it back as WAND.
-//
-// A shard-holder observing StrategyInverted for a nil-stamp bucket seeds the
-// durable stamp ONCE via RAFT; reads stay RAFT-consistent afterward, so this
-// doesn't reintroduce the node-locality bug the stamp fixes. Idempotent and
-// safe on a shardless node. Launch in a goroutine; runs until ctx is
+// nil-stamp searchable property genuinely on blockmax, in a permanently-partial
+// class, reads back as WAND once its FINISHED task ages out. It seeds the
+// durable stamp from two sources, whichever proves blockmax first: a loaded
+// shard's StrategyInverted bucket, or a still-present FINISHED blockmax task
+// (which closes the cold/unloaded-shard window before that task ages out, and
+// works even on a shardless node). Every shard-holder runs it; the stamp write
+// is idempotent and RAFT-consistent, so concurrent seeds don't reintroduce the
+// node-locality bug the stamp fixes. Launch in a goroutine; runs until ctx is
 // cancelled.
 func (p *ReindexProvider) RunSearchableBlockmaxRepair(ctx context.Context) {
 	if p.schemaManager == nil || p.db == nil || p.taskLister == nil {
@@ -88,15 +89,25 @@ func (p *ReindexProvider) reconcileSearchableBlockmaxStamps(ctx context.Context)
 	if sch.Objects == nil {
 		return
 	}
+
+	// One task-list snapshot per pass (the FINISHED-task seeding evidence). On
+	// failure, degrade to on-disk-only seeding; the next pass retries.
+	var reindexTasks []*distributedtask.Task
+	if byNamespace, err := p.taskLister.ListDistributedTasks(ctx); err == nil {
+		reindexTasks = byNamespace[ReindexNamespace]
+	} else {
+		p.logger.Warnf("searchable-blockmax repair: task list unavailable, on-disk seeding only: %v", err)
+	}
+
 	for _, class := range sch.Objects.Classes {
 		if ctx.Err() != nil {
 			return
 		}
-		p.reconcileClassSearchableBlockmax(ctx, class)
+		p.reconcileClassSearchableBlockmax(ctx, class, reindexTasks)
 	}
 }
 
-func (p *ReindexProvider) reconcileClassSearchableBlockmax(ctx context.Context, class *models.Class) {
+func (p *ReindexProvider) reconcileClassSearchableBlockmax(ctx context.Context, class *models.Class, reindexTasks []*distributedtask.Task) {
 	if class == nil {
 		return
 	}
@@ -117,30 +128,32 @@ func (p *ReindexProvider) reconcileClassSearchableBlockmax(ctx context.Context, 
 		return
 	}
 
-	idx := p.db.GetIndex(entschema.ClassName(class.Class))
-	if idx == nil {
-		return // no local shards; another shard-holder seeds, we read the stamp
-	}
-
 	// Observe on-disk truth on loaded shards only (never force-load a lazy
 	// shard just to probe): a searchable bucket that is StrategyInverted is
-	// genuinely blockmax.
+	// genuinely blockmax. Skipped entirely on a shardless node, which still
+	// seeds from FINISHED-task evidence below.
 	observed := make(map[string]bool, len(candidates))
-	_ = idx.ForEachLoadedShard(func(_ string, shard ShardLike) error {
-		for _, propName := range candidates {
-			if observed[propName] {
-				continue
+	if idx := p.db.GetIndex(entschema.ClassName(class.Class)); idx != nil {
+		_ = idx.ForEachLoadedShard(func(_ string, shard ShardLike) error {
+			for _, propName := range candidates {
+				if observed[propName] {
+					continue
+				}
+				b := shard.Store().Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+				if b != nil && b.Strategy() == lsmkv.StrategyInverted {
+					observed[propName] = true
+				}
 			}
-			b := shard.Store().Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-			if b != nil && b.Strategy() == lsmkv.StrategyInverted {
-				observed[propName] = true
-			}
-		}
-		return nil
-	})
+			return nil
+		})
+	}
 
 	for _, propName := range candidates {
-		if !observed[propName] {
+		// classFlagBlockmax=false: the class-flag case returned above, so the
+		// task-list derivation carries the FINISHED-task evidence on its own.
+		blockmax := observed[propName] ||
+			SearchablePropertyBlockmaxFromRAFT(false, class.Class, propName, reindexTasks)
+		if !blockmax {
 			continue
 		}
 		if err := p.stampSearchableBlockmax(ctx, class.Class, []string{propName}); err != nil {

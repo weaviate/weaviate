@@ -345,11 +345,9 @@ func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collectio
 		return upsertPlan{}, errors.New("at most one configuration change per request: set either tokenization or algorithm, not both — issue two requests")
 	}
 
-	// Validate the algorithm value BEFORE the in-flight guard below: an
-	// invalid or deprecated algorithm (e.g. "wand", garbage) must 400
-	// regardless of whether a searchable migration is in flight. The
-	// active-task guard treats any non-empty algorithm as a match, so without
-	// this an unsupported value would be swallowed as a spurious 200 NO_OP.
+	// Validate the algorithm before the in-flight guard: that guard matches any
+	// non-empty algorithm, so an invalid/"wand" value would otherwise be
+	// swallowed as a spurious 200 NO_OP instead of a 400.
 	if algorithm != "" {
 		switch normalizeSearchableAlgorithm(algorithm) {
 		case models.IndexStatusAlgorithmBlockmax:
@@ -689,10 +687,8 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 }
 
 // buildReindexPayload assembles the RAFT task payload. OriginalTokenization is
-// the property's submit-time tokenization, recorded for RAFT-log diagnostics
-// only — it has no runtime reader (see its godoc on ReindexTaskPayload);
-// stale-replay of a newer task's schema flip is prevented by FINISHED-status
-// replay suppression, not by this field.
+// recorded for RAFT-log diagnostics only — no runtime reader (see its godoc on
+// ReindexTaskPayload).
 func buildReindexPayload(class *models.Class, collection string, properties []string, plan upsertPlan,
 	tenants []string, unitToShard, unitToNode map[string]string,
 ) db.ReindexTaskPayload {
@@ -722,19 +718,12 @@ type stalePartialStateCleaner interface {
 	CleanStalePartialReindexState(ctx context.Context, collection, propertyName, indexType string) error
 }
 
-// cleanStalePartialStateOrFail runs the pre-submit stale-state scrub for every
-// index type migrationType touches, returning a terminal responder on failure
-// and nil to proceed.
-//
-// Defense in depth against CANCEL→retry silently resuming stale partial state
-// and reporting false success; a coupled change-tokenization must clean BOTH
-// dirs — see indexTypesFromMigrationType godoc.
-//
-// Fails CLOSED in two cases: (1) an unknown migration type, whose index-type
-// set can't be resolved, so the scrub would be silently skipped — the exact
-// Sev-1 data-loss gap the scrub guards; (2) a scrub error. A failed submit is
-// loud and recoverable; proceeding risks a task short-circuiting on stale
-// state and reporting a false success.
+// cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
+// type migrationType touches (a coupled change-tokenization cleans both),
+// returning a terminal responder or nil to proceed. Guards CANCEL→retry
+// resuming stale partial state and reporting false success. Fails CLOSED on an
+// unknown type (scrub would be silently skipped — the Sev-1 gap it guards) and
+// on a scrub error: a failed submit is loud and recoverable.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
 	cleaner stalePartialStateCleaner, collection, propertyName string, migrationType db.ReindexMigrationType,
 ) middleware.Responder {
@@ -744,9 +733,9 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 			"collection":     collection,
 			"property":       propertyName,
 			"migration_type": migrationType,
-		}).Errorf("submit: unknown migration type %q — cannot resolve index types for pre-submit stale-state cleanup; refusing submit", migrationType)
+		}).Error("submit: unknown migration type, cannot resolve cleanup index types; refusing submit")
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-			"internal error: unknown migration type; refusing to submit to avoid skipping stale-state cleanup that guards against silent data loss — please report this"))
+			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
 	}
 	for _, it := range indexTypesForCleanup {
 		if err := cleaner.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {

@@ -17,10 +17,15 @@ import (
 	"time"
 )
 
-// reindexDeleteMarkerTTL bounds how long a recorded DELETE is remembered. A
-// delete can only matter within the finalize window (≤10s after FINISHED),
-// so 30s is generous headroom that also keeps the map bounded.
-const reindexDeleteMarkerTTL = 30 * time.Second
+// FinalizeWindowMax is the upper clamp on the GET-indexes finalize-window
+// bleed. It lives beside the marker (whose only job is to suppress that bleed)
+// so the two move together; adapters/handlers/rest clamps to this value.
+const FinalizeWindowMax = 10 * time.Second
+
+// reindexDeleteMarkerTTL must outlive the finalize window it suppresses, so it
+// is derived from FinalizeWindowMax rather than independently encoded — raising
+// the window can't silently let a post-DELETE phantom outlive its marker.
+const reindexDeleteMarkerTTL = 3 * FinalizeWindowMax
 
 // ReindexDeleteMarkers tracks the last accepted DELETE per (collection,
 // property, indexType) so GET /indexes can suppress the finalize-window

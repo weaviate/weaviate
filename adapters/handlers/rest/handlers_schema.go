@@ -234,11 +234,8 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// Authorize BEFORE the conflict pre-flight below: it can leak "a task is in
 	// flight" to an unprivileged caller, and manager.DeleteClassPropertyIndex
 	// only authorizes deep inside its own body. nil-safe for tests constructing
-	// schemaHandlers directly.
-	//
-	// Require Collections (data + metadata), matching PUT/rebuild/cancel: a
-	// per-property index DELETE rewrites indexed data, so it is symmetric with
-	// the other index write verbs, not a metadata-only mutation.
+	// schemaHandlers directly. Collections (data+metadata), like PUT/rebuild/
+	// cancel: dropping an index rewrites data, not metadata only.
 	if s.authorizer != nil {
 		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
 			authorization.Collections(qualifiedClass)...); err != nil {

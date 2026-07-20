@@ -1287,6 +1287,20 @@ narrower than the automatic post-restart corruption the stamp closed. The
 TTL does not govern it; the window is bounded by the repair's first pass,
 not by task GC.
 
+The repair seeds the stamp from two sources — a loaded shard's on-disk
+blockmax bucket, or a still-present FINISHED blockmax task — so a cold
+(unloaded) shard is still covered as long as its completed task is in the
+list. `TTL=0` breaks that: it can GC the FINISHED task before any repair
+pass observes it, and with no on-disk evidence either (cold shard) the
+stamp is never seeded until that shard next loads. Keeping the default TTL
+avoids this residual.
+
+**Downgrade:** the stamp is an additive `searchableBlockmax` property field;
+an older binary ignores it and derives blockmax from the class flag / task
+list as before, so a downgrade does not corrupt data. The residual is only
+that a partial-class property seeded solely by the stamp (its FINISHED task
+already GC'd) resolves as WAND on the older binary until a re-migration.
+
 ## 15. Files of interest
 
 **REST**

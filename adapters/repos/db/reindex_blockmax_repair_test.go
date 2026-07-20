@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 
@@ -21,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -145,7 +147,8 @@ func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 		schemaManager: mgr,
 	}
 
-	p.reconcileClassSearchableBlockmax(ctx, residualClass)
+	// nil tasks: this test isolates the on-disk seeding source.
+	p.reconcileClassSearchableBlockmax(ctx, residualClass, nil)
 
 	// Exactly one stamp fired, for the blockmax-on-disk prop, set to true. The
 	// WAND prop shares the nil-stamp candidate condition but is NOT stamped
@@ -168,4 +171,55 @@ func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 	}
 	require.True(t, SearchablePropertyIsBlockmax(stampedClass, "blockmaxprop", nil),
 		"post-repair: with the seeded stamp the resolver reads blockmax")
+}
+
+// TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless pins
+// the cold/unloaded-shard window closure: a nil-stamp searchable property with
+// no on-disk observation here (no local shard) is still seeded from a FINISHED
+// blockmax-producing task in the RAFT list — while the task is still present,
+// before it ages out — so the truth survives the ageout. A prop with no
+// FINISHED task is left untouched.
+func TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless(t *testing.T) {
+	ctx := testCtx()
+	className := "BlockmaxRepairFinishedTask"
+
+	residualClass := &models.Class{
+		Class:               className,
+		InvertedIndexConfig: &models.InvertedIndexConfig{UsingBlockMaxWAND: false},
+		Properties: []*models.Property{
+			{Name: "blockmaxprop", DataType: entschema.DataTypeText.PropString()},
+			{Name: "wandprop", DataType: entschema.DataTypeText.PropString()},
+		},
+	}
+
+	// A FINISHED change-algorithm (blockmax-producing) task for blockmaxprop
+	// only; wandprop has no completed migration.
+	payload, err := json.Marshal(ReindexTaskPayload{
+		Collection: className, MigrationType: ReindexTypeChangeAlgorithm, Properties: []string{"blockmaxprop"},
+	})
+	require.NoError(t, err)
+	tasks := []*distributedtask.Task{{Status: distributedtask.TaskStatusFinished, Payload: payload}}
+
+	logger, _ := test.NewNullLogger()
+	capMgr := &capturingSchemaManager{}
+	reader := repairResidualReader{class: residualClass}
+	h, err := schemauc.NewHandler(reader, capMgr, nil, logger, nil, nil, config.Config{},
+		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil)
+	require.NoError(t, err)
+	mgr := &schemauc.Manager{Handler: h, SchemaReader: reader}
+
+	// Shardless for this class: db.GetIndex returns nil, so there is no on-disk
+	// observation — the FINISHED task is the sole seeding evidence.
+	p := &ReindexProvider{
+		logger:        logger,
+		db:            &DB{indices: map[string]*Index{}},
+		schemaManager: mgr,
+	}
+
+	p.reconcileClassSearchableBlockmax(ctx, residualClass, tasks)
+
+	require.Len(t, capMgr.stamps, 1, "only the prop with a FINISHED blockmax task is seeded")
+	require.Equal(t, "blockmaxprop", capMgr.stamps[0].prop)
+	require.NotNil(t, capMgr.stamps[0].stamp)
+	require.True(t, *capMgr.stamps[0].stamp, "seeded stamp must be true")
 }
