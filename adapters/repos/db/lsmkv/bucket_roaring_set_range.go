@@ -76,12 +76,9 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 				b.rangeableFallbackWarnOnce.Do(func() {
 					b.logger.WithField("bucket", b.dir).Warnf(
 						"rangeable in-memory index is empty but %d disk segment(s) exist; "+
-							"falling back to reading directly from disk. Results may be "+
-							"incorrect if the disk segment(s) are corrupt or unreadable - "+
-							"restarting the node will NOT repair this (it re-reads the same "+
-							"segments). Re-run the reindex with rebuild:true "+
-							`(PUT /v1/schema/<collection>/indexes/<property> `+
-							`{"rangeable":{"rebuild":true}}) to rebuild the index.`, n,
+							"serving from disk instead. Results may be incorrect if those "+
+							"segments are corrupt or unreadable; re-run the reindex with "+
+							"rebuild:true to repair.", n,
 					)
 				})
 				// Benign TOCTOU: the rep only empties via mass-delete, and the
@@ -100,12 +97,11 @@ func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
 	if b.rangeableInMemoryDeferred {
 		b.rangeableDeferredLogOnce.Do(func() {
 			b.logger.WithField("bucket", b.dir).Info(
-				"rangeable property serving from disk; in-memory acceleration is " +
-					"deferred. If a migration is in progress, this resolves " +
-					"automatically when it finalizes. If it persists after the " +
-					"migration has finished, the finalize rebuild failed; repair " +
-					"with rebuild:true (PUT /v1/schema/<collection>/indexes/<property> " +
-					`{"rangeable":{"rebuild":true}}) or by reloading the shard/restarting the node.`,
+				"rangeable property serving range queries from disk; in-memory " +
+					"serving is restored automatically when the migration finalizes. " +
+					"If it persists after the migration has finished, the finalize " +
+					"rebuild failed; re-run the reindex with rebuild:true or reload " +
+					"the shard to repair.",
 			)
 		})
 	}

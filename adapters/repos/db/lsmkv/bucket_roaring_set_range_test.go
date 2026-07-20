@@ -391,7 +391,7 @@ func TestRoaringSetRangeDeferredServingINFO(t *testing.T) {
 		assert.Equal(t, []uint64{200}, readEqual(t, b, value))
 		assert.Equal(t, []uint64{200}, readEqual(t, b, value))
 		assert.Equal(t, 1, countLogLevel(hook, logrus.InfoLevel), "INFO fires exactly once per bucket-open")
-		assert.Contains(t, hook.LastEntry().Message, "deferred")
+		assert.Contains(t, hook.LastEntry().Message, "restored automatically")
 		assert.Zero(t, countLogLevel(hook, logrus.WarnLevel))
 	})
 
