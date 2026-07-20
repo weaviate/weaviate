@@ -153,9 +153,18 @@ func (h *indexesHandlers) listReindexTasks(ctx context.Context, principal *model
 		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
 	}
-	tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
+	return reindexTasksOrFailClosed(ctx, principal, h.appState.ClusterService, h.appState.Logger)
+}
+
+// reindexTasksOrFailClosed lists the reindex-namespace tasks from lister,
+// failing closed with a 503 responder rather than deriving blockmax /
+// idempotency / conflict decisions from a partial view. Split from
+// [listReindexTasks] so the live fail-closed path is unit-testable with a fake
+// lister (the concrete cluster service cannot be made to error in a unit test).
+func reindexTasksOrFailClosed(ctx context.Context, principal *models.Principal, lister distributedtask.TaskLister, logger logrus.FieldLogger) ([]*distributedtask.Task, middleware.Responder) {
+	tasks, err := lister.ListDistributedTasks(ctx)
 	if err != nil {
-		h.appState.Logger.Errorf("submit: failing closed — cannot list in-flight distributed tasks to verify reindex preconditions: %v; rejecting with 503 rather than deriving blockmax/idempotency from a partial view", err)
+		logger.Errorf("submit: failing closed — cannot list in-flight distributed tasks to verify reindex preconditions: %v; rejecting with 503 rather than deriving blockmax/idempotency from a partial view", err)
 		return nil, jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			fmt.Sprintf("cannot verify reindex preconditions: listing in-flight tasks failed (%v); retry once the task store is reachable", err)))
 	}
@@ -642,10 +651,10 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 
 	// Conflict + concurrency-cap checks against the caller's RAFT snapshot,
 	// serialized by the caller's submit lock against parallel DELETE and
-	// submits. listErr is nil: the list was already fetched (fail-closed)
-	// in listReindexTasks.
+	// submits. The fail-closed 503 for an unreachable task store already fired
+	// in listReindexTasks when this snapshot was fetched.
 	if resp := h.checkReindexAdmission(principal, collection, migrationType, properties,
-		reindexTasks, nil); resp != nil {
+		reindexTasks); resp != nil {
 		return resp
 	}
 

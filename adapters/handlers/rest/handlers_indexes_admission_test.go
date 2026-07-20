@@ -12,8 +12,10 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,21 +52,6 @@ func statusOf(t *testing.T, resp middleware.Responder) (int, *models.ErrorRespon
 	return rec.Code, &body
 }
 
-// Pins fail-closed: a list error must 503, never admit an unchecked submit.
-func TestCheckReindexAdmission_FailsClosedOnListError(t *testing.T) {
-	h := admissionHandler()
-
-	resp := h.checkReindexAdmission(nil, "C", db.ReindexTypeChangeTokenization,
-		[]string{"p"}, nil /* tasks */, errors.New("raft leader unavailable"))
-
-	code, body := statusOf(t, resp)
-	require.Equal(t, http.StatusServiceUnavailable, code,
-		"list failure must fail closed with 503, not admit the submit")
-	require.Len(t, body.Error, 1)
-	assert.Contains(t, body.Error[0].Message, "listing in-flight tasks failed",
-		"503 body must explain why the precondition check could not run")
-}
-
 // Pins that the cap is enforced by the real gate, not just the count helper.
 func TestCheckReindexAdmission_CapExceededReturns429(t *testing.T) {
 	h := admissionHandler()
@@ -89,7 +76,7 @@ func TestCheckReindexAdmission_CapExceededReturns429(t *testing.T) {
 
 	// The next submission (a distinct property) must be capped.
 	resp := h.checkReindexAdmission(nil, collection, db.ReindexTypeEnableRangeable,
-		[]string{"pZZ"}, tasks, nil)
+		[]string{"pZZ"}, tasks)
 
 	code, body := statusOf(t, resp)
 	require.Equal(t, http.StatusTooManyRequests, code,
@@ -116,7 +103,7 @@ func TestCheckReindexAdmission_CapMinusOneAdmits(t *testing.T) {
 	}
 
 	resp := h.checkReindexAdmission(nil, collection, db.ReindexTypeEnableRangeable,
-		[]string{"pZZ"}, tasks, nil)
+		[]string{"pZZ"}, tasks)
 	require.Nil(t, resp, "one below the cap must be admitted (proceed)")
 }
 
@@ -134,7 +121,7 @@ func TestCheckReindexAdmission_ConflictReturns409(t *testing.T) {
 		}, nil)
 
 	resp := h.checkReindexAdmission(nil, collection, db.ReindexTypeChangeTokenization,
-		[]string{"p"}, []*distributedtask.Task{inflight}, nil)
+		[]string{"p"}, []*distributedtask.Task{inflight})
 
 	code, body := statusOf(t, resp)
 	require.Equal(t, http.StatusConflict, code)
@@ -156,7 +143,7 @@ func TestCheckReindexAdmission_UnparseablePayloadReturns503(t *testing.T) {
 	}
 
 	resp := h.checkReindexAdmission(nil, collection, db.ReindexTypeChangeTokenization,
-		[]string{"p"}, []*distributedtask.Task{bad}, nil)
+		[]string{"p"}, []*distributedtask.Task{bad})
 
 	code, _ := statusOf(t, resp)
 	require.Equal(t, http.StatusServiceUnavailable, code)
@@ -166,6 +153,51 @@ func TestCheckReindexAdmission_UnparseablePayloadReturns503(t *testing.T) {
 func TestCheckReindexAdmission_CleanProceeds(t *testing.T) {
 	h := admissionHandler()
 	resp := h.checkReindexAdmission(nil, "C", db.ReindexTypeChangeTokenization,
-		[]string{"p"}, nil, nil)
-	require.Nil(t, resp, "no conflict, no cap breach, no list error → proceed")
+		[]string{"p"}, nil)
+	require.Nil(t, resp, "no conflict, no cap breach → proceed")
+}
+
+// fakeTaskLister injects a list error / result into reindexTasksOrFailClosed,
+// which the concrete cluster service cannot be made to do in a unit test.
+type fakeTaskLister struct {
+	tasks map[string][]*distributedtask.Task
+	err   error
+}
+
+func (f fakeTaskLister) ListDistributedTasks(context.Context) (map[string][]*distributedtask.Task, error) {
+	return f.tasks, f.err
+}
+
+// Pins the LIVE fail-closed 503 path: when listing in-flight tasks fails, the
+// submit must reject with 503 rather than derive preconditions from a partial
+// view. This is the path that actually runs in production (the old
+// checkReindexAdmission listErr branch was dead — no caller passed a non-nil
+// error).
+func TestReindexTasksOrFailClosed_ListErrorReturns503(t *testing.T) {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+
+	tasks, resp := reindexTasksOrFailClosed(context.Background(), nil,
+		fakeTaskLister{err: errors.New("raft leader unavailable")}, logger)
+
+	require.Nil(t, tasks, "no task list may be returned on failure")
+	code, body := statusOf(t, resp)
+	require.Equal(t, http.StatusServiceUnavailable, code,
+		"a list failure must fail closed with 503, not admit an unchecked submit")
+	require.Len(t, body.Error, 1)
+	assert.Contains(t, body.Error[0].Message, "listing in-flight tasks failed",
+		"503 body must explain why the precondition check could not run")
+}
+
+// Pins the success path: the reindex-namespace slice is returned, no responder.
+func TestReindexTasksOrFailClosed_ReturnsReindexNamespace(t *testing.T) {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	want := []*distributedtask.Task{{TaskDescriptor: distributedtask.TaskDescriptor{ID: "x"}}}
+
+	tasks, resp := reindexTasksOrFailClosed(context.Background(), nil,
+		fakeTaskLister{tasks: map[string][]*distributedtask.Task{db.ReindexNamespace: want}}, logger)
+
+	require.Nil(t, resp, "success path returns no responder")
+	require.Equal(t, want, tasks)
 }

@@ -996,28 +996,15 @@ func normalizeSearchableAlgorithm(s string) string {
 const maxConcurrentReindexPerCollection = 32
 
 // checkReindexAdmission is the pre-submit safety gate shared by upsert and
-// rebuild: fails closed (503) when in-flight task state can't be verified,
-// otherwise checks conflict (409) and the per-collection cap (429). Split
-// out so it's unit-testable without a live cluster/DB.
+// rebuild: checks conflict (409/503-on-unverifiable) and the per-collection cap
+// (429) against the caller's already-fetched task snapshot. Split out so it's
+// unit-testable without a live cluster/DB. The fail-closed 503 for an
+// unreachable task store lives earlier, in [listReindexTasks] (which produces
+// the snapshot passed here).
 func (h *indexesHandlers) checkReindexAdmission(principal *models.Principal, collection string,
 	migrationType db.ReindexMigrationType, properties []string,
-	tasks []*distributedtask.Task, listErr error,
+	tasks []*distributedtask.Task,
 ) middleware.Responder {
-	if listErr != nil {
-		// Loud audit line, error text in the message body per the logging
-		// convention (no WithError).
-		property := ""
-		if len(properties) > 0 {
-			property = properties[0]
-		}
-		h.appState.Logger.WithFields(logrus.Fields{
-			"collection":     collection,
-			"property":       property,
-			"migration_type": migrationType,
-		}).Errorf("submit: failing closed — cannot list in-flight distributed tasks to verify reindex conflict/cap: %v; rejecting with 503 rather than admitting an unchecked migration", listErr)
-		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
-			fmt.Sprintf("cannot verify reindex preconditions: listing in-flight tasks failed (%v); retry once the task store is reachable", listErr)))
-	}
 	reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks)
 	if checkErr != nil {
 		// An in-flight task has an unparseable payload — we cannot prove
