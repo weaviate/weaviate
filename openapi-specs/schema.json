@@ -1831,6 +1831,11 @@
           "type": "integer",
           "format": "int64"
         },
+        "searchableBlockmax": {
+          "description": "Internal RAFT-replicated per-property flag: true iff this property's searchable (BM25) bucket is on the blockmax (StrategyInverted) index. Stamped at migration cutover. Absent/null means \"not stamped\" and is resolved against the class-wide UsingBlockMaxWAND flag. Internal use; clients must not set this.",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexFilterable": {
           "description": "Whether to include this property in the filterable, Roaring Bitmap index. If `false`, this property cannot be used in `where` filters. <br/><br/>Note: Unrelated to vectorization behavior.",
           "type": "boolean",
