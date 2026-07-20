@@ -1090,10 +1090,9 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 		}
 		s.targetNodeOverrides = append(s.targetNodeOverrides, targetNodeOverride)
 	}()
-	// Ensure async replication is started. Hold replicationConfigLock across the
-	// apply so a concurrent updateReplicationConfig can't interleave (see
-	// RevertAsyncReplicationOnShard); read the config field directly, as the
-	// AsyncReplicationConfig() getter would reacquire the lock.
+	// Ensure async replication is started. Hold replicationConfigLock across
+	// the apply (see RevertAsyncReplicationOnShard); read the config field
+	// directly — the AsyncReplicationConfig() getter would reacquire the lock.
 	s.index.replicationConfigLock.RLock()
 	defer s.index.replicationConfigLock.RUnlock()
 	return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
@@ -1135,8 +1134,8 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
 		// Restore the shard to the index's configured async-replication state,
-		// holding replicationConfigLock across the apply so a concurrent
-		// updateReplicationConfig can't interleave (see RevertAsyncReplicationOnShard).
+		// holding replicationConfigLock across the apply so a concurrent config
+		// mutation can't interleave (see RevertAsyncReplicationOnShard).
 		s.index.replicationConfigLock.RLock()
 		defer s.index.replicationConfigLock.RUnlock()
 		if s.index.asyncReplicationEnabledForShard(s.name) {
