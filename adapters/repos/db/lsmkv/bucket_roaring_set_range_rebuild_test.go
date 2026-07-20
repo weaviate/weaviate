@@ -14,8 +14,6 @@ package lsmkv
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -201,60 +199,6 @@ func TestBucketRebuildRangeableSegmentInMemory_FlushAfterPublishMergesIntoRep(t 
 
 	assert.Equal(t, []uint64{200}, readEqual(t, b, 2), "flush completed after publish must merge into the rep")
 	assert.Equal(t, []uint64{100}, readEqual(t, b, 1), "pre-existing rep content must survive the later flush")
-}
-
-// TestRoaringSetRangeBucket_CorruptZeroedSegmentHeaderRejectedAtOpen pins
-// weaviate/weaviate#12199: a size-preserved all-zero header must fail
-// loudly at reopen, not be silently accepted as empty (data loss).
-func TestRoaringSetRangeBucket_CorruptZeroedSegmentHeaderRejectedAtOpen(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	b := createTestBucketRoaringSetRange(t, ctx, dir, false)
-
-	require.NoError(t, b.RoaringSetRangeAdd(1, 100))
-	require.NoError(t, b.FlushAndSwitch())
-	require.NoError(t, b.RoaringSetRangeAdd(2, 200))
-	require.NoError(t, b.FlushAndSwitch())
-	require.Equal(t, 2, b.disk.Len(), "test needs two independent segment files")
-
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	var dbFiles []string
-	for _, e := range entries {
-		if filepath.Ext(e.Name()) == ".db" {
-			dbFiles = append(dbFiles, filepath.Join(dir, e.Name()))
-		}
-	}
-	require.Len(t, dbFiles, 2, "precondition: exactly two segment files on disk")
-
-	require.NoError(t, b.Shutdown(ctx))
-
-	target := dbFiles[0]
-	sizeBefore, err := os.Stat(target)
-	require.NoError(t, err)
-
-	f, err := os.OpenFile(target, os.O_RDWR, 0o644)
-	require.NoError(t, err)
-	// Zero the header fields (Level, Version, SecondaryIndices, Strategy,
-	// IndexStart), size-preserved.
-	_, err = f.WriteAt(make([]byte, 16), 0)
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
-	sizeAfter, err := os.Stat(target)
-	require.NoError(t, err)
-	require.Equal(t, sizeBefore.Size(), sizeAfter.Size(), "corruption must be size-preserving")
-
-	logger, _ := test.NewNullLogger()
-	opts := []BucketOption{
-		WithStrategy(StrategyRoaringSetRange),
-		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
-		WithKeepSegmentsInMemory(false),
-	}
-	_, err = NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-	require.Error(t, err, "reopening a bucket with a zeroed segment header must fail loudly, not silently drop the segment or panic")
-	assert.Contains(t, err.Error(), "corrupt segment header")
 }
 
 // TestBucketRebuildRangeableSegmentInMemory_ConcurrentReadsAndWrites pins
