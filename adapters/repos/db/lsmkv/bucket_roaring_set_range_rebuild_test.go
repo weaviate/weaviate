@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -418,4 +419,120 @@ func TestSegmentGroupRoaringSetRangeRep_InstallAfterGroupShutdownNoPanic(t *test
 		err = b.disk.installRoaringSetRangeRep(rep, merged, release)
 	})
 	require.NoError(t, err)
+}
+
+// alwaysRefuseAllocChecker refuses every allocation, simulating a
+// memory-constrained node.
+type alwaysRefuseAllocChecker struct{}
+
+func (alwaysRefuseAllocChecker) CheckAlloc(sizeInBytes int64) error {
+	return fmt.Errorf("simulated memory pressure: refusing %d bytes", sizeInBytes)
+}
+
+func (alwaysRefuseAllocChecker) CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error {
+	return nil
+}
+
+func (alwaysRefuseAllocChecker) Refresh(updateMappings bool) {}
+
+// TestSegmentGroupRoaringSetRangeRep_AllocCheckerRefusalSoftDegrades pins
+// weaviate/weaviate#12215 finding 4: an allocChecker refusal on the
+// rebuild's fold must be an ordinary error (not a panic or an OOM), so it
+// can soft-degrade to disk serving at the caller instead of risking a node
+// kill on a memory-constrained host.
+func TestSegmentGroupRoaringSetRangeRep_AllocCheckerRefusalSoftDegrades(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	b := createTestBucketRoaringSetRange(t, ctx, dir, false)
+	defer b.Shutdown(ctx)
+
+	require.NoError(t, b.RoaringSetRangeAdd(1, 100))
+	require.NoError(t, b.FlushAndSwitch())
+	require.Equal(t, 1, b.disk.Len())
+
+	b.disk.allocChecker = alwaysRefuseAllocChecker{}
+
+	_, merged, release, err := b.disk.buildRoaringSetRangeRep(ctx)
+	require.Error(t, err, "an allocChecker refusal must be returned as an ordinary error")
+	assert.Contains(t, err.Error(), "memory pressure")
+	assert.Nil(t, merged)
+	assert.Nil(t, release, "no view should be left held on refusal")
+
+	require.Error(t, b.RebuildRangeableSegmentInMemory(ctx),
+		"the refusal must propagate through the full rebuild call, not panic")
+	assert.False(t, b.rangeableRepRebuilt.Load(), "a refused rebuild must not publish")
+}
+
+// TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish pins
+// weaviate/weaviate#12215 finding 8 / D2 (memo test 4): a rebuild whose rep
+// folds empty while disk segments exist (e.g. every row deleted) must not
+// publish - rangeableRepRebuilt stays false, the disk-serving diagnostic is
+// logged, and reads still return correct (disk) results.
+func TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, hook := test.NewNullLogger()
+	opts := []BucketOption{
+		WithStrategy(StrategyRoaringSetRange),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithKeepSegmentsInMemory(false),
+	}
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	b.SetMemtableThreshold(1e9)
+	defer b.Shutdown(ctx)
+
+	// Add then remove the same docID under the same value, each flushed to
+	// its own segment, so bitmaps[0] folds empty while >0 disk segments
+	// (tombstone-bearing) exist - the same shape finding 7 documents for a
+	// legitimately all-deleted property.
+	require.NoError(t, b.RoaringSetRangeAdd(1, 100))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.RoaringSetRangeRemove(1, 100))
+	require.NoError(t, b.FlushAndSwitch())
+	require.Equal(t, 2, b.disk.Len())
+
+	err = b.RebuildRangeableSegmentInMemory(ctx)
+	require.ErrorIs(t, err, ErrRangeableRepUnpopulatedAfterRebuild)
+	assert.False(t, b.rangeableRepRebuilt.Load(), "an unpopulated rep with disk segments must not publish")
+
+	require.Equal(t, 1, countLogLevel(hook, logrus.WarnLevel), "the disk-serving diagnostic must be logged")
+	assert.Contains(t, hook.LastEntry().Message, "leaving disk-serving in place")
+
+	assert.Empty(t, readEqual(t, b, 1), "disk-path read must still return the correct (empty) result")
+}
+
+// TestReaderRoaringSetRange_PublishedFlagTrusted pins weaviate/weaviate#12215
+// D2 (memo test 5): once RebuildRangeableSegmentInMemory has validated and
+// published a rep (rangeableRepRebuilt==true), reads never re-run the
+// per-read unpopulated+disk-segments discriminant - install-time validation
+// replaced it. A validated, published rep must never trigger the per-read
+// fallback WARN, proving the read path is a direct memory-path dispatch for
+// this flag rather than a re-checked one.
+func TestReaderRoaringSetRange_PublishedFlagTrusted(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, hook := test.NewNullLogger()
+	opts := []BucketOption{
+		WithStrategy(StrategyRoaringSetRange),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithKeepSegmentsInMemory(false),
+	}
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+	b.SetMemtableThreshold(1e9)
+	defer b.Shutdown(ctx)
+
+	require.NoError(t, b.RoaringSetRangeAdd(1, 100))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.RebuildRangeableSegmentInMemory(ctx))
+	require.True(t, b.rangeableRepRebuilt.Load())
+
+	for range 3 {
+		assert.Equal(t, []uint64{100}, readEqual(t, b, 1))
+	}
+	assert.Zero(t, countLogLevel(hook, logrus.WarnLevel),
+		"a validated, published rep must never trigger the per-read fallback WARN")
 }

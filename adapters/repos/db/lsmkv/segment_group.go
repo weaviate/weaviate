@@ -578,6 +578,28 @@ func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
 func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringsetrange.SegmentInMemory, []Segment, func(), error) {
 	segments, release := sg.getConsistentViewOfSegments()
 
+	if sg.allocChecker != nil {
+		// allocChecker is optional. The fold below builds an unbounded
+		// full property representation (segment_group_compaction.go:308-320
+		// is the same guard for compaction); on a memory-constrained node
+		// this refusal is an ordinary error that degrades to disk serving
+		// at the caller rather than risking an OOM kill.
+		var totalSize int64
+		for _, seg := range segments {
+			totalSize += seg.Size()
+		}
+		if err := sg.allocChecker.CheckAlloc(totalSize); err != nil {
+			release()
+			sg.logger.WithFields(logrus.Fields{
+				"action":   "rangeable_inmemory_rebuild",
+				"event":    "rebuild_skipped_oom",
+				"bucket":   filepath.Base(sg.dir),
+				"segments": len(segments),
+			}).Warnf("skipping rangeable in-memory rebuild due to memory pressure: %v", err)
+			return nil, nil, nil, err
+		}
+	}
+
 	t := time.Now()
 	rep := roaringsetrange.NewSegmentInMemory(sg.logger)
 	for _, seg := range segments {

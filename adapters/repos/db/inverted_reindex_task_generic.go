@@ -139,9 +139,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // ShardReindexTaskGeneric is a strategy-parameterized implementation of
@@ -828,15 +828,23 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 // without an in-memory rep, so without this they'd serve range reads from
 // disk until the next open. Idempotent.
 //
-// A rebuild failure is returned, not merely logged: disk fallback isn't
-// always safe (a corrupt-but-size-preserved segment header parses as empty,
-// producing wrong results with no operator signal), so this must FAIL the
-// migration rather than FINISH it silently.
+// A rebuild failure degrades to disk serving (WARN-and-continue) instead of
+// failing the migration: by the time this runs, the data work (prepend,
+// swap, tidy) has already committed, so failing the whole migration over a
+// read-side accelerator would take a replica's queries down
+// (MissingFilterableIndexError) while a sibling replica's successful
+// rebuild has already RAFT-committed the schema flag cluster-wide. Disk
+// serving is always correct; only the acceleration is deferred to the next
+// restart. Every degrade still logs at ERROR and increments a metric, so it
+// stays loud and dashboard-visible without taking queries down. See the
+// architect decision memo (board Conversations/2026-07/
+// 2026-07-20-1334__architect__finding5-d1-memo.md, weaviate/weaviate#12215
+// finding 5 / D1).
 //
-// Per-prop failures are collected via errorcompounder so one doesn't hide
-// another, except context-cancellation, which returns immediately so
-// [runPerUnitPhase]'s errors.Is(context.Canceled) check still routes to the
-// transient ack path instead of a permanent FAILED.
+// context-cancellation is the one case that still aborts this function
+// with a non-nil error, so [runPerUnitPhase]'s errors.Is(context.Canceled)
+// check keeps routing to the transient ack path instead of a permanent
+// FAILED or a false FINISHED.
 func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
@@ -846,7 +854,8 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 	}
 
 	store := shard.Store()
-	ec := errorcompounder.New()
+	className := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
 	for _, propName := range props {
 		bucketName := t.strategy.SourceBucketName(propName)
 
@@ -865,14 +874,18 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 				propName, bucketName,
 			)
 			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
-			ec.Add(err)
+			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
 			continue
 		}
 
 		started := time.Now()
 		if err := t.rebuildRangeableRepFn(ctx, bucket); err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w", propName, err)
+				// Wrap both: ctxErr guarantees errors.Is(context.Canceled)
+				// works regardless of what the underlying rebuild error
+				// happens to be (it may not itself wrap ctx.Err()); err is
+				// kept for diagnostics.
+				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w: %w", propName, ctxErr, err)
 			}
 			wrapped := fmt.Errorf(
 				"rangeable index for property %q built and data intact, but could not be "+
@@ -880,15 +893,17 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 				propName, err,
 			)
 			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
-			ec.Add(wrapped)
+			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
 			continue
 		}
-		logger.WithFields(logrus.Fields{
-			"bucket": bucketName,
-			"took":   time.Since(started).String(),
-		}).Info("rangeable in-memory index built at migration finalize; serving range queries from memory")
+		if bucket.RangeableServesFromMemory() {
+			logger.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"took":   time.Since(started).String(),
+			}).Info("rangeable in-memory index built at migration finalize; serving range queries from memory")
+		}
 	}
-	return ec.ToError()
+	return nil
 }
 
 // unwrapShard extracts the concrete *Shard from a ShardLike,
