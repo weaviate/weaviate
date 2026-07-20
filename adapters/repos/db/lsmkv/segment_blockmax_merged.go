@@ -22,19 +22,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
-// mergedSource is one query term's posting stream in a single (property, segment),
-// tagged with the property it came from so MergedTerm.Score can collapse a doc's
-// per-property contributions correctly.
+// propIdx lets MergedTerm.Score take one contribution per property.
 type mergedSource struct {
 	term    *SegmentBlockMax
 	propIdx int
 }
 
-// MergedTerm represents a single query term whose postings are spread across
-// multiple properties (and their segments). It is the unit of the cross-property
-// AND: a document satisfies the AND iff every MergedTerm has a source positioned
-// on it. Unlike a per-property AND, exhaustion of one source does not end the
-// term — the term is exhausted only when all of its sources are.
+// MergedTerm merges one query term's sources across properties/segments. Unlike a
+// per-property term, it is exhausted only when every source is, not on the first.
 type MergedTerm struct {
 	// sources are kept sorted by propIdx so the per-property collapse in Score is
 	// a single contiguous-group pass with no allocation.
@@ -45,12 +40,9 @@ type MergedTerm struct {
 	totalCount     int
 }
 
-// BuildCrossPropMergedTerms groups every SegmentBlockMax in allResults
-// (indexed [property][segment][term]) by its query-term index, tagging each
-// source with its property index (the outer slice position). It returns one
-// MergedTerm per query term and ok=false if any query term in [0,termCount) has
-// no source at all — in which case a cross-property AND can never match and the
-// caller should return an empty result.
+// BuildCrossPropMergedTerms groups allResults ([property][segment][term]) by
+// query-term index. ok is false when some query term has no source anywhere, so
+// the cross-property AND cannot match and the caller should return empty.
 func BuildCrossPropMergedTerms(allResults [][][]*SegmentBlockMax, termCount int) ([]*MergedTerm, bool) {
 	byTerm := make([]*MergedTerm, termCount)
 	for propIdx, perProperty := range allResults {
@@ -92,8 +84,6 @@ func (m *MergedTerm) sortSourcesByProp() {
 	})
 }
 
-// recompute refreshes the merged cursor: the position is the smallest live
-// source id, and the term is exhausted only once every source is.
 func (m *MergedTerm) recompute() {
 	minID := uint64(math.MaxUint64)
 	allExhausted := true
@@ -122,7 +112,6 @@ func (m *MergedTerm) AdvanceAtLeast(id uint64) {
 	m.recompute()
 }
 
-// Advance steps every source sitting on the current merged id past it.
 func (m *MergedTerm) Advance() {
 	cur := m.idPointer
 	for i := range m.sources {
@@ -146,12 +135,9 @@ func (m *MergedTerm) Exhausted() bool {
 	return m.exhausted
 }
 
-// Score returns the term's BM25F contribution for the current doc: per property,
-// a single contribution (the largest, to stay bit-compatible with the existing
-// per-property combine even in the degenerate case of two live segments holding
-// the same id — which the tombstone layering in CreateDiskTerm normally
-// prevents), summed across properties. The returned DocPointerWithScore is from
-// the top-contributing property, for the optional per-term explanation.
+// Score sums one contribution per property (the largest, so two live segments
+// holding the same id — which tombstone layering normally prevents — can't
+// double-count). The DocPointerWithScore comes from the top-contributing property.
 func (m *MergedTerm) Score(averagePropLength float64, additionalExplanations bool) (uint64, float64, *terms.DocPointerWithScore) {
 	cur := m.idPointer
 	total := 0.0
@@ -202,12 +188,9 @@ func (t mergedTermsBySize) Len() int           { return len(t) }
 func (t mergedTermsBySize) Less(i, j int) bool { return t[i].totalCount < t[j].totalCount }
 func (t mergedTermsBySize) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
 
-// DoBlockMaxAndCrossProp intersects query terms across properties: a document is
-// scored iff every MergedTerm has a source positioned on it. It is the
-// cross-property analogue of DoBlockMaxAnd, structured the same way (rarest term
-// drives the scan) but without block-max upper-bound pruning — a MergedTerm's
-// block bounds are aggregates and a simple document-at-a-time intersection is the
-// correctness reference; pruning can be layered on later.
+// DoBlockMaxAndCrossProp is the cross-property analogue of DoBlockMaxAnd. It omits
+// block-max pruning (a MergedTerm's block bounds are only aggregates); the plain
+// document-at-a-time intersection is the correctness reference, pruning can come later.
 func DoBlockMaxAndCrossProp(ctx context.Context, limit int, mergedTerms []*MergedTerm, averagePropLength float64,
 	additionalExplanations bool, termCount int, logger logrus.FieldLogger,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {

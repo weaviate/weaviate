@@ -24,10 +24,6 @@ var (
 	SearchOperatorAndCross = "OPERATOR_AND_CROSS"
 )
 
-// IsAndOperator reports whether the operator requires every query token to match
-// — either all within a single property (AND) or spread across the searched
-// properties (AND_CROSS). Both use the per-property AND path when cross-property
-// matching does not apply.
 func IsAndOperator(operator string) bool {
 	return operator == SearchOperatorAnd || operator == SearchOperatorAndCross
 }

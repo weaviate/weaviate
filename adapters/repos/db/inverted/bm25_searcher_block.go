@@ -161,11 +161,9 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, false, fmt.Errorf("after createBlockTerm: %w", ctx.Err())
 	}
 
-	// OPERATOR_AND_CROSS: when all searched properties fall under a single
-	// tokenization group, every query token must appear in at least one of the
-	// searched properties (tokens may be spread across them) rather than all
-	// tokens within one property. A single non-empty group guarantees one shared
-	// queryTerms list / index space; otherwise we fall back to per-property AND.
+	// Cross-property AND needs one shared queryTerms/index space to merge terms by
+	// query-term index, which only holds when a single tokenization group covers
+	// every searched property. Mixed tokenizations fall back to per-property AND.
 	crossPropAnd := false
 	var crossPropQueryTerms []string
 	if params.SearchOperator == common_filters.SearchOperatorAndCross {
@@ -343,16 +341,11 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 	return combinedObjects, combinedScores, nil
 }
 
-// wandBlockCrossPropAnd runs a single cross-property AND intersection: a document
-// is returned only if every query token is present in at least one of the searched
-// properties. It groups the per-property/per-segment terms by query-term index into
-// MergedTerms, intersects them in one pass, and returns the final ranked objects
-// directly (bypassing combineResults, whose per-property max + cross-property sum is
-// folded into MergedTerm.Score).
+// wandBlockCrossPropAnd bypasses combineResults: MergedTerm.Score already folds in
+// the per-property max + cross-property sum that combineResults would otherwise apply.
 func (b *BM25Searcher) wandBlockCrossPropAnd(ctx context.Context, allResults [][][]*lsmkv.SegmentBlockMax, queryTerms []string, averagePropLength float64, limit int, params searchparams.KeywordRanking, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	mergedTerms, ok := lsmkv.BuildCrossPropMergedTerms(allResults, len(queryTerms))
 	if !ok {
-		// at least one query token is absent from every property — AND can't match
 		return []*storobj.Object{}, []float32{}, nil
 	}
 
