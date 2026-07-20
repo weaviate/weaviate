@@ -9738,6 +9738,11 @@ func init() {
           },
           "x-omitempty": true
         },
+        "searchableBlockmax": {
+          "description": "Internal RAFT-replicated per-property flag: true iff this property's searchable (BM25) bucket is on the blockmax (StrategyInverted) index. Stamped at migration cutover. Absent/null means \"not stamped\" and is resolved against the class-wide UsingBlockMaxWAND flag. Internal use; clients must not set this.",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "textAnalyzer": {
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
@@ -21686,6 +21691,11 @@ func init() {
             "$ref": "#/definitions/NestedProperty"
           },
           "x-omitempty": true
+        },
+        "searchableBlockmax": {
+          "description": "Internal RAFT-replicated per-property flag: true iff this property's searchable (BM25) bucket is on the blockmax (StrategyInverted) index. Stamped at migration cutover. Absent/null means \"not stamped\" and is resolved against the class-wide UsingBlockMaxWAND flag. Internal use; clients must not set this.",
+          "type": "boolean",
+          "x-nullable": true
         },
         "textAnalyzer": {
           "$ref": "#/definitions/TextAnalyzerConfig"
