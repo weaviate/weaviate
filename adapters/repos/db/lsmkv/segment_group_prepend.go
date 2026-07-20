@@ -70,7 +70,8 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 
 	// Reject splicing into a RoaringSetRange group with an active in-memory
 	// rep: an older-onto-newer merge could let a stale value win, and an
-	// unrebuilt rep would silently serve empty/partial results.
+	// unrebuilt rep would silently serve empty/partial results. This RLock()
+	// pairs with installRoaringSetRangeRep's Lock() publish.
 	sg.maintenanceLock.RLock()
 	hasInMemoryRep := sg.strategy == StrategyRoaringSetRange && sg.roaringSetRangeSegmentInMemory != nil
 	sg.maintenanceLock.RUnlock()

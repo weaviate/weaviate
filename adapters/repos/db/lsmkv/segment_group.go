@@ -599,7 +599,8 @@ func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringse
 //
 // Catch-up reads sg.segments under maintenanceLock.RLock(); the pointer
 // publish is upgraded to Lock() for just that one assignment, so the
-// (unbounded) catch-up merge never holds the exclusive lock.
+// (unbounded) catch-up merge never holds the exclusive lock. This publish
+// pairs with the RLock() guard read in PrependSegmentsFromBucket.
 func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentInMemory, alreadyMerged int) error {
 	sg.maintenanceLock.RLock()
 	segments := sg.segments[alreadyMerged:]
