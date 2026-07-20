@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -467,6 +468,90 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 
 		runTestCases(t, testCases)
 	})
+}
+
+func TestHandler_AddProperty_RejectsExplicitEmptyTokenizationFromJSON(t *testing.T) {
+	ctx := context.Background()
+
+	class := models.Class{
+		Class:             "NewClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
+
+	var prop models.Property
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"name": "title",
+		"dataType": ["text"],
+		"tokenization": ""
+	}`), &prop))
+
+	_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, &prop)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "tokenization '' is not allowed for data type 'text'")
+	fakeSchemaManager.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
+}
+
+func TestHandler_AddProperty_DefaultsOmittedTokenizationFromJSON(t *testing.T) {
+	ctx := context.Background()
+
+	class := models.Class{
+		Class:             "NewClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
+	fakeSchemaManager.On("AddProperty", class.Class, mock.MatchedBy(func(props []*models.Property) bool {
+		return len(props) == 1 && props[0].Tokenization == models.PropertyTokenizationWord
+	})).Return(nil)
+
+	var prop models.Property
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"name": "title",
+		"dataType": ["text"]
+	}`), &prop))
+
+	_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, &prop)
+	require.NoError(t, err)
+	assert.Equal(t, models.PropertyTokenizationWord, prop.Tokenization)
+}
+
+func TestHandler_AddProperty_AllowsExplicitEmptyReferenceTokenizationFromJSON(t *testing.T) {
+	ctx := context.Background()
+
+	class := models.Class{
+		Class:             "NewClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+	refClass := models.Class{
+		Class:             "RefClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
+	fakeSchemaManager.On("ReadOnlyClass", refClass.Class).Return(&refClass)
+	fakeSchemaManager.On("AddProperty", class.Class, mock.MatchedBy(func(props []*models.Property) bool {
+		return len(props) == 1 && props[0].Tokenization == ""
+	})).Return(nil)
+
+	var prop models.Property
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"name": "refEmpty",
+		"dataType": ["RefClass"],
+		"tokenization": ""
+	}`), &prop))
+	require.False(t, models.HasExplicitEmptyTokenization(&prop))
+
+	_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, &prop)
+	require.NoError(t, err)
 }
 
 func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {

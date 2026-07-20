@@ -33,6 +33,8 @@ import (
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
+	defer models.ClearExplicitEmptyTokenizations(newProps...)
+
 	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 	if err != nil {
 		return nil, 0, err
