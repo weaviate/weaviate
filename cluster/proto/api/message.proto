@@ -254,6 +254,12 @@ message CleanUpDistributedTaskRequest {
   uint64 version = 3;
 }
 
+message SyncShardRequest {
+  string collection = 1;
+  string shard = 2;
+  string node_id = 3;
+}
+
 message CreateAliasRequest {
   string collection = 1;
   string alias = 2;
