@@ -608,6 +608,27 @@ func FromEnv(config *Config) error {
 		config.Persistence.IndexRangeableInMemory = true
 	}
 
+	// Fail fast on malformed entries: class/property names cannot contain dots,
+	// so a typo would otherwise silently disable the in-memory elevation, which
+	// is worse than refusing to boot.
+	if v := os.Getenv("INDEX_ROARINGSET_IN_MEMORY"); v != "" {
+		set := entcfg.StringSet{}
+		for _, entry := range strings.Split(v, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			parts := strings.Split(entry, ".")
+			if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+				return fmt.Errorf("parse INDEX_ROARINGSET_IN_MEMORY: entry %q is not of form <Collection>.<property>", entry)
+			}
+			set[strings.TrimSpace(parts[0])+"."+strings.TrimSpace(parts[1])] = struct{}{}
+		}
+		if len(set) > 0 {
+			config.Persistence.IndexRoaringSetInMemory = set
+		}
+	}
+
 	if err := parseInt(
 		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
 		func(size int) { config.HNSWVisitedListPoolMaxSize = size },

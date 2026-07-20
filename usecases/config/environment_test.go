@@ -1822,3 +1822,93 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentIndexRoaringSetInMemory(t *testing.T) {
+	tests := []struct {
+		name      string
+		envValue  string
+		setEnv    bool
+		expectErr bool
+		present   []string
+		absent    []string
+	}{
+		{
+			name:   "unset",
+			setEnv: false,
+			absent: []string{"A.b"},
+		},
+		{
+			name:     "empty string",
+			envValue: "",
+			setEnv:   true,
+			absent:   []string{"A.b"},
+		},
+		{
+			name:     "single entry",
+			envValue: "MyCollection.myProperty",
+			setEnv:   true,
+			present:  []string{"MyCollection.myProperty"},
+			absent:   []string{"MyCollection.other", "mycollection.myProperty"},
+		},
+		{
+			name:     "multiple entries with spaces",
+			envValue: "Alpha.bravo, Charlie.delta ,Echo.foxtrot",
+			setEnv:   true,
+			present:  []string{"Alpha.bravo", "Charlie.delta", "Echo.foxtrot"},
+			absent:   []string{"Alpha.delta"},
+		},
+		{
+			name:     "duplicate entries",
+			envValue: "Alpha.bravo,Alpha.bravo",
+			setEnv:   true,
+			present:  []string{"Alpha.bravo"},
+		},
+		{
+			name:      "malformed: no dot",
+			envValue:  "nodot",
+			setEnv:    true,
+			expectErr: true,
+		},
+		{
+			name:      "malformed: too many dots",
+			envValue:  "a.b.c",
+			setEnv:    true,
+			expectErr: true,
+		},
+		{
+			name:      "malformed: empty collection",
+			envValue:  ".b",
+			setEnv:    true,
+			expectErr: true,
+		},
+		{
+			name:      "malformed: empty property",
+			envValue:  "a.",
+			setEnv:    true,
+			expectErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setEnv {
+				t.Setenv("INDEX_ROARINGSET_IN_MEMORY", tt.envValue)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectErr {
+				require.NotNil(t, err)
+				return
+			}
+			require.Nil(t, err)
+			for _, key := range tt.present {
+				assert.True(t, conf.Persistence.IndexRoaringSetInMemory.Has(key),
+					"expected %q to be in the set", key)
+			}
+			for _, key := range tt.absent {
+				assert.False(t, conf.Persistence.IndexRoaringSetInMemory.Has(key),
+					"expected %q to not be in the set", key)
+			}
+		})
+	}
+}
