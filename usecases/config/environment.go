@@ -1363,7 +1363,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if err = parsePositiveInt(
+	// Allow 0 = "clean completed tasks on the next scheduler tick". Now safe
+	// because the per-property blockmax truth is durable in the schema stamp,
+	// so nothing depends on FINISHED reindex tasks lingering in the list.
+	if err = parseNonNegativeInt(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
