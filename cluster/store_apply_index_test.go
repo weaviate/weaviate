@@ -153,6 +153,18 @@ func TestStore_ApplyIndex_NamespaceStateChange(t *testing.T) {
 			"a re-applied command must not advance the recorded index")
 	})
 
+	// The namespace check at the top of store.Apply must let a state change
+	// through against a suspended namespace, or resume is unreachable: the
+	// command clearing the suspension would be rejected for being suspended.
+	t.Run("resume applies against a suspended namespace", func(t *testing.T) {
+		ms := seed(t)
+		suspended := applyNamespaceState(t, ms, namespaceStateLog(initialIndex+1, api.NamespaceStateSuspended))
+		require.Equal(t, api.NamespaceStateSuspended, suspended.State)
+
+		resumed := applyNamespaceState(t, ms, namespaceStateLog(initialIndex+2, api.NamespaceStateActive))
+		assert.Equal(t, api.NamespaceStateActive, resumed.State)
+	})
+
 	t.Run("metadata-only voter still records the flip", func(t *testing.T) {
 		ms := seed(t)
 		ms.store.cfg.MetadataOnlyVoters = true

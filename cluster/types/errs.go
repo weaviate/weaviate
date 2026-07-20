@@ -11,7 +11,11 @@
 
 package types
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/hashicorp/raft"
+)
 
 var (
 	// ErrNotLeader is returned when an operation can't be completed on a
@@ -24,3 +28,14 @@ var (
 	ErrDeadlineExceeded = errors.New("deadline exceeded for waiting for update")
 	ErrNotFound         = errors.New("not found")
 )
+
+// IsNoLeader reports whether err means the operation could not reach a
+// leader. ErrNotLeader/ErrLeaderNotFound come back from a forwarded call;
+// hashicorp's two are returned raw by a leader-local apply that exhausted
+// its retries.
+func IsNoLeader(err error) bool {
+	return errors.Is(err, ErrNotLeader) ||
+		errors.Is(err, ErrLeaderNotFound) ||
+		errors.Is(err, raft.ErrNotLeader) ||
+		errors.Is(err, raft.ErrLeadershipLost)
+}
