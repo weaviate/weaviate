@@ -1417,6 +1417,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
 	setupGraphQLHandlers(api, appState, appState.SchemaManager, appState.ServerConfig.Config.DisableGraphQL,
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
+	setupSearchHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
@@ -1711,6 +1712,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	}
 
 	serverConfig.Config.Cluster.RaftBootstrapExpect = serverConfig.Config.Raft.BootstrapExpect
+	serverConfig.Config.Cluster.RaftBootstrapTimeout = serverConfig.Config.Raft.BootstrapTimeout
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
@@ -2684,6 +2686,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
 		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
+		registered.ExperimentalRESTSearchEnabled = appState.ServerConfig.Config.ExperimentalRESTSearchEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

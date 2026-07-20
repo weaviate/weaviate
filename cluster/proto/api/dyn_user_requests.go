@@ -14,8 +14,6 @@ package api
 import (
 	"crypto/sha256"
 	"time"
-
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 )
 
 const (
@@ -76,8 +74,22 @@ type QueryGetUsersRequest struct {
 	UserIds []string
 }
 
+// UserWire is the serialization shape of a DB user in QueryGetUsersResponse.
+// It carries the fields without the locking type, since the wire value is never
+// a live user.
+type UserWire struct {
+	Id                 string
+	Active             bool
+	InternalIdentifier string
+	ApiKeyFirstLetters string
+	CreatedAt          time.Time
+	LastUsedAt         time.Time
+	ImportedWithKey    bool
+	Namespace          string
+}
+
 type QueryGetUsersResponse struct {
-	Users map[string]*apikey.User
+	Users map[string]*UserWire
 }
 
 type QueryUserIdentifierExistsRequest struct {

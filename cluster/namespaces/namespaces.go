@@ -103,17 +103,19 @@ func (m *Manager) Update(c *cmd.ApplyRequest) error {
 }
 
 // ChangeState applies a ChangeNamespaceState RAFT command, transitioning
-// the namespace into the target state. Returns
-// [usecasesNamespaces.ErrBadRequest] for malformed payloads or unknown
-// target states, [usecasesNamespaces.ErrNotFound] when the namespace does
-// not exist, and [usecasesNamespaces.ErrInvalidStateTransition] when the
-// requested transition is forbidden.
+// the namespace into the target state and recording the command's RAFT log
+// index against it. Returns [usecasesNamespaces.ErrBadRequest] for malformed
+// payloads or unknown target states, [usecasesNamespaces.ErrNotFound] when
+// the namespace does not exist, and
+// [usecasesNamespaces.ErrInvalidStateTransition] when the requested
+// transition is forbidden.
 func (m *Manager) ChangeState(c *cmd.ApplyRequest) error {
 	req := &cmd.ChangeNamespaceStateRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
-	return m.controller.ChangeState(req.Name, req.TargetState)
+	// c.Version is this command's RAFT log index.
+	return m.controller.ChangeState(req.Name, req.TargetState, c.Version)
 }
 
 // RemoveEntity applies a RemoveNamespaceEntity RAFT command. Returns
@@ -154,17 +156,6 @@ func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 		}
 	}
 	return m.controller.RemoveEntity(req.Name)
-}
-
-// Exists proxies to the controller. Lets the apply switch satisfy
-// [usecasesNamespaces.Exister] from a single namespaceManager reference.
-func (m *Manager) Exists(name string) bool {
-	return m.controller.Exists(name)
-}
-
-// IsActive proxies to the controller.
-func (m *Manager) IsActive(name string) bool {
-	return m.controller.IsActive(name)
 }
 
 // GetNamespace returns the namespace by name. ok is false when the
