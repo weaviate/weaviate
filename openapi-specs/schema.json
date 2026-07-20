@@ -163,6 +163,11 @@
               "type": "string",
               "default": "*",
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections."
+            },
+            "user": {
+              "type": "string",
+              "default": "*",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value `*` applies the permission to all users."
             }
           }
         },
@@ -2298,6 +2303,13 @@
         },
         "classes": {
           "description": "The list of collections (classes) for which the backup creation process was started.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "users": {
+          "description": "The list of dynamic DB users included in the backup, resolved from the request's `includeUsers` selectors. Empty unless `includeUsers` was supplied.",
           "type": "array",
           "items": {
             "type": "string"

@@ -426,6 +426,14 @@ func (p *BackupPermission) WithCollection(collection string) *BackupPermission {
 	return p
 }
 
+func (p *BackupPermission) WithUser(user string) *BackupPermission {
+	if p.Backups == nil {
+		p.Backups = &models.PermissionBackups{}
+	}
+	p.Backups.User = authorization.String(user)
+	return p
+}
+
 func (p *BackupPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm

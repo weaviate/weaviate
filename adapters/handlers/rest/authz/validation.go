@@ -59,8 +59,19 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 			}
 		}
 
-		if backupsInput != nil && backupsInput.Collection != nil {
-			multiErr = errors.Join(multiErr, validatePermissionClassName(namespacesEnabled, *backupsInput.Collection))
+		if backupsInput != nil {
+			// Collection and User are a discriminated union (see conv.policy).
+			if backupsInput.Collection != nil && backupsInput.User != nil {
+				multiErr = errors.Join(multiErr,
+					fmt.Errorf("backups permission cannot set both 'collection' and 'user'"))
+			}
+			if backupsInput.Collection != nil {
+				multiErr = errors.Join(multiErr, validatePermissionClassName(namespacesEnabled, *backupsInput.Collection))
+			}
+			if backupsInput.User != nil && strings.Contains(*backupsInput.User, "/") {
+				multiErr = errors.Join(multiErr,
+					fmt.Errorf("backups permission 'user' %q must not contain '/'", *backupsInput.User))
+			}
 		}
 
 		if nodesInput != nil && nodesInput.Collection != nil {

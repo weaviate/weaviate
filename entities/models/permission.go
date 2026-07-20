@@ -783,6 +783,9 @@ type PermissionBackups struct {
 
 	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
+
+	// A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value `*` applies the permission to all users.
+	User *string `json:"user,omitempty"`
 }
 
 // Validate validates this permission backups

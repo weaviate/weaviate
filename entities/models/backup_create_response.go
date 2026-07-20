@@ -52,6 +52,9 @@ type BackupCreateResponse struct {
 	// phase of backup creation process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED FINALIZING SUCCESS FAILED CANCELLING CANCELED]
 	Status *string `json:"status,omitempty"`
+
+	// The list of dynamic DB users included in the backup, resolved from the request's `includeUsers` selectors. Empty unless `includeUsers` was supplied.
+	Users []string `json:"users"`
 }
 
 // Validate validates this backup create response

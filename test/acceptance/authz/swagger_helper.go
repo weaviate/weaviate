@@ -301,6 +301,12 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 			}
 			obj[propName] = dd
 		}
+		// The backups permission resource is a collection-XOR-user discriminated
+		// union (the only permission sub-object carrying both fields); filling
+		// both makes validatePermissions reject the body before it reaches authz.
+		if _, hasCollection := obj["collection"]; hasCollection {
+			delete(obj, "user")
+		}
 		mockData = obj
 	}
 

@@ -213,6 +213,30 @@ func Test_policy(t *testing.T) {
 			tests: backupsTests,
 		},
 		{
+			name: "all backup users",
+			permission: &models.Permission{
+				Backups: authorization.AllBackupUsers,
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinBackupUsers("*"),
+				Domain:   authorization.BackupsDomain,
+			},
+			tests: backupsTests,
+		},
+		{
+			name: "a backup user",
+			permission: &models.Permission{
+				Backups: &models.PermissionBackups{
+					User: authorization.String("ns1:alice"),
+				},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinBackupUsers("ns1:alice"),
+				Domain:   authorization.BackupsDomain,
+			},
+			tests: backupsTests,
+		},
+		{
 			name: "all collections",
 			permission: &models.Permission{
 				Collections: &models.PermissionCollections{},
@@ -636,6 +660,24 @@ func Test_permission(t *testing.T) {
 			tests: backupsTests,
 		},
 		{
+			name:   "backup all users",
+			policy: []string{"p", "/users/*", "", "backups"},
+			permission: &models.Permission{
+				Backups: authorization.AllBackupUsers,
+			},
+			tests: backupsTests,
+		},
+		{
+			name:   "a backup user",
+			policy: []string{"p", "/users/ns1:alice", "", "backups"},
+			permission: &models.Permission{
+				Backups: &models.PermissionBackups{
+					User: authorization.String("ns1:alice"),
+				},
+			},
+			tests: backupsTests,
+		},
+		{
 			name:   "all collections",
 			policy: []string{"p", "/collections/*/shards/#", "", authorization.SchemaDomain},
 			permission: &models.Permission{
@@ -1042,6 +1084,25 @@ func Test_CasbinBackups(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := CasbinBackups(tt.backend)
 			require.Equal(t, tt.expected, p)
+		})
+	}
+}
+
+func Test_CasbinBackupUsers(t *testing.T) {
+	tests := []struct {
+		user     string
+		expected string
+	}{
+		{user: "", expected: fmt.Sprintf("%s/users/.*", authorization.BackupsDomain)},
+		{user: "*", expected: fmt.Sprintf("%s/users/.*", authorization.BackupsDomain)},
+		// No uppercasing (unlike CasbinBackups) — ids are case-sensitive.
+		{user: "alice", expected: fmt.Sprintf("%s/users/alice", authorization.BackupsDomain)},
+		{user: "ns1:alice", expected: fmt.Sprintf("%s/users/ns1:alice", authorization.BackupsDomain)},
+		{user: "ns1:*", expected: fmt.Sprintf("%s/users/ns1:.*", authorization.BackupsDomain)},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("user: %s", tt.user), func(t *testing.T) {
+			require.Equal(t, tt.expected, CasbinBackupUsers(tt.user))
 		})
 	}
 }
