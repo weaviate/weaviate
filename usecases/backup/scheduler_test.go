@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -1856,7 +1857,7 @@ func TestSchedulerCreateBackupRecordsUsers(t *testing.T) {
 func makeUserSnapshot(t *testing.T, ids ...string) []byte {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	dbu, err := apikey.NewDBUser(t.TempDir(), true, logger)
+	dbu, err := apikey.NewDBUser(t.TempDir(), true, logger, namespaces.NewController(logger))
 	require.NoError(t, err)
 	for _, id := range ids {
 		require.NoError(t, dbu.CreateUser(id, "hash-"+id, "ident-"+id, "", namespacing.NamespaceFromQualified(id), time.Now()))

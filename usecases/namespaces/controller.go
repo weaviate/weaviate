@@ -10,8 +10,8 @@
 //
 
 // Package namespaces owns the namespace control-plane state and exposes a
-// typed domain API for callers that need direct existence checks without
-// reaching for RAFT subcommand types.
+// typed domain API for callers that need direct existence checks. Lookups
+// return the RAFT subcommand namespace type.
 package namespaces
 
 import (

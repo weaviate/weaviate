@@ -304,6 +304,9 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 		return nil
 	}
 
+	// Only mark real uploads as active: the empty-shard shortcut above is a no-op.
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessOffload)()
+
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",

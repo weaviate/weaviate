@@ -66,7 +66,7 @@ func newTestManager(t *testing.T, ns usecasesNamespaces.Exister) (*Manager, *api
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	dynUser, err := apikey.NewDBUser(t.TempDir(), false, logger)
+	dynUser, err := apikey.NewDBUser(t.TempDir(), false, logger, ns)
 	require.NoError(t, err)
 	return NewManager(dynUser, ns, false, logger), dynUser
 }
@@ -80,7 +80,7 @@ func mustMarshalJSON(t *testing.T, v any) []byte {
 
 func TestNewManager_NilNamespacesPanics(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	dynUser, err := apikey.NewDBUser(t.TempDir(), false, logger)
+	dynUser, err := apikey.NewDBUser(t.TempDir(), false, logger, newNamespacesMock(t))
 	require.NoError(t, err)
 	assert.Panics(t, func() { NewManager(dynUser, nil, false, logger) })
 }
@@ -174,7 +174,7 @@ func TestManager_CreateUser_NamespacesEnabledRejectsEmpty(t *testing.T) {
 
 	ns := newNamespacesMock(t)
 	logger, _ := test.NewNullLogger()
-	dynUser, err := apikey.NewDBUser(t.TempDir(), false, logger)
+	dynUser, err := apikey.NewDBUser(t.TempDir(), false, logger, ns)
 	require.NoError(t, err)
 	m := NewManager(dynUser, ns, true, logger)
 

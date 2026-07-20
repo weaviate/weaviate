@@ -24,12 +24,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -324,6 +326,11 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			return false, nil
 		}
 	}
+
+	// only mark actual compaction work as active: candidate probing and OOM
+	// skips above are not real runs
+	backgroundDone := monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessCompaction)
+	defer backgroundDone()
 
 	var left, right Segment
 	func() {
