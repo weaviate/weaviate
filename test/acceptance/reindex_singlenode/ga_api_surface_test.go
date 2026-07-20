@@ -27,7 +27,9 @@ import (
 // testGAApiSurface pins the GA reindex surface end-to-end against a live
 // node: declarative-upsert idempotency (200 NO_OP), the rangeable→rangeFilters
 // write-path alias plus canonical status output, the POST rebuild/cancel
-// sub-resources, and removal of the old PUT /indexes/{prop} route.
+// sub-resources, searchable algorithm validation (deprecated wand rejected,
+// block-max/bmw aliases accepted, wand rejected even mid-migration), and
+// removal of the old PUT /indexes/{prop} route.
 func testGAApiSurface(t *testing.T, restURI string) {
 	const class = "GAApiSurface"
 	reindexhelpers.SetupClass(t, class, []*models.Property{
@@ -197,5 +199,38 @@ func testGAApiSurface(t *testing.T, restURI string) {
 		// method is rejected — i.e. removal was incomplete.
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode,
 			"removed Preview route must return 404 (not 405), got %d", resp.StatusCode)
+	})
+
+	// Exercises the searchable `algorithm` field through the real HTTP handler
+	// (previously unit-covered only). title is a WAND searchable index here
+	// (USE_INVERTED_SEARCHABLE=false), so block-max is a real migration.
+	t.Run("searchable algorithm validation through the HTTP handler", func(t *testing.T) {
+		// wand is deprecated → 400, never a spurious 200 NO_OP.
+		rej := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, class, "title", "searchable", `{"algorithm":"wand"}`)
+		require.Equal(t, http.StatusBadRequest, rej.StatusCode,
+			"algorithm=wand must be rejected as deprecated: %s", rej.Body)
+
+		// The `block-max` alias normalizes to blockmax and is accepted (202):
+		// a real change-algorithm migration off WAND.
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "title", "searchable", `{"algorithm":"block-max"}`)
+
+		// S1: wand mid-migration must STILL be 400. The algorithm value is
+		// validated ahead of the in-flight idempotency guard (which matches any
+		// non-empty algorithm), so a deprecated value can't be swallowed as a
+		// NO_OP while the migration is live.
+		reindexhelpers.AwaitReindexLive(t, restURI, taskID)
+		mid := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, class, "title", "searchable", `{"algorithm":"wand"}`)
+		require.Equal(t, http.StatusBadRequest, mid.StatusCode,
+			"algorithm=wand mid-migration must be 400, not a swallowed NO_OP: %s", mid.Body)
+
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexViaIndexes(t, restURI, class, "title", "searchable")
+
+		// The accepted alias also drives the idempotent path: a repeat via the
+		// `bmw` alias on the now-blockmax property is a 200 NO_OP.
+		noop := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, class, "title", "searchable", `{"algorithm":"bmw"}`)
+		require.Equal(t, http.StatusOK, noop.StatusCode,
+			"repeat blockmax via the bmw alias on an already-migrated property must be 200 NO_OP: %s", noop.Body)
+		assert.Contains(t, noop.Body, "NO_OP")
 	})
 }
