@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -29,11 +30,20 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
+// panicEvidenceLinePatterns match panic/goroutine-dump log lines even
+// when they carry none of filterMigrationLogLines' migration keywords,
+// so a keyword-only filter doesn't silently drop panic evidence.
+var panicEvidenceLinePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`panic:`),
+	regexp.MustCompile(`goroutine \d+ \[`),
+	regexp.MustCompile(`\.go:\d+ \+0x`),
+}
+
 // start3NodeReindexCluster spins up a 3-node cluster with DTM enabled
 // and the reindex provider automatically registered. Optional
 // `extraEnv` pairs (key, value, key, value, …) are applied on top so a
 // test that needs e.g. USE_INVERTED_SEARCHABLE=false can opt in without
-// changing the package-wide default — tests that exercise BlockMax-
+// changing the package-wide default - tests that exercise BlockMax-
 // based code paths (change-tokenization, etc.) keep the production
 // default.
 func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...string) (*docker.DockerCompose, func()) {
@@ -148,7 +158,7 @@ func deleteCollection(t *testing.T, restURI, className string) {
 //
 // Uses consistency_level=ALL so the POST does not return until every
 // replica has applied the write. Without this, the default (single-replica
-// ack) lets the next query race ahead of replication — a baseline check
+// ack) lets the next query race ahead of replication - a baseline check
 // that immediately polls all three nodes can see node1=6 / node2=5 / etc.,
 // failing the per-replica equality assertion. See R0 flake repro.
 func importObjects(t *testing.T, restURI, className string, texts []string) {
@@ -195,7 +205,7 @@ func httpGetJSON(url string, out any) bool {
 }
 
 // awaitReindexReachedFinalizing polls /v1/tasks until the reindex task
-// transitions into FINALIZING — i.e. every unit has completed its
+// transitions into FINALIZING - i.e. every unit has completed its
 // reindex iteration on every node and the cluster is about to fire the
 // post-completion swap + schema flip. Used by tests that need to
 // trigger destructive events (rolling restart, SIGKILL) inside the
@@ -224,7 +234,7 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 			// New two-phase barrier (per weaviate/0-weaviate-issues#225 design):
 			// PREPARING is the per-node PREP coordination phase; SWAPPING is
 			// the post-barrier per-node swap phase. FINISHED here means
-			// either window was so short we missed it — the rolling restart
+			// either window was so short we missed it - the rolling restart
 			// will already be too late. Return the observed status so the
 			// test caller can re-tune dataset size / poll cadence rather
 			// than silently passing on a stale repro.
@@ -241,8 +251,8 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 
 // Fails the test if the migration ends before reaching STARTED + at
 // least one IN_PROGRESS unit (weaviate/0-weaviate-issues#239
-// anti-vacuous-pass). Status IN_PROGRESS — not a numeric Progress
-// floor — is the signal: the DTM ThrottledRecorder (3 s window) means
+// anti-vacuous-pass). Status IN_PROGRESS - not a numeric Progress
+// floor - is the signal: the DTM ThrottledRecorder (3 s window) means
 // fast units may only emit one progress=0 update before COMPLETED, so
 // asserting on a non-zero floor flakes on fast CI runners.
 func awaitReindexMidFlight(t *testing.T, restURI, taskID string, timeout time.Duration) {
@@ -260,7 +270,7 @@ func awaitReindexMidFlight(t *testing.T, restURI, taskID string, timeout time.Du
 				t.Fatalf("reindex task %s failed before mid-flight check: %s", taskID, task.Error)
 			}
 			if task.Status == "FINISHED" || task.Status == "PREPARING" || task.Status == "SWAPPING" {
-				t.Fatalf("reindex task %s reached %s before mid-flight check — "+
+				t.Fatalf("reindex task %s reached %s before mid-flight check - "+
 					"dataset too small for the iteration window. Bump totalObjects.",
 					taskID, task.Status)
 			}
@@ -394,7 +404,7 @@ func assertQueryConsistency(t *testing.T, results [][]string) {
 }
 
 // getClassFromNode is LEADER-PROXIED (default GET consistency): fine for
-// cluster-level assertions, never a per-node visibility gate — use
+// cluster-level assertions, never a per-node visibility gate - use
 // reindexhelpers.AwaitTokenizationVisible for gating.
 func getClassFromNode(t *testing.T, restURI, className string) *models.Class {
 	t.Helper()
@@ -437,7 +447,7 @@ func tryImportObject(restURI, className, text string) error {
 }
 
 // tryGetPropertyTokenization is LEADER-PROXIED (default GET consistency):
-// fine for cluster-level assertions, never a per-node visibility gate — use
+// fine for cluster-level assertions, never a per-node visibility gate - use
 // reindexhelpers.AwaitTokenizationVisible for gating. "" = failed/not found.
 func tryGetPropertyTokenization(restURI, className, propName string) string {
 	class, ok := reindexhelpers.FetchClass(restURI, className, false)
@@ -541,7 +551,7 @@ func runBM25QueryOnNodeWithRetry(t *testing.T, restURI, className, query string)
 	return ids, err
 }
 
-// restartCluster cycles every node serially — stop, start, wait for
+// restartCluster cycles every node serially - stop, start, wait for
 // ready, move on. Used by the restart-matrix tests to verify the
 // deferred-finalize design: every per-node migration tracker dir is
 // consumed by FinalizeCompletedMigrations at startup, and follow-up
@@ -549,7 +559,7 @@ func runBM25QueryOnNodeWithRetry(t *testing.T, restURI, className, query string)
 //
 // Full-cluster simultaneous restart is intentionally NOT used here.
 // Stopping all 3 nodes loses RAFT quorum, and the first node to come
-// back up cannot form a leader alone — its readiness check times out.
+// back up cannot form a leader alone - its readiness check times out.
 // Serial restart keeps 2/3 nodes up at every step so RAFT continues to
 // function while each node individually cycles through finalize at
 // startup. This is the same shape as a Kubernetes StatefulSet rolling
@@ -581,12 +591,12 @@ func cycleNodeFastKill(ctx context.Context, t *testing.T, compose *docker.Docker
 // rollingRestartCluster stops + restarts each node ONE AT A TIME,
 // waiting for the node to be ready (and for RAFT to accept writes
 // again) before moving on. Mimics a Kubernetes StatefulSet rolling
-// update — the failure mode that hid https://github.com/weaviate/weaviate/issues/10675 in
+// update - the failure mode that hid https://github.com/weaviate/weaviate/issues/10675 in
 // Frontend Claude's prod environment, where pods rolled at different
 // times produced different on-disk states for the same migration.
 //
 // Without the readiness wait, the test would race the node's
-// FinalizeCompletedMigrations + shard-init + bucket-load — queries to
+// FinalizeCompletedMigrations + shard-init + bucket-load - queries to
 // a not-yet-ready node return 0 across the board even though the
 // promoted canonical dir is present on disk. That manifested as a
 // per-replica `[6 6 0]`/`[0 0 0]` failure that looks identical to the
@@ -648,8 +658,20 @@ func filterMigrationLogLines(s string) []string {
 	}
 	var out []string
 	for _, line := range strings.Split(s, "\n") {
+		matched := false
 		for _, kw := range keywords {
 			if strings.Contains(line, kw) {
+				out = append(out, line)
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+		// Keep panic evidence regardless of keyword match.
+		for _, re := range panicEvidenceLinePatterns {
+			if re.MatchString(line) {
 				out = append(out, line)
 				break
 			}
@@ -711,7 +733,7 @@ type probeFn func(restURI, className string) (int, error)
 //
 // Why this is needed: batchImport / importObjects use the default write
 // consistency, which returns to the caller after a quorum of replicas
-// has acknowledged the write — but the third replica's apply leg can
+// has acknowledged the write - but the third replica's apply leg can
 // still be in flight for hundreds of ms after the POST returns. A
 // baseline captured during that lag window will be smaller than the
 // steady-state count by the lag amount. Subsequent FINALIZING-window
@@ -794,7 +816,7 @@ func allEqualPositive(counts [3]int) bool {
 // pins the looser cluster-wide cutover bound) and
 // TestLiveQueriesDuringChangeTokenization (which pins the tighter
 // per-shard alignment bound under the tokenization overlay) so both
-// tests use identical sampling machinery — only their assertions
+// tests use identical sampling machinery - only their assertions
 // differ.
 func runMigrationWithProbes(
 	t *testing.T,
@@ -857,7 +879,7 @@ func runMigrationWithProbes(
 // Pre/Post counts represent steady-state observations on either side
 // of the cutover. Partial counts are samples that lie inside the
 // open range (min(baseline, expectedAfter), max(baseline, expectedAfter))
-// — the cross-shard cutover spread admits a brief partial window
+// - the cross-shard cutover spread admits a brief partial window
 // during the per-replica swap + cluster-wide schema flip. OutOfRange
 // counts are samples OUTSIDE that range; with the per-shard
 // tokenization overlay in place, no sample should be out-of-range
@@ -872,7 +894,7 @@ type probeClassification struct {
 
 // classifyProbeSamples buckets each non-error sample as Pre (==
 // baseline), Post (== expectedAfter), Partial (inside the open range
-// between them), or OutOfRange (outside that range — the #216
+// between them), or OutOfRange (outside that range - the #216
 // misalignment shape). Logs every partial and out-of-range sample
 // for forensic visibility.
 func classifyProbeSamples(t *testing.T, samples []probeSample, baseline, expectedAfter int, migrationStart time.Time) probeClassification {
@@ -923,7 +945,7 @@ func classifyProbeSamples(t *testing.T, samples []probeSample, baseline, expecte
 // countLatePartials returns the number of non-error samples whose
 // timestamp is after `anchor` and whose count is neither baseline nor
 // expectedAfter. Used by both tests as the post-window convergence
-// guarantee — late partials indicate the cutover has not stabilized
+// guarantee - late partials indicate the cutover has not stabilized
 // after the bounded window closed.
 func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAfter int, anchor, migrationStart time.Time) int {
 	t.Helper()

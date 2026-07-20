@@ -166,27 +166,33 @@ func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64]
 
 // newFilterableToRangeableTask wraps a FilterableToRangeableStrategy in
 // the test infrastructure. Mirrors NewRuntimeFilterableToRangeableTask
-// (the production constructor in inverted_reindexer_filterable_to_rangeable.go)
-// but with two test-side adaptations:
-//
-//  1. schemaManager is nil — the test wrapper overrides OnMigrationComplete
-//     so the schema-flag flip never runs, and the strategy doesn't touch
-//     schemaManager outside that call.
-//  2. The OnMigrationComplete observer is a flag setter, so the baseline
-//     test can assert the hook fired without needing a real RAFT/schema
-//     wire-up.
+// (the production constructor in inverted_reindexer_filterable_to_rangeable.go).
+// The OnMigrationComplete observer is a flag setter, so the baseline test
+// can assert the hook fired without depending on the real implementation's
+// side effects.
 func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableToRangeableStrategyWrapper{
 		FilterableToRangeableStrategy: FilterableToRangeableStrategy{
-			schemaManager: nil, // OnMigrationComplete is overridden below
-			propNames:     []string{propName},
-			generation:    1,
+			propNames:  []string{propName},
+			generation: 1,
 		},
 	}
 
-	selectedProps := map[string]struct{}{propName: {}}
-	cfg := reindexTaskConfig{
+	task := NewShardReindexTaskGeneric(
+		"FilterableToRangeable", idx.logger, wrapped, filterableToRangeableTaskConfig(className, propName),
+		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+	return task, wrapped
+}
+
+// filterableToRangeableTaskConfig builds the reindexTaskConfig shared by
+// every FilterableToRangeableStrategy test task, wrapped
+// ([newFilterableToRangeableTask]) or unwrapped/live
+// ([newLiveFilterableToRangeableTask]): swap+tidy enabled, selection
+// scoped to propName on className, all shards.
+func filterableToRangeableTaskConfig(className, propName string) reindexTaskConfig {
+	return reindexTaskConfig{
 		swapBuckets:                   true,
 		tidyBuckets:                   true,
 		concurrency:                   2,
@@ -198,18 +204,12 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 
 		selectionEnabled: true,
 		selectedPropsByCollection: map[string]map[string]struct{}{
-			className: selectedProps,
+			className: {propName: {}},
 		},
 		selectedShardsByCollection: map[string]map[string]struct{}{
 			className: nil, // nil = all shards
 		},
 	}
-
-	task := NewShardReindexTaskGeneric(
-		"FilterableToRangeable", idx.logger, wrapped, cfg,
-		&UuidKeyParser{}, uuidObjectsIteratorAsync,
-	)
-	return task, wrapped
 }
 
 // testFilterableToRangeableStrategyWrapper overrides OnMigrationComplete

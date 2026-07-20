@@ -190,12 +190,18 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 }
 
 func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
+	if bucket == nil {
+		return fmt.Errorf("shard: no bucket to add map prop '%s' to", key)
+	}
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyInverted)
 
 	return bucket.MapSet(key, pair)
 }
 
 func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+	if bucket == nil {
+		return fmt.Errorf("shard: no bucket to add set prop '%s' docID %d to", key, docID)
+	}
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
@@ -208,7 +214,16 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	return bucket.RoaringSetAddOne(key, docID)
 }
 
+// addToPropertyRangeBucket fails gracefully (descriptive error, no panic)
+// when bucket is nil instead of letting bucket.Strategy() dereference a nil
+// receiver - MustBeExpectedStrategy's first argument reads bucket.strategy
+// unconditionally. A nil bucket here means the caller's bucket-name lookup
+// missed; see resolveDoubleWriteBucket for why the double-write callbacks
+// should very rarely hit this path (GH weaviate/weaviate#12206).
 func (s *Shard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+	if bucket == nil {
+		return fmt.Errorf("shard: no rangeable bucket to add docID %d to", docID)
+	}
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyRoaringSetRange)
 
 	if len(key) != 8 {

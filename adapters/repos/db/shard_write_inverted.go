@@ -57,7 +57,7 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 				// not added to the inverted index
 				continue
 			case schema.DataTypeObject, schema.DataTypeObjectArray:
-				// nested types use dedicated nested buckets — no flat null/length buckets are created for them
+				// nested types use dedicated nested buckets - no flat null/length buckets are created for them
 				continue
 			default:
 			}
@@ -98,20 +98,94 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	}
 
 	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
-	// Mirror the query-path overlay handling (BM25Searcher.effectiveTokenization)
-	// so writes during a change-tokenization SWAPPING window land in the
-	// canonical bucket with TARGET-tokenized keys. weaviate/0-weaviate-issues#240.
-	if overlay := s.tokenizationAnalyzerOverlay(c.Properties); overlay != nil {
+	if overlay := s.writeAnalyzerOverlay(c.Properties); overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
 	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, nestedProps, err
 }
 
+// writeAnalyzerOverlay unions the tokenization overlay
+// (weaviate/0-weaviate-issues#240) and the rangeable force overlay
+// (see [Shard.rangeableForceIndexOverlay]). The two never target the
+// same property in practice; on the union, tokenization would win if
+// they did, but CheckConflict rejects two migrations racing the same
+// property's flag concurrently, so that case can't occur.
+func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+	overlay := s.tokenizationAnalyzerOverlay(props)
+	forced := s.rangeableForceIndexOverlay(props)
+	if len(forced) == 0 {
+		return overlay
+	}
+	if overlay == nil {
+		return forced
+	}
+	for name, f := range forced {
+		if _, exists := overlay[name]; !exists {
+			overlay[name] = f
+		}
+	}
+	return overlay
+}
+
+// rangeableForceIndexOverlay closes the post-swap pre-flip write-loss
+// window opened by the deferred schema flip (weaviate/weaviate#12189):
+// once a property is locally ready ([Shard.IsRangeableLocallyReady]) but
+// the cluster-wide IndexRangeFilters flag hasn't flipped, a write
+// analyzed under the pre-flip schema would miss the already-canonical
+// rangeable bucket (the migration's double-write callbacks are torn
+// down at swap). This overlay forces the property to analyze as
+// rangeable in that window.
+//
+// Symmetric to the read-side gate (IsRangeableLocallyReady): reads fall
+// back to filterable until local-ready; writes force the flag on once
+// local-ready, until the schema catches up.
+//
+// Self-limiting:
+//   - Stops the instant the cluster flag flips (HasRangeableIndex
+//     becomes true and the loop skips the property).
+//   - Never fires pre-swap: IsRangeableLocallyReady is false, so
+//     double-write/backfill covers writes instead.
+//   - Never fires for repair-rangeable: its flag is already true before
+//     the migration starts.
+//   - Never fires for a never-migrated property: its bucket doesn't
+//     exist, so the bucket-existence fallback returns false.
+//
+// Fast exit: len(s.rangeableLocalReady)==0 is a safe "never needs
+// forcing" proxy only because shard init unconditionally populates that
+// map for every property the on-disk migration history ever named (see
+// [seedRangeableLocalReadyFromMigrationHistory] and
+// [markInFlightRangeableMigrationsNotReady]); rangeableLocalReadyHistoryUnknown
+// covers the one case that scan can't resolve. See
+// BenchmarkRangeableForceIndexOverlay_SteadyState for the measured cost.
+func (s *Shard) rangeableForceIndexOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+	s.rangeableLocalReadyMu.RLock()
+	noRangeableHistory := len(s.rangeableLocalReady) == 0
+	s.rangeableLocalReadyMu.RUnlock()
+	if noRangeableHistory && !s.rangeableLocalReadyHistoryUnknown.Load() {
+		return nil
+	}
+
+	var out map[string]inverted.PropertyOverlay
+	for _, p := range props {
+		if p == nil || inverted.HasRangeableIndex(p) {
+			continue
+		}
+		if !s.IsRangeableLocallyReady(p.Name) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]inverted.PropertyOverlay, len(props))
+		}
+		out[p.Name] = inverted.PropertyOverlay{ForceRangeable: true}
+	}
+	return out
+}
+
 // tokenizationAnalyzerOverlay projects the per-shard tokenization
 // overlay onto the inverted-analyzer PropertyOverlay shape. Only
-// `Tokenization` is populated — the Force* flags are owned by
-// from-scratch backfill strategies and must not affect ordinary writes.
+// `Tokenization` is populated; Force* flags come from the separate
+// rangeable force overlay, merged in by [Shard.writeAnalyzerOverlay].
 func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

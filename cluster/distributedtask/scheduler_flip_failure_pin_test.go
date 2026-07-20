@@ -68,14 +68,11 @@ func (p *flipFailingProvider) snapshot() (calls int, flipped bool) {
 	return p.completedCalls, p.schemaFlipped
 }
 
-// runFlipScenario drives one task STARTED -> SWAPPING -> (attempted) FINISHED
-// and returns the final status plus the observed flip result.
-// submitTaskToSwapping wires prov into a fresh harness, adds one non-barrier
-// task, drives its unit to completion so the task reaches SWAPPING (where
-// OnTaskCompleted fires), asserts that precondition, and starts the scheduler.
-// base is prov's embedded testTaskProvider, registered explicitly so
-// drain/leaktest see its goroutines. Shared by the flip-failure and retry pins;
-// the caller owns h.Close().
+// submitTaskToSwapping wires prov into a fresh harness, adds one
+// non-barrier task, and drives it to SWAPPING (where OnTaskCompleted
+// fires) before starting the scheduler. base is prov's embedded
+// testTaskProvider, registered so drain/leaktest see its goroutines.
+// Caller owns h.Close().
 func submitTaskToSwapping(t *testing.T, prov Provider, base *testTaskProvider, taskID string) *testHarness {
 	t.Helper()
 
@@ -104,6 +101,8 @@ func submitTaskToSwapping(t *testing.T, prov Provider, base *testTaskProvider, t
 	return h
 }
 
+// runFlipScenario drives one task STARTED -> SWAPPING -> (attempted)
+// FINISHED and returns the final status plus the observed flip result.
 func runFlipScenario(t *testing.T, prov *flipFailingProvider) (TaskStatus, int, bool) {
 	t.Helper()
 	h := submitTaskToSwapping(t, prov, prov.testTaskProvider, "flip-task")

@@ -44,7 +44,7 @@ import (
 // authoritative predicate):
 //
 //   - "Semantic" migrations are the ones that change query
-//     semantics for the migrated property — change-tokenization,
+//     semantics for the migrated property - change-tokenization,
 //     change-tokenization-filterable, enable-filterable, enable-searchable.
 //     These get the full barrier dance: every shard reindexes first
 //     (RunReindexOnlyOnShard), and only after every unit is terminal does
@@ -53,7 +53,7 @@ import (
 //     No shard serves new data until ALL shards are ready. This is where
 //     the SWAPPING-window tokenization overlay lives.
 //
-//   - "Format-only" migrations don't change query semantics — they only
+//   - "Format-only" migrations don't change query semantics - they only
 //     change the on-disk bucket format. enable-rangeable, repair-rangeable,
 //     repair-filterable, repair-searchable (Map→Blockmax), and the
 //     RoaringSetRefresh strategy fall in this bucket. Each shard runs the
@@ -63,7 +63,7 @@ import (
 // Note on enable-rangeable: it is intentionally NOT classified as
 // semantic. Range queries' correctness during the migration is gated
 // by the per-shard rangeableLocalReady flag (see [Shard.rangeableLocalReady]),
-// not by the barrier dance — falling back to the filterable bucket walk
+// not by the barrier dance - falling back to the filterable bucket walk
 // on shards that haven't completed locally is slow but correct.
 type ReindexProvider struct {
 	mu       sync.Mutex
@@ -77,7 +77,7 @@ type ReindexProvider struct {
 
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
 	// fires after StartTask's per-task goroutine has already returned (its ctx
-	// is gone by then), so we cannot use the per-task ctx for the swap phase —
+	// is gone by then), so we cannot use the per-task ctx for the swap phase  -
 	// we derive from the server ctx instead so a graceful shutdown can abort
 	// long-running swaps.
 	serverCtx context.Context
@@ -98,9 +98,9 @@ type ReindexProvider struct {
 
 	// activeWorkers tracks units that currently have a per-unit goroutine
 	// inside processOneUnit's iteration body. The re-entry guard reads
-	// this (not the reindexTasks cache) so post-restart recovery — which
+	// this (not the reindexTasks cache) so post-restart recovery - which
 	// seeds reindexTasks via [SeedReindexTaskCache] for OnGroupCompleted's
-	// callback preservation — does NOT short-circuit the resumed unit.
+	// callback preservation - does NOT short-circuit the resumed unit.
 	// weaviate/0-weaviate-issues#239 Mode 2.
 	//
 	// Guarded by [mu]. Set after the guard, cleared from a defer so any
@@ -117,9 +117,9 @@ type ReindexProvider struct {
 	// alongside the DTM activity lookup so a backup landing in the
 	// "task is terminal in DTM but [autoCleanupAfterTerminal] is still
 	// tearing __reindex / __ingest sidecars" gap sees the shard as
-	// busy and refuses. Refcount (not bool) so re-entrant cleanups —
+	// busy and refuses. Refcount (not bool) so re-entrant cleanups  -
 	// two terminal-state transitions on different (property,
-	// indexType) tuples sharing the same shard — don't lose each
+	// indexType) tuples sharing the same shard - don't lose each
 	// other's registration.
 	cleanupInProgress map[reindexCleanupKey]int
 }
@@ -211,8 +211,8 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 // SeedReindexTaskCache pre-populates the per-descriptor task cache with
 // instances reconstructed during startup recovery (see
 // [DiscoverInFlightReindexTasks] and [RegisterRecoveredReindexes]). The
-// purpose is to make OnGroupCompleted reuse the recovered instances —
-// whose double-write callbacks were re-registered during shard init —
+// purpose is to make OnGroupCompleted reuse the recovered instances  -
+// whose double-write callbacks were re-registered during shard init  -
 // rather than fall through to the rehydrate branch and call
 // OnAfterLsmInit a second time (which would attempt to load already
 // loaded ingest buckets).
@@ -362,7 +362,7 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 	// checkProcessingEveryNoObjects iterations (default 1000). p.recorder
 	// is the scheduler-provided recorder, already wrapped in a global
 	// ThrottledRecorder (see Scheduler.Start) that caps per-unit writes
-	// at 3s — sufficient for the GET /indexes poller without flooding
+	// at 3s - sufficient for the GET /indexes poller without flooding
 	// Raft. No additional throttle is needed here.
 	enterrors.GoWrapper(func() {
 		defer func() {
@@ -413,7 +413,7 @@ func (p *ReindexProvider) processUnits(
 
 // processOneUnit executes reindex on a single unit (shard replica).
 // For semantic migrations (e.g. change-tokenization), the task is cached so that
-// OnGroupCompleted can reuse the same instance to run the swap phase — this
+// OnGroupCompleted can reuse the same instance to run the swap phase - this
 // preserves double-write callbacks registered during reindex.
 func (p *ReindexProvider) processOneUnit(
 	ctx context.Context,
@@ -462,7 +462,7 @@ func (p *ReindexProvider) processOneUnit(
 
 	// Re-entry guard. The DTM scheduler can relaunch our task handle a
 	// few tens of ms after the previous handle's per-unit goroutines
-	// finished — wg.Wait() returns once recordUnitCompletion is called
+	// finished - wg.Wait() returns once recordUnitCompletion is called
 	// from the worker, but the RAFT apply that flips the unit to
 	// Completed (and lets the scheduler skip the relaunch) races the
 	// next scheduler tick. We've observed the two "starting unit" logs
@@ -471,7 +471,7 @@ func (p *ReindexProvider) processOneUnit(
 	//
 	// Without this guard, the relaunched processOneUnit calls
 	// createReindexTasks(rehydrate=false), which picks
-	// nextMigrationGeneration = max(existing)+1 = N+1 — a different
+	// nextMigrationGeneration = max(existing)+1 = N+1 - a different
 	// generation than the previous, in-flight run at gen N. The new
 	// tasks (gen N+1) get written into p.reindexTasks[desc][unitID],
 	// clobbering the gen-N task instances that OnGroupCompleted relies
@@ -485,7 +485,7 @@ func (p *ReindexProvider) processOneUnit(
 	// the iteration body right now"), NOT the `reindexTasks` cache.
 	// weaviate/0-weaviate-issues#239 Mode 2: post-restart recovery
 	// seeds `reindexTasks` so OnGroupCompleted can reuse the in-flight
-	// task instances with their registered double-write callbacks —
+	// task instances with their registered double-write callbacks  -
 	// using the cache as the guard signal trapped the resumed unit
 	// forever after a leader restart (the QA c01-leader-postfix repro
 	// + the local TestMultiNode_GracefulLeaderRestartDuringReindex
@@ -501,7 +501,7 @@ func (p *ReindexProvider) processOneUnit(
 	// Use cached task instances when present. Two populating paths land
 	// here: (a) post-restart [SeedReindexTaskCache] for callback-preserving
 	// resume; (b) the FSM-lag re-entry case where the previous worker
-	// cached gen-N tasks before exiting — reusing them avoids the gen-N+1
+	// cached gen-N tasks before exiting - reusing them avoids the gen-N+1
 	// clobber the old guard existed to prevent.
 	var (
 		tasks  []*ShardReindexTaskGeneric
@@ -557,7 +557,7 @@ func (p *ReindexProvider) processOneUnit(
 	// See [ReindexProvider.persistRecoveryRecord] for the on-disk shape.
 	//
 	// Guarded: SaveRecoveryPayload MkdirAll's the migration dir on a
-	// goroutine holding no closeLock — same re-materialization race as
+	// goroutine holding no closeLock - same re-materialization race as
 	// newReindexTrackerGuarded.
 	if err := concreteShard.Index().withCloseRLockGuard(func() error {
 		return p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks)
@@ -622,7 +622,7 @@ const maxReindexPropertiesPerTask = 1024
 // the shard's local on-disk state. When rehydrate is true (called from
 // [OnGroupCompleted]'s rehydrate path after a process restart lost the
 // in-memory task cache), the generation is the highest existing
-// in-flight one on disk — we want to reconstruct the SAME strategy
+// in-flight one on disk - we want to reconstruct the SAME strategy
 // instance the original processOneUnit constructed. When rehydrate is
 // false (the fresh-task path from processOneUnit), the generation is
 // `max(existing) + 1`.
@@ -630,7 +630,7 @@ const maxReindexPropertiesPerTask = 1024
 // See `docs/runtime-reindex.md` for the deferred-finalize + per-migration-
 // generation design rationale.
 func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPath string, rehydrate bool) ([]*ShardReindexTaskGeneric, error) {
-	// Every migration type requires at least one property — repair-* / enable-*
+	// Every migration type requires at least one property - repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
 	// needs exactly one property. Check up front so each arm only deals with
 	// its unique constraints.
@@ -647,7 +647,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 	// (e.g. "_text" or sorted-joined "_p1_p2", or "" for class-level
 	// strategies). The ok return is always true on the normal path
 	// (rehydrate=false). On rehydrate=true, ok=false means there is no
-	// in-flight migration for this strategy on disk — every prior
+	// in-flight migration for this strategy on disk - every prior
 	// generation's tracker dir was already cleaned up by either
 	// `FinalizeCompletedMigrations` (at startup) or the end-of-swap trim
 	// (in-process). The caller MUST skip task instantiation in that case;
@@ -665,7 +665,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 
 	// On the normal path (rehydrate=false) genFor always returns ok=true.
 	// On rehydrate (post-restart) ok=false means the strategy has no
-	// in-flight on-disk state — `FinalizeCompletedMigrations` at startup
+	// in-flight on-disk state - `FinalizeCompletedMigrations` at startup
 	// or the end-of-swap trim already cleaned up. Re-instantiating with
 	// a fabricated gen would fail at runtimeSwap with "reindex bucket
 	// not found", so callers skip task instantiation in that case.
@@ -698,7 +698,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 		}, nil
 
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		// Repair-rangeable uses the same strategy as enable-rangeable —
+		// Repair-rangeable uses the same strategy as enable-rangeable  -
 		// rangeable is rebuilt from the existing filterable bucket either
 		// way. The validator at submit time gates which one is allowed
 		// based on the property's current IndexRangeFilters state.
@@ -707,7 +707,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
+			NewRuntimeFilterableToRangeableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
@@ -799,7 +799,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 
 // propsSuffix returns the "_p1_p2..." prop-names suffix that
 // migrationDirWithProps appends after a strategy prefix. Returns "" for
-// empty prop slices. Kept in sync with [migrationDirWithProps] — must
+// empty prop slices. Kept in sync with [migrationDirWithProps] - must
 // produce the same suffix string the strategy's MigrationDirName() will
 // emit, so [nextMigrationGeneration] / [maxMigrationGeneration] scan
 // against the same target.
@@ -818,7 +818,7 @@ func propsSuffix(propNames []string) string {
 // propertyHasFilterableBucket reports whether the named property carries
 // a filterable inverted index according to the live schema. Used by
 // [createReindexTasks] to decide whether ChangeTokenization's filterable
-// sub-task should be created — submitting it for a filterable=false
+// sub-task should be created - submitting it for a filterable=false
 // property would spawn a retokenize on a non-existent source bucket and
 // fail the swap.
 //
@@ -828,7 +828,7 @@ func propsSuffix(propNames []string) string {
 // list is empty.
 func (p *ReindexProvider) propertyHasFilterableBucket(className, propName string) bool {
 	if p.schemaManager == nil {
-		// Defensive default: behave as the pre-change code would have —
+		// Defensive default: behave as the pre-change code would have  -
 		// dispatch both sub-tasks. The downstream swap failure mode is
 		// the same as before the precheck was added.
 		return true
@@ -873,7 +873,7 @@ func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskP
 // "started" forever and the scheduler will not retry it on this node
 // (it only re-schedules units that have a terminal status). The
 // scheduler's task-level retry only fires when ALL local units are
-// terminal — a single un-recorded failure can therefore wedge the task.
+// terminal - a single un-recorded failure can therefore wedge the task.
 //
 // Retry the recorder call a few times with backoff to ride out transient
 // RAFT issues. If the retries also fail, log the recorder error with the
@@ -881,9 +881,9 @@ func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskP
 // it manually (recording the failure is idempotent because the FSM keys
 // by (taskID, version, nodeID, unitID)).
 //
-// Permanent FSM rejections — "task does not exist", "task is no longer
+// Permanent FSM rejections - "task does not exist", "task is no longer
 // running", "unit ... is already terminal", "unit ... belongs to node X
-// not Y" — are NOT retried: the FSM is in a stable state where another
+// not Y" - are NOT retried: the FSM is in a stable state where another
 // retry will return the same error. We log them at warning level (not
 // the loud "manual operator action required" alarm) because the FSM is
 // internally consistent; the local node just lost a race.
@@ -910,7 +910,7 @@ func (p *ReindexProvider) failUnit(
 		lastErr = recErr
 
 		// Permanent FSM rejection: retry won't help. Log at warning level
-		// and exit — no operator action required, the FSM is in a stable
+		// and exit - no operator action required, the FSM is in a stable
 		// state.
 		if isPermanentRecorderRejection(logger, recErr) {
 			logger.WithField("originalFailure", errMsg).WithField("recorderError", recErr.Error()).
@@ -968,7 +968,7 @@ func (p *ReindexProvider) failUnit(
 // SubCommand) is technically permanent too but is deliberately NOT
 // matched: applyDistributedTaskCommand marshals the request itself, so
 // a malformed SubCommand reaching the Manager is a same-binary bug
-// rather than a recoverable FSM state — it should surface as the loud
+// rather than a recoverable FSM state - it should surface as the loud
 // alarm, not the quiet warning.
 func isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
 	if err == nil {
@@ -1036,7 +1036,7 @@ type reindexRecoveryRecord struct {
 // same record is written into each.
 //
 // lsmPath must be the concrete shard's LSM directory
-// (<data>/<index>/<shard>/lsm) — the migration sub-directory under
+// (<data>/<index>/<shard>/lsm) - the migration sub-directory under
 // <lsmPath>/.migrations/<dir>/ is what holds the per-strategy sentinels
 // and the new payload.mig file.
 func (p *ReindexProvider) persistRecoveryRecord(
@@ -1099,7 +1099,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
 	}
 
-	// Cache miss — instantiate from disk.
+	// Cache miss - instantiate from disk.
 	concreteShard, unwrapErr := unwrapShard(ctx, resolvedShard)
 	if unwrapErr != nil {
 		logger.WithField("unit", unitID).
@@ -1152,7 +1152,7 @@ func (p *ReindexProvider) runShardPrepPhase(
 		if rehydrate {
 			if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-					Errorf("reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)
+					Errorf("reindex provider: shard prep - rehydrate failed; prep will not run for this task: %v", err)
 				out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
 				if errors.Is(err, context.Canceled) {
 					out.SawContextCanceled = true
@@ -1163,7 +1163,7 @@ func (p *ReindexProvider) runShardPrepPhase(
 		}
 		if err := reindexTask.RunPrepareOnShard(ctx, shard); err != nil {
 			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-				Errorf("reindex provider: shard prep — prep failed; swap will not run for this task: %v", err)
+				Errorf("reindex provider: shard prep - prep failed; swap will not run for this task: %v", err)
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
 				out.SawContextCanceled = true
@@ -1194,14 +1194,14 @@ func (p *ReindexProvider) runShardSwapPhase(
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
 	if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Warnf("reindex provider: cannot wire tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
+			Warnf("reindex provider: cannot wire tokenization overlay - shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
 	}
 	overlayWasSet := maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
 	for _, reindexTask := range unitTasks {
 		if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
 			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-				Errorf("reindex provider: shard swap — swap failed; migration is half-applied on this shard: %v", err)
+				Errorf("reindex provider: shard swap - swap failed; migration is half-applied on this shard: %v", err)
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
 				out.SawContextCanceled = true
@@ -1216,7 +1216,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 	// claiming the new tokenization while buckets still hold old data.
 	if maybeClearTokenizationOverlayOnAllFailed(setShard, payload, overlayWasSet, anySwapped) {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Debug("reindex provider: cleared tokenization overlay — every swap sub-task failed; no bucket pointer was flipped on this shard")
+			Debug("reindex provider: cleared tokenization overlay - every swap sub-task failed; no bucket pointer was flipped on this shard")
 	}
 
 	if allSwapped {
@@ -1224,7 +1224,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 			Info("reindex provider: swap complete")
 	} else {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; the cluster-wide post-completion ack will report this as a failure")
+			Error("reindex provider: swap INCOMPLETE for this shard - at least one task's RunSwapOnShard returned an error; the cluster-wide post-completion ack will report this as a failure")
 	}
 	return out
 }
@@ -1238,7 +1238,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 // When parallel=true the runPhase callbacks fire concurrently across
 // units. Used by the SWAP path to keep the per-replica user-observable
 // cutover window bounded by max(per-shard runtimeSwap) rather than
-// Σ(per-shard runtimeSwap) — without parallelism, each shard's inline
+// Σ(per-shard runtimeSwap) - without parallelism, each shard's inline
 // post-pointer-flip work (oldBucket.Shutdown drain, dir rename, trim)
 // serializes the NEXT shard's pointer flip, which makes the partial-
 // results window grow linearly in shard count and is the regression
@@ -1257,7 +1257,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 // When parallel=false the loop is sequential (legacy behavior). Used
 // by the PREP path where heavy IO (FlushAndSwitch, ShutdownBucket,
 // PrependSegmentsFromBucket) per shard would compound under
-// parallelism — and where the latency doesn't affect the user-
+// parallelism - and where the latency doesn't affect the user-
 // observable query-consistency window because queries during PREP
 // still see the OLD tokenization.
 func (p *ReindexProvider) runPerUnitPhase(
@@ -1349,12 +1349,12 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 
 	// Recovery-replay short-circuit. The scheduler can invoke
 	// OnGroupCompleted for a task whose terminal state was reached in a
-	// prior process lifetime — FINISHED, FAILED, or CANCELLED tasks
+	// prior process lifetime - FINISHED, FAILED, or CANCELLED tasks
 	// rehydrated during startup recovery, or replayed when a node rejoins
 	// the cluster with a stale RAFT log. For semantic migrations the swap
 	// dirs are long gone by then (markTidied + the per-shard
 	// trimOlderGenerations call removed them), so any attempt to re-run
-	// runtimeSwap would error with "reindex bucket %q not found" — noise
+	// runtimeSwap would error with "reindex bucket %q not found" - noise
 	// only since the ack barrier in [Manager.RecordPostCompletionAck]
 	// drops acks on terminal tasks (correctness unaffected), but every
 	// operator restart spams an ERROR log entry per local unit that
@@ -1389,20 +1389,20 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	className := entschema.ClassName(payload.Collection)
 	idx := p.db.GetIndex(className)
 	if idx == nil {
-		logger.Error("reindex provider: group-completion — collection not found")
+		logger.Error("reindex provider: group-completion - collection not found")
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
 	// Atomic-phase contract (full picture, see file-level godoc on
 	// inverted_reindex_task_generic.go for the per-strategy detail):
 	//
-	//   1. PREP (RunPrepareOnShard, per task) — disk-I/O-heavy work:
+	//   1. PREP (RunPrepareOnShard, per task) - disk-I/O-heavy work:
 	//      FlushAndSwitch reindex bucket, ShutdownBucket, Prepend.
-	//   2. OVERLAY WIRING — maybeWirePerPropOverlaySet. Installs the
+	//   2. OVERLAY WIRING - maybeWirePerPropOverlaySet. Installs the
 	//      per-prop onPropSwapped hook on each task so the overlay is
 	//      SET atomically with that prop's bucket-pointer flip in
 	//      phase 3.
-	//   3. ATOMIC SWAP (RunSwapOnShard, per task) — in-memory
+	//   3. ATOMIC SWAP (RunSwapOnShard, per task) - in-memory
 	//      bucket-pointer flip + per-prop sentinel fsync + per-prop
 	//      overlay set, all in the Phase 2a tight loop. The disk
 	//      dirs aren't renamed here; that's deferred to next startup
@@ -1456,7 +1456,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Warn("reindex provider: prep phase incomplete; skipping overlay set + atomic swap for this shard")
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Error("reindex provider: swap INCOMPLETE for this shard — prep phase failed; the cluster-wide post-completion ack will report this as a failure")
+			Error("reindex provider: swap INCOMPLETE for this shard - prep phase failed; the cluster-wide post-completion ack will report this as a failure")
 		return out
 	}
 
@@ -1485,7 +1485,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 
 	payload, err := p.loadPayload(task)
 	if err != nil {
-		logger.Errorf("reindex provider: swap-requested — failed to load payload: %v", err)
+		logger.Errorf("reindex provider: swap-requested - failed to load payload: %v", err)
 		return fmt.Errorf("load payload: %w", err)
 	}
 
@@ -1500,7 +1500,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	className := entschema.ClassName(payload.Collection)
 	idx := p.db.GetIndex(className)
 	if idx == nil {
-		logger.Error("reindex provider: swap-requested — collection not found")
+		logger.Error("reindex provider: swap-requested - collection not found")
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
@@ -1509,7 +1509,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	// event) and then per-shard post-flip work (Shutdown drain, dir
 	// rename, sentinel writes, trim). Parallel across this node's units
 	// so the post-flip work on shard A does NOT serialize the pointer
-	// flip on shard B — without this the per-replica cutover window
+	// flip on shard B - without this the per-replica cutover window
 	// grows linearly in shard count. Per-shard state is structurally
 	// disjoint (see runPerUnitPhase godoc).
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
@@ -1520,7 +1520,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 }
 
 // onSwapRequestedRunPhaseForUnit runs OVERLAY+SWAP. On rehydrate (cache
-// miss after restart), it first re-runs PREP — idempotent at merged.mig —
+// miss after restart), it first re-runs PREP - idempotent at merged.mig  -
 // so OnAfterLsmInit registers double-write callbacks before SWAP.
 func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	ctx context.Context,
@@ -1596,11 +1596,13 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	}
 	if payloadErr != nil {
 		logger.Errorf("reindex provider: task-completion: failed to load payload; schema flip will not run: %v", payloadErr)
-		// An unparsable payload never becomes parsable — permanent.
+		// An unparsable payload never becomes parsable - permanent.
 		return fmt.Errorf("load payload for schema flip: %w: %w", payloadErr, distributedtask.ErrTaskCompletionPermanent)
 	}
-	if !IsSemanticMigration(payload.MigrationType) {
-		// Format-only migrations flip their metadata inside RunSwapOnShard.
+	if !needsClusterWideFlipAtCompletion(payload.MigrationType) {
+		// Truly format-only migrations (rebuild-searchable, repair-filterable,
+		// same-strategy roaring-set refresh) flip no schema flag at all - the
+		// bucket swap alone is the whole cutover.
 		return nil
 	}
 
@@ -1608,11 +1610,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	// scheduler tick fires OnTaskCompleted).
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
-		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
+		logger.Errorf("reindex provider: task-completion: %s schema flip failed for %q; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state) - re-issue the original reindex request to retry (idempotent; no-ops if already applied): %v",
+			payload.MigrationType, payload.Collection, err)
 		// Leave the overlay in place: buckets are NEW-tokenized but the
-		// schema is still pre-flip on this node — the overlay keeps queries
+		// schema is still pre-flip on this node - the overlay keeps queries
 		// aligned until either a retry lands or TokenizationFor self-clears.
-		return fmt.Errorf("schema flip: %w", err)
+		return fmt.Errorf("%s schema flip: %w", payload.MigrationType, err)
 	}
 
 	if IsTokenizationChangingMigration(payload.MigrationType) {
@@ -1652,7 +1655,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // every shard the task touched in [cleanupInProgress] before
 // CleanStalePartialReindexState fires (and unregistering after) makes
 // "cleanup is still happening on this shard" an explicit state the
-// gate consults — closing the cleanup-vs-status-visibility gap the
+// gate consults - closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
@@ -1667,8 +1670,8 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}
 	// Register every shard the task touched as "cleanup in progress"
 	// for the duration of the per-(property, indexType) teardown loop.
-	// The unregister fires from the defer so any return path — including
-	// a panic inside CleanStalePartialReindexState — releases the slot.
+	// The unregister fires from the defer so any return path - including
+	// a panic inside CleanStalePartialReindexState - releases the slot.
 	shards := uniqueShardsFromPayload(payload)
 	for _, shardName := range shards {
 		p.registerCleanup(payload.Collection, shardName)
@@ -1693,7 +1696,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 
 // uniqueShardsFromPayload returns the distinct shard names referenced
 // in payload.UnitToShard. Used by [autoCleanupAfterTerminal] to register
-// each shard exactly once in [cleanupInProgress] — multiple units can
+// each shard exactly once in [cleanupInProgress] - multiple units can
 // map to the same shard for multi-property migrations.
 func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
 	if len(payload.UnitToShard) == 0 {
@@ -1750,7 +1753,7 @@ func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
 // currently tearing partial sidecar state on (collection, shard).
 //
 // Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard]
-// answer must include this signal — the DTM activity lookup it wraps
+// answer must include this signal - the DTM activity lookup it wraps
 // flips a task to terminal as soon as the FSM lands, but the
 // node-local sidecar buckets are still being shut down for tens of
 // seconds after that. A backup that snapshots the shard in that gap
@@ -1828,7 +1831,7 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 // command an operator should issue to recover from a FAILED semantic
 // migration. The failure mode it targets: sub-tasks that swapped BEFORE
 // the failed sibling left their bucket NEW-tokenized while the cluster-
-// wide schema flip was correctly skipped — every query against the
+// wide schema flip was correctly skipped - every query against the
 // affected inverted index returns 0 until the index is rebuilt against
 // the current schema.
 func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload) {
@@ -1839,13 +1842,14 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 		// Reserved for a future whole-collection rebuild. No targeted
 		// guidance possible; the generic operator runbook applies.
 		logger.Errorf(
-			"reindex provider: %s on %s FAILED with empty Properties; manual repair guidance not available — inspect /v1/tasks and consider rebuild on every affected inverted index",
-			payload.MigrationType, payload.Collection)
+			"reindex provider: %s on %s FAILED with empty Properties; manual repair guidance not available - inspect /v1/tasks and consider rebuild on every affected inverted index",
+			payload.MigrationType, payload.Collection,
+		)
 		return
 	}
 	for _, propName := range payload.Properties {
 		// The repair body rebuilds every index the migration could have
-		// torn — we can't tell from here which sub-task failed, and
+		// torn - we can't tell from here which sub-task failed, and
 		// rebuild is idempotent on a healthy index.
 		var repairBody string
 		switch payload.MigrationType {
@@ -1869,22 +1873,24 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 			"migration_type": payload.MigrationType,
 			"repair_command": fmt.Sprintf(
 				"PUT /v1/schema/%s/indexes/%s %s",
-				payload.Collection, propName, repairBody),
+				payload.Collection, propName, repairBody,
+			),
 		}).Errorf(
 			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
 				"that committed their swap BEFORE the failure left the "+
 				"canonical inverted bucket holding new-tokenization "+
 				"data while the schema reverted to pre-migration state "+
-				"— issue the repair_command above to rebuild the "+
+				" -  issue the repair_command above to rebuild the "+
 				"affected inverted index(es) from raw objects against "+
 				"the current schema",
-			payload.MigrationType, payload.Collection, propName)
+			payload.MigrationType, payload.Collection, propName,
+		)
 	}
 }
 
 // LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
 // Returns false iff at least one tracker dir on this node is started but
-// neither tidied nor merged — the signature of a swap interrupted mid-flight.
+// neither tidied nor merged - the signature of a swap interrupted mid-flight.
 // Returning false makes the scheduler bootstrap re-fire OnGroupCompleted so
 // the rehydrate path completes the swap; without it, a half-applied local
 // swap could leave this node at OLD tokenization after a cluster-wide
@@ -1961,7 +1967,7 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		ReindexTypeRepairFilterable,
 		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits
-		// LocalCallbacksDone's recovery check — they don't go through
+		// LocalCallbacksDone's recovery check - they don't go through
 		// the swap barrier so there's nothing to recover at this layer.
 		return nil
 	}
@@ -1970,7 +1976,7 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 
 // hasUntidiedTracker returns true iff at least one of the named tracker
 // prefixes has a generation directory on disk that has started.mig but
-// neither tidied.mig nor merged.mig — the signature of a swap that
+// neither tidied.mig nor merged.mig - the signature of a swap that
 // began but did not commit. Trackers that have tidied/merged are NOT a
 // recovery signal (they are completed migrations waiting for the next
 // restart's FinalizeCompletedMigrations to promote them to canonical).
@@ -1999,7 +2005,7 @@ func hasUntidiedTracker(lsmPath string, prefixes []string) bool {
 			continue
 		}
 		// Tracker dir exists for this strategy but neither tidied.mig
-		// nor merged.mig is present — local swap was interrupted.
+		// nor merged.mig is present - local swap was interrupted.
 		return true
 	}
 	return false
@@ -2043,7 +2049,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		}
 		if len(missing) > 0 {
 			// Single-property migration: a property deleted between submit
-			// and finalize can never be flipped — permanent (weaviate/0-weaviate-issues#297).
+			// and finalize can never be flipped - permanent (weaviate/0-weaviate-issues#297).
 			return fmt.Errorf("property %v not found in class %q at finalize: %w",
 				missing, payload.Collection, distributedtask.ErrTaskCompletionPermanent)
 		}
@@ -2093,7 +2099,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		return nil
 
 	case ReindexTypeChangeAlgorithm:
-		// Defer until every local searchable bucket is blockmax — submit is
+		// Defer until every local searchable bucket is blockmax - submit is
 		// per-property, so the class may still have map buckets.
 		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
 			return err
@@ -2106,14 +2112,39 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		logger.Info("reindex provider: change-algorithm cutover committed")
 		return nil
 
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		// repair-rangeable's flag is already true before it starts
+		// (submit-time validator), so this is a no-op for it; only
+		// enable-rangeable's first run actually flips anything. A missing
+		// property is silently skipped, so this never returns
+		// [distributedtask.ErrTaskCompletionPermanent] - a rangeable flip
+		// failure is always transient for retry classification
+		// (weaviate/0-weaviate-issues#297).
+		trueVal := true
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+			[]string{api.PropertyFieldIndexRangeFilters},
+			func(prop *models.Property) bool {
+				if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+					return false // already enabled
+				}
+				prop.IndexRangeFilters = &trueVal
+				return true
+			})
+		if err != nil {
+			return fmt.Errorf("flip indexRangeFilters: %w", err)
+		}
+		logger.Info("reindex provider: enable-rangeable/repair-rangeable cutover committed")
+		return nil
+
 	default:
-		// IsSemanticMigration above gates this; reaching here is a programming error.
-		return fmt.Errorf("unexpected semantic migration type %q in task-completion", payload.MigrationType)
+		// needsClusterWideFlipAtCompletion above gates this; reaching here
+		// is a programming error.
+		return fmt.Errorf("unexpected migration type %q in task-completion schema flip", payload.MigrationType)
 	}
 }
 
 // shouldDeferBlockmaxFlip is true while any local searchable bucket is still
-// on the source (map) strategy — defers the cluster-wide flip until every
+// on the source (map) strategy - defers the cluster-wide flip until every
 // per-property ChangeAlgorithm has drained (weaviate/0-weaviate-issues#254).
 func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
@@ -2144,16 +2175,17 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 		return nil
 	})
 	if stillMap {
-		logger.Info("reindex provider: change-algorithm cutover deferred — some searchable buckets still on map (subsequent per-property migration will complete the flip)")
+		logger.Info("reindex provider: change-algorithm cutover deferred - some searchable buckets still on map (subsequent per-property migration will complete the flip)")
 		return true, nil
 	}
 	return false, nil
 }
 
-// IsSemanticMigration returns true for migration types that change query
-// behavior and therefore require the cross-replica swap barrier + cluster-
-// wide schema flip after every node has acknowledged. enable-rangeable is
-// intentionally NOT semantic — predates the barrier family.
+// IsSemanticMigration returns true for types that require the
+// cross-replica swap barrier (PREP/SWAP split, NeedsPreparationBarrier,
+// OnGroupCompleted/OnSwapRequested). enable-rangeable/repair-rangeable
+// are NOT semantic by this definition - they run inline with no
+// barrier; see [needsClusterWideFlipAtCompletion] for when their flip lands.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
@@ -2162,10 +2194,24 @@ func IsSemanticMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeAlgorithm
 }
 
+// needsClusterWideFlipAtCompletion returns true for types whose schema
+// flag flip must wait for [ReindexProvider.OnTaskCompleted] rather than
+// happening inline per-shard: every [IsSemanticMigration] type, plus
+// enable-rangeable/repair-rangeable (weaviate/weaviate#12189 - moved
+// here to stop the first shard to finish from flipping the flag
+// cluster-wide). Kept separate from IsSemanticMigration because that
+// predicate also gates barrier dispatch, which rangeable's per-shard
+// execution model must not change.
+func needsClusterWideFlipAtCompletion(mt ReindexMigrationType) bool {
+	return IsSemanticMigration(mt) ||
+		mt == ReindexTypeEnableRangeable ||
+		mt == ReindexTypeRepairRangeable
+}
+
 // IsTokenizationChangingMigration is true for migrations that flip a
 // property's Tokenization at finalize, opening a SWAPPING-window
 // misalignment between per-shard bucket flips and the cluster-wide
-// schema flip — the per-shard tokenization overlay closes that gap.
+// schema flip - the per-shard tokenization overlay closes that gap.
 func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable
@@ -2220,7 +2266,7 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 }
 
 // maybeClearTokenizationOverlayOnAllFailed is the defensive CLEAR
-// hook — called by [OnGroupCompleted] AFTER the per-task swap loop
+// hook - called by [OnGroupCompleted] AFTER the per-task swap loop
 // on a shard. It clears the per-shard tokenization overlay iff (a)
 // the per-prop overlay hook was wired by
 // [maybeWirePerPropOverlaySet] (the `wasSet` argument) AND
@@ -2332,9 +2378,9 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 				models.TenantActivityStatusACTIVE,
 				models.TenantActivityStatusCOLD,
 				models.TenantActivityStatusINACTIVE:
-				// These have local data — include them.
+				// These have local data - include them.
 			default:
-				// OFFLOADED, OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING — skip.
+				// OFFLOADED, OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING - skip.
 				continue
 			}
 
@@ -2365,7 +2411,7 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 // shard. This is needed for reindex tasks where every replica must process
 // its own local copy of the data.
 //
-// WARNING: Do NOT use ShardOwnership for reindex — it only returns one node per
+// WARNING: Do NOT use ShardOwnership for reindex - it only returns one node per
 // shard and would leave replicas on other nodes un-reindexed.
 func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[string][]string, error) {
 	result := make(map[string][]string)

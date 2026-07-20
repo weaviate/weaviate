@@ -26,7 +26,7 @@ import (
 // already-STARTED task in `existingTasks`.
 //
 // FSM-determinism: every node applies the same RAFT log entry, sees
-// the same `existingTasks` snapshot, and runs this same function — so
+// the same `existingTasks` snapshot, and runs this same function - so
 // every node reaches the same accept/reject decision. The function
 // must remain a pure transform of its arguments.
 //
@@ -60,17 +60,19 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 		var existP ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &existP); err != nil {
 			// Existing task has an unparseable payload. We can't prove
-			// non-conflict, so reject — the alternative (silently
+			// non-conflict, so reject - the alternative (silently
 			// allow) would let two real migrations race on shared
 			// bucket state.
 			return fmt.Errorf(
 				"in-flight reindex task %q has unparseable payload; cannot verify conflict",
-				task.ID)
+				task.ID,
+			)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
 			return fmt.Errorf(
 				"in-flight reindex task %q has empty Collection or MigrationType",
-				task.ID)
+				task.ID,
+			)
 		}
 		if !strings.EqualFold(existP.Collection, newP.Collection) {
 			continue
@@ -90,8 +92,8 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // Earlier versions allowed parallel migrations as long as they wrote
 // to different bucket types (e.g. enable-filterable + enable-rangeable
 // on the same property). That was a real Sev 1: when one of those
-// migrations completed, its OnMigrationComplete fired an
-// UpdateProperty RAFT command whose MergeProps preserved the
+// migrations completed, its (then per-shard) OnMigrationComplete fired
+// an UpdateProperty RAFT command whose MergeProps preserved the
 // still-false sibling flag (the other migration hasn't flipped its
 // flag yet). On apply, Migrator.UpdateProperty →
 // Shard.updatePropertyBuckets ran cleanStaleMigrationDirs for every
@@ -100,6 +102,13 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // markProgress to fail with "progress.mig.000000001: no such file or
 // directory" → task FAILED. https://github.com/weaviate/weaviate/issues/10675 frontend repro on
 // parallel enable-filterable + enable-rangeable hit this.
+//
+// As of weaviate/weaviate#12189, no strategy's OnMigrationComplete
+// issues a RAFT flip anymore (every cluster-wide flip is deferred to
+// OnTaskCompleted.flipSemanticMigrationSchema once all shards are
+// terminal), so this exact interleaving can't happen. The submit-time
+// guard stays regardless: two migrations racing the same property's
+// flag concurrently is still a bug class this serialization avoids.
 //
 // Closing the window at submit time is correct: reject any new task
 // whose property set overlaps an in-flight task's property set, so the
@@ -113,7 +122,7 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	// predicates so an unknown ReindexMigrationType still panics
 	// loudly at the conflict-check boundary rather than slipping
 	// through as "no conflict". Result values are intentionally
-	// discarded — the conflict rule below does not depend on which
+	// discarded - the conflict rule below does not depend on which
 	// buckets are touched, only that both types are known.
 	_ = TouchesSearchable(newType)
 	_ = TouchesFilterable(newType)
@@ -128,7 +137,7 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	}
 	return fmt.Sprintf("already running %s for overlapping properties; "+
 		"concurrent %s on the same property would race on shared on-disk "+
-		"migration state — wait for the in-flight task to finish before "+
+		"migration state - wait for the in-flight task to finish before "+
 		"submitting another", existType, newType)
 }
 
@@ -164,7 +173,7 @@ func ReindexPropsOverlap(a, b []string) bool {
 // TouchesSearchable reports whether migration type t writes to the
 // searchable bucket. Implemented as an exhaustive switch so that a
 // newly-added [ReindexMigrationType] cannot silently be treated as
-// "doesn't touch searchable" — the default case panics with a clear
+// "doesn't touch searchable" - the default case panics with a clear
 // message, surfacing the gap on the first request that exercises the
 // new type. This matters because [typesConflictReason] relies on
 // these answers (via the sanity-check at its entry) to gate
@@ -183,7 +192,7 @@ func TouchesSearchable(t ReindexMigrationType) bool {
 		ReindexTypeRepairRangeable:
 		return false
 	default:
-		panic(fmt.Sprintf("TouchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
+		panic(fmt.Sprintf("TouchesSearchable: unknown ReindexMigrationType %q - add it to this switch", t))
 	}
 }
 
@@ -203,7 +212,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 		ReindexTypeRepairRangeable:
 		return false
 	default:
-		panic(fmt.Sprintf("TouchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))
+		panic(fmt.Sprintf("TouchesFilterable: unknown ReindexMigrationType %q - add it to this switch", t))
 	}
 }
 
@@ -223,7 +232,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 // sub-unit commits its local swap → per-shard ack barrier sees mixed
 // acks → task FAILED → `flipSemanticMigrationSchema` skipped →
 // schema stays at OLD tokenization while the filterable bucket on
-// disk holds NEW-tokenized data. Bucket↔schema inversion — same
+// disk holds NEW-tokenized data. Bucket↔schema inversion - same
 // family as the ack-barrier failure mode but triggered by an external
 // schema mutation instead of a crash.
 //
@@ -237,7 +246,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 //
 // FSM-determinism: pure function of (className, propertyName,
 // existingTasks). Unparseable in-flight payloads are treated as a
-// hard reject (same as [ConflictDetector.CheckConflict]) — the
+// hard reject (same as [ConflictDetector.CheckConflict]) - the
 // alternative (silently allow) would let a real bucket-level conflict
 // slip through and re-open the race this guard exists to close.
 func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
@@ -253,7 +262,8 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 				"in-flight reindex task %q has an unparseable payload; "+
 					"cannot verify whether property update on %s.%s would "+
 					"conflict: %w",
-				task.ID, className, propertyName, err)
+				task.ID, className, propertyName, err,
+			)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
 			return fmt.Errorf(
@@ -261,7 +271,8 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether property update "+
 					"on %s.%s would conflict",
-				task.ID, className, propertyName)
+				task.ID, className, propertyName,
+			)
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue
@@ -272,11 +283,12 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
 				"schema mutations on this property are blocked until the "+
-				"reindex completes or is cancelled — wait for the task "+
+				"reindex completes or is cancelled - wait for the task "+
 				"to reach a terminal state, or cancel it via the reindex "+
 				"REST API before retrying",
 			task.ID, existP.MigrationType,
-			existP.Collection, propertyName, task.Status)
+			existP.Collection, propertyName, task.Status,
+		)
 	}
 	return nil
 }
@@ -284,14 +296,14 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 // CheckClassMutation implements
 // [distributedtask.SchemaMutationDetector] for class-wide
 // destructive mutations (DeleteClass). Stricter than
-// CheckPropertyUpdate — any reindex task on the class (regardless of
+// CheckPropertyUpdate - any reindex task on the class (regardless of
 // which property) is a conflict, because dropping the class destroys
 // every property's bucket state at once including the in-flight
 // migration's working dirs and canonical bucket pointers.
 //
 // Class-wide blast radius: DeleteClass arriving mid-reindex is the
 // catastrophic extension of the per-property bucket↔schema inversion
-// — it destroys every property's bucket state at once.
+// - it destroys every property's bucket state at once.
 //
 // Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
 // in-flight payloads are treated as a hard reject (we cannot prove
@@ -309,7 +321,8 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 				"in-flight reindex task %q has an unparseable payload; "+
 					"cannot verify whether DeleteClass on %s would "+
 					"conflict: %w",
-				task.ID, className, err)
+				task.ID, className, err,
+			)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
 			return fmt.Errorf(
@@ -317,7 +330,8 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether DeleteClass on "+
 					"%s would conflict",
-				task.ID, className)
+				task.ID, className,
+			)
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue
@@ -326,9 +340,10 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"deleting this class would destroy the migration's "+
 				"working state and produce a bucket↔schema inversion "+
-				"on every replica — cancel the reindex via the REST "+
+				"on every replica - cancel the reindex via the REST "+
 				"API before deleting the class",
-			task.ID, existP.MigrationType, existP.Collection, task.Status)
+			task.ID, existP.MigrationType, existP.Collection, task.Status,
+		)
 	}
 	return nil
 }
@@ -339,7 +354,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 // (DeleteTenants, UpdateTenants transitioning away from ACTIVE).
 //
 // Today's reindex task payload names a collection but not a specific
-// tenant — a migration submitted on a multi-tenant collection
+// tenant - a migration submitted on a multi-tenant collection
 // applies to whatever shards exist for that collection. So the
 // conservative implementation is "block every tenant mutation on a
 // class with any in-flight reindex": if a reindex is running on the
@@ -348,7 +363,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 //
 // Same FSM-determinism contract as CheckPropertyUpdate.
 //
-// `tenants` is informational — the rejection error names them so
+// `tenants` is informational - the rejection error names them so
 // the caller knows which tenants would be affected.
 func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
@@ -363,7 +378,8 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 				"in-flight reindex task %q has an unparseable payload; "+
 					"cannot verify whether tenant mutation on %s/%v "+
 					"would conflict: %w",
-				task.ID, className, tenants, err)
+				task.ID, className, tenants, err,
+			)
 		}
 		if existP.Collection == "" || existP.MigrationType == "" {
 			return fmt.Errorf(
@@ -371,7 +387,8 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 					"MigrationType (payload may have been written by an "+
 					"older binary); cannot verify whether tenant "+
 					"mutation on %s/%v would conflict",
-				task.ID, className, tenants)
+				task.ID, className, tenants,
+			)
 		}
 		if !strings.EqualFold(existP.Collection, className) {
 			continue
@@ -379,11 +396,12 @@ func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string
 		return fmt.Errorf(
 			"reindex task %q (%s) is in flight on %s (status=%s); "+
 				"mutating tenants %v would make their shards locally "+
-				"unavailable and produce a bucket↔schema inversion — "+
+				"unavailable and produce a bucket↔schema inversion - "+
 				"cancel the reindex via the REST API before mutating "+
 				"these tenants",
 			task.ID, existP.MigrationType, existP.Collection,
-			task.Status, tenants)
+			task.Status, tenants,
+		)
 	}
 	return nil
 }

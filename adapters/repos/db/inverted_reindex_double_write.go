@@ -26,6 +26,12 @@ import (
 //   - sidecar gone + swapFallbackName set (ingest phase): resolve the
 //     canonical name instead — post-flip it denotes the same physical bucket.
 //   - sidecar gone + no fallback (backup phase): nil means skip the mirror.
+//   - sidecar gone + swapFallbackName set but ALSO missing: not the ordinary
+//     swap race (SwapBucketPointer's atomicity guarantees at most one of the
+//     two names is ever absent mid-swap) - the bucket was never created or
+//     the store has closed. Still returns nil (callers skip the mirror
+//     either way; see resolveScopedDoubleWriteBucket), but logs loudly so
+//     the gap isn't invisible to operators (GH weaviate/weaviate#12206).
 func resolveDoubleWriteBucket(shard *Shard, sidecarName, swapFallbackName string) *lsmkv.Bucket {
 	if b := shard.store.Bucket(sidecarName); b != nil {
 		return b
@@ -33,7 +39,15 @@ func resolveDoubleWriteBucket(shard *Shard, sidecarName, swapFallbackName string
 	if swapFallbackName == "" {
 		return nil
 	}
-	return shard.store.Bucket(swapFallbackName)
+	if b := shard.store.Bucket(swapFallbackName); b != nil {
+		return b
+	}
+	shard.index.logger.WithField("action", "resolve_double_write_bucket").
+		WithField("sidecarName", sidecarName).
+		WithField("swapFallbackName", swapFallbackName).
+		Warnf("double-write mirror skipped: neither sidecar bucket %q nor swap-fallback bucket %q resolved (expected exactly one to during a normal swap race - likely a setup bug or a closing store)",
+			sidecarName, swapFallbackName)
+	return nil
 }
 
 // resolveScopedDoubleWriteBucket is the shared prologue for every strategy's

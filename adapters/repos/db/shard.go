@@ -383,7 +383,7 @@ type Shard struct {
 	// queries to the local rangeable bucket.
 	//
 	// True means the local rangeable bucket has all the data for this
-	// property — either the property was created with
+	// property - either the property was created with
 	// IndexRangeFilters=true (no migration ever ran) or an
 	// enable-rangeable / repair-rangeable migration completed locally
 	// (markTidied fired in [runtimeSwap]).
@@ -391,23 +391,36 @@ type Shard struct {
 	// False means the rangeable bucket is mid-migration on THIS replica:
 	// a PreReindexHook created an empty main bucket but the per-shard
 	// runtimeSwap that prepends ingest+reindex segments into it hasn't
-	// run yet on this node. During this window the cluster-wide schema
-	// flag may already be true (the first replica to swap fires
-	// strategy.OnMigrationComplete which RAFTs the flip cluster-wide),
-	// so the inverted query path would otherwise route range queries to
-	// the empty bucket and return partial / zero counts. The
-	// IsRangeableLocallyReady callback wired into the Searcher
-	// overrides hasRangeableIndex=false for this prop on this shard,
-	// forcing a fallback to the filterable bucket walk until our local
-	// swap catches up.
+	// run yet on this node. As of weaviate/weaviate#12189 the cluster-wide
+	// schema flag only flips once every shard's runtimeSwap has committed
+	// (see [ReindexProvider.OnTaskCompleted] and
+	// [needsClusterWideFlipAtCompletion]), so this window now mainly
+	// matters for a replica added AFTER the migration completed (replica
+	// movement copying a bucket whose local swap hasn't finished applying
+	// while the schema flag is already true cluster-wide)  -
+	// IsRangeableLocallyReady forces a fallback to the filterable bucket
+	// walk on this shard until the local swap catches up.
 	//
 	// Read on every range-filter query plan, so kept under a fast
 	// RWMutex rather than a sync.Map. Default value (missing key)
-	// returns true via IsRangeableLocallyReady — at shard init we
+	// returns true via IsRangeableLocallyReady - at shard init we
 	// pessimistically set false for any in-flight migration tracker
 	// found on disk, and the post-tidy hook flips it back to true.
+	//
+	// Also seeded (true) at shard init from any already-tidied tracker,
+	// before FinalizeCompletedMigrations deletes it - see
+	// [seedRangeableLocalReadyFromMigrationHistory] for why the
+	// bucket-existence fallback can't self-heal a restart in that window.
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
+
+	// rangeableLocalReadyHistoryUnknown is set when
+	// [seedRangeableLocalReadyFromMigrationHistory] finds a tracker whose
+	// payload.mig can't be parsed, so [Shard.rangeableForceIndexOverlay]'s
+	// empty-map fast exit can't trust the map is complete and takes the
+	// slow path instead. Sticky for the shard's process lifetime; the
+	// next restart re-derives it.
+	rangeableLocalReadyHistoryUnknown atomic.Bool
 
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
 	// "what tokenization should query input use on this shard?" override
@@ -435,7 +448,7 @@ type Shard struct {
 	//      this shard fails before flipping its bucket pointer (e.g.
 	//      ctx.Canceled during graceful shutdown), the post-loop branch
 	//      clears the overlay. Without this, an all-failed swap path
-	//      would leave overlay=NEW against unchanged OLD buckets —
+	//      would leave overlay=NEW against unchanged OLD buckets  -
 	//      permanent misalignment because the FAILED transition skips
 	//      the cluster-wide schema flip and the explicit clear hook
 	//      never runs.
@@ -444,12 +457,12 @@ type Shard struct {
 	//      the overlay per-shard so the steady-state map is empty.
 	//   4. CLEAR (self-clear backstop): TokenizationFor below clears
 	//      the entry on the next read where the live schema has caught
-	//      up to the overlay value — defensive against any callback-
+	//      up to the overlay value - defensive against any callback-
 	//      ordering edge case.
 	//
 	// Read on every query that touches the affected property, so kept
 	// under a fast RWMutex rather than a sync.Map (consistent with
-	// rangeableLocalReady above). Per-shard, in-memory only — the
+	// rangeableLocalReady above). Per-shard, in-memory only - the
 	// cluster-wide schema flip is the authoritative cross-replica
 	// signal; this overlay just bridges the local seconds-long gap
 	// between bucket-swap-here and schema-flip-observed-here.
@@ -696,7 +709,7 @@ func (s *Shard) isFallbackToSearchable() bool {
 //     exist in the LSM store yet. This catches the narrow window where
 //     another replica's runtimeSwap has already flipped the
 //     cluster-wide schema flag to `IndexRangeFilters=true` but THIS
-//     replica's PreReindexHook hasn't fired yet — without this
+//     replica's PreReindexHook hasn't fired yet - without this
 //     bucket-existence default-false, the inverted query path would
 //     try to look up a bucket that isn't there and return
 //     "bucket for prop %s not found - is it indexed?" to the LB.
@@ -713,7 +726,7 @@ func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 	// Default: ready iff the rangeable bucket physically exists in the
 	// store. Cheap (a map lookup under bucketAccessLock.RLock in
 	// lsmkv.Store.Bucket). We avoid materializing the explicit entry
-	// here on purpose — the migration hooks own the lifecycle of the
+	// here on purpose - the migration hooks own the lifecycle of the
 	// map, and adding a "shadow" entry from a query goroutine would
 	// race the hook's clear-then-set sequence.
 	return s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName)) != nil
@@ -737,7 +750,7 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 // this shard should be `target` instead of the schema-stored value until
 // the live schema catches up. Set by the change-tokenization migration's
 // reindex hook (reindex_provider.OnGroupCompleted) just BEFORE the
-// per-task RunSwapOnShard loop kicks off — setting pre-swap means the
+// per-task RunSwapOnShard loop kicks off - setting pre-swap means the
 // brief window between bucket-pointer flip and overlay visibility is
 // bounded by the in-memory swap latency (microseconds), not by the
 // cluster-wide cutover spread. The same caller clears the overlay if
@@ -748,7 +761,7 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 // branch as a backstop. See the [tokenizationOverlay] field godoc for
 // the full rationale and lifecycle.
 //
-// Empty target is a no-op — used by the migration cleanup path to avoid
+// Empty target is a no-op - used by the migration cleanup path to avoid
 // having every caller guard the call.
 func (s *Shard) SetTokenizationOverlay(propName, target string) {
 	if propName == "" || target == "" {
@@ -766,7 +779,7 @@ func (s *Shard) SetTokenizationOverlay(propName, target string) {
 // critical section under tokenizationOverlayMu (read side:
 // [Shard.PinTokenizationAndSearchableBucket]), so no query sees a mixed pair.
 //
-// CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
+// CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock - a
 // pinned query may need tokenizationOverlayMu next (self-clear path), so
 // draining here would invert lock order and deadlock. Phase-2b teardown
 // must happen strictly after this method returns.
@@ -835,7 +848,7 @@ func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization st
 }
 
 // ClearTokenizationOverlay removes any tokenization-overlay entry for
-// propName. Idempotent — called by the schema-update callback when the
+// propName. Idempotent - called by the schema-update callback when the
 // live schema's tokenization for propName matches the overlay's target,
 // indicating OnTaskCompleted's flipSemanticMigrationSchema has applied
 // on this node and the overlay is no longer needed.
@@ -859,7 +872,7 @@ func (s *Shard) ClearTokenizationOverlay(propName string) {
 // present, else liveTokenization.
 //
 // liveTokenization is the value the caller would have used in the
-// absence of any overlay — typically `prop.Tokenization`. Passing the
+// absence of any overlay - typically `prop.Tokenization`. Passing the
 // live value as a parameter (rather than re-reading the schema here)
 // keeps this helper cheap and avoids a schema-manager dependency in the
 // query hot path.
@@ -879,7 +892,7 @@ func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
 	}
 	if overlay == liveTokenization {
 		// Live schema has caught up. Self-clear so future calls take the
-		// fast path — write under the write lock so concurrent self-
+		// fast path - write under the write lock so concurrent self-
 		// clears don't race the migration's explicit clear.
 		s.tokenizationOverlayMu.Lock()
 		if s.tokenizationOverlay != nil {
@@ -900,7 +913,7 @@ func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
 // analyzer's WithSchemaOverlay mechanism (see
 // adapters/repos/db/inverted/analyzer.go).
 //
-// Avoids cloning the entire underlying overlay map on every query —
+// Avoids cloning the entire underlying overlay map on every query  -
 // only the requested props are snapshotted, and an empty result
 // returns nil so the analyzer can take its fast path.
 //
@@ -967,7 +980,7 @@ func (s *Shard) Activity() (int32, int32) {
 // under the mutex). Removing rather than flagging keeps the slice bounded: the
 // backup-window migration path (re)registers a pair per run, so a
 // flag-and-keep disarm would leak one entry per migration onto the hot path for
-// the life of the shard. Disarm is idempotent — a second call finds no matching
+// the life of the shard. Disarm is idempotent - a second call finds no matching
 // id and no-ops.
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
 	var id uint64

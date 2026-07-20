@@ -863,7 +863,7 @@ func TestTouchesFilterable(t *testing.T) {
 
 func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
 	require.PanicsWithValue(t,
-		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		`TouchesSearchable: unknown ReindexMigrationType "phantom" - add it to this switch`,
 		func() { db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
 		"unknown migration type must panic so the gap is caught loudly",
 	)
@@ -871,7 +871,7 @@ func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
 
 func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
 	require.PanicsWithValue(t,
-		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		`TouchesFilterable: unknown ReindexMigrationType "phantom" - add it to this switch`,
 		func() { db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
 		"unknown migration type must panic so the gap is caught loudly",
 	)
