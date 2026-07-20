@@ -1176,6 +1176,14 @@ func initReindexAndDistributedTasks(
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
+	// Read-repair for the v1.38→v1.39 upgrade residual: seed the durable
+	// searchableBlockmax stamp from on-disk truth for pre-stamp migrations in a
+	// permanently-partial class whose task has aged out. See
+	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
+	enterrors.GoWrapper(func() {
+		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
+	}, appState.Logger)
+
 	// Drop-vector-index distributed-task provider. Added to the providers map so the
 	// conflict/schema-mutation detector loops below auto-register it.
 	providers[db.DropVectorIndexNamespace] = db.NewDropVectorIndexProvider(

@@ -2115,7 +2115,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// so per-property truth is durable (survives the completed-task list
 		// ageing out) and a sibling's later same-tick defer check reads the
 		// stamp instead of a not-yet-FINISHED task.
-		if err := p.stampSearchableBlockmax(ctx, payload); err != nil {
+		if err := p.stampSearchableBlockmax(ctx, payload.Collection, payload.Properties); err != nil {
 			return fmt.Errorf("stamp searchableBlockmax: %w", err)
 		}
 		// Defer the cluster-wide class-flag flip until every local searchable
@@ -2138,14 +2138,16 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	}
 }
 
-// stampSearchableBlockmax durably records that each of payload.Properties now
-// has a blockmax (StrategyInverted) searchable bucket, via a masked per-property
-// RAFT UpdateProperty. Idempotent at the mutator level: a property already
-// stamped is skipped, so repeated OnTaskCompleted firings and post-restart
-// replays produce at most one commit per property.
-func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, payload *ReindexTaskPayload) error {
+// stampSearchableBlockmax durably records that each of propNames on collection
+// now has a blockmax (StrategyInverted) searchable bucket, via a masked
+// per-property RAFT UpdateProperty. Idempotent at the mutator level: a property
+// already stamped is skipped (the mutate re-reads fresh class state), so
+// repeated OnTaskCompleted firings, post-restart replays, and the read-repair
+// pass produce at most one commit per property. Shared by the change-algorithm
+// cutover and the shard-init read-repair ([RunSearchableBlockmaxRepair]).
+func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collection string, propNames []string) error {
 	trueVal := true
-	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, collection, propNames,
 		[]string{api.PropertyFieldSearchableBlockmax},
 		func(prop *models.Property) bool {
 			if prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
