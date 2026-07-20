@@ -1233,7 +1233,28 @@ Operators should not rely on backup/restore or schema migration
 interacting cleanly with an in-flight or recently-completed reindex
 while running v1.38 Preview.
 
-## 14. Files of interest
+## 14. Upgrade / operations: `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
+
+This knob sets how long FINISHED distributed tasks (completed reindex
+tasks included) linger in the RAFT task list before garbage collection.
+`0` means immediate GC on the next scheduler tick. It is now accepted
+because the per-property blockmax truth is durable in the schema stamp,
+so no reader depends on FINISHED reindex tasks lingering.
+
+Keep `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` at its default until
+every node runs the durable-stamp version. During a mixed-version
+(v1.38/v1.39) rolling upgrade window `0` is unsafe two ways:
+
+- A stamp-blind older node that does not hold the shard can transiently
+  mis-resolve a partial-class property once the completed task is GC'd.
+  This self-heals once every node is on the new version.
+- On rollback, `0` fails an older node's startup (fail-loud, not data
+  corruption).
+
+Set `0` (immediate GC of completed tasks) only once every node runs the
+durable-stamp version.
+
+## 15. Files of interest
 
 **REST**
 
@@ -1283,7 +1304,7 @@ while running v1.38 Preview.
 - `cluster/schema/meta_class.go` — `MergePropsMasked` fieldmask apply path.
 - `usecases/schema/` — `UpdatePropertyInternal`, `UpdatePropertyInternalFromMigration`.
 
-## 15. Tests of interest
+## 16. Tests of interest
 
 Tests are layered: unit close to the symbol; per-package integration
 (build tag `integrationTest`) where multi-component interaction
@@ -1382,7 +1403,7 @@ test packages.
 - Atomic-phase regression guard — `inverted_reindex_task_generic_test.go`
   (the `testHookPostPropSwap` wall-clock budget assertion).
 
-## 16. Deferred simplifications
+## 17. Deferred simplifications
 
 [`docs/proposals/deferred_reindex_simplifications.md`](./proposals/deferred_reindex_simplifications.md)
 catalogues three refactors that the scout pass identified as
