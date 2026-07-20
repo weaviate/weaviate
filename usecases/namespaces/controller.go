@@ -154,14 +154,19 @@ func NewController(logger logrus.FieldLogger) *Controller {
 	}
 }
 
-// Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
-// input's State and StateChangeIndex are ignored, so a caller cannot choose
-// either. HomeNodes must contain exactly one non-empty entry — downstream
-// placement and counters rely on that invariant.
-// Returns [ErrBadRequest] for invalid names or HomeNodes,
+// Create inserts a namespace in the [cmd.NamespaceStateActive] state,
+// recording index — the RAFT log index of the create command — as its
+// StateChangeIndex. The input's State and StateChangeIndex are ignored, so a
+// caller cannot choose either. HomeNodes must contain exactly one non-empty
+// entry — downstream placement and counters rely on that invariant.
+// Returns [ErrBadRequest] for invalid names, HomeNodes, or a zero index,
 // [ErrAlreadyExists] when the name maps to an active namespace, and
 // [ErrNamespaceDeleting] when the name is currently being torn down.
-func (c *Controller) Create(ns cmd.Namespace) error {
+func (c *Controller) Create(ns cmd.Namespace, index uint64) error {
+	// Storing 0 would make StateChangeIndex indistinguishable from unknown.
+	if index == 0 {
+		return fmt.Errorf("%w: create index must not be 0", ErrBadRequest)
+	}
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -180,7 +185,7 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 	}
 
 	ns.State = cmd.NamespaceStateActive
-	ns.StateChangeIndex = 0
+	ns.StateChangeIndex = index
 	c.namespaces[ns.Name] = &ns
 	return nil
 }

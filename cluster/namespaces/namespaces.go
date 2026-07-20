@@ -78,15 +78,16 @@ func NewManager(
 	}
 }
 
-// Add applies an AddNamespace RAFT command. It rejects malformed payloads
-// and invalid names with [usecasesNamespaces.ErrBadRequest], and duplicates
-// with [usecasesNamespaces.ErrAlreadyExists].
+// Add applies an AddNamespace RAFT command, recording the command's RAFT log
+// index on the new namespace. It rejects malformed payloads and invalid names
+// with [usecasesNamespaces.ErrBadRequest], and duplicates with
+// [usecasesNamespaces.ErrAlreadyExists].
 func (m *Manager) Add(c *cmd.ApplyRequest) error {
 	req := &cmd.AddNamespaceRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
-	return m.controller.Create(req.Namespace)
+	return m.controller.Create(req.Namespace, c.Version)
 }
 
 // Update applies an UpdateNamespace RAFT command. It rewrites the stored

@@ -33,8 +33,8 @@ func TestNamespaceGate_SuspendResumeDelete(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	ctrl := namespaces.NewController(logger)
-	require.NoError(t, ctrl.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
-	require.NoError(t, ctrl.Create(cmd.Namespace{Name: "other", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, ctrl.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, 1))
+	require.NoError(t, ctrl.Create(cmd.Namespace{Name: "other", HomeNodes: []string{"node-1"}}, 2))
 
 	wrapper, err := New(config.Config{
 		Persistence:    config.Persistence{DataPath: t.TempDir()},

@@ -47,9 +47,12 @@ func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dyn
 
 func addCmd(t *testing.T, name string) *cmd.ApplyRequest {
 	t.Helper()
-	payload, err := json.Marshal(cmd.AddNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}}})
+	payload, err := json.Marshal(cmd.AddNamespaceRequest{
+		Namespace: cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}},
+		Version:   cmd.NamespaceLatestCommandPolicyVersion,
+	})
 	require.NoError(t, err)
-	return &cmd.ApplyRequest{SubCommand: payload}
+	return &cmd.ApplyRequest{SubCommand: payload, Version: createIndex}
 }
 
 func updateCmd(t *testing.T, name, homeNode string) *cmd.ApplyRequest {
@@ -59,11 +62,13 @@ func updateCmd(t *testing.T, name, homeNode string) *cmd.ApplyRequest {
 	return &cmd.ApplyRequest{SubCommand: payload}
 }
 
-// seedIndex is the RAFT index the seed helper records; flipIndex is the one
-// the test under it passes. Distinct so an assertion cannot confuse them.
+// createIndex and seedIndex are the RAFT indexes the seed helper records at
+// create and at the flip; flipIndex is the one the test under it passes. All
+// distinct so an assertion cannot confuse them.
 const (
-	seedIndex uint64 = 1
-	flipIndex uint64 = 42
+	createIndex uint64 = 1
+	seedIndex   uint64 = 2
+	flipIndex   uint64 = 42
 )
 
 // changeStateCmd fills both Version fields the way the real call path does:
@@ -178,11 +183,15 @@ func TestManager_ChangeState(t *testing.T) {
 	}
 }
 
-// seededIndex is the index seedNamespace leaves on a namespace: Add records
-// nothing, every other seed state is reached by a flip recorded at seedIndex.
+// seededIndex is the index seedNamespace leaves on a namespace: an active
+// namespace still carries its create index, every other seed state is
+// reached by a flip recorded at seedIndex.
 func seededIndex(seedState cmd.NamespaceState) uint64 {
-	if seedState == "" || seedState == cmd.NamespaceStateActive {
+	if seedState == "" {
 		return 0
+	}
+	if seedState == cmd.NamespaceStateActive {
+		return createIndex
 	}
 	return seedIndex
 }

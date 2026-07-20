@@ -90,6 +90,31 @@ func applyNamespaceState(t *testing.T, ms MockStore, log *raft.Log) api.Namespac
 	return ns
 }
 
+// TestStore_ApplyIndex_NamespaceCreate pins that a namespace is born
+// carrying the log index of its own create command, so StateChangeIndex is
+// never left unset. The sub-command carries the command policy version, so
+// only store.Apply's own l.Index can reach the field.
+func TestStore_ApplyIndex_NamespaceCreate(t *testing.T) {
+	const initialIndex uint64 = 100
+
+	ms, _ := setupTestData(t, initialIndex)
+	log := &raft.Log{
+		Index: initialIndex + 1,
+		Type:  raft.LogCommand,
+		Data: cmdAsBytes("", api.ApplyRequest_TYPE_ADD_NAMESPACE,
+			api.AddNamespaceRequest{
+				Namespace: api.Namespace{Name: testNamespace, HomeNodes: []string{"Node-1"}},
+				Version:   api.NamespaceLatestCommandPolicyVersion,
+			}, nil),
+	}
+
+	ns := applyNamespaceState(t, ms, log)
+
+	assert.Equal(t, api.NamespaceStateActive, ns.State)
+	assert.Equal(t, initialIndex+1, ns.StateChangeIndex,
+		"the recorded index must be the RAFT log index, not the command policy version")
+}
+
 func TestStore_ApplyIndex_NamespaceStateChange(t *testing.T) {
 	const initialIndex uint64 = 100
 
@@ -97,7 +122,7 @@ func TestStore_ApplyIndex_NamespaceStateChange(t *testing.T) {
 		t.Helper()
 		ms, _ := setupTestData(t, initialIndex)
 		require.NoError(t, ms.cfg.NamespacesController.Create(
-			api.Namespace{Name: testNamespace, HomeNodes: []string{"Node-1"}}))
+			api.Namespace{Name: testNamespace, HomeNodes: []string{"Node-1"}}, initialIndex))
 		return ms
 	}
 
