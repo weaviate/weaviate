@@ -627,14 +627,6 @@ func TestBm25QueryProperties(t *testing.T) {
 			`{"query":"space","queryProperties":["Title^2","Year"]}`,
 			[]string{"title^2", "year"},
 		},
-		{
-			// only the FIRST letter is lowercased (schema.LowercaseFirstLetterOfStrings),
-			// interior caps are preserved — a whole-string strings.ToLower would
-			// yield "camelcaseprop" and fail this case.
-			"first letter only, interior caps preserved",
-			`{"query":"space","queryProperties":["CamelCaseProp"]}`,
-			[]string{"camelCaseProp"},
-		},
 		{"omitted searches all searchable properties", `{"query":"space"}`, nil},
 		{"empty searches all searchable properties", `{"query":"space","queryProperties":[]}`, nil},
 	}
@@ -651,6 +643,40 @@ func TestBm25QueryProperties(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("first letter only, interior caps preserved", func(t *testing.T) {
+		// only the FIRST letter is lowercased (schema.LowercaseFirstLetterOfStrings),
+		// interior caps are preserved — a whole-string strings.ToLower would
+		// yield "camelcaseprop" and fail this case.
+		class := movieClass()
+		class.Properties = append(class.Properties,
+			&models.Property{Name: "camelCaseProp", DataType: schema.DataTypeText.PropString()})
+		searcher, apiErr := buildBm25(t, class, `{"query":"space","queryProperties":["CamelCaseProp"]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"camelCaseProp"}, searcher.lastParams.KeywordRanking.Properties)
+	})
+}
+
+func TestBm25UnknownQueryProperty(t *testing.T) {
+	// an entry naming no schema property is a 400 like returnProperties;
+	// only an existing property without a searchable index is the
+	// searcher's typed 422
+	for name, body := range map[string]string{
+		"unknown":            `{"query":"space","queryProperties":["titel"]}`,
+		"unknown with boost": `{"query":"space","queryProperties":["titel^2"]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, apiErr := buildBm25(t, movieClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "no such prop")
+		})
+	}
+
+	t.Run("existing but non-searchable is the searcher's to reject", func(t *testing.T) {
+		_, apiErr := buildBm25(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
+		assert.Nil(t, apiErr)
+	})
 }
 
 func TestBm25ReturnMetadata(t *testing.T) {

@@ -173,6 +173,10 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	}
 	out.KeywordRanking = keywordRanking
 
+	if apiErr := validateQueryProperties(class, body.QueryProperties); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
 	if apiErr := checkKeywordSearchable(class, body.QueryProperties); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
@@ -182,6 +186,21 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	}
 
 	return out, nil
+}
+
+// validateQueryProperties rejects a queryProperties entry that names no
+// schema property with 400, matching returnProperties. Whether an existing
+// property is searchable stays the searcher's check (a typed
+// MissingIndexError, mapped to 422). A "^boost" suffix is stripped before
+// the lookup, mirroring the searcher.
+func validateQueryProperties(class *models.Class, queryProperties []string) *APIError {
+	for _, entry := range queryProperties {
+		name := schema.LowercaseFirstLetter(strings.Split(entry, "^")[0])
+		if _, err := schema.GetPropertyByName(class, name); err != nil {
+			return &APIError{Status: http.StatusBadRequest, Err: err}
+		}
+	}
+	return nil
 }
 
 // checkKeywordSearchable rejects a keyword search with empty queryProperties

@@ -652,6 +652,14 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
+			// a class deleted mid-request: both producers (index.go's bm25
+			// all-properties expansion and bm25_searcher's twin) share this
+			// phrasing, which the not-found marker classifies as 404
+			name:       "class deleted mid-request",
+			err:        pkgerrors.Wrap(fmt.Errorf("could not find class Movie in schema"), "explorer: get class"),
+			wantStatus: http.StatusNotFound,
+		},
+		{
 			// typed rate-limit error via the real constructor (drift-guarded)
 			name:       "rate limit (typed ErrRateLimit)",
 			err:        enterrors.NewErrRateLimit(),

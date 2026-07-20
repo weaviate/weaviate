@@ -415,6 +415,14 @@ pre-checks it with `checkKeywordSearchable` (422, using the engine's own
 cannot drift). Explicit `queryProperties` stay the searcher's to reject
 (typed `MissingIndexError` → 422).
 
+From the follow-up review (2026-07-20): a `queryProperties` entry naming
+no schema property is a **400** like `returnProperties` (shared schema
+lookup, `^boost` suffix stripped first) — only an existing property
+without a searchable index is the searcher's 422. And the
+class-deleted-mid-request error from the bm25 all-properties expansion
+now shares bm25_searcher's phrasing, so the not-found marker classifies
+it as 404 in both phrasings (pinned in `TestHandlerTraverserErrorMapping`).
+
 ### Files
 
 - `openapi-specs/schema.json` — paths `/search/{collection}/near-text` and
@@ -531,7 +539,7 @@ enforced by the generated model at bind time; the rest are the handler's.
 |---|---|---|
 | malformed JSON body; `query` string form (array-only); wrong field type (incl. a `where` value of the wrong JSON type, e.g. a string for `valueInt`, or `path` as a string) | 400 | `ErrorResponse` |
 | missing body; absent `query`; bad `consistencyLevel`/`returnMetadata` enum; bad `where` `operator` enum | 422 | `ErrorResponse` |
-| empty `query` array / empty concept; unknown `targetVector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; both certainty+distance; semantically-invalid `where` (unknown property); unknown property in `returnProperties` | 400 | `ErrorResponse` |
+| empty `query` array / empty concept; unknown `targetVector`; negative paging; paging beyond `QUERY_MAXIMUM_RESULTS`; certainty outside [0,1]; both certainty+distance; semantically-invalid `where` (unknown property); unknown property in `returnProperties`/`queryProperties` | 400 | `ErrorResponse` |
 | invalid credentials (bad key/token, via the swagger security layer) | 401 | `ErrorResponse` |
 | no/malformed credentials (anonymous-access middleware, above the swagger layer) | 401 | legacy `{"code","message"}` (parity with existing endpoints) |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |

@@ -258,6 +258,17 @@ func TestRESTSearchBm25(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "indexSearchable")
 	})
 
+	t.Run("unknown property in queryProperties is a 400", func(t *testing.T) {
+		// an entry naming no schema property is a 400 like returnProperties;
+		// contrast with the existing-but-non-searchable 422 above
+		status, out := postBm25(t, "Book", map[string]interface{}{
+			"query":           "spaceship",
+			"queryProperties": []string{"titel"},
+		})
+		require.Equal(t, http.StatusBadRequest, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "no such prop")
+	})
+
 	t.Run("no searchable properties with empty queryProperties is a 422", func(t *testing.T) {
 		// with queryProperties omitted, the searched set expands to all
 		// searchable properties; a collection with none must be a 422, not
