@@ -1018,6 +1018,34 @@ func TestHybridVectorizerOnlyAboveAlphaZero(t *testing.T) {
 	})
 }
 
+func TestHybridNoSearchableProperties(t *testing.T) {
+	// the keyword leg expands empty queryProperties to all searchable
+	// properties; below alpha 1 a collection with none is a 422, at alpha 1
+	// the keyword leg is skipped and the search is legitimately pure-vector
+	for name, body := range map[string]string{
+		"default alpha": `{"query":"space"}`,
+		"alpha 0":       `{"query":"space","alpha":0}`,
+		"alpha 0.5":     `{"query":"space","alpha":0.5}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, apiErr := buildHybrid(t, unsearchableClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "no searchable properties")
+		})
+	}
+
+	t.Run("alpha 1 skips the keyword leg", func(t *testing.T) {
+		_, apiErr := buildHybrid(t, unsearchableClass(), `{"query":"space","alpha":1}`)
+		assert.Nil(t, apiErr)
+	})
+
+	t.Run("explicit queryProperties are the searcher's to reject", func(t *testing.T) {
+		_, apiErr := buildHybrid(t, unsearchableClass(), `{"query":"space","alpha":0,"queryProperties":["code"]}`)
+		assert.Nil(t, apiErr)
+	})
+}
+
 func TestHybridTargetVectors(t *testing.T) {
 	t.Run("legacy vector collection needs no target", func(t *testing.T) {
 		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space"}`)

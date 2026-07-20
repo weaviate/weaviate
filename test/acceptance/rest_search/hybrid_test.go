@@ -83,7 +83,20 @@ func TestRESTSearchHybrid(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 
-	classes := []*models.Class{songClass, zineClass, zettelClass}
+	// no searchable property: the keyword leg has nothing to expand to
+	ledgerClass := &models.Class{
+		Class:      "Ledger",
+		Vectorizer: "text2vec-contextionary",
+		Properties: []*models.Property{
+			{Name: "year", DataType: schema.DataTypeInt.PropString()},
+			{
+				Name: "code", DataType: schema.DataTypeText.PropString(),
+				IndexSearchable: func() *bool { b := false; return &b }(),
+			},
+		},
+	}
+
+	classes := []*models.Class{songClass, zineClass, zettelClass, ledgerClass}
 	for _, class := range classes {
 		helper.CreateClass(t, class)
 	}
@@ -332,6 +345,25 @@ func TestRESTSearchHybrid(t *testing.T) {
 			"query": "anything",
 		})
 		require.Equal(t, http.StatusNotFound, status, "%v", out)
+	})
+
+	t.Run("no searchable properties: keyword leg 422 below alpha 1, skipped at 1", func(t *testing.T) {
+		// with queryProperties omitted the keyword leg expands to all
+		// searchable properties; a collection with none must be a 422, not
+		// the engine's untyped expansion error (a 500)
+		status, out := postHybrid(t, "Ledger", map[string]interface{}{
+			"query": "spaceship",
+			"alpha": 0.5,
+		})
+		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "no searchable properties")
+
+		// at alpha 1 the keyword leg never runs: pure vector search works
+		status, out = postHybrid(t, "Ledger", map[string]interface{}{
+			"query": "spaceship",
+			"alpha": 1,
+		})
+		require.Equal(t, http.StatusOK, status, "%v", out)
 	})
 
 	t.Run("reserved fields are a 422", func(t *testing.T) {
