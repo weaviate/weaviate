@@ -35,15 +35,71 @@ import (
 	"acceptance_tests_with_client/internal/wvhost"
 )
 
-func TestTenantStatusChanges(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+// startUsagePoller spawns a background goroutine that repeatedly calls poll until the
+// returned stop function is invoked. It captures the WaitGroup + poller-goroutine +
+// quiescent-baseline pattern shared by the usage tests below.
+//
+// If baselineWait is non-nil, it is polled via assert.EventuallyWithT before the poller
+// goroutine starts. The debug usage report is populated from db.indices, which lags a
+// class/tenant creation by one local-index-bootstrap cycle after the RAFT schema commit
+// (adapters/repos/db/index_usage.go UsageForIndex: if the local index entry doesn't exist
+// yet, it returns (nil, nil) and the collection is silently dropped from the report).
+// Waiting for that bootstrap window to close before starting the poller means poll's
+// require.* calls only fire once the report is expected to be consistent.
+//
+// If pollInterval is non-zero, it is slept (with a re-check of stop in between) at the top
+// of each iteration so the poller doesn't hammer the debug endpoint.
+//
+// The caller must `defer stop()` immediately at the call site. Because the class/tenant
+// cleanup defer is registered earlier, LIFO ordering runs stop() first on every exit path
+// including require.FailNow, so the poller is joined before teardown can race its
+// still-in-flight debug-usage call, and Go's testing.T requirement that a goroutine
+// calling T methods complete before the test returns holds even on failure. stop() is
+// idempotent, so tests that need the poller stopped mid-test call it explicitly as well.
+func startUsagePoller(t *testing.T, baselineWait func(ct *assert.CollectT), pollInterval time.Duration, poll func()) (stop func()) {
+	t.Helper()
 
-	className := t.Name() + "Class"
+	if baselineWait != nil {
+		assert.EventuallyWithT(t, baselineWait, 30*time.Second, 500*time.Millisecond)
+	}
+
+	endUsage := atomic.Bool{}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			if endUsage.Load() {
+				return
+			}
+			if pollInterval > 0 {
+				time.Sleep(pollInterval)
+				if endUsage.Load() {
+					return
+				}
+			}
+			poll()
+		}
+	}()
+
+	return func() {
+		endUsage.Store(true)
+		wg.Wait()
+	}
+}
+
+// createTenantedClass creates a fresh multi-tenancy-enabled collection named className with
+// a single "first" text property and numTenants tenants (tenant0..tenantN-1), deleting any
+// pre-existing collection with that name first. It captures the class/tenant bootstrap
+// shared by TestTenantStatusChanges, TestUsageTenantDelete and TestRestart below.
+//
+// The caller must `defer cleanup()` immediately at the call site, mirroring the startUsagePoller
+// contract above: cleanup only deletes the collection, so its ordering relative to other
+// defers at the call site (e.g. TestRestart's container teardown) is the caller's to control.
+func createTenantedClass(t *testing.T, ctx context.Context, c *client.Client, className string, numTenants int) (tenants []models.Tenant, cleanup func()) {
+	t.Helper()
 
 	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	class := &models.Class{
 		Class: className,
@@ -57,13 +113,22 @@ func TestTenantStatusChanges(t *testing.T) {
 	}
 	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-	tenants := make([]models.Tenant, 10)
+	tenants = make([]models.Tenant, numTenants)
 	for i := range tenants {
 		tenants[i] = models.Tenant{Name: fmt.Sprintf("tenant%d", i)}
 	}
 	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).WithTenants(tenants...).Do(ctx))
 
-	// add some data
+	return tenants, func() {
+		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	}
+}
+
+// seedTenantTextData writes one object per tenant to className, each with a distinct "first"
+// property value. Shared by TestTenantStatusChanges and TestUsageTenantDelete below.
+func seedTenantTextData(t *testing.T, ctx context.Context, c *client.Client, className string, tenants []models.Tenant) {
+	t.Helper()
+
 	for i, tenant := range tenants {
 		_, err := c.Data().Creator().WithClassName(className).
 			WithTenant(tenant.Name).
@@ -72,14 +137,29 @@ func TestTenantStatusChanges(t *testing.T) {
 			}).Do(ctx)
 		require.NoError(t, err)
 	}
-	endUsage := atomic.Bool{}
+}
 
-	go func() {
-		for {
-			if endUsage.Load() {
-				return
-			}
+func TestTenantStatusChanges(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
+	require.Nil(t, err)
 
+	className := t.Name() + "Class"
+	tenants, cleanup := createTenantedClass(t, ctx, c, className, 10)
+	defer cleanup()
+
+	seedTenantTextData(t, ctx, c, className, tenants)
+
+	stopPoller := startUsagePoller(
+		t,
+		func(ct *assert.CollectT) {
+			usage, err := GetDebugUsageForCollection(className)
+			require.NoError(ct, err)
+			require.NotNil(ct, usage)
+			require.Equal(ct, len(tenants), len(usage.Shards))
+		},
+		0,
+		func() {
 			usage, err := GetDebugUsageForCollection(className)
 			require.NoError(t, err)
 			require.NotNil(t, usage)
@@ -95,17 +175,20 @@ func TestTenantStatusChanges(t *testing.T) {
 				names[shard.Name] = struct{}{}
 			}
 			require.Equal(t, len(names), len(tenants))
-		}
-	}()
+		},
+	)
+	defer stopPoller()
 
 	var eg errgroup.Group
 	for i := range tenants {
 		eg.Go(
 			func() error {
-				require.NoError(t,
+				require.NoError(
+					t,
 					c.Schema().TenantsUpdater().WithClassName(className).WithTenants(models.Tenant{Name: fmt.Sprintf("tenant%d", i), ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx),
 				)
-				require.NoError(t,
+				require.NoError(
+					t,
 					c.Schema().TenantsUpdater().WithClassName(className).WithTenants(models.Tenant{Name: fmt.Sprintf("tenant%d", i), ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx),
 				)
 				return nil
@@ -113,7 +196,6 @@ func TestTenantStatusChanges(t *testing.T) {
 		)
 	}
 	require.NoError(t, eg.Wait())
-	endUsage.Store(true)
 }
 
 func TestUsageTenantDelete(t *testing.T) {
@@ -122,45 +204,23 @@ func TestUsageTenantDelete(t *testing.T) {
 	require.Nil(t, err)
 
 	className := t.Name() + "Class"
+	tenants, cleanup := createTenantedClass(t, ctx, c, className, 100)
+	defer cleanup()
 
-	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	seedTenantTextData(t, ctx, c, className, tenants)
 
-	class := &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{
-				Name:     "first",
-				DataType: []string{string(schema.DataTypeText)},
-			},
-		},
-		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-	}
-	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
-
-	tenants := make([]models.Tenant, 100)
-	for i := range tenants {
-		tenants[i] = models.Tenant{Name: fmt.Sprintf("tenant%d", i)}
-	}
-	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).WithTenants(tenants...).Do(ctx))
-
-	// add some data
-	for i, tenant := range tenants {
-		_, err := c.Data().Creator().WithClassName(className).
-			WithTenant(tenant.Name).
-			WithProperties(map[string]interface{}{
-				"first": fmt.Sprintf("hello%d", i),
-			}).Do(ctx)
-		require.NoError(t, err)
-	}
-
-	endUsage := atomic.Bool{}
 	deletedTenants := atomic.Int32{}
-	go func() {
-		for {
-			if endUsage.Load() {
-				return
-			}
+
+	stopPoller := startUsagePoller(
+		t,
+		func(ct *assert.CollectT) {
+			usage, err := GetDebugUsageForCollection(className)
+			require.NoError(ct, err)
+			require.NotNil(ct, usage)
+			require.Equal(ct, len(tenants), len(usage.Shards))
+		},
+		0,
+		func() {
 			deletedTenantsBeforeCall := deletedTenants.Load()
 			usage, err := GetDebugUsageForCollection(className)
 			require.NoError(t, err)
@@ -182,15 +242,15 @@ func TestUsageTenantDelete(t *testing.T) {
 				}
 				names[shard.Name] = struct{}{}
 			}
-		}
-	}()
+		},
+	)
+	defer stopPoller()
 
 	for i := range tenants {
 		err := c.Schema().TenantsDeleter().WithClassName(className).WithTenants(tenants[i].Name).Do(ctx)
 		require.NoError(t, err)
 		deletedTenants.Add(1)
 	}
-	endUsage.Store(true)
 }
 
 func TestCollectionDeletion(t *testing.T) {
@@ -223,13 +283,18 @@ func TestCollectionDeletion(t *testing.T) {
 		require.NoError(t, classCreator.WithClass(class).Do(ctx))
 	}
 
-	endUsage := atomic.Bool{}
 	deletedClasses := atomic.Int32{}
-	go func() {
-		for {
-			if endUsage.Load() {
-				return
-			}
+
+	stopPoller := startUsagePoller(
+		t,
+		func(ct *assert.CollectT) {
+			usage, err := getDebugUsage()
+			require.NoError(ct, err)
+			require.NotNil(ct, usage)
+			require.Equal(ct, numClasses, len(usage.Collections))
+		},
+		0,
+		func() {
 			deletedClassesBeforeCall := deletedClasses.Load()
 			usage, err := getDebugUsage()
 			require.NoError(t, err)
@@ -239,15 +304,15 @@ func TestCollectionDeletion(t *testing.T) {
 			// we add a bit of wiggle room here as the usage endpoint might take a bit to reflect the changes
 			require.LessOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesBeforeCall)+1)
 			require.GreaterOrEqual(t, len(usage.Collections), numClasses-int(deletedClassesAfterCall)-1)
-		}
-	}()
+		},
+	)
+	defer stopPoller()
 
 	for i := 0; i < numClasses; i++ {
 		className := getClassName(t, i)
 		require.NoError(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
 		deletedClasses.Add(1)
 	}
-	endUsage.Store(true)
 }
 
 func TestAlterSchemaDropPropertyIndex(t *testing.T) {
@@ -311,26 +376,14 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 	require.Greater(t, initialStorage, uint64(0))
 
 	// Concurrently poll shard usage while dropping property indices
-	endUsage := atomic.Bool{}
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			if endUsage.Load() {
-				return
-			}
-			time.Sleep(500 * time.Millisecond)
-			if endUsage.Load() {
-				return
-			}
-			usage, err := GetDebugUsageForCollection(className)
-			require.NoError(t, err)
-			require.Len(t, usage.Shards, 1)
-			require.Greater(t, usage.Shards[0].FullShardStorageBytes, uint64(0))
-			assert.Less(t, usage.Shards[0].FullShardStorageBytes, initialStorage)
-		}
-	}()
+	stopPoller := startUsagePoller(t, nil, 500*time.Millisecond, func() {
+		usage, err := GetDebugUsageForCollection(className)
+		require.NoError(t, err)
+		require.Len(t, usage.Shards, 1)
+		require.Greater(t, usage.Shards[0].FullShardStorageBytes, uint64(0))
+		assert.Less(t, usage.Shards[0].FullShardStorageBytes, initialStorage)
+	})
+	defer stopPoller()
 
 	// Drop all property indices using the Go client
 	require.NoError(t, c.Schema().PropertyIndexDeleter().
@@ -342,8 +395,7 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 	require.NoError(t, c.Schema().PropertyIndexDeleter().
 		WithClassName(className).WithPropertyName(numberProp).WithRangeFilters().Do(ctx))
 
-	endUsage.Store(true)
-	wg.Wait()
+	stopPoller()
 
 	// Verify that storage dropped after removing all property indices
 	colUsageAfter, err := GetDebugUsageForCollection(className)
@@ -497,27 +549,8 @@ func TestRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	className := t.Name() + "Class"
-
-	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-
-	class := &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{
-				Name:     "first",
-				DataType: []string{string(schema.DataTypeText)},
-			},
-		},
-		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-	}
-	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
-
-	tenants := make([]models.Tenant, 100)
-	for i := range tenants {
-		tenants[i] = models.Tenant{Name: fmt.Sprintf("tenant%d", i)}
-	}
-	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).WithTenants(tenants...).Do(ctx))
+	tenants, cleanup := createTenantedClass(t, ctx, c, className, 100)
+	defer cleanup()
 
 	// add some data
 	for i, tenant := range tenants {
@@ -937,10 +970,12 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		// deactivate and activate to flush data to disk and have it comparable
 		for _, class := range []*models.Class{classDynamic, classFlat, classHnsw} {
-			require.NoError(t,
+			require.NoError(
+				t,
 				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx),
 			)
-			require.NoError(t,
+			require.NoError(
+				t,
 				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx),
 			)
 		}
@@ -997,10 +1032,12 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 
 		// deactivate and activate to flush data to disk and have it comparable
 		for _, class := range []*models.Class{classDynamic, classFlat, classHnsw} {
-			require.NoError(t,
+			require.NoError(
+				t,
 				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx),
 			)
-			require.NoError(t,
+			require.NoError(
+				t,
 				c.Schema().TenantsUpdater().WithClassName(class.Class).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx),
 			)
 		}
