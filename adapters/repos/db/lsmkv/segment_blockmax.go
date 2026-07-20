@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/blockenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
@@ -72,7 +73,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node, plView *propLengthsVi
 	docCount := binary.LittleEndian.Uint64(buf)
 
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
-		data := convertFixedLengthFromMemory(buf, int(docCount))
+		data := blockenc.ConvertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]terms.BlockEntry, 1)
 		// reuse the snapshot reset already took under lock (propLengthsView), so
 		// this never reads the segment's arrays unlocked
