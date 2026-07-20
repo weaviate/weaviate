@@ -120,7 +120,11 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.addApproximateCardinalities(res)
+	// The whole-bucket estimate would repeat identically on every group of a
+	// group-by aggregation, so it is only attached to ungrouped results.
+	if a.params.GroupBy == nil {
+		a.addApproximateCardinalities(res)
+	}
 	return res, nil
 }
 

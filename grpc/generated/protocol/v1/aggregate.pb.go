@@ -402,6 +402,7 @@ type AggregateRequest_Aggregation struct {
 	// Bloom-filter-based estimate of the number of distinct values of this
 	// property. Type-agnostic and computed over the whole bucket (ignores
 	// filters/search). Cheap alternative to an exact distinct count.
+	// Ignored when group_by is set.
 	ApproximateCardinality bool `protobuf:"varint,8,opt,name=approximate_cardinality,json=approximateCardinality,proto3" json:"approximate_cardinality,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
@@ -1305,7 +1306,8 @@ type AggregateReply_Aggregations_Aggregation struct {
 	//	*AggregateReply_Aggregations_Aggregation_Reference_
 	Aggregation isAggregateReply_Aggregations_Aggregation_Aggregation `protobuf_oneof:"aggregation"`
 	// Bloom-filter-based estimate of distinct values of this property,
-	// set when approximate_cardinality was requested.
+	// set when approximate_cardinality was requested on a non-group-by
+	// aggregation.
 	ApproximateCardinality *int64 `protobuf:"varint,8,opt,name=approximate_cardinality,json=approximateCardinality,proto3,oneof" json:"approximate_cardinality,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
