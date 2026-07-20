@@ -293,6 +293,13 @@ func roaringsetReopenInMemory(ctx context.Context, t *testing.T, opts []BucketOp
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
 
+		// positive control: segments were flushed before shutdown, so the
+		// startup build must have engaged and produced a non-empty merged
+		// structure — otherwise the assertions below would also pass on the
+		// plain disk read path and prove nothing about the in-memory one
+		require.NotNil(t, b.disk.roaringSetSegmentInMemory)
+		require.Positive(t, b.disk.roaringSetSegmentInMemory.Size())
+
 		res, release, err := b.RoaringSetGet(context.Background(), key1)
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{2, 3, 4}, res.ToArray()) // 1 deleted in round two, 4 added
@@ -313,6 +320,11 @@ func roaringsetReopenInMemory(ctx context.Context, t *testing.T, opts []BucketOp
 			require.Nil(t, err)
 			err = b.RoaringSetAddList(key2, []uint64{200}) // revives the deleted-to-empty key
 			require.Nil(t, err)
+
+			// same control after fresh writes: they layer on the active
+			// memtable, the merged structure must stay engaged
+			require.NotNil(t, b.disk.roaringSetSegmentInMemory)
+			require.Positive(t, b.disk.roaringSetSegmentInMemory.Size())
 
 			res, release, err := b.RoaringSetGet(context.Background(), key1)
 			require.NoError(t, err)

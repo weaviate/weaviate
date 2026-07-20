@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -26,6 +27,7 @@ import (
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -238,6 +240,11 @@ func (db *DB) init(ctx context.Context) error {
 		}
 	}
 
+	// All indices are loaded at this point: flag allow-list entries that match
+	// nothing, otherwise a typo would silently never elevate any bucket.
+	warnUnmatchedRoaringSetInMemoryEntries(db.logger, db.schemaGetter.GetSchemaSkipAuth(),
+		db.config.IndexRoaringSetInMemory)
+
 	// Collecting metrics that _can_ be aggregated on a node level,
 	// i.e. replacing className and shardName labels with "n/a",
 	// should be delegated to nodeWideMetricsObserver to centralize
@@ -362,4 +369,31 @@ func (db *DB) migrateToHierarchicalFS() error {
 	db.logger.WithField("action", "hierarchical_fs_migration").
 		Debugf("fs migration took %s\n", time.Since(before))
 	return nil
+}
+
+// warnUnmatchedRoaringSetInMemoryEntries warns once at startup about
+// INDEX_ROARINGSET_IN_MEMORY entries that match no live <Collection>.<property>.
+// The env parse already fails fast on malformed entries, but a well-formed
+// entry with a typo or wrong case would otherwise silently never elevate any
+// bucket.
+func warnUnmatchedRoaringSetInMemoryEntries(logger logrus.FieldLogger, sch schema.Schema, entries entcfg.StringSet) {
+	for entry := range entries {
+		// entry format (<Collection>.<property>) was validated at env parse
+		className, propName, _ := strings.Cut(entry, ".")
+		class := sch.FindClassByName(schema.ClassName(className))
+		if class == nil {
+			logger.Warnf("INDEX_ROARINGSET_IN_MEMORY entry %q matches no collection", entry)
+			continue
+		}
+		found := false
+		for _, prop := range class.Properties {
+			if prop.Name == propName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			logger.Warnf("INDEX_ROARINGSET_IN_MEMORY entry %q matches no property on collection %q", entry, className)
+		}
+	}
 }

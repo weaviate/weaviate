@@ -241,3 +241,31 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 		return nil
 	})
 }
+
+// TestNewBucketKeepMergedSegmentsInMemoryRequiresBufPool pins the fail-fast:
+// the merged in-memory read path clones bitmaps through the buffer pool, so
+// enabling it without a pool must fail at construction instead of panicking
+// with a nil dereference on the first read.
+func TestNewBucketKeepMergedSegmentsInMemoryRequiresBufPool(t *testing.T) {
+	for _, strategy := range []string{StrategyRoaringSet, StrategyRoaringSetRange} {
+		t.Run(strategy, func(t *testing.T) {
+			ctx := context.Background()
+			logger, _ := test.NewNullLogger()
+
+			b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(strategy),
+				WithKeepMergedSegmentsInMemory(true))
+			require.ErrorContains(t, err, "WithBitmapBufPool")
+			require.Nil(t, b)
+
+			b, err = NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(strategy),
+				WithKeepMergedSegmentsInMemory(true),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+			require.NoError(t, err)
+			require.NoError(t, b.Shutdown(ctx))
+		})
+	}
+}

@@ -199,11 +199,11 @@ type Bucket struct {
 
 	// keep one always-merged in-memory form (additions minus deletions)
 	// for more performant search
-	// (currently used by roaringsetrange inverted indexes)
+	// (used by roaringsetrange inverted and roaringset filterable indexes)
 	keepMergedSegmentsInMemory bool
 
 	// pool of buffers for bitmaps merges
-	// (currently used by roaringsetrange inverted indexes)
+	// (used by roaringsetrange inverted and roaringset filterable indexes)
 	bitmapBufPool roaringset.BitmapBufPool
 
 	// add information like the level and the strategy into the filename so these things can be checked without loading
@@ -275,6 +275,14 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	if b.strategy == unsetStrategy {
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
+	}
+
+	// The merged in-memory read path clones bitmaps through the buffer pool,
+	// so without one the first read would dereference a nil interface. Fail at
+	// construction instead: lsmkv is also used as a library, where a panic on
+	// read is worse than an error on open.
+	if b.keepMergedSegmentsInMemory && b.bitmapBufPool == nil {
+		return nil, errors.New("WithKeepMergedSegmentsInMemory requires WithBitmapBufPool to be set")
 	}
 
 	if !b.immutable && IsSnapshotDir(dir) {

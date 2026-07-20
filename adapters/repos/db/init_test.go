@@ -18,10 +18,12 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -178,4 +180,52 @@ func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
 
 	got := db.totalShardSizeBytes(className, []string{shardName}, 0)
 	require.Equal(t, fullShardBytes, got)
+}
+
+// TestWarnUnmatchedRoaringSetInMemoryEntries pins the one-time startup warning
+// for INDEX_ROARINGSET_IN_MEMORY entries that match no live
+// <Collection>.<property>: a well-formed but unmatched entry (typo, wrong
+// case) must be loud, a matched one silent.
+func TestWarnUnmatchedRoaringSetInMemoryEntries(t *testing.T) {
+	mkSchema := func() schema.Schema {
+		return schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+			Class: "Article",
+			Properties: []*models.Property{
+				{Name: "title", DataType: schema.DataTypeText.PropString()},
+			},
+		}}}}
+	}
+
+	warnMessages := func(hook *logrustest.Hook) []string {
+		var msgs []string
+		for _, entry := range hook.AllEntries() {
+			msgs = append(msgs, entry.Message)
+		}
+		return msgs
+	}
+
+	t.Run("unmatched entries warn", func(t *testing.T) {
+		logger, hook := logrustest.NewNullLogger()
+		warnUnmatchedRoaringSetInMemoryEntries(logger, mkSchema(), entcfg.StringSet{
+			"Missing.title":   {}, // no such collection
+			"Article.summary": {}, // no such property
+		})
+
+		msgs := warnMessages(hook)
+		require.Len(t, msgs, 2)
+		require.Contains(t, msgs, `INDEX_ROARINGSET_IN_MEMORY entry "Missing.title" matches no collection`)
+		require.Contains(t, msgs, `INDEX_ROARINGSET_IN_MEMORY entry "Article.summary" matches no property on collection "Article"`)
+	})
+
+	t.Run("matched entry stays silent", func(t *testing.T) {
+		logger, hook := logrustest.NewNullLogger()
+		warnUnmatchedRoaringSetInMemoryEntries(logger, mkSchema(), entcfg.StringSet{"Article.title": {}})
+		require.Empty(t, hook.AllEntries())
+	})
+
+	t.Run("entry warns when schema is empty", func(t *testing.T) {
+		logger, hook := logrustest.NewNullLogger()
+		warnUnmatchedRoaringSetInMemoryEntries(logger, schema.Schema{}, entcfg.StringSet{"Article.title": {}})
+		require.Len(t, warnMessages(hook), 1)
+	})
 }
