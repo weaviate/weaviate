@@ -40,6 +40,10 @@ type upsertPlan struct {
 	migrationType  db.ReindexMigrationType
 	targetTok      string
 	bucketStrategy string
+	// failClosed is set when a would-be NO_OP cannot be trusted because an
+	// in-flight task has an undecodable payload (see resolveUpsertPlan): the
+	// handler must respond 503, not a false 200.
+	failClosed bool
 }
 
 // upsertIndex implements PUT .../index/{indexType}: diffs the body against
@@ -88,6 +92,12 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 	plan, err := h.resolveUpsertPlan(class, collection, prop, indexType, body, reindexTasks)
 	if err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
+	}
+	if plan.failClosed {
+		// An undecodable in-flight task blocked a trustworthy NO_OP. Generic
+		// message (no task ID) so a foreign task's identifier can't leak.
+		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
+			"cannot verify reindex preconditions: an in-flight reindex task has an unparseable payload; retry after an operator inspects the task store"))
 	}
 	if plan.conflict != "" {
 		return jsonResponder(http.StatusConflict, errorResponse(principal, plan.conflict))
@@ -259,16 +269,54 @@ func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection stri
 	tok := strings.TrimSpace(body.Tokenization)
 	algorithm := strings.TrimSpace(body.Algorithm)
 
+	var plan upsertPlan
+	var err error
 	switch indexType {
 	case "searchable":
-		return h.resolveSearchableUpsert(class, collection, prop, tok, algorithm, reindexTasks)
+		plan, err = h.resolveSearchableUpsert(class, collection, prop, tok, algorithm, reindexTasks)
 	case "filterable":
-		return resolveFilterableUpsert(collection, prop, tok, algorithm, reindexTasks)
+		plan, err = resolveFilterableUpsert(collection, prop, tok, algorithm, reindexTasks)
 	case "rangeable":
-		return resolveRangeableUpsert(class, collection, prop, tok, algorithm, reindexTasks)
+		plan, err = resolveRangeableUpsert(class, collection, prop, tok, algorithm, reindexTasks)
+	default:
+		// Unreachable: normalizeIndexTypeParam already validated the token.
+		return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
 	}
-	// Unreachable: normalizeIndexTypeParam already validated the token.
-	return upsertPlan{}, fmt.Errorf("unsupported index type %q", indexType)
+	if err != nil {
+		return plan, err
+	}
+
+	// A NO_OP claims "already in the desired state" and returns 200 BEFORE the
+	// submit path's checkReindexConflict runs — so an in-flight task with an
+	// undecodable payload (which could be migrating this property to a
+	// contradictory state) would be silently skipped. We can't decode it to
+	// prove otherwise, so refuse the false 200 and fail closed with 503,
+	// matching the submit path's posture.
+	if plan.noop && hasUnverifiableInFlightTask(reindexTasks) {
+		return upsertPlan{failClosed: true}, nil
+	}
+	return plan, nil
+}
+
+// hasUnverifiableInFlightTask reports whether any in-flight (IsActive) reindex
+// task has a payload we cannot trust: undecodable, or decoded but missing
+// Collection / MigrationType. Same epistemic state as [checkReindexConflict] —
+// we cannot prove such a task is not migrating the target property, so the
+// NO_OP path must fail closed rather than return a false 200.
+func hasUnverifiableInFlightTask(reindexTasks []*distributedtask.Task) bool {
+	for _, t := range reindexTasks {
+		if !t.Status.IsActive() {
+			continue
+		}
+		var p db.ReindexTaskPayload
+		if err := json.Unmarshal(t.Payload, &p); err != nil {
+			return true
+		}
+		if p.Collection == "" || p.MigrationType == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // activeSearchableTaskFor returns the in-flight task (if any) converging this
