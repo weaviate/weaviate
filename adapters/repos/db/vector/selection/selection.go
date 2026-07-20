@@ -26,9 +26,9 @@ type Selection interface {
 	Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error)
 }
 
-// New returns the Selection described by sel, wired up with the provided
-// distance and vector-fetch functions. Returns nil when sel is nil or no
-// known strategy is set, meaning the caller should skip post-processing.
+// New returns the Selection described by sel, wired up with the provided distance
+// and vector-fetch functions. k is how many candidates to emit; callers paginate.
+// Returns nil when sel is nil or no known strategy is set.
 func New(
 	sel *searchparams.Selection,
 	distFn func(a, b []float32) (float32, error),
@@ -42,7 +42,7 @@ func New(
 		if sel.MMR.Balance < 0 || sel.MMR.Balance > 1 {
 			return nil, fmt.Errorf("MMR balance must be between 0 and 1")
 		}
-		return newMMRSelector(distFn, vecForID, int(sel.MMR.Limit), sel.MMR.Balance), nil
+		return newMMRSelector(distFn, vecForID, k, sel.MMR.Balance), nil
 	}
 	return nil, nil
 }
