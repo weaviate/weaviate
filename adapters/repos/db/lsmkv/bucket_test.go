@@ -1572,6 +1572,148 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 	release()
 }
 
+// TestBucketRoaringSetStrategyConsistentViewInMemo behaves similarly to
+// [TestBucketRoaringSetStrategyConsistentView], but serves reads from the
+// always-merged in-memory segment instead of the disk segments.
+func TestBucketRoaringSetStrategyConsistentViewInMemo(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+	key := []byte("key-a")
+
+	initialMemtable := newTestMemtableRoaringSet(map[string][]uint64{
+		"key-a": {2},
+	})
+
+	// pre-seed the in-memory segment as if a previous flush had been merged in
+	seedMemtable := newTestMemtableRoaringSet(map[string][]uint64{
+		"key-a": {1},
+	})
+	segInMemo := roaringset.NewSegmentInMemory(logger)
+	segInMemo.MergeMemtableEventually(seedMemtable.extractRoaringSet())
+
+	b := Bucket{
+		active: initialMemtable,
+		disk: &SegmentGroup{
+			segments:                  []Segment{},
+			roaringSetSegmentInMemory: segInMemo,
+		},
+		strategy:                   StrategyRoaringSet,
+		keepMergedSegmentsInMemory: true,
+		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
+	}
+
+	assertKey := func(expected []uint64) {
+		t.Helper()
+		v, release, err := b.RoaringSetGet(context.Background(), key)
+		require.NoError(t, err)
+		assert.Equal(t, expected, v.ToArray())
+		release()
+	}
+
+	// union of in-memo and active
+	assertKey([]uint64{1, 2})
+
+	// switch memtables: active moves to flushing, new active installed
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+		return newTestMemtableRoaringSet(map[string][]uint64{
+			"key-a": {3},
+		}), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+	assertKey([]uint64{1, 2, 3})
+
+	// flush the flushing memtable: it is merge-forwarded into the in-memory
+	// segment, reads stay stable at every background-merge stage
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(&fakeSegment{})
+	assertKey([]uint64{1, 2, 3})
+
+	// a new write to the active memtable is visible on top
+	require.NoError(t, b.active.roaringSetAddOne(key, 4))
+	assertKey([]uint64{1, 2, 3, 4})
+}
+
+// TestBucketRoaringSetStrategyWriteVsFlushInMemo behaves similarly to
+// [TestBucketRoaringSetStrategyWriteVsFlush], but with the always-merged
+// in-memory segment serving reads, extended by a deletion round: the fake disk
+// segment ignores deletions, so the id staying gone pins deletion
+// merge-forward through the in-memory segment.
+func TestBucketRoaringSetStrategyWriteVsFlushInMemo(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+	key := []byte("key-a")
+
+	b := Bucket{
+		active: newTestMemtableRoaringSet(map[string][]uint64{
+			"key-a": {1},
+		}),
+		disk: &SegmentGroup{
+			segments:                  []Segment{},
+			roaringSetSegmentInMemory: roaringset.NewSegmentInMemory(logger),
+		},
+		strategy:                   StrategyRoaringSet,
+		keepMergedSegmentsInMemory: true,
+		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
+	}
+
+	assertKey := func(expected []uint64) {
+		t.Helper()
+		bm, release, err := b.RoaringSetGet(context.Background(), key)
+		require.NoError(t, err)
+		assert.Equal(t, expected, bm.ToArray())
+		release()
+	}
+
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
+	require.NoError(t, active.roaringSetAddBitmap(key, bitmapFromSlice([]uint64{2})))
+
+	// Simulate a FlushAndSwitch() running concurrently
+	switchComplete := make(chan struct{})
+	flushComplete := make(chan struct{})
+	go func() {
+		// Switch active -> flushing, new empty active installed
+		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+			return newTestMemtableRoaringSet(nil), nil
+		})
+		require.NoError(t, err)
+		require.True(t, switched)
+		close(switchComplete)
+
+		b.waitForZeroWriters(b.flushing)
+
+		seg := flushRoaringSetTestMemtableIntoTestSegment(b.flushing)
+		b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+		close(flushComplete)
+	}()
+
+	// Ensure the switch has happened (we still hold a writer ref to the old active)
+	<-switchComplete
+
+	// Second write after switch: still writing through the old active reference
+	require.NoError(t, active.roaringSetAddBitmap(key, bitmapFromSlice([]uint64{3})))
+
+	// Release writer refs to allow the flush to proceed
+	freeRefs()
+	<-flushComplete
+
+	// writes through the stale active ref survived the flush
+	assertKey([]uint64{1, 2, 3})
+
+	// deletion round: delete an id, flush, assert it stays gone
+	require.NoError(t, b.RoaringSetRemoveOne(key, 2))
+	switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+		return newTestMemtableRoaringSet(nil), nil
+	})
+	require.NoError(t, err)
+	require.True(t, switched)
+	seg := flushRoaringSetTestMemtableIntoTestSegment(b.flushing)
+	b.atomicallyAddDiskSegmentAndRemoveFlushing(seg)
+	assertKey([]uint64{1, 3})
+}
+
 func TestBucketSetStrategyConsistentView(t *testing.T) {
 	t.Parallel()
 

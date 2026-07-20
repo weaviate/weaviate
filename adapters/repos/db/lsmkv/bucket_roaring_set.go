@@ -16,6 +16,7 @@ import (
 	"errors"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -93,6 +94,13 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 ) (bm *sroar.Bitmap, release func(), err error) {
 	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
+	// Pointer check, not the keepMergedSegmentsInMemory flag: buckets whose
+	// on-disk segments were created with a legacy strategy (set/map) must fall
+	// through to the disk path untouched.
+	if b.disk.roaringSetSegmentInMemory != nil {
+		return b.roaringSetGetFromConsistentViewInMemo(view, key, maxConc)
+	}
+
 	layers, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
 	if err != nil {
 		return nil, noopRelease, err
@@ -129,4 +137,67 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 	}
 
 	return layers.Flatten(false, maxConc), diskRelease, nil
+}
+
+// roaringSetGetFromConsistentViewInMemo serves the read from the always-merged
+// in-memory segment instead of the disk segments: the merged root plus one
+// layer per still-pending, flushing and active memtable on top.
+//
+// Every layer handed to Flatten is an owned clone (SegmentInMemory.Get clones
+// through the buffer pool, BinarySearchTree.Get and memtable roaringSetGet
+// clone), so Flatten's in-place mutation of the first layer is safe in any
+// interleaving — including when no root layer exists.
+func (b *Bucket) roaringSetGetFromConsistentViewInMemo(
+	view BucketConsistentView, key []byte, maxConc int,
+) (bm *sroar.Bitmap, release func(), err error) {
+	rootLayer, rootRelease, found, pending := b.disk.roaringSetSegmentInMemory.Get(key, b.bitmapBufPool)
+	// rootRelease (not the named return, which error paths overwrite with
+	// noopRelease) is what the defer frees, so a failed memtable read can't
+	// leak the root layer's pooled buffer.
+	defer func() {
+		if err != nil {
+			rootRelease()
+		}
+	}()
+
+	var layers roaringset.BitmapLayers
+	if found {
+		layers = append(layers, rootLayer)
+	}
+
+	for _, mt := range pending {
+		layer, getErr := mt.Get(key)
+		if getErr != nil {
+			if !errors.Is(getErr, lsmkv.NotFound) {
+				err = getErr
+				return nil, noopRelease, err
+			}
+			continue
+		}
+		layers = append(layers, layer)
+	}
+
+	if view.Flushing != nil {
+		flushing, flushErr := view.Flushing.roaringSetGet(key)
+		if flushErr != nil {
+			if !errors.Is(flushErr, lsmkv.NotFound) {
+				err = flushErr
+				return nil, noopRelease, err
+			}
+		} else {
+			layers = append(layers, flushing)
+		}
+	}
+
+	activeBM, activeErr := view.Active.roaringSetGet(key)
+	if activeErr != nil {
+		if !errors.Is(activeErr, lsmkv.NotFound) {
+			err = activeErr
+			return nil, noopRelease, err
+		}
+	} else {
+		layers = append(layers, activeBM)
+	}
+
+	return layers.Flatten(false, maxConc), rootRelease, nil
 }

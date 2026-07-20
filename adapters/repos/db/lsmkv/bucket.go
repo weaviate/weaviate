@@ -2021,6 +2021,10 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		if b.keepMergedSegmentsInMemory {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
+	case StrategyRoaringSet:
+		if b.disk.roaringSetSegmentInMemory != nil {
+			b.disk.roaringSetSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSet())
+		}
 	case StrategyInverted:
 		// A flush only adds the new segment's live docs; deletes are subtracted
 		// later at compaction, once the tombstoned docs' lengths drop out of the
