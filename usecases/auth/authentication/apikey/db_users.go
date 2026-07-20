@@ -533,13 +533,20 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	}
 	weakHashValue, ok := c.memoryOnlyData.weakKeyStorageById.Load(userId)
 	if !ok {
-		// Ensure only one Argon2 verification runs for this user
-		if _, err, _ := c.singleFlight.Do("auth:"+userId, func() (any, error) {
+		// Ensure only one Argon2 verification runs per user and key. Keying on
+		// the user alone would let a request joining an in-flight verification
+		// inherit a verdict reached for a different key.
+		keyHash := sha256.Sum256([]byte(key))
+		if _, err, _ := c.singleFlight.Do("auth:"+userId+":"+string(keyHash[:]), func() (any, error) {
 			return nil, c.validateStrongHash(key, secureHash, userId)
 		}); err != nil {
 			return nil, err
 		}
-		weakHashValue, _ = c.memoryOnlyData.weakKeyStorageById.Load(userId)
+		// A missing entry here would panic the type assertion below.
+		weakHashValue, ok = c.memoryOnlyData.weakKeyStorageById.Load(userId)
+		if !ok {
+			return nil, fmt.Errorf("invalid token")
+		}
 	}
 
 	weakHash := weakHashValue.([sha256.Size]byte)
