@@ -280,7 +280,8 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 
 		require.NoError(t, deleteVectorIndexAuth(t, "Movies", "vec1", user1Key))
 
-		assert.Equal(t, "none", vectorIndexType(t, ns1+":Movies", "vec1"))
+		helper.AssertVectorIndexDroppedAuth(t, ns1+":Movies", adminKey, "vec1")
+		// vec2 was never dropped, so a plain read is deterministic.
 		assert.Equal(t, "hnsw", vectorIndexType(t, ns1+":Movies", "vec2"))
 	})
 
@@ -291,7 +292,7 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 
 		require.NoError(t, deleteVectorIndexAuth(t, ns1+":Shows", "vec1", adminKey))
 
-		assert.Equal(t, "none", vectorIndexType(t, ns1+":Shows", "vec1"))
+		helper.AssertVectorIndexDroppedAuth(t, ns1+":Shows", adminKey, "vec1")
 	})
 
 	t.Run("alias is not a backdoor: DeleteClassVectorIndex by alias name fails and underlying class unchanged", func(t *testing.T) {
