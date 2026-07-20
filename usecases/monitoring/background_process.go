@@ -43,6 +43,9 @@ type BackgroundProcessMetrics struct {
 	// duration: finished-run seconds; _bucket/_count/_sum give percentiles,
 	// throughput and busy-time. Only Started runs are timed.
 	duration *prometheus.HistogramVec
+	// failures: runs that ended in error, excluding cancellations. Opt-in via
+	// Failed, so a missing series means "not wired", not "never fails".
+	failures *prometheus.CounterVec
 }
 
 var backgroundProcessMetrics *BackgroundProcessMetrics
@@ -67,6 +70,10 @@ func newBackgroundProcessMetrics(reg prometheus.Registerer) *BackgroundProcessMe
 			Help: "Wall-clock duration of finished background process runs, in seconds",
 			// 50ms → ~7.3h: covers a sub-second compaction and a multi-hour backup.
 			Buckets: prometheus.ExponentialBuckets(0.05, 2, 20),
+		}, []string{"process"}),
+		failures: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_background_process_failures_total",
+			Help: "Number of background process runs that ended in error (cancellations excluded)",
 		}, []string{"process"}),
 	}
 }
@@ -104,4 +111,14 @@ func (m *BackgroundProcessMetrics) Started(process BackgroundProcess) func() {
 		m.DecActive(process)
 		m.duration.WithLabelValues(string(process)).Observe(time.Since(start).Seconds())
 	}
+}
+
+// Failed records one errored run. Call it from a genuine-failure branch, not on
+// cancellation. Independent of Started/Inc-Dec, which track liveness regardless
+// of outcome.
+func (m *BackgroundProcessMetrics) Failed(process BackgroundProcess) {
+	if m == nil {
+		return
+	}
+	m.failures.WithLabelValues(string(process)).Inc()
 }

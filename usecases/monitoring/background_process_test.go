@@ -98,6 +98,22 @@ func TestBackgroundProcessMetrics_DurationRecordedOnDone(t *testing.T) {
 	assert.Equal(t, uint64(1), histogramSampleCount(t, m, "backup"))
 }
 
+func TestBackgroundProcessMetrics_Failed(t *testing.T) {
+	m := newBackgroundProcessMetrics(prometheus.NewPedanticRegistry())
+
+	// Failures are independent of liveness/duration: a run can finish and still
+	// be recorded as failed.
+	m.Started(ProcessBackup)()
+	assert.Equal(t, float64(0), testutil.ToFloat64(m.failures.WithLabelValues("backup")))
+
+	m.Failed(ProcessBackup)
+	m.Failed(ProcessBackup)
+	assert.Equal(t, float64(2), testutil.ToFloat64(m.failures.WithLabelValues("backup")))
+
+	// Keyed per process; unrelated processes stay at zero.
+	assert.Equal(t, float64(0), testutil.ToFloat64(m.failures.WithLabelValues("restore")))
+}
+
 func TestBackgroundProcessMetrics_IncDecActive(t *testing.T) {
 	m := newBackgroundProcessMetrics(prometheus.NewPedanticRegistry())
 

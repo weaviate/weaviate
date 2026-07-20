@@ -112,6 +112,7 @@ func (r *restorer) restore(
 					status.Status = backup.Cancelled
 				} else {
 					status.Status = backup.Failed
+					monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessRestore)
 				}
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)

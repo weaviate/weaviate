@@ -274,6 +274,8 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
+		} else {
+			monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessBackup)
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
