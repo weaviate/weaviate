@@ -85,7 +85,21 @@ func TestRESTSearchBm25(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 
-	classes := []*models.Class{bookClass, diaryClass}
+	// no searchable property at all: int only, plus a text property with its
+	// searchable index disabled
+	ledgerClass := &models.Class{
+		Class:      "Ledger",
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{Name: "year", DataType: schema.DataTypeInt.PropString()},
+			{
+				Name: "code", DataType: schema.DataTypeText.PropString(),
+				IndexSearchable: func() *bool { b := false; return &b }(),
+			},
+		},
+	}
+
+	classes := []*models.Class{bookClass, diaryClass, ledgerClass}
 	for _, class := range classes {
 		helper.CreateClass(t, class)
 	}
@@ -242,6 +256,17 @@ func TestRESTSearchBm25(t *testing.T) {
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 		assert.Contains(t, errMessage(t, out), "indexSearchable")
+	})
+
+	t.Run("no searchable properties with empty queryProperties is a 422", func(t *testing.T) {
+		// with queryProperties omitted, the searched set expands to all
+		// searchable properties; a collection with none must be a 422, not
+		// the engine's untyped all-properties-expansion error (a 500)
+		status, out := postBm25(t, "Ledger", map[string]interface{}{
+			"query": "spaceship",
+		})
+		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "no searchable properties")
 	})
 
 	t.Run("absent query is rejected at bind time", func(t *testing.T) {

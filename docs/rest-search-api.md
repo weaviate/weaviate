@@ -407,6 +407,14 @@ Decision log for the three settled points:
    bm25 metadata keys are `score` and `explainScore`; `explainScore` also
    switches on `KeywordRanking.AdditionalExplanations` (gRPC parity).
 
+**2026-07-20 (Copilot review):** a bm25 with empty `queryProperties` on a
+collection that has no searchable property at all used to surface the
+engine's untyped all-properties-expansion error as a 500. The handler now
+pre-checks it with `checkKeywordSearchable` (422, using the engine's own
+`searchparams.PropertyHasSearchableIndex` predicate so the definitions
+cannot drift). Explicit `queryProperties` stay the searcher's to reject
+(typed `MissingIndexError` → 422).
+
 ### Files
 
 - `openapi-specs/schema.json` — paths `/search/{collection}/near-text` and
@@ -528,7 +536,7 @@ enforced by the generated model at bind time; the rest are the handler's.
 | no/malformed credentials (anonymous-access middleware, above the swagger layer) | 401 | legacy `{"code","message"}` (parity with existing endpoints) |
 | not authorized for collection/tenant data (checked **before** schema access) | 403 | `ErrorResponse` |
 | unknown collection; unknown tenant | 404 | `ErrorResponse` |
-| no vectorizer (near-text) / missing `targetVector` on multi-vector collection / certainty on non-cosine / reserved param present / a bm25-queried property without a searchable index / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / experimental feature not enabled (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) | 422 | `ErrorResponse` |
+| no vectorizer (near-text) / missing `targetVector` on multi-vector collection / certainty on non-cosine / reserved param present / a bm25-queried property without a searchable index / a bm25 with empty `queryProperties` on a collection with no searchable property / tenant-vs-MT-config mismatch / tenant not active / `where` on a property with its inverted index disabled / experimental feature not enabled (`EXPERIMENTAL_REST_SEARCH_ENABLED` unset) | 422 | `ErrorResponse` |
 | embedding provider failure (near-text only — bm25 never vectorizes and declares no 502) | 502 | `ErrorResponse` |
 | rate limited (traverser) | 429 | `ErrorResponse` — only the traverser's own typed `ErrRateLimit` maps here; an embedding provider's rate-limit error is an ordinary vectorization failure and maps to 502 |
 | other method on the route | 405 + `Allow: POST` | `ErrorResponse` |

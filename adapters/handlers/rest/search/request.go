@@ -173,11 +173,34 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	}
 	out.KeywordRanking = keywordRanking
 
+	if apiErr := checkKeywordSearchable(class, body.QueryProperties); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
 	if apiErr := h.fillSelectionAndFilter(&out, class, className, common, getClass, principal); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
 
 	return out, nil
+}
+
+// checkKeywordSearchable rejects a keyword search with empty queryProperties
+// over a collection that has no searchable property — the engine's
+// all-properties expansion finds nothing and errors untyped there, which
+// would surface as a 500. Explicit properties are the searcher's to check
+// (a typed MissingIndexError, mapped to 422). Uses the engine's own
+// searchability predicate so the two definitions cannot drift.
+func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIError {
+	if len(queryProperties) > 0 {
+		return nil
+	}
+	for _, prop := range class.Properties {
+		if searchparams.PropertyHasSearchableIndex(class, prop.Name) {
+			return nil
+		}
+	}
+	return newAPIError(http.StatusUnprocessableEntity,
+		"collection %s has no searchable properties for a keyword search", class.Class)
 }
 
 // parseBm25 builds the keyword-ranking params for a bm25 search, mirroring

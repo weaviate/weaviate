@@ -758,6 +758,46 @@ func TestBm25SharedFields(t *testing.T) {
 	})
 }
 
+// unsearchableClass has no searchable property: ints are never
+// keyword-searchable and its sole text property disables its searchable
+// index.
+func unsearchableClass() *models.Class {
+	searchable := false
+	return &models.Class{
+		Class:             "Ledger",
+		Vectorizer:        "text2vec-contextionary",
+		VectorIndexConfig: hnsw.UserConfig{Distance: "cosine"},
+		Properties: []*models.Property{
+			{Name: "year", DataType: schema.DataTypeInt.PropString()},
+			{Name: "code", DataType: schema.DataTypeText.PropString(), IndexSearchable: &searchable},
+		},
+	}
+}
+
+func TestBm25NoSearchableProperties(t *testing.T) {
+	// empty queryProperties expand to all searchable properties; with none,
+	// the engine errors untyped (a 500), so the handler pre-checks with 422
+	for name, body := range map[string]string{
+		"omitted": `{"query":"space"}`,
+		"empty":   `{"query":"space","queryProperties":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, apiErr := buildBm25(t, unsearchableClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "no searchable properties")
+		})
+	}
+
+	t.Run("explicit queryProperties are the searcher's to reject", func(t *testing.T) {
+		// the pre-check only guards the empty-list expansion; an explicit
+		// non-searchable property reaches the searcher (typed
+		// MissingIndexError, mapped to 422 live)
+		_, apiErr := buildBm25(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
+		assert.Nil(t, apiErr)
+	})
+}
+
 func TestParseConsistencyLevel(t *testing.T) {
 	// the swagger enum rejects lowercase/unknown values (422) before the
 	// handler; the handler's tolerant ToUpper + 400 is the defensive
