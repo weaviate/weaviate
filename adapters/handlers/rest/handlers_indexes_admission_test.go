@@ -52,114 +52,98 @@ func statusOf(t *testing.T, resp middleware.Responder) (int, *models.ErrorRespon
 	return rec.Code, &body
 }
 
-// Pins that the cap is enforced by the real gate, not just the count helper.
-func TestCheckReindexAdmission_CapExceededReturns429(t *testing.T) {
-	h := admissionHandler()
+// TestCheckReindexAdmission exercises the admission gate: conflict (409, naming
+// the task) is checked before the cap (429); an undecodable in-flight payload
+// fails closed (503) without leaking the task ID; a clean or below-cap request
+// proceeds. wantCode==0 means "proceed" (nil responder).
+func TestCheckReindexAdmission(t *testing.T) {
 	const collection = "C"
 
-	// maxConcurrentReindexPerCollection active tasks, distinct props, all
-	// enable-rangeable (no cross-type conflicts) so we reach the cap check.
-	tasks := make([]*distributedtask.Task, 0, maxConcurrentReindexPerCollection)
-	for i := 0; i < maxConcurrentReindexPerCollection; i++ {
-		tasks = append(tasks, buildTask(t,
-			"C:enable-rangeable:p"+string(rune('a'+i%26))+string(rune('a'+(i/26)%26)),
-			distributedtask.TaskStatusStarted,
-			db.ReindexTaskPayload{
-				MigrationType: db.ReindexTypeEnableRangeable,
-				Collection:    collection,
-				Properties:    []string{"p" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))},
-			}, nil))
-	}
-	require.Equal(t, maxConcurrentReindexPerCollection,
-		countStartedTasksForCollection(collection, tasks),
-		"fixture must have exactly the cap in flight")
-
-	// The next submission (a distinct property) must be capped.
-	resp := h.checkReindexAdmission(nil, collection, db.ReindexTypeEnableRangeable,
-		[]string{"pZZ"}, tasks)
-
-	code, body := statusOf(t, resp)
-	require.Equal(t, http.StatusTooManyRequests, code,
-		"the (cap+1)th concurrent submit must return 429")
-	require.Len(t, body.Error, 1)
-	assert.Contains(t, body.Error[0].Message, "32")
-}
-
-// Pins the boundary: one below the cap must be admitted.
-func TestCheckReindexAdmission_CapMinusOneAdmits(t *testing.T) {
-	h := admissionHandler()
-	const collection = "C"
-
-	tasks := make([]*distributedtask.Task, 0, maxConcurrentReindexPerCollection-1)
-	for i := 0; i < maxConcurrentReindexPerCollection-1; i++ {
-		tasks = append(tasks, buildTask(t,
-			"C:enable-rangeable:p"+string(rune('a'+i%26))+string(rune('a'+(i/26)%26)),
-			distributedtask.TaskStatusStarted,
-			db.ReindexTaskPayload{
-				MigrationType: db.ReindexTypeEnableRangeable,
-				Collection:    collection,
-				Properties:    []string{"p" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))},
-			}, nil))
+	// capTasks builds n distinct-property enable-rangeable tasks (no cross-type
+	// conflicts) so the cap check — not the conflict check — is what fires.
+	capTasks := func(n int) []*distributedtask.Task {
+		tasks := make([]*distributedtask.Task, 0, n)
+		for i := 0; i < n; i++ {
+			p := "p" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))
+			tasks = append(tasks, buildTask(t, "C:enable-rangeable:"+p,
+				distributedtask.TaskStatusStarted,
+				db.ReindexTaskPayload{MigrationType: db.ReindexTypeEnableRangeable, Collection: collection, Properties: []string{p}}, nil))
+		}
+		return tasks
 	}
 
-	resp := h.checkReindexAdmission(nil, collection, db.ReindexTypeEnableRangeable,
-		[]string{"pZZ"}, tasks)
-	require.Nil(t, resp, "one below the cap must be admitted (proceed)")
-}
-
-// Pins that conflict (409, naming the task) is checked before the cap.
-func TestCheckReindexAdmission_ConflictReturns409(t *testing.T) {
-	h := admissionHandler()
-	const collection = "C"
-
-	inflight := buildTask(t, "C:change-tokenization:p:aaaa",
-		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeChangeTokenization,
-			Collection:    collection,
-			Properties:    []string{"p"},
-		}, nil)
-
-	resp := h.checkReindexAdmission(nil, collection, db.ReindexTypeChangeTokenization,
-		[]string{"p"}, []*distributedtask.Task{inflight})
-
-	code, body := statusOf(t, resp)
-	require.Equal(t, http.StatusConflict, code)
-	require.Len(t, body.Error, 1)
-	assert.Contains(t, body.Error[0].Message, "C:change-tokenization:p:aaaa",
-		"409 body must name the offending in-flight task")
-}
-
-// Pins that an undecodable in-flight payload fails closed, not skipped.
-func TestCheckReindexAdmission_UnparseablePayloadReturns503(t *testing.T) {
-	h := admissionHandler()
-	const collection = "C"
-
-	bad := &distributedtask.Task{
-		Namespace:      db.ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:mystery:p:aaaa", Version: 1},
-		Payload:        []byte(`{not valid json`),
-		Status:         distributedtask.TaskStatusStarted,
+	cases := []struct {
+		name            string
+		migrationType   db.ReindexMigrationType
+		props           []string
+		tasks           []*distributedtask.Task
+		wantCode        int
+		wantContains    string
+		wantNotContains string
+	}{
+		{
+			name:          "cap exceeded → 429",
+			migrationType: db.ReindexTypeEnableRangeable,
+			props:         []string{"pZZ"},
+			tasks:         capTasks(maxConcurrentReindexPerCollection),
+			wantCode:      http.StatusTooManyRequests,
+			wantContains:  "32",
+		},
+		{
+			name:          "one below cap → proceed",
+			migrationType: db.ReindexTypeEnableRangeable,
+			props:         []string{"pZZ"},
+			tasks:         capTasks(maxConcurrentReindexPerCollection - 1),
+		},
+		{
+			name:          "conflict checked before the cap → 409 naming the task",
+			migrationType: db.ReindexTypeChangeTokenization,
+			props:         []string{"p"},
+			tasks: []*distributedtask.Task{buildTask(t, "C:change-tokenization:p:aaaa",
+				distributedtask.TaskStatusStarted,
+				db.ReindexTaskPayload{MigrationType: db.ReindexTypeChangeTokenization, Collection: collection, Properties: []string{"p"}}, nil)},
+			wantCode:     http.StatusConflict,
+			wantContains: "C:change-tokenization:p:aaaa",
+		},
+		{
+			name:          "unparseable payload → 503 without leaking the task ID",
+			migrationType: db.ReindexTypeChangeTokenization,
+			props:         []string{"p"},
+			tasks: []*distributedtask.Task{{
+				Namespace:      db.ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:mystery:p:aaaa", Version: 1},
+				Payload:        []byte(`{not valid json`),
+				Status:         distributedtask.TaskStatusStarted,
+			}},
+			wantCode:        http.StatusServiceUnavailable,
+			wantNotContains: "mystery",
+		},
+		{
+			name:          "clean → proceed",
+			migrationType: db.ReindexTypeChangeTokenization,
+			props:         []string{"p"},
+		},
 	}
 
-	resp := h.checkReindexAdmission(nil, collection, db.ReindexTypeChangeTokenization,
-		[]string{"p"}, []*distributedtask.Task{bad})
-
-	code, body := statusOf(t, resp)
-	require.Equal(t, http.StatusServiceUnavailable, code)
-	// The offending task ID (potentially a foreign namespace) must not leak
-	// into the caller-facing 503 — it is logged server-side instead.
-	require.Len(t, body.Error, 1)
-	assert.NotContains(t, body.Error[0].Message, "mystery",
-		"the in-flight task ID must not leak to the caller")
-}
-
-// Pins the happy path: no conflicts, no cap breach → proceed.
-func TestCheckReindexAdmission_CleanProceeds(t *testing.T) {
 	h := admissionHandler()
-	resp := h.checkReindexAdmission(nil, "C", db.ReindexTypeChangeTokenization,
-		[]string{"p"}, nil)
-	require.Nil(t, resp, "no conflict, no cap breach → proceed")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.checkReindexAdmission(nil, collection, tc.migrationType, tc.props, tc.tasks)
+			if tc.wantCode == 0 {
+				require.Nil(t, resp, "expected proceed (nil responder)")
+				return
+			}
+			code, body := statusOf(t, resp)
+			require.Equal(t, tc.wantCode, code)
+			require.Len(t, body.Error, 1)
+			if tc.wantContains != "" {
+				assert.Contains(t, body.Error[0].Message, tc.wantContains)
+			}
+			if tc.wantNotContains != "" {
+				assert.NotContains(t, body.Error[0].Message, tc.wantNotContains)
+			}
+		})
+	}
 }
 
 // fakeTaskLister injects a list error / result into reindexTasksOrFailClosed,
