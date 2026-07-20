@@ -1254,6 +1254,17 @@ every node runs the durable-stamp version. During a mixed-version
 Set `0` (immediate GC of completed tasks) only once every node runs the
 durable-stamp version.
 
+One narrower residual remains even at the default TTL. Between node
+startup and the first `RunSearchableBlockmaxRepair` pass, a pre-stamp
+residual class (blockmax on disk, nil stamp, class flag false) is not yet
+seeded, so it still resolves through the legacy class-flag/task-list path.
+A client that issues a change-tokenization on such a class inside that
+window can mis-resolve its searchable bucket. This is client-triggered and
+transient: it self-heals the moment the repair seeds the stamp, and it is
+narrower than the automatic post-restart corruption the stamp closed. The
+TTL does not govern it; the window is bounded by the repair's first pass,
+not by task GC.
+
 ## 15. Files of interest
 
 **REST**
