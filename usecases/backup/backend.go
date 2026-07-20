@@ -247,6 +247,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	desc.Status = backup.Transferring
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
+
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
+
 	defer func() {
 		//  release indexes under all conditions
 		u.releaseIndexes(classes, desc.ID)
@@ -271,6 +274,8 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
+		} else {
+			monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessBackup)
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
