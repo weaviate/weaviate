@@ -362,13 +362,8 @@ func TestSegmentGroupRoaringSetRangeRep_InstallAfterGroupShutdownNoPanic(t *test
 }
 
 // TestSegmentGroupRoaringSetRangeRep_PanicMidMergeReleasesView pins
-// weaviate/weaviate#12215: a panic mid-merge (an unvalidated cursor key
-// from a corrupt segment, reproduced here via a fake segment whose cursor
-// panics) must still release the consistent view's segment refs. Without
-// the deferred release, the leaked ref hangs the next shutdown() forever
-// in the no-timeout waitForReferenceCountToReachZero - this test bounds
-// that wait with a timeout so a regression fails loudly instead of
-// hanging the run.
+// weaviate/weaviate#12215: a panic mid-merge must not leak the view's
+// segment refs, or shutdown() hangs forever.
 func TestSegmentGroupRoaringSetRangeRep_PanicMidMergeReleasesView(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -479,10 +474,8 @@ func TestRebuildRangeable_EmptyRepWithDiskSegments_DoesNotPublish(t *testing.T) 
 	assert.Empty(t, readEqual(t, b, 1), "disk-path read must still return the correct (empty) result")
 }
 
-// deleteAllRangeableCursor is a minimal roaringsetrange.SegmentCursor that
-// deletes every docID in the given bitmap and adds nothing, used to drain
-// a published rep directly (bypassing the normal write path) so a test can
-// tell whether a read consulted the live rep or a stale/fallback source.
+// deleteAllRangeableCursor deletes every docID in the given bitmap, used
+// to drain a published rep directly so tests can detect stale-rep reads.
 type deleteAllRangeableCursor struct {
 	deletions *sroar.Bitmap
 	yielded   bool
@@ -502,13 +495,8 @@ func (c *deleteAllRangeableCursor) Next() (uint8, roaringset.BitmapLayer, bool) 
 }
 
 // TestReaderRoaringSetRange_PublishedFlagTrusted pins weaviate/weaviate#12215:
-// once published (rangeableRepRebuilt==true), reads must trust the rep
-// unconditionally and never re-run the per-read unpopulated+disk-segments
-// fallback check. Proven by draining the published rep directly (docID 100
-// still exists on disk) and asserting the read still returns the now-stale
-// in-memory (empty) result with no WARN - if the per-read check ran, it
-// would detect "unpopulated with disk segments present" and fall back to
-// disk, returning the correct [100] with a WARN instead.
+// once published, reads must trust the rep unconditionally, even when it's
+// stale, and never re-run the per-read fallback check.
 func TestReaderRoaringSetRange_PublishedFlagTrusted(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

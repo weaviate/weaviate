@@ -570,11 +570,9 @@ func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
 //
 // Caller must not call the returned release until installRoaringSetRangeRep
 // returns: holding the ref keeps a concurrent shutdown() from closing these
-// segments mid-merge. The view's release is deferred here and only
-// suppressed on the success return, so a panic mid-merge (an unvalidated
-// cursor key, a corrupt segment) still releases the ref instead of leaking
-// it - a leaked ref hangs the next shutdown() forever in the no-timeout
-// waitForReferenceCountToReachZero.
+// segments mid-merge. The release is deferred and only suppressed on
+// success, so a panic mid-merge still releases it instead of leaking a ref
+// that would hang the next shutdown() forever.
 func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringsetrange.SegmentInMemory, []Segment, func(), error) {
 	segments, release := sg.getConsistentViewOfSegments()
 	ownershipTransferred := false

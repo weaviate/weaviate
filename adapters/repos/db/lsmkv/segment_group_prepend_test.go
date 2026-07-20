@@ -30,10 +30,7 @@ import (
 )
 
 // createTestBucketWithOptionsAndLogger creates a bucket with the given
-// options and logger, applying the two settings every test bucket in this
-// package needs (no on-disk root, memtable auto-flush disabled). Shared by
-// every createTestBucket* helper below so the strategy-specific option
-// lists are the only thing that differs between them.
+// options and logger; shared by the createTestBucket* helpers below.
 func createTestBucketWithOptionsAndLogger(t *testing.T, ctx context.Context, dir string, logger logrus.FieldLogger, opts ...BucketOption) *Bucket {
 	t.Helper()
 	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
@@ -44,7 +41,7 @@ func createTestBucketWithOptionsAndLogger(t *testing.T, ctx context.Context, dir
 }
 
 // createTestBucketWithOptions is createTestBucketWithOptionsAndLogger with
-// a discarded null logger, for tests that don't assert on log output.
+// a discarded logger.
 func createTestBucketWithOptions(t *testing.T, ctx context.Context, dir string, opts ...BucketOption) *Bucket {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -684,8 +681,7 @@ func createTestBucketRoaringSetRange(t *testing.T, ctx context.Context, dir stri
 }
 
 // createTestBucketRoaringSetRangeWithHook is createTestBucketRoaringSetRange
-// with the log hook preserved, for tests asserting on log output (the
-// default null logger's hook is otherwise discarded).
+// with the log hook preserved, for tests asserting on log output.
 func createTestBucketRoaringSetRangeWithHook(t *testing.T, ctx context.Context, dir string, keepSegmentsInMemory bool) (*Bucket, *test.Hook) {
 	t.Helper()
 	logger, hook := test.NewNullLogger()
