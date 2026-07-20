@@ -192,8 +192,10 @@ func testGAApiSurface(t *testing.T, restURI string) {
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		resp.Body.Close()
-		// The Preview route was removed outright — the router no longer matches it.
-		assert.Contains(t, []int{http.StatusNotFound, http.StatusMethodNotAllowed}, resp.StatusCode,
-			"removed Preview route must return 404/405, got %d", resp.StatusCode)
+		// The Preview route was removed outright: the router matches no path, so
+		// this is a 404. A 405 would mean the path still exists and only the
+		// method is rejected — i.e. removal was incomplete.
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode,
+			"removed Preview route must return 404 (not 405), got %d", resp.StatusCode)
 	})
 }

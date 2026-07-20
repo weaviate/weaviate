@@ -151,11 +151,10 @@ func TestResolveSearchableUpsert_Option2(t *testing.T) {
 			wantMT:    db.ReindexTypeChangeAlgorithm,
 		},
 	}
-	h := &indexesHandlers{}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := h.resolveSearchableUpsert(class, "C", tc.prop, tc.tok, tc.algorithm, tc.tasks)
+			plan, err := resolveSearchableUpsert(class, "C", tc.prop, tc.tok, tc.algorithm, tc.tasks)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")
 			assert.Equal(t, tc.wantConflict, plan.conflict != "", "conflict (got %q)", plan.conflict)
@@ -176,7 +175,6 @@ func TestResolveSearchableUpsert_InvalidAlgorithmErrorsEvenInFlight(t *testing.T
 	inFlight := []*distributedtask.Task{
 		activeReindexTask("T1", "C", db.ReindexTypeChangeAlgorithm, "", distributedtask.TaskStatusStarted, "t"),
 	}
-	h := &indexesHandlers{}
 	for _, tc := range []struct {
 		name      string
 		algorithm string
@@ -187,7 +185,7 @@ func TestResolveSearchableUpsert_InvalidAlgorithmErrorsEvenInFlight(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, prop)
-			plan, err := h.resolveSearchableUpsert(class, "C", prop, "", tc.algorithm, inFlight)
+			plan, err := resolveSearchableUpsert(class, "C", prop, "", tc.algorithm, inFlight)
 			require.Error(t, err, "invalid algorithm must 400 even mid-migration, not NO_OP")
 			assert.Contains(t, err.Error(), tc.wantMsg)
 			assert.False(t, plan.noop, "must not be a NO_OP")
@@ -199,7 +197,6 @@ func TestResolveSearchableUpsert_InvalidAlgorithmErrorsEvenInFlight(t *testing.T
 // TestResolveUpsertPlan_Searchable covers searchable outcome rows that need
 // no DB (create / NO_OP / algorithm / one-change).
 func TestResolveUpsertPlan_Searchable(t *testing.T) {
-	h := &indexesHandlers{}
 	cases := []struct {
 		name     string
 		prop     *models.Property
@@ -288,7 +285,7 @@ func TestResolveUpsertPlan_Searchable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(tc.blockmax, tc.prop)
-			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "searchable", tc.body, nil)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "searchable", tc.body, nil)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
@@ -303,7 +300,6 @@ func TestResolveUpsertPlan_Searchable(t *testing.T) {
 
 // TestResolveUpsertPlan_Filterable covers the filterable outcome-matrix rows.
 func TestResolveUpsertPlan_Filterable(t *testing.T) {
-	h := &indexesHandlers{}
 	cases := []struct {
 		name     string
 		prop     *models.Property
@@ -364,7 +360,7 @@ func TestResolveUpsertPlan_Filterable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, nil)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, nil)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
@@ -380,7 +376,6 @@ func TestResolveUpsertPlan_Filterable(t *testing.T) {
 // TestResolveUpsertPlan_RangeFilters covers rangeFilters (internal token
 // "rangeable"): no config fields, create-or-NO_OP, numeric-only.
 func TestResolveUpsertPlan_RangeFilters(t *testing.T) {
-	h := &indexesHandlers{}
 	numProp := func(rf *bool) *models.Property {
 		return &models.Property{Name: "n", DataType: []string{"int"}, IndexRangeFilters: rf}
 	}
@@ -420,7 +415,7 @@ func TestResolveUpsertPlan_RangeFilters(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "rangeable", tc.body, nil)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "rangeable", tc.body, nil)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)

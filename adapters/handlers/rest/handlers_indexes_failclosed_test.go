@@ -94,11 +94,10 @@ func TestResolveUpsertPlan_NoopFailsClosedOnUndecodableTask(t *testing.T) {
 			wantFailClose: false,
 		},
 	}
-	h := &indexesHandlers{}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(tc.blockmax, tc.prop)
-			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, tc.indexType, tc.body, tc.tasks)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, tc.indexType, tc.body, tc.tasks)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantFailClose, plan.failClosed, "failClosed")
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")

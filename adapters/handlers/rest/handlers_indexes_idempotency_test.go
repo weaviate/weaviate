@@ -94,11 +94,10 @@ func TestResolveFilterableUpsert_Idempotency(t *testing.T) {
 			wantMT: db.ReindexTypeEnableFilterable,
 		},
 	}
-	h := &indexesHandlers{}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, tc.tasks)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, tc.tasks)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")
 			assert.Equal(t, tc.wantConflict, plan.conflict != "", "conflict (got %q)", plan.conflict)
@@ -141,11 +140,10 @@ func TestResolveRangeableUpsert_Idempotency(t *testing.T) {
 			wantMT: db.ReindexTypeEnableRangeable,
 		},
 	}
-	h := &indexesHandlers{}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			class := classWith(false, tc.prop)
-			plan, err := h.resolveUpsertPlan(class, "C", tc.prop, "rangeable", &models.IndexUpsertRequest{}, tc.tasks)
+			plan, err := resolveUpsertPlan(class, "C", tc.prop, "rangeable", &models.IndexUpsertRequest{}, tc.tasks)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")
 			assert.Equal(t, tc.wantMT, plan.migrationType, "migrationType")

@@ -88,7 +88,7 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return resp
 	}
 
-	plan, err := h.resolveUpsertPlan(class, collection, prop, indexType, body, reindexTasks)
+	plan, err := resolveUpsertPlan(class, collection, prop, indexType, body, reindexTasks)
 	if err != nil {
 		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
 	}
@@ -266,7 +266,7 @@ const reindexNoOpStatus = "NO_OP"
 // resolveUpsertPlan diffs the request against current state, returning a
 // migration to submit, a NO_OP, a 409 conflict, or a 400 validation error.
 // reindexTasks supplies blockmax truth and the active-task idempotency check.
-func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string, body *models.IndexUpsertRequest, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
+func resolveUpsertPlan(class *models.Class, collection string, prop *models.Property, indexType string, body *models.IndexUpsertRequest, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
 	tok := strings.TrimSpace(body.Tokenization)
 	algorithm := strings.TrimSpace(body.Algorithm)
 
@@ -274,7 +274,7 @@ func (h *indexesHandlers) resolveUpsertPlan(class *models.Class, collection stri
 	var err error
 	switch indexType {
 	case "searchable":
-		plan, err = h.resolveSearchableUpsert(class, collection, prop, tok, algorithm, reindexTasks)
+		plan, err = resolveSearchableUpsert(class, collection, prop, tok, algorithm, reindexTasks)
 	case "filterable":
 		plan, err = resolveFilterableUpsert(collection, prop, tok, algorithm, reindexTasks)
 	case "rangeable":
@@ -340,7 +340,7 @@ func requestMatchesActiveSearchable(activeType db.ReindexMigrationType, activeTa
 
 // resolveSearchableUpsert handles PUT .../index/searchable. At most one of
 // tokenization / algorithm may change per request.
-func (h *indexesHandlers) resolveSearchableUpsert(class *models.Class, collection string, prop *models.Property, tok, algorithm string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
+func resolveSearchableUpsert(class *models.Class, collection string, prop *models.Property, tok, algorithm string, reindexTasks []*distributedtask.Task) (upsertPlan, error) {
 	if tok != "" && algorithm != "" {
 		return upsertPlan{}, errors.New("at most one configuration change per request: set either tokenization or algorithm, not both — issue two requests")
 	}
