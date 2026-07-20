@@ -22,6 +22,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -295,6 +296,8 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 // (LimitExceededRPCCode) becomes a *LimitExceededError — message from the status,
 // structured limit/value from the ErrorInfo detail — so a follower that forwarded
 // the request surfaces the full canonical 429; NotFound chains the sentinel.
+// NotLeaderRPCCode chains ErrLeaderNotFound/ErrNotLeader so a node that
+// forwarded the request can still recognise a leadership change and retry.
 func fromRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -315,6 +318,13 @@ func fromRPCError(err error) error {
 			}
 		}
 		return le
+	case NotLeaderRPCCode:
+		switch {
+		case strings.Contains(msg, types.ErrLeaderNotFound.Error()):
+			return errors.Join(err, types.ErrLeaderNotFound)
+		case strings.Contains(msg, types.ErrNotLeader.Error()):
+			return errors.Join(err, types.ErrNotLeader)
+		}
 	case codes.NotFound:
 		switch {
 		case strings.Contains(msg, namespaces.ErrNamespaceGone.Error()):
