@@ -70,8 +70,10 @@ func parseTiktokenBpe(contents []byte) (map[string]int, error) {
 }
 
 // RegisterLocalBPE makes tiktoken read *.tiktoken files from dir before its
-// network loader. No-op when dir is empty. Call once at startup, before any
-// tokenization.
+// network loader. Files are used as published under
+// https://openaipublic.blob.core.windows.net/encodings/ and keep that name, e.g.
+// cl100k_base.tiktoken. No-op when dir is empty. Call once at startup, before
+// any tokenization.
 func RegisterLocalBPE(dir string) {
 	if dir == "" {
 		return
