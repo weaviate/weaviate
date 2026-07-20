@@ -112,6 +112,8 @@ type Config struct {
 	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
 	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
 	RaftBootstrapExpect int
+	// RaftBootstrapTimeout bounds the startup join retry; mirrors RAFT_BOOTSTRAP_TIMEOUT.
+	RaftBootstrapTimeout time.Duration
 }
 
 type AuthConfig struct {
@@ -223,6 +225,10 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 	}
 
 	if len(joinAddr) > 0 {
+		timeout := userConfig.RaftBootstrapTimeout
+		if timeout <= 0 {
+			timeout = joinTimeout
+		}
 		joinHost := extractHost(joinAddr[0])
 		if _, err := net.LookupIP(joinHost); err != nil {
 			logger.WithFields(logrus.Fields{
@@ -238,7 +244,7 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 				return backoff.Permanent(err)
 			}
 			return err
-		}, utils.NewExponentialBackoff(joinInitialInterval, joinTimeout)); err != nil {
+		}, utils.NewExponentialBackoff(joinInitialInterval, timeout)); err != nil {
 			entry := logger.WithFields(logrus.Fields{
 				"action":          "memberlist_init",
 				"remote_hostname": joinAddr,
