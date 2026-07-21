@@ -13,6 +13,7 @@ package segmentindex
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
@@ -128,4 +129,74 @@ func ParseHeaderInverted(r io.Reader) (*HeaderInverted, error) {
 	}
 
 	return out, nil
+}
+
+// ValidateOffsetsInBounds checks that KeysOffset, TombstoneOffset, and
+// PropertyLengthsOffset all fall within the segment's actual byte length.
+// LoadHeaderInverted can't do this itself since it only ever sees the
+// fixed-size inverted header, not the file; left unchecked, a corrupt
+// offset panics the first time a lazily-loaded reader (loadTombstones,
+// loadPropertyLengthsStats, loadPropertyLengthsLocked) slices
+// contents[offset:offset+n] - none of those callers have a request-level
+// recover barrier when invoked from a background reader (compaction,
+// flush, bloom-rebuild).
+func (h *HeaderInverted) ValidateOffsetsInBounds(contentsLen uint64) error {
+	offsets := []struct {
+		name   string
+		offset uint64
+	}{
+		{"keys offset", h.KeysOffset},
+		{"tombstone offset", h.TombstoneOffset},
+		{"property lengths offset", h.PropertyLengthsOffset},
+	}
+	for _, o := range offsets {
+		if o.offset > contentsLen {
+			return fmt.Errorf(
+				"corrupt inverted segment header: %s %d is past the segment end (%d); "+
+					"segment file is truncated or otherwise corrupted",
+				o.name, o.offset, contentsLen,
+			)
+		}
+	}
+	return nil
+}
+
+// ValidateNonEmptyIndex rejects an empty primary index for a
+// StrategyInverted segment that claims to hold data (indexStart >
+// HeaderSize), UNLESS the segment's own propLengthCount - encoded as a
+// uint64 at PropertyLengthsOffset+8, see flushDataInverted - proves every
+// value in the flush was a tombstone. propLengthCount increments once per
+// unique docID that had at least one non-tombstone value, so it is zero
+// if and only if the primary index legitimately has zero entries:
+// inverted tombstones live in a separate bitmap, not per-key index
+// entries, but every non-tombstone value both indexes its term AND
+// updates propLengthCount for its docID, so the two can never diverge.
+// This is a narrower, per-segment discriminant than excluding
+// StrategyInverted outright: a genuinely all-tombstone flush's
+// propLengthCount is exactly 0 and is accepted, but a real (non-tombstone)
+// flush corrupted to an empty index has propLengthCount > 0 and is
+// rejected.
+func (h *HeaderInverted) ValidateNonEmptyIndex(contents []byte, primaryIndexLen int, indexStart uint64) error {
+	if primaryIndexLen != 0 || indexStart <= uint64(HeaderSize) {
+		return nil
+	}
+	countStart := h.PropertyLengthsOffset + 8
+	countEnd := countStart + 8
+	if countEnd > uint64(len(contents)) {
+		return fmt.Errorf(
+			"corrupt inverted segment header: property lengths count field [%d,%d) is past "+
+				"the segment end (%d); segment file is truncated or otherwise corrupted",
+			countStart, countEnd, len(contents),
+		)
+	}
+	propLengthCount := binary.LittleEndian.Uint64(contents[countStart:countEnd])
+	if propLengthCount > 0 {
+		return fmt.Errorf(
+			"corrupt segment header: index start %d is past the header end (%d) but the "+
+				"primary index is empty even though %d real (non-tombstone) entries were "+
+				"flushed; segment file is truncated or otherwise corrupted",
+			indexStart, HeaderSize, propLengthCount,
+		)
+	}
+	return nil
 }

@@ -242,3 +242,102 @@ func TestSegment_CorruptIndexStart_BoundaryAroundSegmentLength(t *testing.T) {
 		})
 	}
 }
+
+// TestSegment_CorruptIndexStart_Inverted_RealData_FailsLoud pins the QA
+// Claude round-2 finding on weaviate/weaviate#12280: the StrategyInverted
+// exclusion from ValidateNonEmptyIndex must not be a blanket exclusion for
+// the whole strategy. A normal (non-tombstone) Inverted flush's primary
+// index IS load-bearing for real term lookups, so the same F1 corruption
+// (IndexStart == the segment's actual length, emptying the primary index)
+// must still fail loudly here, not open silently and serve MapList as if
+// the term had no results. QA's exact repro: real MapSet data, no deletes.
+func TestSegment_CorruptIndexStart_Inverted_RealData_FailsLoud(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	opts := []BucketOption{WithStrategy(StrategyInverted)}
+
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+
+	require.NoError(t, b.MapSet([]byte("realword"), NewMapPairFromDocIdAndTf(42, 1, 1, false)))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	target := findSingleDBFile(t, dir)
+	info, err := os.Stat(target)
+	require.NoError(t, err)
+	fileSize := info.Size()
+
+	setIndexStart(t, target, uint64(fileSize))
+
+	sizeAfter, err := os.Stat(target)
+	require.NoError(t, err)
+	require.Equal(t, fileSize, sizeAfter.Size(), "corruption must be size-preserving")
+
+	var reopened *Bucket
+	require.NotPanics(t, func() {
+		reopened, err = NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	})
+
+	if err == nil {
+		// If the bucket somehow still opens, it must never silently lose the
+		// real entry - the one outcome this test exists to forbid.
+		defer reopened.Shutdown(ctx)
+		res, listErr := reopened.MapList(ctx, []byte("realword"))
+		require.NoError(t, listErr)
+		require.Len(t, res, 1, "a corrupt in-bounds IndexStart must never silently serve an empty result for a real (non-tombstone) inverted entry")
+		return
+	}
+	require.Contains(t, err.Error(), "primary index is empty even though",
+		"the loud failure must come from the propLengthCount discriminant, not an unrelated error")
+}
+
+// TestSegment_Inverted_AllTombstoneFlush_EmptyIndex_StillOpensCleanly is the
+// no-false-rejection counterpart to
+// TestSegment_CorruptIndexStart_Inverted_RealData_FailsLoud: a genuinely
+// all-tombstone Inverted flush (a real key, later deleted, flushed to its
+// own segment) legitimately has IndexStart > HeaderSize with a zero-entry
+// primary index - that must still open cleanly, uncorrupted, per the
+// propLengthCount discriminant's other branch.
+func TestSegment_Inverted_AllTombstoneFlush_EmptyIndex_StillOpensCleanly(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	opts := []BucketOption{
+		WithStrategy(StrategyInverted),
+		WithMinWalThreshold(0), // force a flush per operation, isolating the tombstone-only flush into its own segment
+	}
+
+	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+
+	docID := uint64(1)
+	require.NoError(t, b.MapSet([]byte("word1"), NewMapPairFromDocIdAndTf(docID, 1, 1, false)))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	b, err = NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.NoError(t, err)
+
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, docID)
+	require.NoError(t, b.MapDeleteKey([]byte("word1"), key))
+	require.NoError(t, b.Shutdown(ctx)) // threshold 0: flushes a second, all-tombstone segment
+
+	var reopened *Bucket
+	require.NotPanics(t, func() {
+		reopened, err = NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	})
+	require.NoError(t, err, "an uncorrupted, genuinely all-tombstone inverted segment must still open cleanly")
+	defer reopened.Shutdown(ctx)
+
+	res, err := reopened.MapList(ctx, []byte("word1"))
+	require.NoError(t, err)
+	require.Len(t, res, 0, "the tombstoned entry must resolve to no results, not an open error")
+}
