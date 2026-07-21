@@ -79,3 +79,14 @@ func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {
 		panic(err)
 	}
 }
+
+// strategiesRoaringSet is spread into CheckExpectedStrategy with `...` so the
+// check does not heap-allocate a []Strategy on every call. The variadic literal
+// form (CheckExpectedStrategy(strategy, StrategyRoaringSet)) packs a fresh slice
+// per call, which is wasteful on hot read paths that check the strategy once per
+// operation. Read-only; never mutate.
+var strategiesRoaringSet = []Strategy{StrategyRoaringSet}
+
+func CheckStrategyRoaringSet(strategy Strategy) error {
+	return CheckExpectedStrategy(strategy, strategiesRoaringSet...)
+}
