@@ -1592,11 +1592,10 @@ func TestBucketRoaringSetStrategyConsistentViewInMemo(t *testing.T) {
 	assertKey([]uint64{1, 2, 3, 4})
 }
 
-// TestBucketRoaringSetStrategyWriteVsFlushInMemo behaves similarly to
-// [TestBucketRoaringSetStrategyWriteVsFlush], but with the always-merged
-// in-memory segment serving reads, extended by a deletion round: the fake disk
-// segment ignores deletions, so the id staying gone pins deletion
-// merge-forward through the in-memory segment.
+// TestBucketRoaringSetStrategyWriteVsFlushInMemo mirrors
+// [TestBucketRoaringSetStrategyWriteVsFlush] with reads served by the
+// always-merged in-memory segment; the deletion round pins deletion
+// merge-forward (the fake disk segment ignores deletions).
 func TestBucketRoaringSetStrategyWriteVsFlushInMemo(t *testing.T) {
 	t.Parallel()
 
@@ -2455,10 +2454,8 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 
 // simulateFlushAndSwitchConcurrently runs a flush-and-switch cycle in a
 // goroutine so the caller can keep writing through a stale active reference
-// meanwhile: switch active -> flushing (makeActive installs the new active),
-// wait for outstanding writers, then persist the flushing memtable via
-// flushToSegment and swap it for a disk segment. The returned channels are
-// closed when the switch resp. the flush completed.
+// meanwhile. The returned channels are closed when the switch resp. the flush
+// completed.
 func simulateFlushAndSwitchConcurrently(t *testing.T, b *Bucket, makeActive func() (memtable, error),
 	flushToSegment func(memtable) *fakeSegment,
 ) (switchComplete, flushComplete chan struct{}) {

@@ -96,9 +96,10 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 ) (bm *sroar.Bitmap, release func(), err error) {
 	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
-	// Pointer check, not the keepMergedSegmentsInMemory flag: buckets whose
-	// on-disk segments were created with a legacy strategy (set/map) must fall
-	// through to the disk path untouched.
+	// The pointer, not the keepMergedSegmentsInMemory flag, is the dispatch
+	// predicate: non-nil means this bucket is allow-listed for the in-memory
+	// path. Gating on the pointer stays safe if a future eviction design nils
+	// the structure independently of the flag.
 	if b.disk.roaringSetSegmentInMemory != nil {
 		return b.roaringSetGetFromConsistentViewInMemo(key, maxConc)
 	}
@@ -125,28 +126,19 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 }
 
 // roaringSetGetFromConsistentViewInMemo serves the read from the always-merged
-// in-memory segment instead of the disk segments: the merged root plus one
-// layer per still-pending, flushing and active memtable on top.
+// in-memory segment: the merged root plus one layer per still-pending,
+// flushing and active memtable on top.
 //
-// Unlike the disk path, this branch deliberately does not read the view's
-// memtables. The merged root is live and advances with every completed flush,
-// so combining a root captured now with top layers pinned to an earlier view
-// could re-apply a memtable layer that the root already covers — and once the
-// root has advanced by two or more flush generations inside the read window,
-// that blends generations into a torn bitmap (e.g. a stale deletion landing
-// after a newer re-add, dropping an id that is present). Instead the top
+// It must not read the view's memtables: the root is live and advances with
+// every completed flush, so top layers pinned to an earlier view can re-apply
+// state the root already covers, and once the root has advanced two or more
+// flush generations inside the read window that blends generations into a torn
+// bitmap (a stale deletion landing after a newer re-add). Instead the top
 // layers and the root+pending snapshot are captured under one flushLock.RLock
-// hold, mirroring readerRoaringSetRangeFromSegmentInMemo, so the branch serves
-// a consistent snapshot at call time. That is sound because the root only
-// advances monotonically and a flush completion cannot interleave mid-read:
-// the pending-append happens under flushLock.Lock in
-// atomicallyAddDiskSegmentAndRemoveFlushing. The caller's consistent view is
-// unaffected: its pinned disk segments still serve the disk path above.
-//
-// Every layer handed to Flatten is an owned clone (SegmentInMemory.Get clones
-// through the buffer pool, BinarySearchTree.Get and memtable roaringSetGet
-// clone), so Flatten's in-place mutation of the first layer is safe in any
-// interleaving — including when no root layer exists.
+// hold — a flush completion cannot interleave because the pending-append
+// happens under flushLock.Lock in atomicallyAddDiskSegmentAndRemoveFlushing.
+// Every layer handed to Flatten is an owned clone, so Flatten's in-place
+// mutation of the first layer is safe even when no root layer exists.
 func (b *Bucket) roaringSetGetFromConsistentViewInMemo(
 	key []byte, maxConc int,
 ) (bm *sroar.Bitmap, release func(), err error) {

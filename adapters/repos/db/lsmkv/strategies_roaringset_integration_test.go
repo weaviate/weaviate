@@ -231,10 +231,9 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 }
 
 // roaringsetReopenInMemory pins the startup build of the merged in-memory
-// segment from real on-disk segments: two rounds of additions/deletions are
-// flushed into two segments, the bucket is shut down and reopened, and reads
-// must then reflect the exact merged state without ever having gone through a
-// memtable in this bucket instance.
+// segment from real on-disk segments: three flush rounds cover an add, delete
+// and re-add of the same id across segments, and reads after shutdown/reopen
+// must reflect the exact merged state without a memtable in this instance.
 func roaringsetReopenInMemory(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
@@ -281,6 +280,19 @@ func roaringsetReopenInMemory(ctx context.Context, t *testing.T, opts []BucketOp
 		require.Nil(t, b.FlushAndSwitch())
 	})
 
+	t.Run("third round re-adds and deletes ids from earlier rounds", func(t *testing.T) {
+		err = b.RoaringSetAddOne(key1, 1) // re-adds an id added in round one, deleted in round two
+		require.Nil(t, err)
+		err = b.RoaringSetRemoveOne(key1, 2) // deletes an id added in round one
+		require.Nil(t, err)
+		err = b.RoaringSetAddOne(key2, 10) // revives an id deleted to empty in round two
+		require.Nil(t, err)
+	})
+
+	t.Run("flush to disk a third time", func(t *testing.T) {
+		require.Nil(t, b.FlushAndSwitch())
+	})
+
 	require.Nil(t, b.Shutdown(ctx))
 
 	t.Run("reopen and verify merged state built from disk segments", func(t *testing.T) {
@@ -302,12 +314,12 @@ func roaringsetReopenInMemory(ctx context.Context, t *testing.T, opts []BucketOp
 
 		res, release, err := b.RoaringSetGet(context.Background(), key1)
 		require.NoError(t, err)
-		assert.Equal(t, []uint64{2, 3, 4}, res.ToArray()) // 1 deleted in round two, 4 added
+		assert.Equal(t, []uint64{1, 3, 4}, res.ToArray()) // 1 re-added in round three, 2 deleted there, 4 added in round two
 		release()
 
 		res, release, err = b.RoaringSetGet(context.Background(), key2)
 		require.NoError(t, err)
-		assert.Empty(t, res.ToArray()) // deleted to empty, no key must remain
+		assert.Equal(t, []uint64{10}, res.ToArray()) // deleted to empty in round two, 10 revived in round three
 		release()
 
 		res, release, err = b.RoaringSetGet(context.Background(), key3)
@@ -318,7 +330,7 @@ func roaringsetReopenInMemory(ctx context.Context, t *testing.T, opts []BucketOp
 		t.Run("fresh writes layer the active memtable on the built structure", func(t *testing.T) {
 			err = b.RoaringSetAddList(key1, []uint64{100})
 			require.Nil(t, err)
-			err = b.RoaringSetAddList(key2, []uint64{200}) // revives the deleted-to-empty key
+			err = b.RoaringSetAddList(key2, []uint64{200}) // extends the revived key
 			require.Nil(t, err)
 
 			// same control after fresh writes: they layer on the active
@@ -329,12 +341,12 @@ func roaringsetReopenInMemory(ctx context.Context, t *testing.T, opts []BucketOp
 			res, release, err := b.RoaringSetGet(context.Background(), key1)
 			require.NoError(t, err)
 			defer release()
-			assert.Equal(t, []uint64{2, 3, 4, 100}, res.ToArray())
+			assert.Equal(t, []uint64{1, 3, 4, 100}, res.ToArray())
 
 			res, release, err = b.RoaringSetGet(context.Background(), key2)
 			require.NoError(t, err)
 			defer release()
-			assert.Equal(t, []uint64{200}, res.ToArray())
+			assert.Equal(t, []uint64{10, 200}, res.ToArray())
 		})
 	})
 }

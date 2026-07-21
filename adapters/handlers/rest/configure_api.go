@@ -752,6 +752,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}, appState.Logger)
 
+	// The allow-list check reads the schema, which is only populated once the
+	// meta store has restored it; db.init runs before the restore.
+	enterrors.GoWrapper(func() {
+		if err := metaStoreReady.waitForMetaStore(); err != nil {
+			return
+		}
+		appState.DB.WarnUnmatchedRoaringSetInMemoryEntries()
+	}, appState.Logger)
+
 	// TODO-RAFT: refactor remove this sleep
 	// this sleep was used to block GraphQL and give time to RAFT to start.
 	time.Sleep(2 * time.Second)

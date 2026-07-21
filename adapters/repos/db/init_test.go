@@ -229,3 +229,46 @@ func TestWarnUnmatchedRoaringSetInMemoryEntries(t *testing.T) {
 		require.Len(t, warnMessages(hook), 1)
 	})
 }
+
+// TestWarnUnmatchedRoaringSetInMemoryEntries_Timing pins the startup ordering
+// the warn depends on: db.init runs before the RAFT schema restore, so it must
+// stay silent there; the check runs afterwards, once the same schema getter
+// serves the restored schema. Before the fix, init warned for every entry.
+func TestWarnUnmatchedRoaringSetInMemoryEntries_Timing(t *testing.T) {
+	rootPath := t.TempDir()
+	// skip the fs hierarchy migration, which needs a schema reader the bare DB
+	// literal does not have
+	require.NoError(t, os.WriteFile(path.Join(rootPath, "migration1.22.fs.hierarchy"), nil, 0o644))
+
+	getter := &fakeSchemaGetter{} // empty schema, like the RAFT-backed getter before the restore
+	logger, hook := logrustest.NewNullLogger()
+	db := &DB{
+		logger:       logger,
+		schemaGetter: getter,
+		config: Config{
+			RootPath: rootPath,
+			IndexRoaringSetInMemory: entcfg.StringSet{
+				"Article.title": {},
+				"Article.bogus": {},
+			},
+		},
+	}
+
+	require.NoError(t, db.init(context.Background()))
+	require.Empty(t, hook.AllEntries(), "init runs before the schema restore and must not warn")
+
+	// the restore populates the same getter; the one-time check runs after it
+	getter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+		Class:      "Article",
+		Properties: []*models.Property{{Name: "title", DataType: schema.DataTypeText.PropString()}},
+	}}}}
+	db.WarnUnmatchedRoaringSetInMemoryEntries()
+
+	var msgs []string
+	for _, entry := range hook.AllEntries() {
+		msgs = append(msgs, entry.Message)
+	}
+	require.Equal(t, []string{
+		`INDEX_ROARINGSET_IN_MEMORY entry "Article.bogus" matches no property on collection "Article"`,
+	}, msgs)
+}

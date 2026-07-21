@@ -243,7 +243,7 @@ func assertMergedBitmaps(t *testing.T, s *SegmentInMemory, expected map[string][
 
 func waitUntilDrained(t *testing.T, s *SegmentInMemory) {
 	t.Helper()
-	require.Eventually(t, func() bool { return s.countPendingMemtables() == 0 }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return s.pending.Len() == 0 }, time.Second, 10*time.Millisecond)
 }
 
 func createTestLayers() (map[string]BitmapLayer, map[string]BitmapLayer, map[string]BitmapLayer) {

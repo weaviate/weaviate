@@ -609,7 +609,7 @@ func FromEnv(config *Config) error {
 	}
 
 	// Fail fast on malformed entries: class/property names cannot contain dots,
-	// so a typo would otherwise silently disable the in-memory elevation, which
+	// so a typo would otherwise silently never hold the bucket in memory, which
 	// is worse than refusing to boot.
 	if v := os.Getenv("INDEX_ROARINGSET_IN_MEMORY"); v != "" {
 		set := entcfg.StringSet{}

@@ -240,11 +240,6 @@ func (db *DB) init(ctx context.Context) error {
 		}
 	}
 
-	// All indices are loaded at this point: flag allow-list entries that match
-	// nothing, otherwise a typo would silently never elevate any bucket.
-	warnUnmatchedRoaringSetInMemoryEntries(db.logger, db.schemaGetter.GetSchemaSkipAuth(),
-		db.config.IndexRoaringSetInMemory)
-
 	// Collecting metrics that _can_ be aggregated on a node level,
 	// i.e. replacing className and shardName labels with "n/a",
 	// should be delegated to nodeWideMetricsObserver to centralize
@@ -371,11 +366,20 @@ func (db *DB) migrateToHierarchicalFS() error {
 	return nil
 }
 
-// warnUnmatchedRoaringSetInMemoryEntries warns once at startup about
-// INDEX_ROARINGSET_IN_MEMORY entries that match no live <Collection>.<property>.
-// The env parse already fails fast on malformed entries, but a well-formed
-// entry with a typo or wrong case would otherwise silently never elevate any
-// bucket.
+// WarnUnmatchedRoaringSetInMemoryEntries flags INDEX_ROARINGSET_IN_MEMORY
+// entries that match no live <Collection>.<property>. The check reads the
+// schema, so it must run after the RAFT schema restore: during db.init the
+// schema is still empty and every entry would false-positive.
+func (db *DB) WarnUnmatchedRoaringSetInMemoryEntries() {
+	warnUnmatchedRoaringSetInMemoryEntries(db.logger, db.schemaGetter.GetSchemaSkipAuth(),
+		db.config.IndexRoaringSetInMemory)
+}
+
+// warnUnmatchedRoaringSetInMemoryEntries warns once per
+// INDEX_ROARINGSET_IN_MEMORY entry that matches no live
+// <Collection>.<property>. The env parse already fails fast on malformed
+// entries, but a well-formed entry with a typo or wrong case would otherwise
+// silently never hold any bucket in memory.
 func warnUnmatchedRoaringSetInMemoryEntries(logger logrus.FieldLogger, sch schema.Schema, entries entcfg.StringSet) {
 	for entry := range entries {
 		// entry format (<Collection>.<property>) was validated at env parse

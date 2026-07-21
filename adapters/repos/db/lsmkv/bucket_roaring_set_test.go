@@ -158,6 +158,94 @@ func TestBucket_RoaringSetGetFromConsistentView_ReleasesDiskLayerOnError(t *test
 	})
 }
 
+// TestBucket_RoaringSetGetFromConsistentView_ReleasesInMemoryRootOnError pins
+// the pooled root buffer's release on memtable read errors in the in-memory
+// branch, mirroring the disk-layer twin above.
+func TestBucket_RoaringSetGetFromConsistentView_ReleasesInMemoryRootOnError(t *testing.T) {
+	t.Parallel()
+
+	readErr := errors.New("simulated memtable read error")
+	logger, _ := test.NewNullLogger()
+
+	newInMemoBucket := func(t *testing.T, pool *countingBitmapBufPool, active, flushing memtable) Bucket {
+		t.Helper()
+		segInMemo := roaringset.NewSegmentInMemory(logger)
+		seed := newTestMemtableRoaringSet(map[string][]uint64{"key1": {1, 2, 3}})
+		segInMemo.MergeMemtableEventually(seed.extractRoaringSet())
+		// wait for the background merge so the read takes the root-only path
+		require.Eventually(t, func() bool { return segInMemo.Size() > 0 }, time.Second, 10*time.Millisecond)
+
+		return Bucket{
+			strategy:      StrategyRoaringSet,
+			disk:          &SegmentGroup{roaringSetSegmentInMemory: segInMemo},
+			active:        active,
+			flushing:      flushing,
+			bitmapBufPool: pool,
+		}
+	}
+
+	t.Run("active read error frees the root buffer via defer, returns caller-safe noop", func(t *testing.T) {
+		pool := &countingBitmapBufPool{}
+		active := newTestMemtableRoaringSet(nil)
+		active.roaringSetGetErr = readErr
+		b := newInMemoBucket(t, pool, active, nil)
+
+		bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), BucketConsistentView{}, []byte("key1"))
+		require.ErrorIs(t, err, readErr)
+		require.Nil(t, bm)
+		require.Equal(t, 1, pool.clones, "root clone must have been acquired before the failing read")
+		require.Equal(t, 1, pool.puts, "root buffer must be released exactly once on error")
+
+		release()
+		require.Equal(t, 1, pool.puts, "returned release must be a noop; buffer already freed by defer")
+	})
+
+	t.Run("flushing read error frees the root buffer via defer", func(t *testing.T) {
+		pool := &countingBitmapBufPool{}
+		flushing := newTestMemtableRoaringSet(nil)
+		flushing.roaringSetGetErr = readErr
+		b := newInMemoBucket(t, pool, newTestMemtableRoaringSet(nil), flushing)
+
+		bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), BucketConsistentView{}, []byte("key1"))
+		require.ErrorIs(t, err, readErr)
+		require.Nil(t, bm)
+		require.Equal(t, 1, pool.puts, "root buffer must be released exactly once on error")
+
+		release()
+		require.Equal(t, 1, pool.puts)
+	})
+
+	t.Run("success path defers nothing, caller owns the release", func(t *testing.T) {
+		pool := &countingBitmapBufPool{}
+		b := newInMemoBucket(t, pool, newTestMemtableRoaringSet(nil), nil)
+
+		bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), BucketConsistentView{}, []byte("key1"))
+		require.NoError(t, err)
+		require.Equal(t, []uint64{1, 2, 3}, bm.ToArray())
+		require.Equal(t, 0, pool.puts, "success path must not release before the caller does")
+
+		release()
+		require.Equal(t, 1, pool.puts, "caller's release must free the root buffer exactly once")
+	})
+}
+
+// countingBitmapBufPool counts clone acquisitions and buffer releases, so
+// tests can pin acquire/release pairing of pooled bitmap buffers.
+type countingBitmapBufPool struct {
+	clones int
+	puts   int
+}
+
+func (p *countingBitmapBufPool) Get(minCap int) ([]byte, func()) {
+	return make([]byte, 0, minCap), func() { p.puts++ }
+}
+
+func (p *countingBitmapBufPool) CloneToBuf(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	buf, put := p.Get(bm.LenInBytes())
+	p.clones++
+	return bm.CloneToBuf(buf), put
+}
+
 // TestBucket_RoaringSetGet_RespectsConcurrencyBudget pins RoaringSetGet's
 // merge fan-out to the per-query budget without blowing the goroutine ceiling.
 func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
@@ -243,32 +331,11 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 }
 
 // TestBucketRoaringSetInMemoReadSnapshotConsistencyAcrossGenerations pins the
-// in-memory roaring set read to serve a consistent snapshot at call time, even
-// when the caller's consistent view is two flush generations stale.
-//
-// Timeline (driven by hand, no timing luck):
-//
-//  1. The merged in-memory segment is pre-seeded with key -> {id}, mirroring
-//     an older flushed segment.
-//  2. A0 (net deletion of id) is installed as active and a consistent view is
-//     captured — the stale T1 view used for the final read.
-//  3. Generation 1: A0 is switched to flushing and flushed; the merge-forward
-//     folds its deletion into the root (the key drops out, now empty).
-//  4. Generation 2: id is re-added to the new active, switched and flushed;
-//     the root then covers A0+A1 and holds key -> {id} again.
-//  5. The read runs through the stale T1 view.
-//
-// True state at read time: id present (re-added by A1, never deleted since).
-// The only correct answer is therefore {id}. The in-memory branch serves a
-// snapshot at call time because its merged root is live; T1-staleness is not
-// the served contract here. Re-applying the captured A0 deletion on top of a
-// root that already covers A0 AND the later A1 re-add would blend two
-// generations into a torn state that never existed (id absent). A
-// single-generation window would be safe only because re-applying the same
-// memtable layer is idempotent (a layer's Additions/Deletions are disjoint,
-// so a contiguous duplicate application is a no-op); the violation needs the
-// captured layer to be older than state already folded into the root, i.e.
-// two generations with a delete/re-add crossing them.
+// in-memory read to serve a snapshot at call time, not the caller's view: the
+// view was captured before two flush generations (delete id, then re-add id),
+// so re-applying its stale memtable layer on the live root would blend both
+// generations into a torn state (id absent) that never existed. The only
+// correct answer at read time is id present.
 func TestBucketRoaringSetInMemoReadSnapshotConsistencyAcrossGenerations(t *testing.T) {
 	t.Parallel()
 
@@ -279,8 +346,8 @@ func TestBucketRoaringSetInMemoReadSnapshotConsistencyAcrossGenerations(t *testi
 	segInMemo := roaringset.NewSegmentInMemory(logger)
 	// awaitRootState blocks until the background merge-forward has folded the
 	// last queued memtable into the root: the key's presence matches
-	// expectFound and no memtables are pending anymore. countPendingMemtables
-	// is unexported, so the exported Get doubles as the merge-done signal.
+	// expectFound and nothing is pending anymore. Get doubles as the
+	// merge-done signal.
 	awaitRootState := func(expectFound bool, msg string) {
 		t.Helper()
 		require.Eventually(t, func() bool {
