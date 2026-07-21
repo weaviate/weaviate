@@ -220,8 +220,11 @@ func TestNamespaces_StateChangeDeletingNamespace(t *testing.T) {
 			// into a 404.
 			err := ep.call(t, deletingNamespace(t))
 			require.Error(t, err)
-			require.True(t, ep.unprocessable(err),
-				"deleting is terminal, so the flip must be refused as unprocessable; got %T: %v", err, err)
+			// If cleanup removes the namespace between the DELETE and this
+			// call, a 404 is equally acceptable; otherwise the flip against a
+			// deleting namespace must be refused as unprocessable.
+			require.True(t, ep.notFound(err) || ep.unprocessable(err),
+				"deleting is terminal, so the flip must be refused as unprocessable (or 404 once cleanup wins); got %T: %v", err, err)
 		})
 	}
 }
