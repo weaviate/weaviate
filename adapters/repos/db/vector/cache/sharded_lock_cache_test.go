@@ -444,3 +444,23 @@ func countMultiCached(c *shardedMultipleLockCache[float32]) int {
 	}
 	return count
 }
+
+func TestPreloadIfAbsent(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(10)
+
+	c.Preload(5, []float32{1, 2})
+	c.PreloadIfAbsent(5, []float32{9, 9}) // present: must not overwrite or recount
+	c.PreloadIfAbsent(6, []float32{3, 4}) // absent: must write
+
+	got, err := c.Get(context.Background(), 5)
+	assert.NoError(t, err)
+	assert.Equal(t, []float32{1, 2}, got)
+
+	got, err = c.Get(context.Background(), 6)
+	assert.NoError(t, err)
+	assert.Equal(t, []float32{3, 4}, got)
+
+	assert.Equal(t, int64(2), c.CountVectors())
+}

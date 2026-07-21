@@ -539,11 +539,6 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 	}
 
 	prefillCacheFunc := func() {
-		h.logger.WithFields(logrus.Fields{
-			"action":   "prefill_cache",
-			"duration": 60 * time.Minute,
-		}).Debug("context.WithTimeout")
-
 		var err error
 		if h.compressed.Load() {
 			if !h.multivector.Load() || h.muvera.Load() {
@@ -551,16 +546,26 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			} else {
 				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
 			}
+		} else if h.useMuveraParallelPrefill() {
+			// Unbounded muvera cache: scan the compact muvera vectors bucket with a
+			// parallel cursor instead of looking up every vector by id.
+			err = h.prefillMuveraCacheParallel(ctx)
 		} else if h.useParallelPrefill() {
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
 			err = h.prefillCacheParallel(ctx)
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(context.Background(), limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
 		}
 
 		if err != nil {
-			h.logger.WithError(err).Error("prefill vector cache")
+			if errors.Is(err, context.Canceled) {
+				// routine on shard shutdown mid-prefill (async runs under shutCtx)
+				h.logger.WithField("action", "hnsw_vector_cache_prefill").
+					Debug("vector cache prefill stopped: context canceled")
+			} else {
+				h.logger.WithField("action", "hnsw_vector_cache_prefill").Error(err)
+			}
 		}
 
 		h.cachePrefilled.Store(true)

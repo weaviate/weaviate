@@ -14,6 +14,7 @@ package hnsw
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"runtime"
@@ -24,19 +25,33 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
+// prefillAllocCheckEvery is how many preloaded vectors pass between allocChecker
+// probes during a scan prefill.
+const prefillAllocCheckEvery = 4096
+
+var (
+	// errPrefillMemoryPressure aborts a scan prefill when the allocChecker reports
+	// pressure; the remaining vectors load on demand through cache.Get.
+	errPrefillMemoryPressure = errors.New("vector cache prefill aborted under memory pressure")
+	// errPrefillCompressionActive aborts a scan prefill when compression activates
+	// mid-scan and the uncompressed cache is no longer the live cache.
+	errPrefillCompressionActive = errors.New("vector cache prefill aborted: compression activated")
+)
+
 // useParallelPrefill reports whether the uncompressed cache can be prefilled by a
 // parallel cursor scan of the objects bucket rather than the serial by-id
-// vectorCachePrefiller. Gated to cases where that scan is both safe and complete:
-//   - sync only: an overwriting Preload from a snapshot cursor races live writes;
-//     the serial path's load-if-absent Get does not.
-//   - unbounded cache only: a full scan ignores the size limit the serial path honors.
+// vectorCachePrefiller. Requires:
+//   - unbounded cache: a full scan ignores the size limit the serial path honors.
 //   - single-vector only: a multivector cache holds per-passage vectors, and a muvera
-//     cache holds encoded vectors from the dedicated _muvera_vectors bucket — neither
-//     lives in the objects bucket this scan reads, so both stay on the serial path.
+//     cache is sourced from the dedicated muvera bucket (see useMuveraParallelPrefill).
+//
+// Safe for async prefill: the scan uses PreloadIfAbsent, so a concurrent insert's
+// Preload always wins over a stale snapshot value.
 func (h *hnsw) useParallelPrefill() bool {
 	// No real objects bucket (tests wiring only a VectorForID thunk, or pre-attach):
 	// fall back to the serial prefiller.
@@ -44,34 +59,52 @@ func (h *hnsw) useParallelPrefill() bool {
 		return false
 	}
 
+	return parallelPrefillEligible(h.parallelPrefillInputs())
+}
+
+// useMuveraParallelPrefill reports whether the muvera float32 cache can be prefilled
+// by a parallel cursor scan of the dedicated muvera vectors bucket (key = big-endian
+// docID = node id, value = raw float32s).
+func (h *hnsw) useMuveraParallelPrefill() bool {
+	if h.store == nil || h.store.Bucket(h.id+"_muvera_vectors") == nil {
+		return false
+	}
+
+	return muveraParallelPrefillEligible(h.parallelPrefillInputs())
+}
+
+func (h *hnsw) parallelPrefillInputs() parallelPrefillInputs {
 	h.RLock()
 	nodeCount := int64(len(h.nodes))
 	h.RUnlock()
 
-	return parallelPrefillEligible(parallelPrefillInputs{
-		waitForPrefill: h.waitForCachePrefill,
-		multivector:    h.multivector.Load(),
-		muvera:         h.muvera.Load(),
-		cacheMaxSize:   h.cache.CopyMaxSize(),
-		nodeCount:      nodeCount,
-	})
+	return parallelPrefillInputs{
+		multivector:  h.multivector.Load(),
+		muvera:       h.muvera.Load(),
+		cacheMaxSize: h.cache.CopyMaxSize(),
+		nodeCount:    nodeCount,
+	}
 }
 
 type parallelPrefillInputs struct {
-	waitForPrefill bool
-	multivector    bool
-	muvera         bool
-	cacheMaxSize   int64
-	nodeCount      int64
+	multivector  bool
+	muvera       bool
+	cacheMaxSize int64
+	nodeCount    int64
 }
 
 // parallelPrefillEligible is the pure decision core of useParallelPrefill, split out
 // for direct testing.
 func parallelPrefillEligible(in parallelPrefillInputs) bool {
-	if !in.waitForPrefill {
+	if in.multivector || in.muvera {
 		return false
 	}
-	if in.multivector || in.muvera {
+	return in.cacheMaxSize >= in.nodeCount
+}
+
+// muveraParallelPrefillEligible is the pure decision core of useMuveraParallelPrefill.
+func muveraParallelPrefillEligible(in parallelPrefillInputs) bool {
+	if !in.muvera {
 		return false
 	}
 	return in.cacheMaxSize >= in.nodeCount
@@ -81,38 +114,87 @@ func parallelPrefillEligible(in parallelPrefillInputs) bool {
 // scan of the objects bucket. The by-id vectorCachePrefiller issues one random seek
 // per vector (the bucket is UUID-keyed), which is latency-bound and can take hours on
 // network storage with the CPU idle; a cursor reads in storage order and decodes
-// across cores. Mirrors the compressed PrefillCache, but preloads as it scans rather
-// than collecting into a slice first; a second copy of full float32 vectors would
-// roughly double startup memory.
+// across cores.
 func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
-	before := time.Now()
-
 	bucket := h.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return fmt.Errorf("prefill cache: objects bucket %q not found", helpers.ObjectsBucketLSM)
 	}
 	targetVector := h.getTargetVector()
 
+	return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
+		return scanObjectVectorsParallel(ctx, bucket, targetVector, onVector, h.logger)
+	})
+}
+
+// prefillMuveraCacheParallel populates the muvera float32 cache via a parallel cursor
+// scan of the dedicated muvera vectors bucket. Entries whose node was deleted but
+// whose bucket delete raced a crash load as unreferenced vectors — wasted memory only.
+func (h *hnsw) prefillMuveraCacheParallel(ctx context.Context) error {
+	bucketName := h.id + "_muvera_vectors"
+	bucket := h.store.Bucket(bucketName)
+	if bucket == nil {
+		return fmt.Errorf("prefill cache: muvera bucket %q not found", bucketName)
+	}
+
+	return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
+		return scanMuveraVectorsParallel(ctx, bucket, onVector, h.logger)
+	})
+}
+
+// prefillFromScan drives a bucket scan into the cache. PreloadIfAbsent makes it safe
+// to run concurrently with live writes: an insert's Preload of a newer vector always
+// wins over the scan's snapshot value, in either order. The scan aborts gracefully
+// (nil error) under memory pressure or if compression activates mid-scan.
+func (h *hnsw) prefillFromScan(ctx context.Context,
+	scan func(context.Context, prefillOnVector) error,
+) error {
+	before := time.Now()
+
 	h.RLock()
 	preGrown := uint64(len(h.nodes))
 	h.RUnlock()
 
 	var loaded atomic.Int64
-	onVector := func(id uint64, vec []float32) {
+	onVector := func(id uint64, vec []float32) error {
+		if h.compressed.Load() {
+			return errPrefillCompressionActive
+		}
 		// cosine-dot keeps normalized vectors in the cache; the serial path gets this
-		// from the cache's normalizeOnRead wrapper, which Preload bypasses. vec is a
-		// fresh per-vector allocation, so normalizing in place is safe.
+		// from the cache's normalizeOnRead wrapper, which the preload bypasses. vec is
+		// a fresh per-vector allocation, so normalizing in place is safe.
 		h.normalizeVecInPlace(vec)
 		if id >= preGrown {
 			// Cache is pre-grown to len(h.nodes) at restore, so live ids are in-bounds;
 			// grow only for an id from a write that landed after we snapshotted the count.
 			h.cache.Grow(id)
 		}
-		h.cache.Preload(id, vec)
-		loaded.Add(1)
+		h.cache.PreloadIfAbsent(id, vec)
+		if n := loaded.Add(1); n%prefillAllocCheckEvery == 0 && h.allocChecker != nil {
+			if err := h.allocChecker.CheckAlloc(prefillAllocCheckEvery * int64(len(vec)) * 4); err != nil {
+				return fmt.Errorf("%w: %w", errPrefillMemoryPressure, err)
+			}
+		}
+		return nil
 	}
 
-	if err := scanObjectVectorsParallel(ctx, bucket, targetVector, onVector, h.logger); err != nil {
+	if err := scan(ctx, onVector); err != nil {
+		switch {
+		case errors.Is(err, errPrefillMemoryPressure):
+			h.logger.WithFields(logrus.Fields{
+				"action":   "hnsw_vector_cache_prefill",
+				"count":    loaded.Load(),
+				"index_id": h.id,
+			}).Warnf("%v; remaining vectors load on demand", err)
+			return nil
+		case errors.Is(err, errPrefillCompressionActive):
+			h.logger.WithFields(logrus.Fields{
+				"action":   "hnsw_vector_cache_prefill",
+				"count":    loaded.Load(),
+				"index_id": h.id,
+			}).Info("stopping vector cache prefill: compression activated mid-scan")
+			return nil
+		}
 		return err
 	}
 
@@ -126,10 +208,68 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	return nil
 }
 
-// scanObjectVectorsParallel scans the objects bucket across GOMAXPROCS cursors over
-// disjoint key ranges. onVector must be safe for concurrent use.
+// prefillOnVector consumes one decoded vector. Must be safe for concurrent use; a
+// non-nil error aborts the whole scan.
+type prefillOnVector func(id uint64, vec []float32) error
+
+// prefillRowDecoder extracts (docID, vector) from one bucket entry; ok=false skips
+// the row. The returned vec must not alias v — cursor buffers are reused.
+type prefillRowDecoder func(k, v []byte) (id uint64, vec []float32, ok bool)
+
+func objectsRowDecoder(targetVector string, logger logrus.FieldLogger) prefillRowDecoder {
+	return func(k, v []byte) (uint64, []float32, bool) {
+		id, err := storobj.DocIDFromBinary(v)
+		if err != nil {
+			logger.WithField("action", "hnsw_vector_cache_prefill").
+				Debugf("skipping object with undecodable doc id: %v", err)
+			return 0, nil, false
+		}
+
+		// nil buffer forces a fresh allocation; a reused buffer would be aliased by
+		// VectorFromBinary across iterations and corrupt previously cached vectors.
+		vec, err := storobj.VectorFromBinary(v, nil, targetVector)
+		if err != nil {
+			var notFound storobj.ErrTargetVectorNotFound
+			if errors.As(err, &notFound) {
+				return 0, nil, false
+			}
+			logger.WithField("action", "hnsw_vector_cache_prefill").
+				Debugf("skipping doc id %d with undecodable vector: %v", id, err)
+			return 0, nil, false
+		}
+		return id, vec, true
+	}
+}
+
+func muveraRowDecoder(logger logrus.FieldLogger) prefillRowDecoder {
+	return func(k, v []byte) (uint64, []float32, bool) {
+		if len(k) != 8 {
+			logger.WithField("action", "hnsw_vector_cache_prefill").
+				Debugf("skipping muvera entry with %d-byte key", len(k))
+			return 0, nil, false
+		}
+		// MuveraFromBytes allocates a fresh slice, so the value never aliases the
+		// cursor buffer.
+		return binary.BigEndian.Uint64(k), multivector.MuveraFromBytes(v), true
+	}
+}
+
 func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, targetVector string,
-	onVector func(id uint64, vec []float32), logger logrus.FieldLogger,
+	onVector prefillOnVector, logger logrus.FieldLogger,
+) error {
+	return scanBucketVectorsParallel(ctx, bucket, objectsRowDecoder(targetVector, logger), onVector, logger)
+}
+
+func scanMuveraVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket,
+	onVector prefillOnVector, logger logrus.FieldLogger,
+) error {
+	return scanBucketVectorsParallel(ctx, bucket, muveraRowDecoder(logger), onVector, logger)
+}
+
+// scanBucketVectorsParallel scans a replace-strategy bucket across GOMAXPROCS cursors
+// over disjoint key ranges.
+func scanBucketVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket,
+	decode prefillRowDecoder, onVector prefillOnVector, logger logrus.FieldLogger,
 ) error {
 	// 2x oversubscription: while one cursor blocks on a disk read another keeps a
 	// core busy decoding — the IO-bound default used across the vector package.
@@ -167,7 +307,7 @@ func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, target
 		wg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
-			if err := scanObjectVectorsRange(scanCtx, bucket, r.start, r.end, targetVector, onVector, logger); err != nil {
+			if err := scanBucketVectorsRange(scanCtx, bucket, r.start, r.end, decode, onVector); err != nil {
 				e := err
 				if firstErr.CompareAndSwap(nil, &e) {
 					cancel()
@@ -183,14 +323,14 @@ func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, target
 	return nil
 }
 
-func scanObjectVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, end []byte,
-	targetVector string, onVector func(id uint64, vec []float32), logger logrus.FieldLogger,
+func scanBucketVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, end []byte,
+	decode prefillRowDecoder, onVector prefillOnVector,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	c := bucket.Cursor()
+	c := bucket.CursorReplaceReusable()
 	defer c.Close()
 
 	var k, v []byte
@@ -216,29 +356,13 @@ func scanObjectVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, en
 			continue
 		}
 
-		id, err := storobj.DocIDFromBinary(v)
-		if err != nil {
-			logger.WithField("action", "hnsw_vector_cache_prefill").
-				Debugf("skipping object with undecodable doc id: %v", err)
+		id, vec, ok := decode(k, v)
+		if !ok || len(vec) == 0 {
 			continue
 		}
-
-		// nil buffer forces a fresh allocation; a reused buffer would be aliased by
-		// VectorFromBinary across iterations and corrupt previously cached vectors.
-		vec, err := storobj.VectorFromBinary(v, nil, targetVector)
-		if err != nil {
-			var notFound storobj.ErrTargetVectorNotFound
-			if errors.As(err, &notFound) {
-				continue
-			}
-			logger.WithField("action", "hnsw_vector_cache_prefill").
-				Debugf("skipping doc id %d with undecodable vector: %v", id, err)
-			continue
+		if err := onVector(id, vec); err != nil {
+			return err
 		}
-		if len(vec) == 0 {
-			continue
-		}
-		onVector(id, vec)
 	}
 	return nil
 }

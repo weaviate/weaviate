@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -83,12 +84,13 @@ func collectScan(t *testing.T, bucket *lsmkv.Bucket, target string) map[uint64][
 	var mu sync.Mutex
 	got := map[uint64][]float32{}
 	err := scanObjectVectorsParallel(context.Background(), bucket, target,
-		func(id uint64, vec []float32) {
+		func(id uint64, vec []float32) error {
 			mu.Lock()
 			defer mu.Unlock()
 			_, exists := got[id]
 			require.Falsef(t, exists, "doc id %d emitted more than once", id)
 			got[id] = vec
+			return nil
 		}, logger)
 	require.NoError(t, err)
 	return got
@@ -169,18 +171,17 @@ func TestScanObjectVectorsParallel(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		logger, _ := test.NewNullLogger()
-		err := scanObjectVectorsParallel(ctx, bucket, "", func(uint64, []float32) {}, logger)
+		err := scanObjectVectorsParallel(ctx, bucket, "", func(uint64, []float32) error { return nil }, logger)
 		require.ErrorIs(t, err, context.Canceled)
 	})
 }
 
 func TestParallelPrefillEligible(t *testing.T) {
 	base := parallelPrefillInputs{
-		waitForPrefill: true,
-		multivector:    false,
-		muvera:         false,
-		cacheMaxSize:   1e12,
-		nodeCount:      1000,
+		multivector:  false,
+		muvera:       false,
+		cacheMaxSize: 1e12,
+		nodeCount:    1000,
 	}
 
 	tests := []struct {
@@ -188,14 +189,12 @@ func TestParallelPrefillEligible(t *testing.T) {
 		mod  func(*parallelPrefillInputs)
 		want bool
 	}{
-		{"sync + unbounded + single-vector", func(*parallelPrefillInputs) {}, true},
-		{"async prefill keeps serial path", func(in *parallelPrefillInputs) { in.waitForPrefill = false }, false},
+		{"unbounded single-vector is eligible", func(*parallelPrefillInputs) {}, true},
 		{"true multivector keeps serial path", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = false }, false},
 		// muvera's float32 cache is sourced from the _muvera_vectors bucket, not the
-		// objects bucket the parallel scan reads, so it must stay on the serial path —
-		// regardless of whether the multivector flag happens to be set alongside it.
-		{"muvera keeps serial path", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, false},
-		{"muvera without multivector flag keeps serial path", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = true }, false},
+		// objects bucket this scan reads — it takes the muvera scan instead.
+		{"muvera does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = true; in.muvera = true }, false},
+		{"muvera without multivector flag does not take the objects scan", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = true }, false},
 		{"bounded cache (max < nodes) keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
 		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, true},
 		{"empty index (0 nodes) is eligible", func(in *parallelPrefillInputs) { in.nodeCount = 0 }, true},
@@ -205,6 +204,34 @@ func TestParallelPrefillEligible(t *testing.T) {
 			in := base
 			tt.mod(&in)
 			assert.Equal(t, tt.want, parallelPrefillEligible(in))
+		})
+	}
+}
+
+func TestMuveraParallelPrefillEligible(t *testing.T) {
+	base := parallelPrefillInputs{
+		multivector:  true,
+		muvera:       true,
+		cacheMaxSize: 1e12,
+		nodeCount:    1000,
+	}
+
+	tests := []struct {
+		name string
+		mod  func(*parallelPrefillInputs)
+		want bool
+	}{
+		{"unbounded muvera is eligible", func(*parallelPrefillInputs) {}, true},
+		{"non-muvera is not", func(in *parallelPrefillInputs) { in.muvera = false }, false},
+		{"single-vector is not", func(in *parallelPrefillInputs) { in.multivector = false; in.muvera = false }, false},
+		{"bounded cache keeps serial path", func(in *parallelPrefillInputs) { in.cacheMaxSize = 500; in.nodeCount = 1000 }, false},
+		{"cache exactly fits nodes is eligible", func(in *parallelPrefillInputs) { in.cacheMaxSize = 1000; in.nodeCount = 1000 }, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := base
+			tt.mod(&in)
+			assert.Equal(t, tt.want, muveraParallelPrefillEligible(in))
 		})
 	}
 }
@@ -390,4 +417,160 @@ func TestPrefillCacheParallelNormalizesForCosine(t *testing.T) {
 		require.Equalf(t, distancer.Normalize(raw[i]), got,
 			"cosine-dot cache must hold normalized vectors for doc %d", i)
 	}
+}
+
+// TestPrefillCacheParallelDoesNotOverwriteNewerVectors is the PreloadIfAbsent
+// invariant end-to-end: ids already in the cache (e.g. written by an insert racing an
+// async prefill) keep their value, and count is not double-incremented for them.
+func TestPrefillCacheParallelDoesNotOverwriteNewerVectors(t *testing.T) {
+	const n = 100
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	exp := make(map[uint64][]float32, n)
+	for i := uint64(0); i < n; i++ {
+		vec := []float32{float32(i), float32(i)}
+		putTestObject(t, bucket, i, vec, nil)
+		exp[i] = vec
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	logger, _ := test.NewNullLogger()
+	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
+		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
+	}
+	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
+
+	inserted := map[uint64][]float32{3: {42, 42}, 7: {43, 43}}
+	for id, vec := range inserted {
+		c.Preload(id, vec)
+		exp[id] = vec
+	}
+
+	h := &hnsw{
+		store:             store,
+		cache:             c,
+		nodes:             make([]*vertex, n),
+		id:                "main",
+		logger:            logger,
+		distancerProvider: distancer.NewDotProductProvider(),
+	}
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+
+	requireCacheContains(t, c, exp)
+}
+
+type failingAllocChecker struct{}
+
+func (failingAllocChecker) CheckAlloc(int64) error {
+	return fmt.Errorf("out of memory")
+}
+func (failingAllocChecker) CheckMappingAndReserve(int64, int) error { return nil }
+func (failingAllocChecker) Refresh(bool)                            {}
+
+// TestPrefillCacheParallelAbortsUnderMemoryPressure: with a failing allocChecker the
+// scan stops at the first probe and prefill degrades gracefully (nil error, partial
+// cache); the memtable-only bucket forces a single scan range, making the abort point
+// deterministic.
+func TestPrefillCacheParallelAbortsUnderMemoryPressure(t *testing.T) {
+	const n = prefillAllocCheckEvery + 500
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := uint64(0); i < n; i++ {
+		putTestObject(t, bucket, i, []float32{float32(i)}, nil)
+	}
+
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
+
+	h := &hnsw{
+		store:             store,
+		cache:             c,
+		nodes:             make([]*vertex, n),
+		id:                "main",
+		logger:            logger,
+		distancerProvider: distancer.NewDotProductProvider(),
+		allocChecker:      failingAllocChecker{},
+	}
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+	require.Equal(t, int64(prefillAllocCheckEvery), c.CountVectors())
+}
+
+// TestPrefillCacheParallelStopsWhenCompressionActivates: once h.compressed flips, the
+// uncompressed cache is no longer the live cache and the scan must stop loading into it.
+func TestPrefillCacheParallelStopsWhenCompressionActivates(t *testing.T) {
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := uint64(0); i < 50; i++ {
+		putTestObject(t, bucket, i, []float32{float32(i)}, nil)
+	}
+
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(50)
+
+	h := &hnsw{
+		store:             store,
+		cache:             c,
+		nodes:             make([]*vertex, 50),
+		id:                "main",
+		logger:            logger,
+		distancerProvider: distancer.NewDotProductProvider(),
+	}
+	h.compressed.Store(true)
+
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+	require.Equal(t, int64(0), c.CountVectors())
+}
+
+func putMuveraVector(t *testing.T, bucket *lsmkv.Bucket, id uint64, vec []float32) {
+	t.Helper()
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, id)
+	require.NoError(t, bucket.Put(key, multivector.MuveraBytesFromFloat32(vec)))
+}
+
+// TestPrefillMuveraCacheParallelEndToEnd scans a real muvera vectors bucket (key =
+// big-endian docID = node id, value = raw float32s) into the cache, across flushed
+// segments and with a deleted entry that must not resurface.
+func TestPrefillMuveraCacheParallelEndToEnd(t *testing.T) {
+	const n = 300
+	store := newTestObjectsStore(t)
+	bucketName := "m_muvera_vectors"
+	require.NoError(t, store.CreateOrLoadBucket(context.Background(), bucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+	bucket := store.Bucket(bucketName)
+
+	exp := make(map[uint64][]float32, n)
+	for i := uint64(0); i < n; i++ {
+		vec := []float32{float32(i) + 0.5, float32(i) - 0.5, float32(i)}
+		putMuveraVector(t, bucket, i, vec)
+		exp[i] = vec
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, 42)
+	require.NoError(t, bucket.Delete(key))
+	require.NoError(t, bucket.FlushAndSwitch())
+	delete(exp, 42)
+
+	logger, _ := test.NewNullLogger()
+	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
+		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
+	}
+	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(n)
+
+	h := &hnsw{
+		store:             store,
+		cache:             c,
+		nodes:             make([]*vertex, n),
+		id:                "m",
+		logger:            logger,
+		distancerProvider: distancer.NewDotProductProvider(),
+	}
+	require.NoError(t, h.prefillMuveraCacheParallel(context.Background()))
+	requireCacheContains(t, c, exp)
 }

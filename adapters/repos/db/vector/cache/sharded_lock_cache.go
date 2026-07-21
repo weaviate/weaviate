@@ -295,6 +295,22 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 	s.cache[id] = vec
 }
 
+// PreloadIfAbsent writes vec only when the slot is empty. Unlike Preload it cannot
+// clobber a newer vector written concurrently (e.g. by an insert), so it is the
+// primitive for cache-warming scans that run alongside live writes. It also never
+// double-increments count for an already-present id.
+func (s *shardedLockCache[T]) PreloadIfAbsent(id uint64, vec []T) {
+	s.shardedLocks.Lock(id)
+	defer s.shardedLocks.Unlock(id)
+
+	if s.cache[id] != nil {
+		return
+	}
+
+	atomic.AddInt64(&s.count, 1)
+	s.cache[id] = vec
+}
+
 func (s *shardedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
 	s.cache[id] = vec
 }
@@ -732,6 +748,10 @@ func (s *shardedMultipleLockCache[T]) PreloadPassage(id uint64, docID uint64, re
 }
 
 func (s *shardedMultipleLockCache[T]) Preload(docID uint64, vec []T) {
+	panic("not implemented")
+}
+
+func (s *shardedMultipleLockCache[T]) PreloadIfAbsent(docID uint64, vec []T) {
 	panic("not implemented")
 }
 
