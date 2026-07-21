@@ -538,24 +538,34 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
+	// Drop/Shutdown cancel via prefillCancel and wait on prefillWG so no scan cursor
+	// can outlive the cache or the lsmkv store (the shard-drop path never cancels the
+	// PostStartup ctx before closing segments).
+	prefillCtx, cancel := context.WithCancel(ctx)
+	h.prefillCancel.Store(&cancel)
+	h.prefillWG.Add(1)
+
 	prefillCacheFunc := func() {
+		defer h.prefillWG.Done()
+		defer cancel()
+
 		var err error
 		if h.compressed.Load() {
 			if !h.multivector.Load() || h.muvera.Load() {
-				h.compressor.PrefillCache(ctx)
+				h.compressor.PrefillCache(prefillCtx)
 			} else {
-				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
+				h.compressor.PrefillMultiCache(prefillCtx, h.docIDVectors)
 			}
 		} else if h.useMuveraParallelPrefill() {
 			// Unbounded muvera cache: scan the compact muvera vectors bucket with a
 			// parallel cursor instead of looking up every vector by id.
-			err = h.prefillMuveraCacheParallel(ctx)
+			err = h.prefillMuveraCacheParallel(prefillCtx)
 		} else if h.useParallelPrefill() {
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
-			err = h.prefillCacheParallel(ctx)
+			err = h.prefillCacheParallel(prefillCtx)
 		} else {
-			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(prefillCtx, limit)
 		}
 
 		if err != nil {

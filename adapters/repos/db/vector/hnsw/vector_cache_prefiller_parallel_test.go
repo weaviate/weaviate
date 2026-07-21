@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,6 +77,14 @@ func keyForDocID(docID uint64) []byte {
 	key := make([]byte, 16)
 	binary.BigEndian.PutUint64(key[8:], docID)
 	return key
+}
+
+// scanObjectVectorsParallel is the objects-bucket specialization of the generic scan,
+// kept as a helper so the scan tests read at the domain level.
+func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, targetVector string,
+	onVector prefillOnVector, logger logrus.FieldLogger,
+) error {
+	return scanBucketVectorsParallel(ctx, bucket, objectsRowDecoder(targetVector, logger), onVector, logger)
 }
 
 func collectScan(t *testing.T, bucket *lsmkv.Bucket, target string) map[uint64][]float32 {
@@ -573,4 +582,54 @@ func TestPrefillMuveraCacheParallelEndToEnd(t *testing.T) {
 	}
 	require.NoError(t, h.prefillMuveraCacheParallel(context.Background()))
 	requireCacheContains(t, c, exp)
+}
+
+// TestPrefillCacheParallelStopsWhenCacheFull: the scan must stop once count reaches
+// maxSize instead of feeding replaceIfFull's full-cache wipe; memtable-only data
+// forces a single scan range so the stop point is deterministic.
+func TestPrefillCacheParallelStopsWhenCacheFull(t *testing.T) {
+	const n = 50
+	const maxSize = 10
+	store := newTestObjectsStore(t)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := uint64(0); i < n; i++ {
+		putTestObject(t, bucket, i, []float32{float32(i)}, nil)
+	}
+
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(nil, nil, maxSize, 1, logger, false, 0, nil)
+	c.Grow(n)
+
+	h := &hnsw{
+		store:             store,
+		cache:             c,
+		nodes:             make([]*vertex, n),
+		id:                "main",
+		logger:            logger,
+		distancerProvider: distancer.NewDotProductProvider(),
+	}
+	require.NoError(t, h.prefillCacheParallel(context.Background()))
+	require.Equal(t, int64(maxSize), c.CountVectors())
+}
+
+// TestUseParallelPrefillExcludesHFresh: the hfresh centroid index shares the shard's
+// store (objects bucket present) but its cache holds centroid vectors, so the
+// objects scan must never run for it.
+func TestUseParallelPrefillExcludesHFresh(t *testing.T) {
+	store := newTestObjectsStore(t)
+	logger, _ := test.NewNullLogger()
+	c := cache.NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+
+	h := &hnsw{
+		store:             store,
+		cache:             c,
+		id:                "main_centroids",
+		logger:            logger,
+		hfreshMode:        true,
+		distancerProvider: distancer.NewDotProductProvider(),
+	}
+	require.False(t, h.useParallelPrefill())
+
+	h.hfreshMode = false
+	require.True(t, h.useParallelPrefill())
 }

@@ -464,3 +464,19 @@ func TestPreloadIfAbsent(t *testing.T) {
 
 	assert.Equal(t, int64(2), c.CountVectors())
 }
+
+// TestPreloadCountsOccupiedSlotsOnly: count feeds replaceIfFull's full-cache wipe,
+// so overwrites and re-preloads must not inflate it past true occupancy.
+func TestPreloadCountsOccupiedSlotsOnly(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(10)
+
+	c.Preload(5, []float32{1})
+	c.Preload(5, []float32{2}) // overwrite: no recount
+	assert.Equal(t, int64(1), c.CountVectors())
+
+	assert.False(t, c.PreloadIfAbsent(5, []float32{3}))
+	assert.True(t, c.PreloadIfAbsent(6, []float32{4}))
+	assert.Equal(t, int64(2), c.CountVectors())
+}

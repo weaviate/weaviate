@@ -108,7 +108,7 @@ func (f *fakeCache) Preload(id uint64, vec []float32) {
 	panic("not implemented")
 }
 
-func (f *fakeCache) PreloadIfAbsent(id uint64, vec []float32) {
+func (f *fakeCache) PreloadIfAbsent(id uint64, vec []float32) bool {
 	panic("not implemented")
 }
 
