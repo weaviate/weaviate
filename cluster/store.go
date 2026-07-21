@@ -961,9 +961,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 func (st *Store) setClusterID(clusterID string) {
 	id := clusterID
 	if !st.clusterID.CompareAndSwap(nil, &id) {
-		st.log.WithFields(logrus.Fields{
-			"existing_cluster_id":  st.ClusterID(),
-			"duplicate_cluster_id": clusterID}).Debug("duplicate cluster-id set, no-op (set-once)")
+		st.log.WithFields(logrus.Fields{"existing_cluster_id": st.ClusterID(), "duplicate_cluster_id": clusterID}).Debug("duplicate cluster-id set, no-op (set-once)")
 	}
 }
 
