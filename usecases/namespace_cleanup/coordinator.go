@@ -158,7 +158,7 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			if errors.Is(err, types.ErrNotLeader) {
+			if types.IsNoLeader(err) {
 				// The new leader picks the namespace up on its next tick.
 				c.logger.WithField("namespace", namespace).Infof("cleanup namespace deferred, leadership moved: %v", err)
 				return nil

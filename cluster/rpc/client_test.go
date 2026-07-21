@@ -18,6 +18,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -294,6 +295,30 @@ func TestFromRPCError_SentinelMessagesMutuallyNonSubstring(t *testing.T) {
 						"%s message must not contain %s message", a.name, b.name)
 				}
 			}
+		})
+	}
+}
+
+// TestFromRPCError_HashicorpLeadershipSentinelsRoundTrip pins that the raw
+// hashicorp sentinels a leader-local apply returns survive the hop as a
+// not-leader code. Without the types.IsNoLeader arm they render 500 instead
+// of the documented 503.
+func TestFromRPCError_HashicorpLeadershipSentinelsRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		send error
+	}{
+		{name: "raft.ErrLeadershipLost", send: raft.ErrLeadershipLost},
+		{name: "raft.ErrNotLeader", send: raft.ErrNotLeader},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire := toRPCError(test.send)
+			require.Equal(t, NotLeaderRPCCode, status.Code(wire))
+
+			parsed := fromRPCError(wire)
+			require.True(t, types.IsNoLeader(parsed),
+				"IsNoLeader must hold after the hop, else the handler renders 500")
 		})
 	}
 }

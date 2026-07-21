@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/weaviate/weaviate/entities/dbuser"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/namespaces"
@@ -79,17 +80,9 @@ type User struct {
 }
 
 // UserView is an independent snapshot of [User] returned by [DBUser.GetUsers]
-// so callers can read fields without racing in-place mutators.
-type UserView struct {
-	Id                 string
-	Active             bool
-	InternalIdentifier string
-	ApiKeyFirstLetters string
-	CreatedAt          time.Time
-	LastUsedAt         time.Time
-	ImportedWithKey    bool
-	Namespace          string
-}
+// so callers can read fields without racing in-place mutators. It aliases
+// [dbuser.View] so a user is the same type at both ends of the RAFT hop.
+type UserView = dbuser.View
 
 // view returns a snapshot taken under the per-user RLock so it cannot
 // observe a torn write from UpdateLastUsedTimestamp.

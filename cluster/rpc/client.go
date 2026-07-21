@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hashicorp/raft"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -322,7 +323,10 @@ func fromRPCError(err error) error {
 		switch {
 		case strings.Contains(msg, types.ErrLeaderNotFound.Error()):
 			return errors.Join(err, types.ErrLeaderNotFound)
-		case strings.Contains(msg, types.ErrNotLeader.Error()):
+		case strings.Contains(msg, types.ErrNotLeader.Error()),
+			strings.Contains(msg, raft.ErrLeadershipLost.Error()):
+			// raft.ErrNotLeader shares types.ErrNotLeader's message and matches
+			// the first arm; ErrLeadershipLost has its own wording.
 			return errors.Join(err, types.ErrNotLeader)
 		}
 	case codes.NotFound:
