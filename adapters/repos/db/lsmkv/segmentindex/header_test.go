@@ -20,8 +20,8 @@ import (
 )
 
 func BenchmarkParseHeader(b *testing.B) {
-	// All-zero data is now rejected as corrupt; use a minimal valid
-	// empty-segment header instead.
+	// All-zero data fails ParseHeader as corrupt; use a minimal valid
+	// empty-segment header for the benchmark.
 	var buf bytes.Buffer
 	_, err := (&Header{IndexStart: uint64(HeaderSize)}).WriteTo(&buf)
 	require.NoError(b, err)
@@ -124,6 +124,35 @@ func TestHeaderValidateIndexBounds_RejectsSecondaryIndexTablePastContentsLen(t *
 	t.Run("SecondaryIndices zero is unaffected by the secondary-table check", func(t *testing.T) {
 		h := &Header{IndexStart: 100, SecondaryIndices: 0}
 		require.NoError(t, h.ValidateIndexBounds(100))
+	})
+}
+
+// TestHeaderValidateNonEmptyIndex pins weaviate/weaviate#12280 F1: an
+// IndexStart == contentsLen off-by-one passes ValidateIndexBounds (which
+// uses '>', not '>=') but leaves the primary index empty even though the
+// header claims data is present, silently serving empty reads.
+func TestHeaderValidateNonEmptyIndex(t *testing.T) {
+	t.Run("QA Claude's exact repro shape: sec=0, 500-key 38016-byte segment, IndexStart=38016 (==len)", func(t *testing.T) {
+		h := &Header{IndexStart: 38016}
+		err := h.ValidateNonEmptyIndex(0)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "corrupt segment header")
+		require.Contains(t, err.Error(), "primary index is empty")
+	})
+
+	t.Run("IndexStart past HeaderSize with a non-empty index: accepted", func(t *testing.T) {
+		h := &Header{IndexStart: 38016}
+		require.NoError(t, h.ValidateNonEmptyIndex(43))
+	})
+
+	t.Run("IndexStart == HeaderSize with an empty index (legitimate empty segment): accepted", func(t *testing.T) {
+		h := &Header{IndexStart: uint64(HeaderSize)}
+		require.NoError(t, h.ValidateNonEmptyIndex(0))
+	})
+
+	t.Run("IndexStart == HeaderSize with a non-empty index: accepted", func(t *testing.T) {
+		h := &Header{IndexStart: uint64(HeaderSize)}
+		require.NoError(t, h.ValidateNonEmptyIndex(43))
 	})
 }
 

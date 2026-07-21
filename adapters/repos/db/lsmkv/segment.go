@@ -322,6 +322,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
 	}
 
+	// An IndexStart == segment length off-by-one passes ValidateIndexBounds
+	// but leaves the primary index empty even though the header claims data
+	// is present; catch it here where the final (checksum-trimmed) index
+	// length is known.
+	if err := header.ValidateNonEmptyIndex(len(primaryIndex)); err != nil {
+		return nil, fmt.Errorf("validate header: %w", err)
+	}
+
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
