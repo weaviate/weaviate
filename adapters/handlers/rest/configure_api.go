@@ -2266,6 +2266,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
 		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
+		registered.BackupMaxIndividualFiles = appState.ServerConfig.Config.Backup.MaxIndividualFiles
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
