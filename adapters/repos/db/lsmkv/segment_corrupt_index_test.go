@@ -53,11 +53,9 @@ func setIndexStart(t *testing.T, path string, value uint64) {
 	require.NoError(t, f.Close())
 }
 
-// TestSegment_CorruptIndexStart_PastSegmentLength pins
-// weaviate/weaviate#12280 shape 3: QA Claude's real-segment repro
-// (622914-byte objects segment, IndexStart=722914) - an IndexStart past the
-// file's actual length must fail loudly at open, not panic slicing
-// contents[IndexStart:].
+// TestSegment_CorruptIndexStart_PastSegmentLength pins weaviate/weaviate#12280:
+// an IndexStart past the file's actual length must fail loudly at open, not
+// panic slicing contents[IndexStart:].
 func TestSegment_CorruptIndexStart_PastSegmentLength(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -89,12 +87,9 @@ func TestSegment_CorruptIndexStart_PastSegmentLength(t *testing.T) {
 }
 
 // TestSegment_CorruptIndexStart_MidRegion_NoSilentEmptyRead pins
-// weaviate/weaviate#12280 shape 4 - the serious one: QA Claude's real-segment
-// repro (a replace bucket, no secondary index, IndexStart corrupted to an
-// in-bounds mid-region offset). Pre-fix this opened with NO error and Get
-// silently returned empty for real data. Post-fix, reopening must fail
-// loudly at open (the root node's Start/End land outside the data region) -
-// never a silent empty read for data that is actually intact on disk.
+// weaviate/weaviate#12280: an in-bounds but corrupt IndexStart must fail
+// loudly at open, never silently return an empty read for data that is
+// actually intact on disk.
 func TestSegment_CorruptIndexStart_MidRegion_NoSilentEmptyRead(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -110,7 +105,7 @@ func TestSegment_CorruptIndexStart_MidRegion_NoSilentEmptyRead(t *testing.T) {
 
 	const corruptOffset = 48
 	require.Less(t, uint64(corruptOffset), uint64(info.Size()),
-		"precondition: the corrupt offset must be in-bounds for this to be shape 4, not shape 3")
+		"precondition: the corrupt offset must be in-bounds")
 	setIndexStart(t, target, corruptOffset)
 
 	sizeAfter, err := os.Stat(target)
@@ -136,21 +131,16 @@ func TestSegment_CorruptIndexStart_MidRegion_NoSilentEmptyRead(t *testing.T) {
 		return
 	}
 
-	// The exact inner reason varies with what garbage bytes land at the
-	// corrupt offset (this segment's happened to decode to an oversized
-	// node key length, caught by DiskTree's own pre-existing bounds check;
-	// a different byte layout could instead trip the root Start/End check
-	// this fix adds) - both are legitimate, loud rejections from the same
-	// new choke point (validating the primary index at open), which is
-	// what actually matters here: never a panic, never a silent empty read.
+	// The exact inner reason depends on the garbage bytes at the corrupt
+	// offset, but it must come from the primary-index validation choke point.
 	require.Contains(t, err.Error(), "validate primary index",
 		"the loud failure must come from the new index-validation choke point, not an unrelated error")
 }
 
 // TestSegment_CorruptSecondaryIndicesCount_PastSegmentLength pins
-// weaviate/weaviate#12280 shape 5: a corrupt-large SecondaryIndices count
-// pushes the secondary offset table past the segment's actual length; this
-// must fail loudly at open, not panic slicing the offset table.
+// weaviate/weaviate#12280: a corrupt-large SecondaryIndices count pushing the
+// secondary offset table past the segment's actual length must fail loudly
+// at open, not panic slicing the offset table.
 func TestSegment_CorruptSecondaryIndicesCount_PastSegmentLength(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

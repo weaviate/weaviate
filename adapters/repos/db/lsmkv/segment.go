@@ -288,9 +288,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
-	// ParseHeader only ever sees the fixed-size header, not the file, so the
-	// upper-bound check against the actual segment length can only happen
-	// here, the moment len(contents) is known.
+	// ParseHeader never sees the file, only the fixed-size header, so the
+	// length check must happen here.
 	if err := header.ValidateIndexBounds(uint64(len(contents))); err != nil {
 		return nil, fmt.Errorf("validate header: %w", err)
 	}
@@ -338,13 +337,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		dataEndPos = invertedHeader.TombstoneOffset
 	}
 
-	// A corrupt but in-bounds IndexStart passes ValidateIndexBounds above yet
-	// still lands the index on the wrong bytes (e.g. the data region itself).
-	// DiskTree.Get() tolerates corrupt node data by resolving to NotFound
-	// rather than panicking, so that shape is otherwise silent - a "valid but
-	// wrong" empty-looking index. The root node's own Start/End must fall
-	// within this segment's data region for any legitimately-written segment,
-	// so checking just the root, once, at open time, catches it here instead.
+	// An in-bounds but corrupt IndexStart can silently land the index on the
+	// wrong bytes; Get() would then resolve to NotFound rather than error.
+	// Catch it here once, at open time.
 	if err := primaryDiskIndex.ValidateRootInBounds(dataStartPos, dataEndPos); err != nil {
 		return nil, fmt.Errorf("validate primary index: %w", err)
 	}
