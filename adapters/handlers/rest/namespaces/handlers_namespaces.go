@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/sirupsen/logrus"
 
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -48,7 +47,6 @@ type namespaceHandler struct {
 	enabled    bool
 	authorizer authorization.Authorizer
 	raft       NamespaceRaftGetter
-	logger     logrus.FieldLogger
 }
 
 // errNamespacesDisabled is returned by every handler when the namespaces
@@ -64,13 +62,11 @@ func SetupHandlers(
 	api *operations.WeaviateAPI,
 	raft NamespaceRaftGetter,
 	authorizer authorization.Authorizer,
-	logger logrus.FieldLogger,
 ) {
 	h := &namespaceHandler{
 		enabled:    enabled,
 		authorizer: authorizer,
 		raft:       raft,
-		logger:     logger,
 	}
 
 	api.NamespacesCreateNamespaceHandler = nsops.CreateNamespaceHandlerFunc(h.createNamespace)
@@ -335,18 +331,9 @@ func (h *namespaceHandler) resumeNamespace(params nsops.ResumeNamespaceParams, p
 	}
 }
 
-// errNoLeader and errStateChangeFailed replace the RAFT error in the 503 and
-// 500 bodies, which would otherwise carry leader addresses and node names.
-// The original goes to the log.
-var (
-	errNoLeader          = errors.New("no cluster leader reachable, retry shortly")
-	errStateChangeFailed = errors.New("changing namespace state failed")
-)
-
 // changeState authorizes, validates and applies a namespace state change,
 // returning the HTTP status its caller should render and the error to put in
-// the body verbatim. Both endpoints are the same flow with a different
-// target state.
+// the body. Both endpoints are the same flow with a different target state.
 func (h *namespaceHandler) changeState(
 	ctx context.Context, principal *models.Principal, name string, target cmd.NamespaceState,
 ) (int, error) {
@@ -357,32 +344,16 @@ func (h *namespaceHandler) changeState(
 		return http.StatusUnprocessableEntity, err
 	}
 
-	// Logged on both paths: the authz record alone says who called, not what
-	// the namespace's state became.
-	entry := h.logger.WithFields(logrus.Fields{
-		"action":       "change_namespace_state",
-		"namespace":    name,
-		"target_state": string(target),
-		"user":         principal.Username,
-	})
-
 	// Conditional because suspend and resume undo each other: an Execute
 	// retry must not revert a flip another operator was already told applied.
 	if _, err := h.raft.ChangeNamespaceStateIfUnchanged(ctx, name, target); err != nil {
 		status := statusForChangeStateErr(err)
-		entry.WithField("status", status).Warnf("change namespace state: %v", err)
-		switch status {
-		case http.StatusNotFound:
+		if status == http.StatusNotFound {
 			return status, fmt.Errorf("namespace %q not found", name)
-		case http.StatusServiceUnavailable:
-			return status, errNoLeader
-		case http.StatusInternalServerError:
-			return status, errStateChangeFailed
 		}
-		return status, err
+		return status, fmt.Errorf("changing namespace state: %w", err)
 	}
 
-	entry.Info("changed namespace state")
 	return http.StatusAccepted, nil
 }
 

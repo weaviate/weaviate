@@ -24,8 +24,6 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/hashicorp/raft"
-	"github.com/sirupsen/logrus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -92,24 +90,14 @@ func (m *mockRaft) StorageCandidates() []string {
 
 func newHandler(t *testing.T) (*namespaceHandler, *authorization.MockAuthorizer, *mockRaft) {
 	t.Helper()
-	h, authorizer, raft, _ := newHandlerWithLog(t)
-	return h, authorizer, raft
-}
-
-// newHandlerWithLog also returns the logger's hook, for the rows that assert
-// on the emitted entry.
-func newHandlerWithLog(t *testing.T) (*namespaceHandler, *authorization.MockAuthorizer, *mockRaft, *logrustest.Hook) {
-	t.Helper()
 	authorizer := authorization.NewMockAuthorizer(t)
 	raft := &mockRaft{}
 	t.Cleanup(func() { raft.AssertExpectations(t) })
-	logger, hook := logrustest.NewNullLogger()
 	return &namespaceHandler{
 		enabled:    true,
 		authorizer: authorizer,
 		raft:       raft,
-		logger:     logger,
-	}, authorizer, raft, hook
+	}, authorizer, raft
 }
 
 // -----------------------------------------------------------------------------
@@ -975,14 +963,12 @@ func TestStatusForChangeStateErr(t *testing.T) {
 // terminal) lives at the controller, in TestController_ChangeState.
 func TestSuspendResume_ApplyOutcomes(t *testing.T) {
 	principal := &models.Principal{Username: "ops-1"}
-	// Carries the node names leaderErr decorates ErrLeaderNotFound with.
 	noLeaderErr := fmt.Errorf("%w, can not resolve nodes [node-7:8300]", types.ErrLeaderNotFound)
 	cases := []struct {
 		name           string
 		changeStateErr error
 		wantCode       int
 		wantInBody     string
-		wantNotInBody  string
 	}{
 		{name: "applied", wantCode: http.StatusAccepted},
 		{
@@ -1004,26 +990,22 @@ func TestSuspendResume_ApplyOutcomes(t *testing.T) {
 			wantInBody:     "namespace state changed concurrently",
 		},
 		{
-			// The RAFT error names unreachable nodes; the client gets a fixed
-			// message and the detail goes to the log.
 			name:           "no leader",
 			changeStateErr: noLeaderErr,
 			wantCode:       http.StatusServiceUnavailable,
-			wantInBody:     "no cluster leader reachable",
-			wantNotInBody:  "node-7",
+			wantInBody:     "changing namespace state",
 		},
 		{
 			name:           "unclassified failure",
-			changeStateErr: errors.New("boom: /var/lib/weaviate is full"),
+			changeStateErr: errors.New("boom"),
 			wantCode:       http.StatusInternalServerError,
-			wantInBody:     "changing namespace state failed",
-			wantNotInBody:  "/var/lib/weaviate",
+			wantInBody:     "changing namespace state",
 		},
 	}
 	for _, tc := range cases {
 		for _, endpoint := range []string{"suspend", "resume"} {
 			t.Run(endpoint+"/"+tc.name, func(t *testing.T) {
-				h, authz, raftMock, hook := newHandlerWithLog(t)
+				h, authz, raftMock := newHandler(t)
 				authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
 
 				wantTarget := cmd.NamespaceStateActive
@@ -1049,70 +1031,34 @@ func TestSuspendResume_ApplyOutcomes(t *testing.T) {
 					return
 				}
 				assert.Contains(t, rec.Body.String(), tc.wantInBody)
-				if tc.wantNotInBody != "" {
-					assert.NotContains(t, rec.Body.String(), tc.wantNotInBody,
-						"the raw error must not reach the client")
-					require.Len(t, hook.AllEntries(), 1)
-					assert.Contains(t, hook.LastEntry().Message, tc.wantNotInBody,
-						"the detail withheld from the client belongs in the log")
-				}
 			})
 		}
 	}
 }
 
-// TestSuspendResume_AuditLine pins that a state change is attributable: the
-// authz record alone says who called, not what the state became.
-func TestSuspendResume_AuditLine(t *testing.T) {
-	principal := &models.Principal{Username: "ops-1"}
-	cases := []struct {
-		name           string
-		changeStateErr error
-		wantLevel      logrus.Level
-		wantMsg        string
-	}{
-		{name: "success", wantLevel: logrus.InfoLevel, wantMsg: "changed namespace state"},
-		{name: "failure carries the error", changeStateErr: usecasesNamespaces.ErrStateChangedConcurrently, wantLevel: logrus.WarnLevel, wantMsg: "namespace state changed concurrently"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			h, authz, raftMock, hook := newHandlerWithLog(t)
-			authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
-			raftMock.On("ChangeNamespaceStateIfUnchanged", mock.Anything, "customer1", cmd.NamespaceStateSuspended).
-				Return(0, tc.changeStateErr)
-
-			h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
-
-			require.Len(t, hook.AllEntries(), 1)
-			entry := hook.LastEntry()
-			assert.Equal(t, tc.wantLevel, entry.Level)
-			assert.Contains(t, entry.Message, tc.wantMsg)
-			assert.Equal(t, "customer1", entry.Data["namespace"])
-			assert.Equal(t, string(cmd.NamespaceStateSuspended), entry.Data["target_state"])
-			assert.Equal(t, "ops-1", entry.Data["user"])
-		})
-	}
-}
-
-// A denied or invalid request must not reach RAFT, and must not claim a
-// state change happened.
-func TestSuspendResume_NoLogOrApplyBeforeValidation(t *testing.T) {
+// A denied or invalid request must not reach RAFT: the mock has no
+// ChangeNamespaceStateIfUnchanged expectation, so any apply call fails the test.
+func TestSuspendResume_NoApplyBeforeValidation(t *testing.T) {
 	principal := &models.Principal{Username: "ops-1"}
 
 	t.Run("forbidden", func(t *testing.T) {
-		h, authz, _, hook := newHandlerWithLog(t)
+		h, authz, _ := newHandler(t)
 		authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).
 			Return(authzerrors.NewForbidden(principal, authorization.UPDATE, authorization.Namespaces("customer1")...))
 
-		h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
-		assert.Empty(t, hook.AllEntries())
+		res := h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+		rec := httptest.NewRecorder()
+		res.WriteResponse(rec, runtime.JSONProducer())
+		assert.Equal(t, http.StatusForbidden, rec.Code)
 	})
 
 	t.Run("invalid name", func(t *testing.T) {
-		h, authz, _, hook := newHandlerWithLog(t)
+		h, authz, _ := newHandler(t)
 		authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("BadName")[0]).Return(nil)
 
-		h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "BadName", HTTPRequest: req}, principal)
-		assert.Empty(t, hook.AllEntries(), "the audit line logs only names that passed validation")
+		res := h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "BadName", HTTPRequest: req}, principal)
+		rec := httptest.NewRecorder()
+		res.WriteResponse(rec, runtime.JSONProducer())
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	})
 }
