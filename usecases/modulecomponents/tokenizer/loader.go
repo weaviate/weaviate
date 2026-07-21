@@ -16,6 +16,7 @@ package tokenizer
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -46,6 +47,8 @@ func (l *localBpeLoader) LoadTiktokenBpe(tiktokenBpeFile string) (map[string]int
 }
 
 // parseTiktokenBpe decodes tiktoken's "<base64-token> <rank>" vocabulary lines.
+// A malformed line is an error rather than skipped: a truncated file must take the
+// error path, not silently yield a partial vocabulary and wrong token counts.
 func parseTiktokenBpe(contents []byte) (map[string]int, error) {
 	ranks := make(map[string]int)
 	for _, line := range strings.Split(string(contents), "\n") {
@@ -54,7 +57,7 @@ func parseTiktokenBpe(contents []byte) (map[string]int, error) {
 		}
 		token, rank, ok := strings.Cut(line, " ")
 		if !ok {
-			continue
+			return nil, fmt.Errorf("malformed vocabulary line: %q", line)
 		}
 		decoded, err := base64.StdEncoding.DecodeString(token)
 		if err != nil {

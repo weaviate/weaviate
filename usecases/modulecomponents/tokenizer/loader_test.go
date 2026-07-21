@@ -99,9 +99,16 @@ func TestLocalBpeLoader_unreadableFileSurfacesError(t *testing.T) {
 	assert.False(t, fallback.called)
 }
 
-func TestParseTiktokenBpe_malformedLinesSkipped(t *testing.T) {
-	// blank lines and lines without a space separator are skipped, not errors.
-	ranks, err := parseTiktokenBpe([]byte("YQ== 0\n\nnoseparator\nYg== 1\n"))
-	require.NoError(t, err)
-	assert.Equal(t, map[string]int{"a": 0, "b": 1}, ranks)
+func TestParseTiktokenBpe(t *testing.T) {
+	t.Run("blank lines are skipped", func(t *testing.T) {
+		ranks, err := parseTiktokenBpe([]byte("YQ== 0\n\nYg== 1\n"))
+		require.NoError(t, err)
+		assert.Equal(t, map[string]int{"a": 0, "b": 1}, ranks)
+	})
+
+	t.Run("a line without a separator is an error", func(t *testing.T) {
+		// a truncated file must surface rather than yield a partial vocabulary.
+		_, err := parseTiktokenBpe([]byte("YQ== 0\nnoseparator\n"))
+		require.Error(t, err)
+	})
 }
