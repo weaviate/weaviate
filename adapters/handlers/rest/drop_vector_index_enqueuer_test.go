@@ -337,3 +337,24 @@ func TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal(t *testing.T) {
 	require.Equal(t, "node1", p.UnitToNode["shard1__node1"])
 	require.Equal(t, "shard1", p.UnitToShard["shard1__node1"])
 }
+
+func TestDropVectorReconcileIntervalFromEnv(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("default when unset", func(t *testing.T) {
+		t.Setenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", "")
+		require.Equal(t, dropVectorReconcileInterval, dropVectorReconcileIntervalFromEnv(logger))
+	})
+
+	t.Run("override", func(t *testing.T) {
+		t.Setenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", "5")
+		require.Equal(t, 5*time.Second, dropVectorReconcileIntervalFromEnv(logger))
+	})
+
+	t.Run("invalid values fall back to the default", func(t *testing.T) {
+		for _, raw := range []string{"garbage", "0", "-30"} {
+			t.Setenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", raw)
+			require.Equal(t, dropVectorReconcileInterval, dropVectorReconcileIntervalFromEnv(logger), raw)
+		}
+	})
+}

@@ -1187,7 +1187,7 @@ func initReindexAndDistributedTasks(
 	enterrors.GoWrapper(func() {
 		runDropVectorIndexReconciliation(
 			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
-			dropVectorReconcileInterval)
+			dropVectorReconcileIntervalFromEnv(appState.Logger))
 	}, appState.Logger)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
