@@ -238,10 +238,8 @@ error names `rerank.property` once (regression test in `request_test.go`).
 The camelCase response metadata keys are also now pinned on the wire by an
 acceptance subtest requesting all six metadata keys.
 
-On merging the camelCase decision into the bm25 branch, the new
-endpoint's fields followed suit (`queryProperties`), and its
-reserved-field tests send the nested `rerank` object, not the removed
-flat pair.
+Every later endpoint of the family uses the same camelCase vocabulary
+(bm25 adds `queryProperties`).
 
 Also on 2026-07-10 (Copilot review, two rounds): a denied request against
 an alias no longer names the alias target in the 403 (deny on the
@@ -791,6 +789,12 @@ endpoint PRs. Each stays listed here until it lands or is retired.
   through the responder's `default:` as a bare status whose payload
   generated clients discard. Consider collapsing to a declared 500 with
   the `ErrorResponse` payload.
+- **Per-endpoint error responders stay as explicit switches** (decision
+  2026-07-21): each endpoint's ~26-line status→constructor switch is the
+  one place its declared status set (bm25/near-object no 502, aggregate
+  no 429/502) is visible and compile-checked against the generated
+  responder types; a table-driven map is the same size with less type
+  safety. Accepted cost: ~100 lines across the family.
 - **Authz sweep special-cases accumulate**: three sweep files gain one
   body special-case per endpoint. Fold each file's cases into a
   `map[path]body` table.

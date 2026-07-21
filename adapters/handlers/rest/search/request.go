@@ -96,21 +96,6 @@ func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class
 	return nil
 }
 
-// fillCommonTail parses returnMetadata (scoped to the resolved target
-// vectors), then the shared selection-and-filter tail — the order the
-// vector-capable search types (near-text, near-object, hybrid) share.
-func (h *Handler) fillCommonTail(out *dto.GetParams, class *models.Class, className string,
-	common *models.SearchCommon, targetVectors []string, getClass classGetterFunc, principal *models.Principal,
-) *APIError {
-	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
-	if apiErr != nil {
-		return apiErr
-	}
-	out.AdditionalProperties = addProps
-
-	return h.fillSelectionAndFilter(out, class, className, common, getClass, principal)
-}
-
 // buildNearTextParams converts the near-text request into the dto.GetParams
 // consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
 // parser (adapters/handlers/grpc/v1/parse_search_request.go). Shared fields
@@ -135,7 +120,13 @@ func (h *Handler) buildNearTextParams(class *models.Class, className string, bod
 	}
 	out.ModuleParams = map[string]any{"nearText": nearTextParams}
 
-	if apiErr := h.fillCommonTail(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+	addProps, apiErr := parseReturnMetadata(class, common.ReturnMetadata, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.AdditionalProperties = addProps
+
+	if apiErr := h.fillSelectionAndFilter(&out, class, className, common, getClass, principal); apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
 
@@ -159,11 +150,7 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
-	// certainty cannot be computed for a keyword search; drop it silently
-	// (gRPC parity: extractAdditionalPropsFromMetadata clears certainty on
-	// every non-vector search). distance is likewise inapplicable but needs
-	// no clearing — the explorer emits it only for vector searches, so the
-	// response omits it either way.
+	// certainty cannot be computed for a keyword search (gRPC parity)
 	addProps.Certainty = false
 	out.AdditionalProperties = addProps
 
@@ -203,12 +190,9 @@ func validateQueryProperties(class *models.Class, queryProperties []string) *API
 	return nil
 }
 
-// checkKeywordSearchable rejects a keyword search with empty queryProperties
-// over a collection that has no searchable property — the engine's
-// all-properties expansion finds nothing and errors untyped there, which
-// would surface as a 500. Explicit properties are the searcher's to check
-// (a typed MissingIndexError, mapped to 422). Uses the engine's own
-// searchability predicate so the two definitions cannot drift.
+// checkKeywordSearchable: empty queryProperties over a collection with no
+// searchable property is a 422 here — the engine errors untyped (see the
+// 2026-07-20 design-doc entry). Explicit properties are the searcher's.
 func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIError {
 	if len(queryProperties) > 0 {
 		return nil
@@ -222,15 +206,9 @@ func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIE
 		"collection %s has no searchable properties for a keyword search", class.Class)
 }
 
-// parseBm25 builds the keyword-ranking params for a bm25 search, mirroring
-// the gRPC parser: the first letter of each property name is lowercased and
-// a "^boost" suffix (e.g. "title^2") passes through untouched — the searcher
-// parses it. Property existence/searchability is not validated here; the
-// searcher rejects a property without a searchable index (a typed
-// MissingIndexError, mapped to 422).
+// parseBm25 builds the keyword-ranking params, mirroring the gRPC parser:
+// first letter lowercased, "^boost" suffixes pass through to the searcher.
 func parseBm25(body *models.SearchBm25Request, explainScore bool) (*searchparams.KeywordRanking, *APIError) {
-	// an absent (or null) query is already rejected upstream by swagger's
-	// required validation; an explicit empty string reaches the handler
 	if body.Query == nil || *body.Query == "" {
 		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
 	}

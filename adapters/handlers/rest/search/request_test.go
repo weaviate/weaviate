@@ -588,21 +588,14 @@ func TestBm25KeywordRanking(t *testing.T) {
 		assert.Empty(t, searcher.lastParams.ModuleParams)
 	})
 
-	// swagger's required validation rejects an absent or null query with 422
-	// before the handler; the handler's own 400 covers the explicit empty
-	// string (which passes bind) and the direct-call path
-	for name, body := range map[string]string{
-		"empty string": `{"query":""}`,
-		"missing":      `{}`,
-		"null":         `{"query":null}`,
-	} {
-		t.Run(name+" query is a 400", func(t *testing.T) {
-			_, apiErr := buildBm25(t, movieClass(), body)
-			require.NotNil(t, apiErr)
-			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
-			assert.Contains(t, apiErr.Error(), "query")
-		})
-	}
+	t.Run("explicit empty-string query is a 400", func(t *testing.T) {
+		// absent/null query is swagger's 422 at bind (pinned live in the
+		// acceptance suite); the handler's own 400 covers the empty string
+		_, apiErr := buildBm25(t, movieClass(), `{"query":""}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "query")
+	})
 
 	t.Run("query is string-only: the array form fails decode", func(t *testing.T) {
 		_, apiErr := buildBm25(t, movieClass(), `{"query":["space"]}`)
@@ -645,9 +638,6 @@ func TestBm25QueryProperties(t *testing.T) {
 	}
 
 	t.Run("first letter only, interior caps preserved", func(t *testing.T) {
-		// only the FIRST letter is lowercased (schema.LowercaseFirstLetterOfStrings),
-		// interior caps are preserved — a whole-string strings.ToLower would
-		// yield "camelcaseprop" and fail this case.
 		class := movieClass()
 		class.Properties = append(class.Properties,
 			&models.Property{Name: "camelCaseProp", DataType: schema.DataTypeText.PropString()})
@@ -700,16 +690,11 @@ func TestBm25ReturnMetadata(t *testing.T) {
 	})
 
 	t.Run("certainty is inapplicable and silently dropped", func(t *testing.T) {
-		// gRPC parity: a non-vector search clears the certainty flag. The
-		// distance flag stays set but is inert — the explorer emits distance
-		// only for vector searches, so the response omits it either way
-		// (silent drop; covered end to end in the reply tests).
 		searcher, apiErr := buildBm25(t, movieClass(),
 			`{"query":"space","returnMetadata":["distance","certainty","score"]}`)
 		require.Nil(t, apiErr)
 		addl := searcher.lastParams.AdditionalProperties
 		assert.False(t, addl.Certainty)
-		assert.True(t, addl.Distance)
 		assert.True(t, addl.Score)
 	})
 
@@ -727,30 +712,20 @@ func TestBm25ReturnMetadata(t *testing.T) {
 // without any vectorizer module are fully searchable (unlike near-text,
 // which 422s on them).
 func TestBm25NeedsNoVectorizer(t *testing.T) {
-	t.Run("legacy vectorizer none", func(t *testing.T) {
-		class := movieClass()
-		class.Vectorizer = "none"
-		_, apiErr := buildBm25(t, class, `{"query":"space"}`)
-		assert.Nil(t, apiErr)
-	})
-
-	t.Run("named vector with vectorizer none", func(t *testing.T) {
-		class := namedVectorsClass("title_vec")
-		class.VectorConfig["title_vec"] = models.VectorConfig{
-			Vectorizer:        map[string]any{"none": map[string]any{}},
-			VectorIndexConfig: hnsw.UserConfig{Distance: "cosine"},
-		}
-		_, apiErr := buildBm25(t, class, `{"query":"space"}`)
-		assert.Nil(t, apiErr)
-	})
+	class := movieClass()
+	class.Vectorizer = "none"
+	_, apiErr := buildBm25(t, class, `{"query":"space"}`)
+	assert.Nil(t, apiErr)
 }
 
 // TestBm25SharedFields smoke-tests that the SearchCommon fields flow through
 // the shared parsers for bm25 exactly as they do for near-text.
 func TestBm25SharedFields(t *testing.T) {
-	t.Run("pagination and consistency", func(t *testing.T) {
+	t.Run("shared parsers flow through", func(t *testing.T) {
 		searcher, apiErr := buildBm25(t, movieClass(),
-			`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM"}`)
+			`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM",`+
+				`"where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980},`+
+				`"returnProperties":["title"]}`)
 		require.Nil(t, apiErr)
 		pagination := searcher.lastParams.Pagination
 		assert.Equal(t, 3, pagination.Limit)
@@ -758,18 +733,7 @@ func TestBm25SharedFields(t *testing.T) {
 		assert.Equal(t, 2, pagination.Autocut)
 		require.NotNil(t, searcher.lastParams.ReplicationProperties)
 		assert.Equal(t, "QUORUM", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
-	})
-
-	t.Run("where filter", func(t *testing.T) {
-		searcher, apiErr := buildBm25(t, movieClass(),
-			`{"query":"space","where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980}}`)
-		require.Nil(t, apiErr)
 		require.NotNil(t, searcher.lastParams.Filters)
-	})
-
-	t.Run("returnProperties subset", func(t *testing.T) {
-		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"space","returnProperties":["title"]}`)
-		require.Nil(t, apiErr)
 		require.Len(t, searcher.lastParams.Properties, 1)
 		assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
 	})

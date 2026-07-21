@@ -742,7 +742,11 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 
 // TestBm25HandlerHappyPath: the bm25 wrapper drives the same execute() flow
 // as near-text, with KeywordRanking params instead of module params, and the
-// envelope carries score/explainScore metadata.
+// envelope carries score/explainScore metadata. Deliberately the ONLY
+// per-endpoint handler test: Bm25 is a thin execute() wrapper, and the
+// shared gates (disabled, reserved fields, authz order, unknown collection,
+// tenant) are pinned once in TestExecuteIsSearchTypeAgnostic and the
+// near-text handler tests, plus live in the acceptance suite.
 func TestBm25HandlerHappyPath(t *testing.T) {
 	deps := newTestHandler(t)
 	deps.searcher.res = []any{
@@ -779,75 +783,6 @@ func TestBm25HandlerHappyPath(t *testing.T) {
 	assert.Equal(t, "space opera", params.KeywordRanking.Query)
 	assert.Equal(t, []string{"title"}, params.KeywordRanking.Properties)
 	assert.Empty(t, params.ModuleParams)
-}
-
-func TestBm25HandlerDisabled(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doBm25(t, deps, nil, "Movie", `{"query":"space"}`)
-	require.NotNil(t, apiErr)
-	// mirrors DISABLE_GRAPHQL: the operation stays registered and rejects
-	// requests with 422
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-	assert.Contains(t, apiErr.Error(), "EXPERIMENTAL_REST_SEARCH_ENABLED")
-}
-
-// TestBm25ReservedFieldsRejected: the shared reserved-field 422 gate in
-// execute() fires for bm25 exactly as for near-text.
-func TestBm25ReservedFieldsRejected(t *testing.T) {
-	reserved := map[string]string{
-		"singlePrompt":    `"x"`,
-		"groupedTask":     `"x"`,
-		"groupBy":         `"x"`,
-		"numberOfGroups":  `2`,
-		"objectsPerGroup": `2`,
-		"rerank":          `{"property":"x"}`,
-	}
-	for field, value := range reserved {
-		t.Run(field, func(t *testing.T) {
-			deps := newTestHandler(t)
-			_, apiErr := doBm25(t, deps, nil, "Movie",
-				fmt.Sprintf(`{"query":"space","%s":%s}`, field, value))
-			require.NotNil(t, apiErr)
-			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-			assert.Contains(t, apiErr.Error(), "not yet supported")
-			assert.Contains(t, apiErr.Error(), field)
-		})
-	}
-}
-
-func TestBm25HandlerAuthorizesBeforeSchemaAccess(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Unknown"))
-
-	// unknown collection AND unauthorized: authz runs first, so the caller
-	// must not learn whether the collection exists
-	_, apiErr := doBm25(t, deps, nil, "Unknown", `{"query":"space"}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusForbidden, apiErr.Status)
-}
-
-func TestBm25HandlerUnknownCollection(t *testing.T) {
-	deps := newTestHandler(t)
-
-	_, apiErr := doBm25(t, deps, nil, "Unknown", `{"query":"space"}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusNotFound, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "could not find collection")
-}
-
-func TestBm25HandlerTenantAuthorization(t *testing.T) {
-	deps := newTestHandler(t)
-
-	_, apiErr := doBm25(t, deps, nil, "Movie", `{"query":"space","tenant":"tenantA"}`)
-	require.Nil(t, apiErr)
-
-	calls := deps.authorizer.Calls()
-	require.NotEmpty(t, calls)
-	assert.Contains(t, calls[0].Resources[0], "tenantA")
-	assert.Equal(t, "tenantA", deps.searcher.lastParams.Tenant)
 }
 
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
