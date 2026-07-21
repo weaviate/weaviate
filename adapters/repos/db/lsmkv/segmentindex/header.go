@@ -170,15 +170,29 @@ func (h *Header) ValidateIndexBounds(contentsLen uint64) error {
 }
 
 // ValidateNonEmptyIndex rejects an empty primary index when the header
-// claims the segment holds data (IndexStart > HeaderSize). Every
-// legitimately-written segment keeps at least one index entry once
-// IndexStart moves past the header, even an all-tombstone one, so an empty
-// index at that point is only reachable via corruption - most commonly an
-// off-by-one where IndexStart == the segment's actual length: that passes
-// ValidateIndexBounds (which uses '>', not '>='), but leaves a zero-byte
-// primary index that would otherwise open clean and silently serve empty
-// reads for data that is still intact in the data region.
+// claims the segment holds data (IndexStart > HeaderSize), for strategies
+// whose object-keyed primary DiskTree always keeps at least one entry once
+// IndexStart moves past the header - even an all-tombstone flush indexes
+// its tombstone marker under the object's key. An empty index at that
+// point is only reachable via corruption for those strategies - most
+// commonly an off-by-one where IndexStart == the segment's actual length:
+// that passes ValidateIndexBounds (which uses '>', not '>='), but leaves a
+// zero-byte primary index that would otherwise open clean and silently
+// serve empty reads for data that is still intact in the data region.
+//
+// StrategyRoaringSetRange and StrategyInverted are excluded: neither
+// indexes tombstones (or, for RoaringSetRange, anything at all) via the
+// primary DiskTree. flushDataRoaringSetRange always returns zero index
+// keys - it has no primary DiskTree by design. flushDataInverted returns
+// zero keys whenever every value in the flush is a tombstone (inverted
+// tombstones live in a separate bitmap, not as per-key index entries), so
+// an empty index with IndexStart > HeaderSize is normal, by-design state
+// for both strategies whenever the segment holds any data - not a
+// corruption signal.
 func (h *Header) ValidateNonEmptyIndex(primaryIndexLen int) error {
+	if h.Strategy == StrategyRoaringSetRange || h.Strategy == StrategyInverted {
+		return nil
+	}
 	if h.IndexStart > uint64(HeaderSize) && primaryIndexLen == 0 {
 		return fmt.Errorf(
 			"corrupt segment header: index start %d is past the header end (%d) but the "+

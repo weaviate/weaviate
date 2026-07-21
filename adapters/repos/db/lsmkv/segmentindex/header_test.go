@@ -154,6 +154,29 @@ func TestHeaderValidateNonEmptyIndex(t *testing.T) {
 		h := &Header{IndexStart: uint64(HeaderSize)}
 		require.NoError(t, h.ValidateNonEmptyIndex(43))
 	})
+
+	t.Run("StrategyRoaringSetRange with data (IndexStart > HeaderSize) and an empty index: accepted", func(t *testing.T) {
+		// flushDataRoaringSetRange never builds a primary DiskTree - a
+		// non-empty roaringsetrange segment legitimately has IndexStart >
+		// HeaderSize (data is present) with a zero-byte "index" region; this
+		// is caught over-broadly by the general rule above without the
+		// strategy exclusion. Pins the TestBucketWalReload/roaringsetrange
+		// regression this exact shape caused during round 3 implementation.
+		h := &Header{IndexStart: 972, Strategy: StrategyRoaringSetRange}
+		require.NoError(t, h.ValidateNonEmptyIndex(0))
+	})
+
+	t.Run("StrategyInverted, all-tombstone flush (IndexStart > HeaderSize) and an empty index: accepted", func(t *testing.T) {
+		// flushDataInverted returns zero index keys whenever every value in
+		// the flush is a tombstone (inverted tombstones live in a separate
+		// bitmap, not per-key index entries), while IndexStart still moves
+		// past HeaderSize for the tombstone bitmap and propLength metadata
+		// that get written regardless. Pins the
+		// TestTombstoneWALReuse/update_with_threshold_0 regression this
+		// exact shape caused during round 3 implementation.
+		h := &Header{IndexStart: 272, Strategy: StrategyInverted}
+		require.NoError(t, h.ValidateNonEmptyIndex(0))
+	})
 }
 
 func BenchmarkWriteHeader(b *testing.B) {
