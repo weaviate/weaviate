@@ -14,8 +14,10 @@ package segmentindex
 import (
 	"encoding/binary"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // A corrupt or truncated on-disk index must never crash the node: every read
@@ -138,11 +140,9 @@ func TestDiskTreeValidateRootInBounds(t *testing.T) {
 	})
 
 	t.Run("garbage bytes at the root: rejected, not panicked", func(t *testing.T) {
-		// Simulates a corrupt IndexStart landing on data-region bytes rather
-		// than real tree-node bytes: a plausible-looking keyLen followed by
-		// arbitrary content, which still parses as *some* node (readNodeAt
-		// is itself corruption-tolerant), just one whose Start/End are
-		// garbage and (almost always) outside the real data region.
+		// A plausible keyLen followed by arbitrary bytes still parses as
+		// some node (readNodeAt is corruption-tolerant), just one whose
+		// Start/End are garbage.
 		garbage := make([]byte, 64)
 		binary.LittleEndian.PutUint32(garbage[0:4], 4) // keyLen=4
 		copy(garbage[4:8], []byte("junk"))
@@ -153,5 +153,200 @@ func TestDiskTreeValidateRootInBounds(t *testing.T) {
 			err := dTree.ValidateRootInBounds(16, 100)
 			require.Error(t, err)
 		})
+	})
+}
+
+// TestDiskTreeGet_CycleGuard pins weaviate/weaviate#12280 (QA Claude round
+// 2): an in-bounds but cyclic child offset spins Get's descent loop
+// forever - individually every offset in the cycle passes the existing
+// bounds checks, so only an iteration cap can catch it. A hung reader
+// holds the segment-group read view open, so Shutdown and compaction wedge
+// behind it. The assertion itself is bounded by a goroutine + select
+// timeout so this test cannot hang the suite even if the guard regresses.
+func TestDiskTreeGet_CycleGuard(t *testing.T) {
+	tree := NewTree(4)
+	tree.Insert([]byte("b"), 20, 21) // root
+	tree.Insert([]byte("a"), 10, 11) // left child
+	tree.Insert([]byte("d"), 30, 31) // right child
+	valid, err := tree.MarshalBinary()
+	require.NoError(t, err)
+
+	// Root's left child pointer, redirected to offset 0 (the root itself):
+	// an in-bounds, individually-valid offset that forms a self-cycle.
+	keyLen := int(binary.LittleEndian.Uint32(valid[0:4]))
+	childBase := 4 + keyLen + 16
+	corrupt := make([]byte, len(valid))
+	copy(corrupt, valid)
+	binary.LittleEndian.PutUint64(corrupt[childBase:], 0)
+
+	dTree := NewDiskTree(corrupt)
+
+	done := make(chan struct{})
+	var getErr error
+	go func() {
+		defer close(done)
+		_, getErr = dTree.Get([]byte("0")) // "0" < "a" < "b": descends left into the cycle
+	}()
+
+	select {
+	case <-done:
+		require.Error(t, getErr, "a cyclic descent must terminate with an error, not resolve as if the key were simply missing")
+		require.Contains(t, getErr.Error(), "exceeded")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Get did not terminate within 5s on a cyclic child pointer; the iteration cap is not working")
+	}
+}
+
+// TestDiskTreeReadTimeNodeSanity pins weaviate/weaviate#12280 (QA Claude
+// round 2): a node with End < Start makes every downstream consumer's
+// make([]byte, node.End-node.Start) wrap to a huge uint64 and panic
+// makeslice: len out of range; background readers (compaction, flush,
+// bloom-rebuild, cursors) have no recover barrier for that. The read-time
+// check must convert it into a clean error at the single choke point
+// (Get's match branch and readNode, which also covers Seek/Next/AllKeys)
+// instead.
+func TestDiskTreeReadTimeNodeSanity(t *testing.T) {
+	t.Run("Get: inverted node (End < Start) returns a clean error, not a corrupt Node", func(t *testing.T) {
+		tree := NewTree(1)
+		tree.Insert([]byte("key-000"), 50, 10) // Start > End
+		data, err := tree.MarshalBinary()
+		require.NoError(t, err)
+
+		dTree := NewDiskTree(data)
+		_, err = dTree.Get([]byte("key-000"))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "inverted")
+	})
+
+	t.Run("Seek: inverted node (End < Start) returns a clean error via readNode", func(t *testing.T) {
+		tree := NewTree(1)
+		tree.Insert([]byte("key-000"), 50, 10)
+		data, err := tree.MarshalBinary()
+		require.NoError(t, err)
+
+		dTree := NewDiskTree(data)
+		_, err = dTree.Seek([]byte("key-000"))
+		require.Error(t, err)
+	})
+
+	t.Run("AllKeys: inverted node aborts the traversal with an error, not a panic downstream", func(t *testing.T) {
+		tree := NewTree(1)
+		tree.Insert([]byte("key-000"), 50, 10)
+		data, err := tree.MarshalBinary()
+		require.NoError(t, err)
+
+		dTree := NewDiskTree(data)
+		require.NotPanics(t, func() {
+			_, err = dTree.AllKeys()
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("Get: node End past a set dataEnd is rejected", func(t *testing.T) {
+		tree := NewTree(1)
+		tree.Insert([]byte("key-000"), 10, 200) // valid ordering, but End is past the data region
+		data, err := tree.MarshalBinary()
+		require.NoError(t, err)
+
+		dTree := NewDiskTree(data)
+		dTree.SetDataEnd(100)
+		_, err = dTree.Get([]byte("key-000"))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "outside the segment's data region")
+	})
+
+	t.Run("Get: an ordinary well-formed node is accepted without SetDataEnd (upper bound dormant by default)", func(t *testing.T) {
+		// The start<=end ordering check is unconditional; only the dataEnd
+		// upper bound depends on SetDataEnd having been called.
+		tree := NewTree(1)
+		tree.Insert([]byte("key-000"), 10, 20) // ordinary, well-formed node
+		data, err := tree.MarshalBinary()
+		require.NoError(t, err)
+
+		dTree := NewDiskTree(data)
+		node, err := dTree.Get([]byte("key-000"))
+		require.NoError(t, err)
+		require.Equal(t, uint64(10), node.Start)
+		require.Equal(t, uint64(20), node.End)
+	})
+
+	t.Run("Get: a well-formed node with SetDataEnd active is accepted (no false rejection)", func(t *testing.T) {
+		tree := NewTree(1)
+		tree.Insert([]byte("key-000"), 10, 20)
+		data, err := tree.MarshalBinary()
+		require.NoError(t, err)
+
+		dTree := NewDiskTree(data)
+		dTree.SetDataEnd(100)
+		node, err := dTree.Get([]byte("key-000"))
+		require.NoError(t, err)
+		require.Equal(t, uint64(10), node.Start)
+		require.Equal(t, uint64(20), node.End)
+	})
+}
+
+// TestDiskTreePinnedResidual_InteriorNodeCorruption documents (does not
+// fix) the two silent-loss shapes weaviate/weaviate#12280's O(1) root-only
+// validation and the per-node range sanity check both structurally cannot
+// see: a redirected-but-individually-valid child pointer, and a node whose
+// Start/End were overwritten with another key's own valid, in-bounds byte
+// range. QA Claude round 2 explicitly scoped full-tree structural
+// validation at open out of this PR (proportionate cost/benefit call) and
+// asked only that the residual be pinned with tests, not silently shipped.
+// These tests assert CURRENT behavior and are expected to keep passing
+// unchanged by this round's fixes - they are the contract that this
+// specific residual is a known, accepted gap, not an unnoticed regression.
+func TestDiskTreePinnedResidual_InteriorNodeCorruption(t *testing.T) {
+	t.Run("wrong-child-node: a redirected child pointer causes silent NotFound for intact data", func(t *testing.T) {
+		tree := NewTree(4)
+		tree.Insert([]byte("m"), 100, 110) // root
+		tree.Insert([]byte("b"), 50, 60)   // left child - the key this test looks up
+		tree.Insert([]byte("t"), 150, 160) // right child - has no children of its own
+		valid, err := tree.MarshalBinary()
+		require.NoError(t, err)
+
+		// Root's left child pointer, redirected from "b"'s real offset to
+		// "t"'s offset. Both offsets are individually valid, in-bounds node
+		// positions - this is not detectable by any O(1) or per-node check,
+		// only by validating the whole tree's BST ordering invariant.
+		rootKeyLen := int(binary.LittleEndian.Uint32(valid[0:4]))
+		rootChildBase := 4 + rootKeyLen + 16
+		leftOffset := int64(binary.LittleEndian.Uint64(valid[rootChildBase:]))
+		rightOffset := int64(binary.LittleEndian.Uint64(valid[rootChildBase+8:]))
+		require.NotEqual(t, leftOffset, rightOffset, "test precondition: left and right children must be distinct nodes")
+
+		corrupt := make([]byte, len(valid))
+		copy(corrupt, valid)
+		binary.LittleEndian.PutUint64(corrupt[rootChildBase:], uint64(rightOffset))
+
+		dTree := NewDiskTree(corrupt)
+		_, err = dTree.Get([]byte("b"))
+		require.ErrorIs(t, err, lsmkv.NotFound,
+			"pinned residual: a redirected-but-valid child pointer makes Get resolve to NotFound for data that is still physically present in the buffer")
+	})
+
+	t.Run("wrong-range: a node's Start/End overwritten with another key's valid range returns the wrong value silently", func(t *testing.T) {
+		tree := NewTree(2)
+		tree.Insert([]byte("m"), 100, 110) // root - the key this test looks up
+		tree.Insert([]byte("b"), 50, 60)   // left child - its range will be substituted in
+		valid, err := tree.MarshalBinary()
+		require.NoError(t, err)
+
+		// Root's own Start/End, overwritten with "b"'s valid, in-bounds
+		// range. validateNodeRange only checks internal well-formedness
+		// (start<=end<=dataEnd), which this satisfies; it cannot tell the
+		// range belongs to a different key.
+		corrupt := make([]byte, len(valid))
+		copy(corrupt, valid)
+		rootKeyLen := int(binary.LittleEndian.Uint32(valid[0:4]))
+		startOffset := 4 + rootKeyLen
+		binary.LittleEndian.PutUint64(corrupt[startOffset:], 50)
+		binary.LittleEndian.PutUint64(corrupt[startOffset+8:], 60)
+
+		dTree := NewDiskTree(corrupt)
+		node, err := dTree.Get([]byte("m"))
+		require.NoError(t, err, "pinned residual: this must NOT error - the range is well-formed, just wrong")
+		require.Equal(t, uint64(50), node.Start, "pinned residual: Get(\"m\") silently returns \"b\"'s range instead of \"m\"'s own")
+		require.Equal(t, uint64(60), node.End)
 	})
 }

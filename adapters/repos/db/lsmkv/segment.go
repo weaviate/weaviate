@@ -351,6 +351,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if err := primaryDiskIndex.ValidateRootInBounds(dataStartPos, dataEndPos); err != nil {
 		return nil, fmt.Errorf("validate primary index: %w", err)
 	}
+	// Arms the per-node-read range check (see DiskTree.validateNodeRange) for
+	// every subsequent Get/Seek/Next/AllKeys against this index, catching a
+	// corrupt interior node the root-only check above cannot see.
+	primaryDiskIndex.SetDataEnd(dataEndPos)
 
 	stratLabel := header.Strategy.String()
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -416,6 +420,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			if err := secondaryDiskIndex.ValidateRootInBounds(dataStartPos, dataEndPos); err != nil {
 				return nil, fmt.Errorf("validate secondary index %d: %w", i, err)
 			}
+			secondaryDiskIndex.SetDataEnd(dataEndPos)
 			seg.secondaryIndices[i] = secondaryDiskIndex
 		}
 	}
