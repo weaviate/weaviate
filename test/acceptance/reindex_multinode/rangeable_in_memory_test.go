@@ -103,15 +103,15 @@ func startSingleNodeRangeableInMemCluster(ctx context.Context, t *testing.T) (*d
 	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
 
-// scoreForGH12199 maps import index i to a score in [10_000, 60_000) step 5,
+// scoreForRangeableTest maps import index i to a score in [10_000, 60_000) step 5,
 // so [30_000, 40_000] selects exactly 2001/10_000 objects.
-func scoreForGH12199(i int) int { return 10_000 + i*5 }
+func scoreForRangeableTest(i int) int { return 10_000 + i*5 }
 
 const (
-	gh12199Total    = 10_000
-	gh12199RangeLo  = 30_000
-	gh12199RangeHi  = 40_000
-	gh12199Baseline = 2001
+	totalObjects     = 10_000
+	rangeLo          = 30_000
+	rangeHi          = 40_000
+	expectedBaseline = 2001
 )
 
 func rangeableScoreProps() []*models.Property {
@@ -129,7 +129,7 @@ func rangeableScoreProps() []*models.Property {
 
 // Pins weaviate/weaviate#12199: single-node acceptance repro (no restart),
 // plus the post-restart in-memory hand-off case.
-func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *testing.T) {
+func TestRangeableInMemory_SingleNode_AcceptanceAndRestartHandoff(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := startSingleNodeRangeableInMemCluster(ctx, t)
 	defer cleanup()
@@ -144,12 +144,12 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	// Read the URI lazily at cleanup time: the restart below re-maps the host
 	// port, so a URI captured now would be stale by the time this defer runs.
 	defer func() { deleteCollection(t, compose.GetWeaviate().URI(), className) }()
-	batchImportNumeric(t, restURI, className, gh12199Total, scoreForGH12199)
+	batchImportNumeric(t, restURI, className, totalObjects, scoreForRangeableTest)
 
 	// Golden baseline from the filterable path, before the migration.
-	golden, err := rangeCount(restURI, className, "score", gh12199RangeLo, gh12199RangeHi)
+	golden, err := rangeCount(restURI, className, "score", rangeLo, rangeHi)
 	require.NoError(t, err)
-	require.Equal(t, gh12199Baseline, golden, "pre-migration filterable baseline")
+	require.Equal(t, expectedBaseline, golden, "pre-migration filterable baseline")
 
 	// NO restart before the checks below - that's the core repro condition.
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
@@ -160,8 +160,8 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	// Poll briefly for the per-shard swap + schema flip to settle, then check
 	// counts and the disk-fallback WARN.
 	awaitRangeCountSettledNoFallback(ctx, t, container, restURI, className,
-		gh12199RangeLo, gh12199RangeHi, gh12199Baseline,
-		"weaviate/weaviate#12199: post-swap range count must equal golden %d WITHOUT restart", gh12199Baseline,
+		rangeLo, rangeHi, expectedBaseline,
+		"weaviate/weaviate#12199: post-swap range count must equal golden %d WITHOUT restart", expectedBaseline,
 		"disk-fallback WARN must not fire on the fixed path; its presence means an empty in-memory rep was served (weaviate/weaviate#12199)")
 
 	// Promoted buckets must serve range queries from memory immediately
@@ -186,14 +186,14 @@ func TestRangeableInMemory_GH12199_SingleNode_AcceptanceAndRestartHandoff(t *tes
 	}, 90*time.Second, 200*time.Millisecond, "node must be ready after restart")
 
 	awaitRangeCountSettledNoFallback(ctx, t, container, restURI, className,
-		gh12199RangeLo, gh12199RangeHi, gh12199Baseline,
-		"post-restart range count must still equal golden %d (rep rebuilt at boot)", gh12199Baseline,
+		rangeLo, rangeHi, expectedBaseline,
+		"post-restart range count must still equal golden %d (rep rebuilt at boot)", expectedBaseline,
 		"no disk-fallback WARN after restart: the rep is rebuilt at boot and serves in-memory")
 }
 
 // Pins weaviate/weaviate#12199: 3-node statistical probe for silent wrong
 // range counts during the in-flight enable-rangeable migration window.
-func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing.T) {
+func TestRangeableInMemory_MultiNode_InFlightStatisticalProbe(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t,
 		"INDEX_RANGEABLE_IN_MEMORY", "true", "LOG_LEVEL", "info")
@@ -203,19 +203,19 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 	const className = "RangeableInMemInFlight"
 	createCollection(t, compose, restURIOf(compose, 1), className, 3, 3, rangeableScoreProps())
 	defer deleteCollection(t, restURIOf(compose, 1), className)
-	batchImportNumeric(t, restURIOf(compose, 1), className, gh12199Total, scoreForGH12199)
+	batchImportNumeric(t, restURIOf(compose, 1), className, totalObjects, scoreForRangeableTest)
 
 	// Every replica agrees on the baseline before the migration.
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		c, err := rangeCount(restURIOf(compose, nodeIdx), className, "score", gh12199RangeLo, gh12199RangeHi)
+		c, err := rangeCount(restURIOf(compose, nodeIdx), className, "score", rangeLo, rangeHi)
 		require.NoError(t, err, "pre-migration baseline on node %d", nodeIdx)
-		require.Equal(t, gh12199Baseline, c, "node %d baseline", nodeIdx)
+		require.Equal(t, expectedBaseline, c, "node %d baseline", nodeIdx)
 	}
 
 	counters, stopCh, wg := startRangeCountPolling(compose, className,
-		gh12199RangeLo, gh12199RangeHi, gh12199Baseline, 3,
+		rangeLo, rangeHi, expectedBaseline, 3,
 		func(nodeIdx, got int) {
-			t.Logf("weaviate/weaviate#12199 in-flight divergence: node %d returned %d (expected %d)", nodeIdx, got, gh12199Baseline)
+			t.Logf("weaviate/weaviate#12199 in-flight divergence: node %d returned %d (expected %d)", nodeIdx, got, expectedBaseline)
 		}, nil)
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURIOf(compose, 1), className, "score",
@@ -226,13 +226,13 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 	// Keep probing until every replica converges to the correct rangeable count.
 	require.Eventually(t, func() bool {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-			c, err := rangeCount(restURIOf(compose, nodeIdx), className, "score", gh12199RangeLo, gh12199RangeHi)
-			if err != nil || c != gh12199Baseline {
+			c, err := rangeCount(restURIOf(compose, nodeIdx), className, "score", rangeLo, rangeHi)
+			if err != nil || c != expectedBaseline {
 				return false
 			}
 		}
 		return true
-	}, 60*time.Second, 50*time.Millisecond, "all replicas must converge to %d", gh12199Baseline)
+	}, 60*time.Second, 50*time.Millisecond, "all replicas must converge to %d", expectedBaseline)
 	close(stopCh)
 	wg.Wait()
 
@@ -260,7 +260,7 @@ func TestRangeableInMemory_GH12199_MultiNode_InFlightStatisticalProbe(t *testing
 
 // Pins weaviate/weaviate#12199: migrates under concurrent live writes that
 // change movers' value, then asserts each mover serves its NEW value only.
-func TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity(t *testing.T) {
+func TestRangeableInMemory_WriteWorkloadValueIntegrity(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := startSingleNodeRangeableInMemCluster(ctx, t)
 	defer cleanup()
@@ -275,19 +275,19 @@ func TestRangeableInMemory_GH12199_WriteWorkloadValueIntegrity(t *testing.T) {
 	const (
 		total      = 4_000
 		moverCount = 500
-		oldValue   = 20_000 // movers start here (in the [oldLo,oldHi] band)
+		oldValue   = 20_000 // movers start here; a single point value used for exact-match range queries (lo == hi)
 		newValue   = 55_000 // movers are updated to here mid-migration
 		stableVal  = 12_345 // non-movers; must never change
 	)
 	// Deterministic UUIDs so we can overwrite the movers by re-importing them.
 	moverID := func(i int) string {
-		return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("gh12199-mover-%d", i))).String()
+		return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("rangeable-mover-%d", i))).String()
 	}
 
 	// Seed: movers at oldValue, the rest at stableVal.
 	seed := make([]map[string]interface{}, 0, total)
 	for i := 0; i < total; i++ {
-		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("gh12199-obj-%d", i))).String()
+		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("rangeable-obj-%d", i))).String()
 		score := stableVal
 		if i < moverCount {
 			id = moverID(i)

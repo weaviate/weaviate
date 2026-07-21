@@ -179,7 +179,7 @@ func (b *Bucket) readerRoaringSetRangeFromSegmentInMemo() ReaderRoaringSetRange 
 // reopen. No-op if already serving from memory. Not safe for concurrent
 // self-invocation; the single finalize call site guarantees this.
 //
-// Lock choreography, in order:
+// Locking order:
 //  1. Compaction is paused so the segment set can only grow via tail flush
 //     appends; a concurrent compaction could reorder add/delete layers and
 //     corrupt the merge.

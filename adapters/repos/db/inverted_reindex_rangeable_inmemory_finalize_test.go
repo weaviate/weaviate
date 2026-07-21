@@ -133,7 +133,7 @@ func setupRangeableFinalizeDegradeFixture(t *testing.T, classNamePrefix string) 
 
 	task, wrapped := newRangeableInMemoryTestTask(t, idx, className, propName, failing, calls)
 	require.NoError(t, runReindexToCompletionOrError(t, ctx, task, shard),
-		"a non-cancellation rebuild failure must not fail the migration (finding 5)")
+		"a non-cancellation rebuild failure must not fail the migration")
 
 	return ctx, shard, idx, className, task, wrapped, failing, calls, hook
 }
@@ -171,7 +171,7 @@ func TestRangeableFinalize_RebuildFailure_ServesDiskNotMissingIndexError(t *test
 	className := shard.Index().Config.ClassName.String()
 	metric, err := monitoring.GetMetrics().RangeableInMemoryRebuildDegraded.GetMetricWithLabelValues(className, shard.Name(), propName)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, testutil.ToFloat64(metric), float64(1), "a degrade must increment the metric (memo test 7)")
+	assert.GreaterOrEqual(t, testutil.ToFloat64(metric), float64(1), "a degrade must increment the metric")
 }
 
 // TestRangeableFinalize_RebuildCancellation_RoutesTransient pins
@@ -221,7 +221,7 @@ func TestRangeableFinalize_DataWorkFailure_StillFAILED(t *testing.T) {
 
 	err := runReindexToCompletionOrError(t, ctx, task, shard)
 	require.Error(t, err, "a data-work (swap) failure must still fail the migration - "+
-		"finding 5's WARN-and-continue is scoped to the rebuild step only")
+		"WARN-and-continue is scoped to the rebuild step only")
 	assert.Contains(t, err.Error(), "injected data-work swap failure")
 	assert.False(t, wrapped.migrationCompleted, "OnMigrationComplete must not run when the data work itself failed")
 }
@@ -263,7 +263,7 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	calls := &atomic.Int32{}
 	taskB, wrappedB := newRangeableInMemoryTestTask(t, idxB, classNameB, propName, failing, calls)
 	require.NoError(t, runReindexToCompletionOrError(t, ctxB, taskB, shardB),
-		"a non-cancellation rebuild failure must not fail the migration (finding 5)")
+		"a non-cancellation rebuild failure must not fail the migration")
 	require.True(t, wrappedB.migrationCompleted,
 		"replica B's OnMigrationComplete must still run so its local ready flag converges, "+
 			"exactly as it would need to once the cluster-wide schema flag is already true")
@@ -349,7 +349,7 @@ func TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation(t *te
 	require.Nil(t, shard.Store().Bucket(task.strategy.SourceBucketName(missingPropName)))
 
 	err := task.rebuildRangeableInMemoryReps(ctx, idx.logger, shard, []string{missingPropName})
-	require.NoError(t, err, "a nil bucket without cancellation must degrade WARN-and-continue too (finding 5), not hard-fail")
+	require.NoError(t, err, "a nil bucket without cancellation must degrade WARN-and-continue too, not hard-fail")
 	assert.False(t, errors.Is(err, context.Canceled))
 
 	errLine := firstErrorEntry(hook)

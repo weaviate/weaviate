@@ -318,7 +318,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		// compacted target bucket, further compaction merges src segments
 		// into dest segments (not just compacting each side independently).
 		//
-		// Setup (per reviewer request):
+		// Setup:
 		//   7 src segments → compact → 3 segments at levels [2, 1, 0]
 		//   9 dest segments → compact → 2 segments at levels [3, 0]
 		//   prepend → 5 segments: [2, 1, 0, 3, 0]

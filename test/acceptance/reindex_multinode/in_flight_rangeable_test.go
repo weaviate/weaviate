@@ -101,8 +101,9 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	batchImportNumeric(t, restURIOf(compose, 1), className, totalObjects, scoreFor)
 
 	// Capture baseline: every replica must agree on the count BEFORE the
-	// migration starts. If they don't, this isn't an Issue C repro, the
-	// import-replication path is broken — fail loudly.
+	// migration starts. If they don't, this isn't a reproduction of the
+	// in-flight migration bug, the import-replication path is broken - fail
+	// loudly.
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 		count, err := rangeCount(restURIOf(compose, nodeIdx), className, "score", rangeLo, rangeHi)
 		require.NoError(t, err, "pre-migration baseline query on node %d failed", nodeIdx)
@@ -120,7 +121,7 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	// not counted as failures - they signal "can't answer", not a wrong number.
 	counters, stopCh, wg := startRangeCountPolling(compose, className, rangeLo, rangeHi, expectedBaseline, 3,
 		func(nodeIdx, got int) {
-			t.Logf("ISSUE C REPRO: node %d returned partial count %d (expected %d)",
+			t.Logf("node %d returned partial count %d during in-flight migration (expected %d)",
 				nodeIdx, got, expectedBaseline)
 		},
 		func(nodeIdx int, err error) {
