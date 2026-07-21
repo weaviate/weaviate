@@ -241,3 +241,58 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 		return nil
 	})
 }
+
+// TestBucket_RoaringSet_DeleteThenReaddAcrossSegments is a read-path regression
+// test for roaringset reads with tombstones spread across multiple disk segments
+// plus the active memtable, including a doc deleted in one segment and re-added
+// in a later layer. The first (oldest) segment carries no tombstones, so it
+// takes the empty-deletions path in segment.roaringSetGet; the test pins that
+// the full add / delete / re-add fold still resolves correctly. (Note: Flatten
+// ignores the base layer's Deletions, so this exercises the surrounding fold
+// rather than the base layer's deletions bitmap directly.)
+func TestBucket_RoaringSet_DeleteThenReaddAcrossSegments(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+
+	b.SetMemtableThreshold(1e9) // flush explicitly so writes span several segments
+
+	tombstoned := []byte("tombstoned")
+	clean := []byte("clean")
+
+	// segment 1 (oldest): additions only -> empty deletions -> shared empty path
+	require.NoError(t, b.RoaringSetAddList(tombstoned, []uint64{1, 2, 3, 4, 5}))
+	require.NoError(t, b.RoaringSetAddList(clean, []uint64{100, 101}))
+	require.NoError(t, b.FlushAndSwitch())
+
+	// segment 2: real deletions of 2 and 4, plus addition 6
+	require.NoError(t, b.RoaringSetRemoveOne(tombstoned, 2))
+	require.NoError(t, b.RoaringSetRemoveOne(tombstoned, 4))
+	require.NoError(t, b.RoaringSetAddList(tombstoned, []uint64{6}))
+	require.NoError(t, b.RoaringSetAddList(clean, []uint64{102}))
+	require.NoError(t, b.FlushAndSwitch())
+
+	// active memtable (unflushed): re-add 2 (deleted in segment 2) and add 7
+	require.NoError(t, b.RoaringSetAddList(tombstoned, []uint64{2, 7}))
+	require.NoError(t, b.RoaringSetAddList(clean, []uint64{103}))
+
+	// {1,2,3,4,5} -(del 2,4)-> {1,3,5} +6 -> {1,3,5,6}; re-add {2,7} -> {1,2,3,5,6,7}
+	// (doc 2, deleted in segment 2, must survive because it is re-added later)
+	requireRoaringSetElements(t, ctx, b, tombstoned, []uint64{1, 2, 3, 5, 6, 7})
+	// pure additions across every layer -> every layer takes the empty path
+	requireRoaringSetElements(t, ctx, b, clean, []uint64{100, 101, 102, 103})
+}
+
+func requireRoaringSetElements(t *testing.T, ctx context.Context, b *Bucket, key []byte, want []uint64) {
+	t.Helper()
+	bm, release, err := b.RoaringSetGet(ctx, key)
+	require.NoError(t, err)
+	defer release()
+	require.ElementsMatch(t, want, bm.ToArray())
+}
