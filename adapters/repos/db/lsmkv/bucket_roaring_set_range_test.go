@@ -14,12 +14,16 @@ package lsmkv
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -213,6 +217,235 @@ func TestRoaringSetRangeReaderConsistentViewInMemo(t *testing.T) {
 		key3: {3},
 		key4: {4},
 	})(t)
+}
+
+func countLogLevel(hook *test.Hook, level logrus.Level) int {
+	n := 0
+	for _, e := range hook.AllEntries() {
+		if e.Level == level {
+			n++
+		}
+	}
+	return n
+}
+
+// newRangeableRepEmpty returns an unpopulated rep: presence set empty
+// (IsUnpopulated == true) despite the 65-bitmap skeleton giving Size() > 0.
+func newRangeableRepEmpty(logger logrus.FieldLogger) *roaringsetrange.SegmentInMemory {
+	return roaringsetrange.NewSegmentInMemory(logger)
+}
+
+func newRangeableRepPopulated(t *testing.T, logger logrus.FieldLogger, value, docID uint64) *roaringsetrange.SegmentInMemory {
+	t.Helper()
+	rep := roaringsetrange.NewSegmentInMemory(logger)
+	mt := roaringsetrange.NewMemtable(logger)
+	mt.Insert(value, []uint64{docID})
+	rep.MergeMemtableEventually(mt)
+	require.Eventually(t, func() bool { return !rep.IsUnpopulated() },
+		time.Second, 5*time.Millisecond, "rep must become populated")
+	return rep
+}
+
+func newRangeableDiskSegment(value, docID uint64) Segment {
+	return newFakeRoaringSetRangeSegment(
+		map[uint64]*sroar.Bitmap{value: roaringset.NewBitmap(docID)}, sroar.NewBitmap(),
+	)
+}
+
+func newRangeableBucket(logger logrus.FieldLogger, keepInMem, deferred bool,
+	rep *roaringsetrange.SegmentInMemory, disk []Segment,
+) *Bucket {
+	return &Bucket{
+		strategy:                  StrategyRoaringSetRange,
+		keepSegmentsInMemory:      keepInMem,
+		rangeableInMemoryDeferred: deferred,
+		logger:                    logger,
+		bitmapBufPool:             roaringset.NewBitmapBufPoolNoop(),
+		active:                    newTestMemtableRoaringSetRange(nil),
+		disk:                      &SegmentGroup{logger: logger, segments: disk, roaringSetRangeSegmentInMemory: rep},
+	}
+}
+
+func readEqual(t *testing.T, b *Bucket, value uint64) []uint64 {
+	t.Helper()
+	reader := b.ReaderRoaringSetRange()
+	defer reader.Close()
+	v, release, err := reader.Read(context.Background(), value, filters.OperatorEqual)
+	require.NoError(t, err)
+	defer release()
+	return v.ToArray()
+}
+
+// Pins weaviate/weaviate#12199: the last WithKeepSegmentsInMemory wins.
+func TestRoaringSetRangeKeepSegmentsInMemoryOverride(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	newBucket := func(t *testing.T, opts ...BucketOption) *Bucket {
+		t.Helper()
+		base := []BucketOption{
+			WithStrategy(StrategyRoaringSetRange),
+			WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		}
+		b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			append(base, opts...)...)
+		require.NoError(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	t.Run("knob default true builds the rep (control)", func(t *testing.T) {
+		b := newBucket(t, WithKeepSegmentsInMemory(true))
+		defer b.Shutdown(ctx)
+		assert.True(t, b.keepSegmentsInMemory)
+		assert.NotNil(t, b.disk.roaringSetRangeSegmentInMemory)
+	})
+
+	t.Run("override false after true wins: no rep, disk reader", func(t *testing.T) {
+		b := newBucket(t, WithKeepSegmentsInMemory(true), WithKeepSegmentsInMemory(false))
+		defer b.Shutdown(ctx)
+		assert.False(t, b.keepSegmentsInMemory)
+		assert.Nil(t, b.disk.roaringSetRangeSegmentInMemory, "no in-memory rep must be built")
+
+		require.NoError(t, b.RoaringSetRangeAdd(5, 100))
+		require.NoError(t, b.FlushAndSwitch())
+		assert.Equal(t, []uint64{100}, readEqual(t, b, 5))
+	})
+}
+
+// Pins weaviate/weaviate#12199: an unpopulated rep with disk segments must
+// fall back to disk and WARN once (rep/disk use different docIDs to prove
+// which path served the read).
+func TestRoaringSetRangeDiskFallback(t *testing.T) {
+	const value = uint64(5)
+
+	t.Run("populated rep + disk segments: in-mem path, no fallback, no WARN", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		rep := newRangeableRepPopulated(t, logger, value, 100)
+		disk := []Segment{newRangeableDiskSegment(value, 200)} // different docID
+		b := newRangeableBucket(logger, true, false, rep, disk)
+
+		assert.Equal(t, []uint64{100}, readEqual(t, b, value), "served from the rep, not disk")
+		assert.Zero(t, countLogLevel(hook, logrus.WarnLevel))
+	})
+
+	t.Run("empty rep + disk segments: fallback, correct result, WARN", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		rep := newRangeableRepEmpty(logger)
+		// Size() is the wrong discriminant: the skeleton reports non-zero Size()
+		// yet IsUnpopulated() is true.
+		require.Greater(t, rep.Size(), 0)
+		require.True(t, rep.IsUnpopulated())
+		disk := []Segment{newRangeableDiskSegment(value, 200)}
+		b := newRangeableBucket(logger, true, false, rep, disk)
+
+		assert.Equal(t, []uint64{200}, readEqual(t, b, value), "served from disk")
+		assert.Equal(t, 1, countLogLevel(hook, logrus.WarnLevel))
+		assert.Contains(t, hook.LastEntry().Message, "rangeable in-memory index is empty")
+	})
+
+	t.Run("empty rep + no disk segments: no fallback, empty result, no WARN", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		rep := newRangeableRepEmpty(logger)
+		b := newRangeableBucket(logger, true, false, rep, nil)
+
+		assert.Empty(t, readEqual(t, b, value))
+		assert.Zero(t, countLogLevel(hook, logrus.WarnLevel))
+	})
+
+	t.Run("mass-delete-emptied rep + disk segments: fallback, correct residual, WARN", func(t *testing.T) {
+		// Benign cause: mass-delete empties bitmaps[0] while disk tombstones
+		// remain and no restart occurred.
+		logger, hook := test.NewNullLogger()
+		rep := newRangeableRepEmpty(logger)
+		disk := []Segment{newRangeableDiskSegment(value, 200)}
+		b := newRangeableBucket(logger, true, false, rep, disk)
+
+		assert.Equal(t, []uint64{200}, readEqual(t, b, value))
+		assert.Equal(t, 1, countLogLevel(hook, logrus.WarnLevel))
+	})
+
+	t.Run("WARN is deduplicated per bucket-open", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		rep := newRangeableRepEmpty(logger)
+		disk := []Segment{newRangeableDiskSegment(value, 200)}
+		b := newRangeableBucket(logger, true, false, rep, disk)
+
+		assert.Equal(t, []uint64{200}, readEqual(t, b, value))
+		assert.Equal(t, []uint64{200}, readEqual(t, b, value))
+		assert.Equal(t, 1, countLogLevel(hook, logrus.WarnLevel), "second read must not emit a second WARN")
+	})
+}
+
+// Pins weaviate/weaviate#12199: a deferred-marked bucket emits the
+// disk-serving INFO once; unmarked buckets never do.
+func TestRoaringSetRangeDeferredServingINFO(t *testing.T) {
+	const value = uint64(5)
+
+	t.Run("marked disk bucket: INFO once under repeated reads", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		disk := []Segment{newRangeableDiskSegment(value, 200)}
+		b := newRangeableBucket(logger, false, true, nil, disk)
+
+		assert.Equal(t, []uint64{200}, readEqual(t, b, value))
+		assert.Equal(t, []uint64{200}, readEqual(t, b, value))
+		assert.Equal(t, 1, countLogLevel(hook, logrus.InfoLevel), "INFO fires exactly once per bucket-open")
+		assert.Contains(t, hook.LastEntry().Message, "restored automatically")
+		assert.Zero(t, countLogLevel(hook, logrus.WarnLevel))
+	})
+
+	t.Run("unmarked knob-off bucket: no INFO", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		disk := []Segment{newRangeableDiskSegment(value, 200)}
+		b := newRangeableBucket(logger, false, false, nil, disk)
+
+		assert.Equal(t, []uint64{200}, readEqual(t, b, value))
+		assert.Zero(t, countLogLevel(hook, logrus.InfoLevel))
+	})
+
+	t.Run("marker selects a log line only, never a read path", func(t *testing.T) {
+		logger, hook := test.NewNullLogger()
+		rep := newRangeableRepPopulated(t, logger, value, 100)
+		disk := []Segment{newRangeableDiskSegment(value, 200)}
+		b := newRangeableBucket(logger, true, true, rep, disk)
+
+		assert.Equal(t, []uint64{100}, readEqual(t, b, value), "in-mem path served, not disk")
+		assert.Zero(t, countLogLevel(hook, logrus.InfoLevel), "marker must not trigger the disk-path INFO")
+		assert.Zero(t, countLogLevel(hook, logrus.WarnLevel))
+	})
+}
+
+// BenchmarkRoaringSetRangeReaderPopulatedHotPath bounds the overhead added to
+// the populated-rep hot path: one short-circuited IsEmpty() check.
+func BenchmarkRoaringSetRangeReaderPopulatedHotPath(b *testing.B) {
+	logger, _ := test.NewNullLogger()
+	rep := roaringsetrange.NewSegmentInMemory(logger)
+	mt := roaringsetrange.NewMemtable(logger)
+	mt.Insert(5, []uint64{100})
+	rep.MergeMemtableEventually(mt)
+	for rep.IsUnpopulated() {
+		time.Sleep(time.Millisecond)
+	}
+	bucket := newRangeableBucketForBench(logger, rep)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r := bucket.ReaderRoaringSetRange()
+		r.Close()
+	}
+}
+
+func newRangeableBucketForBench(logger logrus.FieldLogger, rep *roaringsetrange.SegmentInMemory) *Bucket {
+	return &Bucket{
+		strategy:             StrategyRoaringSetRange,
+		keepSegmentsInMemory: true,
+		logger:               logger,
+		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
+		active:               newTestMemtableRoaringSetRange(nil),
+		disk:                 &SegmentGroup{logger: logger, roaringSetRangeSegmentInMemory: rep},
+	}
 }
 
 // TestRoaringSetRangeWritePathRefCount ensures that all write paths of the
