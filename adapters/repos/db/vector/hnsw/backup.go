@@ -54,10 +54,6 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 	)
 
 	err := filepath.WalkDir(logRoot, func(pth string, d fs.DirEntry, err error) error {
-		// err must be checked before touching d: WalkDir invokes the callback
-		// with a nil DirEntry when the walk root is unreadable, e.g. when the
-		// shard is dropped concurrently (class/tenant delete racing a
-		// replica-movement snapshot). Dereferencing d here killed the node.
 		if err != nil {
 			return err
 		}

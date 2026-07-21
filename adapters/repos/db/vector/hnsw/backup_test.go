@@ -160,11 +160,6 @@ func TestBackup_HFreshListFiles(t *testing.T) {
 }
 
 func TestBackup_ListFilesWalkRootRemoved(t *testing.T) {
-	// Regression: ListFiles' WalkDir callback dereferenced its DirEntry
-	// without checking the walk error first. With the commitlog root gone
-	// (a class/tenant delete dropping the shard while a replica-movement
-	// snapshot walks it), WalkDir passes a nil entry plus an error, and the
-	// dereference SIGSEGVed the node's whole process.
 	ctx := context.Background()
 
 	dirName := t.TempDir()
