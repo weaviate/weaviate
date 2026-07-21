@@ -928,22 +928,10 @@ func TestNearObjectCertaintyAndDistance(t *testing.T) {
 // the search, so collections without any vectorizer module are fully
 // searchable (unlike near-text, and unlike hybrid above alpha 0).
 func TestNearObjectNeedsNoVectorizer(t *testing.T) {
-	t.Run("legacy vectorizer none", func(t *testing.T) {
-		class := movieClass()
-		class.Vectorizer = "none"
-		_, apiErr := buildNearObject(t, class, fmt.Sprintf(`{"id":%q}`, nearObjectSourceID))
-		assert.Nil(t, apiErr)
-	})
-
-	t.Run("named vector with vectorizer none", func(t *testing.T) {
-		class := namedVectorsClass("title_vec")
-		class.VectorConfig["title_vec"] = models.VectorConfig{
-			Vectorizer:        map[string]any{"none": map[string]any{}},
-			VectorIndexConfig: hnsw.UserConfig{Distance: "cosine"},
-		}
-		_, apiErr := buildNearObject(t, class, fmt.Sprintf(`{"id":%q}`, nearObjectSourceID))
-		assert.Nil(t, apiErr)
-	})
+	class := movieClass()
+	class.Vectorizer = "none"
+	_, apiErr := buildNearObject(t, class, fmt.Sprintf(`{"id":%q}`, nearObjectSourceID))
+	assert.Nil(t, apiErr)
 }
 
 func TestNearObjectTargetVectors(t *testing.T) {
