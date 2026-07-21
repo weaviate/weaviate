@@ -231,4 +231,23 @@ func TestTelemetryClusterID_ThreeNodes(t *testing.T) {
 		t.Logf("clusterId after restarting %s: %s", restarted, after)
 		assert.Equal(t, clusterID, after, "clusterId must be unchanged after a node restart")
 	})
+
+	t.Run("clusterId survives a full cluster restart", func(t *testing.T) {
+		// Cold restart: with every node down, the id can only come back from disk
+		// (snapshot + log replay), and the set-once guard must not re-mint it.
+		timeout := 30 * time.Second
+		for i := 1; i <= len(nodes); i++ {
+			require.NoError(t, compose.StopNode(ctx, i, &timeout))
+		}
+		sink.forget(nodes...)
+		for i := 1; i <= len(nodes); i++ {
+			require.NoError(t, compose.StartNode(ctx, i))
+		}
+
+		for _, n := range nodes {
+			after := sink.waitClusterID(t, n, waitTimeout)
+			t.Logf("clusterId after full restart for %s: %s", n, after)
+			assert.Equal(t, clusterID, after, "clusterId must survive a full cluster restart")
+		}
+	})
 }
