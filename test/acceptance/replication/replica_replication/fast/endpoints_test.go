@@ -14,6 +14,7 @@ package replication
 import (
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -66,6 +67,17 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 }
 
 func (suite *ReplicationTestSuite) TearDownSuite() {
+	// On failure, dump node states + logs before Terminate destroys the
+	// containers. The recurring CI flake in this suite is a mid-test node
+	// death (every later test then fails with connection refused on the
+	// dead node's port); CI keeps no container logs, so without this dump
+	// the cause of death is unattributable. The state line's exit code
+	// distinguishes OOM kill (137) from a Go panic/fatal (2).
+	if suite.T().Failed() && suite.compose != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		suite.compose.DumpWeaviateLogs(ctx, os.Stderr, 300)
+	}
 	if suite.down != nil {
 		suite.down()
 	}

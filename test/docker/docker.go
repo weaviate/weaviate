@@ -37,27 +37,78 @@ func (d *DockerCompose) Containers() []*DockerContainer {
 	return d.containers
 }
 
-// DumpWeaviateLogs writes the last `tail` log lines of every weaviate node to w.
-// Call from TestMain on failure to capture the leader side; the start-failure
-// dump only covers boot crashes, not mid-test misbehavior.
+// DumpWeaviateLogs writes diagnostics for every weaviate node to w: the
+// container state, then the last `tail` log lines. The state line is the
+// key discriminator for mid-suite node deaths: status=exited with
+// exitCode=137 means SIGKILL (typically the kernel OOM killer, which
+// leaves no trace in the node's own log), while exitCode=2 is a Go
+// panic/fatal error whose trace is in the log itself. When a log contains
+// a Go crash marker (panic, fatal error, data race), the dump starts just
+// before the first marker instead of at the tail so the trace is not cut
+// off, bounded by dumpCeiling lines.
+//
+// Call from TestMain or TearDownSuite on failure, before Terminate removes
+// the containers; the start-failure dump only covers boot crashes, not
+// mid-test misbehavior.
 func (d *DockerCompose) DumpWeaviateLogs(ctx context.Context, w io.Writer, tail int) {
+	// crash traces can run to thousands of lines (full goroutine dumps);
+	// bound the per-node dump so a marker-triggered dump can't flood CI.
+	const dumpCeiling = 6000
+
 	for _, c := range d.containers {
 		if !strings.HasPrefix(c.name, "weaviate") {
 			continue
 		}
+
+		header := fmt.Sprintf("--- %s", c.name)
+		if ep, ok := c.endpoints[HTTP]; ok {
+			header += fmt.Sprintf(" (http %s)", ep.uri)
+		}
+		if state, err := c.container.State(ctx); err != nil {
+			header += fmt.Sprintf(" state-unavailable=%q", err.Error())
+		} else {
+			header += fmt.Sprintf(" status=%s exitCode=%d oomKilled=%v", state.Status, state.ExitCode, state.OOMKilled)
+		}
+
 		reader, err := c.container.Logs(ctx)
 		if err != nil {
-			fmt.Fprintf(w, "--- %s logs unavailable: %v ---\n", c.name, err)
+			fmt.Fprintf(w, "%s logs unavailable: %v ---\n", header, err)
 			continue
 		}
 		logs, _ := io.ReadAll(reader)
 		reader.Close()
 		lines := strings.Split(string(logs), "\n")
-		if len(lines) > tail {
-			lines = lines[len(lines)-tail:]
-		}
-		fmt.Fprintf(w, "--- %s logs (last %d lines) ---\n%s\n", c.name, tail, strings.Join(lines, "\n"))
+
+		start := dumpWindowStart(lines, tail, dumpCeiling)
+		fmt.Fprintf(w, "%s logs (%d of %d lines) ---\n%s\n", header, len(lines)-start, len(lines), strings.Join(lines[start:], "\n"))
 	}
+}
+
+// dumpWindowStart picks the first line index of the log window DumpWeaviateLogs
+// emits: the last `tail` lines, extended backwards to just before the first Go
+// crash marker if one exists, and never more than `ceiling` lines in total.
+// The ceiling wins over the marker: a marker further than `ceiling` lines from
+// the end is cut, which is acceptable because process-killing traces always sit
+// near the end of the log (the process dies emitting them) — only non-fatal
+// markers (e.g. an early DATA RACE report) can land that far back.
+func dumpWindowStart(lines []string, tail, ceiling int) int {
+	start := len(lines) - tail
+	for i, line := range lines {
+		if strings.Contains(line, "panic:") || strings.Contains(line, "fatal error:") || strings.Contains(line, "WARNING: DATA RACE") {
+			// back up a little so the lines leading into the crash are visible
+			if i-20 < start {
+				start = i - 20
+			}
+			break
+		}
+	}
+	if start < len(lines)-ceiling {
+		start = len(lines) - ceiling
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start
 }
 
 func (d *DockerCompose) Terminate(ctx context.Context) error {
