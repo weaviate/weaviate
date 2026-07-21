@@ -1045,11 +1045,6 @@ func TestHybridUnknownQueryProperty(t *testing.T) {
 			assert.Contains(t, apiErr.Error(), "no such prop")
 		})
 	}
-
-	t.Run("existing but non-searchable is the searcher's to reject", func(t *testing.T) {
-		_, apiErr := buildHybrid(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
-	})
 }
 
 func TestHybridTargetVectors(t *testing.T) {

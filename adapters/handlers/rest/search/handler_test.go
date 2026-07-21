@@ -804,9 +804,7 @@ func doHybrid(t *testing.T, deps *testDeps, principal *models.Principal,
 
 // TestHybridHandlerHappyPath: the hybrid wrapper drives the same execute()
 // flow as near-text and bm25, with HybridSearch params instead of module or
-// keyword params, and the envelope carries score metadata.
-// TestHybridHandlerHappyPath: the hybrid wrapper drives the same execute()
-// flow with HybridSearch params instead of module params. Deliberately the
+// keyword params, and the envelope carries score metadata. Deliberately the
 // ONLY per-endpoint handler test — the shared gates are pinned once in
 // TestExecuteIsSearchTypeAgnostic, the near-text handler tests and the
 // acceptance suite.
