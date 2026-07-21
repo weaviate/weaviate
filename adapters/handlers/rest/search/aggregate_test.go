@@ -93,6 +93,10 @@ func TestIsAggregateRoute(t *testing.T) {
 // TestAggregateHandlerHappyPath: an empty body is a valid request and returns
 // the collection's total count in the flat form. The built params must be the
 // engine's count-star shape so the fast path stays reachable.
+// Aggregate keeps its own gate/authz/disabled/unknown-collection tests —
+// unlike the search endpoints (thin execute() wrappers pinned once),
+// Handler.Aggregate runs its own pipeline through resolveAuthorizedClass,
+// so these are that path's only unit coverage.
 func TestAggregateHandlerHappyPath(t *testing.T) {
 	deps := newTestHandler(t)
 	deps.searcher.aggregateRes = ungroupedCount(42)
