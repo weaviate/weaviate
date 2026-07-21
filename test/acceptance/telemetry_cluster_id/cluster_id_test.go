@@ -25,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/usecases/telemetry"
@@ -240,9 +241,15 @@ func TestTelemetryClusterID_ThreeNodes(t *testing.T) {
 			require.NoError(t, compose.StopNode(ctx, i, &timeout))
 		}
 		sink.forget(nodes...)
+
+		// Start concurrently: a 3-node cluster needs quorum to elect a leader before
+		// any node passes its readiness check, so a lone node started first would
+		// hang. Bringing them up together lets quorum re-form.
+		var eg errgroup.Group
 		for i := 1; i <= len(nodes); i++ {
-			require.NoError(t, compose.StartNode(ctx, i))
+			eg.Go(func() error { return compose.StartNode(ctx, i) })
 		}
+		require.NoError(t, eg.Wait())
 
 		for _, n := range nodes {
 			after := sink.waitClusterID(t, n, waitTimeout)
