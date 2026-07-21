@@ -265,7 +265,12 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		if err == nil {
 			u.log.Info("start uploading metadata")
 			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
+				// Without a durable meta file the backup is not restorable, so
+				// the node must not report SUCCESS to the coordinator — it
+				// would mark the whole backup successful with this node's
+				// descriptor missing from the backend.
 				desc.Status = backup.Transferred
+				return
 			}
 			u.setStatus(backup.Success)
 			u.log.Info("finish uploading metadata")
