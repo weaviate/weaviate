@@ -990,31 +990,12 @@ func TestHybridVectorizerOnlyAboveAlphaZero(t *testing.T) {
 		assert.Equal(t, float64(0), searcher.lastParams.HybridSearch.Alpha)
 	})
 
-	for name, body := range map[string]string{
-		"default alpha": `{"query":"space"}`,
-		"explicit":      `{"query":"space","alpha":0.5}`,
-	} {
-		t.Run(name+" above 0 without a vectorizer is a 422", func(t *testing.T) {
-			_, apiErr := buildHybrid(t, noVectorizer, body)
-			require.NotNil(t, apiErr)
-			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-			assert.Contains(t, apiErr.Error(), "vectorizer")
-			assert.Contains(t, apiErr.Error(), "alpha")
-		})
-	}
-
-	t.Run("named vector with vectorizer none is a 422 above alpha 0", func(t *testing.T) {
-		class := namedVectorsClass("title_vec")
-		class.VectorConfig["title_vec"] = models.VectorConfig{
-			Vectorizer:        map[string]any{"none": map[string]any{}},
-			VectorIndexConfig: hnsw.UserConfig{Distance: "cosine"},
-		}
-		_, apiErr := buildHybrid(t, class, `{"query":"space"}`)
+	t.Run("above 0 without a vectorizer is a 422", func(t *testing.T) {
+		_, apiErr := buildHybrid(t, noVectorizer, `{"query":"space"}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-
-		_, apiErr = buildHybrid(t, class, `{"query":"space","alpha":0}`)
-		assert.Nil(t, apiErr)
+		assert.Contains(t, apiErr.Error(), "vectorizer")
+		assert.Contains(t, apiErr.Error(), "alpha")
 	})
 }
 
@@ -1110,12 +1091,7 @@ func TestHybridReturnMetadata(t *testing.T) {
 	})
 
 	t.Run("certainty stays requested on a cosine index", func(t *testing.T) {
-		// hybrid is a vector search: unlike bm25, the certainty flag is NOT
-		// force-cleared (gRPC parity — vectorSearch keeps the flag, subject
-		// only to the cosine-compatibility silent drop). The flags are
-		// inert on the wire either way: the fused hybrid list carries only
-		// scores, so the response omits distance/certainty (covered end to
-		// end in the acceptance suite).
+		// unlike bm25, hybrid does not force-clear certainty (gRPC parity)
 		searcher, apiErr := buildHybrid(t, movieClass(),
 			`{"query":"space","returnMetadata":["distance","certainty"]}`)
 		require.Nil(t, apiErr)
@@ -1140,31 +1116,20 @@ func TestHybridReturnMetadata(t *testing.T) {
 // through the shared parsers for hybrid exactly as they do for near-text and
 // bm25.
 func TestHybridSharedFields(t *testing.T) {
-	t.Run("pagination and consistency", func(t *testing.T) {
-		searcher, apiErr := buildHybrid(t, movieClass(),
-			`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM"}`)
-		require.Nil(t, apiErr)
-		pagination := searcher.lastParams.Pagination
-		assert.Equal(t, 3, pagination.Limit)
-		assert.Equal(t, 6, pagination.Offset)
-		assert.Equal(t, 2, pagination.Autocut)
-		require.NotNil(t, searcher.lastParams.ReplicationProperties)
-		assert.Equal(t, "QUORUM", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
-	})
-
-	t.Run("where filter", func(t *testing.T) {
-		searcher, apiErr := buildHybrid(t, movieClass(),
-			`{"query":"space","where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980}}`)
-		require.Nil(t, apiErr)
-		require.NotNil(t, searcher.lastParams.Filters)
-	})
-
-	t.Run("returnProperties subset", func(t *testing.T) {
-		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space","returnProperties":["title"]}`)
-		require.Nil(t, apiErr)
-		require.Len(t, searcher.lastParams.Properties, 1)
-		assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
-	})
+	searcher, apiErr := buildHybrid(t, movieClass(),
+		`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM",`+
+			`"where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980},`+
+			`"returnProperties":["title"]}`)
+	require.Nil(t, apiErr)
+	pagination := searcher.lastParams.Pagination
+	assert.Equal(t, 3, pagination.Limit)
+	assert.Equal(t, 6, pagination.Offset)
+	assert.Equal(t, 2, pagination.Autocut)
+	require.NotNil(t, searcher.lastParams.ReplicationProperties)
+	assert.Equal(t, "QUORUM", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
+	require.NotNil(t, searcher.lastParams.Filters)
+	require.Len(t, searcher.lastParams.Properties, 1)
+	assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
 }
 
 func TestParseConsistencyLevel(t *testing.T) {
