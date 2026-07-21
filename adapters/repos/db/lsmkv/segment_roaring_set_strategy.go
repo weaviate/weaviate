@@ -23,7 +23,7 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 ) (l roaringset.BitmapLayer, release func(), err error) {
 	out := roaringset.BitmapLayer{}
 
-	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyRoaringSet); err != nil {
+	if err := segmentindex.CheckStrategyRoaringSet(s.strategy); err != nil {
 		return out, noopRelease, err
 	}
 
@@ -61,7 +61,7 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 
 func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
-	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyRoaringSet); err != nil {
+	if err := segmentindex.CheckStrategyRoaringSet(s.strategy); err != nil {
 		return err
 	}
 
