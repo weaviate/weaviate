@@ -26,6 +26,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// nsCreateIndex and nsFlipIndex are the RAFT indexes the seeds in this file
+// record at create and at the flip. Distinct because one log index can only
+// belong to one command.
+const (
+	nsCreateIndex uint64 = 1
+	nsFlipIndex   uint64 = 2
+)
+
 // This file tests the namespace check at the top of store.Apply. The
 // check rejects any command that would create a class, alias, user, or
 // role inside a namespace that is missing or not active, and reports the
@@ -204,8 +212,8 @@ func TestApplyGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 			name:      "deleting namespace rejected with ErrNamespaceDeleting",
 			className: "alpha:Foo",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, 1))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
 			},
 			wantErr: namespaces.ErrNamespaceDeleting,
 		},
@@ -213,8 +221,8 @@ func TestApplyGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 			name:      "suspended namespace rejected with ErrNamespaceSuspended",
 			className: "alpha:Foo",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateSuspended, 1))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateSuspended, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
 			},
 			wantErr: namespaces.ErrNamespaceSuspended,
 		},
@@ -222,9 +230,9 @@ func TestApplyGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 			name:      "resuming namespace rejected with ErrNamespaceResuming",
 			className: "alpha:Foo",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateSuspended, 1))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateResuming, 2))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateSuspended, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateResuming, namespaces.StateChange{AppliedIndex: 2}))
 			},
 			wantErr: namespaces.ErrNamespaceResuming,
 		},
@@ -257,7 +265,7 @@ func TestApplyGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 // the namespace is active.
 func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 	ms, log := setupApplyTest(t)
-	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
 
 	cls := &models.Class{
 		Class:              "alpha:Foo",
@@ -300,8 +308,8 @@ func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 		{
 			name: "create into deleting namespace rejected",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, 1))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
 			},
 			role:     "alpha:editor",
 			creation: true,
@@ -317,7 +325,7 @@ func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 		{
 			name: "create into active namespace passes gate",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
 			},
 			role:     "alpha:editor",
 			creation: true,
@@ -331,8 +339,8 @@ func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 		{
 			name: "non-creation upsert into deleting namespace rejected",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, 1))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
 			},
 			role:     "alpha:editor",
 			creation: false,
@@ -348,7 +356,7 @@ func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 		{
 			name: "non-creation upsert into active namespace passes gate",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
 			},
 			role:     "alpha:editor",
 			creation: false,
@@ -385,8 +393,8 @@ func TestApplyGate_RejectsRoleCreationIntoInactiveNamespace(t *testing.T) {
 // name rejects the whole batch even when other names are global or active.
 func TestApplyGate_RejectsMixedRoleBatchWithInactiveNamespace(t *testing.T) {
 	ms, log := setupApplyTest(t)
-	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
-	require.NoError(t, ms.cfg.NamespacesController.ChangeState("alpha", api.NamespaceStateDeleting, 1))
+	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
+	require.NoError(t, ms.cfg.NamespacesController.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
 
 	log.Data = cmdAsBytes("", api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
 		api.CreateRolesRequest{
@@ -423,8 +431,8 @@ func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 		{
 			name: "assign into deleting namespace rejected",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, 1))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
 			},
 			user:    "db:alpha:bob",
 			wantErr: namespaces.ErrNamespaceDeleting,
@@ -438,8 +446,8 @@ func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 		{
 			name: "assign to oidc subject in deleting namespace rejected",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
-				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, 1))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
+				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting, namespaces.StateChange{AppliedIndex: nsFlipIndex}))
 			},
 			user:    "oidc:alpha:carol",
 			wantErr: namespaces.ErrNamespaceDeleting,
@@ -447,7 +455,7 @@ func TestApplyGate_RejectsRoleAssignmentIntoInactiveNamespace(t *testing.T) {
 		{
 			name: "assign into active namespace passes gate",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}, nsCreateIndex))
 			},
 			user: "db:alpha:bob",
 		},
