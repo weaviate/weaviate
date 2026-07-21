@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -103,8 +101,9 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	batchImportNumeric(t, restURIOf(compose, 1), className, totalObjects, scoreFor)
 
 	// Capture baseline: every replica must agree on the count BEFORE the
-	// migration starts. If they don't, this isn't an Issue C repro, the
-	// import-replication path is broken — fail loudly.
+	// migration starts. If they don't, this isn't a reproduction of the
+	// in-flight migration bug, the import-replication path is broken - fail
+	// loudly.
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 		count, err := rangeCount(restURIOf(compose, nodeIdx), className, "score", rangeLo, rangeHi)
 		require.NoError(t, err, "pre-migration baseline query on node %d failed", nodeIdx)
@@ -118,46 +117,16 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	// every node directly. We count every wrong, non-baseline,
 	// non-transient-error result as a failure. The migration on 10 k
 	// objects across 3 shards takes seconds, so 50 ms poll spacing yields
-	// dozens of in-flight samples per goroutine.
-	var (
-		wrongCounts atomic.Int64
-		queryRuns   atomic.Int64
-		queryErrors atomic.Int64
-		stopCh      = make(chan struct{})
-		wg          sync.WaitGroup
-	)
-
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		wg.Add(1)
-		uri := restURIOf(compose, nodeIdx)
-		idx := nodeIdx
-		go func() {
-			defer wg.Done()
-			ticker := time.NewTicker(50 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-stopCh:
-					return
-				case <-ticker.C:
-				}
-				count, err := rangeCount(uri, className, "score", rangeLo, rangeHi)
-				queryRuns.Add(1)
-				if err != nil {
-					// Transient HTTP / RAFT-busy errors are tolerated; a
-					// query that errors out is at least signalling "I
-					// can't answer" rather than returning a wrong
-					// number. We log but don't count them as failures.
-					queryErrors.Add(1)
-					t.Logf("node %d transient error: %v", idx, err)
-				} else if count != expectedBaseline {
-					wrongCounts.Add(1)
-					t.Logf("ISSUE C REPRO: node %d returned partial count %d (expected %d)",
-						idx, count, expectedBaseline)
-				}
-			}
-		}()
-	}
+	// dozens of in-flight samples per goroutine. Transient errors are logged,
+	// not counted as failures - they signal "can't answer", not a wrong number.
+	counters, stopCh, wg := startRangeCountPolling(compose, className, rangeLo, rangeHi, expectedBaseline, 3,
+		func(nodeIdx, got int) {
+			t.Logf("node %d returned partial count %d during in-flight migration (expected %d)",
+				nodeIdx, got, expectedBaseline)
+		},
+		func(nodeIdx int, err error) {
+			t.Logf("node %d transient error: %v", nodeIdx, err)
+		})
 
 	// Submit enable-rangeable. We do this via the same handler the demo
 	// hits, so the on-the-wire shape matches the production failure.
@@ -189,7 +158,7 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	wg.Wait()
 
 	t.Logf("background queries: %d runs, %d transient errors, %d wrong counts",
-		queryRuns.Load(), queryErrors.Load(), wrongCounts.Load())
+		counters.queryRuns.Load(), counters.queryErrors.Load(), counters.wrongCounts.Load())
 
 	// Verify the schema flip eventually committed on every node.
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
@@ -215,7 +184,7 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 
 	// The whole point: ZERO wrong (non-error, non-baseline) counts during
 	// the in-flight window. A non-zero count here is a #212-Issue-C repro.
-	assert.Zero(t, wrongCounts.Load(),
+	assert.Zero(t, counters.wrongCounts.Load(),
 		"GH #212 Issue C: expected zero partial counts during in-flight "+
 			"enable-rangeable migration. The migration must either still serve "+
 			"the filterable bucket walk (correct, slow) or the fully-swapped "+
