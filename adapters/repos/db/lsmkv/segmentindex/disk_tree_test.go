@@ -96,3 +96,66 @@ func TestDiskTreeCorruptDataNeverPanics(t *testing.T) {
 		})
 	})
 }
+
+// TestDiskTreeValidateRootInBounds pins weaviate/weaviate#12280 shape 4: a
+// corrupt but in-bounds IndexStart lands the tree on the wrong bytes, and
+// Get()'s own corruption-tolerant walk resolves that to NotFound instead of
+// an error - indistinguishable from a legitimate empty result. The root
+// node's Start/End must fall within the segment's own data region for any
+// legitimately-written segment, so checking just the root at open time
+// catches this without walking (or trusting) the rest of the tree.
+func TestDiskTreeValidateRootInBounds(t *testing.T) {
+	buildTree := func(t *testing.T, start, end uint64) []byte {
+		t.Helper()
+		tree := NewTree(1)
+		tree.Insert([]byte("key-000"), start, end)
+		data, err := tree.MarshalBinary()
+		require.NoError(t, err)
+		return data
+	}
+
+	t.Run("root Start/End within the data region: accepted", func(t *testing.T) {
+		data := buildTree(t, 20, 30)
+		dTree := NewDiskTree(data)
+		require.NoError(t, dTree.ValidateRootInBounds(16, 100))
+	})
+
+	t.Run("root Start before the data region: rejected", func(t *testing.T) {
+		data := buildTree(t, 5, 30)
+		dTree := NewDiskTree(data)
+		err := dTree.ValidateRootInBounds(16, 100)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "outside the segment's data region")
+	})
+
+	t.Run("root End past the data region: rejected", func(t *testing.T) {
+		data := buildTree(t, 20, 500)
+		dTree := NewDiskTree(data)
+		err := dTree.ValidateRootInBounds(16, 100)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "outside the segment's data region")
+	})
+
+	t.Run("empty tree (legitimate empty segment): accepted", func(t *testing.T) {
+		dTree := NewDiskTree(nil)
+		require.NoError(t, dTree.ValidateRootInBounds(16, 100))
+	})
+
+	t.Run("garbage bytes at the root: rejected, not panicked", func(t *testing.T) {
+		// Simulates a corrupt IndexStart landing on data-region bytes rather
+		// than real tree-node bytes: a plausible-looking keyLen followed by
+		// arbitrary content, which still parses as *some* node (readNodeAt
+		// is itself corruption-tolerant), just one whose Start/End are
+		// garbage and (almost always) outside the real data region.
+		garbage := make([]byte, 64)
+		binary.LittleEndian.PutUint32(garbage[0:4], 4) // keyLen=4
+		copy(garbage[4:8], []byte("junk"))
+		binary.LittleEndian.PutUint64(garbage[8:16], 0xDEADBEEFDEADBEEF)  // start
+		binary.LittleEndian.PutUint64(garbage[16:24], 0xFEEDFACEFEEDFACE) // end
+		dTree := NewDiskTree(garbage)
+		require.NotPanics(t, func() {
+			err := dTree.ValidateRootInBounds(16, 100)
+			require.Error(t, err)
+		})
+	})
+}
