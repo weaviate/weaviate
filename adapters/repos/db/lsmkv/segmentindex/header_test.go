@@ -73,9 +73,9 @@ func TestParseHeader_RejectsIndexStartBeforeHeaderEnd(t *testing.T) {
 }
 
 // TestHeaderValidateIndexBounds_RejectsIndexStartPastContentsLen pins
-// weaviate/weaviate#12280 shape 3: IndexStart past the segment's actual
-// length must be rejected before any slice using it, not left to panic at
-// the first read.
+// weaviate/weaviate#12280: IndexStart past the segment's actual length must
+// be rejected before any slice using it, not left to panic at the first
+// read.
 func TestHeaderValidateIndexBounds_RejectsIndexStartPastContentsLen(t *testing.T) {
 	t.Run("IndexStart one byte past contentsLen", func(t *testing.T) {
 		h := &Header{IndexStart: 101}
@@ -85,7 +85,7 @@ func TestHeaderValidateIndexBounds_RejectsIndexStartPastContentsLen(t *testing.T
 		require.Contains(t, err.Error(), "past the segment end")
 	})
 
-	t.Run("QA Claude's exact repro shape: 622914-byte segment, IndexStart=722914", func(t *testing.T) {
+	t.Run("large segment: 622914-byte length, IndexStart=722914", func(t *testing.T) {
 		h := &Header{IndexStart: 722914}
 		err := h.ValidateIndexBounds(622914)
 		require.Error(t, err)
@@ -104,9 +104,9 @@ func TestHeaderValidateIndexBounds_RejectsIndexStartPastContentsLen(t *testing.T
 }
 
 // TestHeaderValidateIndexBounds_RejectsSecondaryIndexTablePastContentsLen
-// pins weaviate/weaviate#12280 shape 5: a corrupt-large SecondaryIndices
-// count pushing the secondary offset table past the segment's actual
-// length must be rejected, not left to panic reading the offset table.
+// pins weaviate/weaviate#12280: a corrupt-large SecondaryIndices count
+// pushing the secondary offset table past the segment's actual length must
+// be rejected, not left to panic reading the offset table.
 func TestHeaderValidateIndexBounds_RejectsSecondaryIndexTablePastContentsLen(t *testing.T) {
 	t.Run("SecondaryIndices count pushes the offset table past contentsLen", func(t *testing.T) {
 		h := &Header{IndexStart: 100, SecondaryIndices: 65535}

@@ -145,14 +145,10 @@ func ParseHeader(data []byte) (*Header, error) {
 	return out, nil
 }
 
-// ValidateIndexBounds checks that IndexStart, and (when SecondaryIndices is
-// set) the secondary index offset table, fall within the segment's actual
-// byte length. ParseHeader itself only ever sees the fixed HeaderSize-byte
-// header, not the file, so it cannot make this check; the caller must run
-// it once contentsLen is known. An IndexStart or secondary-index-table end
-// past contentsLen is only reachable from a corrupted or truncated file -
-// every writer sets both to point within the file it just wrote - and
-// otherwise slices out of range at the first read (PrimaryIndex/SecondaryIndex).
+// ValidateIndexBounds checks that IndexStart and (if set) the secondary
+// index offset table fall within the segment's actual byte length.
+// ParseHeader can't do this itself since it never sees the file, only the
+// fixed-size header; skipping it panics on the first slice read.
 func (h *Header) ValidateIndexBounds(contentsLen uint64) error {
 	if h.IndexStart > contentsLen {
 		return fmt.Errorf(

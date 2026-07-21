@@ -100,16 +100,11 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	}
 }
 
-// ValidateRootInBounds is a cheap, O(1) sanity check that the tree's root
-// node - if the tree is non-empty - points into the given data region.
-// Get()'s own walk tolerates corrupt node data by resolving to NotFound
-// instead of panicking (see the comment above), which means a corrupt
-// IndexStart that lands in-bounds but on the wrong offset (e.g. the data
-// region itself, misread as tree-node bytes) produces a "valid but wrong"
-// tree indistinguishable from a legitimate empty result once queried. This
-// check fires once at open time, before any query can observe it: every
-// legitimate segment's root Start/End falls within its own data region by
-// construction, so this never rejects a real segment.
+// ValidateRootInBounds is an O(1) check that the root node (if the tree is
+// non-empty) falls within the given data region. It catches an in-bounds
+// but corrupt IndexStart that would otherwise make Get() silently resolve
+// to NotFound instead of erroring; every legitimately-written segment's
+// root satisfies this by construction.
 func (t *DiskTree) ValidateRootInBounds(dataStart, dataEnd uint64) error {
 	if len(t.data) == 0 {
 		return nil

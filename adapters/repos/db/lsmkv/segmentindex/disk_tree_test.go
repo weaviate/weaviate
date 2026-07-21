@@ -97,13 +97,9 @@ func TestDiskTreeCorruptDataNeverPanics(t *testing.T) {
 	})
 }
 
-// TestDiskTreeValidateRootInBounds pins weaviate/weaviate#12280 shape 4: a
-// corrupt but in-bounds IndexStart lands the tree on the wrong bytes, and
-// Get()'s own corruption-tolerant walk resolves that to NotFound instead of
-// an error - indistinguishable from a legitimate empty result. The root
-// node's Start/End must fall within the segment's own data region for any
-// legitimately-written segment, so checking just the root at open time
-// catches this without walking (or trusting) the rest of the tree.
+// TestDiskTreeValidateRootInBounds pins weaviate/weaviate#12280: a corrupt
+// but in-bounds IndexStart lands the tree on the wrong bytes, which Get()
+// would otherwise resolve to NotFound instead of erroring.
 func TestDiskTreeValidateRootInBounds(t *testing.T) {
 	buildTree := func(t *testing.T, start, end uint64) []byte {
 		t.Helper()
