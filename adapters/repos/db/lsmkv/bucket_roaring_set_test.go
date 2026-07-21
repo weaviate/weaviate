@@ -242,6 +242,79 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	})
 }
 
+// TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet proves the new
+// batched-read primitive returns byte-identical results to the per-key
+// RoaringSetGet entry point, whether the key is present across several
+// on-disk segments plus the active memtable, or absent entirely, and that a
+// single GetConsistentView() call serves every RoaringSetGetFromView read.
+func TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	tmpDir := t.TempDir()
+
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+
+	// never auto-flush; flush explicitly so the key spans several disk
+	// segments plus a final write left in the active memtable
+	b.SetMemtableThreshold(1e9)
+
+	keyA := []byte("key-a")
+	keyB := []byte("key-b")
+	keyMissing := []byte("key-missing")
+
+	require.NoError(t, b.RoaringSetAddList(keyA, []uint64{1, 2, 3}))
+	require.NoError(t, b.RoaringSetAddList(keyB, []uint64{10, 20}))
+	require.NoError(t, b.FlushAndSwitch())
+
+	require.NoError(t, b.RoaringSetAddList(keyA, []uint64{4, 5}))
+	require.NoError(t, b.FlushAndSwitch())
+
+	// left in the active memtable, unflushed
+	require.NoError(t, b.RoaringSetAddList(keyA, []uint64{6}))
+
+	wantA, releaseWantA, err := b.RoaringSetGet(ctx, keyA)
+	require.NoError(t, err)
+	arrWantA := append([]uint64(nil), wantA.ToArray()...)
+	releaseWantA()
+
+	wantB, releaseWantB, err := b.RoaringSetGet(ctx, keyB)
+	require.NoError(t, err)
+	arrWantB := append([]uint64(nil), wantB.ToArray()...)
+	releaseWantB()
+
+	wantMissing, releaseWantMissing, err := b.RoaringSetGet(ctx, keyMissing)
+	require.NoError(t, err)
+	arrWantMissing := append([]uint64(nil), wantMissing.ToArray()...)
+	releaseWantMissing()
+	require.Empty(t, arrWantMissing, "absent key must resolve to an empty, non-nil bitmap")
+
+	// one shared view serves all three RoaringSetGetFromView reads below
+	view := b.GetConsistentView()
+
+	gotA, releaseA, err := b.RoaringSetGetFromView(ctx, view, keyA)
+	require.NoError(t, err)
+	require.Equal(t, arrWantA, gotA.ToArray())
+	releaseA()
+
+	gotB, releaseB, err := b.RoaringSetGetFromView(ctx, view, keyB)
+	require.NoError(t, err)
+	require.Equal(t, arrWantB, gotB.ToArray())
+	releaseB()
+
+	gotMissing, releaseMissing, err := b.RoaringSetGetFromView(ctx, view, keyMissing)
+	require.NoError(t, err)
+	require.NotNil(t, gotMissing)
+	require.Empty(t, gotMissing.ToArray())
+	releaseMissing()
+
+	view.ReleaseView()
+}
+
 // TestBucket_RoaringSet_DeleteThenReaddAcrossSegments is a read-path regression
 // test for roaringset reads with tombstones spread across multiple disk segments
 // plus the active memtable, including a doc deleted in one segment and re-added
