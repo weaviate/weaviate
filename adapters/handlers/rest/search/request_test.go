@@ -806,6 +806,207 @@ func TestBm25NoSearchableProperties(t *testing.T) {
 	})
 }
 
+// decodeNearObjectModel unmarshals a JSON body into the typed near-object
+// request model, the way the swagger JSON consumer does (unknown fields
+// ignored, type mismatches fail). A decode failure maps to the 400 the
+// consumer returns live.
+func decodeNearObjectModel(body string) (*models.SearchNearObjectRequest, *APIError) {
+	var req models.SearchNearObjectRequest
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		return nil, newAPIError(http.StatusBadRequest, "invalid request body: %v", err)
+	}
+	return &req, nil
+}
+
+// buildNearObject runs the full near-object body -> dto.GetParams conversion
+// against the fixture schema, including the reserved-field 422 check that
+// the handler runs before buildNearObjectParams.
+func buildNearObject(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
+	t.Helper()
+	deps := newTestHandler(t)
+	deps.schemaReader.classes[class.Class] = class
+
+	parsed, apiErr := decodeNearObjectModel(body)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if apiErr := checkReservedFields(&parsed.SearchCommon); apiErr != nil {
+		return nil, apiErr
+	}
+
+	params, apiErr := deps.handler.buildNearObjectParams(class, class.Class, parsed, fixtureGetClass(deps), nil)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	deps.searcher.lastParams = params
+	return deps.searcher, nil
+}
+
+const nearObjectSourceID = "11111111-2222-4333-8444-555555555555"
+
+func TestNearObjectParams(t *testing.T) {
+	t.Run("id maps to NearObject, not module or keyword params", func(t *testing.T) {
+		searcher, apiErr := buildNearObject(t, movieClass(),
+			fmt.Sprintf(`{"id":%q}`, nearObjectSourceID))
+		require.Nil(t, apiErr)
+		nearObject := searcher.lastParams.NearObject
+		require.NotNil(t, nearObject)
+		assert.Equal(t, nearObjectSourceID, nearObject.ID)
+		assert.Empty(t, nearObject.Beacon)
+		assert.Empty(t, searcher.lastParams.ModuleParams)
+		assert.Nil(t, searcher.lastParams.KeywordRanking)
+		assert.Nil(t, searcher.lastParams.HybridSearch)
+	})
+
+	// swagger's required validation rejects an absent or null id with 422 and
+	// its uuid format rejects a structurally invalid one; the handler's own
+	// 400 covers the direct-call path
+	for name, body := range map[string]string{
+		"empty string": `{"id":""}`,
+		"missing":      `{}`,
+		"null":         `{"id":null}`,
+	} {
+		t.Run(name+" id is a 400", func(t *testing.T) {
+			_, apiErr := buildNearObject(t, movieClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "id")
+		})
+	}
+}
+
+// TestNearObjectCertaintyAndDistance mirrors the near-text handling on the
+// near-object body: mutual exclusion (gRPC parity), the certainty range
+// check, and the deterministic cosine-only 422.
+func TestNearObjectCertaintyAndDistance(t *testing.T) {
+	body := func(fields string) string {
+		return fmt.Sprintf(`{"id":%q%s}`, nearObjectSourceID, fields)
+	}
+
+	t.Run("distance sets the cutoff", func(t *testing.T) {
+		searcher, apiErr := buildNearObject(t, movieClass(), body(`,"distance":0.4`))
+		require.Nil(t, apiErr)
+		nearObject := searcher.lastParams.NearObject
+		assert.Equal(t, 0.4, nearObject.Distance)
+		assert.True(t, nearObject.WithDistance)
+	})
+
+	t.Run("certainty on a cosine index", func(t *testing.T) {
+		searcher, apiErr := buildNearObject(t, movieClass(), body(`,"certainty":0.8`))
+		require.Nil(t, apiErr)
+		nearObject := searcher.lastParams.NearObject
+		assert.Equal(t, 0.8, nearObject.Certainty)
+		assert.False(t, nearObject.WithDistance)
+	})
+
+	t.Run("both certainty and distance is a 400", func(t *testing.T) {
+		_, apiErr := buildNearObject(t, movieClass(), body(`,"certainty":0.8,"distance":0.4`))
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "certainty")
+	})
+
+	t.Run("certainty outside [0,1] is a 400", func(t *testing.T) {
+		for _, fields := range []string{`,"certainty":-0.1`, `,"certainty":1.1`} {
+			_, apiErr := buildNearObject(t, movieClass(), body(fields))
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		}
+	})
+
+	t.Run("certainty on a non-cosine index is a 422", func(t *testing.T) {
+		class := movieClass()
+		class.VectorIndexConfig = hnsw.UserConfig{Distance: "l2-squared"}
+		_, apiErr := buildNearObject(t, class, body(`,"certainty":0.8`))
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "certainty")
+	})
+}
+
+// TestNearObjectNeedsNoVectorizer: the source object's stored vector anchors
+// the search, so collections without any vectorizer module are fully
+// searchable (unlike near-text, and unlike hybrid above alpha 0).
+func TestNearObjectNeedsNoVectorizer(t *testing.T) {
+	class := movieClass()
+	class.Vectorizer = "none"
+	_, apiErr := buildNearObject(t, class, fmt.Sprintf(`{"id":%q}`, nearObjectSourceID))
+	assert.Nil(t, apiErr)
+}
+
+func TestNearObjectTargetVectors(t *testing.T) {
+	t.Run("sole named vector selected implicitly", func(t *testing.T) {
+		searcher, apiErr := buildNearObject(t, namedVectorsClass("title_vec"),
+			fmt.Sprintf(`{"id":%q}`, nearObjectSourceID))
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.NearObject.TargetVectors)
+	})
+
+	t.Run("multiple named vectors require targetVector", func(t *testing.T) {
+		_, apiErr := buildNearObject(t, namedVectorsClass("title_vec", "summary_vec"),
+			fmt.Sprintf(`{"id":%q}`, nearObjectSourceID))
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+
+		searcher, apiErr := buildNearObject(t, namedVectorsClass("title_vec", "summary_vec"),
+			fmt.Sprintf(`{"id":%q,"targetVector":"summary_vec"}`, nearObjectSourceID))
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"summary_vec"}, searcher.lastParams.NearObject.TargetVectors)
+	})
+
+	t.Run("unknown targetVector is a 400", func(t *testing.T) {
+		_, apiErr := buildNearObject(t, namedVectorsClass("title_vec"),
+			fmt.Sprintf(`{"id":%q,"targetVector":"nope"}`, nearObjectSourceID))
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	})
+}
+
+func TestNearObjectReturnMetadata(t *testing.T) {
+	t.Run("certainty stays requested on a cosine index", func(t *testing.T) {
+		// near-object is a vector search: the certainty flag is NOT
+		// force-cleared (gRPC parity), subject only to the
+		// cosine-compatibility silent drop
+		searcher, apiErr := buildNearObject(t, movieClass(),
+			fmt.Sprintf(`{"id":%q,"returnMetadata":["distance","certainty"]}`, nearObjectSourceID))
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.True(t, addl.Certainty)
+		assert.True(t, addl.Distance)
+	})
+
+	t.Run("certainty silently dropped on a non-cosine index", func(t *testing.T) {
+		class := movieClass()
+		class.VectorIndexConfig = hnsw.UserConfig{Distance: "l2-squared"}
+		searcher, apiErr := buildNearObject(t, class,
+			fmt.Sprintf(`{"id":%q,"returnMetadata":["distance","certainty"]}`, nearObjectSourceID))
+		require.Nil(t, apiErr)
+		addl := searcher.lastParams.AdditionalProperties
+		assert.False(t, addl.Certainty)
+		assert.True(t, addl.Distance)
+	})
+}
+
+// TestNearObjectSharedFields smoke-tests that the SearchCommon fields flow
+// through the shared parsers for near-object exactly as for the other
+// search types.
+func TestNearObjectSharedFields(t *testing.T) {
+	t.Run("pagination, consistency, where, properties", func(t *testing.T) {
+		searcher, apiErr := buildNearObject(t, movieClass(), fmt.Sprintf(
+			`{"id":%q,"limit":3,"offset":6,"consistencyLevel":"ALL",`+
+				`"where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980},`+
+				`"returnProperties":["title"]}`, nearObjectSourceID))
+		require.Nil(t, apiErr)
+		assert.Equal(t, 3, searcher.lastParams.Pagination.Limit)
+		assert.Equal(t, 6, searcher.lastParams.Pagination.Offset)
+		require.NotNil(t, searcher.lastParams.ReplicationProperties)
+		assert.Equal(t, "ALL", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
+		require.NotNil(t, searcher.lastParams.Filters)
+		require.Len(t, searcher.lastParams.Properties, 1)
+		assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
+	})
+}
+
 // decodeHybridModel unmarshals a JSON body into the typed hybrid request
 // model, the way the swagger JSON consumer does (unknown fields ignored, type
 // mismatches fail). A decode failure maps to the 400 the consumer returns
