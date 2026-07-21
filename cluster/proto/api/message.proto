@@ -99,6 +99,9 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_CANCEL = 301;
     TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED = 302;
     TYPE_DISTRIBUTED_TASK_CLEAN_UP = 303;
+
+    // Cluster identity - set once by the raft leader; replayed during recovery.
+    TYPE_CLUSTER_ID_SET = 400;
   }
   Type type = 1;
   string class = 2;
@@ -246,4 +249,10 @@ message ReplaceAliasRequest {
 
 message DeleteAliasRequest {
   string alias = 1;
+}
+
+// SetClusterIDRequest carries the stable cluster identity committed once per
+// cluster lifetime via TYPE_CLUSTER_ID_SET. Field numbers are permanent.
+message SetClusterIDRequest {
+  string cluster_id = 1;
 }

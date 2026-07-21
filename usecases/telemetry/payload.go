@@ -39,4 +39,23 @@ type Payload struct {
 	ClientUsage      map[ClientType]map[string]int64 `json:"clientUsage,omitempty"`
 	CloudProvider    *string                         `json:"cloudProvider,omitempty"`
 	UniqueID         *string                         `json:"uniqueID,omitempty"`
+
+	// NodeID is a persisted UUID tied to the data volume (NOT the hostname);
+	// stable across restarts, reset only on volume wipe. Empty means unknown.
+	NodeID string `json:"nodeId,omitempty"`
+	// ClusterID is a UUIDv7 committed once per cluster lifetime via raft
+	// (including single-node deployments). Empty means not yet committed
+	// (best-effort; 30s timeout in Start()). Inception time is derived from the
+	// UUIDv7 timestamp downstream, so it isn't sent as a separate field.
+	ClusterID string `json:"clusterId,omitempty"`
+
+	// Pointer fields so a measured zero/false (e.g. nodeCount:0) serializes
+	// instead of being dropped by omitempty; nil means unmeasured.
+	NodeCount                  *int           `json:"nodeCount,omitempty"`
+	MaxReplicationFactor       *int           `json:"maxReplicationFactor,omitempty"`
+	ReplicationEnabled         *bool          `json:"replicationEnabled,omitempty"`
+	MTCollectionCount          *int           `json:"mtCollectionCount,omitempty"`
+	NamedVectorCollectionCount *int           `json:"namedVectorCollectionCount,omitempty"`
+	AsyncIndexingEnabled       *bool          `json:"asyncIndexingEnabled,omitempty"`
+	VectorIndexTypeCounts      map[string]int `json:"vectorIndexTypeCounts,omitempty"`
 }

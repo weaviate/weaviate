@@ -18,20 +18,24 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	googleproto "google.golang.org/protobuf/proto"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -252,6 +256,17 @@ type Store struct {
 	authZController authorization.Controller
 
 	metrics *storeMetrics
+
+	// clusterID is the stable UUIDv7 committed once per cluster lifetime via raft.
+	// Protected by clusterIDmu.
+	clusterIDmu sync.RWMutex
+	clusterID   string
+	// clusterIDSet is closed once clusterID is set (either by apply or snapshot restore).
+	// Waiters block on a receive from it.
+	clusterIDSet chan struct{}
+
+	// bootstrapLoopCancel stops clusterIDBootstrapLoop on Store.Close().
+	bootstrapLoopCancel context.CancelFunc
 }
 
 // storeMetrics exposes RAFT store related prometheus metrics
@@ -312,10 +327,12 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
 	return Store{
-		cfg:          cfg,
-		log:          cfg.Logger,
-		candidates:   make(map[string]string, cfg.BootstrapExpect),
-		applyTimeout: time.Second * 20,
+		cfg:                 cfg,
+		log:                 cfg.Logger,
+		candidates:          make(map[string]string, cfg.BootstrapExpect),
+		applyTimeout:        time.Second * 20,
+		clusterIDSet:        make(chan struct{}),
+		bootstrapLoopCancel: func() { /* no-op until Open() installs the real cancel */ },
 		raftResolver: resolver.NewRaft(resolver.RaftConfig{
 			ClusterStateReader: cfg.NodeSelector,
 			RaftPort:           cfg.RaftPort,
@@ -413,6 +430,12 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// However, we believe that 1 day should be more than sufficient.
 	f := func() { st.onLeaderFound(time.Hour * 24) }
 	enterrors.GoWrapper(f, st.log)
+
+	// loopCtx derives from Open's ctx (currently context.Background() at the call
+	// site); also cancelled via bootstrapLoopCancel in Close().
+	loopCtx, loopCancel := context.WithCancel(ctx)
+	st.bootstrapLoopCancel = loopCancel
+	enterrors.GoWrapper(func() { st.clusterIDBootstrapLoop(loopCtx) }, st.log)
 	return nil
 }
 
@@ -521,6 +544,11 @@ func (st *Store) Close(ctx context.Context) error {
 	if !st.open.Load() {
 		return nil
 	}
+
+	// Cancels the bootstrap loop without waiting for it to exit, so a tick may
+	// briefly race raft teardown. Safe: Execute() on a shutting-down raft returns
+	// an error, which maybeCommitClusterID logs rather than treating as fatal.
+	st.bootstrapLoopCancel()
 
 	// transfer leadership: it stops accepting client requests, ensures
 	// the target server is up to date and initiates the transfer
@@ -944,4 +972,98 @@ func (st *Store) recoverSingleNode(force bool) error {
 	st.schemaManager.ReplaceStatesNodeName(string(newNode.ID))
 
 	return nil
+}
+
+// setClusterIDFields sets the cluster identity in memory. Idempotent: the
+// first value wins, and clusterIDSet is closed exactly once.
+func (st *Store) setClusterIDFields(clusterID string) {
+	st.clusterIDmu.Lock()
+	defer st.clusterIDmu.Unlock()
+	if st.clusterID != "" {
+		st.log.WithFields(logrus.Fields{
+			"existing_cluster_id":  st.clusterID,
+			"duplicate_cluster_id": clusterID,
+		}).Debug("clamping duplicate cluster-id set (set-once; duplicate is a no-op)")
+		return
+	}
+	st.clusterID = clusterID
+	close(st.clusterIDSet)
+}
+
+// ClusterID returns the committed cluster identity, or "" if not yet set.
+func (st *Store) ClusterID() string {
+	st.clusterIDmu.RLock()
+	defer st.clusterIDmu.RUnlock()
+	return st.clusterID
+}
+
+// WaitForClusterID blocks until the cluster identity is committed or ctx expires.
+// Returns (clusterID, nil) on success; ("", ctx.Err()) on timeout.
+func (st *Store) WaitForClusterID(ctx context.Context) (string, error) {
+	select {
+	case <-st.clusterIDSet:
+		return st.ClusterID(), nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// maybeCommitClusterID commits a fresh UUIDv7 cluster identity via raft if one
+// isn't set yet. Safe to call concurrently from any leader (applyClusterIDSet's
+// set-once guard dedupes); caller must be the raft leader.
+func (st *Store) maybeCommitClusterID() {
+	if st.ClusterID() != "" {
+		return
+	}
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		// fall back to v4 if the monotonic-random source fails
+		id = uuid.New()
+	}
+	idStr := id.String()
+	if idStr == "" {
+		st.log.Warn("cluster-id generation produced empty UUID, skipping commit")
+		return
+	}
+
+	req := &api.SetClusterIDRequest{
+		ClusterId: idStr,
+	}
+	subCmd, err := googleproto.Marshal(req)
+	if err != nil {
+		st.log.WithFields(logrus.Fields{
+			"cluster_id": idStr,
+		}).Warnf("marshal cluster-id set subcommand: %v", err)
+		return
+	}
+	applyReq := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_CLUSTER_ID_SET,
+		SubCommand: subCmd,
+	}
+	if _, err := st.Execute(applyReq); err != nil {
+		st.log.WithFields(logrus.Fields{
+			"cluster_id": idStr,
+		}).Warnf("commit cluster-id set command: %v", err)
+	}
+}
+
+// clusterIDBootstrapLoop retries committing the cluster identity every 2s while
+// this node is leader, until clusterIDSet closes or storeCtx is cancelled
+// (Store.Close). Retrying handles a leader crash before the initial commit.
+func (st *Store) clusterIDBootstrapLoop(storeCtx context.Context) {
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-storeCtx.Done():
+			return
+		case <-st.clusterIDSet:
+			return
+		case <-t.C:
+			if st.IsLeader() {
+				st.maybeCommitClusterID()
+			}
+		}
+	}
 }

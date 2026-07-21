@@ -402,9 +402,16 @@ func (st *Store) Apply(l *raft.Log) any {
 			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
 		}
 
+	// TYPE_CLUSTER_ID_SET is a set-once pure-metadata command; it is NOT gated on
+	// schemaOnly because it has no DB-side effect and must apply during cold-start replay.
+	case api.ApplyRequest_TYPE_CLUSTER_ID_SET:
+		f = func() {
+			ret.Error = st.applyClusterIDSet(&cmd)
+		}
+
 	default:
-		// This could occur when a new command has been introduced in a later app version
-		// At this point, we need to panic so that the app undergo an upgrade during restart
+		// Unknown command from a newer binary version: log and no-op rather than
+		// panic, so a forward-incompatible command doesn't crash-loop the node.
 		const msg = "consider upgrading to newer version"
 		st.log.WithFields(logrus.Fields{
 			"type":  cmd.Type,
@@ -429,4 +436,18 @@ func (st *Store) Apply(l *raft.Log) any {
 
 func (st *Store) numberOfNodesInTheCluster() int {
 	return len(st.raft.GetConfiguration().Configuration().Servers)
+}
+
+// applyClusterIDSet decodes and applies a TYPE_CLUSTER_ID_SET log entry.
+// It is idempotent: the first value wins (set-once). A duplicate on replay is a logged no-op.
+func (st *Store) applyClusterIDSet(cmd *api.ApplyRequest) error {
+	req := &api.SetClusterIDRequest{}
+	if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("unmarshal cluster-id set command: %w", err)
+	}
+	if req.ClusterId == "" {
+		return fmt.Errorf("empty cluster_id in cluster-id set command")
+	}
+	st.setClusterIDFields(req.ClusterId)
+	return nil
 }

@@ -1,0 +1,134 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package telemetry
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestReadOrCreateNodeID_CreatesAndReads(t *testing.T) {
+	dir := t.TempDir()
+	id1, err := ReadOrCreateNodeID(dir)
+	require.NoError(t, err)
+	require.NotEmpty(t, id1)
+
+	id2, err := ReadOrCreateNodeID(dir)
+	require.NoError(t, err)
+	assert.Equal(t, id1, id2, "second read must return the same UUID")
+
+	b, err := os.ReadFile(filepath.Join(dir, "node-id"))
+	require.NoError(t, err)
+	assert.Equal(t, id1, string(b))
+
+	// tmp file must not linger after a successful write (rename consumes it)
+	_, statErr := os.Stat(filepath.Join(dir, "node-id.tmp"))
+	assert.True(t, os.IsNotExist(statErr), "node-id.tmp must not be left behind")
+}
+
+func TestNodeIDSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+
+	sg1 := &fakeNodesStatusGetter{}
+	sm1 := &fakeSchemaManager{}
+	logger, _ := test.NewNullLogger()
+	nodeID1, err := ReadOrCreateNodeID(dir)
+	require.NoError(t, err)
+	tel1 := New(sg1, sm1, logger, Config{NodeID: nodeID1}, nil)
+
+	sg2 := &fakeNodesStatusGetter{}
+	sm2 := &fakeSchemaManager{}
+	nodeID2, err := ReadOrCreateNodeID(dir)
+	require.NoError(t, err)
+	tel2 := New(sg2, sm2, logger, Config{NodeID: nodeID2}, nil)
+
+	assert.Equal(t, tel1.nodeID, tel2.nodeID, "nodeId must be identical across restarts")
+}
+
+func TestMachineIDDiffersFromNodeID(t *testing.T) {
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	nodeID, err := ReadOrCreateNodeID(dir)
+	require.NoError(t, err)
+
+	sg1 := &fakeNodesStatusGetter{}
+	sm1 := &fakeSchemaManager{}
+	tel1 := New(sg1, sm1, logger, Config{NodeID: nodeID}, nil)
+
+	sg2 := &fakeNodesStatusGetter{}
+	sm2 := &fakeSchemaManager{}
+	nodeID2, err := ReadOrCreateNodeID(dir)
+	require.NoError(t, err)
+	tel2 := New(sg2, sm2, logger, Config{NodeID: nodeID2}, nil)
+
+	assert.Equal(t, tel1.nodeID, tel2.nodeID, "nodeId must be identical across New() calls")
+
+	assert.NotEqual(t, string(tel1.machineID), string(tel2.machineID),
+		"machineId must differ across New() calls (counts restarts)")
+
+	assert.NotEqual(t, string(tel1.machineID), tel1.nodeID,
+		"machineId must not overwrite nodeId (slip guard)")
+	assert.NotEqual(t, string(tel2.machineID), tel2.nodeID,
+		"machineId must not overwrite nodeId (slip guard)")
+}
+
+func TestNodeIDResetsOnDataDirWipe(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	id1, err := ReadOrCreateNodeID(dir1)
+	require.NoError(t, err)
+	id2, err := ReadOrCreateNodeID(dir2)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, id1, id2, "different data dirs must produce different nodeIds")
+}
+
+// Skipped when running as root because root bypasses dir permission bits,
+// causing the write to succeed and the assertion to fail in CI containers.
+func TestReadOrCreateNodeID_UnwritableDirReturnsError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("requires non-root; root bypasses dir perms")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o555))
+	defer os.Chmod(dir, 0o755) //nolint:errcheck
+
+	_, err := ReadOrCreateNodeID(dir)
+	assert.Error(t, err, "expected an error on unwritable dir")
+}
+
+// waitForClusterID stub: exercises the injected-waiter code path directly.
+func TestWaitForClusterIDFuncWithStub(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	sg := &fakeNodesStatusGetter{}
+	sm := &fakeSchemaManager{}
+
+	const fixedID = "00000000-0000-7000-0000-000000000099"
+	stub := func(ctx context.Context) (string, error) {
+		return fixedID, nil
+	}
+	tel := New(sg, sm, logger, Config{NodeID: "test-node-id"}, stub)
+
+	// call the waiter directly; Start() would also push over the network
+	waitCtx := context.Background()
+	clusterID, err := tel.waitForClusterID(waitCtx)
+	require.NoError(t, err)
+	assert.Equal(t, fixedID, clusterID)
+}
