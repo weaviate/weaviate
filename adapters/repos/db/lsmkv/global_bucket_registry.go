@@ -72,7 +72,7 @@ func (r *globalBucketRegistry) RemoveByPrefix(dir string) {
 
 // RemoveByPrefixes is RemoveByPrefix batched: it deletes every registered path
 // under any dir in dirs in a single locked scan.
-func (r *globalBucketRegistry) RemoveByPrefixes(dirs []string) {
+func (r *globalBucketRegistry) RemoveByPrefixes(dirs ...string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

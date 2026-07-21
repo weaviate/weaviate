@@ -122,7 +122,7 @@ func TestGlobalBucketRegistry_RemoveByPrefixes(t *testing.T) {
 				}
 			})
 
-			GlobalBucketRegistry.RemoveByPrefixes(tt.prefixes)
+			GlobalBucketRegistry.RemoveByPrefixes(tt.prefixes...)
 
 			for _, p := range tt.wantIn {
 				require.NoError(t, GlobalBucketRegistry.TryAdd(p),
