@@ -569,3 +569,13 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 
 	require.NoError(t, shard.Shutdown(ctx))
 }
+
+func TestGetSegmentPathsToMove_WalkRootRemoved(t *testing.T) {
+	// Regression: getSegmentPathsToMove's WalkDir callback dereferenced its
+	// DirEntry without checking the walk error first, so an unreadable walk
+	// root (bucket dir removed concurrently by a shard drop) panicked
+	// instead of erroring.
+	task := &ShardReindexTaskGeneric{}
+	_, _, err := task.getSegmentPathsToMove(filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir())
+	require.ErrorIs(t, err, os.ErrNotExist)
+}

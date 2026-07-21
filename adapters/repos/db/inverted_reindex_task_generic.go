@@ -2270,6 +2270,12 @@ func (t *ShardReindexTaskGeneric) getSegmentPathsToMove(bucketPathSrc, bucketPat
 	needsRecover := false
 
 	err := filepath.WalkDir(bucketPathSrc, func(path string, d os.DirEntry, err error) error {
+		// err must be checked before touching d: WalkDir invokes the callback
+		// with a nil DirEntry when the walk root is unreadable (e.g. the
+		// bucket dir removed concurrently by a shard drop).
+		if err != nil {
+			return err
+		}
 		if d.IsDir() {
 			return nil
 		}

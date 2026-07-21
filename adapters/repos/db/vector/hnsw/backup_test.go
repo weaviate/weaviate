@@ -158,3 +158,38 @@ func TestBackup_HFreshListFiles(t *testing.T) {
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
+
+func TestBackup_ListFilesWalkRootRemoved(t *testing.T) {
+	// Regression: ListFiles' WalkDir callback dereferenced its DirEntry
+	// without checking the walk error first. With the commitlog root gone
+	// (a class/tenant delete dropping the shard while a replica-movement
+	// snapshot walks it), WalkDir passes a nil entry plus an error, and the
+	// dereference SIGSEGVed the node's whole process.
+	ctx := context.Background()
+
+	dirName := t.TempDir()
+	indexID := "backup-list-files-root-removed-test"
+
+	idx, err := New(Config{
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		},
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
+	require.Nil(t, err)
+	idx.PostStartup(ctx)
+
+	require.Nil(t, os.RemoveAll(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID))))
+
+	_, err = idx.ListFiles(ctx, dirName)
+	require.ErrorContains(t, err, "failed to list files for hnsw commitlog")
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	// the open commit-log fd survives the unlink; shutdown must not panic
+	_ = idx.Shutdown(ctx)
+}
