@@ -242,6 +242,113 @@ func TestBucket_RoaringSetGet_RespectsConcurrencyBudget(t *testing.T) {
 	})
 }
 
+// TestBucketRoaringSetInMemoReadSnapshotConsistencyAcrossGenerations pins the
+// in-memory roaring set read to serve a consistent snapshot at call time, even
+// when the caller's consistent view is two flush generations stale.
+//
+// Timeline (driven by hand, no timing luck):
+//
+//  1. The merged in-memory segment is pre-seeded with key -> {id}, mirroring
+//     an older flushed segment.
+//  2. A0 (net deletion of id) is installed as active and a consistent view is
+//     captured — the stale T1 view used for the final read.
+//  3. Generation 1: A0 is switched to flushing and flushed; the merge-forward
+//     folds its deletion into the root (the key drops out, now empty).
+//  4. Generation 2: id is re-added to the new active, switched and flushed;
+//     the root then covers A0+A1 and holds key -> {id} again.
+//  5. The read runs through the stale T1 view.
+//
+// True state at read time: id present (re-added by A1, never deleted since).
+// The only correct answer is therefore {id}. The in-memory branch serves a
+// snapshot at call time because its merged root is live; T1-staleness is not
+// the served contract here. Re-applying the captured A0 deletion on top of a
+// root that already covers A0 AND the later A1 re-add would blend two
+// generations into a torn state that never existed (id absent). A
+// single-generation window would be safe only because re-applying the same
+// memtable layer is idempotent (a layer's Additions/Deletions are disjoint,
+// so a contiguous duplicate application is a no-op); the violation needs the
+// captured layer to be older than state already folded into the root, i.e.
+// two generations with a delete/re-add crossing them.
+func TestBucketRoaringSetInMemoReadSnapshotConsistencyAcrossGenerations(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+	key := []byte("key-a")
+	id := uint64(1)
+
+	segInMemo := roaringset.NewSegmentInMemory(logger)
+	// awaitRootState blocks until the background merge-forward has folded the
+	// last queued memtable into the root: the key's presence matches
+	// expectFound and no memtables are pending anymore. countPendingMemtables
+	// is unexported, so the exported Get doubles as the merge-done signal.
+	awaitRootState := func(expectFound bool, msg string) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			_, release, found, pending := segInMemo.Get(key, roaringset.NewBitmapBufPoolNoop())
+			release()
+			return found == expectFound && len(pending) == 0
+		}, time.Second, 10*time.Millisecond, "%s", msg)
+	}
+
+	// pre-seed the in-memory segment as if an older flushed segment holding
+	// key -> {id} had been merged in
+	seed := newTestMemtableRoaringSet(map[string][]uint64{
+		"key-a": {id},
+	})
+	segInMemo.MergeMemtableEventually(seed.extractRoaringSet())
+	awaitRootState(true, "seed memtable merged into root")
+
+	// A0: net deletion of id, installed as the active memtable
+	active := newTestMemtableRoaringSet(nil)
+	require.NoError(t, active.roaringSetRemoveOne(key, id))
+
+	b := Bucket{
+		active: active,
+		disk: &SegmentGroup{
+			segments:                  []Segment{},
+			roaringSetSegmentInMemory: segInMemo,
+		},
+		strategy:                   StrategyRoaringSet,
+		keepMergedSegmentsInMemory: true,
+		bitmapBufPool:              roaringset.NewBitmapBufPoolNoop(),
+	}
+
+	// capture the stale T1 view (active=A0, no flushing) and hold it across
+	// both flush generations
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	flushActiveIntoSegmentInMemory := func(expectRootFound bool, msg string) {
+		t.Helper()
+		switched, err := b.atomicallySwitchMemtable(func() (memtable, error) {
+			return newTestMemtableRoaringSet(nil), nil
+		})
+		require.NoError(t, err)
+		require.True(t, switched)
+		// the fake disk segment is irrelevant to the in-memory read path; what
+		// matters is the merge-forward of the flushing memtable into the root
+		require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(&fakeSegment{}))
+		awaitRootState(expectRootFound, msg)
+	}
+
+	// generation 1: A0's deletion of id is folded into the merged root, the
+	// key drops out of it
+	flushActiveIntoSegmentInMemory(false, "A0 deletion merged into root")
+
+	// generation 2: id is re-added, then folded into the root as well
+	require.NoError(t, b.active.roaringSetAddOne(key, id))
+	flushActiveIntoSegmentInMemory(true, "A1 re-add merged into root")
+
+	// Read through the stale T1 view. Present is the only answer that ever
+	// existed at call time; absent would be the torn blend of A0's stale
+	// deletion over a root that already covers the A1 re-add.
+	bm, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, key)
+	require.NoError(t, err)
+	defer release()
+	require.Equal(t, []uint64{id}, bm.ToArray(),
+		"read must serve the state at call time (id re-added by A1), not a torn blend of two flush generations")
+}
+
 // TestNewBucketKeepMergedSegmentsInMemoryRequiresBufPool pins the fail-fast:
 // the merged in-memory read path clones bitmaps through the buffer pool, so
 // enabling it without a pool must fail at construction instead of panicking

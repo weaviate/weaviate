@@ -14,7 +14,9 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -98,7 +100,7 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 	// on-disk segments were created with a legacy strategy (set/map) must fall
 	// through to the disk path untouched.
 	if b.disk.roaringSetSegmentInMemory != nil {
-		return b.roaringSetGetFromConsistentViewInMemo(view, key, maxConc)
+		return b.roaringSetGetFromConsistentViewInMemo(key, maxConc)
 	}
 
 	layers, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
@@ -114,7 +116,7 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 		}
 	}()
 
-	layers, err = appendRoaringSetMemtableLayers(layers, view, key)
+	layers, err = appendRoaringSetMemtableLayers(layers, view.Flushing, view.Active, key)
 	if err != nil {
 		return nil, noopRelease, err
 	}
@@ -126,14 +128,53 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 // in-memory segment instead of the disk segments: the merged root plus one
 // layer per still-pending, flushing and active memtable on top.
 //
+// Unlike the disk path, this branch deliberately does not read the view's
+// memtables. The merged root is live and advances with every completed flush,
+// so combining a root captured now with top layers pinned to an earlier view
+// could re-apply a memtable layer that the root already covers — and once the
+// root has advanced by two or more flush generations inside the read window,
+// that blends generations into a torn bitmap (e.g. a stale deletion landing
+// after a newer re-add, dropping an id that is present). Instead the top
+// layers and the root+pending snapshot are captured under one flushLock.RLock
+// hold, mirroring readerRoaringSetRangeFromSegmentInMemo, so the branch serves
+// a consistent snapshot at call time. That is sound because the root only
+// advances monotonically and a flush completion cannot interleave mid-read:
+// the pending-append happens under flushLock.Lock in
+// atomicallyAddDiskSegmentAndRemoveFlushing. The caller's consistent view is
+// unaffected: its pinned disk segments still serve the disk path above.
+//
 // Every layer handed to Flatten is an owned clone (SegmentInMemory.Get clones
 // through the buffer pool, BinarySearchTree.Get and memtable roaringSetGet
 // clone), so Flatten's in-place mutation of the first layer is safe in any
 // interleaving — including when no root layer exists.
 func (b *Bucket) roaringSetGetFromConsistentViewInMemo(
-	view BucketConsistentView, key []byte, maxConc int,
+	key []byte, maxConc int,
 ) (bm *sroar.Bitmap, release func(), err error) {
-	rootLayer, rootRelease, found, pending := b.disk.roaringSetSegmentInMemory.Get(key, b.bitmapBufPool)
+	var active, flushing memtable
+	var rootLayer roaringset.BitmapLayer
+	var rootRelease func()
+	var found bool
+	var pending []*roaringset.BinarySearchTree
+
+	func() {
+		beforeFlushLock := time.Now()
+
+		b.flushLock.RLock()
+		defer b.flushLock.RUnlock()
+
+		// logger nil-guard: test buckets are built as bare literals without one,
+		// mirroring GetConsistentView
+		if took := time.Since(beforeFlushLock); took > 100*time.Millisecond && b.logger != nil {
+			b.logger.WithFields(logrus.Fields{
+				"duration": took,
+				"action":   "lsm_bucket_get_acquire_flush_lock",
+			}).Debugf("Waited more than 100ms to obtain a flush lock during get")
+		}
+
+		active, flushing = b.active, b.flushing
+		rootLayer, rootRelease, found, pending = b.disk.roaringSetSegmentInMemory.Get(key, b.bitmapBufPool)
+	}()
+
 	// rootRelease (not the named return, which error paths overwrite with
 	// noopRelease) is what the defer frees, so a failed memtable read can't
 	// leak the root layer's pooled buffer.
@@ -160,7 +201,7 @@ func (b *Bucket) roaringSetGetFromConsistentViewInMemo(
 		layers = append(layers, layer)
 	}
 
-	layers, err = appendRoaringSetMemtableLayers(layers, view, key)
+	layers, err = appendRoaringSetMemtableLayers(layers, flushing, active, key)
 	if err != nil {
 		return nil, noopRelease, err
 	}
@@ -172,20 +213,20 @@ func (b *Bucket) roaringSetGetFromConsistentViewInMemo(
 // memtable layers for key on top of layers, tolerating NotFound, so that the
 // caller can flatten persisted and in-memory state into one bitmap.
 func appendRoaringSetMemtableLayers(
-	layers roaringset.BitmapLayers, view BucketConsistentView, key []byte,
+	layers roaringset.BitmapLayers, flushing, active memtable, key []byte,
 ) (roaringset.BitmapLayers, error) {
-	if view.Flushing != nil {
-		flushing, err := view.Flushing.roaringSetGet(key)
+	if flushing != nil {
+		flushingLayer, err := flushing.roaringSetGet(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
 				return nil, err
 			}
 		} else {
-			layers = append(layers, flushing)
+			layers = append(layers, flushingLayer)
 		}
 	}
 
-	activeBM, err := view.Active.roaringSetGet(key)
+	activeBM, err := active.roaringSetGet(key)
 	if err != nil {
 		if !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
