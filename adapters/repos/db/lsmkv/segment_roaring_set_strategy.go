@@ -30,13 +30,13 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
 		return out, noopRelease, lsmkv.NotFound
 	}
-	node, err := s.index.Get(key)
+	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
 		return out, noopRelease, err
 	}
 
 	var releaseAdd, releaseDel func()
-	offset := nodeOffset{node.Start, node.End}
+	offset := nodeOffset{start, end}
 	if s.readFromMemory {
 		sn, err := s.segmentNodeFromBufferMmap(offset)
 		if err != nil {
@@ -68,7 +68,7 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
 		return nil
 	}
-	node, err := s.index.Get(key)
+	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
 			return nil
@@ -77,7 +77,7 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 	}
 
 	var sn *roaringset.SegmentNode
-	offset := nodeOffset{node.Start, node.End}
+	offset := nodeOffset{start, end}
 	if s.readFromMemory {
 		sn, err = s.segmentNodeFromBufferMmap(offset)
 	} else {
