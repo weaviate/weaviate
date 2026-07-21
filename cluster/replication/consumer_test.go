@@ -804,9 +804,11 @@ func TestConsumerOpCancellation(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationCancellationComplete(mock.Anything, uint64(1)).
 		Return(nil)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(uint64(0), nil)
+	// cancelOp must drop the op's target shard on this (target) node. node2 is
+	// not in BelongsToNodes:[node1], so the guard passes and the drop fires.
+	mockReplicaCopier.EXPECT().
+		DropLocalShard(mock.Anything, "TestCollection", "shard1").
+		Return(nil)
 	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	var completionWg sync.WaitGroup
@@ -934,9 +936,10 @@ func TestConsumerOpDeletion(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationRemoveReplicaOp(mock.Anything, uint64(1)).
 		Return(nil)
-	mockFSMUpdater.EXPECT().
-		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(0, nil)
+	// The deletion cancel path also drops the op's target shard on this node.
+	mockReplicaCopier.EXPECT().
+		DropLocalShard(mock.Anything, "TestCollection", "shard1").
+		Return(nil)
 	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	var completionWg sync.WaitGroup

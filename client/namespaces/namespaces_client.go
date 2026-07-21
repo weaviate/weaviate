@@ -49,6 +49,10 @@ type ClientService interface {
 
 	ListNamespaces(params *ListNamespacesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListNamespacesOK, error)
 
+	ResumeNamespace(params *ResumeNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ResumeNamespaceAccepted, error)
+
+	SuspendNamespace(params *SuspendNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SuspendNamespaceAccepted, error)
+
 	UpdateNamespace(params *UpdateNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*UpdateNamespaceOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
@@ -215,6 +219,88 @@ func (a *Client) ListNamespaces(params *ListNamespacesParams, authInfo runtime.C
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for listNamespaces: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+ResumeNamespace resumes a namespace
+
+Return a suspended namespace to the "active" state, so its dynamic users authenticate again and its resources accept writes. Repeated calls against an already-active namespace are idempotent and return 202.
+*/
+func (a *Client) ResumeNamespace(params *ResumeNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ResumeNamespaceAccepted, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewResumeNamespaceParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "resumeNamespace",
+		Method:             "POST",
+		PathPattern:        "/namespaces/{namespace_id}/resume",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ResumeNamespaceReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ResumeNamespaceAccepted)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for resumeNamespace: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SuspendNamespace suspends a namespace
+
+Move a namespace to the "suspended" state. Suspending stops the namespace's users from authenticating and blocks the creation of new classes, aliases, users, roles, and role assignments, but retains the namespace and everything it owns. Repeated calls against an already-suspended namespace are idempotent and return 202. Use the resume endpoint to return it to "active".
+*/
+func (a *Client) SuspendNamespace(params *SuspendNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SuspendNamespaceAccepted, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSuspendNamespaceParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "suspendNamespace",
+		Method:             "POST",
+		PathPattern:        "/namespaces/{namespace_id}/suspend",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SuspendNamespaceReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SuspendNamespaceAccepted)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for suspendNamespace: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -78,15 +78,16 @@ func NewManager(
 	}
 }
 
-// Add applies an AddNamespace RAFT command. It rejects malformed payloads
-// and invalid names with [usecasesNamespaces.ErrBadRequest], and duplicates
-// with [usecasesNamespaces.ErrAlreadyExists].
+// Add applies an AddNamespace RAFT command, recording the command's RAFT log
+// index on the new namespace. It rejects malformed payloads and invalid names
+// with [usecasesNamespaces.ErrBadRequest], and duplicates with
+// [usecasesNamespaces.ErrAlreadyExists].
 func (m *Manager) Add(c *cmd.ApplyRequest) error {
 	req := &cmd.AddNamespaceRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
-	return m.controller.Create(req.Namespace)
+	return m.controller.Create(req.Namespace, c.Version)
 }
 
 // Update applies an UpdateNamespace RAFT command. It rewrites the stored
@@ -104,10 +105,13 @@ func (m *Manager) Update(c *cmd.ApplyRequest) error {
 
 // ChangeState applies a ChangeNamespaceState RAFT command, transitioning
 // the namespace into the target state and recording the command's RAFT log
-// index against it. Returns [usecasesNamespaces.ErrBadRequest] for malformed
-// payloads or unknown target states, [usecasesNamespaces.ErrNotFound] when
-// the namespace does not exist, and
-// [usecasesNamespaces.ErrInvalidStateTransition] when the requested
+// index against it. A nonzero req.ExpectedStateChangeIndex is enforced as a
+// precondition: the flip is refused with
+// [usecasesNamespaces.ErrStateChangedConcurrently] unless the namespace is
+// still at that index. Returns
+// [usecasesNamespaces.ErrBadRequest] for malformed payloads or unknown target
+// states, [usecasesNamespaces.ErrNotFound] when the namespace does not exist,
+// and [usecasesNamespaces.ErrInvalidStateTransition] when the requested
 // transition is forbidden.
 func (m *Manager) ChangeState(c *cmd.ApplyRequest) error {
 	req := &cmd.ChangeNamespaceStateRequest{}
@@ -115,7 +119,10 @@ func (m *Manager) ChangeState(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
 	// c.Version is this command's RAFT log index.
-	return m.controller.ChangeState(req.Name, req.TargetState, c.Version)
+	return m.controller.ChangeState(req.Name, req.TargetState, usecasesNamespaces.StateChange{
+		AppliedIndex:  c.Version,
+		ExpectedIndex: req.ExpectedStateChangeIndex,
+	})
 }
 
 // RemoveEntity applies a RemoveNamespaceEntity RAFT command. Returns

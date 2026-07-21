@@ -130,6 +130,9 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 				add(validateRegexTarget("alias", *p.Alias))
 			}
 		}
+		if p := perm.Namespaces; p != nil && p.Namespace != nil {
+			add(validateRegexTarget("namespace", *p.Namespace))
+		}
 
 		if multiErr != nil {
 			return multiErr

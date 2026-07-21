@@ -49,7 +49,6 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 			name: "cancellation triggers ReleaseReplicaSnapshot",
 			fsmExpect: func(fsm *types.MockFSMUpdater) {
 				fsm.EXPECT().ReplicationCancellationComplete(mock.Anything, uint64(1)).Return(nil)
-				fsm.EXPECT().SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil)
 			},
 			statusSetup: func(s replication.ShardReplicationOpStatus) replication.ShardReplicationOpStatus {
 				s.TriggerCancellation()
@@ -60,7 +59,6 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 			name: "deletion triggers ReleaseReplicaSnapshot",
 			fsmExpect: func(fsm *types.MockFSMUpdater) {
 				fsm.EXPECT().ReplicationRemoveReplicaOp(mock.Anything, uint64(1)).Return(nil)
-				fsm.EXPECT().SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil)
 			},
 			statusSetup: func(s replication.ShardReplicationOpStatus) replication.ShardReplicationOpStatus {
 				s.TriggerDeletion()
@@ -104,6 +102,9 @@ func TestCancelOpReleasesReplicaSnapshot(t *testing.T) {
 			mockReplicaCopier.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 			mockReplicaCopier.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 			mockReplicaCopier.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			// cancelOp drops the (non-member) target shard; incidental here, so
+			// .Maybe(). Specific args still fail the strict mock on a wrong identity.
+			mockReplicaCopier.EXPECT().DropLocalShard(mock.Anything, "TestCollection", "shard1").Return(nil).Maybe()
 			mockFSMUpdater.EXPECT().ReplicationAllPeersAtLeast(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 
 			// Counter (not Times(N)): deletion can flow through cancelOp and
