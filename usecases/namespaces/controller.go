@@ -233,28 +233,19 @@ type StateChange struct {
 	ExpectedIndex uint64
 }
 
-// ChangeState transitions a namespace into target and records
-// sc.AppliedIndex as the index of that flip.
+// ChangeState transitions a namespace into target and records sc.AppliedIndex
+// as the index of that flip. Same-state transitions are idempotent and leave
+// the recorded index alone.
 //
-// A nonzero sc.ExpectedIndex makes the flip conditional: it is refused with
+// A nonzero sc.ExpectedIndex makes the flip conditional: refused with
 // [ErrStateChangedConcurrently] unless the stored StateChangeIndex still
-// matches, which is what stops a re-proposed command from undoing a state
-// change made after it was first proposed. Because the comparison runs here,
-// at apply time, against authoritative state, an out-of-date expected value
-// can only refuse a flip that should have applied — never accept one that
-// should not — and every node reaches the same verdict on replay.
+// matches, which stops a re-proposed command from undoing a later flip. It is
+// checked after the same-state short-circuit, so re-applying a committed
+// command still returns nil.
 //
-// The precondition is checked after the same-state short-circuit, so
-// re-applying an uncontended command still returns nil, and before
-// transition legality, so a flip whose index moved reports that rather than
-// the transition rules of whatever state it now finds.
-//
-// Same-state transitions are idempotent, return nil, and leave the recorded
-// index alone, so re-applying a command cannot advance it. Returns
-// [ErrBadRequest] when target is not a recognized state or sc.AppliedIndex
-// is 0, [ErrNotFound] when the namespace does not exist, and
-// [ErrInvalidStateTransition] when the transition is forbidden (e.g.
-// deleting back to active).
+// Returns [ErrBadRequest] when target is unknown or sc.AppliedIndex is 0,
+// [ErrNotFound] for a missing namespace, and [ErrInvalidStateTransition] for a
+// forbidden transition.
 func (c *Controller) ChangeState(name string, target cmd.NamespaceState, sc StateChange) error {
 	// A stored 0 reads back as "unknown", so the next conditional flip would
 	// propose with no precondition at all.

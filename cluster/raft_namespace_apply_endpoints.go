@@ -90,21 +90,15 @@ func (s *Raft) ChangeNamespaceState(ctx context.Context, name string, target cmd
 }
 
 // ChangeNamespaceStateIfUnchanged proposes the flip only if the namespace's
-// state has not changed since this call read it.
+// state has not changed since this call read it. Returns
+// [namespaces.ErrStateChangedConcurrently] if it has, and
+// [namespaces.ErrNotFound] for an unknown namespace.
 //
-// Execute re-proposes when leadership is lost, without knowing whether the
-// first attempt committed. Suspend and resume can each undo the other, so an
-// unconditional retry can revert a flip that succeeded in between — and that
-// flip's caller was already told it worked. The retry carries the index read
-// here, so the apply refuses it instead. The refused caller gets
-// [namespaces.ErrStateChangedConcurrently] and re-reads before deciding
-// again. Returns [namespaces.ErrNotFound] when the namespace does not exist.
-//
-// The read happens once, here, above Execute. Reading inside Execute's retry
-// would fetch a fresh index on every re-propose, which would always match
-// and leave the precondition doing nothing. The value itself need not be
-// current: the apply compares against authoritative state, so an old index
-// can only cause a spurious refusal, never a wrong accept.
+// Execute re-proposes on lost leadership without knowing whether the first
+// attempt committed. Suspend and resume undo each other, so an unconditional
+// retry could revert a flip that landed in between; the index read here lets
+// the apply refuse it. It is read once, above Execute — reading inside the
+// retry would re-read a fresh matching index each time and defeat the check.
 func (s *Raft) ChangeNamespaceStateIfUnchanged(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error) {
 	expectedIndex, err := s.stateChangeIndex(name)
 	if err != nil {
