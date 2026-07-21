@@ -222,10 +222,11 @@ func couldBeRFC3339(s string) bool {
 }
 
 // couldBeUUID reports whether s has a length uuid.Parse could accept: 32 (no
-// hyphens) to 45 (urn:uuid: prefixed). Necessary condition only — it must never
-// reject a valid UUID.
+// hyphens), 36 (canonical), 38 ({} braced), or 45 (urn:uuid: prefixed).
+// Necessary condition only — it must never reject a valid UUID.
 func couldBeUUID(s string) bool {
-	return len(s) >= 32 && len(s) <= 45
+	l := len(s)
+	return l == 32 || l == 36 || l == 38 || l == 45
 }
 
 func (m *AutoSchemaManager) determineType(value interface{}, ofNestedProp bool) ([]schema.DataType, error) {
