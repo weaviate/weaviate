@@ -129,6 +129,24 @@ func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitma
 	return b.roaringSetGetFromConsistentView(ctx, view, key)
 }
 
+// RoaringSetGetFromView reads key using a caller-held BucketConsistentView,
+// skipping the per-call GetConsistentView()/ReleaseView() pair (RLock +
+// disk-segment pinning) that RoaringSetGet performs on every invocation.
+// Intended for callers that read many keys from the same bucket in one
+// logical operation: call GetConsistentView() once, pass the result to every
+// RoaringSetGetFromView call, then call view.ReleaseView() exactly once when
+// done. The view must come from this bucket's GetConsistentView: a view of
+// another bucket is not detected and would silently read that bucket's data.
+func (b *Bucket) RoaringSetGetFromView(
+	ctx context.Context, view BucketConsistentView, key []byte,
+) (bm *sroar.Bitmap, release func(), err error) {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return nil, noopRelease, err
+	}
+
+	return b.roaringSetGetFromConsistentView(ctx, view, key)
+}
+
 func (b *Bucket) roaringSetGetFromConsistentView(
 	ctx context.Context, view BucketConsistentView, key []byte,
 ) (bm *sroar.Bitmap, release func(), err error) {
