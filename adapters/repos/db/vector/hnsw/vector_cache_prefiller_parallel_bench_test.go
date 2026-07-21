@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -117,6 +118,8 @@ func newPrefillBenchIndex(store *lsmkv.Store, c cache.Cache[float32], n int) *hn
 		logger:              logger,
 		distancerProvider:   distancer.NewDotProductProvider(),
 		shardedNodeLocks:    common.NewDefaultShardedRWLocks(),
+		tombstoneLock:       &sync.RWMutex{},
+		tombstones:          map[uint64]struct{}{},
 		currentMaximumLayer: 0,
 	}
 }

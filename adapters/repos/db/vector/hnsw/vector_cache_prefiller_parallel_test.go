@@ -45,7 +45,8 @@ func newTestObjectsStore(t *testing.T) *lsmkv.Store {
 	t.Cleanup(func() { store.Shutdown(context.Background()) })
 
 	require.NoError(t, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
-		lsmkv.WithStrategy(lsmkv.StrategyReplace)))
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
+		lsmkv.WithCalcCountNetAdditions(true))) // like the real objects bucket
 	return store
 }
 

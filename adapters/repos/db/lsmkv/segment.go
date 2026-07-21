@@ -75,10 +75,9 @@ type Segment interface {
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
-	// scanNodeRanges visits the primary index over key range [start,end) (nil =
-	// open-ended) in key order, yielding each node's byte range without reading
-	// any value bytes.
-	scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error
+	// underlyingSegment loads the segment if necessary and returns it, for read
+	// paths that need direct access (e.g. targeted scans slicing mmapped contents).
+	underlyingSegment() *segment
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() roaringsetrange.InnerReader

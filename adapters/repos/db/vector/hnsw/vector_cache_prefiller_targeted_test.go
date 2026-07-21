@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -65,7 +66,19 @@ func newTargetedTestIndex(store *lsmkv.Store, c cache.Cache[float32], id string,
 		logger:            logger,
 		distancerProvider: distancer.NewDotProductProvider(),
 		shardedNodeLocks:  common.NewDefaultShardedRWLocks(),
+		tombstoneLock:     &sync.RWMutex{},
+		tombstones:        map[uint64]struct{}{},
 	}
+}
+
+// prefillTargeted runs the targeted scan directly, bypassing the avg-entry-size
+// routing gate so both the tail path and the small-schema fallback get exercised.
+func prefillTargeted(t *testing.T, h *hnsw, target string) error {
+	t.Helper()
+	bucket := h.store.Bucket(helpers.ObjectsBucketLSM)
+	return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+		return h.scanObjectVectorsTargeted(ctx, bucket, target, onVector)
+	})
 }
 
 // TestPrefillCacheTargetedEndToEnd runs the targeted-read prefill against
@@ -83,8 +96,6 @@ func TestPrefillCacheTargetedEndToEnd(t *testing.T) {
 
 	for _, pl := range payloads {
 		t.Run(pl.name, func(t *testing.T) {
-			t.Setenv("HNSW_PREFILL_TARGETED_READS", "true")
-
 			store := newTestObjectsStore(t)
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
@@ -125,6 +136,10 @@ func TestPrefillCacheTargetedEndToEnd(t *testing.T) {
 			live[40] = true
 			putTargetedObject(t, bucket, 50, 50, pl.payload, nil, map[string][]float32{"custom": {5, 5}})
 
+			// doc 20 is HNSW-tombstoned but not yet cleaned up: its node is still
+			// non-nil, so only the tombstone filter can exclude its segment-1 row
+			delete(exp, 20)
+
 			logger, _ := test.NewNullLogger()
 			mustHit := func(_ context.Context, id uint64) ([]float32, error) {
 				return nil, fmt.Errorf("unexpected cache miss for id %d", id)
@@ -133,7 +148,8 @@ func TestPrefillCacheTargetedEndToEnd(t *testing.T) {
 			c.Grow(101)
 
 			h := newTargetedTestIndex(store, c, "vectors_custom", live, 101)
-			require.NoError(t, h.prefillCacheParallel(context.Background()))
+			h.tombstones[20] = struct{}{}
+			require.NoError(t, prefillTargeted(t, h, "custom"))
 
 			requireCacheContains(t, c, exp)
 		})
@@ -221,4 +237,31 @@ func TestPrefillCacheTargetedMatchesCursorScan(t *testing.T) {
 	}
 
 	require.Equal(t, run("false"), run("true"))
+}
+
+// TestUseTargetedPrefillScanGate: the env flag alone is not enough — small-entry
+// buckets stay on the cursor scan, where targeted reads would only add index-walk
+// overhead.
+func TestUseTargetedPrefillScanGate(t *testing.T) {
+	build := func(n uint64, payload int) *lsmkv.Bucket {
+		store := newTestObjectsStore(t)
+		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+		for i := uint64(0); i < n; i++ {
+			putTargetedObject(t, bucket, i, i, payload, nil, map[string][]float32{"custom": {1, 2}})
+		}
+		require.NoError(t, bucket.FlushAndSwitch())
+		return bucket
+	}
+	// enough entries that per-segment fixed overhead does not dominate the average
+	small := build(200, 100)
+	large := build(20, 16<<10)
+
+	h := newTargetedTestIndex(nil, nil, "vectors_custom", nil, 0)
+
+	t.Setenv("HNSW_PREFILL_TARGETED_READS", "true")
+	require.False(t, h.useTargetedPrefillScan(small))
+	require.True(t, h.useTargetedPrefillScan(large))
+
+	t.Setenv("HNSW_PREFILL_TARGETED_READS", "false")
+	require.False(t, h.useTargetedPrefillScan(large))
 }

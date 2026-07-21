@@ -24,18 +24,10 @@ import (
 // too short to determine the offset (large legacy vector or long class name) and the
 // caller must fall back to reading the whole value.
 func VectorTailOffsetFromPeek(peek []byte) (tailStart uint64, schemaLen uint32, ok bool, err error) {
-	if len(peek) == 0 {
-		return 0, 0, false, fmt.Errorf("empty value")
+	pos, ok, err := legacyVectorEnd(peek)
+	if err != nil || !ok {
+		return 0, 0, ok, err
 	}
-	if version := peek[0]; version != 1 {
-		return 0, 0, false, fmt.Errorf("unsupported marshaller version %d", version)
-	}
-	if len(peek) < marshallerV1HeaderLen+2 {
-		return 0, 0, false, nil
-	}
-
-	vecLen := binary.LittleEndian.Uint16(peek[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
-	pos := marshallerV1HeaderLen + 2 + int(vecLen)*4
 	if pos+2 > len(peek) {
 		return 0, 0, false, nil
 	}
@@ -50,11 +42,10 @@ func VectorTailOffsetFromPeek(peek []byte) (tailStart uint64, schemaLen uint32, 
 	return uint64(pos) + 4 + uint64(schemaLen), schemaLen, true, nil
 }
 
-// LegacyVectorPrefixLen returns how many leading value bytes hold the legacy
-// (unnamed) vector — header, length prefix, and floats — so a reader holding that
-// prefix can decode it with VectorFromBinary. ok=false when peek cannot reach the
+// legacyVectorEnd returns the value offset just past the legacy-vector section
+// (fixed header + length prefix + floats); ok=false when peek cannot reach the
 // length field.
-func LegacyVectorPrefixLen(peek []byte) (need uint64, ok bool, err error) {
+func legacyVectorEnd(peek []byte) (pos int, ok bool, err error) {
 	if len(peek) == 0 {
 		return 0, false, fmt.Errorf("empty value")
 	}
@@ -65,7 +56,16 @@ func LegacyVectorPrefixLen(peek []byte) (need uint64, ok bool, err error) {
 		return 0, false, nil
 	}
 	vecLen := binary.LittleEndian.Uint16(peek[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
-	return uint64(marshallerV1HeaderLen) + 2 + uint64(vecLen)*4, true, nil
+	return marshallerV1HeaderLen + 2 + int(vecLen)*4, true, nil
+}
+
+// LegacyVectorPrefixLen returns how many leading value bytes hold the legacy
+// (unnamed) vector — header, length prefix, and floats — so a reader holding that
+// prefix can decode it with VectorFromBinary. ok=false when peek cannot reach the
+// length field.
+func LegacyVectorPrefixLen(peek []byte) (need uint64, ok bool, err error) {
+	pos, ok, err := legacyVectorEnd(peek)
+	return uint64(pos), ok, err
 }
 
 // VectorFromTail extracts one named target vector from value[tailStart:] bytes,

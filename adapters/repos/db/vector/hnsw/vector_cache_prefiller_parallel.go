@@ -120,7 +120,7 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	}
 
 	targetVector := h.getTargetVector()
-	if prefillTargetedReadsEnabled() {
+	if h.useTargetedPrefillScan(bucket) {
 		return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
 			return h.scanObjectVectorsTargeted(ctx, bucket, targetVector, onVector)
 		})

@@ -18,9 +18,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"sort"
-	"sync"
-	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -38,15 +35,15 @@ type TargetedScanEntry struct {
 	// Peek holds the first min(peekSize, ValueSize) bytes of the value.
 	Peek []byte
 
-	seg        Segment // nil for memtable entries
+	seg        *segment // nil for memtable entries
 	valueStart uint64
 	value      []byte // memtable entries only
-	buf        []byte // grow-only scratch for ReadRange
+	buf        []byte // grow-only scratch for pread-mode ReadRange
 }
 
-// ReadRange returns value[from:to); to == 0 means ValueSize. The returned slice is
-// backed by a per-entry scratch buffer: it is invalidated by the next ReadRange call
-// as well as by the callback returning.
+// ReadRange returns value[from:to); to == 0 means ValueSize. The returned slice may
+// be backed by a per-entry scratch buffer: it is invalidated by the next ReadRange
+// call as well as by the callback returning.
 func (e *TargetedScanEntry) ReadRange(from, to uint64) ([]byte, error) {
 	if to == 0 {
 		to = e.ValueSize
@@ -56,6 +53,9 @@ func (e *TargetedScanEntry) ReadRange(from, to uint64) ([]byte, error) {
 	}
 	if e.seg == nil {
 		return e.value[from:to], nil
+	}
+	if e.seg.readFromMemory {
+		return e.seg.contents[e.valueStart+from : e.valueStart+to], nil
 	}
 
 	need := to - from
@@ -93,8 +93,9 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 	}
 
 	b.flushLock.RLock()
-	// memtable cursors flatten shallow copies at init, so they stay valid after the
-	// lock is released
+	// memtable cursors flatten node pointers under the memtable lock at init; a
+	// concurrent same-key update reassigns a node's value slice after that, the same
+	// exposure Bucket.Cursor has
 	inMem := []innerCursorReplace{b.active.newCursor()}
 	if b.flushing != nil {
 		inMem = append(inMem, b.flushing.newCursor())
@@ -114,54 +115,22 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 		return nil
 	}
 
-	scanCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	workers := parallel
-	if workers > len(tasks) {
-		workers = len(tasks)
-	}
-	taskCh := make(chan targetedScanTask)
-
-	var (
-		wg       sync.WaitGroup
-		firstErr atomic.Pointer[error]
-	)
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			entry := TargetedScanEntry{buf: make([]byte, 0)}
+	// the wrapper turns worker panics into an error and a context cancel, so a
+	// failing task can never leave this function blocked with pinned segment refs
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
+	eg.SetLimit(parallel)
+	for _, task := range tasks {
+		eg.Go(func() error {
+			var entry TargetedScanEntry
 			head := make([]byte, 9+peekSize)
-			for task := range taskCh {
-				err := scanTargetedSegmentRange(scanCtx, task, peekSize, &entry, head, fn)
-				if err != nil {
-					e := err
-					if firstErr.CompareAndSwap(nil, &e) {
-						cancel()
-					}
-					break
-				}
-			}
-			for range taskCh { // drain so the sender never blocks
-			}
-		}, logger)
+			return scanTargetedSegmentRange(egCtx, task, peekSize, &entry, head, fn)
+		})
 	}
-
-	for _, t := range tasks {
-		taskCh <- t
-	}
-	close(taskCh)
-	wg.Wait()
-
-	if e := firstErr.Load(); e != nil {
-		return *e
-	}
-	return nil
+	return eg.Wait()
 }
 
 type targetedScanTask struct {
-	seg        Segment
+	seg        *segment
 	start, end []byte // key range [start,end); nil = open-ended
 }
 
@@ -174,13 +143,14 @@ func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask
 	rangesPerSeg := (parallel + len(segments) - 1) / len(segments)
 
 	var tasks []targetedScanTask
-	for _, seg := range segments {
+	for _, s := range segments {
+		seg := s.underlyingSegment()
 		seeds := [][]byte{}
 		if rangesPerSeg > 1 {
 			// quantileKeys yields BFS order; ranges need sorted, unique bounds or they
 			// overlap and nodes get visited twice
 			seeds = seg.quantileKeys(rangesPerSeg - 1)
-			sort.Slice(seeds, func(i, j int) bool { return bytes.Compare(seeds[i], seeds[j]) < 0 })
+			slices.SortFunc(seeds, bytes.Compare)
 			seeds = slices.CompactFunc(seeds, bytes.Equal)
 		}
 		if len(seeds) == 0 {
@@ -202,7 +172,7 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 	entry := TargetedScanEntry{}
 	const checkContextEveryN = 1024
 	n := 0
-	k, v, err := c.first()
+	_, v, err := c.first()
 	for {
 		if err != nil {
 			if errors.Is(err, entlsmkv.NotFound) {
@@ -212,8 +182,6 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 				return err
 			}
 			// tombstone: skip
-		} else if k == nil {
-			return nil
 		} else if len(v) > 0 {
 			entry.ValueSize = uint64(len(v))
 			entry.Peek = v[:min(peekSize, len(v))]
@@ -230,7 +198,7 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 				return err
 			}
 		}
-		k, v, err = c.next()
+		_, v, err = c.next()
 	}
 }
 
@@ -250,42 +218,67 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 				return err
 			}
 		}
+		if n.End-n.Start < 9 {
+			return fmt.Errorf("targeted scan: node at %d smaller than its header", n.Start)
+		}
 
-		// one read covers the 9-byte node header (tombstone + value length) plus the
-		// value prefix
-		headEnd := n.Start + uint64(9+peekSize)
-		if headEnd > n.End {
-			headEnd = n.End
+		var peek []byte
+		var valueLen uint64
+		if task.seg.readFromMemory {
+			node := task.seg.contents[n.Start:n.End]
+			if node[0] != 0 { // tombstone: nothing to serve from this segment
+				return nil
+			}
+			valueLen = binary.LittleEndian.Uint64(node[1:9])
+			if valueLen == 0 {
+				return nil
+			}
+			if err := checkNodeValueLen(valueLen, n); err != nil {
+				return err
+			}
+			peekLen := uint64(peekSize)
+			if peekLen > valueLen {
+				peekLen = valueLen
+			}
+			peek = node[9 : 9+peekLen]
+		} else {
+			// one buffered read covers the 9-byte node header (tombstone + value
+			// length) plus the value prefix
+			headEnd := n.Start + uint64(9+peekSize)
+			if headEnd > n.End {
+				headEnd = n.End
+			}
+			r, err := task.seg.newNodeReader(nodeOffset{start: n.Start, end: headEnd}, "TargetedScanPeek")
+			if err != nil {
+				return err
+			}
+			defer r.Release()
+
+			if _, err := io.ReadFull(r, head[:9]); err != nil {
+				return errors.Wrap(err, "targeted scan: read node header")
+			}
+			if head[0] != 0 { // tombstone: nothing to serve from this segment
+				return nil
+			}
+			valueLen = binary.LittleEndian.Uint64(head[1:9])
+			if valueLen == 0 {
+				return nil
+			}
+			if err := checkNodeValueLen(valueLen, n); err != nil {
+				return err
+			}
+			peekLen := uint64(peekSize)
+			if peekLen > valueLen {
+				peekLen = valueLen
+			}
+			if _, err := io.ReadFull(r, head[9:9+peekLen]); err != nil {
+				return errors.Wrap(err, "targeted scan: read value peek")
+			}
+			peek = head[9 : 9+peekLen]
 		}
-		r, err := task.seg.newNodeReader(nodeOffset{start: n.Start, end: headEnd}, "TargetedScanPeek")
-		if err != nil {
-			return err
-		}
-		if _, err := io.ReadFull(r, head[:9]); err != nil {
-			r.Release()
-			return errors.Wrap(err, "targeted scan: read node header")
-		}
-		if head[0] != 0 { // tombstone: nothing to serve from this segment
-			r.Release()
-			return nil
-		}
-		valueLen := binary.LittleEndian.Uint64(head[1:9])
-		if valueLen == 0 {
-			r.Release()
-			return nil
-		}
-		peekLen := uint64(peekSize)
-		if peekLen > valueLen {
-			peekLen = valueLen
-		}
-		if _, err := io.ReadFull(r, head[9:9+peekLen]); err != nil {
-			r.Release()
-			return errors.Wrap(err, "targeted scan: read value peek")
-		}
-		r.Release()
 
 		entry.ValueSize = valueLen
-		entry.Peek = head[9 : 9+peekLen]
+		entry.Peek = peek
 		entry.seg = task.seg
 		entry.valueStart = n.Start + 9
 		entry.value = nil
@@ -293,11 +286,24 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 	})
 }
 
+// checkNodeValueLen rejects a value length that extends past its node — corruption
+// that would otherwise size a huge allocation or slice out of bounds downstream.
+func checkNodeValueLen(valueLen uint64, n segmentNodeRange) error {
+	if valueLen > n.End-n.Start-9 {
+		return fmt.Errorf("targeted scan: node at %d: value length %d exceeds node size %d",
+			n.Start, valueLen, n.End-n.Start)
+	}
+	return nil
+}
+
 // segmentNodeRange is the byte range of one node within a segment, in key order.
 type segmentNodeRange struct {
 	Start, End uint64
 }
 
+// scanNodeRanges visits the primary index over key range [start,end) — nil bounds
+// (not merely empty) are open-ended — in key order, yielding each node's byte range
+// without reading any value bytes.
 func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error {
 	node, err := s.index.Seek(start)
 	for {
@@ -307,7 +313,7 @@ func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) 
 			}
 			return err
 		}
-		if len(end) > 0 && bytes.Compare(node.Key, end) >= 0 {
+		if end != nil && bytes.Compare(node.Key, end) >= 0 {
 			return nil
 		}
 		if err := fn(segmentNodeRange{Start: node.Start, End: node.End}); err != nil {
@@ -317,7 +323,29 @@ func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) 
 	}
 }
 
-func (s *lazySegment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error {
+func (s *segment) underlyingSegment() *segment {
+	return s
+}
+
+func (s *lazySegment) underlyingSegment() *segment {
 	s.mustLoad()
-	return s.segment.scanNodeRanges(start, end, fn)
+	return s.segment
+}
+
+// EstimatedEntrySize is the average on-disk bytes per net entry across flushed
+// segments (file size over net additions); 0 with no flushed entries or when the
+// bucket does not track net additions (see WithCalcCountNetAdditions).
+func (b *Bucket) EstimatedEntrySize() int64 {
+	segments, release := b.disk.getConsistentViewOfSegments()
+	defer release()
+
+	var size, count int64
+	for _, seg := range segments {
+		size += seg.Size()
+		count += int64(seg.getCountNetAdditions())
+	}
+	if count <= 0 {
+		return 0
+	}
+	return size / count
 }
