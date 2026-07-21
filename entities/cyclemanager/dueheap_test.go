@@ -12,6 +12,7 @@
 package cyclemanager
 
 import (
+	"sort"
 	"testing"
 	"time"
 
@@ -19,8 +20,42 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// checkHeapInvariant asserts the min-heap property on the backing array: every
+// parent is due no later than either child.
+func checkHeapInvariant(t *testing.T, h dueHeap) {
+	t.Helper()
+	for i := range h {
+		if left := 2*i + 1; left < len(h) {
+			assert.LessOrEqualf(t, h[i].due, h[left].due,
+				"heap invariant violated: parent %d (due=%d) > left child %d (due=%d)",
+				i, h[i].due, left, h[left].due)
+		}
+		if right := 2*i + 2; right < len(h) {
+			assert.LessOrEqualf(t, h[i].due, h[right].due,
+				"heap invariant violated: parent %d (due=%d) > right child %d (due=%d)",
+				i, h[i].due, right, h[right].due)
+		}
+	}
+}
+
 func TestDueHeap_PopOrder(t *testing.T) {
 	base := time.Now().UnixNano()
+
+	// deepEntries builds n entries with due times scrambled by a fixed LCG, so
+	// push and pop sift through every level of a tall heap.
+	deepEntries := func(n int) []dueEntry {
+		es := make([]dueEntry, n)
+		x := uint64(1)
+		for i := 0; i < n; i++ {
+			x = x*6364136223846793005 + 1442695040888963407
+			es[i] = dueEntry{
+				callbackId: uint32(i),
+				due:        base + int64(x%uint64(n)),
+				schedGen:   uint64(i) + 1,
+			}
+		}
+		return es
+	}
 
 	tests := []struct {
 		name       string
@@ -68,6 +103,10 @@ func TestDueHeap_PopOrder(t *testing.T) {
 			// but their relative order within the tie is unspecified.
 			wantPrefix: []uint32{1, 2},
 		},
+		{
+			name:    "deep sift, 200 entries",
+			entries: deepEntries(200),
+		},
 	}
 
 	for _, tt := range tests {
@@ -75,6 +114,7 @@ func TestDueHeap_PopOrder(t *testing.T) {
 			h := &dueHeap{}
 			for _, e := range tt.entries {
 				h.push(e)
+				checkHeapInvariant(t, *h)
 			}
 
 			var poppedDue []int64
@@ -87,6 +127,7 @@ func TestDueHeap_PopOrder(t *testing.T) {
 
 			for len(*h) > 0 {
 				e := h.pop()
+				checkHeapInvariant(t, *h)
 				poppedDue = append(poppedDue, e.due)
 				poppedIds = append(poppedIds, e.callbackId)
 				poppedSched = append(poppedSched, e.schedGen)
@@ -175,6 +216,7 @@ func TestDueHeap_Compact(t *testing.T) {
 			}
 
 			h.compact(tt.keep)
+			checkHeapInvariant(t, *h)
 
 			gotIds := make([]uint32, 0, len(*h))
 			for _, e := range *h {
@@ -182,7 +224,6 @@ func TestDueHeap_Compact(t *testing.T) {
 			}
 			assert.ElementsMatch(t, tt.wantIds, gotIds, "survivors")
 
-			// The invariant is restored: pops come out in non-decreasing due order.
 			var prev int64 = -1
 			for len(*h) > 0 {
 				e := h.pop()
@@ -191,6 +232,105 @@ func TestDueHeap_Compact(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDueHeap_PushAfterCompact checks that a push onto a just-compacted heap
+// sifts correctly, since compact rebuilds the heap and push assumes a valid one.
+func TestDueHeap_PushAfterCompact(t *testing.T) {
+	base := time.Now().UnixNano()
+	h := &dueHeap{}
+	for i := 0; i < 12; i++ {
+		h.push(dueEntry{callbackId: uint32(i), due: base + int64(i%5)*int64(time.Second), schedGen: 1})
+	}
+
+	h.compact(func(e dueEntry) bool { return e.callbackId%3 == 0 })
+	checkHeapInvariant(t, *h)
+
+	h.push(dueEntry{callbackId: 100, due: base - int64(time.Second), schedGen: 1}) // new minimum
+	checkHeapInvariant(t, *h)
+	h.push(dueEntry{callbackId: 101, due: base + int64(10*time.Second), schedGen: 1}) // new maximum
+	checkHeapInvariant(t, *h)
+
+	require.Equal(t, uint32(100), (*h)[0].callbackId, "new minimum must sift to the root")
+
+	var prev int64 = -1
+	for len(*h) > 0 {
+		e := h.pop()
+		assert.GreaterOrEqual(t, e.due, prev, "pop out of order after compact+push")
+		prev = e.due
+	}
+}
+
+// FuzzDueHeap drives random push/pop/compact sequences, checking after every
+// operation that the heap invariant holds and that the live set matches an
+// independent reference model.
+func FuzzDueHeap(f *testing.F) {
+	f.Add([]byte{0, 5, 1, 3, 2, 0, 0, 7, 1, 9})
+	f.Add([]byte{0, 0, 0, 0, 0, 2, 1, 1, 2, 3, 3, 3})
+
+	f.Fuzz(func(t *testing.T, ops []byte) {
+		h := &dueHeap{}
+		var model []dueEntry // reference multiset of live entries
+		var nextId uint32
+
+		for i := 0; i+1 < len(ops); i += 2 {
+			switch ops[i] % 3 {
+			case 0: // push
+				e := dueEntry{callbackId: nextId, due: int64(ops[i+1]), schedGen: 1}
+				nextId++
+				h.push(e)
+				model = append(model, e)
+			case 1: // pop (min due)
+				if len(model) == 0 {
+					continue
+				}
+				got := h.pop()
+				// Ties may resolve to any entry sharing the min due, so match on
+				// due rather than identity.
+				minDue := model[0].due
+				for _, e := range model {
+					if e.due < minDue {
+						minDue = e.due
+					}
+				}
+				require.Equal(t, minDue, got.due, "pop did not return the minimum due")
+				removed := false
+				for j, e := range model {
+					if e == got {
+						model = append(model[:j], model[j+1:]...)
+						removed = true
+						break
+					}
+				}
+				require.True(t, removed, "popped an entry not in the model")
+			case 2: // compact: keep entries with even due
+				keep := func(e dueEntry) bool { return e.due%2 == 0 }
+				h.compact(keep)
+				kept := model[:0]
+				for _, e := range model {
+					if keep(e) {
+						kept = append(kept, e)
+					}
+				}
+				model = kept
+			}
+
+			checkHeapInvariant(t, *h)
+			require.Equal(t, len(model), len(*h), "heap size diverged from model")
+		}
+
+		// Final drain must equal the model sorted by due.
+		wantDue := make([]int64, len(model))
+		for i, e := range model {
+			wantDue[i] = e.due
+		}
+		sort.Slice(wantDue, func(i, j int) bool { return wantDue[i] < wantDue[j] })
+		gotDue := make([]int64, 0, len(*h))
+		for len(*h) > 0 {
+			gotDue = append(gotDue, h.pop().due)
+		}
+		require.Equal(t, wantDue, gotDue, "final drain order")
+	})
 }
 
 func TestComputeNextDue(t *testing.T) {
