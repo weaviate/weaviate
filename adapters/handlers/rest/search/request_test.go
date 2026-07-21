@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -605,10 +606,13 @@ func TestBm25KeywordRanking(t *testing.T) {
 	})
 }
 
-// TestBm25QueryProperties pins the gRPC-parity property handling: names pass
-// through with their first letter lowercased, and a "^boost" suffix is not
-// interpreted here — the searcher parses it.
-func TestBm25QueryProperties(t *testing.T) {
+// assertQueryPropertiesParsing runs the gRPC-parity property-handling
+// contract shared by the keyword endpoints (first letter lowercased,
+// "^boost" passes through to the searcher) against one endpoint's builder.
+func assertQueryPropertiesParsing(t *testing.T,
+	build func(*testing.T, *models.Class, string) (*fakeSearcher, *APIError),
+	props func(dto.GetParams) []string,
+) {
 	tests := []struct {
 		name string
 		body string
@@ -626,14 +630,13 @@ func TestBm25QueryProperties(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			searcher, apiErr := buildBm25(t, movieClass(), tt.body)
+			searcher, apiErr := build(t, movieClass(), tt.body)
 			require.Nil(t, apiErr)
-			kw := searcher.lastParams.KeywordRanking
-			require.NotNil(t, kw)
+			got := props(searcher.lastParams)
 			if tt.want == nil {
-				assert.Empty(t, kw.Properties)
+				assert.Empty(t, got)
 			} else {
-				assert.Equal(t, tt.want, kw.Properties)
+				assert.Equal(t, tt.want, got)
 			}
 		})
 	}
@@ -642,9 +645,36 @@ func TestBm25QueryProperties(t *testing.T) {
 		class := movieClass()
 		class.Properties = append(class.Properties,
 			&models.Property{Name: "camelCaseProp", DataType: schema.DataTypeText.PropString()})
-		searcher, apiErr := buildBm25(t, class, `{"query":"space","queryProperties":["CamelCaseProp"]}`)
+		searcher, apiErr := build(t, class, `{"query":"space","queryProperties":["CamelCaseProp"]}`)
 		require.Nil(t, apiErr)
-		assert.Equal(t, []string{"camelCaseProp"}, searcher.lastParams.KeywordRanking.Properties)
+		assert.Equal(t, []string{"camelCaseProp"}, props(searcher.lastParams))
+	})
+}
+
+// assertSharedFieldsFlow drives the SearchCommon fields through one
+// endpoint's builder and asserts they land in dto.GetParams.
+func assertSharedFieldsFlow(t *testing.T,
+	build func(*testing.T, *models.Class, string) (*fakeSearcher, *APIError),
+) {
+	searcher, apiErr := build(t, movieClass(),
+		`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM",`+
+			`"where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980},`+
+			`"returnProperties":["title"]}`)
+	require.Nil(t, apiErr)
+	pagination := searcher.lastParams.Pagination
+	assert.Equal(t, 3, pagination.Limit)
+	assert.Equal(t, 6, pagination.Offset)
+	assert.Equal(t, 2, pagination.Autocut)
+	require.NotNil(t, searcher.lastParams.ReplicationProperties)
+	assert.Equal(t, "QUORUM", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
+	require.NotNil(t, searcher.lastParams.Filters)
+	require.Len(t, searcher.lastParams.Properties, 1)
+	assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
+}
+
+func TestBm25QueryProperties(t *testing.T) {
+	assertQueryPropertiesParsing(t, buildBm25, func(p dto.GetParams) []string {
+		return p.KeywordRanking.Properties
 	})
 }
 
@@ -723,20 +753,7 @@ func TestBm25NeedsNoVectorizer(t *testing.T) {
 // the shared parsers for bm25 exactly as they do for near-text.
 func TestBm25SharedFields(t *testing.T) {
 	t.Run("shared parsers flow through", func(t *testing.T) {
-		searcher, apiErr := buildBm25(t, movieClass(),
-			`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM",`+
-				`"where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980},`+
-				`"returnProperties":["title"]}`)
-		require.Nil(t, apiErr)
-		pagination := searcher.lastParams.Pagination
-		assert.Equal(t, 3, pagination.Limit)
-		assert.Equal(t, 6, pagination.Offset)
-		assert.Equal(t, 2, pagination.Autocut)
-		require.NotNil(t, searcher.lastParams.ReplicationProperties)
-		assert.Equal(t, "QUORUM", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
-		require.NotNil(t, searcher.lastParams.Filters)
-		require.Len(t, searcher.lastParams.Properties, 1)
-		assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
+		assertSharedFieldsFlow(t, buildBm25)
 	})
 
 	t.Run("near-text-only fields are unknown fields and ignored", func(t *testing.T) {
@@ -943,38 +960,10 @@ func TestHybridMaxVectorDistance(t *testing.T) {
 	})
 }
 
-// TestHybridQueryProperties pins the gRPC-parity property handling shared
-// with bm25: names pass through with their first letter lowercased, and a
-// "^boost" suffix is not interpreted here — the searcher parses it.
 func TestHybridQueryProperties(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-		want []string
-	}{
-		{"pass through", `{"query":"space","queryProperties":["title"]}`, []string{"title"}},
-		{"boost suffix passes through", `{"query":"space","queryProperties":["title^2"]}`, []string{"title^2"}},
-		{
-			"first letter lowercased (gRPC parity)",
-			`{"query":"space","queryProperties":["Title^2","Year"]}`,
-			[]string{"title^2", "year"},
-		},
-		{"omitted searches all searchable properties", `{"query":"space"}`, nil},
-		{"empty searches all searchable properties", `{"query":"space","queryProperties":[]}`, nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			searcher, apiErr := buildHybrid(t, movieClass(), tt.body)
-			require.Nil(t, apiErr)
-			hybrid := searcher.lastParams.HybridSearch
-			require.NotNil(t, hybrid)
-			if tt.want == nil {
-				assert.Empty(t, hybrid.Properties)
-			} else {
-				assert.Equal(t, tt.want, hybrid.Properties)
-			}
-		})
-	}
+	assertQueryPropertiesParsing(t, buildHybrid, func(p dto.GetParams) []string {
+		return p.HybridSearch.Properties
+	})
 }
 
 // TestHybridVectorizerOnlyAboveAlphaZero: the vector leg is skipped entirely
@@ -1112,24 +1101,8 @@ func TestHybridReturnMetadata(t *testing.T) {
 	})
 }
 
-// TestHybridSharedFields smoke-tests that the SearchCommon fields flow
-// through the shared parsers for hybrid exactly as they do for near-text and
-// bm25.
 func TestHybridSharedFields(t *testing.T) {
-	searcher, apiErr := buildHybrid(t, movieClass(),
-		`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM",`+
-			`"where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980},`+
-			`"returnProperties":["title"]}`)
-	require.Nil(t, apiErr)
-	pagination := searcher.lastParams.Pagination
-	assert.Equal(t, 3, pagination.Limit)
-	assert.Equal(t, 6, pagination.Offset)
-	assert.Equal(t, 2, pagination.Autocut)
-	require.NotNil(t, searcher.lastParams.ReplicationProperties)
-	assert.Equal(t, "QUORUM", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
-	require.NotNil(t, searcher.lastParams.Filters)
-	require.Len(t, searcher.lastParams.Properties, 1)
-	assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
+	assertSharedFieldsFlow(t, buildHybrid)
 }
 
 func TestParseConsistencyLevel(t *testing.T) {
