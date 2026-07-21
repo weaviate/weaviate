@@ -258,14 +258,26 @@ func (h *Handler) buildHybridParams(class *models.Class, className string, body 
 	return out, nil
 }
 
+const errQueryEmpty = "query must not be empty"
+
+// requireNonEmptyQuery guards the keyword endpoints' plain-string query: an
+// absent (or null) query is swagger's required 422 at bind; the explicit
+// empty string is this 400.
+func requireNonEmptyQuery(query *string) *APIError {
+	if query == nil || *query == "" {
+		return newAPIError(http.StatusBadRequest, errQueryEmpty)
+	}
+	return nil
+}
+
 // parseHybrid builds the hybrid search params, mirroring the gRPC parser:
 // alpha weights the vector leg, fusionType picks the fusion algorithm,
 // maxVectorDistance is the distance cutoff, queryProperties as in bm25.
 // The vector leg is skipped entirely at alpha 0, so a vectorizer module is
 // only required above 0.
 func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVectors []string) (*searchparams.HybridSearch, *APIError) {
-	if body.Query == nil || *body.Query == "" {
-		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+	if apiErr := requireNonEmptyQuery(body.Query); apiErr != nil {
+		return nil, apiErr
 	}
 
 	alpha := common_filters.DefaultAlpha
@@ -274,6 +286,11 @@ func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVe
 	}
 	if alpha < 0 || alpha > 1 {
 		return nil, newAPIError(http.StatusBadRequest, "alpha should be between 0.0 and 1.0, got %v", alpha)
+	}
+	// the cutoff needs the query vector, which alpha 0 never computes (the
+	// vector leg is skipped entirely) — it would be silently ignored
+	if body.MaxVectorDistance != nil && alpha == 0 {
+		return nil, newAPIError(http.StatusBadRequest, "maxVectorDistance requires alpha > 0")
 	}
 
 	fusion := common_filters.HybridFusionDefault
@@ -313,8 +330,8 @@ func parseHybrid(class *models.Class, body *models.SearchHybridRequest, targetVe
 // parseBm25 builds the keyword-ranking params, mirroring the gRPC parser:
 // first letter lowercased, "^boost" suffixes pass through to the searcher.
 func parseBm25(body *models.SearchBm25Request, explainScore bool) (*searchparams.KeywordRanking, *APIError) {
-	if body.Query == nil || *body.Query == "" {
-		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+	if apiErr := requireNonEmptyQuery(body.Query); apiErr != nil {
+		return nil, apiErr
 	}
 	return &searchparams.KeywordRanking{
 		Type:                   "bm25",
@@ -461,11 +478,11 @@ func parseNearText(class *models.Class, body *models.SearchNearTextRequest, targ
 // swagger's required validation, leaving empty-array/empty-concept here.
 func parseQuery(query []string) ([]string, *APIError) {
 	if len(query) == 0 {
-		return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+		return nil, newAPIError(http.StatusBadRequest, errQueryEmpty)
 	}
 	for _, concept := range query {
 		if concept == "" {
-			return nil, newAPIError(http.StatusBadRequest, "query must not be empty")
+			return nil, newAPIError(http.StatusBadRequest, errQueryEmpty)
 		}
 	}
 	return query, nil

@@ -958,6 +958,21 @@ func TestHybridMaxVectorDistance(t *testing.T) {
 		require.Nil(t, apiErr)
 		assert.False(t, searcher.lastParams.HybridSearch.WithDistance)
 	})
+
+	t.Run("alpha 0 rejects the cutoff", func(t *testing.T) {
+		// at alpha 0 the vector leg never runs, so the cutoff would be
+		// silently ignored rather than applied
+		_, apiErr := buildHybrid(t, movieClass(), `{"query":"space","alpha":0,"maxVectorDistance":0.4}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "maxVectorDistance requires alpha > 0")
+	})
+
+	t.Run("any alpha above 0 accepts the cutoff", func(t *testing.T) {
+		searcher, apiErr := buildHybrid(t, movieClass(), `{"query":"space","alpha":0.5,"maxVectorDistance":0.4}`)
+		require.Nil(t, apiErr)
+		assert.True(t, searcher.lastParams.HybridSearch.WithDistance)
+	})
 }
 
 func TestHybridQueryProperties(t *testing.T) {
