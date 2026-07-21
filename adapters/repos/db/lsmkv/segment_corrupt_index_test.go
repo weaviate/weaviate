@@ -185,3 +185,60 @@ func TestSegment_CorruptSecondaryIndicesCount_PastSegmentLength(t *testing.T) {
 	require.Error(t, err, "reopening with a corrupt-large SecondaryIndices count must fail loudly, not panic")
 	require.Contains(t, err.Error(), "corrupt segment header")
 }
+
+// TestSegment_CorruptIndexStart_BoundaryAroundSegmentLength pins
+// weaviate/weaviate#12280 F1 (QA Claude round 2): ValidateIndexBounds uses
+// '>' against the segment's actual length, so IndexStart == length passes
+// it, leaving an empty primary index that ValidateRootInBounds's
+// len(t.data)==0 short-circuit treats as a legitimate empty segment -
+// silent data loss one boundary past the already-fixed shape 4. Sweeps all
+// three neighbors of the boundary on a real flushed sec=0 segment.
+func TestSegment_CorruptIndexStart_BoundaryAroundSegmentLength(t *testing.T) {
+	tests := []struct {
+		name          string
+		offset        int64 // relative to the segment's actual length
+		wantErrSubstr string
+	}{
+		// A 1-byte "index" is too short to hold even one node's fixed
+		// overhead, so this is caught by DiskTree's own node-read bounds
+		// check (via ValidateRootInBounds), not ValidateIndexBounds/
+		// ValidateNonEmptyIndex - a different choke point, already correct
+		// before this round's F1 fix.
+		{name: "one byte before segment end: rejected (truncated index)", offset: -1, wantErrSubstr: "validate primary index"},
+		{name: "exactly at segment end: rejected (empty index, data present)", offset: 0, wantErrSubstr: "corrupt segment header"},
+		{name: "one byte past segment end: rejected (past segment end)", offset: 1, wantErrSubstr: "corrupt segment header"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+			b := createTestBucket(t, ctx, dir, StrategyReplace)
+
+			require.NoError(t, b.Put([]byte("key-000"), []byte("val-000")))
+			require.NoError(t, b.FlushAndSwitch())
+			require.NoError(t, b.Shutdown(ctx))
+
+			target := findSingleDBFile(t, dir)
+			info, err := os.Stat(target)
+			require.NoError(t, err)
+			fileSize := info.Size()
+
+			setIndexStart(t, target, uint64(fileSize+tt.offset))
+
+			sizeAfter, err := os.Stat(target)
+			require.NoError(t, err)
+			require.Equal(t, fileSize, sizeAfter.Size(), "corruption must be size-preserving")
+
+			logger, _ := test.NewNullLogger()
+			opts := []BucketOption{WithStrategy(StrategyReplace)}
+			require.NotPanics(t, func() {
+				_, err = NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			})
+
+			require.Error(t, err, "corrupt IndexStart at this boundary must fail loudly, not open silently empty")
+			require.Contains(t, err.Error(), tt.wantErrSubstr)
+		})
+	}
+}

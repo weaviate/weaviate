@@ -168,3 +168,23 @@ func (h *Header) ValidateIndexBounds(contentsLen uint64) error {
 	}
 	return nil
 }
+
+// ValidateNonEmptyIndex rejects an empty primary index when the header
+// claims the segment holds data (IndexStart > HeaderSize). Every
+// legitimately-written segment keeps at least one index entry once
+// IndexStart moves past the header, even an all-tombstone one, so an empty
+// index at that point is only reachable via corruption - most commonly an
+// off-by-one where IndexStart == the segment's actual length: that passes
+// ValidateIndexBounds (which uses '>', not '>='), but leaves a zero-byte
+// primary index that would otherwise open clean and silently serve empty
+// reads for data that is still intact in the data region.
+func (h *Header) ValidateNonEmptyIndex(primaryIndexLen int) error {
+	if h.IndexStart > uint64(HeaderSize) && primaryIndexLen == 0 {
+		return fmt.Errorf(
+			"corrupt segment header: index start %d is past the header end (%d) but the "+
+				"primary index is empty; segment file is truncated or otherwise corrupted",
+			h.IndexStart, HeaderSize,
+		)
+	}
+	return nil
+}
