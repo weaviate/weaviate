@@ -14,7 +14,9 @@ package rest
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -280,6 +282,24 @@ type schemaLister interface {
 // tenants that were inactive when a task finalized deferred, for markers left by
 // a FAILED task, and for backup restores; without it those wait for a restart.
 const dropVectorReconcileInterval = 15 * time.Minute
+
+// dropVectorReconcileIntervalFromEnv returns the reconcile interval, overridable
+// via DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS (faster marker convergence
+// after restores or tenant activations; each round costs leader reads). Invalid
+// or non-positive values fall back to the default with a warning.
+func dropVectorReconcileIntervalFromEnv(logger logrus.FieldLogger) time.Duration {
+	raw := os.Getenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS")
+	if raw == "" {
+		return dropVectorReconcileInterval
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		logger.Warnf("drop-vector reconcile: invalid DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS %q, using default %s",
+			raw, dropVectorReconcileInterval)
+		return dropVectorReconcileInterval
+	}
+	return time.Duration(seconds) * time.Second
+}
 
 // runDropVectorIndexReconciliation waits (bounded) for the cluster task store to
 // be readable — so submits don't hit an unelected leader — then runs
