@@ -17,12 +17,15 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -343,4 +346,74 @@ func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMoveme
 			}
 		})
 	}
+}
+
+// newDropTestIndex builds a bare Index that is just wired enough to exercise
+// dropShards' unloaded-shard branch (os.RemoveAll fallback) without a full DB.
+func newDropTestIndex(t *testing.T, logger logrus.FieldLogger) *Index {
+	t.Helper()
+	idx := &Index{
+		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("DropTestClass")},
+		logger:           logger,
+		backupLock:       esync.NewKeyRWLocker(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+	}
+	require.NoError(t, os.MkdirAll(idx.path(), 0o755))
+	return idx
+}
+
+// TestIndexDropLocalShard covers the local drop primitive that backs the
+// cancelled-op target teardown, including the nil-deref pin in dropShards'
+// unloaded-shard error branch.
+func TestIndexDropLocalShard(t *testing.T) {
+	t.Run("absent shard is an idempotent no-op", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		idx := newDropTestIndex(t, logger)
+
+		require.NoError(t, idx.DropLocalShard("never-existed"))
+	})
+
+	t.Run("unloaded shard files are actually removed", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		idx := newDropTestIndex(t, logger)
+
+		shardDir := shardPath(idx.path(), "shard1")
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(shardDir, "store.db"), []byte("data"), 0o644))
+
+		require.NoError(t, idx.DropLocalShard("shard1"))
+
+		_, statErr := os.Stat(shardDir)
+		require.True(t, os.IsNotExist(statErr), "target shard dir must be gone after drop, stat err: %v", statErr)
+	})
+
+	t.Run("unloaded shard drop error logs the name, does not panic", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("chmod-based permission denial is a no-op for root")
+		}
+		logger, hook := test.NewNullLogger()
+		idx := newDropTestIndex(t, logger)
+
+		shardDir := shardPath(idx.path(), "shard1")
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+
+		// Deny write/traverse on the index dir so os.RemoveAll(shardDir) fails.
+		require.NoError(t, os.Chmod(idx.path(), 0o000))
+		t.Cleanup(func() { _ = os.Chmod(idx.path(), 0o755) })
+
+		err := idx.DropLocalShard("shard1")
+		require.Error(t, err, "drop must surface the os.RemoveAll failure")
+
+		var sawNamedDropLog bool
+		for _, e := range hook.AllEntries() {
+			require.NotContains(t, e.Message, "Recovered from panic",
+				"dropShards must not panic on the unloaded-shard error branch")
+			if e.Data["action"] == "drop_shard" {
+				require.Equal(t, "shard1", e.Data["shard"],
+					"drop error must be logged against the requested name, not a nil shard")
+				sawNamedDropLog = true
+			}
+		}
+		require.True(t, sawNamedDropLog, "expected a drop_shard error log naming the shard")
+	})
 }

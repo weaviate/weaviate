@@ -2870,6 +2870,13 @@ func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitSh
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
 }
 
+// DropLocalShard removes a single local shard and its on-disk files. It is the
+// local counterpart to LoadLocalShard. Idempotent: dropping an absent or
+// unloaded shard returns nil (dropShards falls back to os.RemoveAll).
+func (i *Index) DropLocalShard(name string) error {
+	return i.dropShards([]string{name})
+}
+
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
@@ -3289,7 +3296,7 @@ func (i *Index) dropShards(names []string) error {
 				// This ensures that we also delete inactive shards/tenants
 				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
 					ec.Add(err)
-					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+					i.logger.WithField("action", "drop_shard").WithField("shard", name).Error(err)
 				}
 			} else {
 				// If shard is loaded use the native primitive to drop it

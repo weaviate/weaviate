@@ -303,11 +303,7 @@ func (st *Store) Apply(l *raft.Log) any {
 			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
 		}
 
-	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD:
-		f = func() {
-			ret.Error = st.schemaManager.SyncShard(&cmd, schemaOnly)
-		}
-
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD: //nolint:staticcheck // deliberate use of the deprecated tombstone type
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
 			// A role can't be upserted into a namespace that's gone or being
