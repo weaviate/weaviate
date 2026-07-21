@@ -23,7 +23,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -40,32 +42,230 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 		}
 
 		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
-		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
-			if err := s.addToPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
-				return errors.Wrap(err, "add indexed property length")
-			}
-		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
-				return errors.Wrap(err, "add indexed null state")
-			}
+		if err := s.writeLengthNullSidecar(prop.Name, docID, prop.Length >= 0, prop.Length, prop.Length == 0,
+			"add indexed property length", "add indexed null state"); err != nil {
+			return err
 		}
 	}
 
 	// add nil properties to the nullstate and property length inverted index
 	for _, nilProperty := range nilProps {
-		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-			if err := s.addToPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
-				return errors.Wrap(err, "add indexed property length")
-			}
+		if err := s.writeLengthNullSidecar(nilProperty.Name, docID, nilProperty.AddToPropertyLength, 0, true,
+			"add indexed property length", "add indexed null state"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// writeLengthNullSidecar writes the property-length and null-state sidecar
+// entries for a single (non-nil or nil) property to the live length/null
+// LSM buckets. Shared by the normal write path (extendInvertedIndicesLSM,
+// unscoped) and the migration backfill path (backfillSidecarsForMigration,
+// scoped to propsInScope).
+//
+// `writeLength` gates the length write independently of `length` itself:
+// the non-nil-property caller gates on `prop.Length >= 0` (properties where
+// a length doesn't make sense, e.g. floats, use a negative sentinel), while
+// the nil-property caller gates on `nilProperty.AddToPropertyLength` and
+// always passes length 0. `lengthErrMsg`/`nullErrMsg` let each caller keep
+// its own error-wrap text.
+func (s *Shard) writeLengthNullSidecar(name string, docID uint64, writeLength bool, length int, isNull bool,
+	lengthErrMsg, nullErrMsg string,
+) error {
+	if s.index.invertedIndexConfig.IndexPropertyLength && writeLength {
+		if err := s.addToPropertyLengthIndex(name, docID, length); err != nil {
+			return errors.Wrap(err, lengthErrMsg)
+		}
+	}
+
+	if s.index.invertedIndexConfig.IndexNullState {
+		if err := s.addToPropertyNullIndex(name, docID, isNull); err != nil {
+			return errors.Wrap(err, nullErrMsg)
+		}
+	}
+
+	return nil
+}
+
+// backfillSidecarsForMigration writes the null-state / property-length
+// sidecar entries that an enable-* runtime migration's backfill loop would
+// otherwise skip for pre-existing objects (weaviate/0-weaviate-issues#322).
+// Mirrors extendInvertedIndicesLSM's gating logic, restricted to
+// propsInScope - the set of properties THIS migration targets.
+//
+// Scoping to propsInScope is load-bearing, not cosmetic: props/nilProps
+// cover every analyzed property on the object, including ones already
+// correctly backfilled before this migration started. Re-writing
+// null/length for those is harmless (RoaringSet Add is idempotent), but
+// re-tallying BM25 stats for them is not - see
+// TestSidecarBackfill_ScopedToMigratingPropOnly.
+//
+// Null/length buckets are the same live buckets the normal write path
+// uses, so writing into them here needs no swap/versioning changes and is
+// safe under the existing pause/resume tick boundary.
+//
+// The BM25 prop-length tally is deliberately NOT updated here. Do not add
+// a per-object TrackProperty call to this loop:
+//  1. This function runs for every generic migration (map->blockmax,
+//     RebuildSearchable, retokenize, ...), not just enable-*.
+//     prop.HasSearchableIndex is true for any property already searchable
+//     before this migration started, so a per-object tally write would
+//     double Sum/Count for those.
+//  2. A per-tick cumulative counter increment is not idempotent like the
+//     RoaringSet writes above - a crash/resume replaying a tick would
+//     double-count, and without an explicit flush a crash right after
+//     migration completion would lose the tally entirely.
+//
+// The tally is instead recomputed once, from scratch, per migrating
+// property whose overlay forces IndexSearchable on, after the migration
+// has fully swapped - see ShardReindexTaskGeneric.completeMigrationOnShard
+// and Shard.recomputeSearchableTallyForProp.
+func (s *Shard) backfillSidecarsForMigration(docID uint64, props []inverted.Property,
+	nilProps []inverted.NilProperty, propsInScope map[string]struct{},
+) error {
+	for _, prop := range props {
+		if _, ok := propsInScope[prop.Name]; !ok {
+			continue
+		}
+		if isMetaCountProperty(prop) || isInternalProperty(prop) {
+			continue
 		}
 
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addToPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
-				return errors.Wrap(err, "add indexed null state")
+		// properties where defining a length does not make sense (floats
+		// etc.) have a negative entry as length - mirrors extendInvertedIndicesLSM.
+		if err := s.writeLengthNullSidecar(prop.Name, docID, prop.Length >= 0, prop.Length, prop.Length == 0,
+			"backfill: add indexed property length", "backfill: add indexed null state"); err != nil {
+			return err
+		}
+	}
+
+	for _, nilProperty := range nilProps {
+		if _, ok := propsInScope[nilProperty.Name]; !ok {
+			continue
+		}
+
+		// Nil properties are never fed to the BM25 tally on the normal
+		// write path either (SetPropertyLengths only iterates `props`,
+		// never `nilprops` - see shard_write_put.go:562) - no tally call
+		// here, matching that behavior exactly.
+		if err := s.writeLengthNullSidecar(nilProperty.Name, docID, nilProperty.AddToPropertyLength, 0, true,
+			"backfill: add indexed property length (nil)", "backfill: add indexed null state (nil)"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// recomputeSearchableTallyForProp rebuilds the BM25 prop-length tally for a
+// single property from scratch by scanning every object on the shard,
+// following the same clear-then-rescan pattern as
+// Migrator.RecountProperties, scoped to one property on one shard.
+//
+// Called once, post-swap, by ShardReindexTaskGeneric.completeMigrationOnShard
+// for a property whose migration overlay forces IndexSearchable on
+// (weaviate/0-weaviate-issues#322). overlay must be the same
+// AnalyzerOverlay the migration used, so objects written before the live
+// schema flag flips still analyze with HasSearchableIndex=true for this
+// property.
+//
+// Idempotent by construction: ResetProperty followed by a full rescan
+// produces the same end state from any crash point. Flushes the tracker to
+// disk before returning.
+//
+// Flushes the objects bucket's memtable before opening the rescan cursor -
+// CursorOnDisk only sees segment-resident data, so an unflushed write
+// would otherwise be invisible to the rescan.
+//
+// Four windows matter for the migrating prop's tally. Windows 1-3 are
+// exactly-once by construction; window 4 is a known, unfixed residual
+// (weaviate/0-weaviate-issues#322):
+//
+//  1. A write reaching this task's double-write callbacks (registered
+//     before backfill, disabled after runtimeSwap) is tallied
+//     incrementally by EnableSearchableStrategy's callbacks - see
+//     trackMigratingPropLength. A property with no other live index never
+//     reaches them for a brand-new value; window 2 covers that write
+//     instead.
+//  2. This function's flush-then-rescan covers every write that landed in
+//     the objects bucket before the flush, regardless of window 1: the
+//     rescan re-derives the value from raw stored JSON, and ResetProperty
+//     first discards any window-1 increment that has ALREADY landed by the
+//     time ResetProperty runs - see window 4 for the case where it hasn't.
+//  3. A write racing strictly between the flush and the cursor open lands
+//     in the new active memtable, not lost, only delayed - any future
+//     invocation (idempotent) converges the tally, e.g. a recovery
+//     re-entry into completeMigrationOnShard.
+//  4. KNOWN RESIDUAL - double-count, not covered by windows 1-3: this
+//     function calls ResetProperty BEFORE FlushAndSwitch, not after. A
+//     writer whose objects-bucket Put lands before the flush below (so the
+//     rescan loop will independently find and TrackProperty it) but whose
+//     OWN window-1 callback TrackProperty call (trackMigratingPropLength)
+//     fires strictly AFTER ResetProperty has already run is counted
+//     TWICE: the reset can't discard an increment that hasn't happened
+//     yet, and the tracker has no way to recognize "this TrackProperty
+//     call is for an object the CURRENT rescan will separately re-derive."
+//     Closing this needs a causality marker (e.g. a per-property epoch
+//     ResetProperty bumps and the callback's TrackProperty call checks)
+//     plumbed through the general, non-migration write path - out of
+//     scope for a migration-local fix. Silent BM25 sum/count inflation,
+//     not data loss; converges on any LATER recompute re-entry (that
+//     invocation's own ResetProperty wipes the inflated value and its
+//     rescan re-derives the correct one) - same "rides a future recompute,
+//     doesn't self-heal without one" character as the empty-value ±1 and
+//     delete-during-recompute-overcount residuals documented on
+//     trackMigratingPropLength. Deterministically pinned (skipped, not
+//     asserted - see the skip message for the exact interleaving) by
+//     inverted.TestJsonShardMetaData_TrackAfterResetDuringRescanDoubleCounts.
+func (s *Shard) recomputeSearchableTallyForProp(ctx context.Context, propName string,
+	overlay map[string]inverted.PropertyOverlay,
+) error {
+	tracker := s.GetPropertyLengthTracker()
+	tracker.ResetProperty(propName)
+
+	objectsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return errors.New("recompute searchable tally: objects bucket not found")
+	}
+	if err := objectsBucket.FlushAndSwitch(); err != nil {
+		return errors.Wrap(err, "recompute searchable tally: flush objects bucket before rescan")
+	}
+	cursor := objectsBucket.CursorOnDisk()
+	defer cursor.Close()
+
+	className := s.index.Config.ClassName.String()
+	addProps := additional.Properties{}
+	propExtraction := storobj.NewPropExtraction().Add(propName)
+
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		if err := ctx.Err(); err != nil {
+			return errors.Wrap(err, "recompute searchable tally")
+		}
+
+		obj, err := storobj.FromBinaryOptionalDisk(v, className, addProps, propExtraction)
+		if err != nil {
+			return errors.Wrap(err, "recompute searchable tally: unmarshal object")
+		}
+
+		props, _, err := s.AnalyzeObjectForMigrationWithOverlay(obj, overlay)
+		if err != nil {
+			return errors.Wrap(err, "recompute searchable tally: analyze object")
+		}
+
+		for _, prop := range props {
+			if prop.Name != propName || !prop.HasSearchableIndex {
+				continue
+			}
+			if err := tracker.TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+				return errors.Wrap(err, "recompute searchable tally: track property")
 			}
 		}
+	}
+
+	if err := tracker.Flush(); err != nil {
+		return errors.Wrap(err, "recompute searchable tally: flush")
 	}
 
 	return nil

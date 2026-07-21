@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -83,6 +84,13 @@ func (s *EnableSearchableStrategy) ShouldProcessProperty(property *inverted.Prop
 	return true
 }
 
+// MakeAddCallback wraps the shared postings mirror with a BM25 prop-length
+// tally track call for the migrating prop, closing the post-swap residual
+// stranding window described in weaviate/0-weaviate-issues#322. See
+// trackMigratingPropLength's godoc for why this is only safe/correct for
+// EnableSearchableStrategy (not RebuildSearchableStrategy, which shares the
+// postings callback but must NOT tally-track - see that strategy's
+// AnalyzerOverlay).
 func (s *EnableSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
@@ -90,9 +98,17 @@ func (s *EnableSearchableStrategy) MakeAddCallback(bucketNamer func(string) stri
 	if forTargetStrategy {
 		swapFallbackNamer = s.SourceBucketName
 	}
-	return blockmaxSearchableAddCallback(bucketNamer, propsByName, swapFallbackNamer)
+	postings := blockmaxSearchableAddCallback(bucketNamer, propsByName, swapFallbackNamer)
+	return func(shard *Shard, docID uint64, property *inverted.Property) error {
+		if err := postings(shard, docID, property); err != nil {
+			return err
+		}
+		return trackMigratingPropLength(shard, propsByName, property)
+	}
 }
 
+// MakeDeleteCallback is the delete-side counterpart of MakeAddCallback -
+// see trackMigratingPropLength / untrackMigratingPropLength.
 func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onDeleteFromPropertyValueIndex {
@@ -100,15 +116,88 @@ func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 	if forTargetStrategy {
 		swapFallbackNamer = s.SourceBucketName
 	}
-	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName, swapFallbackNamer)
+	postings := blockmaxSearchableDeleteCallback(bucketNamer, propsByName, swapFallbackNamer)
+	return func(shard *Shard, docID uint64, property *inverted.Property) error {
+		if err := postings(shard, docID, property); err != nil {
+			return err
+		}
+		return untrackMigratingPropLength(shard, propsByName, property)
+	}
+}
+
+// trackMigratingPropLength / untrackMigratingPropLength feed the BM25
+// prop-length tracker for a property an in-flight EnableSearchableStrategy
+// migration is force-searchable-ing, closing the residual window between
+// Shard.recomputeSearchableTallyForProp's rescan and this task's
+// double-write callbacks being disabled: a write landing in that window
+// would mirror postings into the searchable bucket but never reach avgdl,
+// because SetPropertyLengths only tracks props whose HasSearchableIndex is
+// already true on the live (not-yet-flipped) schema.
+//
+// Gating on propsByName (not property.HasSearchableIndex, which always
+// reflects the live schema) is load-bearing, same reason AnalyzerOverlay
+// forces the flag during backfill.
+//
+// These callbacks only fire for a property that already carries a live
+// filterable/rangeable index (HasAnyInvertedIndex gates AnalyzeObject). A
+// property with no live index at all never reaches them; those writes are
+// covered by recomputeSearchableTallyForProp's flush-then-rescan instead -
+// see that function's godoc for the fuller window picture.
+//
+// Gating on property.Length!=0 (not len(property.Items)!=0) is deliberate:
+// DeltaSkipSearchable (inverted/delta_analyzer.go) can hand these callbacks
+// an ITEM-LEVEL delta rather than the object's full value when the prop
+// also carries another live index, but it always carries the FULL
+// previous/next Length through on both delta entries - except for its
+// synthetic "this side doesn't apply" placeholder, which hard-codes
+// Length:0. Gating on Length!=0 fires on every entry with a real value
+// while skipping exactly the placeholders that would corrupt Count.
+//
+// The tracked magnitude is len(property.Items), not property.Length (a
+// different unit - see the Property godoc): for an in-place edit, items
+// unchanged across the delta cancel out arithmetically, so
+// len(next.Items)-len(prev.Items) == len(toAdd.Items)-len(toDel.Items),
+// matching SetPropertyLengths/subtractPropLengths exactly.
+//
+// untrackMigratingPropLength uses JsonShardMetaData.UnTrackPropertyIfPresent
+// (a single-lock-acquisition presence-check-and-untrack) rather than a
+// separate PropertyTally pre-check + UnTrackProperty, because that
+// composition races Shard.recomputeSearchableTallyForProp's ResetProperty -
+// see UnTrackPropertyIfPresent's own godoc for the TOCTOU this closes.
+func trackMigratingPropLength(shard *Shard, propsByName map[string]struct{}, property *inverted.Property) error {
+	if _, ok := propsByName[property.Name]; !ok {
+		return nil
+	}
+	if property.Length <= 0 {
+		return nil
+	}
+	if err := shard.GetPropertyLengthTracker().TrackProperty(property.Name, float32(len(property.Items))); err != nil {
+		return fmt.Errorf("tracking BM25 tally for migrating prop %q: %w", property.Name, err)
+	}
+	return nil
+}
+
+func untrackMigratingPropLength(shard *Shard, propsByName map[string]struct{}, property *inverted.Property) error {
+	if _, ok := propsByName[property.Name]; !ok {
+		return nil
+	}
+	if property.Length <= 0 {
+		return nil
+	}
+	if _, err := shard.GetPropertyLengthTracker().UnTrackPropertyIfPresent(property.Name, float32(len(property.Items))); err != nil {
+		return fmt.Errorf("untracking BM25 tally for migrating prop %q: %w", property.Name, err)
+	}
+	return nil
 }
 
 // PreReindexHook creates empty blockmax searchable buckets for the targeted
 // properties and marks them as blockmax, so queries route to the new bucket
-// as soon as it exists.
+// as soon as it exists. Null/length buckets are created too - see
+// [EnableFilterableStrategy.PreReindexHook] for why.
 func (s *EnableSearchableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {
+		shard.ensureNullLengthBucketsForMigration(ctx, propName)
 		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 		if shard.store.Bucket(bucketName) == nil {
 			opts := shard.makeDefaultBucketOptions(lsmkv.StrategyInverted)

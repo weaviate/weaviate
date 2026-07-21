@@ -169,6 +169,25 @@ func (t *JsonShardMetaData) Clear() {
 	t.lockFreeFlush()
 }
 
+// ResetProperty zeroes Sum/Count/BucketedData for one property only (unlike
+// Clear()), so a caller can rebuild one property's tally from scratch
+// without discarding the rest. Does not flush - callers recompute then
+// flush once at the end. See Shard.recomputeSearchableTallyForProp.
+func (t *JsonShardMetaData) ResetProperty(propName string) {
+	if t == nil {
+		return
+	}
+	t.Lock()
+	defer t.Unlock()
+	if t.closed {
+		return
+	}
+
+	delete(t.data.SumData, propName)
+	delete(t.data.CountData, propName)
+	delete(t.data.BucketedData, propName)
+}
+
 // Path to the file on disk
 func (t *JsonShardMetaData) FileName() string {
 	if t == nil {
@@ -225,7 +244,9 @@ func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error 
 	return nil
 }
 
-// Removes a value from the tracker
+// Removes a value from the tracker. Presence is checked before any
+// mutation, so a "property not found" error is a clean no-op, never a
+// torn write.
 func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) error {
 	if t == nil {
 		return nil
@@ -242,17 +263,53 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
 		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
+
+	if _, ok := t.data.BucketedData[propName]; !ok {
+		return errors.New("property not found")
+	}
+
+	t.unTrackPropertyLocked(propName, value)
+	return nil
+}
+
+// UnTrackPropertyIfPresent checks presence and removes the value within ONE
+// critical section, unlike a separate PropertyTally+UnTrackProperty
+// composition, which leaves a TOCTOU window for a concurrent ResetProperty
+// to delete the property between the check and the untrack and corrupt
+// Sum/Count. Returns (false, nil) as a clean no-op when absent. See
+// untrackMigratingPropLength for the production caller this closes the
+// race for.
+func (t *JsonShardMetaData) UnTrackPropertyIfPresent(propName string, value float32) (removed bool, err error) {
+	if t == nil {
+		return false, nil
+	}
+
+	t.Lock()
+	defer t.Unlock()
+	if t.closed {
+		return false, fmt.Errorf("tracker is closed")
+	}
+
+	if t.data == nil {
+		return false, nil
+	}
+
+	if _, ok := t.data.BucketedData[propName]; !ok {
+		return false, nil
+	}
+
+	t.unTrackPropertyLocked(propName, value)
+	return true, nil
+}
+
+// unTrackPropertyLocked performs the shared decrement. Callers must already
+// hold t's lock and have verified propName is present in BucketedData.
+func (t *JsonShardMetaData) unTrackPropertyLocked(propName string, value float32) {
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
 
 	bucketId := t.bucketFromValue(value)
-	if _, ok := t.data.BucketedData[propName]; ok {
-		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
-	} else {
-		return errors.New("property not found")
-	}
-
-	return nil
+	t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
 }
 
 // Returns the bucket that the given value belongs to

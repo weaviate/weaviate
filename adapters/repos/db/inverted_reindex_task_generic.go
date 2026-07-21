@@ -618,6 +618,42 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	case rt.IsSwapped():
 		// In-memory swap completed (per-prop dirs renamed); just tidy
 		// backups and finalize.
+		//
+		// Disarm callbacks BEFORE tidying, not after. The callback normally
+		// reachable in this branch is the backup-window double-write
+		// registered by OnAfterLsmInit's rt.IsSwapped()&&!rt.IsTidied()
+		// branch (registerDoubleWriteCallbacks(..., forTargetStrategy=false));
+		// a retry after an IsMerged/IsPrepended run that failed at tidy also
+		// re-enters here with the ingest-window callback (below) still
+		// armed instead, and this disarm handles that case safely too.
+		// The backup-window callback mirrors writes into the backup bucket by name with no
+		// swap fallback: resolveDoubleWriteBucket only returns nil once
+		// the name is gone from the store, and tidyBackupBuckets removes
+		// the on-disk dir WITHOUT unregistering the bucket from the
+		// store first (processOneTidyProp is a bare os.RemoveAll). A
+		// write racing tidyBackupBuckets, or landing after it fails,
+		// therefore still resolves a live *Bucket whose backing files
+		// were just deleted, and the WAL write fails outright
+		// (weaviate/weaviate#12221 finding N1). Disarming here, before
+		// either the removal or a possible tidy error, closes that
+		// window and the tidy-error leak (finding N2) in the same
+		// change: no callback is left to resolve once this line runs.
+		//
+		// The IsMerged/IsPrepended branches below must NOT disarm this
+		// early: OnAfterLsmInit takes them through its other branch,
+		// which registers the ingest-window callback instead
+		// (forTargetStrategy=true, registerDoubleWriteCallbacksFn).
+		// That callback mirrors into t.ingestBucketName with a swap
+		// fallback to the canonical source bucket, so
+		// resolveDoubleWriteBucket always resolves a live bucket;
+		// neither ingestBucketName nor the fallback is ever a target of
+		// tidyBackupBuckets's removal, so no equivalent race exists
+		// there. Those callbacks must instead stay armed until their
+		// own recoverRuntimeSwapBuckets call has fully converged the
+		// on-disk state; disarming before that would stop mirroring
+		// writes into ingest while the swap is still in flight and
+		// lose them.
+		t.disableCallbacks()
 		logger.WithField("props", props).Info("RunSwapOnShard: resuming from swapped state, tidying backups")
 		if err := t.tidyBackupBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery tidy: %w", err)
@@ -649,6 +685,15 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		if err := t.recoverRuntimeSwapBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery swap: %w", err)
 		}
+		// N2 disposition: unlike the IsSwapped branch above, an error here
+		// leaving the ingest-window callback armed past this return is not
+		// a correctness leak. resolveDoubleWriteBucket's swap fallback
+		// means the callback keeps resolving a live bucket (ingest name,
+		// or the canonical source once ingest is gone) regardless of
+		// whether tidyBackupBuckets below succeeds; the worst case is a
+		// redundant mirror write until the next RunSwapOnShard retry
+		// disarms it via finalizeMigrationAfterRecovery's defer, not a
+		// failed write against removed backup segment files.
 		if err := t.tidyBackupBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery tidy after swap: %w", err)
 		}
@@ -670,6 +715,12 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		if err := t.recoverRuntimeSwapBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery swap from prepended: %w", err)
 		}
+		// N2 disposition: same reasoning as the IsMerged branch above; the
+		// callback armed here is the ingest-window one (swap-fallback to
+		// the canonical bucket, never targets what tidyBackupBuckets
+		// removes), so leaving it armed past a tidy error here is a
+		// redundant-mirror inefficiency until the next retry, not a
+		// failed-write leak.
 		if err := t.tidyBackupBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery tidy from prepended: %w", err)
 		}
@@ -787,19 +838,84 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 	return nil
 }
 
-// finalizeMigrationAfterRecovery runs the strategy's OnMigrationComplete
-// hook and trims older on-disk generations. This is the rehydrate-path
-// equivalent of runtimeSwap's final two steps (lines 1103/1124),
-// invoked by the recovery branches in [RunSwapOnShard] which don't go
-// through runtimeSwap.
+// completeMigrationOnShard runs the strategy's OnMigrationComplete hook
+// and, for every migrating property whose AnalyzerOverlay forces
+// IndexSearchable on, recomputes that property's BM25 prop-length tally
+// from scratch (weaviate/0-weaviate-issues#322). Called from all three
+// OnMigrationComplete call sites so the tally is recomputed regardless of
+// which path a shard's migration completes through.
 //
-// Best-effort on trim — failures are logged, not returned, matching
-// the trim policy at the end of runtimeSwap.
+// Gating on AnalyzerOverlay's ForceSearchable (not the live schema's
+// HasSearchableIndex or a hardcoded strategy-type check) targets the
+// migration's own from->to index-shape delta: only a strategy that
+// genuinely adds searchable-ness (currently only EnableSearchableStrategy)
+// ever sets it, so every other strategy correctly never re-triggers the
+// recompute - avoiding the double-count regression a per-object
+// incremental tally write caused for those migrations.
+//
+// Idempotent: recomputeSearchableTallyForProp is a full reset-and-rescan,
+// so invoking this from more than one call site for the same completed
+// migration produces the same end state every time.
+func (t *ShardReindexTaskGeneric) completeMigrationOnShard(ctx context.Context, shard ShardLike, props []string) error {
+	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
+		return err
+	}
+
+	overlay := t.strategy.AnalyzerOverlay(props)
+	if len(overlay) == 0 {
+		return nil
+	}
+
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("unwrapping shard %q for BM25 tally recompute: %w", shard.Name(), err)
+	}
+
+	for _, propName := range props {
+		ov, ok := overlay[propName]
+		if !ok || !ov.ForceSearchable {
+			continue
+		}
+		if err := concreteShard.recomputeSearchableTallyForProp(ctx, propName, overlay); err != nil {
+			return fmt.Errorf("recomputing BM25 tally for prop %q: %w", propName, err)
+		}
+	}
+
+	return nil
+}
+
+// finalizeMigrationAfterRecovery runs completeMigrationOnShard (the
+// strategy's OnMigrationComplete hook plus any BM25 tally recompute) and
+// trims older on-disk generations. This is the rehydrate-path equivalent
+// of runtimeSwap's final two steps (lines 1103/1124), invoked by the
+// recovery branches in [RunSwapOnShard] which don't go through
+// runtimeSwap.
+//
+// Disarms this task instance's double-write callbacks on return, same as
+// runtimeSwap's own defer and for the same reason: OnAfterLsmInit's
+// rt.IsSwapped()&&!rt.IsTidied() branch re-registers the backup-window
+// callback on crash recovery (a previous runtimeSwap crashed between
+// markSwapped and markTidied), but recovery never re-enters runtimeSwap;
+// it converges here instead. Without this, that registration survives past
+// this function's completion and keeps firing on every later write to the
+// migrating prop: trimOlderGenerationsLocked below removes the backup
+// bucket's on-disk directory without unregistering it from the store, so
+// the postings leg dereferences a bucket with no backing segment files
+// (failing the write outright), and the tally leg double-counts against
+// SetPropertyLengths once the cluster-wide schema flip lands
+// (weaviate/0-weaviate-issues#322). Deferred (not called unconditionally
+// inline) so it still runs on the completeMigrationOnShard error path,
+// matching runtimeSwap's "stop touching these buckets regardless of
+// outcome" contract. A harmless no-op when nothing was registered, the
+// common case, since only the crash-recovery branch above ever registers
+// the backup-window callback.
 func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt reindexTracker, props []string,
 ) error {
-	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
+	defer t.disableCallbacks()
+
+	if err := t.completeMigrationOnShard(ctx, shard, props); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
 	t.trimOlderGenerationsLocked(logger, shard, rt, props)
@@ -1371,7 +1487,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 				return zerotime, false, err
 			}
 		}
-		err = t.strategy.OnMigrationComplete(ctx, shard)
+		err = t.completeMigrationOnShard(ctx, shard, props)
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)
 		}
@@ -1444,10 +1560,12 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	store := shard.Store()
 	propExtraction := storobj.NewPropExtraction()
 	bucketsByPropName := map[string]*lsmkv.Bucket{}
+	propsInScope := make(map[string]struct{}, len(props))
 	for _, prop := range props {
 		propExtraction.Add(prop)
 		bucketName := t.reindexBucketName(prop)
 		bucketsByPropName[prop] = store.Bucket(bucketName)
+		propsInScope[prop] = struct{}{}
 	}
 
 	breakCh := make(chan bool, 1)
@@ -1486,6 +1604,18 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	// schema is unchanged; only the analyzer's per-call view is overlaid.
 	schemaOverlay := t.strategy.AnalyzerOverlay(props)
 
+	// concreteShard backfills the null/length sidecar buckets and BM25
+	// tally for pre-existing objects (weaviate/0-weaviate-issues#322) - see
+	// backfillSidecarsForMigration. Resolved once, not per-object. A nil
+	// concreteShard (unsupported shard type) degrades to "sidecar backfill
+	// skipped" rather than failing the whole migration, mirroring
+	// OnTaskCompleted's tolerance pattern for an unwrap failure.
+	concreteShard, unwrapErr := unwrapShard(ctx, shard)
+	if unwrapErr != nil {
+		logger.Warnf("sidecar backfill skipped (shard unwrap failed, value-index backfill unaffected): %v", unwrapErr)
+		concreteShard = nil
+	}
+
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
 		propExtraction, reindexStarted, breakCh, schemaOverlay)
 
@@ -1511,6 +1641,13 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 					}
 				}
 				indexedCount++
+			}
+			if concreteShard != nil && (len(md.props) > 0 || len(md.nilProps) > 0) {
+				if err := concreteShard.backfillSidecarsForMigration(md.docID, md.props, md.nilProps, propsInScope); err != nil {
+					breakCh <- true
+					err = fmt.Errorf("backfilling sidecars for object '%s': %w", md.key.String(), err)
+					return zerotime, false, err
+				}
 			}
 			processedCount++
 			lastProcessedKey = md.key
@@ -1905,8 +2042,10 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).
 	// Per-shard schema-flag flip for blockmax / repair-* strategies.
 	// Either way, runs OUTSIDE the per-shard atomic window because it
-	// doesn't touch bucket pointers.
-	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
+	// doesn't touch bucket pointers. completeMigrationOnShard additionally
+	// recomputes the BM25 tally for any migrating property that adds a
+	// searchable index - see its godoc (weaviate/0-weaviate-issues#322).
+	if err := t.completeMigrationOnShard(ctx, shard, props); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
 
@@ -2733,10 +2872,11 @@ func isSegmentWal(filename string) bool {
 // -----------------------------------------------------------------------------
 
 type migrationData struct {
-	key   indexKey
-	docID uint64
-	props []inverted.Property
-	err   error
+	key      indexKey
+	docID    uint64
+	props    []inverted.Property
+	nilProps []inverted.NilProperty
+	err      error
 }
 
 type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool, schemaOverlay map[string]inverted.PropertyOverlay,
@@ -2790,7 +2930,11 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 				// target inverted-index flag is still false on the live
 				// schema during backfill. It is nil for retokenize / refresh
 				// strategies. See MigrationStrategy.AnalyzerOverlay.
-				props, _, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
+				//
+				// nilProps feeds the sidecar backfill's null-state entries
+				// for properties that are nil on this object - see
+				// backfillSidecarsForMigration (weaviate/0-weaviate-issues#322).
+				props, nilProps, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
 				if err != nil {
 					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
 					break
@@ -2799,7 +2943,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 				if <-breakCh {
 					break
 				}
-				mdCh <- &migrationData{key: ik.Clone(), props: props, docID: obj.DocID}
+				mdCh <- &migrationData{key: ik.Clone(), props: props, nilProps: nilProps, docID: obj.DocID}
 			} else {
 				if <-breakCh {
 					break
