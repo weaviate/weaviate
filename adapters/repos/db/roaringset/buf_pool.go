@@ -252,20 +252,30 @@ type BufPoolFixedSync struct {
 	pool *sync.Pool
 }
 
+// pooledBuf holds a reusable buffer together with a release closure bound to it
+// once, at creation. Get can then return that pre-bound closure instead of
+// allocating a fresh one per call — the closure is amortized across the
+// buffer's whole pool lifetime rather than paid on every Get.
+type pooledBuf struct {
+	buf []byte
+	put func()
+}
+
 func NewBufPoolFixedSync(cap int) *BufPoolFixedSync {
-	return &BufPoolFixedSync{
-		pool: &sync.Pool{
-			New: func() any {
-				buf := make([]byte, 0, cap)
-				return &buf
-			},
+	p := &BufPoolFixedSync{}
+	p.pool = &sync.Pool{
+		New: func() any {
+			pb := &pooledBuf{buf: make([]byte, 0, cap)}
+			pb.put = func() { p.pool.Put(pb) }
+			return pb
 		},
 	}
+	return p
 }
 
 func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
-	ptr := p.pool.Get().(*[]byte)
-	return *ptr, func() { p.pool.Put(ptr) }
+	pb := p.pool.Get().(*pooledBuf)
+	return pb.buf, pb.put
 }
 
 // -----------------------------------------------------------------------------
@@ -273,7 +283,7 @@ func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
 type BufPoolFixedInMemory struct {
 	cap     int
 	limit   int
-	bufsCh  chan *[]byte
+	bufsCh  chan *pooledBuf
 	metrics bufPoolInMemoMetrics
 }
 
@@ -281,28 +291,29 @@ func NewBufPoolFixedInMemory(metrics bufPoolInMemoMetrics, cap int, limit int) *
 	return &BufPoolFixedInMemory{
 		cap:     cap,
 		limit:   limit,
-		bufsCh:  make(chan *[]byte, limit),
+		bufsCh:  make(chan *pooledBuf, limit),
 		metrics: metrics,
 	}
 }
 
 func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
-	var ptr *[]byte
+	var pb *pooledBuf
 	select {
-	case ptr = <-p.bufsCh:
-		buf = *ptr
+	case pb = <-p.bufsCh:
 		p.metrics.bufGot()
 	default:
-		buf = make([]byte, 0, p.cap)
-		ptr = &buf
+		// New buffers bind their release closure once here; reused buffers keep
+		// it, so Get never allocates a fresh closure on the reuse path.
+		pb = &pooledBuf{buf: make([]byte, 0, p.cap)}
+		pb.put = func() { p.put(pb) }
 		p.metrics.bufCreated()
 	}
-	return buf, func() { p.put(ptr) }
+	return pb.buf, pb.put
 }
 
-func (p *BufPoolFixedInMemory) put(ptr *[]byte) bool {
+func (p *BufPoolFixedInMemory) put(pb *pooledBuf) bool {
 	select {
-	case p.bufsCh <- ptr:
+	case p.bufsCh <- pb:
 		p.metrics.bufPut()
 		// successfully returned
 		return true

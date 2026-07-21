@@ -98,11 +98,16 @@ type SegmentGroup struct {
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
-	bm25config                     *schema.BM25Config
-	lazyPropertyLengths            *configRuntime.DynamicValue[bool]
-	writeSegmentInfoIntoFileName   bool
-	writeMetadata                  bool
-	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
+	// bitmapBufPoolFactored wraps bitmapBufPool with a size factor so the first
+	// layer of a multi-segment roaringSetGet gets a buffer with headroom for the
+	// in-place merges of the following layers. Built once at construction rather
+	// than per read (the wrapper is otherwise allocated on every roaringSetGet).
+	bitmapBufPoolFactored        roaringset.BitmapBufPool
+	bm25config                   *schema.BM25Config
+	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
+	writeSegmentInfoIntoFileName bool
+	writeMetadata                bool
+	sequentialAccess             bool // hint kernel for sequential read-ahead (export snapshots)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// averagePropLength caches the live-set property-length sum and count for BM25
@@ -175,6 +180,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sequentialAccess:             cfg.sequentialAccess,
 		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
+		bitmapBufPoolFactored:        roaringset.NewBitmapBufPoolFactorWrapper(b.bitmapBufPool, 1.25),
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
@@ -947,13 +953,12 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 	// noopRelease) is what the defer frees, so a mid-merge disk read error
 	// can't leak the first layer's pooled buffer.
 	acquired := noopRelease
-	// use bigger buffer for first layer, to make space for further merges
-	// with following layers
-	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.25)
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, getErr := segments[i].roaringSetGet(key, bitmapBufPool)
+		// bitmapBufPoolFactored gives the first layer a buffer with headroom for
+		// the in-place merges of the following layers (see field decl).
+		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolFactored)
 		if getErr == nil {
 			out = append(out, layer)
 			acquired = layerRelease
