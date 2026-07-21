@@ -13,10 +13,29 @@ package lsmkv
 
 import (
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
+
+// emptyDeletions is a shared, immutable empty deletions bitmap returned instead
+// of cloning an empty deletions set on every roaringset read. Downstream every
+// consumer only reads a layer's Deletions (as an AndNot operand — see
+// BitmapLayers.Flatten and layer merge), so sharing one instance is safe. Never
+// mutate it.
+var emptyDeletions = sroar.NewBitmap()
+
+// cloneDeletionsToBuf clones del into a pooled buffer, unless del is empty — in
+// which case it returns the shared empty bitmap and a noop release, avoiding a
+// per-read clone (its pooled buffer + bitmap struct) for the common
+// no-tombstone case.
+func cloneDeletionsToBuf(bitmapBufPool roaringset.BitmapBufPool, del *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	if del.IsEmpty() {
+		return emptyDeletions, noopRelease
+	}
+	return bitmapBufPool.CloneToBuf(del)
+}
 
 // returned bitmaps are cloned and safe to mutate
 func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
@@ -42,14 +61,14 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 		if err != nil {
 			return out, noopRelease, err
 		}
-		out.Deletions, releaseDel = bitmapBufPool.CloneToBuf(sn.Deletions())
+		out.Deletions, releaseDel = cloneDeletionsToBuf(bitmapBufPool, sn.Deletions())
 		out.Additions, releaseAdd = bitmapBufPool.CloneToBuf(sn.Additions())
 	} else {
 		sn, release, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool)
 		if err != nil {
 			return out, noopRelease, err
 		}
-		out.Deletions, releaseDel = bitmapBufPool.CloneToBuf(sn.Deletions())
+		out.Deletions, releaseDel = cloneDeletionsToBuf(bitmapBufPool, sn.Deletions())
 		// reuse buffer of entire segment node.
 		// node's data might get overwritten by changes of underlying additions bitmap.
 		// overwrites should be safe, as other data is not used later on
