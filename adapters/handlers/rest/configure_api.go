@@ -955,9 +955,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.DB,
 		appState.SchemaManager,
 		appState.Logger,
-		getTelemetryURL(appState),
-		appState.ServerConfig.Config.TelemetryPushInterval,
-		telemetryEnabled(appState),
+		telemetry.Config{
+			ConsumerURL:          getTelemetryURL(appState),
+			PushInterval:         appState.ServerConfig.Config.TelemetryPushInterval,
+			Enabled:              telemetryEnabled(appState),
+			NodeID:               appState.ServerConfig.Config.Cluster.Hostname,
+			AsyncIndexingEnabled: appState.ServerConfig.Config.AsyncIndexingEnabled,
+			ClusterID:            appState.ClusterService.ClusterID,
+		},
 	)
 
 	var grpcInstrument []grpc.ServerOption
