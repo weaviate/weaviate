@@ -191,8 +191,8 @@ func validateQueryProperties(class *models.Class, queryProperties []string) *API
 }
 
 // checkKeywordSearchable: empty queryProperties over a collection with no
-// searchable property is a 422 here — the engine errors untyped (see the
-// 2026-07-20 design-doc entry). Explicit properties are the searcher's.
+// searchable property is a 422 here — the engine's all-properties expansion
+// errors untyped (a 500). Explicit properties are the searcher's.
 func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIError {
 	if len(queryProperties) > 0 {
 		return nil

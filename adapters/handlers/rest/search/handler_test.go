@@ -655,7 +655,7 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			// a class deleted mid-request, in bm25_searcher's phrasing —
 			// classified 404 by the not-found marker. index.go's twin
 			// ("class ... not found in schema") does not match and stays a
-			// 500: a known residual, see the design doc's residuals list.
+			// 500 (known residual until an ErrClassNotFound sentinel lands).
 			name:       "class deleted mid-request",
 			err:        pkgerrors.Wrap(fmt.Errorf("could not find class Movie in schema"), "explorer: get class"),
 			wantStatus: http.StatusNotFound,
