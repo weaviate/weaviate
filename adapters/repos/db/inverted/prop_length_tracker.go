@@ -185,7 +185,9 @@ func (t *PropertyLengthTracker) UnTrackProperty(propName string, value float32) 
 		page = p
 		relBucketOffset = o
 	} else {
-		return fmt.Errorf("property %v does not exist in OldPropertyLengthTracker", propName)
+		// Never-tracked property: nothing to subtract (see the equivalent
+		// no-op in JsonShardMetaData.UnTrackProperty).
+		return nil
 	}
 
 	bucketOffset := page*4096 + relBucketOffset + t.bucketFromValue(value)*4

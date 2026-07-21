@@ -558,6 +558,43 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	)
 }
 
+// ensureNullLengthBucketsForMigration creates the null/length buckets that
+// initPropertyBuckets skips for an unindexed property. An enable-* migration
+// makes such a property analyzable (force-index overlay, then the live
+// flag), and writes then emit length/null entries for it, which would
+// otherwise fail with a missing-bucket error. Idempotent; errors are logged.
+func (s *Shard) ensureNullLengthBucketsForMigration(ctx context.Context, propName string) {
+	if !s.index.invertedIndexConfig.IndexNullState && !s.index.invertedIndexConfig.IndexPropertyLength {
+		return
+	}
+	class := s.index.getSchema.ReadOnlyClass(s.index.Config.ClassName.String())
+	if class == nil {
+		return
+	}
+	var prop *models.Property
+	for _, p := range class.Properties {
+		if p.Name == propName {
+			prop = p
+			break
+		}
+	}
+	if prop == nil || len(prop.DataType) == 0 {
+		return
+	}
+	if s.index.invertedIndexConfig.IndexNullState {
+		if err := s.createPropertyNullIndex(ctx, prop, s.makeDefaultBucketOptions); err != nil {
+			s.index.logger.WithField("prop", propName).
+				Errorf("ensureNullLengthBucketsForMigration: failed to create null bucket: %v", err)
+		}
+	}
+	if s.index.invertedIndexConfig.IndexPropertyLength {
+		if err := s.createPropertyLengthIndex(ctx, prop, s.makeDefaultBucketOptions); err != nil {
+			s.index.logger.WithField("prop", propName).
+				Errorf("ensureNullLengthBucketsForMigration: failed to create length bucket: %v", err)
+		}
+	}
+}
+
 func (s *Shard) addIDProperty(ctx context.Context) error {
 	if err := s.isReadOnly(); err != nil {
 		return err

@@ -22,7 +22,7 @@ import (
 // full provider+DB+index. Key invariant: the overlay is set only when
 // the per-prop hook fires, never eagerly at wiring time. The all-failed
 // case (orig. Copilot finding, PR https://github.com/weaviate/weaviate/pull/11322 review comment 3254170106)
-// is the subtle one; see [maybeClearTokenizationOverlayOnAllFailed].
+// is the subtle one; see [maybeClearMigrationOverlaysOnAllFailed].
 
 // fireAllPropHooks simulates a swap loop where every prop flipped.
 func fireAllPropHooks(tasks []*ShardReindexTaskGeneric, props []string) int {
@@ -76,11 +76,14 @@ func TestMaybeWirePerPropOverlaySet_FilterableVariant_WiresAndSets(t *testing.T)
 	assert.Equal(t, "word", s.TokenizationFor("name", "field"))
 }
 
-func TestMaybeWirePerPropOverlaySet_NonTokenizationMigration_NoOp(t *testing.T) {
+// TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp covers types with
+// no swap-vs-flip window. enable-* migrations wire the force-index overlay
+// instead; see TestMaybeWirePerPropOverlaySet_EnableMigrations.
+func TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp(t *testing.T) {
 	for _, mt := range []ReindexMigrationType{
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableSearchable,
 		ReindexTypeEnableRangeable,
+		ReindexTypeChangeAlgorithm,
+		ReindexTypeRebuildSearchable,
 	} {
 		t.Run(string(mt), func(t *testing.T) {
 			s := &Shard{}
@@ -91,11 +94,38 @@ func TestMaybeWirePerPropOverlaySet_NonTokenizationMigration_NoOp(t *testing.T) 
 				Properties:         []string{"name"},
 			}
 			require.False(t, maybeWirePerPropOverlaySet(s, payload, tasks),
-				"non-tokenization-changing migration must NOT wire the hook")
+				"migration without a swap-vs-flip analyzer window must NOT wire the hook")
 			assert.Nil(t, tasks[0].onPropSwapped,
-				"no hook should be installed for a non-tokenization migration")
+				"no hook should be installed")
 			assert.Equal(t, "word", s.TokenizationFor("name", "word"),
 				"no overlay set → fall back to live schema")
+		})
+	}
+}
+
+// TestMaybeWirePerPropOverlaySet_EnableMigrations_NoTokenizationOverlay pins
+// that enable-* arms only the force-index overlay; the query-path
+// tokenization overlay stays untouched since enable-* doesn't retokenize an
+// existing index.
+func TestMaybeWirePerPropOverlaySet_EnableMigrations_NoTokenizationOverlay(t *testing.T) {
+	for _, mt := range []ReindexMigrationType{
+		ReindexTypeEnableFilterable,
+		ReindexTypeEnableSearchable,
+	} {
+		t.Run(string(mt), func(t *testing.T) {
+			s := &Shard{}
+			tasks := []*ShardReindexTaskGeneric{{}}
+			payload := &ReindexTaskPayload{
+				MigrationType:      mt,
+				TargetTokenization: "field",
+				Properties:         []string{"name"},
+			}
+			require.True(t, maybeWirePerPropOverlaySet(s, payload, tasks),
+				"enable-* migrations must wire the force-index overlay hook")
+			require.NotNil(t, tasks[0].onPropSwapped)
+			fireAllPropHooks(tasks, payload.Properties)
+			assert.Equal(t, "word", s.TokenizationFor("name", "word"),
+				"enable-* hook must not touch the query-path tokenization overlay")
 		})
 	}
 }
@@ -139,7 +169,7 @@ func TestMaybeWirePerPropOverlaySet_NilTaskInSlice_Skipped(t *testing.T) {
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
 }
 
-func TestMaybeClearTokenizationOverlayOnAllFailed_AllFailed_Clears(t *testing.T) {
+func TestMaybeClearMigrationOverlaysOnAllFailed_AllFailed_Clears(t *testing.T) {
 	// #216 Gap B regression. Under per-prop-atomic wiring the all-failed
 	// path never fires the hook, so the overlay is never set. The
 	// defensive clear is an idempotent backstop that must leave the
@@ -159,7 +189,7 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_AllFailed_Clears(t *testing.T)
 		"all-failed: overlay must not have been set (no flip → no hook)")
 
 	const anySwapped = false
-	require.True(t, maybeClearTokenizationOverlayOnAllFailed(s, payload, wasSet, anySwapped),
+	require.True(t, maybeClearMigrationOverlaysOnAllFailed(s, payload, wasSet, anySwapped),
 		"defensive clear must apply when wasSet=true and anySwapped=false")
 
 	assert.Equal(t, "word", s.TokenizationFor("name", "word"),
@@ -167,7 +197,7 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_AllFailed_Clears(t *testing.T)
 	assert.Equal(t, "word", s.TokenizationFor("description", "word"))
 }
 
-func TestMaybeClearTokenizationOverlayOnAllFailed_AnySwapped_NoOp(t *testing.T) {
+func TestMaybeClearMigrationOverlaysOnAllFailed_AnySwapped_NoOp(t *testing.T) {
 	// Partial success path: at least one per-task swap returned nil
 	// → at least one bucket pointer flipped → its hook fired and set
 	// the overlay. The overlay must STAY set so the swapped index
@@ -183,14 +213,14 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_AnySwapped_NoOp(t *testing.T) 
 	fireAllPropHooks(tasks, payload.Properties) // a swap succeeded → hook fired
 
 	const wasSet, anySwapped = true, true
-	require.False(t, maybeClearTokenizationOverlayOnAllFailed(s, payload, wasSet, anySwapped),
+	require.False(t, maybeClearMigrationOverlaysOnAllFailed(s, payload, wasSet, anySwapped),
 		"clear must NOT apply when at least one swap succeeded")
 
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"),
 		"partial-success path: overlay must remain set")
 }
 
-func TestMaybeClearTokenizationOverlayOnAllFailed_WasNotSet_NoOp(t *testing.T) {
+func TestMaybeClearMigrationOverlaysOnAllFailed_WasNotSet_NoOp(t *testing.T) {
 	// Symmetric to the wiring helper's no-op cases (non-tokenization
 	// migrations, empty target): if wiring was skipped, CLEAR must also
 	// be a no-op regardless of anySwapped — there's nothing to clear.
@@ -201,14 +231,14 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_WasNotSet_NoOp(t *testing.T) {
 	}
 
 	for _, anySwapped := range []bool{true, false} {
-		require.False(t, maybeClearTokenizationOverlayOnAllFailed(s, payload, false, anySwapped),
+		require.False(t, maybeClearMigrationOverlaysOnAllFailed(s, payload, false, anySwapped),
 			"wasSet=false: clear must be a no-op (anySwapped=%v)", anySwapped)
 	}
 }
 
-func TestMaybeClearTokenizationOverlayOnAllFailed_NilInputs_NoOp(t *testing.T) {
-	require.False(t, maybeClearTokenizationOverlayOnAllFailed(nil, &ReindexTaskPayload{}, true, false))
-	require.False(t, maybeClearTokenizationOverlayOnAllFailed(&Shard{}, nil, true, false))
+func TestMaybeClearMigrationOverlaysOnAllFailed_NilInputs_NoOp(t *testing.T) {
+	require.False(t, maybeClearMigrationOverlaysOnAllFailed(nil, &ReindexTaskPayload{}, true, false))
+	require.False(t, maybeClearMigrationOverlaysOnAllFailed(&Shard{}, nil, true, false))
 }
 
 // TestTokenizationOverlay_AllFailedSwap_EndToEndLifecycle pins the
@@ -230,7 +260,7 @@ func TestTokenizationOverlay_AllFailedSwap_EndToEndLifecycle(t *testing.T) {
 	// No flip happens, so the hook never fires.
 	const anySwapped = false
 
-	cleared := maybeClearTokenizationOverlayOnAllFailed(s, payload, wasSet, anySwapped)
+	cleared := maybeClearMigrationOverlaysOnAllFailed(s, payload, wasSet, anySwapped)
 	require.True(t, cleared,
 		"end-to-end: defensive clear must fire on all-failed path")
 
@@ -258,7 +288,7 @@ func TestTokenizationOverlay_AnySwapped_EndToEndLifecycle(t *testing.T) {
 	fireAllPropHooks(tasks, payload.Properties)
 	const anySwapped = true
 
-	cleared := maybeClearTokenizationOverlayOnAllFailed(s, payload, wasSet, anySwapped)
+	cleared := maybeClearMigrationOverlaysOnAllFailed(s, payload, wasSet, anySwapped)
 	require.False(t, cleared,
 		"partial-success path: defensive clear must NOT fire")
 

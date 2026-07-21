@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
@@ -1192,9 +1193,10 @@ func (p *ReindexProvider) runShardSwapPhase(
 	// Wire a per-prop hook rather than setting the overlay once up front;
 	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
-	if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
+	if setUnwrapErr != nil &&
+		(IsTokenizationChangingMigration(payload.MigrationType) || isEnableIndexMigration(payload.MigrationType)) {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Warnf("reindex provider: cannot wire tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
+			Warnf("reindex provider: cannot wire migration overlay — shard unwrap failed; during the SWAPPING window queries may observe stale-tokenization results and writes to enable-* properties may miss the new index: %v", setUnwrapErr)
 	}
 	overlayWasSet := maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
@@ -1214,9 +1216,9 @@ func (p *ReindexProvider) runShardSwapPhase(
 
 	// All swaps failed: tear the overlay back down so the analyzer stops
 	// claiming the new tokenization while buckets still hold old data.
-	if maybeClearTokenizationOverlayOnAllFailed(setShard, payload, overlayWasSet, anySwapped) {
+	if maybeClearMigrationOverlaysOnAllFailed(setShard, payload, overlayWasSet, anySwapped) {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Debug("reindex provider: cleared tokenization overlay — every swap sub-task failed; no bucket pointer was flipped on this shard")
+			Debug("reindex provider: cleared migration overlays — every swap sub-task failed; no bucket pointer was flipped on this shard")
 	}
 
 	if allSwapped {
@@ -1615,21 +1617,26 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 		return fmt.Errorf("schema flip: %w", err)
 	}
 
-	if IsTokenizationChangingMigration(payload.MigrationType) {
+	if IsTokenizationChangingMigration(payload.MigrationType) || isEnableIndexMigration(payload.MigrationType) {
 		className := entschema.ClassName(payload.Collection)
 		if idx := p.db.GetIndex(className); idx != nil {
 			idx.ForEachShard(func(shardName string, sh ShardLike) error {
 				// Unwrap so the clear reaches the concrete shard whose
-				// overlay the set hook populated. On unwrap failure,
-				// TokenizationFor self-clears on the next query.
+				// overlay the set hook populated. On unwrap failure, the
+				// self-clear backstops (TokenizationFor for queries,
+				// SnapshotForceIndexOverlay for writes) take over.
 				concreteShard, err := unwrapShard(ctx, sh)
 				if err != nil {
 					logger.WithField("shard", shardName).
-						Warnf("reindex provider: tokenization overlay clear skipped (unwrap failed); relying on TokenizationFor self-clear: %v", err)
+						Warnf("reindex provider: migration overlay clear skipped (unwrap failed); relying on the overlay self-clear backstops: %v", err)
 					return nil
 				}
+				// Safe to clear eagerly: flipSemanticMigrationSchema waited
+				// for the local FSM apply, so the live schema on this node
+				// already shows the flip.
 				for _, propName := range payload.Properties {
 					concreteShard.ClearTokenizationOverlay(propName)
+					concreteShard.ClearForceIndexOverlay(propName)
 				}
 				return nil
 			})
@@ -1637,6 +1644,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	}
 
 	return nil
+}
+
+// isEnableIndexMigration reports whether the migration arms the per-shard
+// force-index overlay for its post-swap pre-flip window (weaviate/0-weaviate-issues#319).
+func isEnableIndexMigration(mt ReindexMigrationType) bool {
+	return mt == ReindexTypeEnableFilterable || mt == ReindexTypeEnableSearchable
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
@@ -2172,12 +2185,19 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 }
 
 // maybeWirePerPropOverlaySet installs the per-prop onPropSwapped hook
-// on every task of a tokenization-changing migration so the per-shard
-// tokenization overlay is SET atomically with each property's
-// bucket-pointer flip, inside the swap's Phase 2a tight loop. Returns
-// true iff the hook was wired (i.e. this is a tokenization-changing
-// migration with a non-empty target), so the caller can match
-// [maybeClearTokenizationOverlayOnAllFailed]'s clear decision.
+// on every task of a migration that opens a swap-vs-flip window, so the
+// per-shard overlay is SET atomically with each property's
+// bucket-pointer flip, inside the swap's Phase 2a tight loop:
+//
+//   - tokenization-changing migrations wire the tokenization overlay
+//     (read-side alignment, weaviate/0-weaviate-issues#216);
+//   - enable-filterable / enable-searchable wire the force-index overlay
+//     (write-side coverage of the post-swap pre-flip window,
+//     weaviate/0-weaviate-issues#319). enable-searchable also carries the
+//     target tokenization so in-window writes tokenize like the backfill.
+//
+// Returns true iff a hook was wired, so the caller can match
+// [maybeClearMigrationOverlaysOnAllFailed]'s clear decision.
 //
 // Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble
 // (MkdirAll, sentinel stats, prop read) runs between the loop start and
@@ -2190,39 +2210,63 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 	if shard == nil || payload == nil {
 		return false
 	}
-	if !IsTokenizationChangingMigration(payload.MigrationType) {
+	var hook func(propName string)
+	// tokenizationTarget (and swapPropAtomic) is set only for tokenization
+	// migrations: an unset overlay could let a query in the flip-to-set gap
+	// see stale tokenization. enable-* only need a write-side overlay, wired
+	// via onPropSwapped instead, so swapPropAtomic stays nil for them.
+	var tokenizationTarget string
+	switch payload.MigrationType {
+	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
+		if payload.TargetTokenization == "" {
+			return false
+		}
+		tokenizationTarget = payload.TargetTokenization
+		hook = func(propName string) {
+			shard.SetTokenizationOverlay(propName, tokenizationTarget)
+		}
+	case ReindexTypeEnableFilterable:
+		hook = func(propName string) {
+			shard.SetForceIndexOverlay(propName, inverted.PropertyOverlay{ForceFilterable: true})
+		}
+	case ReindexTypeEnableSearchable:
+		target := payload.TargetTokenization
+		hook = func(propName string) {
+			shard.SetForceIndexOverlay(propName, inverted.PropertyOverlay{
+				ForceSearchable: true,
+				Tokenization:    target,
+			})
+		}
+	default:
 		return false
 	}
-	if payload.TargetTokenization == "" {
-		return false
-	}
-	target := payload.TargetTokenization
 	for _, task := range tasks {
 		if task == nil {
 			continue
 		}
 		task := task
-		// onPropSwapped covers the recovery/resume path; the live Phase-2a
-		// loop uses swapPropAtomic (see the field docs on both).
-		task.onPropSwapped = func(propName string) {
-			shard.SetTokenizationOverlay(propName, target)
-		}
-		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
-			rt reindexTracker, propIdx int, propName string,
-		) (*lsmkv.Bucket, error) {
-			return shard.SwapBucketAndSetOverlay(propName, target,
-				func() (*lsmkv.Bucket, error) {
-					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
-				})
+		// onPropSwapped covers the recovery/resume path. Tokenization
+		// migrations also swap live via swapPropAtomic; enable-* migrations
+		// (swapPropAtomic nil) fire onPropSwapped on the live flip too.
+		task.onPropSwapped = hook
+		if tokenizationTarget != "" {
+			task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
+				rt reindexTracker, propIdx int, propName string,
+			) (*lsmkv.Bucket, error) {
+				return shard.SwapBucketAndSetOverlay(propName, tokenizationTarget,
+					func() (*lsmkv.Bucket, error) {
+						return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+					})
+			}
 		}
 	}
 	return true
 }
 
-// maybeClearTokenizationOverlayOnAllFailed is the defensive CLEAR
+// maybeClearMigrationOverlaysOnAllFailed is the defensive CLEAR
 // hook — called by [OnGroupCompleted] AFTER the per-task swap loop
-// on a shard. It clears the per-shard tokenization overlay iff (a)
-// the per-prop overlay hook was wired by
+// on a shard. It clears the per-shard migration overlays (tokenization
+// and force-index) iff (a) the per-prop overlay hook was wired by
 // [maybeWirePerPropOverlaySet] (the `wasSet` argument) AND
 // (b) every per-task swap failed before flipping its bucket pointer
 // (the `anySwapped` argument is false).
@@ -2242,7 +2286,7 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 //
 // Returns true iff the clear was actually applied (for tests +
 // observability).
-func maybeClearTokenizationOverlayOnAllFailed(
+func maybeClearMigrationOverlaysOnAllFailed(
 	shard *Shard, payload *ReindexTaskPayload, wasSet, anySwapped bool,
 ) bool {
 	if shard == nil || payload == nil {
@@ -2253,6 +2297,7 @@ func maybeClearTokenizationOverlayOnAllFailed(
 	}
 	for _, propName := range payload.Properties {
 		shard.ClearTokenizationOverlay(propName)
+		shard.ClearForceIndexOverlay(propName)
 	}
 	return true
 }
