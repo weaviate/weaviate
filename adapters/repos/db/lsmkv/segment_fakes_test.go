@@ -707,3 +707,7 @@ func (c *fakeMapCursor) next() ([]byte, []MapPair, error) {
 func (c *fakeMapCursor) seek(target []byte) ([]byte, []MapPair, error) {
 	panic("not implemented")
 }
+
+func (f *fakeSegment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error {
+	panic("not implemented")
+}

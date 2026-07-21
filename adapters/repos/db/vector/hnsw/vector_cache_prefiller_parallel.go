@@ -119,7 +119,15 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 		return fmt.Errorf("prefill cache: objects bucket %q not found", helpers.ObjectsBucketLSM)
 	}
 
-	return h.prefillFromScan(ctx, bucket, objectsRowDecoder(h.getTargetVector(), h.logger))
+	targetVector := h.getTargetVector()
+	if prefillTargetedReadsEnabled() {
+		return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
+			return h.scanObjectVectorsTargeted(ctx, bucket, targetVector, onVector)
+		})
+	}
+	return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
+		return scanBucketVectorsParallel(ctx, bucket, objectsRowDecoder(targetVector, h.logger), onVector, h.logger)
+	})
 }
 
 // prefillMuveraCacheParallel populates the muvera float32 cache via a parallel cursor
@@ -130,7 +138,9 @@ func (h *hnsw) prefillMuveraCacheParallel(ctx context.Context) error {
 		return fmt.Errorf("prefill cache: muvera bucket %q not found", h.muveraBucketName())
 	}
 
-	return h.prefillFromScan(ctx, bucket, muveraRowDecoder(h.logger))
+	return h.prefillFromScan(ctx, func(ctx context.Context, onVector prefillOnVector) error {
+		return scanBucketVectorsParallel(ctx, bucket, muveraRowDecoder(h.logger), onVector, h.logger)
+	})
 }
 
 // prefillFromScan drives a parallel bucket scan into the cache. PreloadIfAbsent makes
@@ -138,7 +148,9 @@ func (h *hnsw) prefillMuveraCacheParallel(ctx context.Context) error {
 // can repopulate its slot with the pre-delete value — bounded waste, the node itself
 // stays tombstoned. Memory pressure and a full cache abort gracefully (nil error);
 // the remaining vectors load on demand through cache.Get.
-func (h *hnsw) prefillFromScan(ctx context.Context, bucket *lsmkv.Bucket, decode prefillRowDecoder) error {
+func (h *hnsw) prefillFromScan(ctx context.Context,
+	scan func(context.Context, prefillOnVector) error,
+) error {
 	before := time.Now()
 
 	h.RLock()
@@ -178,7 +190,7 @@ func (h *hnsw) prefillFromScan(ctx context.Context, bucket *lsmkv.Bucket, decode
 		"index_id": h.id,
 	})
 
-	if err := scanBucketVectorsParallel(ctx, bucket, decode, onVector, h.logger); err != nil {
+	if err := scan(ctx, onVector); err != nil {
 		switch {
 		case errors.Is(err, errPrefillMemoryPressure), errors.Is(err, errPrefillCacheFull):
 			entry.WithField("count", loaded.Load()).
@@ -246,18 +258,23 @@ func muveraRowDecoder(logger logrus.FieldLogger) prefillRowDecoder {
 	}
 }
 
-// scanBucketVectorsParallel scans a replace-strategy bucket across GOMAXPROCS cursors
-// over disjoint key ranges.
-func scanBucketVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket,
-	decode prefillRowDecoder, onVector prefillOnVector, logger logrus.FieldLogger,
-) error {
-	// 2x oversubscription: while one cursor blocks on a disk read another keeps a
-	// core busy decoding — the IO-bound default used across the vector package.
+// prefillScanParallelism is 2x GOMAXPROCS: while one reader blocks on disk another
+// keeps a core busy decoding — the IO-bound default used across the vector package.
+func prefillScanParallelism() int {
 	const cursorsPerProc = 2
 	parallel := cursorsPerProc * runtime.GOMAXPROCS(0)
 	if parallel < 1 {
 		parallel = 1
 	}
+	return parallel
+}
+
+// scanBucketVectorsParallel scans a replace-strategy bucket across GOMAXPROCS cursors
+// over disjoint key ranges.
+func scanBucketVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket,
+	decode prefillRowDecoder, onVector prefillOnVector, logger logrus.FieldLogger,
+) error {
+	parallel := prefillScanParallelism()
 
 	// n-1 seeds yield n ranges: [first,seeds[0]), interiors, [seeds[last],end).
 	seeds := bucket.QuantileKeys(parallel - 1)
