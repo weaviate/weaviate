@@ -20,9 +20,11 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
@@ -940,6 +942,84 @@ func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAf
 		}
 	}
 	return late
+}
+
+// awaitRangeCountSettledNoFallback polls until the range count converges,
+// then asserts the disk-fallback WARN never appeared in the container logs.
+func awaitRangeCountSettledNoFallback(
+	ctx context.Context, t *testing.T,
+	container interface {
+		Logs(context.Context) (io.ReadCloser, error)
+	},
+	restURI, className string, lo, hi, expected int,
+	countFailMsgFmt string, countFailArg interface{},
+	warnFailMsg string,
+) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		c, e := rangeCount(restURI, className, "score", lo, hi)
+		return e == nil && c == expected
+	}, 60*time.Second, 200*time.Millisecond, countFailMsgFmt, countFailArg)
+
+	for i := 0; i < 5; i++ {
+		_, _ = rangeCount(restURI, className, "score", lo, hi)
+	}
+	time.Sleep(2 * time.Second) // let the container flush stdout
+
+	assert.Zero(t, countInLogs(ctx, t, container, fallbackWARNSubstr), warnFailMsg)
+}
+
+// rangeCountProbeCounters aggregates the results of a background polling
+// loop started by startRangeCountPolling.
+type rangeCountProbeCounters struct {
+	wrongCounts atomic.Int64
+	queryRuns   atomic.Int64
+	queryErrors atomic.Int64
+}
+
+// startRangeCountPolling launches one goroutine per node, firing a
+// range-count query every 50ms until stopCh closes. onWrong/onError run
+// concurrently and must be goroutine-safe.
+func startRangeCountPolling(
+	compose *docker.DockerCompose, className string, lo, hi, expected, nodeCount int,
+	onWrong func(nodeIdx, got int), onError func(nodeIdx int, err error),
+) (counters *rangeCountProbeCounters, stopCh chan struct{}, wg *sync.WaitGroup) {
+	counters = &rangeCountProbeCounters{}
+	stopCh = make(chan struct{})
+	wg = &sync.WaitGroup{}
+	for nodeIdx := 1; nodeIdx <= nodeCount; nodeIdx++ {
+		wg.Add(1)
+		uri := restURIOf(compose, nodeIdx)
+		idx := nodeIdx
+		go func() {
+			defer wg.Done()
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopCh:
+					return
+				case <-ticker.C:
+				}
+				count, err := rangeCount(uri, className, "score", lo, hi)
+				counters.queryRuns.Add(1)
+				if err != nil {
+					counters.queryErrors.Add(1)
+					if onError != nil {
+						onError(idx, err)
+					}
+					continue
+				}
+				if count != expected {
+					counters.wrongCounts.Add(1)
+					if onWrong != nil {
+						onWrong(idx, count)
+					}
+				}
+			}
+		}()
+	}
+	return counters, stopCh, wg
 }
 
 // Pins a false positive: out-of-order partial timestamps must not regress LastPartial.
