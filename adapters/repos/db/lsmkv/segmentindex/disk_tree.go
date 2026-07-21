@@ -30,6 +30,12 @@ const TREE_KEY_STORE_OVERHEAD = 36
 // pretty much useless for anything else
 type DiskTree struct {
 	data []byte
+
+	// dataEnd is the exclusive end of the segment's data region, set once by
+	// SetDataEnd after open-time validation has run. Zero (the default)
+	// disables the upper-bound half of the read-time node sanity check; the
+	// start<=end ordering half always applies regardless.
+	dataEnd uint64
 }
 
 type dtNode struct {
@@ -44,6 +50,30 @@ func NewDiskTree(data []byte) *DiskTree {
 	return &DiskTree{
 		data: data,
 	}
+}
+
+// SetDataEnd records the segment's data region end for the read-time node
+// sanity check (see Get and readNode). Called once, after construction, by
+// the segment open path once the data region is known.
+func (t *DiskTree) SetDataEnd(dataEnd uint64) {
+	t.dataEnd = dataEnd
+}
+
+// validateNodeRange reports whether a node's [start, end) is well-formed:
+// non-inverted, and within the data region when dataEnd is set. A corrupt
+// node with end < start makes every caller's make([]byte, end-start) wrap
+// to a huge uint64 and panic makeslice: len out of range; background
+// readers (compaction, flush, bloom-rebuild, cursors) have no recover
+// barrier for that panic, so this is caught here, once, at the point a
+// node's range is read out of the tree.
+func (t *DiskTree) validateNodeRange(start, end uint64) error {
+	if end < start {
+		return fmt.Errorf("node data range [%d,%d) is inverted", start, end)
+	}
+	if t.dataEnd > 0 && end > t.dataEnd {
+		return fmt.Errorf("node data range [%d,%d) is outside the segment's data region (end %d)", start, end, t.dataEnd)
+	}
+	return nil
 }
 
 func (t *DiskTree) Get(key []byte) (Node, error) {
@@ -63,7 +93,21 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	// pos can be an arbitrary child offset read from possibly corrupt data, so
 	// every read is bounds-checked against dataLen-pos (never pos+n, which would
 	// wrap). Truncated or corrupt data yields NotFound or an error, never a panic.
-	for {
+	//
+	// A legitimate descent visits at most as many nodes as the tree has total
+	// nodes (worst case: a fully degenerate, linked-list-shaped BST). Child
+	// offsets that are individually in-bounds can still form a cycle, which
+	// would otherwise spin this loop forever - and the hung reader holds the
+	// segment-group read view open, so Shutdown and compaction wedge behind
+	// it. maxIterations is a generous, allocation-free upper bound (real
+	// nodes are never smaller than TREE_KEY_STORE_OVERHEAD bytes) that never
+	// cuts off a real walk.
+	maxIterations := dataLen/TREE_KEY_STORE_OVERHEAD + 1
+	for i := uint64(0); ; i++ {
+		if i >= maxIterations {
+			return out, fmt.Errorf("node walk exceeded %d iterations at pos %d; corrupt or cyclic index data", maxIterations, pos)
+		}
+
 		// node layout: [keyLen:4][key:keyLen][start:8][end:8][left:8][right:8].
 		if pos+4 > dataLen || pos+4 < 4 {
 			return out, lsmkv.NotFound
@@ -82,9 +126,14 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 			if avail < 16 { // start + end
 				return out, fmt.Errorf("node value at %d out of range", pos)
 			}
+			start := binary.LittleEndian.Uint64(data[pos:])
+			end := binary.LittleEndian.Uint64(data[pos+8:])
+			if err := t.validateNodeRange(start, end); err != nil {
+				return out, err
+			}
 			out.Key = bytes.Clone(data[pos-keyLen : pos])
-			out.Start = binary.LittleEndian.Uint64(data[pos:])
-			out.End = binary.LittleEndian.Uint64(data[pos+8:])
+			out.Start = start
+			out.End = end
 			return out, nil
 		} else if keyEqual < 0 {
 			if avail < 24 { // start + end + left child
@@ -159,6 +208,9 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 
 	out.startPos = rw.ReadUint64()
 	out.endPos = rw.ReadUint64()
+	if err := t.validateNodeRange(out.startPos, out.endPos); err != nil {
+		return out, int(rw.Position), err
+	}
 	out.leftChild = int64(rw.ReadUint64())
 	out.rightChild = int64(rw.ReadUint64())
 	return out, int(rw.Position), nil
