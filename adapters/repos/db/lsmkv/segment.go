@@ -341,8 +341,22 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		if err != nil {
 			return nil, errors.Wrap(err, "load inverted header")
 		}
+		if err := invertedHeader.ValidateOffsetsInBounds(uint64(len(contents))); err != nil {
+			return nil, fmt.Errorf("validate inverted header: %w", err)
+		}
 		dataStartPos = invertedHeader.KeysOffset
 		dataEndPos = invertedHeader.TombstoneOffset
+
+		// header.ValidateNonEmptyIndex above skips StrategyInverted outright,
+		// since an all-tombstone flush legitimately produces an empty primary
+		// index and the general check can't tell that apart from corruption.
+		// Now that invertedHeader is parsed, this more precise, per-segment
+		// discriminant can run instead: a real (non-tombstone) flush
+		// corrupted to an empty index is still caught, while a genuinely
+		// all-tombstone one is still accepted.
+		if err := invertedHeader.ValidateNonEmptyIndex(contents, len(primaryIndex), header.IndexStart); err != nil {
+			return nil, fmt.Errorf("validate header: %w", err)
+		}
 	}
 
 	// An in-bounds but corrupt IndexStart can silently land the index on the
