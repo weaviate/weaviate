@@ -393,6 +393,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		// prevent accidentally trying to register the same bucket twice
 		return nil, err
 	}
+	// The actual path of the bucket can change, e.g. on delete, without updating the registry. Keep the registered path in the bucket so we can remove it from the registry on shutdown.
 	b.registeredPath = dir
 
 	return b, nil
