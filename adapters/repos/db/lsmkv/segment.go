@@ -288,6 +288,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
+	// ParseHeader only ever sees the fixed-size header, not the file, so the
+	// upper-bound check against the actual segment length can only happen
+	// here, the moment len(contents) is known.
+	if err := header.ValidateIndexBounds(uint64(len(contents))); err != nil {
+		return nil, fmt.Errorf("validate header: %w", err)
+	}
 
 	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
@@ -330,6 +336,17 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 		dataStartPos = invertedHeader.KeysOffset
 		dataEndPos = invertedHeader.TombstoneOffset
+	}
+
+	// A corrupt but in-bounds IndexStart passes ValidateIndexBounds above yet
+	// still lands the index on the wrong bytes (e.g. the data region itself).
+	// DiskTree.Get() tolerates corrupt node data by resolving to NotFound
+	// rather than panicking, so that shape is otherwise silent - a "valid but
+	// wrong" empty-looking index. The root node's own Start/End must fall
+	// within this segment's data region for any legitimately-written segment,
+	// so checking just the root, once, at open time, catches it here instead.
+	if err := primaryDiskIndex.ValidateRootInBounds(dataStartPos, dataEndPos); err != nil {
+		return nil, fmt.Errorf("validate primary index: %w", err)
 	}
 
 	stratLabel := header.Strategy.String()
@@ -392,7 +409,11 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && i == int(seg.secondaryIndexCount-1) {
 				secondary = secondary[:len(secondary)-segmentindex.ChecksumSize]
 			}
-			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
+			secondaryDiskIndex := segmentindex.NewDiskTree(secondary)
+			if err := secondaryDiskIndex.ValidateRootInBounds(dataStartPos, dataEndPos); err != nil {
+				return nil, fmt.Errorf("validate secondary index %d: %w", i, err)
+			}
+			seg.secondaryIndices[i] = secondaryDiskIndex
 		}
 	}
 

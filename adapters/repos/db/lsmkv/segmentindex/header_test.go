@@ -72,6 +72,61 @@ func TestParseHeader_RejectsIndexStartBeforeHeaderEnd(t *testing.T) {
 	})
 }
 
+// TestHeaderValidateIndexBounds_RejectsIndexStartPastContentsLen pins
+// weaviate/weaviate#12280 shape 3: IndexStart past the segment's actual
+// length must be rejected before any slice using it, not left to panic at
+// the first read.
+func TestHeaderValidateIndexBounds_RejectsIndexStartPastContentsLen(t *testing.T) {
+	t.Run("IndexStart one byte past contentsLen", func(t *testing.T) {
+		h := &Header{IndexStart: 101}
+		err := h.ValidateIndexBounds(100)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "corrupt segment header")
+		require.Contains(t, err.Error(), "past the segment end")
+	})
+
+	t.Run("QA Claude's exact repro shape: 622914-byte segment, IndexStart=722914", func(t *testing.T) {
+		h := &Header{IndexStart: 722914}
+		err := h.ValidateIndexBounds(622914)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "corrupt segment header")
+	})
+
+	t.Run("IndexStart exactly at contentsLen (legitimate: index is the last byte range)", func(t *testing.T) {
+		h := &Header{IndexStart: 100}
+		require.NoError(t, h.ValidateIndexBounds(100))
+	})
+
+	t.Run("IndexStart well within contentsLen (ordinary populated segment)", func(t *testing.T) {
+		h := &Header{IndexStart: 100}
+		require.NoError(t, h.ValidateIndexBounds(10_000))
+	})
+}
+
+// TestHeaderValidateIndexBounds_RejectsSecondaryIndexTablePastContentsLen
+// pins weaviate/weaviate#12280 shape 5: a corrupt-large SecondaryIndices
+// count pushing the secondary offset table past the segment's actual
+// length must be rejected, not left to panic reading the offset table.
+func TestHeaderValidateIndexBounds_RejectsSecondaryIndexTablePastContentsLen(t *testing.T) {
+	t.Run("SecondaryIndices count pushes the offset table past contentsLen", func(t *testing.T) {
+		h := &Header{IndexStart: 100, SecondaryIndices: 65535}
+		err := h.ValidateIndexBounds(1000)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "corrupt segment header")
+		require.Contains(t, err.Error(), "secondary index table end")
+	})
+
+	t.Run("legitimate secondary index table fits within contentsLen", func(t *testing.T) {
+		h := &Header{IndexStart: 100, SecondaryIndices: 2}
+		require.NoError(t, h.ValidateIndexBounds(1000))
+	})
+
+	t.Run("SecondaryIndices zero is unaffected by the secondary-table check", func(t *testing.T) {
+		h := &Header{IndexStart: 100, SecondaryIndices: 0}
+		require.NoError(t, h.ValidateIndexBounds(100))
+	})
+}
+
 func BenchmarkWriteHeader(b *testing.B) {
 	header := Header{
 		Version:          1,

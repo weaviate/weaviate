@@ -100,6 +100,34 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	}
 }
 
+// ValidateRootInBounds is a cheap, O(1) sanity check that the tree's root
+// node - if the tree is non-empty - points into the given data region.
+// Get()'s own walk tolerates corrupt node data by resolving to NotFound
+// instead of panicking (see the comment above), which means a corrupt
+// IndexStart that lands in-bounds but on the wrong offset (e.g. the data
+// region itself, misread as tree-node bytes) produces a "valid but wrong"
+// tree indistinguishable from a legitimate empty result once queried. This
+// check fires once at open time, before any query can observe it: every
+// legitimate segment's root Start/End falls within its own data region by
+// construction, so this never rejects a real segment.
+func (t *DiskTree) ValidateRootInBounds(dataStart, dataEnd uint64) error {
+	if len(t.data) == 0 {
+		return nil
+	}
+	root, err := t.readNodeAt(0)
+	if err != nil {
+		return fmt.Errorf("read root node: %w", err)
+	}
+	if root.startPos < dataStart || root.startPos > dataEnd ||
+		root.endPos < dataStart || root.endPos > dataEnd {
+		return fmt.Errorf(
+			"root node data range [%d,%d) is outside the segment's data region [%d,%d)",
+			root.startPos, root.endPos, dataStart, dataEnd,
+		)
+	}
+	return nil
+}
+
 func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
 	// offset is a child pointer that may be corrupt; bound it before slicing so a
 	// stray value yields an error instead of an out-of-range panic.
