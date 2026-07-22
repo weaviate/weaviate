@@ -117,6 +117,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 ) (*models.Class, uint64, error) {
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
+	clearInternalPropertyFields(cls.Properties...)
 
 	// originalClassName must be passed to validateCanAddClass below: the
 	// qualified form ("<ns>:<Class>") fails ValidateClassName because
@@ -766,6 +767,20 @@ func setPropertyDefaults(props ...*models.Property) {
 	setPropertyDefaultIndexing(props...)
 	for _, prop := range props {
 		setNestedPropertiesDefaults(prop.NestedProperties)
+	}
+}
+
+// clearInternalPropertyFields nils RAFT-internal per-property fields on
+// client-provided properties so they can only be set inside the engine.
+// SearchableBlockmax comes from on-disk state or the read-repair (which only
+// touches nil stamps); a client-seeded value would be a wrong stamp nothing
+// corrects. Create paths only — UpdateProperty's DeepEqual guard already
+// blocks mutation on update.
+func clearInternalPropertyFields(props ...*models.Property) {
+	for _, prop := range props {
+		if prop != nil {
+			prop.SearchableBlockmax = nil
+		}
 	}
 }
 

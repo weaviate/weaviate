@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 type fakeReindexTaskLister struct {
@@ -63,6 +64,8 @@ func TestDeleteClassPropertyIndex_NamespaceConflictPreflight(t *testing.T) {
 	h := &schemaHandlers{
 		namespacesEnabled:   true,
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
+		// allow-all authorizer: this test is about class qualification, not authz
+		authorizer: &authorization.DummyAuthorizer{},
 		reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
 			db.ReindexNamespace: {{
 				Namespace:      db.ReindexNamespace,
@@ -101,7 +104,9 @@ func TestDeleteClassPropertyIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) 
 	h := &schemaHandlers{
 		namespacesEnabled:   true,
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
-		reindexSubmitLocks:  rec,
+		// allow-all authorizer: this test is about the lock key, not authz
+		authorizer:         &authorization.DummyAuthorizer{},
+		reindexSubmitLocks: rec,
 		reindexTaskLister: fakeReindexTaskLister{tasks: map[string][]*distributedtask.Task{
 			db.ReindexNamespace: {{
 				Namespace:      db.ReindexNamespace,

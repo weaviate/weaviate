@@ -83,8 +83,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 
 	// Tokenization-changing migration creates both searchable and
 	// filterable trackers per (shard, replica).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, propName,
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, uri, className, propName, "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted change-tokenization task: %s", taskID)
 
 	// Cancel as soon as the task hits STARTED. Inserting a sleep here
@@ -160,21 +160,14 @@ func awaitTaskStartedFast(t *testing.T, restURI, taskID string, timeout time.Dur
 	}, timeout, 50*time.Millisecond, "task %s should reach STARTED", taskID)
 }
 
-// cancelReindexProperty sends {<indexType>: {cancel: true}} to
-// PUT /v1/schema/<class>/indexes/<prop> and requires a 202.
+// cancelReindexProperty cancels an in-flight reindex on (property,
+// indexType) via POST .../index/{indexType}/cancel and asserts 202.
 func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType string) {
 	t.Helper()
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
-	body := fmt.Sprintf(`{%q:{"cancel":true}}`, indexType)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(body)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	respBody, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusAccepted, resp.StatusCode,
-		"cancel returned %d: %s", resp.StatusCode, string(respBody))
+	if indexType == "rangeable" {
+		indexType = "rangeFilters"
+	}
+	reindexhelpers.CancelIndex(t, restURI, className, propName, indexType)
 }
 
 // collectShardNamesForClass returns every distinct shard name owned by

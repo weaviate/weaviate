@@ -1370,7 +1370,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if err = parsePositiveInt(
+	// 0 = clean completed tasks on the next tick. Unsafe until the cluster is
+	// fully on the stamp version: a pre-stamp node still derives blockmax truth
+	// from the FINISHED task list, which GCing strands on a cold/unloaded shard.
+	if err = parseNonNegativeInt(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),

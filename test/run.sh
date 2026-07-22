@@ -625,6 +625,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_concurrent' \
     | grep -v 'test/acceptance/reindex_rangeable' \
     | grep -v 'test/acceptance/reindex_mt' \
+    | grep -v 'test/acceptance/reindex_blockmax_ageout' \
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
@@ -1035,8 +1036,15 @@ function run_acceptance_reindex_mt() {
   # TestMultiTenant_ReindexSuite with many subtests).  Split out of the
   # singlenode bundle so reindex_singlenode's wall-clock is no longer
   # gated on this suite's duration.
+  #
+  # reindex_blockmax_ageout (TestBlockmaxAgeOut) is co-located here rather than
+  # left to the fast-acceptance catch-all: it is a small reindex regression with
+  # a single-node and an MT subtest, and folding it into this existing named job
+  # keeps it named without a new CI matrix entry. It is excluded from
+  # get_fast_acceptance_packages so it runs exactly once.
   run_aof_group "reindex-mt" \
-    test/acceptance/reindex_mt
+    test/acceptance/reindex_mt \
+    test/acceptance/reindex_blockmax_ageout
 }
 
 function run_acceptance_reindex_backup() {

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
@@ -45,20 +46,21 @@ import (
 //
 //   - "Semantic" migrations are the ones that change query
 //     semantics for the migrated property — change-tokenization,
-//     change-tokenization-filterable, enable-filterable, enable-searchable.
-//     These get the full barrier dance: every shard reindexes first
-//     (RunReindexOnlyOnShard), and only after every unit is terminal does
-//     OnGroupCompleted fire to run the swap phase (RunSwapOnShard) on each
-//     local shard, followed by OnTaskCompleted's cluster-wide schema flip.
-//     No shard serves new data until ALL shards are ready. This is where
-//     the SWAPPING-window tokenization overlay lives.
+//     change-tokenization-filterable, enable-filterable, enable-searchable,
+//     change-algorithm (Map/WAND → Blockmax). These get the full barrier
+//     dance: every shard reindexes first (RunReindexOnlyOnShard), and only
+//     after every unit is terminal does OnGroupCompleted fire to run the swap
+//     phase (RunSwapOnShard) on each local shard, followed by
+//     OnTaskCompleted's cluster-wide schema flip. No shard serves new data
+//     until ALL shards are ready. This is where the SWAPPING-window
+//     tokenization overlay lives (for the tokenization-changing ones).
 //
 //   - "Format-only" migrations don't change query semantics — they only
 //     change the on-disk bucket format. enable-rangeable, repair-rangeable,
-//     repair-filterable, repair-searchable (Map→Blockmax), and the
-//     RoaringSetRefresh strategy fall in this bucket. Each shard runs the
-//     full lifecycle independently via RunOnShard; there is no cluster-wide
-//     schema flip to coordinate.
+//     repair-filterable, rebuild-searchable (rebuild an existing Blockmax
+//     bucket in place), and the RoaringSetRefresh strategy fall in this
+//     bucket. Each shard runs the full lifecycle independently via RunOnShard;
+//     there is no cluster-wide schema flip to coordinate.
 //
 // Note on enable-rangeable: it is intentionally NOT classified as
 // semantic. Range queries' correctness during the migration is gated
@@ -74,6 +76,11 @@ type ReindexProvider struct {
 	logger        logrus.FieldLogger
 	localNode     string
 	concurrency   func() int
+
+	// taskLister backs shouldDeferBlockmaxFlip's flip decision with
+	// cluster-consistent state instead of node-local shard buckets.
+	// cluster.Raft satisfies it.
+	taskLister distributedtask.TaskLister
 
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
 	// fires after StartTask's per-task goroutine has already returned (its ctx
@@ -181,6 +188,7 @@ func composeProgressEnvelope(taskIdx, totalTasks int, progress float32) float32 
 func NewReindexProvider(
 	db *DB,
 	schemaManager *schema.Manager,
+	taskLister distributedtask.TaskLister,
 	logger logrus.FieldLogger,
 	localNode string,
 	concurrency func() int,
@@ -192,6 +200,7 @@ func NewReindexProvider(
 	return &ReindexProvider{
 		db:                db,
 		schemaManager:     schemaManager,
+		taskLister:        taskLister,
 		logger:            logger,
 		localNode:         localNode,
 		concurrency:       concurrency,
@@ -1844,41 +1853,52 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 		return
 	}
 	for _, propName := range payload.Properties {
-		// The repair body rebuilds every index the migration could have
-		// torn — we can't tell from here which sub-task failed, and
-		// rebuild is idempotent on a healthy index.
-		var repairBody string
-		switch payload.MigrationType {
-		case ReindexTypeChangeTokenization,
-			ReindexTypeEnableSearchable,
-			ReindexTypeChangeAlgorithm,
-			ReindexTypeRebuildSearchable:
-			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`
-		case ReindexTypeChangeTokenizationFilterable,
-			ReindexTypeEnableFilterable,
-			ReindexTypeRepairFilterable:
-			repairBody = `{"filterable":{"rebuild":true}}`
-		case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-			repairBody = `{"rangeable":{"rebuild":true}}`
-		default:
-			// Fallback for any future migration type: rebuild everything.
-			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true},"rangeable":{"rebuild":true}}`
-		}
+		repairCommands := repairCommandsForFailedMigration(payload, propName)
 		logger.WithFields(map[string]any{
 			"property":       propName,
 			"migration_type": payload.MigrationType,
-			"repair_command": fmt.Sprintf(
-				"PUT /v1/schema/%s/indexes/%s %s",
-				payload.Collection, propName, repairBody),
+			"repair_command": strings.Join(repairCommands, " && "),
 		}).Errorf(
-			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
-				"that committed their swap BEFORE the failure left the "+
-				"canonical inverted bucket holding new-tokenization "+
-				"data while the schema reverted to pre-migration state "+
-				"— issue the repair_command above to rebuild the "+
-				"affected inverted index(es) from raw objects against "+
-				"the current schema",
+			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks that "+
+				"committed before the failure may have left the canonical "+
+				"inverted bucket inconsistent with the schema (which reverted "+
+				"to the pre-migration state) — issue the repair_command above "+
+				"to recover the affected index(es)",
 			payload.MigrationType, payload.Collection, propName)
+	}
+}
+
+// repairCommandsForFailedMigration returns the operator command(s) to recover
+// propName after payload's migration FAILED. enable-*/change-algorithm never
+// flip their flag on failure, so /rebuild would 400 — those re-run via PUT
+// instead; retokenize migrations rebuild the pre-existing bucket.
+func repairCommandsForFailedMigration(payload *ReindexTaskPayload, propName string) []string {
+	c := payload.Collection
+	rebuild := func(indexType string) string {
+		return fmt.Sprintf("POST /v1/schema/%s/properties/%s/index/%s/rebuild", c, propName, indexType)
+	}
+	put := func(indexType, body string) string {
+		return fmt.Sprintf("PUT /v1/schema/%s/properties/%s/index/%s -d '%s'", c, propName, indexType, body)
+	}
+	switch payload.MigrationType {
+	case ReindexTypeEnableSearchable:
+		tok := payload.TargetTokenization
+		if tok == "" {
+			tok = "<tokenization>"
+		}
+		return []string{put("searchable", fmt.Sprintf(`{"tokenization":%q}`, tok))}
+	case ReindexTypeEnableFilterable:
+		return []string{put("filterable", "{}")}
+	case ReindexTypeChangeAlgorithm:
+		return []string{put("searchable", `{"algorithm":"blockmax"}`)}
+	case ReindexTypeChangeTokenization:
+		return []string{rebuild("filterable"), rebuild("searchable")}
+	case ReindexTypeChangeTokenizationFilterable:
+		return []string{rebuild("filterable")}
+	default:
+		// Unknown/future semantic type: conservatively rebuild every inverted
+		// index and let the operator inspect.
+		return []string{rebuild("filterable"), rebuild("searchable"), rebuild("rangeFilters")}
 	}
 }
 
@@ -2075,14 +2095,19 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			return fmt.Errorf("enable-searchable without targetTokenization in payload")
 		}
 		trueVal := true
+		// EnableSearchableStrategy.TargetStrategy() is hardcoded blockmax, so
+		// stamp SearchableBlockmax alongside the flag flip — one RAFT commit.
 		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
-			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization},
+			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization, api.PropertyFieldSearchableBlockmax},
 			func(prop *models.Property) bool {
-				if prop.IndexSearchable != nil && *prop.IndexSearchable && prop.Tokenization == payload.TargetTokenization {
+				if prop.IndexSearchable != nil && *prop.IndexSearchable &&
+					prop.Tokenization == payload.TargetTokenization &&
+					prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
 					return false
 				}
 				prop.IndexSearchable = &trueVal
 				prop.Tokenization = payload.TargetTokenization
+				prop.SearchableBlockmax = &trueVal
 				return true
 			})
 		if err != nil {
@@ -2093,8 +2118,15 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		return nil
 
 	case ReindexTypeChangeAlgorithm:
-		// Defer until every local searchable bucket is blockmax — submit is
-		// per-property, so the class may still have map buckets.
+		// Stamp FIRST and unconditionally: per-property truth must be durable
+		// before a sibling's same-tick defer check runs, or that sibling would
+		// read a not-yet-FINISHED task instead of this stamp.
+		if err := p.stampSearchableBlockmax(ctx, payload.Collection, payload.Properties); err != nil {
+			return fmt.Errorf("stamp searchableBlockmax: %w", err)
+		}
+		// Defer the cluster-wide class-flag flip until every local searchable
+		// bucket is blockmax — submit is per-property, so the class may still
+		// have map buckets.
 		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
 			return err
 		} else if defer_ {
@@ -2112,40 +2144,62 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	}
 }
 
-// shouldDeferBlockmaxFlip is true while any local searchable bucket is still
-// on the source (map) strategy — defers the cluster-wide flip until every
-// per-property ChangeAlgorithm has drained (weaviate/0-weaviate-issues#254).
+// stampSearchableBlockmax durably records propNames as blockmax via a masked
+// RAFT UpdateProperty. Idempotent — already-stamped properties are skipped —
+// so repeated firings/replays/read-repair produce at most one commit per
+// property. Shared by the change-algorithm cutover and [RunSearchableBlockmaxRepair].
+func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collection string, propNames []string) error {
+	trueVal := true
+	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, collection, propNames,
+		[]string{api.PropertyFieldSearchableBlockmax},
+		func(prop *models.Property) bool {
+			if prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
+				return false
+			}
+			prop.SearchableBlockmax = &trueVal
+			return true
+		})
+	return err
+}
+
+// shouldDeferBlockmaxFlip defers the cluster-wide flip until every
+// searchable property is off WAND (weaviate/0-weaviate-issues#254), using
+// RAFT-consistent state so every node agrees. The property completing now
+// counts as done despite still showing SWAPPING, avoiding self-deferral.
 func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) (bool, error) {
-	if p.db == nil {
+	if p.schemaManager == nil || p.taskLister == nil {
+		// Tests may construct the provider without these deps; don't defer.
 		return false, nil
 	}
-	idx := p.db.GetIndex(entschema.ClassName(payload.Collection))
-	if idx == nil {
-		return false, fmt.Errorf("collection %q not found on this node", payload.Collection)
+	class := p.schemaManager.ReadOnlyClass(payload.Collection)
+	if class == nil {
+		return false, fmt.Errorf("collection %q not found in schema", payload.Collection)
 	}
-	var stillMap bool
-	idx.ForEachLoadedShard(func(_ string, sh ShardLike) error {
-		concrete, err := unwrapShard(ctx, sh)
-		if err != nil {
-			return nil
+	tasksByNS, err := p.taskLister.ListDistributedTasks(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list distributed tasks for blockmax flip: %w", err)
+	}
+	reindexTasks := tasksByNS[ReindexNamespace]
+
+	completing := make(map[string]struct{}, len(payload.Properties))
+	for _, prop := range payload.Properties {
+		completing[prop] = struct{}{}
+	}
+	for _, prop := range class.Properties {
+		if !inverted.HasSearchableIndex(prop) {
+			continue
 		}
-		for name, bucket := range concrete.Store().GetBucketsByName() {
-			_, indexType := GetPropNameAndIndexTypeFromBucketName(name)
-			if indexType != IndexTypePropSearchableValue {
-				continue
-			}
-			if bucket.Strategy() == lsmkv.StrategyMapCollection {
-				stillMap = true
-				return nil
-			}
+		if _, ok := completing[prop.Name]; ok {
+			continue // finalizing to blockmax now
 		}
-		return nil
-	})
-	if stillMap {
-		logger.Info("reindex provider: change-algorithm cutover deferred — some searchable buckets still on map (subsequent per-property migration will complete the flip)")
-		return true, nil
+		// Durable-stamp resolver: a sibling stamped by its own completion no
+		// longer forces a spurious defer once its task ages out or is SWAPPING.
+		if !SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+			logger.WithField("property", prop.Name).Info("reindex provider: change-algorithm cutover deferred — a sibling searchable property is still on WAND (its migration will complete the flip)")
+			return true, nil
+		}
 	}
 	return false, nil
 }

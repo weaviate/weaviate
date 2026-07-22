@@ -345,6 +345,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// serialize on the same per-(collection, property) mutex. See
 	// the field godoc on state.State for the race this closes.
 	appState.ReindexSubmitLocks = state.NewReindexSubmitLocks()
+	// ReindexDeleteMarkers lets GET /indexes suppress the post-DELETE
+	// finalize-window bleed; recorded by the DELETE handler, read by the
+	// GET-indexes handler. See the field godoc on state.State.
+	appState.ReindexDeleteMarkers = state.NewReindexDeleteMarkers()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -1160,7 +1164,7 @@ func initReindexAndDistributedTasks(
 	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
 	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.Logger,
+		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
@@ -1171,6 +1175,12 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
+	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
+	enterrors.GoWrapper(func() {
+		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
+	}, appState.Logger)
 
 	// Drop-vector-index distributed-task provider. Added to the providers map so the
 	// conflict/schema-mutation detector loops below auto-register it.
@@ -1189,6 +1199,11 @@ func initReindexAndDistributedTasks(
 			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
 			dropVectorReconcileInterval)
 	}, appState.Logger)
+
+	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
+		appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS").
+			Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
+	}
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -1442,7 +1457,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ReindexDeleteMarkers, appState.ServerConfig.Config.Namespaces.Enabled)
 	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)

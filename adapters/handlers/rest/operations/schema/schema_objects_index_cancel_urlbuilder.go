@@ -21,16 +21,13 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
-
-	"github.com/go-openapi/swag"
 )
 
-// SchemaObjectsIndexesUpdateURL generates an URL for the schema objects indexes update operation
-type SchemaObjectsIndexesUpdateURL struct {
+// SchemaObjectsIndexCancelURL generates an URL for the schema objects index cancel operation
+type SchemaObjectsIndexCancelURL struct {
 	ClassName    string
+	IndexName    string
 	PropertyName string
-
-	Tenants []string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -40,7 +37,7 @@ type SchemaObjectsIndexesUpdateURL struct {
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *SchemaObjectsIndexesUpdateURL) WithBasePath(bp string) *SchemaObjectsIndexesUpdateURL {
+func (o *SchemaObjectsIndexCancelURL) WithBasePath(bp string) *SchemaObjectsIndexCancelURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -48,28 +45,35 @@ func (o *SchemaObjectsIndexesUpdateURL) WithBasePath(bp string) *SchemaObjectsIn
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *SchemaObjectsIndexesUpdateURL) SetBasePath(bp string) {
+func (o *SchemaObjectsIndexCancelURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *SchemaObjectsIndexesUpdateURL) Build() (*url.URL, error) {
+func (o *SchemaObjectsIndexCancelURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}/indexes/{propertyName}"
+	var _path = "/schema/{className}/properties/{propertyName}/index/{indexName}/cancel"
 
 	className := o.ClassName
 	if className != "" {
 		_path = strings.Replace(_path, "{className}", className, -1)
 	} else {
-		return nil, errors.New("className is required on SchemaObjectsIndexesUpdateURL")
+		return nil, errors.New("className is required on SchemaObjectsIndexCancelURL")
+	}
+
+	indexName := o.IndexName
+	if indexName != "" {
+		_path = strings.Replace(_path, "{indexName}", indexName, -1)
+	} else {
+		return nil, errors.New("indexName is required on SchemaObjectsIndexCancelURL")
 	}
 
 	propertyName := o.PropertyName
 	if propertyName != "" {
 		_path = strings.Replace(_path, "{propertyName}", propertyName, -1)
 	} else {
-		return nil, errors.New("propertyName is required on SchemaObjectsIndexesUpdateURL")
+		return nil, errors.New("propertyName is required on SchemaObjectsIndexCancelURL")
 	}
 
 	_basePath := o._basePath
@@ -78,32 +82,11 @@ func (o *SchemaObjectsIndexesUpdateURL) Build() (*url.URL, error) {
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 
-	qs := make(url.Values)
-
-	var tenantsIR []string
-	for _, tenantsI := range o.Tenants {
-		tenantsIS := tenantsI
-		if tenantsIS != "" {
-			tenantsIR = append(tenantsIR, tenantsIS)
-		}
-	}
-
-	tenants := swag.JoinByFormat(tenantsIR, "")
-
-	if len(tenants) > 0 {
-		qsv := tenants[0]
-		if qsv != "" {
-			qs.Set("tenants", qsv)
-		}
-	}
-
-	_result.RawQuery = qs.Encode()
-
 	return &_result, nil
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *SchemaObjectsIndexesUpdateURL) Must(u *url.URL, err error) *url.URL {
+func (o *SchemaObjectsIndexCancelURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -114,17 +97,17 @@ func (o *SchemaObjectsIndexesUpdateURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *SchemaObjectsIndexesUpdateURL) String() string {
+func (o *SchemaObjectsIndexCancelURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *SchemaObjectsIndexesUpdateURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *SchemaObjectsIndexCancelURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on SchemaObjectsIndexesUpdateURL")
+		return nil, errors.New("scheme is required for a full url on SchemaObjectsIndexCancelURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on SchemaObjectsIndexesUpdateURL")
+		return nil, errors.New("host is required for a full url on SchemaObjectsIndexCancelURL")
 	}
 
 	base, err := o.Build()
@@ -138,6 +121,6 @@ func (o *SchemaObjectsIndexesUpdateURL) BuildFull(scheme, host string) (*url.URL
 }
 
 // StringFull returns the string representation of a complete url
-func (o *SchemaObjectsIndexesUpdateURL) StringFull(scheme, host string) string {
+func (o *SchemaObjectsIndexCancelURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

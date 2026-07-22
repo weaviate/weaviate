@@ -119,7 +119,7 @@ func testRoaringSetRefresh(t *testing.T, restURI string) {
 		}
 	}()
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, roaringSetClassName, "category", `{"filterable":{"rebuild":true}}`)
+	taskID := reindexhelpers.RebuildIndex(t, restURI, roaringSetClassName, "category", "filterable")
 	t.Logf("submitted reindex task: %s", taskID)
 
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, roaringSetClassName, "category", "filterable")

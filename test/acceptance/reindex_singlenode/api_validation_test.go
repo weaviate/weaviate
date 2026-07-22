@@ -11,23 +11,28 @@
 
 package reindex_singlenode
 
-// testReindexAPIValidation exercises the HTTP-contract surface of
-// PUT /v1/schema/{className}/indexes/{propertyName}. It covers cases that
-// previously had no direct acceptance coverage:
+// testReindexAPIValidation exercises the HTTP-contract surface of the GA
+// reindex resource family:
 //
-//   - Empty body / malformed JSON         -> 400
-//   - All flags absent (no actionable)     -> 400
-//   - Unknown collection                   -> 404
-//   - Unknown property                     -> 404
-//   - tenants= on a single-tenant class    -> 400
-//   - tenants=<nonexistent> on MT class    -> 400
-//   - same-tokenization (word->word)       -> 400
-//   - already-rangeable / already-filterable / already-searchable -> 400
-//   - non-numeric for rangeable            -> 400
-//   - reference / blob for filterable      -> 400
+//	PUT    /v1/schema/{class}/properties/{prop}/index/{indexType}
+//	POST   .../index/{indexType}/rebuild
+//	POST   .../index/{indexType}/cancel
 //
-// All cases finish in milliseconds — they fail at validation before any task
-// is submitted, so the test does not extend the shared-container runtime.
+// It covers the status-code taxonomy that fails at validation before any task
+// is submitted (so it does not extend the shared-container runtime):
+//
+//   - Empty body / malformed JSON                 -> 422 / 400
+//   - Invalid {indexType} path value              -> 422
+//   - Unknown collection / property               -> 404
+//   - tenants= on a single-tenant class           -> 400
+//   - tenants=<nonexistent> on MT class           -> 400
+//   - tenants= on a semantic migration            -> 400
+//   - tenants= on a NO_OP-resolving PUT           -> 400 (not silently 200)
+//   - same-tokenization / already-filterable      -> 200 NO_OP (declarative upsert)
+//   - non-numeric for rangeFilters                -> 400
+//   - config field on rangeFilters                -> 400
+//   - both tokenization and algorithm in one PUT  -> 400
+//   - reference / blob for filterable             -> 400
 
 import (
 	"bytes"
@@ -71,34 +76,19 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		Vectorizer:         "none",
 	})
-	// The "tenants subset accepted on MT collection" sub-test submits a
-	// repair-filterable task on mtClass.text_word and does NOT await
-	// terminal state. After PR https://github.com/weaviate/weaviate/pull/11320 / https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219,
-	// DeleteClass is rejected by the schema FSM's MutationGuard while
-	// any reindex task is in flight on the collection (the guard is
-	// what protects against the bucket↔schema-inversion family of
-	// Sev 1 bugs). The deferred cleanup must therefore cancel the
-	// in-flight task BEFORE asking the schema FSM to delete the class.
+	// The "tenants subset..." sub-test leaves a repair-filterable task
+	// in-flight. DeleteClass is rejected by the MutationGuard while it runs,
+	// so cleanup must cancel it (via POST .../cancel) before deleting the class.
 	defer func() {
-		// Best-effort cancel of any reindex still STARTED on
-		// mtClass.text_word. The PUT body shape mirrors what the
-		// test's positive-path sub-test submitted; the cancel verb
-		// here is what makes DTM transition the task out of STARTED
-		// so the MutationGuard will allow the DeleteClass below.
-		cancelURL := fmt.Sprintf("http://%s/v1/schema/%s/indexes/text_word", restURI, mtClass)
-		cancelReq, _ := http.NewRequest(http.MethodPut, cancelURL,
-			bytes.NewReader([]byte(`{"filterable":{"cancel":true}}`)))
-		cancelReq.Header.Set("Content-Type", "application/json")
+		cancelURL := fmt.Sprintf("http://%s/v1/schema/%s/properties/text_word/index/filterable/cancel", restURI, mtClass)
+		cancelReq, _ := http.NewRequest(http.MethodPost, cancelURL, nil)
 		if cancelResp, err := http.DefaultClient.Do(cancelReq); err == nil {
 			cancelResp.Body.Close()
 		}
 		// A best-effort cancel may not terminalize a task already in SWAPPING,
 		// so poll the delete until the MutationGuard clears. The guard returns
 		// 400 while a reindex task is still in flight; retry only on that (and
-		// transient transport errors) and surface any other status immediately
-		// rather than masking a real failure for the whole timeout. Manual
-		// loop, not require.Eventually, because the latter runs its closure in
-		// a separate goroutine where t.Fatalf/require are unsafe.
+		// transient transport errors) and surface any other status immediately.
 		deadline := time.Now().Add(60 * time.Second)
 		var lastInfo string
 		for {
@@ -133,7 +123,9 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		name        string
 		collection  string
 		property    string
-		body        string
+		indexType   string
+		verb        string // "" = PUT, "rebuild"/"cancel" = POST sub-resource
+		body        string // PUT body only
 		tenantsQS   string // optional ?tenants=... query string fragment
 		wantStatus  int
 		wantBodyHas string // optional substring in the response body
@@ -142,137 +134,148 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 	cases := []apiCase{
 		{
 			// go-swagger's body-required validation fires before the handler
-			// runs, producing 422 with "body in body is required". Handler-
-			// level "request body required" 400 is only reachable when the
-			// body parses to nil (e.g. literal `null`), not for missing-body.
+			// runs, producing 422 for a missing body.
 			name:       "empty body",
-			collection: stClass, property: "text_word",
+			collection: stClass, property: "text_word", indexType: "searchable",
 			body: "", wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name:       "malformed JSON",
-			collection: stClass, property: "text_word",
-			body: `{"searchable":`, wantStatus: http.StatusBadRequest,
+			collection: stClass, property: "text_word", indexType: "searchable",
+			body: `{"tokenization":`, wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "no actionable flags",
-			collection: stClass, property: "text_word",
-			body:        `{"searchable":{},"filterable":{},"rangeable":{}}`,
-			wantStatus:  http.StatusBadRequest,
-			wantBodyHas: "no actionable change",
-		},
-		{
-			name:       "explicitly false flags only",
-			collection: stClass, property: "text_word",
-			body:        `{"searchable":{"enabled":false,"rebuild":false}}`,
-			wantStatus:  http.StatusBadRequest,
-			wantBodyHas: "no actionable change",
+			name:       "invalid index type",
+			collection: stClass, property: "text_word", indexType: "bogus",
+			body: `{}`, wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name:       "unknown collection",
-			collection: "DoesNotExist", property: "text_word",
-			body:       `{"searchable":{"algorithm":"blockmax"}}`,
-			wantStatus: http.StatusNotFound,
+			collection: "DoesNotExist", property: "text_word", indexType: "searchable",
+			body: `{"algorithm":"blockmax"}`, wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "unknown property",
-			collection: stClass, property: "nope",
-			body:       `{"searchable":{"algorithm":"blockmax"}}`,
-			wantStatus: http.StatusNotFound,
+			collection: stClass, property: "nope", indexType: "searchable",
+			body: `{"algorithm":"blockmax"}`, wantStatus: http.StatusNotFound,
 		},
 		{
+			// A rangeFilters create is a real (format-only) migration, so it
+			// reaches the tenant-scope gate in the submit path.
 			name:       "tenants on single-tenant collection",
-			collection: stClass, property: "text_word",
-			body:        `{"searchable":{"algorithm":"blockmax"}}`,
+			collection: stClass, property: "score", indexType: "rangeFilters",
+			body:        `{}`,
 			tenantsQS:   "?tenants=t1",
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "multi-tenant",
 		},
 		{
-			// Format-only body so the per-tenant existence check is reached
-			// (semantic bodies short-circuit on the semantic-vs-tenants gate).
 			name:       "tenants=<nonexistent> on MT class with format-only migration",
-			collection: mtClass, property: "text_word",
-			body:        `{"filterable":{"rebuild":true}}`,
+			collection: mtClass, property: "text_word", indexType: "filterable", verb: "rebuild",
 			tenantsQS:   "?tenants=nonexistent_tenant_xyz",
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "does not exist",
 		},
 		{
-			name:       "tenants on semantic change-algorithm rejected",
-			collection: mtClass, property: "text_word",
-			body:        `{"searchable":{"algorithm":"blockmax"}}`,
-			tenantsQS:   "?tenants=t1",
-			wantStatus:  http.StatusBadRequest,
-			wantBodyHas: "semantic migrations",
+			// Declarative upsert: same tokenization is now a NO_OP, not a 400.
+			name:       "change-tokenization same value (word -> word) is NO_OP",
+			collection: stClass, property: "text_word", indexType: "searchable",
+			body:        `{"tokenization":"word"}`,
+			wantStatus:  http.StatusOK,
+			wantBodyHas: "NO_OP",
 		},
 		{
-			name:       "change-tokenization same value (word -> word) rejected",
-			collection: stClass, property: "text_word",
-			body:        `{"searchable":{"tokenization":"word"}}`,
+			// NO_OP path: a mis-scoped tenants param must still 400, not pass through silently.
+			name:       "tenants on NO_OP (already-filterable) single-tenant collection",
+			collection: stClass, property: "score", indexType: "filterable",
+			body:        `{}`,
+			tenantsQS:   "?tenants=t1",
 			wantStatus:  http.StatusBadRequest,
-			wantBodyHas: "already uses tokenization",
+			wantBodyHas: "multi-tenant",
+		},
+		{
+			// NO_OP path: tenants on a semantic op must still 400, even though the op resolves to NO_OP.
+			name:       "tenants on NO_OP (same-tokenization) semantic op",
+			collection: mtClass, property: "text_word", indexType: "searchable",
+			body:        `{"tokenization":"word"}`,
+			tenantsQS:   "?tenants=tenant-a",
+			wantStatus:  http.StatusBadRequest,
+			wantBodyHas: "semantic",
 		},
 		{
 			name:       "change-tokenization invalid tokenization",
-			collection: stClass, property: "text_word",
-			body:        `{"searchable":{"tokenization":"not_a_real_tokenization"}}`,
+			collection: stClass, property: "text_word", indexType: "searchable",
+			body:        `{"tokenization":"not_a_real_tokenization"}`,
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "invalid tokenization",
 		},
 		{
-			name:       "rangeable on non-numeric (text)",
-			collection: stClass, property: "text_word",
-			body:        `{"rangeable":{"enabled":true}}`,
+			name:       "both tokenization and algorithm in one request",
+			collection: stClass, property: "text_word", indexType: "searchable",
+			body:        `{"tokenization":"lowercase","algorithm":"blockmax"}`,
+			wantStatus:  http.StatusBadRequest,
+			wantBodyHas: "at most one",
+		},
+		{
+			name:       "rangeFilters on non-numeric (text)",
+			collection: stClass, property: "text_word", indexType: "rangeFilters",
+			body:        `{}`,
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "not a numeric type",
 		},
 		{
-			name:       "filterable.enabled on blob",
-			collection: stClass, property: "blob_prop",
-			body:        `{"filterable":{"enabled":true}}`,
+			name:       "rangeFilters rejects config fields",
+			collection: stClass, property: "score", indexType: "rangeFilters",
+			body:        `{"tokenization":"word"}`,
+			wantStatus:  http.StatusBadRequest,
+			wantBodyHas: "no configuration fields",
+		},
+		{
+			name:       "filterable create on blob",
+			collection: stClass, property: "blob_prop", indexType: "filterable",
+			body:        `{}`,
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "does not support",
 		},
 		{
-			name:       "filterable.enabled on already-filterable prop",
-			collection: stClass, property: "score",
-			body:        `{"filterable":{"enabled":true}}`,
-			wantStatus:  http.StatusBadRequest,
-			wantBodyHas: "already has a filterable index",
+			// Already-filterable is now an idempotent NO_OP, not a 400.
+			name:       "filterable on already-filterable prop is NO_OP",
+			collection: stClass, property: "score", indexType: "filterable",
+			body:        `{}`,
+			wantStatus:  http.StatusOK,
+			wantBodyHas: "NO_OP",
 		},
 		{
-			name:       "searchable.enabled on non-text",
-			collection: stClass, property: "score",
-			body:        `{"searchable":{"enabled":true,"tokenization":"word"}}`,
+			name:       "searchable create on non-text",
+			collection: stClass, property: "score", indexType: "searchable",
+			body:        `{"tokenization":"word"}`,
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "not a text type",
 		},
 		{
-			name:       "searchable.enabled without tokenization",
-			collection: stClass, property: "text_unindexed",
-			body:        `{"searchable":{"enabled":true}}`,
+			name:       "searchable create without tokenization",
+			collection: stClass, property: "text_unindexed", indexType: "searchable",
+			body:        `{}`,
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "requires a tokenization",
 		},
 		{
-			name:       "searchable.enabled with invalid tokenization",
-			collection: stClass, property: "text_unindexed",
-			body:        `{"searchable":{"enabled":true,"tokenization":"not_real"}}`,
+			name:       "searchable create with invalid tokenization",
+			collection: stClass, property: "text_unindexed", indexType: "searchable",
+			body:        `{"tokenization":"not_real"}`,
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "invalid tokenization",
 		},
 		{
-			name:       "searchable.algorithm:blockmax on property with no searchable index",
-			collection: stClass, property: "text_unindexed",
-			body:        `{"searchable":{"algorithm":"blockmax"}}`,
+			name:       "algorithm on property with no searchable index",
+			collection: stClass, property: "text_unindexed", indexType: "searchable",
+			body:        `{"algorithm":"blockmax"}`,
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "has no searchable index",
 		},
 		{
-			name:       "filterable.rebuild on property with no filterable index",
-			collection: stClass, property: "text_unindexed",
-			body:        `{"filterable":{"rebuild":true}}`,
+			name:       "rebuild on property with no filterable index",
+			collection: stClass, property: "text_unindexed", indexType: "filterable", verb: "rebuild",
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "does not have a filterable index",
 		},
@@ -280,11 +283,21 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s%s",
-				restURI, tc.collection, tc.property, tc.tenantsQS)
-			req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(tc.body)))
+			base := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/%s",
+				restURI, tc.collection, tc.property, tc.indexType)
+			method := http.MethodPut
+			var reader io.Reader
+			if tc.verb != "" {
+				base += "/" + tc.verb
+				method = http.MethodPost
+			} else {
+				reader = bytes.NewReader([]byte(tc.body))
+			}
+			req, err := http.NewRequest(method, base+tc.tenantsQS, reader)
 			require.NoError(t, err)
-			req.Header.Set("Content-Type", "application/json")
+			if tc.verb == "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
 
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
@@ -300,30 +313,28 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		})
 	}
 
-	// MT-specific positive case: tenants= subset succeeds (just verifies the
-	// HTTP contract — the task itself isn't awaited because it would slow the
-	// shared container; the validation path is what we care about).
+	// MT-specific positive case: tenants= subset succeeds on a format-only
+	// rebuild (just verifies the HTTP contract — the task itself isn't awaited
+	// because it would slow the shared container).
 	t.Run("tenants subset accepted on MT collection", func(t *testing.T) {
-		url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/text_word?tenants=tenant-a",
+		url := fmt.Sprintf("http://%s/v1/schema/%s/properties/text_word/index/filterable/rebuild?tenants=tenant-a",
 			restURI, mtClass)
-		req, _ := http.NewRequest(http.MethodPut, url,
-			bytes.NewReader([]byte(`{"filterable":{"rebuild":true}}`)))
-		req.Header.Set("Content-Type", "application/json")
+		req, _ := http.NewRequest(http.MethodPost, url, nil)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
 		require.Equal(t, http.StatusAccepted, resp.StatusCode,
-			"MT subset reindex should be accepted; got %d, body=%s",
+			"MT subset rebuild should be accepted; got %d, body=%s",
 			resp.StatusCode, string(body))
 	})
 
 	// Semantic migration (change-tokenization) cannot target a subset of tenants.
 	t.Run("tenants= rejected for change-tokenization (semantic)", func(t *testing.T) {
-		url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/text_word?tenants=tenant-a",
+		url := fmt.Sprintf("http://%s/v1/schema/%s/properties/text_word/index/searchable?tenants=tenant-a",
 			restURI, mtClass)
 		req, _ := http.NewRequest(http.MethodPut, url,
-			bytes.NewReader([]byte(`{"searchable":{"tokenization":"lowercase"}}`)))
+			bytes.NewReader([]byte(`{"tokenization":"lowercase"}`)))
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)

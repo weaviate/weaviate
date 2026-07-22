@@ -152,8 +152,7 @@ func TestRangeableInMemory_SingleNode_AcceptanceAndRestartHandoff(t *testing.T) 
 	require.Equal(t, expectedBaseline, golden, "pre-migration filterable baseline")
 
 	// NO restart before the checks below - that's the core repro condition.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score", "rangeFilters", `{}`)
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
@@ -218,8 +217,7 @@ func TestRangeableInMemory_MultiNode_InFlightStatisticalProbe(t *testing.T) {
 			t.Logf("weaviate/weaviate#12199 in-flight divergence: node %d returned %d (expected %d)", nodeIdx, got, expectedBaseline)
 		}, nil)
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURIOf(compose, 1), className, "score",
-		`{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURIOf(compose, 1), className, "score", "rangeFilters", `{}`)
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
 
@@ -309,8 +307,7 @@ func TestRangeableInMemory_WriteWorkloadValueIntegrity(t *testing.T) {
 	// Wait for the migration to be live before overwriting movers, or the
 	// backfill could simply read newValue and the double-write scenario
 	// wouldn't be exercised.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score", "rangeFilters", `{}`)
 	reindexhelpers.AwaitReindexLive(t, restURI, taskID)
 
 	// AwaitReindexLive guarantees only a live task status, not backfill

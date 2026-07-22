@@ -55,63 +55,114 @@ func WithTimeout(d time.Duration) Option {
 	return func(o *options) { o.timeout = d }
 }
 
-// SubmitIndexUpdate fires PUT /v1/schema/{collection}/indexes/{property}
-// with the supplied JSON body, asserts 202, and returns the taskId.
-func SubmitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) string {
-	t.Helper()
-	o := applyOptions(opts)
-
-	url := indexUpdateURL(restURI, collection, property, o.tenants)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err, "index update request failed")
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(respBody))
-	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"index update endpoint returned non-202: %s", string(respBody))
-
-	var result map[string]string
-	require.NoError(t, json.Unmarshal(respBody, &result))
-	return result["taskId"]
-}
-
-// IndexUpdateErrorResponse captures the status and body of a failing
-// PUT /indexes/{prop} request.
-type IndexUpdateErrorResponse struct {
+// IndexResponse captures the status and raw body of any index-resource
+// request. Used by the *Raw helpers for negative / status-taxonomy tests.
+type IndexResponse struct {
 	StatusCode int
 	Body       string
 }
 
-// SubmitIndexUpdateExpect4xx submits a PUT /indexes request expected to
-// fail at validation and returns the response status and body. The caller
-// asserts the exact status code.
-func SubmitIndexUpdateExpect4xx(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
+// SubmitIndexUpsert PUTs the GA upsert body (e.g. `{"tokenization":"word"}`
+// or `{}`), asserts 202, and returns the taskId. Use SubmitIndexUpsertRaw for
+// NO_OP or negative cases.
+func SubmitIndexUpsert(t *testing.T, restURI, collection, property, indexType, jsonBody string, opts ...Option) string {
+	t.Helper()
+	resp := SubmitIndexUpsertRaw(t, restURI, collection, property, indexType, jsonBody, opts...)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"index upsert endpoint returned non-202: %s", resp.Body)
+	return taskIDFromBody(t, resp.Body)
+}
+
+// SubmitIndexUpsertRaw fires PUT .../index/{indexType} and returns the raw
+// status + body without asserting a specific code. The caller asserts.
+func SubmitIndexUpsertRaw(t *testing.T, restURI, collection, property, indexType, jsonBody string, opts ...Option) IndexResponse {
 	t.Helper()
 	o := applyOptions(opts)
+	url := indexResourceURL(restURI, collection, property, indexType, "", o.tenants)
+	return doIndexRequest(t, http.MethodPut, url, jsonBody)
+}
 
-	url := indexUpdateURL(restURI, collection, property, o.tenants)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
+// RebuildIndex fires POST .../index/{indexType}/rebuild, asserts 202, and
+// returns the taskId.
+func RebuildIndex(t *testing.T, restURI, collection, property, indexType string, opts ...Option) string {
+	t.Helper()
+	resp := RebuildIndexRaw(t, restURI, collection, property, indexType, opts...)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"index rebuild endpoint returned non-202: %s", resp.Body)
+	return taskIDFromBody(t, resp.Body)
+}
+
+// RebuildIndexRaw fires POST .../index/{indexType}/rebuild and returns the
+// raw status + body.
+func RebuildIndexRaw(t *testing.T, restURI, collection, property, indexType string, opts ...Option) IndexResponse {
+	t.Helper()
+	o := applyOptions(opts)
+	url := indexResourceURL(restURI, collection, property, indexType, "rebuild", o.tenants)
+	return doIndexRequest(t, http.MethodPost, url, "")
+}
+
+// CancelIndex fires POST .../index/{indexType}/cancel, asserts 202, and
+// returns the decoded response (taskId + status: CANCELLED or NO_OP).
+func CancelIndex(t *testing.T, restURI, collection, property, indexType string, opts ...Option) *models.IndexUpdateResponse {
+	t.Helper()
+	resp := CancelIndexRaw(t, restURI, collection, property, indexType, opts...)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"index cancel endpoint returned non-202: %s", resp.Body)
+	var out models.IndexUpdateResponse
+	require.NoError(t, json.Unmarshal([]byte(resp.Body), &out))
+	return &out
+}
+
+// CancelIndexRaw fires POST .../index/{indexType}/cancel and returns the raw
+// status + body.
+func CancelIndexRaw(t *testing.T, restURI, collection, property, indexType string, opts ...Option) IndexResponse {
+	t.Helper()
+	o := applyOptions(opts)
+	url := indexResourceURL(restURI, collection, property, indexType, "cancel", o.tenants)
+	return doIndexRequest(t, http.MethodPost, url, "")
+}
+
+// doIndexRequest performs a single index-resource request and returns the
+// raw status + body. An empty jsonBody sends no request body (rebuild/cancel).
+func doIndexRequest(t *testing.T, method, url, jsonBody string) IndexResponse {
+	t.Helper()
+	var reader io.Reader
+	if jsonBody != "" {
+		reader = bytes.NewReader([]byte(jsonBody))
+	}
+	req, err := http.NewRequest(method, url, reader)
 	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
+	if jsonBody != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	require.NoError(t, err, "index request failed")
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(body))
-	return IndexUpdateErrorResponse{StatusCode: resp.StatusCode, Body: string(body)}
+	t.Logf("%s %s response (status=%d): %s", method, url, resp.StatusCode, string(body))
+	return IndexResponse{StatusCode: resp.StatusCode, Body: string(body)}
 }
 
-func indexUpdateURL(restURI, collection, property string, tenants []string) string {
-	u := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
+func taskIDFromBody(t *testing.T, body string) string {
+	t.Helper()
+	var result map[string]string
+	require.NoError(t, json.Unmarshal([]byte(body), &result))
+	// A 202 must carry a non-empty taskId. Without this, a submit that
+	// returns 202 with a missing/empty taskId flows through silently and
+	// only surfaces downstream as a misleading 120s AwaitReindexFinished("")
+	// timeout — every submit in every package funnels through here.
+	require.NotEmpty(t, result["taskId"], "202 response missing taskId: %s", body)
+	return result["taskId"]
+}
+
+func indexResourceURL(restURI, collection, property, indexType, verb string, tenants []string) string {
+	u := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/%s", restURI, collection, property, indexType)
+	if verb != "" {
+		u += "/" + verb
+	}
 	if len(tenants) > 0 {
 		u += "?tenants=" + strings.Join(tenants, ",")
 	}
@@ -128,6 +179,7 @@ type IndexesResponse struct {
 			Type               string  `json:"type"`
 			Status             string  `json:"status"`
 			Progress           float32 `json:"progress"`
+			TaskID             string  `json:"taskId,omitempty"`
 			Tokenization       string  `json:"tokenization,omitempty"`
 			TargetTokenization string  `json:"targetTokenization,omitempty"`
 			Algorithm          string  `json:"algorithm,omitempty"`

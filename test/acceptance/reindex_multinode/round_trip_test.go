@@ -80,14 +80,14 @@ func TestMultiNode_ChangeTokenization_RoundTrip(t *testing.T) {
 	}
 
 	// word → field.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"field"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// field → word.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"word"}}`)
+	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 

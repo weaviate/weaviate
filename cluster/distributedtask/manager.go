@@ -333,7 +333,10 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 			existing = append(existing, t)
 		}
 		if err := cd.CheckConflict(r.Payload, existing); err != nil {
-			return fmt.Errorf("task %s/%s conflicts with existing task: %w", r.Namespace, r.Id, err)
+			// Wrap the permanent-rejection sentinel (see [ErrTaskConflict]) so
+			// the REST submit path classifies this as 409, not 500.
+			return wrapPermanent(ErrTaskConflict,
+				fmt.Sprintf("task %s/%s conflicts with existing task: %v", r.Namespace, r.Id, err))
 		}
 	}
 

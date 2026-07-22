@@ -109,6 +109,12 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 		err := h.manager.AddTask(c, 100)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated conflict")
+		// The rejection must be classifiable as a conflict (→ REST 409) via
+		// errors.Is on the sentinel + umbrella, end-to-end.
+		require.ErrorIs(t, err, ErrTaskConflict,
+			"a CheckConflict rejection must ride the ErrTaskConflict sentinel")
+		require.ErrorIs(t, err, ErrPermanentRejection,
+			"conflict rejections must classify as permanent (FailedPrecondition on the wire)")
 
 		// Confirm the task was NOT registered.
 		tasks, err2 := h.manager.ListDistributedTasks(context.Background())
@@ -292,6 +298,45 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 	})
 }
 
+// TestManager_CancelTask_RejectsNonStartedActive pins that CancelTask aborts
+// only STARTED tasks: a task that reached PREPARING/SWAPPING is rejected with
+// ErrTaskNotRunning, which cancelReindexTask maps to 202 NO_OP, not 500.
+func TestManager_CancelTask_RejectsNonStartedActive(t *testing.T) {
+	const (
+		ns      = "test"
+		taskID  = "1"
+		version = uint64(10)
+	)
+	cancel := func(t *testing.T, h *testHarness) error {
+		return h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace:             ns,
+			Id:                    taskID,
+			Version:               version,
+			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+	}
+
+	t.Run("SWAPPING task rejected with ErrTaskNotRunning", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		addTaskWithUnits(t, h, ns, taskID, version, []string{"su-1"})
+		completeUnit(t, h, ns, taskID, version, "node-1", "su-1")
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusSwapping, tasks[ns][0].Status)
+
+		require.ErrorIs(t, cancel(t, h), ErrTaskNotRunning)
+	})
+
+	t.Run("PREPARING task rejected with ErrTaskNotRunning", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		addBarrierTaskWithUnits(t, h, ns, taskID, version, []string{"su-1"})
+		completeUnit(t, h, ns, taskID, version, "node-1", "su-1")
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusPreparing, tasks[ns][0].Status)
+
+		require.ErrorIs(t, cancel(t, h), ErrTaskNotRunning)
+	})
+}
+
 func TestManager_CleanUpTask_Failures(t *testing.T) {
 	t.Run("task does not exist", func(t *testing.T) {
 		var (
@@ -403,6 +448,47 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 		err = h.manager.CleanUpTask(cleanUpCmd)
 		require.ErrorContains(t, err, "too fresh")
 	})
+}
+
+// TestManager_CleanUpTask_TTLZeroBoundary pins the too-fresh boundary at
+// TTL=0: the manager rejects cleanup while Since<=TTL, so Since==0 is
+// rejected and only a later tick (Since>0) succeeds — the asymmetry with the
+// scheduler's TTL<=Since eligibility (already true at Since==0) ensures
+// cleanup never races a reader that just observed the FINISHED task.
+func TestManager_CleanUpTask_TTLZeroBoundary(t *testing.T) {
+	const (
+		ns  = "test"
+		id  = "1"
+		ver = uint64(10)
+	)
+	h := newTestHarness(t)
+	h.completedTaskTTL = 0
+	h.init(t)
+
+	// ms-align the fake clock so FinishedAt (ms precision) equals Now exactly,
+	// making Since==0 deterministic rather than a sub-ms remainder.
+	if rem := h.clock.Now().UnixNano() % int64(time.Millisecond); rem != 0 {
+		h.clock.Advance(time.Duration(int64(time.Millisecond) - rem))
+	}
+	finishedMs := h.clock.Now().UnixMilli()
+
+	addTaskWithUnits(t, h, ns, id, ver, []string{"su-1"})
+	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace: ns, Id: id, Version: ver, CancelledAtUnixMillis: finishedMs,
+	})))
+
+	cleanUp := func() error {
+		return h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+			Namespace: ns, Id: id, Version: ver,
+		}))
+	}
+
+	require.ErrorContains(t, cleanUp(), "too fresh",
+		"at Since==0 the manager rejects cleanup (Since <= TTL) even at TTL=0")
+
+	h.clock.Advance(time.Millisecond)
+	require.NoError(t, cleanUp(),
+		"once Since is strictly positive the TTL=0 task is cleanable")
 }
 
 func TestManager_ListDistributedTasksPayload(t *testing.T) {

@@ -73,16 +73,17 @@ func TestNamespaces_ResponseStripping_Errors_REST(t *testing.T) {
 	t.Run("indexes update on missing property surfaces stripped message", func(t *testing.T) {
 		// PUT on an existing class but a non-existent property returns 404 with a
 		// message naming the qualified collection internally; the strip removes the namespace prefix.
-		body := &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Tokenization: "lowercase"}}
-		_, err := helper.Client(t).Schema.SchemaObjectsIndexesUpdate(
-			schema.NewSchemaObjectsIndexesUpdateParams().
+		body := &models.IndexUpsertRequest{Tokenization: "lowercase"}
+		_, _, err := helper.Client(t).Schema.SchemaObjectsIndexUpsert(
+			schema.NewSchemaObjectsIndexUpsertParams().
 				WithClassName(class). // short name; class exists, property does not
 				WithPropertyName("ghostprop").
+				WithIndexName("filterable").
 				WithBody(body),
 			helper.CreateAuth(user1Key),
 		)
 		require.Error(t, err)
-		var notFound *schema.SchemaObjectsIndexesUpdateNotFound
+		var notFound *schema.SchemaObjectsIndexUpsertNotFound
 		require.True(t, stderrors.As(err, &notFound), "expected 404, got %T: %v", err, err)
 		require.NotEmpty(t, notFound.Payload.Error)
 		msg := notFound.Payload.Error[0].Message
@@ -91,16 +92,17 @@ func TestNamespaces_ResponseStripping_Errors_REST(t *testing.T) {
 	})
 
 	t.Run("indexes update error: global admin sees raw qualified name (control)", func(t *testing.T) {
-		body := &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Tokenization: "lowercase"}}
-		_, err := helper.Client(t).Schema.SchemaObjectsIndexesUpdate(
-			schema.NewSchemaObjectsIndexesUpdateParams().
+		body := &models.IndexUpsertRequest{Tokenization: "lowercase"}
+		_, _, err := helper.Client(t).Schema.SchemaObjectsIndexUpsert(
+			schema.NewSchemaObjectsIndexUpsertParams().
 				WithClassName(ns1+":"+class). // qualified name
 				WithPropertyName("ghostprop").
+				WithIndexName("filterable").
 				WithBody(body),
 			helper.CreateAuth(adminKey),
 		)
 		require.Error(t, err)
-		var notFound *schema.SchemaObjectsIndexesUpdateNotFound
+		var notFound *schema.SchemaObjectsIndexUpsertNotFound
 		require.True(t, stderrors.As(err, &notFound), "expected 404, got %T: %v", err, err)
 		require.NotEmpty(t, notFound.Payload.Error)
 		assert.Contains(t, notFound.Payload.Error[0].Message, ns1+":", "admin must see qualified name: %s", notFound.Payload.Error[0].Message)

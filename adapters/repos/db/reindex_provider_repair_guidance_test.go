@@ -47,9 +47,9 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationBo
 	require.Equal(t, "name", entry.Data["property"])
 	require.Equal(t, ReindexTypeChangeTokenization, entry.Data["migration_type"])
 	// change-tokenization can tear either inverted index; guidance must
-	// instruct the operator to rebuild both.
+	// instruct the operator to rebuild both via the GA rebuild route.
 	require.Equal(t,
-		`PUT /v1/schema/Products/indexes/name {"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`,
+		`POST /v1/schema/Products/properties/name/index/filterable/rebuild && POST /v1/schema/Products/properties/name/index/searchable/rebuild`,
 		entry.Data["repair_command"])
 	require.Contains(t, entry.Message, "FAILED")
 	require.Contains(t, entry.Message, "bucket")
@@ -71,7 +71,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationFi
 	// change-tokenization-filterable touches ONLY the filterable bucket;
 	// guidance must scope to that.
 	require.Equal(t,
-		`PUT /v1/schema/Products/indexes/category {"filterable":{"rebuild":true}}`,
+		`POST /v1/schema/Products/properties/category/index/filterable/rebuild`,
 		entry.Data["repair_command"])
 }
 
@@ -92,6 +92,53 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_MultipleProperties(t
 		gotProps[i] = entry.Data["property"].(string)
 	}
 	require.ElementsMatch(t, []string{"a", "b", "c"}, gotProps)
+}
+
+// TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut pins that
+// enable-*/change-algorithm emit the re-run PUT (a /rebuild would 400: no
+// index, or still WAND). Retokenize migrations keep /rebuild.
+func TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut(t *testing.T) {
+	cases := []struct {
+		name        string
+		payload     *ReindexTaskPayload
+		wantCommand string
+	}{
+		{
+			name: "enable-searchable -> PUT re-enable with target tokenization",
+			payload: &ReindexTaskPayload{
+				Collection: "Products", MigrationType: ReindexTypeEnableSearchable,
+				Properties: []string{"name"}, TargetTokenization: "word",
+			},
+			wantCommand: `PUT /v1/schema/Products/properties/name/index/searchable -d '{"tokenization":"word"}'`,
+		},
+		{
+			name: "enable-filterable -> PUT re-enable with empty body",
+			payload: &ReindexTaskPayload{
+				Collection: "Products", MigrationType: ReindexTypeEnableFilterable,
+				Properties: []string{"name"},
+			},
+			wantCommand: `PUT /v1/schema/Products/properties/name/index/filterable -d '{}'`,
+		},
+		{
+			name: "change-algorithm -> PUT re-run with algorithm body",
+			payload: &ReindexTaskPayload{
+				Collection: "Products", MigrationType: ReindexTypeChangeAlgorithm,
+				Properties: []string{"name"},
+			},
+			wantCommand: `PUT /v1/schema/Products/properties/name/index/searchable -d '{"algorithm":"blockmax"}'`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T"), tc.payload)
+			require.Len(t, hook.Entries, 1)
+			got := hook.Entries[0].Data["repair_command"].(string)
+			require.Equal(t, tc.wantCommand, got)
+			require.NotContains(t, got, "/rebuild",
+				"enable-*/change-algorithm recovery must not use /rebuild (it 400s on the reverted flag)")
+		})
+	}
 }
 
 func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationIsNoOp(t *testing.T) {

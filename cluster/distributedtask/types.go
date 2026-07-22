@@ -150,9 +150,10 @@ type Provider interface {
 // Motivation: the REST handler holds a per-(collection, property)
 // in-memory lock and runs [checkReindexConflict] before submitting,
 // which closes the same-node race. But two parallel PUT
-// /indexes/{prop} requests served by *different* nodes both pass the
-// per-node lock + check (neither has called AddDistributedTask yet at
-// the moment they each query the cluster task list) and both submit a
+// /properties/{prop}/index/{indexType} requests served by *different*
+// nodes both pass the per-node lock + check (neither has called
+// AddDistributedTask yet at the moment they each query the cluster task
+// list) and both submit a
 // RAFT task. At that point two reindex migrations race on shared
 // on-disk state for the property and one of them ends up FAILED —
 // the multi-node face of https://github.com/weaviate/weaviate/issues/10675 (issue tracked as

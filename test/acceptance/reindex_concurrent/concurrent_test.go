@@ -42,7 +42,7 @@ const (
 // TestConcurrentReindex creates a collection with many properties (text + int),
 // imports data, and submits concurrent reindex tasks for different properties:
 //   - Change tokenization on text properties (word -> field)
-//   - Enable rangeable on int properties
+//   - Enable rangeFilters on int properties
 //
 // All tasks should run in parallel without conflict. The test verifies all
 // tasks complete successfully and that schema changes are applied.
@@ -104,19 +104,19 @@ func TestConcurrentReindex(t *testing.T) {
 	// Submit change-tokenization on each text property.
 	for i := range numTextProps {
 		propName := fmt.Sprintf("text_%d", i)
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, collection, propName,
-			`{"searchable":{"tokenization":"field"}}`)
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, collection, propName,
+			"searchable", `{"tokenization":"field"}`)
 		tasks = append(tasks, taskInfo{taskID, propName, "change-tokenization"})
 		t.Logf("submitted change-tokenization for %s: %s", propName, taskID)
 	}
 
-	// Submit enable-rangeable on each int property.
+	// Submit enable-rangeFilters on each int property.
 	for i := range numIntProps {
 		propName := fmt.Sprintf("int_%d", i)
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, collection, propName,
-			`{"rangeable":{"enabled":true}}`)
-		tasks = append(tasks, taskInfo{taskID, propName, "enable-rangeable"})
-		t.Logf("submitted enable-rangeable for %s: %s", propName, taskID)
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, collection, propName,
+			"rangeFilters", `{}`)
+		tasks = append(tasks, taskInfo{taskID, propName, "enable-rangeFilters"})
+		t.Logf("submitted enable-rangeFilters for %s: %s", propName, taskID)
 	}
 
 	// 4. Wait for ALL tasks to complete.
@@ -163,7 +163,7 @@ func TestConcurrentReindex(t *testing.T) {
 	// 6. Verify queries still work correctly.
 	t.Run("VerifyQueries", func(t *testing.T) {
 		// Verify int properties — use Equal filter which uses the filterable
-		// index (not the rangeable index) to verify data integrity.
+		// index (not the rangeFilters index) to verify data integrity.
 		for i := range numIntProps {
 			propName := fmt.Sprintf("int_%d", i)
 			count := countWithEqualFilter(t, restURI, collection, propName, 0)
@@ -176,8 +176,8 @@ func TestConcurrentReindex(t *testing.T) {
 	t.Run("ConflictRejection", func(t *testing.T) {
 		// Submit a change-tokenization for text_0 again (same property).
 		// Should succeed since the previous one finished.
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, collection, "text_0",
-			`{"searchable":{"tokenization":"word"}}`)
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, collection, "text_0",
+			"searchable", `{"tokenization":"word"}`)
 		t.Logf("submitted retokenize for text_0: %s", taskID)
 
 		// While it's running, try to submit another for the same property.
@@ -197,16 +197,9 @@ func TestConcurrentReindex(t *testing.T) {
 			return false
 		}, 5*time.Second, 50*time.Millisecond, "first task must be in-flight before conflict")
 
-		url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, "text_0")
-		req, err := http.NewRequest(http.MethodPut, url,
-			bytes.NewReader([]byte(`{"searchable":{"tokenization":"field"}}`)))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-
-		switch resp.StatusCode {
+		conflict := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, collection, "text_0",
+			"searchable", `{"tokenization":"field"}`)
+		switch conflict.StatusCode {
 		case http.StatusConflict:
 			t.Log("correctly rejected conflicting task (409)")
 		case http.StatusAccepted:

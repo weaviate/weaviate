@@ -12,7 +12,6 @@
 package reindex_singlenode
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,8 +25,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testCancelReindex exercises the cancel verb on PUT
-// /v1/schema/{class}/indexes/{prop}. Two cases:
+// testCancelReindex exercises the cancel verb on POST
+// /v1/schema/{class}/properties/{prop}/index/{indexType}/cancel. Two cases:
 //
 //  1. Cancelling when no task is in flight → 202 with Status: NO_OP
 //     (idempotent cancel: caller's (collection, property) was already
@@ -71,30 +70,18 @@ func testCancelReindex(t *testing.T, restURI string) {
 		// score has no in-flight reindex task; cancel is idempotent and
 		// returns 202 with Status: NO_OP rather than 404. The body has
 		// no TaskID because there is no task that was cancelled.
-		url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, "score")
-		req, err := http.NewRequest(http.MethodPut, url,
-			bytes.NewReader([]byte(`{"filterable":{"cancel":true}}`)))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		require.Equal(t, http.StatusAccepted, resp.StatusCode,
-			"cancel with no in-flight task should 202 NO_OP, got: %s", string(body))
-		var result models.IndexUpdateResponse
-		require.NoError(t, json.Unmarshal(body, &result),
-			"cancel-no-task response body should decode as IndexUpdateResponse: %s", string(body))
+		// CancelIndex asserts the 202 and decodes the response.
+		result := reindexhelpers.CancelIndex(t, restURI, className, "score", "filterable")
 		require.Equal(t, "NO_OP", result.Status,
-			"cancel-no-task should report Status: NO_OP, got body: %s", string(body))
+			"cancel-no-task should report Status: NO_OP, got: %+v", result)
 		require.Empty(t, result.TaskID,
-			"cancel-no-task should not name a TaskID, got body: %s", string(body))
+			"cancel-no-task should not name a TaskID, got: %+v", result)
 	})
 
 	t.Run("CancelInFlightTask", func(t *testing.T) {
 		// Submit enable-filterable on score and wait until /indexes shows
 		// it pending/indexing, then cancel.
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score", `{"filterable":{"enabled":true}}`)
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "score", "filterable", `{}`)
 		t.Logf("submitted task %s", taskID)
 
 		require.Eventually(t, func() bool {
@@ -112,33 +99,21 @@ func testCancelReindex(t *testing.T, restURI string) {
 			return false
 		}, 30*time.Second, 50*time.Millisecond, "task did not appear as indexing/pending before cancel")
 
-		// Issue the cancel.
-		url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, "score")
-		req, err := http.NewRequest(http.MethodPut, url,
-			bytes.NewReader([]byte(`{"filterable":{"cancel":true}}`)))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
+		// Issue the cancel via POST .../index/filterable/cancel. CancelIndex
+		// asserts the 202 and decodes the response.
+		//
 		// Two acceptable outcomes, both at 202 (the cancel verb is
 		// idempotent: a finished task is the same observable end-state
 		// as a cancelled one):
 		// - Status: CANCELLED + TaskID: cancel won the race.
 		// - Status: NO_OP: task already terminal (FINISHED, FAILED, or
 		//   CANCELLED) before our cancel landed; no STARTED task matched.
-		// Both prove the contract; we only fail on unexpected codes.
-		require.Equal(t, http.StatusAccepted, resp.StatusCode,
-			"cancel must return 202; got %d body: %s", resp.StatusCode, string(body))
-		var result models.IndexUpdateResponse
-		require.NoError(t, json.Unmarshal(body, &result),
-			"cancel response body should decode as IndexUpdateResponse: %s", string(body))
+		// Both prove the contract; we only fail on unexpected status values.
+		result := reindexhelpers.CancelIndex(t, restURI, className, "score", "filterable")
 		switch result.Status {
 		case "CANCELLED":
 			require.Equal(t, taskID, result.TaskID,
-				"cancel CANCELLED should name the cancelled task ID; body: %s", string(body))
+				"cancel CANCELLED should name the cancelled task ID; result: %+v", result)
 			t.Logf("cancel returned 202 with status CANCELLED")
 
 			// The task must reach CANCELLED status in /v1/tasks.
@@ -164,7 +139,7 @@ func testCancelReindex(t *testing.T, restURI string) {
 		case "NO_OP":
 			t.Logf("cancel raced with task completion; no STARTED task to cancel (acceptable)")
 		default:
-			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s", result.Status, string(body))
+			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); result: %+v", result.Status, result)
 		}
 	})
 }
