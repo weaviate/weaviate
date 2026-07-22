@@ -40,6 +40,23 @@ type dropVectorIndexEnqueuer struct {
 	clusterService clusterDropTaskClient
 	schemaState    schemaStateQuerier
 	logger         logrus.FieldLogger // nil-safe: only used for skip warnings
+	// finalizer removes the schema marker when accumulated coverage spans
+	// every shard and there is nothing left to enqueue (the DTM cannot run a
+	// unit-less task). Nil-safe: without it the marker just stays.
+	finalizer dropVectorMarkerFinalizer
+}
+
+// dropVectorMarkerFinalizer is the slice of the schema finalizer the enqueuer
+// uses for coverage-complete direct finalization.
+type dropVectorMarkerFinalizer interface {
+	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error
+}
+
+// SetFinalizer installs the marker finalizer. Must run during single-threaded
+// startup (the enqueuer is constructed before the schema manager exists),
+// before the reconcile loop starts or REST serving begins.
+func (e *dropVectorIndexEnqueuer) SetFinalizer(f dropVectorMarkerFinalizer) {
+	e.finalizer = f
 }
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
@@ -104,8 +121,10 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 
 // EnqueueDropVectorIndex submits a fresh cleanup task (fresh task + op ID) with
 // one unit per (shard, replica) grouped by shard, so each replica node strips
-// its own objects bucket.
-func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
+// its own objects bucket. Shards already cleaned by earlier tasks of the same
+// drop epoch get no unit; when accumulated coverage already spans every shard
+// and nothing is left to enqueue, the marker is finalized directly.
+func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string, freshEpoch bool) error {
 	// Re-validate against the leader-consistent class: the marker commit and this
 	// enqueue are not atomic, and reconciliation may run off a stale local schema
 	// snapshot. A target that is no longer marked dropped (class deleted and
@@ -142,6 +161,31 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
 	}
 
+	epoch, cleaned, err := e.epochAndInheritedCoverage(ctx, collection, targets, freshEpoch)
+	if err != nil {
+		return fmt.Errorf("drop-vector enqueue: coverage inheritance for %q: %w", collection, err)
+	}
+	shardOwnership = withoutCleanedShards(shardOwnership, cleaned)
+	if len(shardOwnership) == 0 {
+		if uncovered := shardsNotIn(state, cleaned); len(uncovered) > 0 {
+			if e.logger != nil {
+				e.logger.WithField("collection", collection).WithField("shards", uncovered).
+					Info("drop-vector enqueue: all active shards already cleaned; the marker stays until the remaining shards' tenants are activated")
+			}
+			return nil
+		}
+		// Coverage spans every shard with nothing left to enqueue: finalize
+		// directly. The FSM removal gate re-verifies against the task records.
+		if e.finalizer == nil {
+			return nil
+		}
+		if e.logger != nil {
+			e.logger.WithField("collection", collection).
+				Info("drop-vector enqueue: accumulated coverage spans all shards; finalizing the marker")
+		}
+		return e.finalizer.RemoveDroppedVectorConfig(ctx, collection, targets)
+	}
+
 	// Known limitation (matches the reindex model): a unit is emitted per
 	// (shard, replica) with no liveness filter, and the DTM never reassigns a
 	// claimed unit. A permanently-removed replica leaves its unit non-terminal and
@@ -154,11 +198,13 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	// json.Marshals taskPayload itself (bytes would be double-encoded into a JSON
 	// string and fail to decode in CheckConflict / the provider).
 	payload := db.DropVectorIndexTaskPayload{
-		Collection:  collection,
-		Targets:     targets,
-		OpID:        uuid.NewString(),
-		UnitToNode:  unitToNode,
-		UnitToShard: unitToShard,
+		Collection:    collection,
+		Targets:       targets,
+		OpID:          uuid.NewString(),
+		UnitToNode:    unitToNode,
+		UnitToShard:   unitToShard,
+		DropEpochID:   epoch,
+		CleanedShards: cleaned,
 	}
 
 	// Fresh task ID per submission so a re-trigger after a FAILED run is a new
@@ -166,6 +212,126 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	// task, the backstop for the HasActiveDrop check race.
 	taskID := uuid.NewString()
 	return e.clusterService.AddDistributedTaskWithGroups(ctx, db.DropVectorIndexNamespace, taskID, payload, specs)
+}
+
+// epochAndInheritedCoverage resolves the drop epoch and the cleaned-shard set
+// accumulated by completed tasks of that epoch. freshEpoch mints a new epoch
+// with no inheritance; otherwise the newest matching task decides the epoch,
+// and a missing/pre-epoch chain (older nodes, records aged past the task TTL)
+// starts fresh — costing one full re-clean, never correctness.
+func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
+	collection string, targets []string, freshEpoch bool,
+) (string, []string, error) {
+	if freshEpoch {
+		return uuid.NewString(), nil, nil
+	}
+	tasks, err := e.clusterService.ListDistributedTasks(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	var newest *db.DropVectorIndexTaskPayload
+	var newestAt time.Time
+	matching := make(map[*distributedtask.Task]*db.DropVectorIndexTaskPayload)
+	for _, task := range tasks[db.DropVectorIndexNamespace] {
+		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
+		if err != nil {
+			e.warnSkippedPayload("coverage-inheritance", task.ID, err)
+			continue
+		}
+		if !strings.EqualFold(p.Collection, collection) || !sameTargetSet(p.Targets, targets) {
+			continue
+		}
+		matching[task] = p
+		if newest == nil || task.StartedAt.After(newestAt) {
+			newest, newestAt = p, task.StartedAt
+		}
+	}
+	if newest == nil || newest.DropEpochID == "" {
+		return uuid.NewString(), nil, nil
+	}
+	covered := map[string]struct{}{}
+	for task, p := range matching {
+		if p.DropEpochID != newest.DropEpochID || !completedTaskStatus(task.Status) {
+			continue
+		}
+		for _, shard := range p.CleanedShards {
+			covered[shard] = struct{}{}
+		}
+		for _, shard := range p.UnitToShard {
+			covered[shard] = struct{}{}
+		}
+	}
+	cleaned := make([]string, 0, len(covered))
+	for shard := range covered {
+		cleaned = append(cleaned, shard)
+	}
+	sort.Strings(cleaned)
+	return newest.DropEpochID, cleaned, nil
+}
+
+// completedTaskStatus matches tasks whose every unit succeeded (mirrors the
+// provider gate's completedStatus).
+func completedTaskStatus(s distributedtask.TaskStatus) bool {
+	return s == distributedtask.TaskStatusSwapping || s == distributedtask.TaskStatusFinished
+}
+
+// sameTargetSet reports whether two target lists contain the same names
+// (exact case — target vector names are case-sensitive identifiers).
+func sameTargetSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[string]struct{}, len(a))
+	for _, t := range a {
+		set[t] = struct{}{}
+	}
+	for _, t := range b {
+		if _, ok := set[t]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// withoutCleanedShards strips already-cleaned shards from the ownership map,
+// removing nodes left with no shards.
+func withoutCleanedShards(ownership map[string][]string, cleaned []string) map[string][]string {
+	if len(cleaned) == 0 {
+		return ownership
+	}
+	skip := make(map[string]struct{}, len(cleaned))
+	for _, shard := range cleaned {
+		skip[shard] = struct{}{}
+	}
+	result := make(map[string][]string, len(ownership))
+	for node, shards := range ownership {
+		var kept []string
+		for _, shard := range shards {
+			if _, ok := skip[shard]; !ok {
+				kept = append(kept, shard)
+			}
+		}
+		if len(kept) > 0 {
+			result[node] = kept
+		}
+	}
+	return result
+}
+
+// shardsNotIn returns the state's shards absent from the given set, sorted.
+func shardsNotIn(state *sharding.State, set []string) []string {
+	in := make(map[string]struct{}, len(set))
+	for _, shard := range set {
+		in[shard] = struct{}{}
+	}
+	var out []string
+	for shard := range state.Physical {
+		if _, ok := in[shard]; !ok {
+			out = append(out, shard)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // stillDroppedTargets filters targets to those still present and marked dropped
@@ -267,7 +433,7 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 			if active {
 				continue
 			}
-			if err := enq.EnqueueDropVectorIndex(ctx, class.Class, []string{name}); err != nil {
+			if err := enq.EnqueueDropVectorIndex(ctx, class.Class, []string{name}, false); err != nil {
 				logger.WithField("collection", class.Class).WithField("vector", name).
 					Warnf("drop-vector reconcile: enqueue failed: %v", err)
 			}

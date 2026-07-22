@@ -549,7 +549,8 @@ func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTa
 }
 
 // uncoveredShards returns the collection's current shards (leader-consistent)
-// that had no unit in this task.
+// with no unit in this task and no entry in its inherited cleaned-shard set
+// (shards cleaned by ancestor tasks of the same drop epoch).
 func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPayload) ([]string, error) {
 	state, _, err := p.sharding.QueryShardingState(payload.Collection)
 	if err != nil {
@@ -558,8 +559,11 @@ func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPa
 	if state == nil {
 		return nil, fmt.Errorf("no sharding state for collection %q", payload.Collection)
 	}
-	covered := make(map[string]struct{}, len(payload.UnitToShard))
+	covered := make(map[string]struct{}, len(payload.UnitToShard)+len(payload.CleanedShards))
 	for _, shardName := range payload.UnitToShard {
+		covered[shardName] = struct{}{}
+	}
+	for _, shardName := range payload.CleanedShards {
 		covered[shardName] = struct{}{}
 	}
 	var uncovered []string

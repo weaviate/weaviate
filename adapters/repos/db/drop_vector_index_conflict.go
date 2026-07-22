@@ -156,8 +156,11 @@ func (p *DropVectorIndexProvider) completedDropVoucher(className, vec string, sh
 			continue
 		}
 		coversVec = true
-		covered := make(map[string]struct{}, len(existP.UnitToShard))
+		covered := make(map[string]struct{}, len(existP.UnitToShard)+len(existP.CleanedShards))
 		for _, shard := range existP.UnitToShard {
+			covered[shard] = struct{}{}
+		}
+		for _, shard := range existP.CleanedShards {
 			covered[shard] = struct{}{}
 		}
 		var missing []string

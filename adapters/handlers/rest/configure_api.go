@@ -1182,6 +1182,9 @@ func initReindexAndDistributedTasks(
 		appState.Cluster.LocalName(),
 		serverShutdownCtx,
 	)
+	// Installed here rather than at construction: the enqueuer predates the
+	// schema manager; must land before the reconcile loop below starts.
+	dropVectorEnqueuer.SetFinalizer(db.NewSchemaVectorConfigFinalizer(appState.SchemaManager))
 	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
 	// is missing (crash, upgrade, or restore).
 	enterrors.GoWrapper(func() {
