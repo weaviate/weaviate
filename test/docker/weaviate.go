@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -40,6 +41,7 @@ func startWeaviate(ctx context.Context,
 	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
+	hostGateway bool,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -167,6 +169,14 @@ func startWeaviate(ctx context.Context,
 				},
 			},
 		},
+	}
+	if hostGateway {
+		// Map host.docker.internal to the host gateway so container-side clients
+		// can reach a server on the test host. A plain extra-host entry, so it
+		// survives container Stop/Start (unlike testcontainers HostAccessPorts).
+		req.HostConfigModifier = func(hc *container.HostConfig) {
+			hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
+		}
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
