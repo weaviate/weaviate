@@ -228,14 +228,10 @@ func (t *DiskTree) Next(key []byte) (Node, error) {
 	return t.seekAt(0, key, false)
 }
 
-// seekAt walks toward the node bounding key: an exact match when
-// includingKey, otherwise its in-order successor. Iterative rather than
-// recursive, for the same reason as Get's loop above: a child offset read
-// from possibly corrupt data can point back up the tree, and an unbounded
-// recursive descent crashes the process with an uncatchable stack overflow
-// instead of returning an error. candidate holds the closest node seen so
-// far whose key is strictly greater than key; it is the answer whenever
-// descending further right never turns up anything closer.
+// seekAt is iterative, not recursive: a corrupt cyclic child offset would
+// otherwise recurse without bound and crash the process (see Get above).
+// candidate holds the closest key > the search key seen so far, returned
+// once the right subtree runs out.
 func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, error) {
 	dataLen := uint64(len(t.data))
 	maxIterations := dataLen/TREE_KEY_STORE_OVERHEAD + 1

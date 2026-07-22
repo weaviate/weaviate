@@ -193,14 +193,8 @@ func TestDiskTreeGet_CycleGuard(t *testing.T) {
 	}
 }
 
-// TestDiskTreeSeekNext_CycleGuard pins weaviate/weaviate#12280: seekAt (the
-// walk backing Seek/Next, and thus every disk-segment cursor) must not
-// crash on the same cyclic child pointer TestDiskTreeGet_CycleGuard above
-// pins for Get. An unbounded descent here fails as a process-killing stack
-// overflow, a fatal runtime error recover() cannot intercept - so unlike
-// the Get test above, this can't be caught with a goroutine+timeout; the
-// proof is that this test process survives at all and Seek/Next return a
-// clean error.
+// TestDiskTreeSeekNext_CycleGuard pins weaviate/weaviate#12280: a cyclic
+// child pointer must not stack-overflow seekAt (Seek/Next).
 func TestDiskTreeSeekNext_CycleGuard(t *testing.T) {
 	tree := NewTree(4)
 	tree.Insert([]byte("b"), 20, 21) // root
