@@ -92,8 +92,7 @@ func (_c *MockExister_GetNamespace_Call) RunAndReturn(run func(string) (api.Name
 func NewMockExister(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockExister {
+}) *MockExister {
 	mock := &MockExister{}
 	mock.Mock.Test(t)
 
