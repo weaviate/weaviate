@@ -336,6 +336,9 @@ func TestBM25FCrossPropertyAnd(t *testing.T) {
 	EqualFloats(t, sCross, sOr, 4)
 }
 
+// The old WAND path merges each query term's postings across all searched
+// properties before intersecting, so its AND has always had cross-property
+// semantics — AND and AND_CROSS are equivalent there.
 func TestBM25FCrossPropertyAndNonInverted(t *testing.T) {
 	config.DefaultUsingBlockMaxWAND = false
 
@@ -347,9 +350,13 @@ func TestBM25FCrossPropertyAndNonInverted(t *testing.T) {
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
 
-	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "unrelated journey", SearchOperator: common_filters.SearchOperatorAndCross}
-	_, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, additional.Properties{}, nil, "", 0, props)
-	require.ErrorContains(t, err, "BlockMax WAND")
+	for _, operator := range []string{common_filters.SearchOperatorAndCross, common_filters.SearchOperatorAnd} {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "unrelated journey", SearchOperator: operator}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, additional.Properties{}, nil, "", 0, props)
+		require.Nil(t, err, operator)
+		require.Len(t, res, 1, operator)
+		require.Equal(t, uint64(3), res[0].DocID, operator)
+	}
 }
 
 // setupMixedTokenizationClass builds a class with two searched properties that use

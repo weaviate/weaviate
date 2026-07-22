@@ -353,10 +353,6 @@ func (b *BM25Searcher) wand(
 func (b *BM25Searcher) wandFromStats(
 	ctx context.Context, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int, additional additional.Properties, stats bm25QueryStats, start time.Time,
 ) ([]*storobj.Object, []float32, error) {
-	if params.SearchOperator == common_filters.SearchOperatorAndCross {
-		return nil, nil, fmt.Errorf("%s is only supported with BlockMax WAND (inverted searchable indexes)", common_filters.SearchOperatorAndCross)
-	}
-
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)
 	minimumOrTokensMatch := math.MaxInt64
