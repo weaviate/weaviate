@@ -156,6 +156,115 @@ func TestFilterNewerCommitLogFiles(t *testing.T) {
 	assert.Equal(t, "1502", result[2].Name())
 }
 
+func TestCommitLogPathBuilders(t *testing.T) {
+	tests := []struct {
+		name     string
+		rootPath string
+		id       string
+		fileName string
+		wantDir  string
+		wantFile string
+	}{
+		{
+			name:     "simple",
+			rootPath: "/data",
+			id:       "MyClass",
+			fileName: "1682473161",
+			wantDir:  "/data/MyClass.hnsw.commitlog.d",
+			wantFile: "/data/MyClass.hnsw.commitlog.d/1682473161",
+		},
+		{
+			name:     "trailing slash in rootPath is preserved verbatim",
+			rootPath: "/data/",
+			id:       "MyClass",
+			fileName: "1682473161.condensed",
+			wantDir:  "/data//MyClass.hnsw.commitlog.d",
+			wantFile: "/data//MyClass.hnsw.commitlog.d/1682473161.condensed",
+		},
+		{
+			name:     "empty rootPath",
+			rootPath: "",
+			id:       "MyClass",
+			fileName: "1004",
+			wantDir:  "/MyClass.hnsw.commitlog.d",
+			wantFile: "/MyClass.hnsw.commitlog.d/1004",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.wantDir, commitLogDirectory(tc.rootPath, tc.id))
+			assert.Equal(t, tc.wantFile, commitLogFileName(tc.rootPath, tc.id, tc.fileName))
+		})
+	}
+}
+
+func TestCommitLogFileNames(t *testing.T) {
+	tests := []struct {
+		name     string
+		rootPath string
+		id       string
+		files    []os.DirEntry
+		want     []string
+	}{
+		{
+			name:     "no files",
+			rootPath: "/data",
+			id:       "MyClass",
+			files:    nil,
+			want:     []string{},
+		},
+		{
+			name:     "single file",
+			rootPath: "/data",
+			id:       "MyClass",
+			files:    []os.DirEntry{MockDirEntry{name: "1000"}},
+			want:     []string{"/data/MyClass.hnsw.commitlog.d/1000"},
+		},
+		{
+			name:     "multiple files share one directory",
+			rootPath: "/data",
+			id:       "MyClass",
+			files: []os.DirEntry{
+				MockDirEntry{name: "1000.condensed"},
+				MockDirEntry{name: "1001.condensed"},
+				MockDirEntry{name: "1002"},
+			},
+			want: []string{
+				"/data/MyClass.hnsw.commitlog.d/1000.condensed",
+				"/data/MyClass.hnsw.commitlog.d/1001.condensed",
+				"/data/MyClass.hnsw.commitlog.d/1002",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := commitLogFileNames(tc.rootPath, tc.id, tc.files)
+			// hoisting the directory out of the loop must not change output:
+			// each entry must equal the per-file builder's output.
+			require.Len(t, got, len(tc.files))
+			for i, file := range tc.files {
+				assert.Equal(t, commitLogFileName(tc.rootPath, tc.id, file.Name()), got[i])
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func BenchmarkCommitLogFileNames(b *testing.B) {
+	files := make([]os.DirEntry, 100)
+	for i := range files {
+		files[i] = MockDirEntry{name: fmt.Sprintf("%d.condensed", 1000+i)}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = commitLogFileNames("/var/lib/weaviate", "MyClass", files)
+	}
+}
+
 func TestCondenseLoop(t *testing.T) {
 	scratchDir := t.TempDir()
 	commitLogDir := createCondensorTestData(t, scratchDir)
