@@ -131,12 +131,10 @@ func (s *telemetrySink) waitClusterID(t *testing.T, nodeID string, timeout time.
 	return id
 }
 
+// nodeNames returns the CLUSTER_HOSTNAMEs the docker helper assigns, which are
+// what telemetry reports as NodeID. The cluster helper supports up to 3 nodes.
 func nodeNames(size int) []string {
-	names := make([]string, size)
-	for i := range names {
-		names[i] = fmt.Sprintf("node%d", i+1)
-	}
-	return names
+	return []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2}[:size]
 }
 
 // waitTimeout covers leader election plus a few push intervals: the first push
@@ -162,7 +160,7 @@ func TestTelemetryClusterID_SingleNode(t *testing.T) {
 
 	t.Cleanup(func() { sink.dump(t) })
 
-	const node = "node1"
+	const node = docker.Weaviate0
 
 	var before string
 	t.Run("clusterId is created", func(t *testing.T) {
@@ -222,7 +220,7 @@ func TestTelemetryClusterID_ThreeNodes(t *testing.T) {
 	})
 
 	t.Run("clusterId is unchanged after restarting a node", func(t *testing.T) {
-		const restarted = "node2"
+		const restarted = docker.Weaviate1
 		timeout := 30 * time.Second
 		require.NoError(t, compose.StopNode(ctx, 2, &timeout))
 		sink.forget(restarted)
