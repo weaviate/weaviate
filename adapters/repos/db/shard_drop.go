@@ -32,6 +32,10 @@ import (
 // If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
 // to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
+	if err := s.prepareForDrop(context.TODO()); err != nil {
+		return err
+	}
+
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 

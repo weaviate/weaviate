@@ -24,7 +24,7 @@ import (
 )
 
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
-	s.shutdownRequested.Store(true)
+	s.closeState.CompareAndSwap(shardOpen, shardClosingForShutdown)
 	return backoff.Retry(func() error {
 		// this retry to make sure it's retried in case
 		// the performShutdown() returned shard still in use
@@ -62,7 +62,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	defer s.shutdownLock.Unlock()
 
 	if s.shut.Load() {
-		s.shutdownRequested.Store(false)
+		s.closeState.CompareAndSwap(shardClosingForShutdown, shardOpen)
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is already shut down", s.name)
@@ -76,7 +76,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return fmt.Errorf("shard %q is still in use", s.name)
 	}
 	s.shut.Store(true)
-	s.shutdownRequested.Store(false)
+	s.closeState.CompareAndSwap(shardClosingForShutdown, shardOpen)
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
 	// Track shard unloading: loaded -> unloading
@@ -173,8 +173,11 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 }
 
 func (s *Shard) preventShutdown() (release func(), err error) {
-	if s.shutdownRequested.Load() {
+	switch s.closeState.Load() {
+	case shardClosingForShutdown:
 		return func() {}, errShutdownInProgress
+	case shardClosingForDrop:
+		return func() {}, errDropInProgress
 	}
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
@@ -194,25 +197,46 @@ func (s *Shard) refCountAdd() {
 func (s *Shard) refCountSub() {
 	s.inUseCounter.Add(-1)
 	// if the counter is 0, we can shutdown
-	if s.inUseCounter.Load() == 0 && s.shutdownRequested.Load() {
+	if s.inUseCounter.Load() == 0 && s.closeState.Load() == shardClosingForShutdown {
 		s.performShutdown(context.TODO())
 	}
 }
 
-// // cleanupPartialInit is called when the shard was only partially initialized.
-// // Internally it just uses [Shutdown], but also adds some logging.
-// func (s *Shard) cleanupPartialInit(ctx context.Context) {
-// 	log := s.index.logger.WithField("action", "cleanup_partial_initialization")
-// 	if err := s.Shutdown(ctx); err != nil {
-// 		log.WithError(err).Error("failed to shutdown store")
-// 	}
+// prepareForDrop closes the shard to new users and drains the ones already
+// admitted, so drop() does not tear down the store while an in-flight read or
+// write is still using it. On timeout the shard is handed back untouched for
+// the caller to retry.
+func (s *Shard) prepareForDrop(ctx context.Context) error {
+	// supersede any shutdown in flight, remembering it so a refused drop can
+	// restore what it interrupted
+	var prev int32
+	for {
+		prev = s.closeState.Load()
+		if prev == shardClosingForDrop {
+			return fmt.Errorf("prepare shard %q for drop: %w", s.name, errDropInProgress)
+		}
+		if s.closeState.CompareAndSwap(prev, shardClosingForDrop) {
+			break
+		}
+	}
 
-// 	log.Debug("successfully cleaned up partially initialized shard")
-// }
+	err := backoff.Retry(func() error {
+		// check and close together, as performShutdown does: preventShutdown
+		// admits under the read lock, so two steps would let a reader in between
+		s.shutdownLock.Lock()
+		defer s.shutdownLock.Unlock()
 
-// func (s *Shard) NotifyReady() {
-// 	s.initStatus()
-// 	s.index.logger.
-// 		WithField("action", "startup").
-// 		Debugf("shard=%s is ready", s.name)
-// }
+		if n := s.inUseCounter.Load(); n > 0 {
+			return fmt.Errorf("shard %q is still in use by %d operation(s)", s.name, n)
+		}
+		s.shut.Store(true)
+		return nil
+	}, backoff.WithContext(backoff.WithMaxRetries(
+		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+	if err != nil {
+		s.closeState.CompareAndSwap(shardClosingForDrop, prev)
+		return fmt.Errorf("prepare shard %q for drop: %w", s.name, err)
+	}
+
+	return nil
+}

@@ -213,10 +213,11 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 }
 
 func requireShardShutdownRequested(t *testing.T, shard ShardLike, expected bool) {
+	state := shard.(*LazyLoadShard).shard.closeState.Load()
 	if expected {
-		require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
+		require.Equal(t, shardClosingForShutdown, state, "shard should be marked for shut down")
 	} else {
-		require.False(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should not be marked for shut down")
+		require.NotEqual(t, shardClosingForShutdown, state, "shard should not be marked for shut down")
 	}
 }
 

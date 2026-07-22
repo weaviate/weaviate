@@ -24,7 +24,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -35,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -61,9 +61,20 @@ import (
 
 const IdLockPoolSize uint64 = 1024
 
+// Shard.closeState values. Both closing states refuse new users; they differ in
+// whether refCountSub may tear the shard down.
+const (
+	shardOpen int32 = iota
+	// releasing the last reference may complete the shutdown
+	shardClosingForShutdown
+	// prepareForDrop waits for the drain, so releasing must not act
+	shardClosingForDrop
+)
+
 var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
 	errShutdownInProgress = errors.New("shard shutdown in progress")
+	errDropInProgress     = fmt.Errorf("%w: shard drop in progress", errAlreadyShutdown)
 )
 
 type ShardLike interface {
@@ -299,8 +310,8 @@ type Shard struct {
 
 	usingBlockMaxWAND bool
 
-	// shutdownRequested marks shard as requested for shutdown
-	shutdownRequested atomic.Bool
+	// closeState gates admission in preventShutdown, see shardOpen
+	closeState atomic.Int32
 
 	HFreshEnabled bool
 
