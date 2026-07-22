@@ -172,9 +172,9 @@ func TestTelemetryClusterID_SingleNode(t *testing.T) {
 
 	t.Run("clusterId is stable across a restart", func(t *testing.T) {
 		timeout := 30 * time.Second
-		require.NoError(t, compose.StopNode(ctx, 1, &timeout))
+		require.NoError(t, compose.StopNode(ctx, 0, &timeout))
 		sink.forget(node) // drop the shutdown TERMINATE push; assert only post-restart payloads
-		require.NoError(t, compose.StartNode(ctx, 1))
+		require.NoError(t, compose.StartNode(ctx, 0))
 
 		after := sink.waitClusterID(t, node, waitTimeout)
 		t.Logf("clusterId after restart:  %s", after)
@@ -222,9 +222,9 @@ func TestTelemetryClusterID_ThreeNodes(t *testing.T) {
 	t.Run("clusterId is unchanged after restarting a node", func(t *testing.T) {
 		const restarted = docker.Weaviate1
 		timeout := 30 * time.Second
-		require.NoError(t, compose.StopNode(ctx, 2, &timeout))
+		require.NoError(t, compose.StopNode(ctx, 1, &timeout))
 		sink.forget(restarted)
-		require.NoError(t, compose.StartNode(ctx, 2))
+		require.NoError(t, compose.StartNode(ctx, 1))
 
 		after := sink.waitClusterID(t, restarted, waitTimeout)
 		t.Logf("clusterId after restarting %s: %s", restarted, after)
@@ -235,7 +235,7 @@ func TestTelemetryClusterID_ThreeNodes(t *testing.T) {
 		// Cold restart: with every node down, the id can only come back from disk
 		// (snapshot + log replay), and the set-once guard must not re-mint it.
 		timeout := 30 * time.Second
-		for i := 1; i <= len(nodes); i++ {
+		for i := range nodes {
 			require.NoError(t, compose.StopNode(ctx, i, &timeout))
 		}
 		sink.forget(nodes...)
@@ -244,7 +244,7 @@ func TestTelemetryClusterID_ThreeNodes(t *testing.T) {
 		// any node passes its readiness check, so a lone node started first would
 		// hang. Bringing them up together lets quorum re-form.
 		var eg errgroup.Group
-		for i := 1; i <= len(nodes); i++ {
+		for i := range nodes {
 			eg.Go(func() error { return compose.StartNode(ctx, i) })
 		}
 		require.NoError(t, eg.Wait())
