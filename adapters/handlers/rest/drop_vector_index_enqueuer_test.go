@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -37,7 +38,10 @@ func (f *fakeReconcileEnqueuer) HasActiveDrop(ctx context.Context, collection, t
 	return f.active[collection+"/"+targetVector], nil
 }
 
-func (f *fakeReconcileEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
+func (f *fakeReconcileEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string, freshEpoch bool) error {
+	if freshEpoch {
+		return fmt.Errorf("reconciliation must continue the current epoch, not mint a fresh one")
+	}
 	for _, t := range targets {
 		f.enqueued = append(f.enqueued, collection+"/"+t)
 	}
@@ -254,7 +258,7 @@ func TestEnqueueDropVectorIndex_TargetNoLongerDropped_NoOp(t *testing.T) {
 	}
 	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
-	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
 	require.Empty(t, cluster.gotTaskID, "no task may be enqueued for a live vector")
 }
 
@@ -294,7 +298,7 @@ func TestEnqueueDropVectorIndex_AllColdMultiTenant_NoOp(t *testing.T) {
 	})}
 	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
-	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
 	require.Empty(t, cluster.gotTaskID, "no task should be enqueued when there are no active shards")
 }
 
@@ -305,7 +309,7 @@ func TestEnqueueDropVectorIndex_NoShardsNonMultiTenant_Errors(t *testing.T) {
 	state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{})}
 	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
-	require.Error(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.Error(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
 }
 
 // TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal pins the encoding
@@ -320,7 +324,7 @@ func TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal(t *testing.T) {
 	})}
 	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
-	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
 
 	require.Equal(t, db.DropVectorIndexNamespace, cluster.gotNamespace)
 	require.NotEmpty(t, cluster.gotTaskID)
@@ -336,6 +340,163 @@ func TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal(t *testing.T) {
 	require.NotEmpty(t, p.OpID)
 	require.Equal(t, "node1", p.UnitToNode["shard1__node1"])
 	require.Equal(t, "shard1", p.UnitToShard["shard1__node1"])
+}
+
+type fakeMarkerFinalizer struct {
+	collections []string
+	finalized   [][]string
+}
+
+func (f *fakeMarkerFinalizer) RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error {
+	f.collections = append(f.collections, collection)
+	f.finalized = append(f.finalized, targets)
+	return nil
+}
+
+// completedEpochTask builds a FINISHED task of the given epoch with units over
+// unitShards and an inherited cleaned set, startedAt seconds after a fixed base.
+func completedEpochTask(t *testing.T, id, collection, epoch string, unitShards, cleaned []string, startedOffsetSec int, targets ...string) *distributedtask.Task {
+	t.Helper()
+	unitToShard := map[string]string{}
+	for i, shard := range unitShards {
+		unitToShard[fmt.Sprintf("%s__u%d", shard, i)] = shard
+	}
+	b, err := json.Marshal(db.DropVectorIndexTaskPayload{
+		Collection: collection, Targets: targets, OpID: "op-" + id,
+		UnitToShard: unitToShard, DropEpochID: epoch, CleanedShards: cleaned,
+	})
+	require.NoError(t, err)
+	return &distributedtask.Task{
+		Namespace:      db.DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
+		Payload:        b,
+		Status:         distributedtask.TaskStatusFinished,
+		StartedAt:      time.Unix(1700000000, 0).Add(time.Duration(startedOffsetSec) * time.Second),
+	}
+}
+
+func decodeEnqueuedPayload(t *testing.T, cluster *fakeClusterDropClient) db.DropVectorIndexTaskPayload {
+	t.Helper()
+	raw, err := json.Marshal(cluster.gotPayload)
+	require.NoError(t, err)
+	var p db.DropVectorIndexTaskPayload
+	require.NoError(t, json.Unmarshal(raw, &p))
+	return p
+}
+
+// TestEnqueueDropVectorIndex_CoverageInheritance pins the cleaned-shard chain:
+// a continued-epoch enqueue inherits coverage from completed same-epoch tasks,
+// skips cleaned shards when building units, finalizes directly when coverage is
+// complete, and never inherits across epochs or on a fresh drop.
+func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
+	mtState := func(shards map[string]sharding.Physical) *fakeShardingState {
+		return &fakeShardingState{state: shardingState(true, shards)}
+	}
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	cold := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusCOLD, BelongsToNodes: nodes}
+	}
+
+	t.Run("continued epoch inherits coverage and skips cleaned shards", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+			db.DropVectorIndexNamespace: {
+				completedEpochTask(t, "t1", "C", "E1", []string{"s1"}, nil, 0, "v1"),
+			},
+		}}
+		state := mtState(map[string]sharding.Physical{
+			"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1"),
+		})
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
+		p := decodeEnqueuedPayload(t, cluster)
+		require.Equal(t, "E1", p.DropEpochID, "the newest task's epoch continues")
+		require.Equal(t, []string{"s1"}, p.CleanedShards)
+		require.Equal(t, map[string]string{"s2__n1": "s2"}, p.UnitToShard,
+			"cleaned s1 gets no unit; cold s3 is excluded as before")
+	})
+
+	t.Run("fresh drop mints a new epoch and ignores prior coverage", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+			db.DropVectorIndexNamespace: {
+				completedEpochTask(t, "t1", "C", "E1", []string{"s1", "s2"}, nil, 0, "v1"),
+			},
+		}}
+		state := mtState(map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")})
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, true))
+		p := decodeEnqueuedPayload(t, cluster)
+		require.NotEqual(t, "E1", p.DropEpochID, "a re-created then re-dropped name must not continue the old epoch")
+		require.Empty(t, p.CleanedShards)
+		require.Len(t, p.UnitToShard, 2, "no coverage inherited: every active shard gets a unit")
+	})
+
+	t.Run("coverage complete with nothing to enqueue finalizes directly", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+			db.DropVectorIndexNamespace: {
+				completedEpochTask(t, "t1", "C", "E1", []string{"s1"}, []string{"s2"}, 0, "v1"),
+			},
+		}}
+		state := mtState(map[string]sharding.Physical{"s1": hot("n1"), "s2": cold("n1")})
+		finalizer := &fakeMarkerFinalizer{}
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
+		require.Empty(t, cluster.gotTaskID, "no unit-less task may be enqueued")
+		require.Equal(t, []string{"C"}, finalizer.collections)
+		require.Equal(t, [][]string{{"v1"}}, finalizer.finalized)
+	})
+
+	t.Run("all active shards cleaned but a shard uncovered defers without a task", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+			db.DropVectorIndexNamespace: {
+				completedEpochTask(t, "t1", "C", "E1", []string{"s1"}, nil, 0, "v1"),
+			},
+		}}
+		state := mtState(map[string]sharding.Physical{"s1": hot("n1"), "s2": cold("n1")})
+		finalizer := &fakeMarkerFinalizer{}
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state, finalizer: finalizer}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
+		require.Empty(t, cluster.gotTaskID)
+		require.Empty(t, finalizer.collections, "cold s2 was never cleaned; the marker must stay")
+	})
+
+	t.Run("coverage does not cross epochs", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+			db.DropVectorIndexNamespace: {
+				completedEpochTask(t, "t1", "C", "E1", []string{"s1", "s2"}, nil, 0, "v1"),
+				completedEpochTask(t, "t2", "C", "E2", []string{"s2"}, nil, 10, "v1"), // newest → current epoch
+			},
+		}}
+		state := mtState(map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")})
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
+		p := decodeEnqueuedPayload(t, cluster)
+		require.Equal(t, "E2", p.DropEpochID)
+		require.Equal(t, []string{"s2"}, p.CleanedShards, "E1's coverage must not leak into E2")
+		require.Equal(t, map[string]string{"s1__n1": "s1"}, p.UnitToShard)
+	})
+
+	t.Run("chain-less records (older nodes or aged out) start a fresh epoch", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+			db.DropVectorIndexNamespace: {
+				completedEpochTask(t, "t1", "C", "", []string{"s1"}, nil, 0, "v1"), // no epoch
+			},
+		}}
+		state := mtState(map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")})
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
+		p := decodeEnqueuedPayload(t, cluster)
+		require.NotEmpty(t, p.DropEpochID)
+		require.Empty(t, p.CleanedShards)
+		require.Len(t, p.UnitToShard, 2)
+	})
 }
 
 func TestDropVectorReconcileIntervalFromEnv(t *testing.T) {

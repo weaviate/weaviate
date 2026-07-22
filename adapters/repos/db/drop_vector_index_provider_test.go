@@ -871,6 +871,32 @@ func TestOnTaskCompleted_UncoveredTenant_DefersFinalize(t *testing.T) {
 	require.False(t, fin.called, "schema removal must be deferred while a shard is uncovered")
 }
 
+// TestOnTaskCompleted_CleanedShardsVouchForColdTenant pins the cross-task
+// coverage memory: a shard with no unit in THIS task but recorded as cleaned by
+// an ancestor task of the same epoch (CleanedShards) counts as covered, so the
+// drop finalizes even though that tenant is cold again at completion.
+func TestOnTaskCompleted_CleanedShardsVouchForColdTenant(t *testing.T) {
+	bucket := &fakeEditOpBucket{}
+	fin := &fakeFinalizer{}
+	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+	p.sharding = &fakeShardingReader{shards: []string{"shard1", "coldTenant"}}
+
+	task := dropTask(distributedtask.TaskStatusSwapping, nil)
+	payload := &DropVectorIndexTaskPayload{
+		Collection:    "Collection",
+		Targets:       []string{"v1"},
+		OpID:          "op1",
+		UnitToNode:    map[string]string{"u1": "node1"},
+		UnitToShard:   map[string]string{"u1": "shard1"},
+		CleanedShards: []string{"coldTenant"},
+	}
+	task.Payload, _ = payload.encode()
+
+	p.OnTaskCompleted(task)
+
+	require.True(t, fin.called, "cleaned-but-cold shards are covered by the inherited set")
+}
+
 // TestOnTaskCompleted_CoverageCheckError_DefersFinalize: an unreadable sharding
 // state must defer the schema removal, not proceed on unknown coverage.
 func TestOnTaskCompleted_CoverageCheckError_DefersFinalize(t *testing.T) {
@@ -1074,7 +1100,9 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 
 	t.Run("partial coverage across tasks does not combine", func(t *testing.T) {
-		// Mirrors the finalize deferral: a single task must cover everyone.
+		// Mirrors the finalize deferral: a single task must cover everyone —
+		// cross-task memory travels as that task's CleanedShards, not by
+		// unioning arbitrary records here.
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
 			[]*distributedtask.Task{
 				finishedDropTaskCovering("t1", "C", []string{"s1"}, "v1"),
@@ -1082,6 +1110,19 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 			})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not covered")
+	})
+
+	t.Run("a task's inherited CleanedShards count as coverage", func(t *testing.T) {
+		task := finishedDropTaskCovering("t1", "C", []string{"s1"}, "v1")
+		payload := &DropVectorIndexTaskPayload{
+			Collection: "C", Targets: []string{"v1"}, OpID: "op-t1",
+			UnitToShard:   map[string]string{"s1__u0": "s1"},
+			CleanedShards: []string{"s2"},
+		}
+		task.Payload, _ = payload.encode()
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+			[]*distributedtask.Task{task})
+		require.NoError(t, err, "units ∪ inherited cleaned set spans all shards")
 	})
 }
 
