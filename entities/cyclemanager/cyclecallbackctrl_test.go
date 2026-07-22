@@ -45,7 +45,7 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		defer cycle.StopAndWait(ctx)
 
 		err := combinedCtrl.Unregister(ctx)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		assert.False(t, combinedCtrl.IsActive())
 		assert.False(t, ctrl1.IsActive())
@@ -143,7 +143,7 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		defer cycle.StopAndWait(ctx)
 
 		err := combinedCtrl.Deactivate(ctx)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		assert.False(t, combinedCtrl.IsActive())
 		assert.False(t, ctrl1.IsActive())
@@ -245,7 +245,7 @@ func TestCycleCombineCallbackCtrl_Activate(t *testing.T) {
 		assert.False(t, ctrl2.IsActive())
 
 		err := combinedCtrl.Activate()
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		assert.True(t, combinedCtrl.IsActive())
 		assert.True(t, ctrl1.IsActive())
