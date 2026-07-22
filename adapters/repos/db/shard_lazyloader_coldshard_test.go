@@ -301,7 +301,7 @@ func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
 	f := newAddPropertyLazyFixture(t, "ResumeMaintenance", multiShardState())
 	cold := f.coldShards(t)
 
-	require.NoError(t, f.index.resumeMaintenanceCycles(ctx))
+	require.NoError(t, f.index.resumeMaintenanceCycles(ctx, ""))
 
 	for name, shard := range cold {
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)

@@ -58,13 +58,15 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 		return nil, fmt.Errorf("clean prior replica snapshot for op %q: %w", opID, rerr)
 	}
 
+	owner := replicaHaltOwner(opID)
+
 	stagingRoot := replicaStagingDir(i.Config.RootPath, opID, schema.ClassName(i.Config.ClassName))
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create replica staging dir: %w", err)
 	}
 
 	if file.ProbeHardlinkSupport(i.Config.RootPath) {
-		files, err := shard.CreateReplicaSnapshot(ctx, stagingRoot)
+		files, err := shard.CreateReplicaSnapshot(ctx, owner, stagingRoot)
 		if err != nil {
 			i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
 			return nil, err
@@ -78,7 +80,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	// Halt-for-duration fallback: shard stays halted until Release; segments
 	// are served from the live shard root in this mode. The inactivity timeout
 	// backstops a target crash so the halt can't leak forever waiting on a peer that's gone.
-	if err := shard.HaltForTransfer(ctx, false, i.Config.TransferInactivityTimeout); err != nil {
+	if err := shard.HaltForTransfer(ctx, owner, false, i.Config.TransferInactivityTimeout); err != nil {
 		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
 		return nil, fmt.Errorf("halt shard %q for transfer: %w", shardName, err)
 	}
@@ -212,7 +214,7 @@ func containedPath(base, rel string) (string, error) {
 // silent failures here would leak a halted shard or staging dir.
 func (i *Index) cleanupFailedReplicaSnapshot(stagingRoot, opID string, resumeShard bool, shard ShardLike) {
 	if resumeShard && shard != nil {
-		if rerr := shard.resumeMaintenanceCycles(context.Background()); rerr != nil {
+		if rerr := shard.resumeMaintenanceCycles(context.Background(), replicaHaltOwner(opID)); rerr != nil {
 			i.logger.WithField("op_id", opID).WithField("staging_dir", stagingRoot).
 				Error(fmt.Errorf("resume maintenance after failed replica snapshot: %w", rerr))
 		}
@@ -257,7 +259,7 @@ func (i *Index) releaseReplicaSnapshot(ctx context.Context, opID string) error {
 	}
 	defer release()
 	if shard != nil {
-		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
+		if err := shard.resumeMaintenanceCycles(ctx, replicaHaltOwner(opID)); err != nil {
 			if removeErr != nil {
 				return fmt.Errorf("%w; resume maintenance after replica transfer: %w", removeErr, err)
 			}

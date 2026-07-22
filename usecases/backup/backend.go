@@ -212,9 +212,9 @@ type uploader struct {
 	rbacSourcer    fsm.Snapshotter
 	dynUserSourcer dynUserSnapshotter
 	// Resolved includeUsers ids; empty → whole-cluster snapshot.
-	users    []string
-	backend  nodeStore
-	backupID string
+	users   []string
+	backend nodeStore
+	op      backup.Op
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
@@ -230,7 +230,7 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 		dynUserSourcer: dynUserSourcer,
 		users:          users,
 		backend:        backend,
-		backupID:       backupID,
+		op:             backup.NewOp(backupID),
 		zipConfig: newZipConfig(Compression{
 			Level:         GzipDefaultCompression,
 			CPUPercentage: DefaultCPUPercentage,
@@ -249,11 +249,11 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, baseDescr []*backup.BackupDescriptor, overrideBucket, overridePath string) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = backup.Transferring
-	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
+	ch := u.sourcer.BackupDescriptors(ctx, u.op, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  release indexes under all conditions
-		u.releaseIndexes(classes, desc.ID)
+		u.releaseIndexes(classes)
 
 		//  make sure context is not cancelled when uploading metadata
 		ctx := context.Background()
@@ -291,7 +291,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		if ctxerr != nil {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
-			u.releaseIndexes(classes, desc.ID)
+			u.releaseIndexes(classes)
 		}
 		return ctxerr
 	}
@@ -301,14 +301,14 @@ Loop:
 		select {
 		case cdesc, ok := <-ch:
 			if !ok {
-				u.releaseIndexes(classes, desc.ID)
+				u.releaseIndexes(classes)
 				break Loop // we are done
 			}
 			if cdesc.Error != nil {
 				return cdesc.Error
 			}
 			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			preCompressionSize, err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath)
+			preCompressionSize, err := u.class(ctx, &cdesc, overrideBucket, overridePath)
 			if err != nil {
 				return err
 			}
@@ -353,14 +353,14 @@ Loop:
 	return nil
 }
 
-func (u *uploader) releaseIndexes(classes []string, bakID string) {
+func (u *uploader) releaseIndexes(classes []string) {
 	for _, class := range classes {
 		className := class
 		enterrors.GoWrapper(func() {
-			if err := u.sourcer.ReleaseBackup(context.Background(), bakID, className); err != nil {
+			if err := u.sourcer.ReleaseBackup(context.Background(), u.op, className); err != nil {
 				u.log.WithFields(logrus.Fields{
 					"class":    className,
-					"backupID": bakID,
+					"backupID": u.op.ID,
 				}).Error("failed to release backup")
 			}
 		}, u.log)
@@ -369,7 +369,7 @@ func (u *uploader) releaseIndexes(classes []string, bakID string) {
 
 // class uploads one class
 // Returns the number of bytes written for this class
-func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
+func (u *uploader) class(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
 	var err error
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
@@ -383,10 +383,10 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	defer func() {
 		// backups need to be released anyway
 		enterrors.GoWrapper(func() {
-			if err := u.sourcer.ReleaseBackup(context.Background(), id, desc.Name); err != nil {
+			if err := u.sourcer.ReleaseBackup(context.Background(), u.op, desc.Name); err != nil {
 				u.log.WithFields(logrus.Fields{
 					"class":    desc.Name,
-					"backupID": id,
+					"backupID": u.op.ID,
 				}).Error("failed to release backup")
 			}
 		}, u.log)
