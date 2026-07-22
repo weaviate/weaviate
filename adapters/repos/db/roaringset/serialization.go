@@ -70,10 +70,19 @@ func (sn *SegmentNode) Len() uint64 {
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
+//
+// It returns nil when the node holds no additions (length indicator 0),
+// avoiding the allocation of an empty bitmap. Callers that need a non-nil
+// bitmap must substitute an empty one; sroar's bitmap operations already treat
+// a nil operand as empty.
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil
+	}
+	return sroar.FromBuffer(buf)
 }
 
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
@@ -104,11 +113,20 @@ func (sn *SegmentNode) AdditionsUnlimited() *sroar.Bitmap {
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.DeletionsWithCopy].
+//
+// It returns nil when the node holds no deletions (length indicator 0),
+// avoiding the allocation of an empty bitmap. Callers that need a non-nil
+// bitmap must substitute an empty one; sroar's bitmap operations already treat
+// a nil operand as empty.
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil
+	}
+	return sroar.FromBuffer(buf)
 }
 
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
