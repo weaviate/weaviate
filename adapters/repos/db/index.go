@@ -705,6 +705,13 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 }
 
 func (i *Index) loadLocalShardIfActive(shardName string) error {
+	// Admit as an in-flight operation so a concurrent Shutdown/drop waits for
+	// this load instead of tearing the index down underneath it.
+	if err := i.enterRead(); err != nil {
+		return nil
+	}
+	defer i.exitRead()
+
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
@@ -720,7 +727,9 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 			return nil
 		}
-		return lazyShard.Load(context.Background())
+		// closingCtx (not Background) so an index close aborts the load
+		// promptly instead of blocking beginClose behind a full shard init
+		return lazyShard.Load(i.closingCtx)
 	}
 
 	return nil
