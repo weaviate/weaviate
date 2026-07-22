@@ -103,6 +103,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"factor":           float64(1),
 					"deletionStrategy": "TimeBasedResolution",
 					"raftEnabled":      false,
+					"asyncEnabled":     false,
 				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{
