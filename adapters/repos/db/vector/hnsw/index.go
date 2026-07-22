@@ -796,6 +796,9 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 
+	h.compressActionLock.Lock()
+	defer h.compressActionLock.Unlock()
+
 	if h.compressed.Load() {
 		err := h.compressor.Drop()
 		if err != nil {
