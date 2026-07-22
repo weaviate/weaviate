@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// SearchResultMetadata The retrieval metadata of a single search hit, populated according to `return_metadata`. Every field is optional and only present when it was requested and is computable for the search.
+// SearchResultMetadata The retrieval metadata of a single search hit, populated according to `returnMetadata`. Every field is optional and only present when it was requested and is computable for the search.
 //
 // swagger:model SearchResultMetadata
 type SearchResultMetadata struct {
@@ -32,16 +32,16 @@ type SearchResultMetadata struct {
 	Certainty *float64 `json:"certainty,omitempty"`
 
 	// The object's creation time, as epoch milliseconds.
-	CreationTime *int64 `json:"creation_time,omitempty"`
+	CreationTime *int64 `json:"creationTime,omitempty"`
 
 	// The vector distance between the hit and the query.
 	Distance *float32 `json:"distance,omitempty"`
 
 	// An explanation of how the score was computed.
-	ExplainScore *string `json:"explain_score,omitempty"`
+	ExplainScore *string `json:"explainScore,omitempty"`
 
 	// The object's last-update time, as epoch milliseconds.
-	LastUpdateTime *int64 `json:"last_update_time,omitempty"`
+	LastUpdateTime *int64 `json:"lastUpdateTime,omitempty"`
 
 	// The relevance score of the hit.
 	Score *float32 `json:"score,omitempty"`

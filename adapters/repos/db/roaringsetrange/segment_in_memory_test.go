@@ -190,6 +190,38 @@ func TestSegmentInMemory(t *testing.T) {
 	})
 }
 
+// outOfRangeSecondKeyCursor yields a valid key then an out-of-range key,
+// reproducing a corrupt/truncated segment without a byte-corrupt fixture.
+type outOfRangeSecondKeyCursor struct{ step int }
+
+func (c *outOfRangeSecondKeyCursor) First() (uint8, roaringset.BitmapLayer, bool) {
+	c.step = 0
+	return c.Next()
+}
+
+func (c *outOfRangeSecondKeyCursor) Next() (uint8, roaringset.BitmapLayer, bool) {
+	defer func() { c.step++ }()
+	switch c.step {
+	case 0:
+		return 0, roaringset.BitmapLayer{Additions: sroar.NewBitmap(), Deletions: sroar.NewBitmap()}, true
+	case 1:
+		return 200, roaringset.BitmapLayer{Additions: sroar.NewBitmap()}, true
+	default:
+		return 0, roaringset.BitmapLayer{}, false
+	}
+}
+
+// TestSegmentInMemoryMergeSegmentByCursor_RejectsOutOfRangeKey pins
+// weaviate/weaviate#12215: an out-of-range key must return an error, not panic.
+func TestSegmentInMemoryMergeSegmentByCursor_RejectsOutOfRangeKey(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	s := NewSegmentInMemory(logger)
+
+	err := s.MergeSegmentByCursor(&outOfRangeSecondKeyCursor{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid key")
+}
+
 func TestSegmentInMemoryReader(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	mt1, mt2, mt3 := createTestMemtables(logger)
@@ -482,6 +514,65 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 				assert.Equal(t, 0, bufPool.InUseCounter())
 			})
 		}
+	})
+}
+
+// Pins weaviate/weaviate#12199: folding segments out of order (newest before
+// oldest) lets a stale value silently win, even though the docID's membership
+// still checks out.
+func TestSegmentInMemoryFoldOrderValueIntegrity(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	bufPool := roaringset.NewBitmapBufPoolNoop()
+
+	const (
+		docX      = uint64(500) // value changes across the two segments
+		docStable = uint64(99)  // never changes; membership backstop
+		valOld    = uint64(3)
+		valNew    = uint64(5)
+		valStable = uint64(42)
+	)
+
+	olderSegment := func() SegmentCursor {
+		mt := NewMemtable(logger)
+		mt.Insert(valOld, []uint64{docX})
+		mt.Insert(valStable, []uint64{docStable})
+		return newFakeSegmentCursor(mt)
+	}
+	newerSegment := func() SegmentCursor {
+		mt := NewMemtable(logger)
+		mt.Insert(valNew, []uint64{docX})
+		return newFakeSegmentCursor(mt)
+	}
+
+	equalDocIDs := func(t *testing.T, seg *SegmentInMemory, value uint64) []uint64 {
+		t.Helper()
+		readers, release := seg.Readers(bufPool)
+		defer release()
+		require.Len(t, readers, 1)
+		layer, relRead, err := readers[0].Read(context.Background(), value, filters.OperatorEqual)
+		require.NoError(t, err)
+		defer relRead()
+		return layer.Additions.ToArray()
+	}
+
+	t.Run("correct oldest->newest fold: newest value wins", func(t *testing.T) {
+		seg := NewSegmentInMemory(logger)
+		require.NoError(t, seg.MergeSegmentByCursor(olderSegment()))
+		require.NoError(t, seg.MergeSegmentByCursor(newerSegment()))
+
+		assert.Equal(t, []uint64{docX}, equalDocIDs(t, seg, valNew))
+		assert.NotContains(t, equalDocIDs(t, seg, valOld), docX)
+		// The untouched docID keeps its value (membership + value backstop).
+		assert.Equal(t, []uint64{docStable}, equalDocIDs(t, seg, valStable))
+	})
+
+	t.Run("trap: incremental older-onto-newer fold corrupts the value (old wins)", func(t *testing.T) {
+		seg := NewSegmentInMemory(logger)
+		require.NoError(t, seg.MergeSegmentByCursor(newerSegment()))
+		require.NoError(t, seg.MergeSegmentByCursor(olderSegment()))
+
+		assert.Equal(t, []uint64{docX}, equalDocIDs(t, seg, valOld))
+		assert.NotContains(t, equalDocIDs(t, seg, valNew), docX)
 	})
 }
 

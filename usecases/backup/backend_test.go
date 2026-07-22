@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestCalculateShardPreCompressionSize(t *testing.T) {
@@ -166,16 +167,94 @@ func TestCreateFileList(t *testing.T) {
 		assert.Contains(t, err.Error(), "missing.db")
 		assert.Contains(t, err.Error(), "not found")
 	})
+
+	// Three files sized 100/200/300 with MinChunkSize=0, so BigFilesThreshold is the n-th
+	// biggest size unclamped.
+	bigFilesThresholdTests := []struct {
+		name               string
+		maxIndividualFiles *configRuntime.DynamicValue[int]
+		expected           int64
+	}{
+		{
+			name:               "only the biggest file gets its own chunk",
+			maxIndividualFiles: configRuntime.NewDynamicValue(1),
+			expected:           300,
+		},
+		{
+			name:               "every file gets its own chunk",
+			maxIndividualFiles: configRuntime.NewDynamicValue(3),
+			expected:           100,
+		},
+		{
+			name:               "limit above the file count lets every file qualify",
+			maxIndividualFiles: configRuntime.NewDynamicValue(500),
+			expected:           100,
+		},
+		{
+			name:               "nil config value falls back to the default",
+			maxIndividualFiles: nil,
+			expected:           100, // default of 100 exceeds the 3 files, so the smallest wins
+		},
+	}
+
+	writeSizedFiles := func(t *testing.T) (string, []string) {
+		t.Helper()
+		tempDir := t.TempDir()
+		testFiles := []string{"file1.db", "file2.db", "file3.db"}
+		for i, filename := range testFiles {
+			err := os.WriteFile(filepath.Join(tempDir, filename), make([]byte, 100*(i+1)), 0o644)
+			require.NoError(t, err)
+		}
+		return tempDir, testFiles
+	}
+
+	for _, tc := range bigFilesThresholdTests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tempDir, testFiles := writeSizedFiles(t)
+
+			shard := &backup.ShardDescriptor{Name: "test-shard", Node: "test-node", Files: testFiles}
+			u := &uploader{
+				log: logrus.New(),
+				cfg: config.Backup{MaxIndividualFiles: tc.maxIndividualFiles},
+			}
+
+			fileList, err := u.createFileList(shard, tempDir)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, fileList.BigFilesThreshold)
+		})
+	}
+
+	// The uploader copies config.Backup, so an in-place override only reaches it if the
+	// DynamicValue pointer survives that copy.
+	t.Run("runtime override reaches an existing uploader", func(t *testing.T) {
+		t.Parallel()
+		tempDir, testFiles := writeSizedFiles(t)
+
+		shard := &backup.ShardDescriptor{Name: "test-shard", Node: "test-node", Files: testFiles}
+		cfg := config.Backup{MaxIndividualFiles: configRuntime.NewDynamicValue(3)}
+		u := &uploader{log: logrus.New(), cfg: cfg}
+
+		fileList, err := u.createFileList(shard, tempDir)
+		require.NoError(t, err)
+		require.Equal(t, int64(100), fileList.BigFilesThreshold)
+
+		require.NoError(t, cfg.MaxIndividualFiles.SetValue(1))
+
+		fileList, err = u.createFileList(shard, tempDir)
+		require.NoError(t, err)
+		assert.Equal(t, int64(300), fileList.BigFilesThreshold)
+	})
 }
 
 // TestProcessShard tests the full write path from shard files to chunks with only
 // the storage backend mocked. Real files are created on disk, and the real compress
 // + createFileList logic runs end-to-end.
 //
-// Sizing note: with fewer than 100 files, Top100Size equals the smallest file size
-// (clamped to MinChunkSize). bigFileThreshold = max(MinChunkSize, Top100Size).
-// Files >= bigFileThreshold are "big" and get their own chunk.
-// chunkTargetSize = max(ChunkTargetSize, bigFileThreshold).
+// Sizing note: with fewer than 100 files, BigFilesThreshold equals the smallest file size
+// (clamped to MinChunkSize). bigFilesThreshold = max(MinChunkSize, BigFilesThreshold).
+// Files >= bigFilesThreshold are "big" and get their own chunk.
+// chunkTargetSize = max(ChunkTargetSize, bigFilesThreshold).
 // To have small files pack together, set MinChunkSize above the file sizes.
 //
 // Cases with expectChunkFiles also verify chunk isolation: metadata files never
@@ -225,7 +304,7 @@ func TestProcessShard(t *testing.T) {
 				{"shard1/c.db", 200},
 				{"shard1/d.db", 200},
 			},
-			// MinChunkSize=500 → bigFileThreshold=500, chunkTargetSize=500.
+			// MinChunkSize=500 → bigFilesThreshold=500, chunkTargetSize=500.
 			// Files (200 each) < 500 → pack together.
 			// Chunk 1: in-mem(150) + a(200) = 350. b: 550 > 500 → full.
 			// Chunk 2: b(200) + c(200) = 400. d: 600 > 500 → full.
@@ -241,7 +320,7 @@ func TestProcessShard(t *testing.T) {
 				{"shard1/big.db", 500},
 				{"shard1/small2.db", 50},
 			},
-			// MinChunkSize=200 → Top100Size=max(50,200)=200, minIndiv=200, chunkTarget=5000.
+			// MinChunkSize=200 → BigFilesThreshold=max(50,200)=200, minIndiv=200, chunkTarget=5000.
 			// small(50) < 200 → packs. big(500) >= 200 → big → deferred.
 			// Chunk 1: in-mem(150) + small(50) = 200. big is next but "big" and !firstFile
 			//   → fillChunkWithSmallFiles picks up small2(50) = 250.
@@ -261,7 +340,7 @@ func TestProcessShard(t *testing.T) {
 				{"shard1/small.db", 50},
 				{"shard1/huge.db", 1000},
 			},
-			// MinChunkSize=200 → Top100Size=max(50,200)=200, minIndiv=200, chunkTarget=300.
+			// MinChunkSize=200 → BigFilesThreshold=max(50,200)=200, minIndiv=200, chunkTarget=300.
 			// small(50) < 200 → packs. huge(1000) >= 200 → big.
 			// Chunk 1: in-mem(150) + small(50) = 200. huge deferred (big, !firstFile).
 			// Chunk 2: huge is first file, big → WriteRegular: 1000 > 300 (splitFileSize)
@@ -287,7 +366,7 @@ func TestProcessShard(t *testing.T) {
 			files: []testFile{
 				{"shard1/big.db", 500},
 			},
-			// MinChunkSize=200 → Top100Size=max(500,200)=500, minIndiv=500, chunkTarget=5000.
+			// MinChunkSize=200 → BigFilesThreshold=max(500,200)=500, minIndiv=500, chunkTarget=5000.
 			// Chunk 1 (firstChunk=true): in-mem(150). big.db(500) >= 500 → big, !firstFile → deferred.
 			// Chunk 2 (firstChunk=false): big.db first, big → written alone. Tracked in BigFilesChunk.
 			minChunkSize:         200,
@@ -305,7 +384,7 @@ func TestProcessShard(t *testing.T) {
 				{"shard1/huge.db", 1000},
 				{"shard1/small.db", 50},
 			},
-			// small.db brings Top100Size down: max(50, 200) = 200.
+			// small.db brings BigFilesThreshold down: max(50, 200) = 200.
 			// minIndiv=200, chunkTarget=max(300, 200)=300, splitFileSize=300.
 			// huge(1000) >= 200 → big. small(50) < 200 → packs.
 			// Chunk 1: in-mem(150). huge is first but big & !firstFile → fillSmall picks small(50)=200.
@@ -323,8 +402,8 @@ func TestProcessShard(t *testing.T) {
 			files: []testFile{
 				{"shard1/huge.db", 1000},
 			},
-			// With a single file, Top100Size = max(fileSize, MinChunkSize) >= fileSize.
-			// So chunkTargetSize >= bigFileThreshold >= fileSize, and
+			// With a single file, BigFilesThreshold = max(fileSize, MinChunkSize) >= fileSize.
+			// So chunkTargetSize >= bigFilesThreshold >= fileSize, and
 			// 0+fileSize > chunkTargetSize is always false → file is written whole.
 			minChunkSize:    200,
 			chunkTargetSize: 300,
@@ -338,7 +417,7 @@ func TestProcessShard(t *testing.T) {
 				{"shard1/huge1.db", 900},
 				{"shard1/huge2.db", 900},
 			},
-			// MinChunkSize=200 → Top100Size=max(50,200)=200, minIndiv=200, chunkTarget=300.
+			// MinChunkSize=200 → BigFilesThreshold=max(50,200)=200, minIndiv=200, chunkTarget=300.
 			// small(50) < 200 → packs. huge1(900) >= 200 → big. huge2(900) >= 200 → big.
 			// Chunk 1: in-mem(150) + small(50) = 200. huge1 deferred (big, !firstFile).
 			// Chunk 2: huge1 first, big → WriteRegular: 900 > 300 → WriteSplitFile writes first 300.
@@ -358,7 +437,7 @@ func TestProcessShard(t *testing.T) {
 				{"shard1/b.db", 200},
 				{"shard1/c.db", 300},
 			},
-			// MinChunkSize=0 → Top100Size=100 (smallest), minIndiv=100, chunkTarget=10000.
+			// MinChunkSize=0 → BigFilesThreshold=100 (smallest), minIndiv=100, chunkTarget=10000.
 			// All files >= 100 → all "big" → each gets own chunk.
 			// Chunk 1: in-mem(150). a.db is big, !firstFile → fillSmall: none → return.
 			// Chunk 2: a.db alone. Chunk 3: b.db alone. Chunk 4: c.db alone.
@@ -603,7 +682,7 @@ func TestProcessShardEvenSplitSizes(t *testing.T) {
 			tempDir := t.TempDir()
 			require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "shard1"), os.ModePerm))
 
-			// Small file pulls bigFileThreshold down so the large file takes the split path.
+			// Small file pulls bigFilesThreshold down so the large file takes the split path.
 			require.NoError(t, os.WriteFile(
 				filepath.Join(tempDir, "shard1", "small.db"),
 				bytes.Repeat([]byte("s"), 50), 0o644))
@@ -687,7 +766,7 @@ func TestProcessShardEvenSplitSizes(t *testing.T) {
 	}
 }
 
-func TestCalculateTop100Size(t *testing.T) {
+func TestCalculateBigFilesThreshold(t *testing.T) {
 	const mb = 1 << 20
 
 	// Helper to create fileSizes map with n files of increasing size starting at 2MB
@@ -702,77 +781,137 @@ func TestCalculateTop100Size(t *testing.T) {
 	}
 
 	tests := []struct {
-		name            string
-		fileSizes       map[string]int64
-		numSkippedFiles int
-		expected        int64
+		name               string
+		fileSizes          map[string]int64
+		numSkippedFiles    int
+		maxIndividualFiles int
+		expected           int64
 	}{
 		{
-			name:            "empty files returns minSize",
-			fileSizes:       map[string]int64{},
-			numSkippedFiles: 0,
-			expected:        mb,
+			name:               "empty files returns minSize",
+			fileSizes:          map[string]int64{},
+			numSkippedFiles:    0,
+			maxIndividualFiles: 100,
+			expected:           mb,
 		},
 		{
-			name:            "empty files with skipped returns minSize",
-			fileSizes:       map[string]int64{},
-			numSkippedFiles: 50,
-			expected:        mb,
+			name:               "empty files with skipped returns minSize",
+			fileSizes:          map[string]int64{},
+			numSkippedFiles:    50,
+			maxIndividualFiles: 100,
+			expected:           mb,
 		},
 		{
-			name:            "single small file no skipped",
-			fileSizes:       map[string]int64{"a.db": 500},
-			numSkippedFiles: 0,
-			expected:        mb, // below minSize
+			name:               "single small file no skipped",
+			fileSizes:          map[string]int64{"a.db": 500},
+			numSkippedFiles:    0,
+			maxIndividualFiles: 100,
+			expected:           mb, // below minSize
 		},
 		{
-			name:            "single large file no skipped",
-			fileSizes:       map[string]int64{"a.db": 5 * mb},
-			numSkippedFiles: 0,
-			expected:        5 * mb,
+			name:               "single large file no skipped",
+			fileSizes:          map[string]int64{"a.db": 5 * mb},
+			numSkippedFiles:    0,
+			maxIndividualFiles: 100,
+			expected:           5 * mb,
 		},
 		{
-			name:            "fewer than k files - returns smallest",
-			fileSizes:       map[string]int64{"a.db": 2 * mb, "b.db": 5 * mb, "c.db": 3 * mb},
-			numSkippedFiles: 0,
-			expected:        2 * mb, // k=100, only 3 files, smallest is 2MB
+			name:               "fewer than k files - returns smallest",
+			fileSizes:          map[string]int64{"a.db": 2 * mb, "b.db": 5 * mb, "c.db": 3 * mb},
+			numSkippedFiles:    0,
+			maxIndividualFiles: 100,
+			expected:           2 * mb, // k=100, only 3 files, smallest is 2MB
 		},
 		{
-			name:            "skipped reduces k - changes result",
-			fileSizes:       makeFiles(105), // files from 2MB to 106MB
-			numSkippedFiles: 0,
-			expected:        7 * mb, // k=100, 105 files, 100th largest = 6th smallest (index 5) = 7MB
+			name:               "skipped reduces k - changes result",
+			fileSizes:          makeFiles(105), // files from 2MB to 106MB
+			numSkippedFiles:    0,
+			maxIndividualFiles: 100,
+			expected:           7 * mb, // k=100, 105 files, 100th largest = 6th smallest (index 5) = 7MB
 		},
 		{
-			name:            "skipped 50 reduces k to 50",
-			fileSizes:       makeFiles(105), // files from 2MB to 106MB
-			numSkippedFiles: 50,
-			expected:        57 * mb, // k=50, 50th largest = 56th smallest (index 55) = 57MB
+			name:               "skipped 50 reduces k to 50",
+			fileSizes:          makeFiles(105), // files from 2MB to 106MB
+			numSkippedFiles:    50,
+			maxIndividualFiles: 100,
+			expected:           57 * mb, // k=50, 50th largest = 56th smallest (index 55) = 57MB
 		},
 		{
-			name:            "skipped 99 reduces k to 1 - returns largest",
-			fileSizes:       makeFiles(105),
-			numSkippedFiles: 99,
-			expected:        106 * mb, // k=1, returns the largest file
+			name:               "skipped 99 reduces k to 1 - returns largest",
+			fileSizes:          makeFiles(105),
+			numSkippedFiles:    99,
+			maxIndividualFiles: 100,
+			expected:           106 * mb, // k=1, returns the largest file
 		},
 		{
-			name:            "skipped >= 100 clamps k to 1",
-			fileSizes:       makeFiles(105),
-			numSkippedFiles: 100,
-			expected:        106 * mb, // k=max(100-100,1)=1, returns largest
+			name:               "skipped >= 100 clamps k to 1",
+			fileSizes:          makeFiles(105),
+			numSkippedFiles:    100,
+			maxIndividualFiles: 100,
+			expected:           106 * mb, // k=max(100-100,1)=1, returns largest
 		},
 		{
-			name:            "skipped > 100 clamps k to 1",
-			fileSizes:       makeFiles(105),
-			numSkippedFiles: 200,
-			expected:        106 * mb,
+			name:               "skipped > 100 clamps k to 1",
+			fileSizes:          makeFiles(105),
+			numSkippedFiles:    200,
+			maxIndividualFiles: 100,
+			expected:           106 * mb,
+		},
+		{
+			name:               "limit below default shrinks k",
+			fileSizes:          makeFiles(105), // files from 2MB to 106MB
+			numSkippedFiles:    0,
+			maxIndividualFiles: 10,
+			expected:           97 * mb, // k=10, 10th largest = 96th smallest (index 95) = 97MB
+		},
+		{
+			name:               "limit above default grows k",
+			fileSizes:          makeFiles(105), // files from 2MB to 106MB
+			numSkippedFiles:    0,
+			maxIndividualFiles: 105,
+			expected:           2 * mb, // k=105, all files qualify, smallest is 2MB
+		},
+		{
+			name:               "limit above file count returns smallest",
+			fileSizes:          makeFiles(105),
+			numSkippedFiles:    0,
+			maxIndividualFiles: 500,
+			expected:           2 * mb,
+		},
+		{
+			name:               "raised limit still clamps to minSize",
+			fileSizes:          map[string]int64{"a.db": 500, "b.db": 800, "c.db": 1200},
+			numSkippedFiles:    0,
+			maxIndividualFiles: 500, // every file qualifies, but all are below minSize
+			expected:           mb,
+		},
+		{
+			name:               "lowered limit still clamps to minSize",
+			fileSizes:          map[string]int64{"a.db": 500, "b.db": 800, "c.db": 1200},
+			numSkippedFiles:    0,
+			maxIndividualFiles: 1, // biggest file is still below minSize
+			expected:           mb,
+		},
+		{
+			name:               "limit of 1 returns largest",
+			fileSizes:          makeFiles(105),
+			numSkippedFiles:    0,
+			maxIndividualFiles: 1,
+			expected:           106 * mb,
+		},
+		{
+			name:               "skipped exceeds raised limit clamps k to 1",
+			fileSizes:          makeFiles(105),
+			numSkippedFiles:    200,
+			maxIndividualFiles: 150,
+			expected:           106 * mb, // k=max(150-200,1)=1, returns largest
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			result := calculateTop100Size(tc.fileSizes, tc.numSkippedFiles, mb)
+			result := calculateBigFilesThreshold(tc.fileSizes, tc.numSkippedFiles, tc.maxIndividualFiles, mb)
 			assert.Equal(t, tc.expected, result)
 		})
 	}
@@ -1372,12 +1511,12 @@ func TestIncrementalBackupChainWithManySplitFiles(t *testing.T) {
 	}
 
 	// --- Shard layout ---
-	// Each shard has a small anchor file (keeps Top100Size low so bigFileThreshold=100)
+	// Each shard has a small anchor file (keeps BigFilesThreshold low so bigFilesThreshold=100)
 	// and 8 large files that will each be split into many chunks (3-20 parts).
 	// 4 shards × 8 split files = 32 split files total.
 	mkShard := func(name string) []fileSpec {
 		return []fileSpec{
-			{name + "/small.db", 50},     // anchor: keeps bigFileThreshold=100
+			{name + "/small.db", 50},     // anchor: keeps bigFilesThreshold=100
 			{name + "/seg-001.db", 800},  // 8 parts
 			{name + "/seg-002.db", 600},  // 6 parts
 			{name + "/seg-003.db", 1200}, // 12 parts

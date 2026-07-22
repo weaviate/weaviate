@@ -89,7 +89,7 @@ type ShardLike interface {
 	ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string) ([]*storobj.Object, []float32, error)
-	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
 	DropVectorIndex(ctx context.Context, targetVector string) error
@@ -597,7 +597,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		} else {
 			// dont lazy load segments on config update
 			if err = s.initTargetVector(ctx, targetVector, targetCfg, false); err != nil {
-				return fmt.Errorf("creating new vector index: %w", err)
+				// break, don't return: the deferred-like goroutine below must still
+				// run to restore StatusReady, otherwise a failure here leaves the
+				// shard read-only until restart.
+				err = fmt.Errorf("creating new vector index: %w", err)
+				break
 			}
 		}
 	}

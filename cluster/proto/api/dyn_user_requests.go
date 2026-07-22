@@ -15,7 +15,7 @@ import (
 	"crypto/sha256"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/entities/dbuser"
 )
 
 const (
@@ -77,7 +77,7 @@ type QueryGetUsersRequest struct {
 }
 
 type QueryGetUsersResponse struct {
-	Users map[string]*apikey.User
+	Users map[string]*dbuser.View
 }
 
 type QueryUserIdentifierExistsRequest struct {

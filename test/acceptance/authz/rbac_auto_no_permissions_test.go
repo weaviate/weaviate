@@ -90,9 +90,11 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/export/{backend}",
 		"/export/{backend}/{id}",
 		// Namespaces are disabled on this compose, so every method on the
-		// per-namespace endpoint returns 404 before authz runs. RBAC for
+		// per-namespace endpoints returns 404 before authz runs. RBAC for
 		// namespaces is covered in the namespaces suite.
 		"/namespaces/{namespace_id}",
+		"/namespaces/{namespace_id}/suspend",
+		"/namespaces/{namespace_id}/resume",
 	}
 
 	// These leak 404 on a non-existent backup ID because the meta is read

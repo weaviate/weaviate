@@ -341,6 +341,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ReplicationReplicationDetailsHandler: replication.ReplicationDetailsHandlerFunc(func(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ReplicationDetails has not yet been implemented")
 		}),
+		NamespacesResumeNamespaceHandler: namespaces.ResumeNamespaceHandlerFunc(func(params namespaces.ResumeNamespaceParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation namespaces.ResumeNamespace has not yet been implemented")
+		}),
 		AuthzRevokeRoleFromGroupHandler: authz.RevokeRoleFromGroupHandlerFunc(func(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RevokeRoleFromGroup has not yet been implemented")
 		}),
@@ -397,6 +400,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		SearchSearchNearTextHandler: search.SearchNearTextHandlerFunc(func(params search.SearchNearTextParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation search.SearchNearText has not yet been implemented")
+		}),
+		NamespacesSuspendNamespaceHandler: namespaces.SuspendNamespaceHandlerFunc(func(params namespaces.SuspendNamespaceParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation namespaces.SuspendNamespace has not yet been implemented")
 		}),
 		SchemaTenantExistsHandler: schema.TenantExistsHandlerFunc(func(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantExists has not yet been implemented")
@@ -660,6 +666,8 @@ type WeaviateAPI struct {
 	ReplicationReplicateHandler replication.ReplicateHandler
 	// ReplicationReplicationDetailsHandler sets the operation handler for the replication details operation
 	ReplicationReplicationDetailsHandler replication.ReplicationDetailsHandler
+	// NamespacesResumeNamespaceHandler sets the operation handler for the resume namespace operation
+	NamespacesResumeNamespaceHandler namespaces.ResumeNamespaceHandler
 	// AuthzRevokeRoleFromGroupHandler sets the operation handler for the revoke role from group operation
 	AuthzRevokeRoleFromGroupHandler authz.RevokeRoleFromGroupHandler
 	// AuthzRevokeRoleFromUserHandler sets the operation handler for the revoke role from user operation
@@ -698,6 +706,8 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsVectorsDeleteHandler schema.SchemaObjectsVectorsDeleteHandler
 	// SearchSearchNearTextHandler sets the operation handler for the search near text operation
 	SearchSearchNearTextHandler search.SearchNearTextHandler
+	// NamespacesSuspendNamespaceHandler sets the operation handler for the suspend namespace operation
+	NamespacesSuspendNamespaceHandler namespaces.SuspendNamespaceHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
 	SchemaTenantExistsHandler schema.TenantExistsHandler
 	// SchemaTenantsCreateHandler sets the operation handler for the tenants create operation
@@ -1068,6 +1078,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ReplicationReplicationDetailsHandler == nil {
 		unregistered = append(unregistered, "replication.ReplicationDetailsHandler")
 	}
+	if o.NamespacesResumeNamespaceHandler == nil {
+		unregistered = append(unregistered, "namespaces.ResumeNamespaceHandler")
+	}
 	if o.AuthzRevokeRoleFromGroupHandler == nil {
 		unregistered = append(unregistered, "authz.RevokeRoleFromGroupHandler")
 	}
@@ -1124,6 +1137,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SearchSearchNearTextHandler == nil {
 		unregistered = append(unregistered, "search.SearchNearTextHandler")
+	}
+	if o.NamespacesSuspendNamespaceHandler == nil {
+		unregistered = append(unregistered, "namespaces.SuspendNamespaceHandler")
 	}
 	if o.SchemaTenantExistsHandler == nil {
 		unregistered = append(unregistered, "schema.TenantExistsHandler")
@@ -1611,6 +1627,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/namespaces/{namespace_id}/resume"] = namespaces.NewResumeNamespace(o.context, o.NamespacesResumeNamespaceHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/authz/groups/{id}/revoke"] = authz.NewRevokeRoleFromGroup(o.context, o.AuthzRevokeRoleFromGroupHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -1684,6 +1704,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/search/{collection}/near-text"] = search.NewSearchNearText(o.context, o.SearchSearchNearTextHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/namespaces/{namespace_id}/suspend"] = namespaces.NewSuspendNamespace(o.context, o.NamespacesSuspendNamespaceHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}

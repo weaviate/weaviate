@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.0-dev"
+    "version": "1.39.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -3097,7 +3097,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state, which stops its dynamic users from authenticating; their rows, along with classes and aliases, are reclaimed by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
         "tags": [
           "namespaces"
         ],
@@ -3139,6 +3139,132 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/resume": {
+      "post": {
+        "description": "Return a suspended namespace to the \"active\" state, so its dynamic users authenticate again and its resources accept writes. Repeated calls against an already-active namespace are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Resume a namespace",
+        "operationId": "resumeNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is active."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/suspend": {
+      "post": {
+        "description": "Move a namespace to the \"suspended\" state. Suspending stops the namespace's users from authenticating and blocks the creation of new classes, aliases, users, roles, and role assignments, but retains the namespace and everything it owns. Repeated calls against an already-suspended namespace are idempotent and return 202. Use the resume endpoint to return it to \"active\".",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Suspend a namespace",
+        "operationId": "suspendNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is suspended."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6777,7 +6903,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8997,10 +9123,12 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
+            "suspended",
+            "resuming",
             "deleting"
           ]
         }
@@ -10515,13 +10643,13 @@ func init() {
       "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
       "type": "object",
       "properties": {
-        "auto_limit": {
+        "autoLimit": {
           "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
-        "consistency_level": {
+        "consistencyLevel": {
           "description": "The consistency level for the read.",
           "type": "string",
           "enum": [
@@ -10530,12 +10658,12 @@ func init() {
             "ALL"
           ]
         },
-        "group_by": {
+        "groupBy": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
         },
-        "grouped_task": {
+        "groupedTask": {
           "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
@@ -10546,13 +10674,13 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "number_of_groups": {
+        "numberOfGroups": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
-        "objects_per_group": {
+        "objectsPerGroup": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
           "format": "int64",
@@ -10564,17 +10692,11 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "rerank_property": {
+        "rerank": {
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
+          "$ref": "#/definitions/SearchRerank"
         },
-        "rerank_query": {
-          "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
-        },
-        "return_metadata": {
+        "returnMetadata": {
           "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
           "type": "array",
           "items": {
@@ -10583,20 +10705,20 @@ func init() {
               "distance",
               "certainty",
               "score",
-              "explain_score",
-              "creation_time",
-              "last_update_time"
+              "explainScore",
+              "creationTime",
+              "lastUpdateTime"
             ]
           }
         },
-        "return_properties": {
+        "returnProperties": {
           "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
-        "single_prompt": {
+        "singlePrompt": {
           "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
@@ -10612,7 +10734,7 @@ func init() {
       }
     },
     "SearchNearTextRequest": {
-      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -10642,7 +10764,7 @@ func init() {
                 "type": "string"
               }
             },
-            "target_vector": {
+            "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
             }
@@ -10650,12 +10772,29 @@ func init() {
         }
       ]
     },
+    "SearchRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
+        }
+      }
+    },
     "SearchResponse": {
       "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
       "type": "object",
       "required": [
         "results",
-        "took_ms"
+        "tookMs"
       ],
       "properties": {
         "results": {
@@ -10666,7 +10805,7 @@ func init() {
           },
           "x-omitempty": false
         },
-        "took_ms": {
+        "tookMs": {
           "description": "Server-side processing time in milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -10675,7 +10814,7 @@ func init() {
       }
     },
     "SearchResultMetadata": {
-      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `return_metadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
       "type": "object",
       "properties": {
         "certainty": {
@@ -10684,7 +10823,7 @@ func init() {
           "format": "double",
           "x-nullable": true
         },
-        "creation_time": {
+        "creationTime": {
           "description": "The object's creation time, as epoch milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -10696,12 +10835,12 @@ func init() {
           "format": "float",
           "x-nullable": true
         },
-        "explain_score": {
+        "explainScore": {
           "description": "An explanation of how the score was computed.",
           "type": "string",
           "x-nullable": true
         },
-        "last_update_time": {
+        "lastUpdateTime": {
           "description": "The object's last-update time, as epoch milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -11535,7 +11674,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.0-dev"
+    "version": "1.39.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -14572,7 +14711,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state, which stops its dynamic users from authenticating; their rows, along with classes and aliases, are reclaimed by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
         "tags": [
           "namespaces"
         ],
@@ -14614,6 +14753,132 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/resume": {
+      "post": {
+        "description": "Return a suspended namespace to the \"active\" state, so its dynamic users authenticate again and its resources accept writes. Repeated calls against an already-active namespace are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Resume a namespace",
+        "operationId": "resumeNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is active."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/suspend": {
+      "post": {
+        "description": "Move a namespace to the \"suspended\" state. Suspending stops the namespace's users from authenticating and blocks the creation of new classes, aliases, users, roles, and role assignments, but retains the namespace and everything it owns. Repeated calls against an already-suspended namespace are idempotent and return 202. Use the resume endpoint to return it to \"active\".",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Suspend a namespace",
+        "operationId": "suspendNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is suspended."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18362,7 +18627,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, target_vector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20767,10 +21032,12 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
+            "suspended",
+            "resuming",
             "deleting"
           ]
         }
@@ -22475,13 +22742,13 @@ func init() {
       "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
       "type": "object",
       "properties": {
-        "auto_limit": {
+        "autoLimit": {
           "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
-        "consistency_level": {
+        "consistencyLevel": {
           "description": "The consistency level for the read.",
           "type": "string",
           "enum": [
@@ -22490,12 +22757,12 @@ func init() {
             "ALL"
           ]
         },
-        "group_by": {
+        "groupBy": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
         },
-        "grouped_task": {
+        "groupedTask": {
           "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
@@ -22506,13 +22773,13 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "number_of_groups": {
+        "numberOfGroups": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
           "format": "int64",
           "x-nullable": true
         },
-        "objects_per_group": {
+        "objectsPerGroup": {
           "description": "Reserved for grouped search. Returns 422 (not yet supported).",
           "type": "integer",
           "format": "int64",
@@ -22524,17 +22791,11 @@ func init() {
           "format": "int64",
           "x-nullable": true
         },
-        "rerank_property": {
+        "rerank": {
           "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
+          "$ref": "#/definitions/SearchRerank"
         },
-        "rerank_query": {
-          "description": "Reserved for reranking. Returns 422 (not yet supported).",
-          "type": "string",
-          "x-nullable": true
-        },
-        "return_metadata": {
+        "returnMetadata": {
           "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
           "type": "array",
           "items": {
@@ -22543,20 +22804,20 @@ func init() {
               "distance",
               "certainty",
               "score",
-              "explain_score",
-              "creation_time",
-              "last_update_time"
+              "explainScore",
+              "creationTime",
+              "lastUpdateTime"
             ]
           }
         },
-        "return_properties": {
+        "returnProperties": {
           "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
-        "single_prompt": {
+        "singlePrompt": {
           "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
           "type": "string",
           "x-nullable": true
@@ -22572,7 +22833,7 @@ func init() {
       }
     },
     "SearchNearTextRequest": {
-      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `target_vector` + "`" + `.",
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
       "allOf": [
         {
           "$ref": "#/definitions/SearchCommon"
@@ -22602,7 +22863,7 @@ func init() {
                 "type": "string"
               }
             },
-            "target_vector": {
+            "targetVector": {
               "description": "The named vector to search. Required when the collection has more than one named vector.",
               "type": "string"
             }
@@ -22610,12 +22871,29 @@ func init() {
         }
       ]
     },
+    "SearchRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
+        }
+      }
+    },
     "SearchResponse": {
       "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
       "type": "object",
       "required": [
         "results",
-        "took_ms"
+        "tookMs"
       ],
       "properties": {
         "results": {
@@ -22626,7 +22904,7 @@ func init() {
           },
           "x-omitempty": false
         },
-        "took_ms": {
+        "tookMs": {
           "description": "Server-side processing time in milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -22635,7 +22913,7 @@ func init() {
       }
     },
     "SearchResultMetadata": {
-      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `return_metadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
       "type": "object",
       "properties": {
         "certainty": {
@@ -22644,7 +22922,7 @@ func init() {
           "format": "double",
           "x-nullable": true
         },
-        "creation_time": {
+        "creationTime": {
           "description": "The object's creation time, as epoch milliseconds.",
           "type": "integer",
           "format": "int64",
@@ -22656,12 +22934,12 @@ func init() {
           "format": "float",
           "x-nullable": true
         },
-        "explain_score": {
+        "explainScore": {
           "description": "An explanation of how the score was computed.",
           "type": "string",
           "x-nullable": true
         },
-        "last_update_time": {
+        "lastUpdateTime": {
           "description": "The object's last-update time, as epoch milliseconds.",
           "type": "integer",
           "format": "int64",
