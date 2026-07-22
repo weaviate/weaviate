@@ -84,11 +84,11 @@ func TestNoopOrJoinResponder(t *testing.T) {
 			wantStatus: reindexNoOpStatus,
 		},
 		{
-			name:       "joined task -> 202 IN_PROGRESS with the caller's namespace stripped",
+			name:       "joined task -> 202 STARTED with the caller's namespace stripped",
 			principal:  &models.Principal{Username: "customer1:u1", Namespace: "customer1"},
 			plan:       upsertPlan{noop: true, joinTaskID: "customer1:Movies:rebuild-searchable:title:ab3f"},
 			wantCode:   http.StatusAccepted,
-			wantStatus: reindexInProgressStatus,
+			wantStatus: reindexStartedStatus,
 			wantTaskID: "Movies:rebuild-searchable:title:ab3f",
 		},
 		{
@@ -96,7 +96,7 @@ func TestNoopOrJoinResponder(t *testing.T) {
 			principal:  &models.Principal{Username: "u1"},
 			plan:       upsertPlan{noop: true, joinTaskID: "Movies:rebuild-searchable:title:ab3f"},
 			wantCode:   http.StatusAccepted,
-			wantStatus: reindexInProgressStatus,
+			wantStatus: reindexStartedStatus,
 			wantTaskID: "Movies:rebuild-searchable:title:ab3f",
 		},
 	}

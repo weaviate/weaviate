@@ -119,14 +119,14 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 }
 
 // noopOrJoinResponder renders a noop plan. A joined task means the config is
-// not in place yet, so the response names that task (202) instead of claiming
-// NO_OP; its ID is stripped of the caller's own namespace, like every other
-// task ID this API hands back.
+// not in place yet, so the response names that task (202 STARTED) instead of
+// claiming NO_OP; its ID is stripped of the caller's own namespace, like every
+// other task ID this API hands back.
 func noopOrJoinResponder(principal *models.Principal, plan upsertPlan) middleware.Responder {
 	if plan.joinTaskID != "" {
 		return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
 			TaskID: namespacing.StripOwnNamespace(principal, plan.joinTaskID),
-			Status: reindexInProgressStatus,
+			Status: reindexStartedStatus,
 		})
 	}
 	return jsonResponder(http.StatusOK, &models.IndexUpdateResponse{Status: reindexNoOpStatus})
@@ -280,8 +280,11 @@ func findProperty(class *models.Class, propertyName string) *models.Property {
 // PUT finds the desired configuration already in place (declarative upsert).
 const reindexNoOpStatus = "NO_OP"
 
-// PUT converged on an already in-flight task; the config isn't in place yet.
-const reindexInProgressStatus = "IN_PROGRESS"
+// reindexStartedStatus is the IndexUpdateResponse.Status value returned when a
+// reindex task is running for the requested configuration. It asserts that the
+// task is running, not that this request created it: a PUT converging on an
+// already-running migration joins it and reports the same status.
+const reindexStartedStatus = "STARTED"
 
 // resolveUpsertPlan diffs the request against current state, returning a
 // migration to submit, a NO_OP, a 409 conflict, or a 400 validation error.
@@ -702,7 +705,7 @@ func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *mode
 	return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
 		// The task ID embeds the qualified collection.
 		TaskID: namespacing.StripOwnNamespace(principal, taskID),
-		Status: "STARTED",
+		Status: reindexStartedStatus,
 	})
 }
 

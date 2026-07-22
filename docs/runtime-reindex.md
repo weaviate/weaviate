@@ -81,8 +81,12 @@ body against current state and picks the migration:
 A PUT whose desired config already matches current state AND has no reindex
 task in flight submits no task and returns `200` with `{"status":"NO_OP"}`.
 A PUT that converges on a task still in flight also submits no task, but the
-config is not in place yet, so it returns `202` with that task's `taskId` and
-`{"status":"IN_PROGRESS"}` — poll it like any other task.
+config is not in place yet, so it returns `202` with that task's `taskId`.
+
+`202` with `{"status":"STARTED", "taskId": ...}` means a task is running for
+the requested configuration and `taskId` is the handle to poll. It does not
+assert that this call created the task: a request that converges on an
+already-running migration joins it and receives that task's ID.
 
 ### `POST /v1/schema/{className}/properties/{propertyName}/index/{indexType}/rebuild`
 
@@ -123,10 +127,12 @@ Response shapes (PUT / rebuild / cancel):
 
 - `200 OK` — PUT only: desired config already in place AND no task in
   flight, so no task submitted (`{"status":"NO_OP"}`).
-- `202 Accepted` — task submitted (PUT / rebuild, `status: STARTED`), the
-  PUT converged on a task already in flight (`status: IN_PROGRESS`, `taskId`
-  naming that task), or cancel processed; body is an `IndexUpdateResponse`
-  (`taskId` + `status`).
+- `202 Accepted` — a task is running for the requested configuration (PUT /
+  rebuild, `status: STARTED`, `taskId` naming that task), or cancel
+  processed; body is an `IndexUpdateResponse` (`taskId` + `status`).
+  `STARTED` asserts that the task is running, not that this call created it:
+  a PUT converging on an already-running migration joins it and receives that
+  task's ID.
 - `400 Bad Request` — validation failure with an actionable hint (e.g.
   "property X has no searchable index; PUT
   `/v1/schema/{className}/properties/X/index/searchable` with a

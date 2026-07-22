@@ -181,7 +181,7 @@ func NewSchemaObjectsIndexUpsertAccepted() *SchemaObjectsIndexUpsertAccepted {
 /*
 SchemaObjectsIndexUpsertAccepted describes a response with status code 202, with default header values.
 
-Reindex task submitted (`status: STARTED`), or the request converged on a reindex task already in flight, in which case no new task is submitted and the body carries that task's `taskId` with `{"status":"IN_PROGRESS"}`.
+A reindex task is running for the requested configuration; the body carries its `taskId` with `{"status":"STARTED"}`. A request converging on an already-running migration joins it and receives that task's ID.
 */
 type SchemaObjectsIndexUpsertAccepted struct {
 	Payload *models.IndexUpdateResponse
