@@ -333,14 +333,16 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 
 	// purge state left by a previously failed attempt so whole-task retries
-	h.RLock()
 	var purge []uint64
-	for _, docID := range docIDs {
-		if _, ok := h.docIDVectors[docID]; ok {
-			purge = append(purge, docID)
+	func() {
+		h.RLock()
+		defer h.RUnlock()
+		for _, docID := range docIDs {
+			if _, ok := h.docIDVectors[docID]; ok {
+				purge = append(purge, docID)
+			}
 		}
-	}
-	h.RUnlock()
+	}()
 	if len(purge) > 0 {
 		if err := h.DeleteMulti(purge...); err != nil {
 			return errors.Wrap(err, "purge partially indexed docs before re-insert")
