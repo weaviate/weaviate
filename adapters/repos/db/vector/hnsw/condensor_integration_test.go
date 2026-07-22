@@ -1199,39 +1199,61 @@ func TestCondensorCrashSafety(t *testing.T) {
 func TestCondensorReleasesBuffersAfterDo(t *testing.T) {
 	// A condensor is created once per index and reused for every condense. Its
 	// 1MB write buffer must not survive a Do call, or every idle index would
-	// pin one buffer for its lifetime.
+	// pin one buffer for its lifetime. The condensed file must be closed too, or
+	// a repeatedly failing condense leaks descriptors.
+	failWrite := func(b []byte) (int, error) {
+		return 0, errors.New("fake write error")
+	}
+
 	tests := []struct {
-		name    string
-		fs      func() common.FS
-		wantErr bool
+		name     string
+		onWrite  func(b []byte) (int, error)
+		closeErr error
+		wantErr  bool
 	}{
 		{
 			name:    "successful condense",
-			fs:      func() common.FS { return common.NewOSFS() },
 			wantErr: false,
 		},
 		{
-			name: "condense fails mid-write",
-			fs: func() common.FS {
-				fs := common.NewTestFS()
-				fs.OnOpenFile = func(f common.File) common.File {
-					return &common.TestFile{
-						File: f,
-						OnWrite: func(b []byte) (int, error) {
-							return 0, errors.New("fake write error")
-						},
-					}
-				}
-				return fs
-			},
+			name:    "condense fails mid-write",
+			onWrite: failWrite,
 			wantErr: true,
+		},
+		{
+			name:     "close fails",
+			closeErr: errors.New("fake close error"),
+			wantErr:  true,
+		},
+		{
+			name:     "condense fails mid-write and close fails",
+			onWrite:  failWrite,
+			closeErr: errors.New("fake close error"),
+			wantErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rootPath := t.TempDir()
-			m, clFilename := newMemoryCondensor(t, rootPath, tt.fs())
+
+			var closes int
+			fs := common.NewTestFS()
+			fs.OnOpenFile = func(f common.File) common.File {
+				return &common.TestFile{
+					File:    f,
+					OnWrite: tt.onWrite,
+					OnClose: func() error {
+						closes++
+						if err := f.Close(); err != nil {
+							return err
+						}
+						return tt.closeErr
+					},
+				}
+			}
+
+			m, clFilename := newMemoryCondensor(t, rootPath, fs)
 
 			err := m.Do(clFilename)
 			if tt.wantErr {
@@ -1242,6 +1264,7 @@ func TestCondensorReleasesBuffersAfterDo(t *testing.T) {
 
 			assert.Nil(t, m.newLog)
 			assert.Nil(t, m.newLogFile)
+			assert.Equal(t, 1, closes)
 		})
 	}
 }
@@ -1300,8 +1323,15 @@ func BenchmarkCondensorRetainedMemory(b *testing.B) {
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
 
-	b.ReportMetric(float64(after.HeapAlloc-before.HeapAlloc)/float64(len(condensors)), "retained-B/condensor")
+	// Everything allocated before the baseline sample has to survive the second
+	// one as well, otherwise it counts towards before but not after and drags
+	// the reported delta below zero.
+	runtime.KeepAlive(content)
+	runtime.KeepAlive(files)
 	runtime.KeepAlive(condensors)
+
+	retained := (float64(after.HeapAlloc) - float64(before.HeapAlloc)) / float64(len(condensors))
+	b.ReportMetric(retained, "retained-B/condensor")
 }
 
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string, fileNames []string) {
