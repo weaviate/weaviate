@@ -111,6 +111,14 @@ Query parameters (PUT and rebuild):
   `change-algorithm`) because the cluster-wide schema flip cannot be
   sub-scoped — all tenants must migrate together.
 
+Cancel takes no query parameters. A `tenants` value on a cancel URL is
+silently ignored, not rejected — the generated
+`SchemaObjectsIndexCancelParams` never reads the query string. Cancel is
+scoped by the task it targets, and that task already carries the tenant
+set of the rebuild that submitted it, so `POST .../cancel` after
+`rebuild?tenants=t1,t2` stops exactly that work and never touches
+untargeted tenants.
+
 Response shapes (PUT / rebuild / cancel):
 
 - `200 OK` — PUT only: desired config already in place, no task submitted
@@ -1002,6 +1010,11 @@ Per-tenant unit groups (Journey 4 from the DTM doc): one
 `UnitSpec.GroupID` per tenant, so `OnGroupCompleted` fires per-tenant
 as each tenant's replicas all finish. Tenant A starts serving new
 data immediately even while tenant B is still reindexing.
+
+Status after cancelling a tenant-scoped task is reported at the
+collection level: `GET /v1/schema/{className}/indexes` renders
+`cancelled` for the property as a whole. The task is the unit of
+identity, so there is no per-tenant index-status surface.
 
 `FROZEN` tenants are rejected by the MutationGuard. A reindex on a
 tenant that transitions to FROZEN mid-flight fails the affected unit;
