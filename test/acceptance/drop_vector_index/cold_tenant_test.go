@@ -113,6 +113,21 @@ func testColdTenantDeferredFinalize() func(t *testing.T) {
 			}
 		})
 
+		t.Run("class update removing the marker is rejected while a tenant is uncleaned", func(t *testing.T) {
+			// The FSM removal gate must not accept a task that completed with
+			// the cold tenant's shard uncovered as a voucher.
+			cls := helper.GetClass(t, className)
+			delete(cls.VectorConfig, dropped)
+			_, err := helper.Client(t).Schema.SchemaObjectsUpdate(
+				clschema.NewSchemaObjectsUpdateParams().WithClassName(className).WithObjectClass(cls), nil)
+			require.Error(t, err)
+			require.Contains(t, errorResponseText(err), "cannot remove dropped vector")
+
+			got := helper.GetClass(t, className)
+			require.Equal(t, "none", got.VectorConfig[dropped].VectorIndexType,
+				"the marker must survive the rejected update")
+		})
+
 		t.Run("activate the cold tenant", func(t *testing.T) {
 			// Retry: the mutation guard rejects tenant changes while a
 			// re-enqueued cleanup task is momentarily active.

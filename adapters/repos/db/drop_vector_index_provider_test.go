@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -944,40 +945,58 @@ func corruptDropTask(id string, status distributedtask.TaskStatus) *distributedt
 	}
 }
 
+// finishedDropTaskCovering is finishedDropTask with units covering the given shards.
+func finishedDropTaskCovering(id, collection string, shards []string, targets ...string) *distributedtask.Task {
+	payload := &DropVectorIndexTaskPayload{
+		Collection: collection, Targets: targets, OpID: "op-" + id,
+		UnitToShard: map[string]string{},
+	}
+	for i, shard := range shards {
+		payload.UnitToShard[fmt.Sprintf("%s__u%d", shard, i)] = shard
+	}
+	enc, _ := payload.encode()
+	return &distributedtask.Task{
+		Namespace:      DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
+		Payload:        enc,
+		Status:         distributedtask.TaskStatusFinished,
+	}
+}
+
 func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
 
 	t.Run("finished task covering the vector allows removal", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1", "v2")})
 		require.NoError(t, err)
 	})
 
 	t.Run("collection matches case-insensitively, target exact-case only", func(t *testing.T) {
-		require.NoError(t, p.CheckVectorConfigRemoval("c", []string{"v1"},
+		require.NoError(t, p.CheckVectorConfigRemoval("c", []string{"v1"}, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")}),
 			"collection names are case-insensitive")
-		require.Error(t, p.CheckVectorConfigRemoval("C", []string{"V1"},
+		require.Error(t, p.CheckVectorConfigRemoval("C", []string{"V1"}, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")}),
 			"a case-differing sibling is a DIFFERENT vector; a finished task for v1 must not vouch for V1")
 	})
 
 	t.Run("swapping task covering the vector allows removal", func(t *testing.T) {
 		// OnTaskCompleted fires at SWAPPING; rejecting it self-blocks the finalizer.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")})
 		require.NoError(t, err)
 	})
 
 	t.Run("corrupt finished task does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{corruptDropTask("t1", distributedtask.TaskStatusFinished)})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "no completed cleanup task")
 	})
 
 	t.Run("corrupt active task does not block a valid voucher", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{
 				corruptDropTask("t1", distributedtask.TaskStatusStarted),
 				finishedDropTask("t2", "C", "v1"),
@@ -986,7 +1005,7 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 
 	t.Run("active (not finished) task rejects removal", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{activeDropTask("t1", "C", "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "still active")
@@ -995,37 +1014,74 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	t.Run("newer active task blocks a replayed old task's removal", func(t *testing.T) {
 		// Epoch-blindness: an old FINISHED task covers v1, but a newer drop of the
 		// re-used name is running — removal would free the name mid-cleanup.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1"), activeDropTask("t2", "C", "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "still active")
 	})
 
 	t.Run("no task at all rejects removal (manual PATCH to skip cleanup)", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil)
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil)
 		require.Error(t, err)
 	})
 
 	t.Run("finished task on a different collection does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "Other", "v1")})
 		require.Error(t, err)
 	})
 
 	t.Run("finished task not covering the vector does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v9")})
 		require.Error(t, err)
 	})
 
 	t.Run("every removed vector must be covered", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"}, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")})
 		require.Error(t, err, "v2 has no finished task")
 	})
 
 	t.Run("empty removal list is a no-op", func(t *testing.T) {
-		require.NoError(t, p.CheckVectorConfigRemoval("C", nil, nil))
+		require.NoError(t, p.CheckVectorConfigRemoval("C", nil, nil, nil))
+	})
+
+	// Coverage half of the gate: a completed task vouches only if its units
+	// covered every current shard — a FINISHED task that deferred finalize over
+	// a cold tenant must not double as a removal voucher.
+	t.Run("finished task covering all shards vouches", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+			[]*distributedtask.Task{finishedDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
+		require.NoError(t, err)
+	})
+
+	t.Run("finished task with an uncovered shard does not vouch", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"},
+			[]*distributedtask.Task{finishedDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not covered")
+		require.Contains(t, err.Error(), "s3")
+	})
+
+	t.Run("any single completed task covering everything vouches", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+			[]*distributedtask.Task{
+				finishedDropTaskCovering("t1", "C", []string{"s1"}, "v1"),
+				finishedDropTaskCovering("t2", "C", []string{"s1", "s2"}, "v1"),
+			})
+		require.NoError(t, err)
+	})
+
+	t.Run("partial coverage across tasks does not combine", func(t *testing.T) {
+		// Mirrors the finalize deferral: a single task must cover everyone.
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+			[]*distributedtask.Task{
+				finishedDropTaskCovering("t1", "C", []string{"s1"}, "v1"),
+				finishedDropTaskCovering("t2", "C", []string{"s2"}, "v1"),
+			})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not covered")
 	})
 }
 

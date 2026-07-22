@@ -13,6 +13,7 @@ package db
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -98,25 +99,82 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 
 // CheckVectorConfigRemoval implements distributedtask.VectorConfigRemovalGate:
 // a still-stripping drop on the vector blocks removal (epoch protection, even
-// against an older FINISHED voucher); otherwise a completed task must vouch.
-// SWAPPING vouches and never blocks: OnTaskCompleted — whose finalize is this
-// very removal — fires at SWAPPING, and the gate cannot recognize "self".
-func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors []string, existingTasks []*distributedtask.Task) error {
+// against an older FINISHED voucher); otherwise a completed task must vouch AND
+// its units must have covered every current shard — a task that completed with
+// a shard uncovered (tenant COLD at enqueue) deliberately left the marker, and
+// its FINISHED record must not double as a voucher for removing it. SWAPPING
+// vouches and never blocks: OnTaskCompleted — whose finalize is this very
+// removal — fires at SWAPPING, and the gate cannot recognize "self".
+func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
 	for _, vec := range removedVectors {
 		if id, active := p.dropCovers(className, vec, existingTasks, stillStrippingStatus); active {
 			return fmt.Errorf(
 				"cannot remove dropped vector %q on %s: cleanup task %q is still active for it",
 				vec, className, id)
 		}
-		if _, ok := p.dropCovers(className, vec, existingTasks, completedStatus); !ok {
-			return fmt.Errorf(
-				"cannot remove dropped vector %q on %s: no completed cleanup task covers it; "+
-					"the data may still be being stripped, or the completed task record has aged out — "+
-					"cleanup is re-enqueued automatically and the entry is removed once it completes",
-				vec, className)
+		vouched, coversVec, uncovered := p.completedDropVoucher(className, vec, shards, existingTasks)
+		if vouched {
+			continue
 		}
+		if coversVec {
+			return fmt.Errorf(
+				"cannot remove dropped vector %q on %s: shards %v are not covered by any completed cleanup task "+
+					"(tenant inactive at enqueue or created since); cleanup is re-enqueued automatically once they are active",
+				vec, className, uncovered)
+		}
+		return fmt.Errorf(
+			"cannot remove dropped vector %q on %s: no completed cleanup task covers it; "+
+				"the data may still be being stripped, or the completed task record has aged out — "+
+				"cleanup is re-enqueued automatically and the entry is removed once it completes",
+			vec, className)
 	}
 	return nil
+}
+
+// completedDropVoucher scans completed tasks covering vec on className and
+// reports whether one of them covered every shard in shards (vouched). When
+// tasks cover the vector but none covers all shards, uncovered holds the
+// missing shards of the closest task — mirroring the finalize deferral, which
+// keeps the marker until a single task covers everyone.
+func (p *DropVectorIndexProvider) completedDropVoucher(className, vec string, shards []string,
+	existingTasks []*distributedtask.Task,
+) (vouched, coversVec bool, uncovered []string) {
+	for _, task := range existingTasks {
+		if !completedStatus(task.Status) {
+			continue
+		}
+		existP, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			p.logger.WithField("task", task.ID).
+				Warnf("drop-vector: skipping task with unparseable payload in removal gate: %v", err)
+			continue
+		}
+		if !strings.EqualFold(existP.Collection, className) {
+			continue
+		}
+		if len(intersectTargets(existP.Targets, []string{vec})) == 0 {
+			continue
+		}
+		coversVec = true
+		covered := make(map[string]struct{}, len(existP.UnitToShard))
+		for _, shard := range existP.UnitToShard {
+			covered[shard] = struct{}{}
+		}
+		var missing []string
+		for _, shard := range shards {
+			if _, ok := covered[shard]; !ok {
+				missing = append(missing, shard)
+			}
+		}
+		if len(missing) == 0 {
+			return true, true, nil
+		}
+		if uncovered == nil || len(missing) < len(uncovered) {
+			sort.Strings(missing)
+			uncovered = missing
+		}
+	}
+	return false, coversVec, uncovered
 }
 
 // stillStrippingStatus matches pre-SWAPPING tasks; they block removal.
