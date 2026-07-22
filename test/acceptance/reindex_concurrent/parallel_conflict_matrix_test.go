@@ -136,7 +136,7 @@ func TestParallelConflictMatrix(t *testing.T) {
 	})
 
 	// Scenario 6: change-tok-filterable + change-tokenization (both) in
-	// parallel. Both touch filterable → expect 409 on one.
+	// parallel. Both touch filterable → never two distinct writers on it.
 	t.Run("change_tok_filterable__change_tokenization_both", func(t *testing.T) {
 		testParallel_ChangeTokFilterableChangeTokBoth(t, restURI)
 	})
@@ -441,8 +441,9 @@ func testParallel_ChangeTokBothEnableRangeableOnText(t *testing.T, restURI strin
 // Scenario 6: change-tok-filterable + change-tok-both in parallel
 // =============================================================================
 //
-// Both touch filterable on overlapping property → at least one 409
-// expected.
+// Both touch filterable on the same property. Either order is legal: whichever
+// request loses the submit lock either 409s or converges on the winner's
+// target, so only two distinct writers on the bucket is a failure.
 func testParallel_ChangeTokFilterableChangeTokBoth(t *testing.T, restURI string) {
 	const class = "ParallelChangeTokFiltBoth"
 	trueVal := true
@@ -471,17 +472,13 @@ func testParallel_ChangeTokFilterableChangeTokBoth(t *testing.T, restURI string)
 	assertNoFiveXX(t, rB)
 	assertAtLeastOneAccepted(t, "change-tok-filt+change-tok-both", rA, rB)
 
-	conflicts := 0
-	if rA.statusCode == http.StatusConflict {
-		conflicts++
+	// Two accepted requests naming different tasks means two writers race the
+	// same filterable bucket. Same task ID is a convergent join, not a race.
+	if rA.accepted && rB.accepted && rA.taskID != rB.taskID {
+		t.Errorf("[change-tok-filt+change-tok-both] BOTH accepted with distinct tasks — "+
+			"two writers race the same filterable bucket. taskIDs: A=%s B=%s",
+			rA.taskID, rB.taskID)
 	}
-	if rB.statusCode == http.StatusConflict {
-		conflicts++
-	}
-	assert.GreaterOrEqual(t, conflicts, 1,
-		"[change-tok-filt+change-tok-both] at least one must 409; got rA=%d rB=%d. "+
-			"Both 202 means conflict checker lets two writers race on the filterable bucket",
-		rA.statusCode, rB.statusCode)
 
 	awaitTerminalP(t, restURI, rA)
 	awaitTerminalP(t, restURI, rB)
