@@ -3276,7 +3276,7 @@ func (i *Index) drop() error {
 	// Terminal registry sweep. Safe because i.closed is set under closeLock.Lock and every
 	// bucket-registering init path re-checks it under closeLock.RLock, so no live
 	// bucket for this index can register once the drop begins.
-	defer lsmkv.GlobalBucketRegistry.RemoveByPrefix(i.path())
+	defer lsmkv.GlobalBucketRegistry.RemoveByPrefixes(i.path())
 
 	i.closingCancel()
 

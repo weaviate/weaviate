@@ -57,19 +57,6 @@ func (r *globalBucketRegistry) Remove(absoluteBucketPath string) {
 	delete(r.buckets, absoluteBucketPath)
 }
 
-// RemoveByPrefix deletes every registered path under dir: dir itself and any
-// path that begins with dir + separator.
-//
-// The separator boundary is exact: RemoveByPrefix(".../t1/lsm") purges
-// ".../t1/lsm" and ".../t1/lsm/property__id" but never a sibling like
-// ".../t10/lsm", whose registration belongs to a different, possibly live shard.
-func (r *globalBucketRegistry) RemoveByPrefix(dir string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.removeByPrefixesLocked([]string{dir})
-}
-
 // RemoveByPrefixes is RemoveByPrefix batched: it deletes every registered path
 // under any dir in dirs in a single locked scan.
 func (r *globalBucketRegistry) RemoveByPrefixes(dirs ...string) {

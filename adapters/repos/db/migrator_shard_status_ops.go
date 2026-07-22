@@ -54,7 +54,7 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec e
 					removeErr = fmt.Errorf("attempt to delete local fs for shard %s: %w", name, err)
 					ec.Add(removeErr)
 				}
-				lsmkv.GlobalBucketRegistry.RemoveByPrefix(shardPathLSM(idx.path(), name))
+				lsmkv.GlobalBucketRegistry.RemoveByPrefixes(shardPathLSM(idx.path(), name))
 				return removeErr
 			}
 
