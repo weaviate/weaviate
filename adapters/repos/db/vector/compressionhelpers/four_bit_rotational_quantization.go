@@ -12,7 +12,6 @@
 package compressionhelpers
 
 import (
-	"encoding/binary"
 	"fmt"
 	"slices"
 	"sync"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/tphakala/simd/f32"
-	"github.com/tphakala/simd/i8"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -201,10 +199,15 @@ var rq4ClipFactors = []float32{0.6, 0.7, 0.8, 0.9}
 type rq4Scratch struct {
 	ci []int32   // integer codes of the most recent quantization
 	cf []float32 // float view of ci for the SIMD reductions
+	rx []float32 // rotated input, output buffer for RotateInto
 }
 
 func newRQ4Scratch(d int) *rq4Scratch {
-	return &rq4Scratch{ci: make([]int32, d), cf: make([]float32, d)}
+	return &rq4Scratch{
+		ci: make([]int32, d),
+		cf: make([]float32, d),
+		rx: make([]float32, d),
+	}
 }
 
 // rq4Correlation quantizes xs over [lower, lower + 15*step] with clamping and
@@ -310,9 +313,9 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 		x = x[:outDim]
 	}
 
-	rx := rq.rotation.Rotate(x)
 	scratch := rq.scratch.Get().(*rq4Scratch)
 	defer rq.scratch.Put(scratch)
+	rx := rq.rotation.RotateInto(x, scratch.rx)
 	lower, step, t, codeSum := rq4Interval(rx, scratch)
 	if step <= 0 {
 		// The input was likely the zero vector or indistinguishable from it.
@@ -435,8 +438,10 @@ func encodeRotatedQuery(rx []float32) rq4QueryCode {
 }
 
 // FourBitRQDistancer computes asymmetric distances between an 8-bit encoded
-// query and 4-bit encoded data vectors. It is NOT safe for concurrent use:
-// Distance unpacks data codes into a scratch buffer owned by the distancer.
+// query and 4-bit encoded data vectors. Distance itself only reads shared
+// state (the fused nibble kernel needs no scratch), but the distancer still
+// owns scratch buffers used by the residual extension's distance path, which
+// make that path NOT safe for concurrent use.
 type FourBitRQDistancer struct {
 	distancer distancer.Provider
 	rq        *FourBitRotationalQuantizer
@@ -483,30 +488,16 @@ func (rq *FourBitRotationalQuantizer) NewDistancer(q []float32) *FourBitRQDistan
 // Distance estimates the distance between the query and a 4-bit code. Using
 // x_i ~ lower_x + step_x*c_i and q_i ~ lower_q + step_q*c'_i the dot product
 // expands to D*l_q*l_x + l_x*codeSum_q + l_q*codeSum_x + step_q*step_x*<c',c>.
-// The integer dot product runs on int8 SIMD after unpacking the data nibbles;
-// the query codes are stored offset by -128 (see rq4QueryCode).
+// The integer dot product <c',c> runs on a fused SIMD kernel that unpacks the
+// data nibbles in registers (see dotByteNibbleImpl).
 func (d *FourBitRQDistancer) Distance(x []byte) (float32, error) {
 	if len(x) != RQ4MetadataSize+len(d.cq.codes)/2 {
 		return 0, errors.Errorf("4-bit code length doesn't match: %d vs %d",
 			len(x), RQ4MetadataSize+len(d.cq.codes)/2)
 	}
 	cx := RQ4Code(x)
-	packed := cx.Packed()
-	half := len(packed)
-	scratch := d.scratch
-	const loMask = 0x0F0F0F0F0F0F0F0F
-	j := 0
-	for ; j+8 <= half; j += 8 {
-		v := binary.LittleEndian.Uint64(packed[j:])
-		binary.LittleEndian.PutUint64(scratch[j:], v&loMask)
-		binary.LittleEndian.PutUint64(scratch[half+j:], (v>>4)&loMask)
-	}
-	for ; j < half; j++ {
-		scratch[j] = packed[j] & 0x0F
-		scratch[half+j] = packed[j] >> 4
-	}
-	dot := i8.DotProduct(d.cq.codesInt8, d.scratchInt8)
-	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.b +
+	dot := dotByteNibbleImpl(d.cq.codes, cx.Packed())
+	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.cq.lower +
 		cx.Step()*d.cq.step*float32(dot)
 	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
 }
@@ -520,7 +511,7 @@ func (d *FourBitRQDistancer) distanceScalar(x []byte) (float32, error) {
 	}
 	cx := RQ4Code(x)
 	dotEstimate := cx.Lower()*d.a + cx.CodeSum()*d.cq.lower +
-		cx.Step()*d.cq.step*float32(dotByteNibbleImpl(d.cq.codes, cx.Packed()))
+		cx.Step()*d.cq.step*float32(dotByteNibbleGo(d.cq.codes, cx.Packed()))
 	return d.l2*(cx.Norm2()+d.cq.norm2) + d.cos - (1.0+d.l2)*dotEstimate, d.err
 }
 
@@ -590,6 +581,25 @@ func (rq *FourBitRotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(comp
 	*buffer = (*buffer)[:len(*buffer)-len(compressed)]
 
 	return out
+}
+
+// PersistCompression writes the rotation to the commit log so the quantizer
+// can be reconstructed on startup. The record is the same AddRQ entry used by
+// the 8-bit quantizer; the Bits field distinguishes the two on restore.
+func (rq *FourBitRotationalQuantizer) PersistCompression(logger CommitLogger) {
+	logger.AddRQCompression(compression.RQData{
+		InputDim: rq.inputDim,
+		Bits:     4,
+		Rotation: *rq.rotation,
+	})
+}
+
+func (rq *FourBitRotationalQuantizer) Data() compression.RQData {
+	return compression.RQData{
+		InputDim: rq.inputDim,
+		Bits:     4,
+		Rotation: *rq.rotation,
+	}
 }
 
 type RQ4Stats struct {

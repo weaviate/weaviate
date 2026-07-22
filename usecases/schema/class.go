@@ -1594,6 +1594,9 @@ func compressionFromHnsw(c hnsw.UserConfig) string {
 		if c.RQ.Bits == 1 {
 			return "rq-1"
 		}
+		if c.RQ.Bits == 4 {
+			return "rq-4"
+		}
 		return "rq-8"
 	}
 	if c.BQ.Enabled {

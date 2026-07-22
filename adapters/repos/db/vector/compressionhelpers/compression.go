@@ -890,6 +890,24 @@ func NewRQCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
+	case 4:
+		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+			0, allocChecker)
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
@@ -909,7 +927,7 @@ func NewRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -954,6 +972,27 @@ func RestoreRQCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
+	case 4:
+		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, distance)
+		if err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+			0, allocChecker)
 	case 8:
 		quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 		if err != nil {
@@ -976,7 +1015,7 @@ func RestoreRQCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -1016,6 +1055,24 @@ func NewRQMultiCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedMultiUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
+	case 4:
+		quantizer := NewFourBitRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedMultiByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
+			0, allocChecker)
 	case 8:
 		quantizer := NewRotationalQuantizer(dim, DefaultFastRotationSeed, bits, distance)
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
@@ -1035,7 +1092,7 @@ func NewRQMultiCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }
@@ -1080,6 +1137,27 @@ func RestoreRQMultiCompressor(
 		rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).cache = cache.NewShardedMultiUInt64LockCache(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[uint64]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
+	case 4:
+		quantizer, err := RestoreFourBitRotationalQuantizer(dimensions, outputDim, rounds, swaps, signs, distance)
+		if err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:         quantizer,
+			compressedStore:   store,
+			storeId:           binary.BigEndian.PutUint64,
+			loadId:            binary.BigEndian.Uint64,
+			targetVector:      targetVector,
+			logger:            logger,
+			makeBucketOptions: makeBucketOptions,
+			vectorForID:       vectorForID,
+		}
+		if err := rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).initCompressedStore(); err != nil {
+			return nil, err
+		}
+		rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).cache = cache.NewShardedMultiByteLockCache(
+			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
+			0, allocChecker)
 	case 8:
 		quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 		if err != nil {
@@ -1102,7 +1180,7 @@ func RestoreRQMultiCompressor(
 			rqVectorsCompressor.(*quantizedVectorsCompressor[byte]).getCompressedVectorForID, vectorCacheMaxObjects, logger,
 			0, allocChecker)
 	default:
-		return nil, errors.New("invalid bits value, only 1 and 8 bits are supported")
+		return nil, errors.New("invalid bits value, only 1, 4 and 8 bits are supported")
 	}
 	return rqVectorsCompressor, nil
 }

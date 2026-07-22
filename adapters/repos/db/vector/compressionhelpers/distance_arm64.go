@@ -21,5 +21,12 @@ func init() {
 		l2SquaredByteImpl = asm.L2ByteARM64
 		dotByteImpl = asm.DotByteARM64
 		hammingBitwiseImpl = asm.HammingBitwise
+		if cpu.ARM64.HasASIMDDP {
+			dotByteNibbleImpl = dotByteNibbleUDOT
+			dotNibbleNibbleImpl = dotNibbleNibbleUDOT
+		} else {
+			dotByteNibbleImpl = dotByteNibbleUADALP
+			dotNibbleNibbleImpl = dotNibbleNibbleUADALP
+		}
 	}
 }

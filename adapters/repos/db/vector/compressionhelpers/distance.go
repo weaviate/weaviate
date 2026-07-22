@@ -42,13 +42,12 @@ var hammingBitwiseImpl func(a, b []uint64) float32 = func(a, b []uint64) float32
 	return total
 }
 
-// Dot product between an unpacked 8-bit code (one byte per dimension) and a
-// packed 4-bit code in plane layout (byte j holds dimension j in the low
-// nibble and dimension j+D/2 in the high nibble). Used by the scalar fallback
-// of the asymmetric query-to-data distance computation of the 4-bit
-// rotational quantizer; the hot path unpacks the nibbles and uses an int8
-// SIMD dot product instead.
-var dotByteNibbleImpl func(q, packed []byte) uint32 = func(q, packed []byte) uint32 {
+// dotByteNibbleGo is the pure Go dot product between an unpacked 8-bit code
+// (one byte per dimension) and a packed 4-bit code in plane layout (byte j
+// holds dimension j in the low nibble and dimension j+D/2 in the high
+// nibble). It is the reference implementation for the fused SIMD kernels and
+// the fallback on CPUs without them.
+func dotByteNibbleGo(q, packed []byte) uint32 {
 	var sum uint32
 	half := len(packed)
 	for i, b := range packed {
@@ -57,12 +56,15 @@ var dotByteNibbleImpl func(q, packed []byte) uint32 = func(q, packed []byte) uin
 	return sum
 }
 
-// Dot product between two packed 4-bit codes in plane layout. The pairing of
-// dimensions is position-wise, so the layout does not affect the result as
-// long as both codes use the same one. Used for compressed-to-compressed
-// distances of the 4-bit rotational quantizer. No SIMD implementation exists
-// yet, so all architectures use this pure Go version.
-var dotNibbleNibbleImpl func(a, b []byte) uint32 = func(a, b []byte) uint32 {
+// Asymmetric query-to-data dot product of the 4-bit rotational quantizer.
+// Arch-specific init replaces this with a fused SIMD kernel that unpacks the
+// nibbles in registers (UDOT/UADALP on arm64, VPMADDUBSW on amd64 with AVX2).
+var dotByteNibbleImpl func(q, packed []byte) uint32 = dotByteNibbleGo
+
+// dotNibbleNibbleGo is the pure Go dot product between two packed 4-bit
+// codes in plane layout. The pairing of dimensions is position-wise, so the
+// layout does not affect the result as long as both codes use the same one.
+func dotNibbleNibbleGo(a, b []byte) uint32 {
 	var sum uint32
 	for i := range a {
 		x, y := a[i], b[i]
@@ -70,3 +72,8 @@ var dotNibbleNibbleImpl func(a, b []byte) uint32 = func(a, b []byte) uint32 {
 	}
 	return sum
 }
+
+// Compressed-to-compressed dot product of the 4-bit rotational quantizer,
+// hot during HNSW inserts (neighbor re-ranking works on stored codes).
+// Arch-specific init replaces this with a fused SIMD kernel.
+var dotNibbleNibbleImpl func(a, b []byte) uint32 = dotNibbleNibbleGo

@@ -21,5 +21,7 @@ func init() {
 		l2SquaredByteImpl = asm.L2ByteAVX256
 		dotByteImpl = asm.DotByteAVX256
 		hammingBitwiseImpl = asm.HammingBitwiseAVX256
+		dotByteNibbleImpl = dotByteNibbleAVX2
+		dotNibbleNibbleImpl = dotNibbleNibbleAVX2
 	}
 }
