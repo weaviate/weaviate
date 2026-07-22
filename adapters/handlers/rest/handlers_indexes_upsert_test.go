@@ -68,6 +68,13 @@ func textProp(name, tok string, searchable, filterable *bool) *models.Property {
 	}
 }
 
+// blockmaxStamped sets the durable per-property blockmax stamp, which outranks
+// the class-wide flag in db.SearchablePropertyIsBlockmax.
+func blockmaxStamped(prop *models.Property, blockmax bool) *models.Property {
+	prop.SearchableBlockmax = &blockmax
+	return prop
+}
+
 func classWith(blockmax bool, props ...*models.Property) *models.Class {
 	return &models.Class{
 		Properties:          props,
@@ -88,12 +95,14 @@ func activeReindexTask(id, collection string, mt db.ReindexMigrationType, target
 }
 
 // TestResolveSearchableUpsert_Option2 pins that an in-flight task owns the
-// outcome: a matching request NO-OPs, a differing one 409s.
+// outcome: a matching request joins it, a differing one 409s — except when the
+// requested configuration is already in place, which joins nothing.
 func TestResolveSearchableUpsert_Option2(t *testing.T) {
 	on, off := boolPtr(true), boolPtr(false)
 	cases := []struct {
 		name         string
 		prop         *models.Property
+		classBM      bool
 		tok          string
 		algorithm    string
 		tasks        []*distributedtask.Task
@@ -154,10 +163,80 @@ func TestResolveSearchableUpsert_Option2(t *testing.T) {
 			tasks:     []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeAlgorithm, "", distributedtask.TaskStatusStarted, "other")},
 			wantMT:    db.ReindexTypeChangeAlgorithm,
 		},
+		// Regression: an "ensure blockmax" on an already-blockmax property must
+		// not be handed an unrelated rebuild's task handle — its caller would
+		// then read that rebuild's FAIL/CANCEL as its own failure.
+		{
+			name:      "already blockmax (class flag) + rebuild-searchable in flight → plain NO_OP",
+			prop:      textProp("t", "word", on, off),
+			classBM:   true,
+			algorithm: "blockmax",
+			tasks:     []*distributedtask.Task{activeReindexTask("C:rebuild-searchable:t:ab3f", "C", db.ReindexTypeRebuildSearchable, "", distributedtask.TaskStatusStarted, "t")},
+			wantNoop:  true,
+		},
+		{
+			name:      "already blockmax (per-property stamp) + rebuild-searchable in flight → plain NO_OP",
+			prop:      blockmaxStamped(textProp("t", "word", on, off), true),
+			algorithm: "blockmax",
+			tasks:     []*distributedtask.Task{activeReindexTask("C:rebuild-searchable:t:ab3f", "C", db.ReindexTypeRebuildSearchable, "", distributedtask.TaskStatusStarted, "t")},
+			wantNoop:  true,
+		},
+		{
+			name:      "already blockmax + change-algorithm in flight → plain NO_OP",
+			prop:      textProp("t", "word", on, off),
+			classBM:   true,
+			algorithm: "blockmax",
+			tasks:     []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeAlgorithm, "", distributedtask.TaskStatusStarted, "t")},
+			wantNoop:  true,
+		},
+		{
+			name:      "not yet blockmax + rebuild-searchable in flight → joins T1",
+			prop:      textProp("t", "word", on, off),
+			algorithm: "blockmax",
+			tasks:     []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeRebuildSearchable, "", distributedtask.TaskStatusStarted, "t")},
+			wantNoop:  true,
+			wantJoin:  "T1",
+		},
+		{
+			name:         "already blockmax + tokenization migration in flight + algorithm → still 409",
+			prop:         textProp("t", "word", on, on),
+			classBM:      true,
+			algorithm:    "blockmax",
+			tasks:        []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeTokenization, "field", distributedtask.TaskStatusStarted, "t")},
+			wantConflict: true,
+		},
+		// The retokenize path is untouched by the in-place check above: being
+		// on blockmax says nothing about the tokenization, so it still joins.
+		{
+			name:     "already blockmax + retokenize to the in-flight target → joins T1",
+			prop:     textProp("t", "word", on, on),
+			classBM:  true,
+			tok:      "field",
+			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeTokenization, "field", distributedtask.TaskStatusStarted, "t")},
+			wantNoop: true,
+			wantJoin: "T1",
+		},
+		{
+			name:     "already blockmax + repeat enable-searchable tokenization → joins T1",
+			prop:     textProp("t", "word", off, off),
+			classBM:  true,
+			tok:      "word",
+			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeEnableSearchable, "word", distributedtask.TaskStatusStarted, "t")},
+			wantNoop: true,
+			wantJoin: "T1",
+		},
+		{
+			name:         "already blockmax + retokenize away from the in-flight target → still 409",
+			prop:         textProp("t", "word", on, on),
+			classBM:      true,
+			tok:          "lowercase",
+			tasks:        []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeTokenization, "field", distributedtask.TaskStatusStarted, "t")},
+			wantConflict: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			class := classWith(false, tc.prop)
+			class := classWith(tc.classBM, tc.prop)
 			plan, err := resolveSearchableUpsert(class, "C", tc.prop, tc.tok, tc.algorithm, tc.tasks)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")

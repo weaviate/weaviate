@@ -49,8 +49,8 @@ type upsertPlan struct {
 }
 
 // upsertIndex implements PUT .../index/{indexType}: diffs the body against
-// current state to create or migrate the index, or no-ops (200) if it
-// already matches.
+// current state to create or migrate the index, no-ops (200) if it already
+// matches, or joins an in-flight task converging on the request (202).
 func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -112,17 +112,24 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		if resp := h.validateTenantScope(ctx, principal, collection, isMT, indexType != "rangeable", params.Tenants); resp != nil {
 			return resp
 		}
-		if plan.joinTaskID != "" {
-			// Config isn't in place yet, so this can't be NO_OP.
-			return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
-				TaskID: namespacing.StripOwnNamespace(principal, plan.joinTaskID),
-				Status: reindexInProgressStatus,
-			})
-		}
-		return jsonResponder(http.StatusOK, &models.IndexUpdateResponse{Status: reindexNoOpStatus})
+		return noopOrJoinResponder(principal, plan)
 	}
 
 	return h.submitReindexTask(ctx, principal, class, collection, params.PropertyName, plan, params.Tenants, reindexTasks)
+}
+
+// noopOrJoinResponder renders a noop plan. A joined task means the config is
+// not in place yet, so the response names that task (202) instead of claiming
+// NO_OP; its ID is stripped of the caller's own namespace, like every other
+// task ID this API hands back.
+func noopOrJoinResponder(principal *models.Principal, plan upsertPlan) middleware.Responder {
+	if plan.joinTaskID != "" {
+		return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
+			TaskID: namespacing.StripOwnNamespace(principal, plan.joinTaskID),
+			Status: reindexInProgressStatus,
+		})
+	}
+	return jsonResponder(http.StatusOK, &models.IndexUpdateResponse{Status: reindexNoOpStatus})
 }
 
 // rebuildIndex implements POST .../index/{indexType}/rebuild — rebuild the
@@ -372,22 +379,28 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 		}
 	}
 
+	exists := searchableIndexOn(prop)
+
 	// An in-flight task converging this index owns the outcome: a matching
-	// request NO-OPs, a differing one 409s. Checked before the schema read
+	// request joins it, a differing one 409s. Checked before the schema read
 	// below to avoid a stale NO_OP mid-migration.
 	if algorithm != "" || tok != "" {
 		if task, matches := activeSearchableTaskFor(collection, prop.Name, tok, algorithm, reindexTasks); task != nil {
-			if matches {
-				return upsertPlan{noop: true, joinTaskID: task.ID}, nil
+			if !matches {
+				return upsertPlan{conflict: fmt.Sprintf(
+					"reindex task %q is already migrating searchable property %q to a different target; "+
+						"wait for it to finish or cancel it before requesting a different change",
+					task.ID, prop.Name)}, nil
 			}
-			return upsertPlan{conflict: fmt.Sprintf(
-				"reindex task %q is already migrating searchable property %q to a different target; "+
-					"wait for it to finish or cancel it before requesting a different change",
-				task.ID, prop.Name)}, nil
+			// A property already on blockmax needs nothing from that task, so
+			// joining would tie an idempotent request to an unrelated
+			// lifecycle (e.g. a rebuild that later FAILs).
+			if algorithm != "" && exists && db.SearchablePropertyIsBlockmax(class, prop.Name, reindexTasks) {
+				return upsertPlan{noop: true}, nil
+			}
+			return upsertPlan{noop: true, joinTaskID: task.ID}, nil
 		}
 	}
-
-	exists := searchableIndexOn(prop)
 
 	switch {
 	case algorithm != "":
@@ -472,7 +485,7 @@ func resolveFilterableUpsert(collection string, prop *models.Property, tok, algo
 	}
 
 	// An in-flight task writing this bucket owns the outcome: a converging
-	// request NO-OPs, a different target 409s — checked before the schema
+	// request joins it, a different target 409s — checked before the schema
 	// read to avoid a spurious mid-migration conflict.
 	if task, matches := activeFilterableTaskFor(collection, prop.Name, tok, prop.Tokenization, reindexTasks); task != nil {
 		if matches {
