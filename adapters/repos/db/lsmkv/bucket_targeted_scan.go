@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -83,6 +84,22 @@ func (e *TargetedScanEntry) ReadRange(from, to uint64) ([]byte, error) {
 func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int,
 	fn func(e *TargetedScanEntry) error, logger logrus.FieldLogger,
 ) error {
+	return b.scanTargetedReplace(ctx, peekSize, parallel, fn, logger, false)
+}
+
+// ScanTargetedReplaceNewestWins is ScanTargetedReplace with merged-cursor
+// visibility: a row is served only when no newer segment or memtable holds its
+// key, so superseded versions and deleted keys never surface — resolved from
+// in-memory bloom filters and indexes, without reading any stale value bytes.
+func (b *Bucket) ScanTargetedReplaceNewestWins(ctx context.Context, peekSize, parallel int,
+	fn func(e *TargetedScanEntry) error, logger logrus.FieldLogger,
+) error {
+	return b.scanTargetedReplace(ctx, peekSize, parallel, fn, logger, true)
+}
+
+func (b *Bucket) scanTargetedReplace(ctx context.Context, peekSize, parallel int,
+	fn func(e *TargetedScanEntry) error, logger logrus.FieldLogger, newestWins bool,
+) error {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
 	if peekSize < 1 {
@@ -104,13 +121,22 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 	b.flushLock.RUnlock()
 	defer release()
 
+	// inMem[0] is the active memtable (newest); a flushing memtable follows
+	var hideSets []map[string]struct{}
 	for _, c := range inMem {
-		if err := scanTargetedMemtable(ctx, c, peekSize, fn); err != nil {
+		var collect map[string]struct{}
+		if newestWins {
+			collect = map[string]struct{}{}
+		}
+		if err := scanTargetedMemtable(ctx, c, peekSize, hideSets, collect, fn); err != nil {
 			return err
+		}
+		if newestWins {
+			hideSets = append(hideSets, collect)
 		}
 	}
 
-	tasks := buildTargetedScanTasks(segments, parallel)
+	tasks := buildTargetedScanTasks(segments, parallel, newestWins)
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -123,7 +149,7 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 		eg.Go(func() error {
 			var entry TargetedScanEntry
 			head := make([]byte, 9+peekSize)
-			return scanTargetedSegmentRange(egCtx, task, peekSize, &entry, head, fn)
+			return scanTargetedSegmentRange(egCtx, task, peekSize, hideSets, &entry, head, fn)
 		})
 	}
 	return eg.Wait()
@@ -132,19 +158,33 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 type targetedScanTask struct {
 	seg        *segment
 	start, end []byte // key range [start,end); nil = open-ended
+	// newer holds the segments written after seg, newest first; non-nil only in
+	// newest-wins mode, where a key present in any of them hides seg's row
+	newer []*segment
 }
 
 // buildTargetedScanTasks splits each segment into enough key ranges that the total
 // task count reaches the requested parallelism even when few segments exist.
-func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask {
+func buildTargetedScanTasks(segments []Segment, parallel int, newestWins bool) []targetedScanTask {
 	if len(segments) == 0 {
 		return nil
 	}
 	rangesPerSeg := (parallel + len(segments) - 1) / len(segments)
 
+	underlying := make([]*segment, len(segments))
+	for i, s := range segments {
+		underlying[i] = s.underlyingSegment()
+	}
+
 	var tasks []targetedScanTask
-	for _, s := range segments {
-		seg := s.underlyingSegment()
+	for segIdx, seg := range underlying {
+		var newer []*segment
+		if newestWins {
+			// segments arrive oldest to newest; probe newest first
+			for j := len(underlying) - 1; j > segIdx; j-- {
+				newer = append(newer, underlying[j])
+			}
+		}
 		seeds := [][]byte{}
 		if rangesPerSeg > 1 {
 			// quantileKeys yields BFS order; ranges need sorted, unique bounds or they
@@ -154,26 +194,41 @@ func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask
 			seeds = slices.CompactFunc(seeds, bytes.Equal)
 		}
 		if len(seeds) == 0 {
-			tasks = append(tasks, targetedScanTask{seg: seg})
+			tasks = append(tasks, targetedScanTask{seg: seg, newer: newer})
 			continue
 		}
-		tasks = append(tasks, targetedScanTask{seg: seg, end: seeds[0]})
+		tasks = append(tasks, targetedScanTask{seg: seg, end: seeds[0], newer: newer})
 		for i := 0; i < len(seeds)-1; i++ {
-			tasks = append(tasks, targetedScanTask{seg: seg, start: seeds[i], end: seeds[i+1]})
+			tasks = append(tasks, targetedScanTask{seg: seg, start: seeds[i], end: seeds[i+1], newer: newer})
 		}
-		tasks = append(tasks, targetedScanTask{seg: seg, start: seeds[len(seeds)-1]})
+		tasks = append(tasks, targetedScanTask{seg: seg, start: seeds[len(seeds)-1], newer: newer})
 	}
 	return tasks
 }
 
+// scanTargetedMemtable serves one memtable's live rows. In newest-wins mode,
+// collect receives every key the memtable holds (tombstones included, since they
+// hide older versions) and hideSets suppresses rows already superseded by newer
+// memtables.
 func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize int,
+	hideSets []map[string]struct{}, collect map[string]struct{},
 	fn func(e *TargetedScanEntry) error,
 ) error {
+	hidden := func(k []byte) bool {
+		for _, s := range hideSets {
+			if _, ok := s[string(k)]; ok {
+				return true
+			}
+		}
+		return false
+	}
+
 	entry := TargetedScanEntry{}
 	const checkContextEveryN = 1024
 	n := 0
-	_, v, err := c.first()
+	k, v, err := c.first()
 	for {
+		serve := false
 		if err != nil {
 			if errors.Is(err, entlsmkv.NotFound) {
 				return nil
@@ -181,8 +236,18 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 			if !errors.Is(err, entlsmkv.Deleted) {
 				return err
 			}
-			// tombstone: skip
+			// tombstone: not served, but it still hides older versions
 		} else if len(v) > 0 {
+			serve = true
+		}
+
+		if collect != nil && k != nil {
+			collect[string(k)] = struct{}{}
+		}
+		if serve && k != nil && hidden(k) {
+			serve = false
+		}
+		if serve {
 			entry.ValueSize = uint64(len(v))
 			entry.Peek = v[:min(peekSize, len(v))]
 			entry.seg = nil
@@ -198,12 +263,13 @@ func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize in
 				return err
 			}
 		}
-		_, v, err = c.next()
+		k, v, err = c.next()
 	}
 }
 
 func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSize int,
-	entry *TargetedScanEntry, head []byte, fn func(e *TargetedScanEntry) error,
+	hideSets []map[string]struct{}, entry *TargetedScanEntry, head []byte,
+	fn func(e *TargetedScanEntry) error,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -220,6 +286,19 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 		}
 		if n.End-n.Start < 9 {
 			return fmt.Errorf("targeted scan: node at %d smaller than its header", n.Start)
+		}
+
+		// newest-wins: a key held by any memtable or newer segment hides this row —
+		// resolved from in-memory state before any value bytes are read
+		for _, s := range hideSets {
+			if _, ok := s[string(n.Key)]; ok {
+				return nil
+			}
+		}
+		for _, newer := range task.newer {
+			if newer.hasKeyReplace(n.Key) {
+				return nil
+			}
 		}
 
 		var peek []byte
@@ -296,8 +375,10 @@ func checkNodeValueLen(valueLen uint64, n segmentNodeRange) error {
 	return nil
 }
 
-// segmentNodeRange is the byte range of one node within a segment, in key order.
+// segmentNodeRange is one node within a segment, in key order. Key comes from the
+// in-memory index, so it is available before any value bytes are read.
 type segmentNodeRange struct {
+	Key        []byte
 	Start, End uint64
 }
 
@@ -316,7 +397,7 @@ func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) 
 		if end != nil && bytes.Compare(node.Key, end) >= 0 {
 			return nil
 		}
-		if err := fn(segmentNodeRange{Start: node.Start, End: node.End}); err != nil {
+		if err := fn(segmentNodeRange{Key: node.Key, Start: node.Start, End: node.End}); err != nil {
 			return err
 		}
 		node, err = s.index.Next(node.Key)
@@ -325,6 +406,20 @@ func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) 
 
 func (s *segment) underlyingSegment() *segment {
 	return s
+}
+
+// hasKeyReplace reports whether the replace segment holds an entry (live or
+// tombstoned) for key, touching only the in-memory bloom filter and index — never
+// value bytes.
+func (s *segment) hasKeyReplace(key []byte) bool {
+	if s.strategy != segmentindex.StrategyReplace {
+		return false
+	}
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		return false
+	}
+	_, err := s.index.Get(key)
+	return err == nil
 }
 
 func (s *lazySegment) underlyingSegment() *segment {

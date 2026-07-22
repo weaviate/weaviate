@@ -52,6 +52,22 @@ func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
 func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Bucket,
 	targetVector string, onVector prefillOnVector,
 ) error {
+	return bucket.ScanTargetedReplace(ctx, prefillPeekBytes, prefillScanParallelism(),
+		h.targetedRowCallback(targetVector, onVector), h.logger)
+}
+
+// scanObjectVectorsTargetedNewestWins uses the newest-wins scan: superseded and
+// deleted rows are hidden by in-memory key probes before any read, so the
+// liveness filter only covers HNSW-side exclusions (unindexed or tombstoned
+// nodes whose bucket row is still live).
+func (h *hnsw) scanObjectVectorsTargetedNewestWins(ctx context.Context, bucket *lsmkv.Bucket,
+	targetVector string, onVector prefillOnVector,
+) error {
+	return bucket.ScanTargetedReplaceNewestWins(ctx, prefillPeekBytes, prefillScanParallelism(),
+		h.targetedRowCallback(targetVector, onVector), h.logger)
+}
+
+func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector) func(*lsmkv.TargetedScanEntry) error {
 	h.RLock()
 	nodesLen := uint64(len(h.nodes))
 	h.RUnlock()
@@ -65,25 +81,24 @@ func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Buck
 	}
 	h.tombstoneLock.RUnlock()
 
-	return bucket.ScanTargetedReplace(ctx, prefillPeekBytes, prefillScanParallelism(),
-		func(e *lsmkv.TargetedScanEntry) error {
-			id, err := storobj.DocIDFromBinary(e.Peek)
-			if err != nil {
-				h.prefillSkipDebug("undecodable doc id", err)
-				return nil
-			}
-			if !h.nodeAlive(id, nodesLen) {
-				return nil
-			}
-			if _, dead := tombstoned[id]; dead {
-				return nil
-			}
-			vec, ok := h.targetedVectorFromEntry(e, targetVector)
-			if !ok || len(vec) == 0 {
-				return nil
-			}
-			return onVector(id, vec)
-		}, h.logger)
+	return func(e *lsmkv.TargetedScanEntry) error {
+		id, err := storobj.DocIDFromBinary(e.Peek)
+		if err != nil {
+			h.prefillSkipDebug("undecodable doc id", err)
+			return nil
+		}
+		if !h.nodeAlive(id, nodesLen) {
+			return nil
+		}
+		if _, dead := tombstoned[id]; dead {
+			return nil
+		}
+		vec, ok := h.targetedVectorFromEntry(e, targetVector)
+		if !ok || len(vec) == 0 {
+			return nil
+		}
+		return onVector(id, vec)
+	}
 }
 
 // nodeAlive reports whether id has a live node. Doc ids are never reused, so a

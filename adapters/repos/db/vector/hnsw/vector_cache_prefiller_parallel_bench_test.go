@@ -58,7 +58,7 @@ func benchVector(i, dims, salt int) []float32 {
 // buildPrefillBenchStore writes cfg.n objects with two named vectors and a filler
 // property across cfg.segments flushed segments, mirroring the real write path
 // (16-byte primary key, little-endian docID secondary key at index 0).
-func buildPrefillBenchStore(tb testing.TB, cfg prefillBenchConfig) *lsmkv.Store {
+func buildPrefillBenchStore(tb testing.TB, cfg prefillBenchConfig, opts ...lsmkv.BucketOption) *lsmkv.Store {
 	tb.Helper()
 	dir := tb.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -70,8 +70,10 @@ func buildPrefillBenchStore(tb testing.TB, cfg prefillBenchConfig) *lsmkv.Store 
 	tb.Cleanup(func() { store.Shutdown(context.Background()) })
 
 	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
-		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithSecondaryIndices(1)))
+		append([]lsmkv.BucketOption{
+			lsmkv.WithStrategy(lsmkv.StrategyReplace),
+			lsmkv.WithSecondaryIndices(1),
+		}, opts...)...))
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
 	payload := strings.Repeat("x", cfg.payloadBytes)
@@ -245,6 +247,28 @@ func runTargetedPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfi
 	return took
 }
 
+func runTargetedNewestWinsPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig) time.Duration {
+	tb.Helper()
+	logger, _ := test.NewNullLogger()
+	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
+		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
+	}
+	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000_000, 1, logger, false, 0, nil)
+	c.Grow(uint64(cfg.n))
+	h := newPrefillBenchIndex(store, c, cfg.n)
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+	start := time.Now()
+	err := h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+		return h.scanObjectVectorsTargetedNewestWins(ctx, bucket, prefillBenchTarget, onVector)
+	})
+	took := time.Since(start)
+
+	require.NoError(tb, err)
+	require.Equal(tb, int64(cfg.n), c.CountVectors())
+	return took
+}
+
 // BenchmarkPrefillNamedVectorsLargeProps is the read-amplification case the targeted
 // scan exists for: the properties schema dominates the value, so peek+jump reads a
 // small fraction of the bucket while both full-scan variants read all of it.
@@ -267,6 +291,116 @@ func BenchmarkPrefillNamedVectorsLargeProps(b *testing.B) {
 	b.Run("targeted-scan", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			runTargetedPrefill(b, store, cfg)
+		}
+		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
+	})
+
+	preadStore := buildPrefillBenchStore(b, cfg, lsmkv.WithPread(true), lsmkv.WithMinMMapSize(0))
+	b.Run("pread/parallel-scan", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runParallelPrefill(b, preadStore, cfg)
+		}
+		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
+	})
+	b.Run("pread/targeted-scan", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runTargetedPrefill(b, preadStore, cfg)
+		}
+		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
+	})
+	b.Run("pread/targeted-newest-wins", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runTargetedNewestWinsPrefill(b, preadStore, cfg)
+		}
+		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
+	})
+}
+
+// BenchmarkPrefillNamedVectorsChurned models a pread bucket where 40% of the keys
+// were rewritten (new doc ids) after the base segments flushed, leaving stale rows
+// in older segments under live keys. The liveness-filter scan pays a peek read per
+// stale row to learn its dead doc id; the newest-wins scan hides stale rows via
+// in-memory key probes before any read; the merged cursor copies their full
+// values into the merge before discarding them.
+func BenchmarkPrefillNamedVectorsChurned(b *testing.B) {
+	cfg := prefillBenchConfig{n: 5_000, dims: 128, payloadBytes: 16 << 10, segments: 3}
+	const rewritten = 2_000
+
+	store := buildPrefillBenchStore(b, cfg, lsmkv.WithPread(true), lsmkv.WithMinMMapSize(0))
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+	// rewrite keys 0..rewritten-1 under fresh doc ids into a fourth segment
+	payload := strings.Repeat("x", cfg.payloadBytes)
+	for i := 0; i < rewritten; i++ {
+		docID := uint64(cfg.n + i)
+		obj := storobj.New(docID)
+		obj.Object = models.Object{
+			ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-4000-8000-%012x", uint64(i))),
+			Class:      "Bench",
+			Properties: map[string]interface{}{"filler": payload},
+		}
+		obj.Vectors = map[string][]float32{
+			prefillBenchTarget: benchVector(int(docID), cfg.dims, 0),
+			"sibling":          benchVector(int(docID), cfg.dims, 13),
+		}
+		data, err := obj.MarshalBinary()
+		require.NoError(b, err)
+		docIDBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+		require.NoError(b, bucket.Put(keyForDocID(uint64(i)), data,
+			lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
+	}
+	require.NoError(b, bucket.FlushAndSwitch())
+
+	// live nodes: unmodified originals plus the rewrites; doc ids 0..rewritten-1
+	// are dead
+	total := cfg.n + rewritten
+	newChurnedIndex := func(c cache.Cache[float32]) *hnsw {
+		h := newPrefillBenchIndex(store, c, total)
+		for i := 0; i < rewritten; i++ {
+			h.nodes[i] = nil
+		}
+		return h
+	}
+	run := func(b *testing.B, scan func(h *hnsw, bucket *lsmkv.Bucket) error) {
+		logger, _ := test.NewNullLogger()
+		mustHit := func(_ context.Context, id uint64) ([]float32, error) {
+			return nil, fmt.Errorf("unexpected cache miss for id %d", id)
+		}
+		c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000_000, 1, logger, false, 0, nil)
+		c.Grow(uint64(total))
+		h := newChurnedIndex(c)
+		require.NoError(b, scan(h, bucket))
+		require.Equal(b, int64(cfg.n), c.CountVectors())
+	}
+
+	b.Run("pread/parallel-scan", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			run(b, func(h *hnsw, bucket *lsmkv.Bucket) error {
+				return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+					return scanBucketVectorsParallel(ctx, bucket, objectsRowDecoder(prefillBenchTarget, h.logger), onVector, h.logger)
+				})
+			})
+		}
+		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
+	})
+	b.Run("pread/targeted-scan", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			run(b, func(h *hnsw, bucket *lsmkv.Bucket) error {
+				return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+					return h.scanObjectVectorsTargeted(ctx, bucket, prefillBenchTarget, onVector)
+				})
+			})
+		}
+		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
+	})
+	b.Run("pread/targeted-newest-wins", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			run(b, func(h *hnsw, bucket *lsmkv.Bucket) error {
+				return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
+					return h.scanObjectVectorsTargetedNewestWins(ctx, bucket, prefillBenchTarget, onVector)
+				})
+			})
 		}
 		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
 	})

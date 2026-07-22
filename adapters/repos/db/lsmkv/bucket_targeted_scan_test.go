@@ -151,3 +151,66 @@ func TestScanTargetedReplaceContextCancelled(t *testing.T) {
 	}, nullLogger())
 	require.ErrorIs(t, err, context.Canceled)
 }
+
+// TestScanTargetedReplaceNewestWins_MatchesCursor: newest-wins mode must serve
+// exactly the merged cursor's live view — superseded versions hidden by newer
+// segments and memtables, deletes hidden bucket-wide — in both access modes.
+func TestScanTargetedReplaceNewestWins_MatchesCursor(t *testing.T) {
+	ctx := context.Background()
+
+	modes := []struct {
+		name string
+		opts []BucketOption
+	}{
+		{"mmap", nil},
+		{"pread", []BucketOption{WithPread(true), WithMinMMapSize(0)}},
+	}
+
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			b := newReusableTestBucket(t, ctx, mode.opts...)
+			defer b.Shutdown(ctx)
+
+			put := func(id uint64, fillerLen int) {
+				require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen)))
+			}
+			// segment 1
+			for i := uint64(0); i < 40; i++ {
+				put(i, int(i)*7%300)
+			}
+			require.NoError(t, b.FlushAndSwitch())
+			// segment 2: updates + a delete
+			for i := uint64(5); i < 15; i++ {
+				put(i, 500+int(i))
+			}
+			require.NoError(t, b.Delete([]byte("key-020")))
+			require.NoError(t, b.FlushAndSwitch())
+			// memtable: more updates + a delete of a segment-2 winner + new keys
+			put(7, 900)
+			put(50, 100)
+			require.NoError(t, b.Delete([]byte("key-010")))
+
+			expected := map[string]int{}
+			c := b.Cursor()
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				expected[string(v)]++
+				_ = k
+			}
+			c.Close()
+
+			var mu sync.Mutex
+			got := map[string]int{}
+			err := b.ScanTargetedReplaceNewestWins(ctx, 16, 4, func(e *TargetedScanEntry) error {
+				whole, err := e.ReadRange(0, 0)
+				require.NoError(t, err)
+				mu.Lock()
+				got[string(whole)]++
+				mu.Unlock()
+				return nil
+			}, nullLogger())
+			require.NoError(t, err)
+
+			require.Equal(t, expected, got)
+		})
+	}
+}
