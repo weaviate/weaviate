@@ -183,12 +183,18 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		RQ: h.rqConfig,
 	}
 	if err := h.compress(uc); err != nil {
-		h.logger.WithFields(logrus.Fields{
+		fields := logrus.Fields{
 			"action":       "compress",
 			"shard":        h.shardName,
 			"collection":   h.className,
 			"targetVector": h.getTargetVector(),
-		}).WithError(err).Error("vector compression failed")
+		}
+		if h.shutdownCtx.Err() != nil {
+			// expected on shutdown, compression restarts with the shard
+			h.logger.WithFields(fields).Infof("vector compression interrupted by shutdown: %v", err)
+			return
+		}
+		h.logger.WithFields(fields).WithError(err).Error("vector compression failed")
 		return
 	}
 	h.logger.WithFields(logrus.Fields{

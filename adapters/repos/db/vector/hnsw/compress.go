@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -33,7 +34,12 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			h.compressActionLock.Unlock()
 		}
 	}()
-	data := h.cache.All()
+	if err := h.shutdownCtx.Err(); err != nil {
+		return err
+	}
+	h.cache.LockAll()
+	data := slices.Clone(h.cache.All())
+	h.cache.UnlockAll()
 	singleVector := !h.multivector.Load() || h.muvera.Load()
 	if cfg.PQ.Enabled || cfg.SQ.Enabled {
 		if h.isEmpty() {
@@ -133,7 +139,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
-				if len(data[index]) == 0 {
+				if h.shutdownCtx.Err() != nil || len(data[index]) == 0 {
 					return
 				}
 				h.compressor.Preload(index, data[index])
@@ -141,12 +147,16 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	} else {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
-				if len(data[index]) == 0 {
+				if h.shutdownCtx.Err() != nil || len(data[index]) == 0 {
 					return
 				}
 				docID, relativeID := h.cache.GetKeys(index)
 				h.compressor.PreloadPassage(index, docID, relativeID, data[index])
 			})
+	}
+
+	if h.shutdownCtx.Err() != nil {
+		return h.shutdownCtx.Err()
 	}
 
 	h.compressor.PersistCompression(h.commitLog)
