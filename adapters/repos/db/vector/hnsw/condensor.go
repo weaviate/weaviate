@@ -62,6 +62,20 @@ func (c *MemoryCondensor) Do(fileName string) error {
 
 	c.newLog = NewWriterSize(c.newLogFile, c.bufferSize)
 
+	// newLog and newLogFile are only used while condensing; release them on
+	// return so a reused condensor does not keep the write buffer in memory
+	// between runs. Without the close an early return leaks the descriptor.
+	defer func() {
+		if c.newLogFile != nil {
+			if err := c.newLogFile.Close(); err != nil {
+				c.logger.WithField("action", "hnsw_condensing").
+					Errorf("close new commit log: %v", err)
+			}
+		}
+		c.newLog = nil
+		c.newLogFile = nil
+	}()
+
 	if res.Compressed {
 		if res.CompressionPQData != nil {
 			if err := c.AddPQCompression(*res.CompressionPQData); err != nil {
@@ -161,14 +175,16 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	if err := c.newLog.Flush(); err != nil {
-		return errors.Wrap(err, "close new commit log")
+		return errors.Wrap(err, "flush new commit log")
 	}
 
 	if err := newLogFile.Sync(); err != nil {
 		return errors.Wrap(err, "fsync new commit log")
 	}
 
-	if err := c.newLogFile.Close(); err != nil {
+	err = c.newLogFile.Close()
+	c.newLogFile = nil
+	if err != nil {
 		return errors.Wrap(err, "close new commit log")
 	}
 

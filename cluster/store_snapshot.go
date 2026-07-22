@@ -73,6 +73,7 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 		Namespaces:       namespacesSnapshot,
 		DistributedTasks: tasksSnapshot,
 		ReplicationOps:   replicationSnapshot,
+		ClusterID:        s.ClusterID(),
 	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
 		return fmt.Errorf("encode: %w", err)
@@ -179,6 +180,10 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 				st.log.Error(err)
 				return fmt.Errorf("restore namespaces from snapshot: %w", err)
 			}
+		}
+
+		if snap.ClusterID != "" {
+			st.setClusterID(snap.ClusterID)
 		}
 
 		if st.cfg.MetadataOnlyVoters {
