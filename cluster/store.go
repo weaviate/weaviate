@@ -21,18 +21,21 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	googleproto "google.golang.org/protobuf/proto"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -270,6 +273,9 @@ type Store struct {
 	authZController authorization.Controller
 
 	metrics *storeMetrics
+
+	// clusterID is the stable UUID committed once per cluster lifetime via raft.
+	clusterID atomic.Pointer[string]
 }
 
 // storeMetrics exposes RAFT store related prometheus metrics
@@ -538,6 +544,10 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 			} else {
 				st.log.Info("migration from the old schema has been successfully completed")
 			}
+		}
+
+		if st.IsLeader() {
+			st.maybeCommitClusterID()
 		}
 		return
 	}
@@ -993,4 +1003,53 @@ func (st *Store) recoverSingleNode(force bool) error {
 	st.schemaManager.ReplaceStatesNodeName(string(newNode.ID))
 
 	return nil
+}
+
+// setClusterID records the cluster identity in memory, set-once (first
+// writer wins; a duplicate from replay or snapshot restore is a logged no-op).
+func (st *Store) setClusterID(clusterID string) {
+	id := clusterID
+	if !st.clusterID.CompareAndSwap(nil, &id) {
+		st.log.WithFields(logrus.Fields{"existing_cluster_id": st.ClusterID(), "duplicate_cluster_id": clusterID}).Debug("duplicate cluster-id set, no-op (set-once)")
+	}
+}
+
+// ClusterID returns the committed cluster identity, or "" if not yet set.
+func (st *Store) ClusterID() string {
+	if p := st.clusterID.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
+
+// maybeCommitClusterID commits a fresh UUID cluster identity via raft if one
+// isn't set yet. Caller must be the raft leader.
+func (st *Store) maybeCommitClusterID() {
+	if st.ClusterID() != "" {
+		return
+	}
+
+	uid, err := uuid.NewV7()
+	if err != nil {
+		// fall back to v4 if the monotonic-random source fails
+		uid = uuid.New()
+	}
+	id := uid.String()
+	req := &api.SetClusterIDRequest{
+		ClusterId: id,
+	}
+	subCmd, err := googleproto.Marshal(req)
+	if err != nil {
+		st.log.WithFields(logrus.Fields{"cluster_id": id}).Warnf("marshal cluster-id set subcommand: %v", err)
+		return
+	}
+	applyReq := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_CLUSTER_ID_SET,
+		SubCommand: subCmd,
+	}
+	// A new leader may commit a duplicate before replaying the existing entry;
+	// harmless, since applyClusterIDSet is set-once.
+	if _, err := st.Execute(applyReq); err != nil {
+		st.log.WithFields(logrus.Fields{"cluster_id": id}).Warnf("commit cluster-id set command: %v", err)
+	}
 }

@@ -35,6 +35,9 @@ type Snapshot struct {
 	ReplicationOps []byte `json:"replication_ops,omitempty"`
 	// DbUsers is the state of dynamic db users that will be used to restore the FSM
 	DbUsers []byte `json:"dbusers,omitempty"`
+
+	// ClusterID is the stable UUID committed once per cluster lifetime.
+	ClusterID string `json:"cluster_id,omitempty"`
 }
 
 // Snapshotter is used to snapshot and restore any (FSM) state
