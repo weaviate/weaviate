@@ -39,4 +39,19 @@ type Payload struct {
 	ClientUsage      map[ClientType]map[string]int64 `json:"clientUsage,omitempty"`
 	CloudProvider    *string                         `json:"cloudProvider,omitempty"`
 	UniqueID         *string                         `json:"uniqueID,omitempty"`
+
+	// NodeID is CLUSTER_HOSTNAME (the raft node name): a stable per-node identity.
+	NodeID string `json:"nodeId,omitempty"`
+	// ClusterID is the UUID committed once per cluster lifetime via raft.
+	ClusterID string `json:"clusterId,omitempty"`
+
+	// Pointers so a measured zero/false serializes instead of being dropped by
+	// omitempty; nil means unmeasured.
+	NodeCount                  *int           `json:"nodeCount,omitempty"`
+	MaxReplicationFactor       *int           `json:"maxReplicationFactor,omitempty"`
+	ReplicationEnabled         *bool          `json:"replicationEnabled,omitempty"`
+	MTCollectionCount          *int           `json:"mtCollectionCount,omitempty"`
+	NamedVectorCollectionCount *int           `json:"namedVectorCollectionCount,omitempty"`
+	AsyncIndexingEnabled       *bool          `json:"asyncIndexingEnabled,omitempty"`
+	VectorIndexTypeCounts      map[string]int `json:"vectorIndexTypeCounts,omitempty"`
 }
