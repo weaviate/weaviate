@@ -135,12 +135,13 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	}
 
 	exposeNamespace := principal != nil && principal.IsGlobalOperator
+	showAPIKeyFirstLetters := isRootUser || h.callerHasAdminRole(principal)
 
 	allDynamicUsers := map[string]struct{}{}
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
 		apiKeyFirstLetter := ""
-		if isRootUser {
+		if showAPIKeyFirstLetters {
 			apiKeyFirstLetter = dbUser.ApiKeyFirstLetters
 		}
 		var lastUsedTime time.Time
@@ -249,7 +250,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		user := existingDbUsers[internalKey]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
-		if isRootUser {
+		if isRootUser || h.callerHasAdminRole(principal) {
 			response.APIKeyFirstLetters = user.ApiKeyFirstLetters
 		}
 		if principal != nil && principal.IsGlobalOperator {
@@ -715,6 +716,35 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 		return false
 	}
 	return h.rbacConfig.IsRootUser(principal.Username, principal.Groups)
+}
+
+// callerHasAdminRole reports whether the principal holds the built-in admin
+// role, directly or through one of its groups. Only consulted on
+// namespace-enabled clusters. A role lookup that errors is treated as non-admin
+// so the api-key hint stays hidden.
+func (h *dynUserHandler) callerHasAdminRole(principal *models.Principal) bool {
+	if principal == nil || !h.namespacesEnabled || !h.rbacConfig.Enabled {
+		return false
+	}
+	authType := authentication.AuthType(principal.UserType)
+	if h.subjectHasAdminRole(principal.Username, authType, false) {
+		return true
+	}
+	for _, group := range principal.Groups {
+		if h.subjectHasAdminRole(group, authType, true) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *dynUserHandler) subjectHasAdminRole(subject string, authType authentication.AuthType, isGroup bool) bool {
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(subject, authType, isGroup)
+	if err != nil {
+		return false
+	}
+	_, ok := roles[authorization.Admin]
+	return ok
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)
