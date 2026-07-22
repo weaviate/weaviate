@@ -2270,6 +2270,9 @@ func (t *ShardReindexTaskGeneric) getSegmentPathsToMove(bucketPathSrc, bucketPat
 	needsRecover := false
 
 	err := filepath.WalkDir(bucketPathSrc, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
 		if d.IsDir() {
 			return nil
 		}
