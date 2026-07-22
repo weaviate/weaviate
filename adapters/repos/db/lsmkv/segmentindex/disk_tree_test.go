@@ -156,13 +156,9 @@ func TestDiskTreeValidateRootInBounds(t *testing.T) {
 	})
 }
 
-// TestDiskTreeGet_CycleGuard pins weaviate/weaviate#12280 (QA Claude round
-// 2): an in-bounds but cyclic child offset spins Get's descent loop
-// forever - individually every offset in the cycle passes the existing
-// bounds checks, so only an iteration cap can catch it. A hung reader
-// holds the segment-group read view open, so Shutdown and compaction wedge
-// behind it. The assertion itself is bounded by a goroutine + select
-// timeout so this test cannot hang the suite even if the guard regresses.
+// TestDiskTreeGet_CycleGuard pins weaviate/weaviate#12280: a cyclic but
+// individually in-bounds child offset must not spin Get's descent forever.
+// Bounded by a timeout so a regression fails the test instead of hanging it.
 func TestDiskTreeGet_CycleGuard(t *testing.T) {
 	tree := NewTree(4)
 	tree.Insert([]byte("b"), 20, 21) // root
@@ -197,14 +193,9 @@ func TestDiskTreeGet_CycleGuard(t *testing.T) {
 	}
 }
 
-// TestDiskTreeReadTimeNodeSanity pins weaviate/weaviate#12280 (QA Claude
-// round 2): a node with End < Start makes every downstream consumer's
-// make([]byte, node.End-node.Start) wrap to a huge uint64 and panic
-// makeslice: len out of range; background readers (compaction, flush,
-// bloom-rebuild, cursors) have no recover barrier for that. The read-time
-// check must convert it into a clean error at the single choke point
-// (Get's match branch and readNode, which also covers Seek/Next/AllKeys)
-// instead.
+// TestDiskTreeReadTimeNodeSanity pins weaviate/weaviate#12280: a node with
+// End < Start must return a clean error, not panic downstream via
+// make([]byte, End-Start) wrapping to a huge length.
 func TestDiskTreeReadTimeNodeSanity(t *testing.T) {
 	t.Run("Get: inverted node (End < Start) returns a clean error, not a corrupt Node", func(t *testing.T) {
 		tree := NewTree(1)
@@ -285,17 +276,12 @@ func TestDiskTreeReadTimeNodeSanity(t *testing.T) {
 	})
 }
 
-// TestDiskTreePinnedResidual_InteriorNodeCorruption documents (does not
-// fix) the two silent-loss shapes weaviate/weaviate#12280's O(1) root-only
-// validation and the per-node range sanity check both structurally cannot
-// see: a redirected-but-individually-valid child pointer, and a node whose
-// Start/End were overwritten with another key's own valid, in-bounds byte
-// range. QA Claude round 2 explicitly scoped full-tree structural
-// validation at open out of this PR (proportionate cost/benefit call) and
-// asked only that the residual be pinned with tests, not silently shipped.
-// These tests assert CURRENT behavior and are expected to keep passing
-// unchanged by this round's fixes - they are the contract that this
-// specific residual is a known, accepted gap, not an unnoticed regression.
+// TestDiskTreePinnedResidual_InteriorNodeCorruption documents a known,
+// accepted gap: a redirected child pointer or an overwritten Start/End
+// range, when individually valid, are undetectable by root-only or
+// per-node checks - only full-tree structural validation could catch them,
+// which is out of scope here. Pins CURRENT behavior so a regression here
+// is noticed, not assumed away.
 func TestDiskTreePinnedResidual_InteriorNodeCorruption(t *testing.T) {
 	t.Run("wrong-child-node: a redirected child pointer causes silent NotFound for intact data", func(t *testing.T) {
 		tree := NewTree(4)

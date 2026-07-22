@@ -62,7 +62,7 @@ func TestHeaderInvertedValidateNonEmptyIndex(t *testing.T) {
 		return contents
 	}
 
-	t.Run("QA Claude's exact repro shape: real (non-tombstone) flush, empty primary index: rejected", func(t *testing.T) {
+	t.Run("real (non-tombstone) flush with an empty primary index: rejected", func(t *testing.T) {
 		h := &HeaderInverted{PropertyLengthsOffset: 100}
 		contents := buildContents(100, 3, 200) // propLengthCount=3: real entries existed
 		err := h.ValidateNonEmptyIndex(contents, 0, 272)

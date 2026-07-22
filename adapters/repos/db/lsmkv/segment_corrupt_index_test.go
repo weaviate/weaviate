@@ -187,23 +187,19 @@ func TestSegment_CorruptSecondaryIndicesCount_PastSegmentLength(t *testing.T) {
 }
 
 // TestSegment_CorruptIndexStart_BoundaryAroundSegmentLength pins
-// weaviate/weaviate#12280 F1 (QA Claude round 2): ValidateIndexBounds uses
-// '>' against the segment's actual length, so IndexStart == length passes
-// it, leaving an empty primary index that ValidateRootInBounds's
-// len(t.data)==0 short-circuit treats as a legitimate empty segment -
-// silent data loss one boundary past the already-fixed shape 4. Sweeps all
-// three neighbors of the boundary on a real flushed sec=0 segment.
+// weaviate/weaviate#12280: IndexStart == segment length passes
+// ValidateIndexBounds ('>' not '>='), leaving an empty primary index that
+// ValidateRootInBounds treats as a legitimate empty segment. Sweeps the
+// three neighbors of that boundary.
 func TestSegment_CorruptIndexStart_BoundaryAroundSegmentLength(t *testing.T) {
 	tests := []struct {
 		name          string
 		offset        int64 // relative to the segment's actual length
 		wantErrSubstr string
 	}{
-		// A 1-byte "index" is too short to hold even one node's fixed
-		// overhead, so this is caught by DiskTree's own node-read bounds
-		// check (via ValidateRootInBounds), not ValidateIndexBounds/
-		// ValidateNonEmptyIndex - a different choke point, already correct
-		// before this round's F1 fix.
+		// A 1-byte "index" is too short for even one node's fixed overhead,
+		// so this is caught by DiskTree's own node-read bounds check, not
+		// ValidateIndexBounds/ValidateNonEmptyIndex.
 		{name: "one byte before segment end: rejected (truncated index)", offset: -1, wantErrSubstr: "validate primary index"},
 		{name: "exactly at segment end: rejected (empty index, data present)", offset: 0, wantErrSubstr: "corrupt segment header"},
 		{name: "one byte past segment end: rejected (past segment end)", offset: 1, wantErrSubstr: "corrupt segment header"},
@@ -243,14 +239,10 @@ func TestSegment_CorruptIndexStart_BoundaryAroundSegmentLength(t *testing.T) {
 	}
 }
 
-// TestSegment_CorruptIndexStart_Inverted_RealData_FailsLoud pins the QA
-// Claude round-2 finding on weaviate/weaviate#12280: the StrategyInverted
-// exclusion from ValidateNonEmptyIndex must not be a blanket exclusion for
-// the whole strategy. A normal (non-tombstone) Inverted flush's primary
-// index IS load-bearing for real term lookups, so the same F1 corruption
-// (IndexStart == the segment's actual length, emptying the primary index)
-// must still fail loudly here, not open silently and serve MapList as if
-// the term had no results. QA's exact repro: real MapSet data, no deletes.
+// TestSegment_CorruptIndexStart_Inverted_RealData_FailsLoud pins
+// weaviate/weaviate#12280: a non-tombstone Inverted flush's primary index
+// is load-bearing, so IndexStart == segment length emptying it must still
+// fail loudly, not silently serve MapList as an empty result.
 func TestSegment_CorruptIndexStart_Inverted_RealData_FailsLoud(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -295,13 +287,11 @@ func TestSegment_CorruptIndexStart_Inverted_RealData_FailsLoud(t *testing.T) {
 		"the loud failure must come from the propLengthCount discriminant, not an unrelated error")
 }
 
-// TestSegment_Inverted_AllTombstoneFlush_EmptyIndex_StillOpensCleanly is the
-// no-false-rejection counterpart to
+// TestSegment_Inverted_AllTombstoneFlush_EmptyIndex_StillOpensCleanly is
+// the no-false-rejection counterpart to
 // TestSegment_CorruptIndexStart_Inverted_RealData_FailsLoud: a genuinely
-// all-tombstone Inverted flush (a real key, later deleted, flushed to its
-// own segment) legitimately has IndexStart > HeaderSize with a zero-entry
-// primary index - that must still open cleanly, uncorrupted, per the
-// propLengthCount discriminant's other branch.
+// all-tombstone flush legitimately has an empty primary index and must
+// still open cleanly.
 func TestSegment_Inverted_AllTombstoneFlush_EmptyIndex_StillOpensCleanly(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
