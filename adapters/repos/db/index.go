@@ -1803,6 +1803,9 @@ func (i *Index) multiObjectByID(ctx context.Context,
 					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
 				}
 			}()
+			if err != nil {
+				return nil, err
+			}
 		} else {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if err != nil {
