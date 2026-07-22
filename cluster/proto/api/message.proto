@@ -102,6 +102,8 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_CLEAN_UP = 303;
     TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED = 304;
     TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS = 305;
+
+    TYPE_CLUSTER_ID_SET = 400;
   }
   Type type = 1;
   string class = 2;
@@ -277,4 +279,10 @@ message UpdateDistributedTaskUnitProgressRequest {
   string unit_id = 5;
   float progress = 6;
   int64 updated_at_unix_millis = 7;
+}
+
+// SetClusterIDRequest carries the stable cluster identity committed once per
+// cluster lifetime via TYPE_CLUSTER_ID_SET.
+message SetClusterIDRequest {
+  string cluster_id = 1;
 }
