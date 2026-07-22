@@ -1208,7 +1208,7 @@ func (i *Index) getShardForDirectLocalOperation(
 
 	if schemaVersion > 0 {
 		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return nil, release, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+			return nil, release, fmt.Errorf("shard %q: wait for schema version %d: %w", shardName, schemaVersion, err)
 		}
 	}
 
@@ -1220,7 +1220,7 @@ func (i *Index) getShardForDirectLocalOperation(
 	case localShardOperationRead:
 		return i.getShardForRead(ctx, className, tenantName, shardName, shard, release)
 	default:
-		return nil, release, fmt.Errorf("invalid local shard operation: %s", operation)
+		return nil, release, fmt.Errorf("shard %q: invalid local shard operation: %s", shardName, operation)
 	}
 }
 
@@ -1300,8 +1300,11 @@ func (i *Index) getShardForRead(
 }
 
 // withShard runs fn against shardName and releases the shard reference once fn
-// returns, on every path. fn receives a nil shard when this node does not serve
-// shardName, meaning the operation has to be forwarded to a replica instead.
+// returns, on every path. fn receives a nil shard when this node is not a replica
+// for shardName, when the replica lookup failed, or when the local shard is not
+// initialized; fn must forward the operation in all three cases. The forward can
+// resolve back to this node, which is what initializes a not-yet-loaded shard, so
+// it must not be skipped based on replica membership.
 func (i *Index) withShard(ctx context.Context, tenantName, shardName string,
 	operation localShardOperation, schemaVersion uint64, fn func(shard ShardLike) error,
 ) error {
@@ -2063,9 +2066,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		return nil
 	}
 	localSeach := func(shardName string) error {
-		// Use getShardForDirectLocalOperation to get or initialize the shard for reads.
-		// This ensures shards are initialized when needed (e.g., after tenant reactivation).
-		// If shard doesn't exist locally or shouldn't be used, fall back to remote search.
+		// Falls back to a remote search when there is no usable local shard; that
+		// forward is also what initializes the shard after tenant reactivation.
 		return i.withShard(ctx, tenant, shardName, localShardOperationRead, 0, func(shard ShardLike) error {
 			if shard == nil {
 				// This will make the code hit other remote replicas, and usually resolve any kind of eventual consistency issues just thanks to delaying
@@ -2835,7 +2837,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	defer i.closeLock.RUnlock()
 
 	if i.closed {
-		return nil, func() {}, errAlreadyShutdown
+		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, errAlreadyShutdown)
 	}
 
 	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
@@ -2854,7 +2856,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		className := i.Config.ClassName.String()
 		class := i.getSchema.ReadOnlyClass(className)
 		if class == nil {
-			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
+			return nil, func() {}, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, className)
 		}
 
 		i.shardCreateLocks.Lock(shardName)
