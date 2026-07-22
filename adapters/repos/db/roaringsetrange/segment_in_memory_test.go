@@ -611,6 +611,13 @@ func (p *bitmapBufPoolWithCounter) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.B
 	return cloned, put
 }
 
+func (p *bitmapBufPoolWithCounter) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
+	buf, put := p.Get(len(src))
+	buf = buf[:len(src)]
+	copy(buf, src)
+	return sroar.FromBufferUnlimited(buf), put
+}
+
 func (p *bitmapBufPoolWithCounter) InUseCounter() int {
 	return p.inUseCounter
 }
