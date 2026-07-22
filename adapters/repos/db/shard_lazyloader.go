@@ -704,9 +704,10 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// preventShutdown returns a release function that is never nil, including on error.
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 	if err := l.Load(context.Background()); err != nil {
-		return nil, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
+		return func() {}, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
 	}
 	return l.shard.preventShutdown()
 }
