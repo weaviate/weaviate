@@ -28,7 +28,7 @@ import (
 const SchemaObjectsIndexUpsertOKCode int = 200
 
 /*
-SchemaObjectsIndexUpsertOK Desired configuration already in place; no task submitted. Body carries `{"status":"NO_OP"}`.
+SchemaObjectsIndexUpsertOK Desired configuration already in place AND no reindex task in flight; no task submitted. Body carries `{"status":"NO_OP"}`.
 
 swagger:response schemaObjectsIndexUpsertOK
 */
@@ -73,7 +73,7 @@ func (o *SchemaObjectsIndexUpsertOK) WriteResponse(rw http.ResponseWriter, produ
 const SchemaObjectsIndexUpsertAcceptedCode int = 202
 
 /*
-SchemaObjectsIndexUpsertAccepted Reindex task submitted.
+SchemaObjectsIndexUpsertAccepted Reindex task submitted (`status: STARTED`), or the request converged on a reindex task already in flight, in which case no new task is submitted and the body carries that task's `taskId` with `{"status":"IN_PROGRESS"}`.
 
 swagger:response schemaObjectsIndexUpsertAccepted
 */

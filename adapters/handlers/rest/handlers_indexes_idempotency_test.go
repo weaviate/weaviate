@@ -23,8 +23,8 @@ import (
 )
 
 // TestResolveFilterableUpsert_Idempotency pins declarative idempotency for the
-// filterable resolver: a repeat PUT while a converging task is in flight
-// NO-OPs (200) instead of resubmitting into a downstream 409, and a divergent
+// filterable resolver: a repeat PUT while a converging task is in flight joins
+// that task instead of resubmitting into a downstream 409, and a divergent
 // requested change 409s.
 func TestResolveFilterableUpsert_Idempotency(t *testing.T) {
 	on, off := boolPtr(true), boolPtr(false)
@@ -34,36 +34,41 @@ func TestResolveFilterableUpsert_Idempotency(t *testing.T) {
 		body         *models.IndexUpsertRequest
 		tasks        []*distributedtask.Task
 		wantNoop     bool
+		wantJoin     string
 		wantConflict bool
 		wantMT       db.ReindexMigrationType
 	}{
 		{
-			name:     "empty-body repeat while enable-filterable in flight -> NO_OP",
+			name:     "empty-body repeat while enable-filterable in flight -> joins T1",
 			prop:     textProp("t", "word", on, off),
 			body:     &models.IndexUpsertRequest{},
 			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeEnableFilterable, "", distributedtask.TaskStatusStarted, "t")},
 			wantNoop: true,
+			wantJoin: "T1",
 		},
 		{
-			name:     "matching-tok repeat while enable-filterable in flight -> NO_OP",
+			name:     "matching-tok repeat while enable-filterable in flight -> joins T1",
 			prop:     textProp("t", "word", on, off),
 			body:     &models.IndexUpsertRequest{Tokenization: "word"},
 			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeEnableFilterable, "", distributedtask.TaskStatusStarted, "t")},
 			wantNoop: true,
+			wantJoin: "T1",
 		},
 		{
-			name:     "same-target retokenize while change-tokenization-filterable in flight -> NO_OP",
+			name:     "same-target retokenize while change-tokenization-filterable in flight -> joins T1",
 			prop:     textProp("t", "word", on, on),
 			body:     &models.IndexUpsertRequest{Tokenization: "field"},
 			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeTokenizationFilterable, "field", distributedtask.TaskStatusStarted, "t")},
 			wantNoop: true,
+			wantJoin: "T1",
 		},
 		{
-			name:     "same-target retokenize while coupled change-tokenization in flight -> NO_OP",
+			name:     "same-target retokenize while coupled change-tokenization in flight -> joins T1",
 			prop:     textProp("t", "word", on, on),
 			body:     &models.IndexUpsertRequest{Tokenization: "field"},
 			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeTokenization, "field", distributedtask.TaskStatusStarted, "t")},
 			wantNoop: true,
+			wantJoin: "T1",
 		},
 		{
 			name:         "different-target retokenize while retokenize in flight -> 409",
@@ -100,6 +105,7 @@ func TestResolveFilterableUpsert_Idempotency(t *testing.T) {
 			plan, err := resolveUpsertPlan(class, "C", tc.prop, "filterable", tc.body, tc.tasks)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")
+			assert.Equal(t, tc.wantJoin, plan.joinTaskID, "joinTaskID")
 			assert.Equal(t, tc.wantConflict, plan.conflict != "", "conflict (got %q)", plan.conflict)
 			assert.Equal(t, tc.wantMT, plan.migrationType, "migrationType")
 		})
@@ -107,8 +113,8 @@ func TestResolveFilterableUpsert_Idempotency(t *testing.T) {
 }
 
 // TestResolveRangeableUpsert_Idempotency pins that a repeat PUT .../rangeFilters
-// while an enable-rangeable is in flight NO-OPs (200) instead of a downstream
-// 409. rangeFilters takes no config, so there is no divergent case.
+// while an enable-rangeable is in flight joins that task instead of hitting a
+// downstream 409. rangeFilters takes no config, so there is no divergent case.
 func TestResolveRangeableUpsert_Idempotency(t *testing.T) {
 	numProp := func(rf *bool) *models.Property {
 		return &models.Property{Name: "n", DataType: []string{"int"}, IndexRangeFilters: rf}
@@ -119,19 +125,22 @@ func TestResolveRangeableUpsert_Idempotency(t *testing.T) {
 		prop     *models.Property
 		tasks    []*distributedtask.Task
 		wantNoop bool
+		wantJoin string
 		wantMT   db.ReindexMigrationType
 	}{
 		{
-			name:     "repeat while enable-rangeable in flight -> NO_OP",
+			name:     "repeat while enable-rangeable in flight -> joins T1",
 			prop:     numProp(off),
 			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeEnableRangeable, "", distributedtask.TaskStatusStarted, "n")},
 			wantNoop: true,
+			wantJoin: "T1",
 		},
 		{
-			name:     "repeat while repair-rangeable in flight -> NO_OP",
+			name:     "repeat while repair-rangeable in flight -> joins T1",
 			prop:     numProp(off),
 			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeRepairRangeable, "", distributedtask.TaskStatusStarted, "n")},
 			wantNoop: true,
+			wantJoin: "T1",
 		},
 		{
 			name:   "no active task on this property -> proceeds to enable-rangeable",
@@ -146,6 +155,7 @@ func TestResolveRangeableUpsert_Idempotency(t *testing.T) {
 			plan, err := resolveUpsertPlan(class, "C", tc.prop, "rangeable", &models.IndexUpsertRequest{}, tc.tasks)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")
+			assert.Equal(t, tc.wantJoin, plan.joinTaskID, "joinTaskID")
 			assert.Equal(t, tc.wantMT, plan.migrationType, "migrationType")
 		})
 	}

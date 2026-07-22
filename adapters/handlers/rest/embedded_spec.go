@@ -5891,13 +5891,13 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Desired configuration already in place; no task submitted. Body carries ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + `.",
+            "description": "Desired configuration already in place AND no reindex task in flight; no task submitted. Body carries ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + `.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
           },
           "202": {
-            "description": "Reindex task submitted.",
+            "description": "Reindex task submitted (` + "`" + `status: STARTED` + "`" + `), or the request converged on a reindex task already in flight, in which case no new task is submitted and the body carries that task's ` + "`" + `taskId` + "`" + ` with ` + "`" + `{\"status\":\"IN_PROGRESS\"}` + "`" + `.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
@@ -17615,13 +17615,13 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Desired configuration already in place; no task submitted. Body carries ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + `.",
+            "description": "Desired configuration already in place AND no reindex task in flight; no task submitted. Body carries ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + `.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }
           },
           "202": {
-            "description": "Reindex task submitted.",
+            "description": "Reindex task submitted (` + "`" + `status: STARTED` + "`" + `), or the request converged on a reindex task already in flight, in which case no new task is submitted and the body carries that task's ` + "`" + `taskId` + "`" + ` with ` + "`" + `{\"status\":\"IN_PROGRESS\"}` + "`" + `.",
             "schema": {
               "$ref": "#/definitions/IndexUpdateResponse"
             }

@@ -98,22 +98,25 @@ func TestResolveSearchableUpsert_Option2(t *testing.T) {
 		algorithm    string
 		tasks        []*distributedtask.Task
 		wantNoop     bool
+		wantJoin     string
 		wantConflict bool
 		wantMT       db.ReindexMigrationType
 	}{
 		{
-			name:      "repeat blockmax while change-algorithm in flight → NO_OP",
+			name:      "repeat blockmax while change-algorithm in flight → joins T1",
 			prop:      textProp("t", "word", on, off),
 			algorithm: "blockmax",
 			tasks:     []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeAlgorithm, "", distributedtask.TaskStatusStarted, "t")},
 			wantNoop:  true,
+			wantJoin:  "T1",
 		},
 		{
-			name:     "repeat tokenization while change-tokenization in flight (same target) → NO_OP",
+			name:     "repeat tokenization while change-tokenization in flight (same target) → joins T1",
 			prop:     textProp("t", "word", on, on),
 			tok:      "field",
 			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeChangeTokenization, "field", distributedtask.TaskStatusStarted, "t")},
 			wantNoop: true,
+			wantJoin: "T1",
 		},
 		{
 			name:         "assert current tokenization while migration moves away → 409",
@@ -137,11 +140,12 @@ func TestResolveSearchableUpsert_Option2(t *testing.T) {
 			wantConflict: true,
 		},
 		{
-			name:     "repeat enable-searchable tokenization while creating (same tok) → NO_OP",
+			name:     "repeat enable-searchable tokenization while creating (same tok) → joins T1",
 			prop:     textProp("t", "word", off, off),
 			tok:      "word",
 			tasks:    []*distributedtask.Task{activeReindexTask("T1", "C", db.ReindexTypeEnableSearchable, "word", distributedtask.TaskStatusStarted, "t")},
 			wantNoop: true,
+			wantJoin: "T1",
 		},
 		{
 			name:      "no active task on this property → proceeds to change-algorithm",
@@ -157,6 +161,7 @@ func TestResolveSearchableUpsert_Option2(t *testing.T) {
 			plan, err := resolveSearchableUpsert(class, "C", tc.prop, tc.tok, tc.algorithm, tc.tasks)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop, "noop")
+			assert.Equal(t, tc.wantJoin, plan.joinTaskID, "joinTaskID")
 			assert.Equal(t, tc.wantConflict, plan.conflict != "", "conflict (got %q)", plan.conflict)
 			assert.Equal(t, tc.wantMT, plan.migrationType, "migrationType")
 		})

@@ -30,9 +30,9 @@ import (
 )
 
 // upsertPlan is the outcome of diffing an upsert/rebuild request against
-// current state: noop (respond 200 NO_OP), a conflict (respond 409), or a
-// migrationType to submit. Validation failures are returned as errors (400),
-// not encoded here.
+// current state: noop (respond 200 NO_OP, or 202 naming joinTaskID), a
+// conflict (respond 409), or a migrationType to submit. Validation failures
+// are returned as errors (400), not encoded here.
 type upsertPlan struct {
 	noop           bool
 	conflict       string
@@ -43,6 +43,10 @@ type upsertPlan struct {
 	// in-flight task has an undecodable payload (see resolveUpsertPlan): the
 	// handler must respond 503, not a false 200.
 	failClosed bool
+	// joinTaskID names the in-flight task this request converges on. The
+	// desired configuration is NOT yet in place, so the response must point
+	// at that task rather than claim NO_OP.
+	joinTaskID string
 }
 
 // upsertIndex implements PUT .../index/{indexType}: diffs the body against
@@ -108,6 +112,14 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 		if resp := h.validateTenantScope(ctx, principal, collection, isMT, indexType != "rangeable", params.Tenants); resp != nil {
 			return resp
+		}
+		if plan.joinTaskID != "" {
+			// Convergent on an in-flight task: no new task is submitted, but
+			// the configuration is not in place yet, so NO_OP would be a lie.
+			return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
+				TaskID: namespacing.StripOwnNamespace(principal, plan.joinTaskID),
+				Status: reindexInProgressStatus,
+			})
 		}
 		return jsonResponder(http.StatusOK, &models.IndexUpdateResponse{Status: reindexNoOpStatus})
 	}
@@ -263,6 +275,10 @@ func findProperty(class *models.Class, propertyName string) *models.Property {
 // PUT finds the desired configuration already in place (declarative upsert).
 const reindexNoOpStatus = "NO_OP"
 
+// reindexInProgressStatus is returned when a PUT converges on a task that is
+// still in flight: nothing new was submitted, but nothing is in place yet.
+const reindexInProgressStatus = "IN_PROGRESS"
+
 // resolveUpsertPlan diffs the request against current state, returning a
 // migration to submit, a NO_OP, a 409 conflict, or a 400 validation error.
 // reindexTasks supplies blockmax truth and the active-task idempotency check.
@@ -287,9 +303,9 @@ func resolveUpsertPlan(class *models.Class, collection string, prop *models.Prop
 		return plan, err
 	}
 
-	// A NO_OP returns 200 before the submit path's conflict check runs, so an
+	// A noop plan answers before the submit path's conflict check runs, so an
 	// undecodable in-flight task must fail closed (503) here rather than slip
-	// through as a false 200.
+	// through as a false success.
 	if plan.noop && hasUnverifiableInFlightTask(reindexTasks) {
 		return upsertPlan{failClosed: true}, nil
 	}
@@ -365,7 +381,7 @@ func resolveSearchableUpsert(class *models.Class, collection string, prop *model
 	if algorithm != "" || tok != "" {
 		if task, matches := activeSearchableTaskFor(collection, prop.Name, tok, algorithm, reindexTasks); task != nil {
 			if matches {
-				return upsertPlan{noop: true}, nil
+				return upsertPlan{noop: true, joinTaskID: task.ID}, nil
 			}
 			return upsertPlan{conflict: fmt.Sprintf(
 				"reindex task %q is already migrating searchable property %q to a different target; "+
@@ -463,7 +479,7 @@ func resolveFilterableUpsert(collection string, prop *models.Property, tok, algo
 	// read to avoid a spurious mid-migration conflict.
 	if task, matches := activeFilterableTaskFor(collection, prop.Name, tok, prop.Tokenization, reindexTasks); task != nil {
 		if matches {
-			return upsertPlan{noop: true}, nil
+			return upsertPlan{noop: true, joinTaskID: task.ID}, nil
 		}
 		if tok != "" {
 			return upsertPlan{conflict: fmt.Sprintf(
@@ -523,10 +539,10 @@ func resolveRangeableUpsert(class *models.Class, collection string, prop *models
 		return upsertPlan{noop: true}, nil
 	}
 	// An in-flight enable-rangeable converging this index makes a repeat PUT
-	// declaratively idempotent (200 NO_OP) rather than a spurious 409 from the
-	// downstream conflict check.
-	if activeRangeableTaskFor(collection, prop.Name, reindexTasks) != nil {
-		return upsertPlan{noop: true}, nil
+	// declaratively idempotent (it joins that task) rather than a spurious 409
+	// from the downstream conflict check.
+	if task := activeRangeableTaskFor(collection, prop.Name, reindexTasks); task != nil {
+		return upsertPlan{noop: true, joinTaskID: task.ID}, nil
 	}
 	if err := validateRangeableProperties(class, []string{prop.Name}); err != nil {
 		return upsertPlan{}, err

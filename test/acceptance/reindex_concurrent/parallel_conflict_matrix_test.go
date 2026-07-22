@@ -867,11 +867,12 @@ func testParallel_EnableFilterableTwiceIdempotency(t *testing.T, restURI string)
 	assertNoFiveXX(t, rB)
 	assertAtLeastOneAccepted(t, "enable-filterable-twice", rA, rB)
 
-	// If both are accepted, conflict checker missed the overlap (BUG).
-	if rA.accepted && rB.accepted {
-		t.Errorf("[en-filt-twice] BOTH PUTs accepted (202) — conflict checker missed identical-op overlap. "+
-			"taskIDs: A=%s B=%s. This races two writers against the same filterable bucket",
-			rA.taskID, rB.taskID)
+	// Two accepted requests naming different tasks means the conflict checker
+	// missed the overlap. Same task ID is a convergent join, not a race.
+	if rA.accepted && rB.accepted && rA.taskID != rB.taskID {
+		t.Errorf("[en-filt-twice] BOTH PUTs accepted with distinct tasks — conflict checker "+
+			"missed identical-op overlap. taskIDs: A=%s B=%s. This races two writers "+
+			"against the same filterable bucket", rA.taskID, rB.taskID)
 	}
 
 	awaitTerminalP(t, restURI, rA)

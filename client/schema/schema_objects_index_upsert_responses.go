@@ -113,7 +113,7 @@ func NewSchemaObjectsIndexUpsertOK() *SchemaObjectsIndexUpsertOK {
 /*
 SchemaObjectsIndexUpsertOK describes a response with status code 200, with default header values.
 
-Desired configuration already in place; no task submitted. Body carries `{"status":"NO_OP"}`.
+Desired configuration already in place AND no reindex task in flight; no task submitted. Body carries `{"status":"NO_OP"}`.
 */
 type SchemaObjectsIndexUpsertOK struct {
 	Payload *models.IndexUpdateResponse
@@ -181,7 +181,7 @@ func NewSchemaObjectsIndexUpsertAccepted() *SchemaObjectsIndexUpsertAccepted {
 /*
 SchemaObjectsIndexUpsertAccepted describes a response with status code 202, with default header values.
 
-Reindex task submitted.
+Reindex task submitted (`status: STARTED`), or the request converged on a reindex task already in flight, in which case no new task is submitted and the body carries that task's `taskId` with `{"status":"IN_PROGRESS"}`.
 */
 type SchemaObjectsIndexUpsertAccepted struct {
 	Payload *models.IndexUpdateResponse

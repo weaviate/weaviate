@@ -78,8 +78,11 @@ body against current state and picks the migration:
 | `.../index/filterable` `{"tokenization":"word"}`, index exists | Filterable-only retokenize (leaves the searchable bucket untouched). | `change-tokenization-filterable` |
 | `.../index/rangeFilters` `{}`, no range index yet | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). | `enable-rangeable` |
 
-A PUT whose desired config already matches current state submits no task
-and returns `200` with `{"status":"NO_OP"}`.
+A PUT whose desired config already matches current state AND has no reindex
+task in flight submits no task and returns `200` with `{"status":"NO_OP"}`.
+A PUT that converges on a task still in flight also submits no task, but the
+config is not in place yet, so it returns `202` with that task's `taskId` and
+`{"status":"IN_PROGRESS"}` — poll it like any other task.
 
 ### `POST /v1/schema/{className}/properties/{propertyName}/index/{indexType}/rebuild`
 
@@ -121,10 +124,12 @@ untargeted tenants.
 
 Response shapes (PUT / rebuild / cancel):
 
-- `200 OK` — PUT only: desired config already in place, no task submitted
-  (`{"status":"NO_OP"}`).
-- `202 Accepted` — task submitted (PUT / rebuild), or cancel processed;
-  body is an `IndexUpdateResponse` (`taskId` + `status`).
+- `200 OK` — PUT only: desired config already in place AND no task in
+  flight, so no task submitted (`{"status":"NO_OP"}`).
+- `202 Accepted` — task submitted (PUT / rebuild, `status: STARTED`), the
+  PUT converged on a task already in flight (`status: IN_PROGRESS`, `taskId`
+  naming that task), or cancel processed; body is an `IndexUpdateResponse`
+  (`taskId` + `status`).
 - `400 Bad Request` — validation failure with an actionable hint (e.g.
   "property X has no searchable index; PUT
   `/v1/schema/{className}/properties/X/index/searchable` with a
