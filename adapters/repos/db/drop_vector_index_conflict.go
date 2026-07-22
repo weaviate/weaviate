@@ -100,11 +100,11 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 // CheckVectorConfigRemoval implements distributedtask.VectorConfigRemovalGate:
 // a still-stripping drop on the vector blocks removal (epoch protection, even
 // against an older FINISHED voucher); otherwise a completed task must vouch AND
-// its units must have covered every current shard — a task that completed with
-// a shard uncovered (tenant COLD at enqueue) deliberately left the marker, and
-// its FINISHED record must not double as a voucher for removing it. SWAPPING
-// vouches and never blocks: OnTaskCompleted — whose finalize is this very
-// removal — fires at SWAPPING, and the gate cannot recognize "self".
+// its CoveredShards (units ∪ inherited cleaned set) must span every current
+// shard — a task that deferred over an uncovered shard must not double as a
+// removal voucher. SWAPPING vouches and never blocks: OnTaskCompleted — whose
+// finalize is this very removal — fires at SWAPPING, and the gate cannot
+// recognize "self".
 func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
 	for _, vec := range removedVectors {
 		if id, active := p.dropCovers(className, vec, existingTasks, stillStrippingStatus); active {
@@ -156,13 +156,7 @@ func (p *DropVectorIndexProvider) completedDropVoucher(className, vec string, sh
 			continue
 		}
 		coversVec = true
-		covered := make(map[string]struct{}, len(existP.UnitToShard)+len(existP.CleanedShards))
-		for _, shard := range existP.UnitToShard {
-			covered[shard] = struct{}{}
-		}
-		for _, shard := range existP.CleanedShards {
-			covered[shard] = struct{}{}
-		}
+		covered := existP.CoveredShards()
 		var missing []string
 		for _, shard := range shards {
 			if _, ok := covered[shard]; !ok {

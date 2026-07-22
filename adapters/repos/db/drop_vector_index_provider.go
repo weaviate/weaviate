@@ -559,13 +559,7 @@ func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPa
 	if state == nil {
 		return nil, fmt.Errorf("no sharding state for collection %q", payload.Collection)
 	}
-	covered := make(map[string]struct{}, len(payload.UnitToShard)+len(payload.CleanedShards))
-	for _, shardName := range payload.UnitToShard {
-		covered[shardName] = struct{}{}
-	}
-	for _, shardName := range payload.CleanedShards {
-		covered[shardName] = struct{}{}
-	}
+	covered := payload.CoveredShards()
 	var uncovered []string
 	for shardName := range state.Physical {
 		if _, ok := covered[shardName]; !ok {

@@ -26,13 +26,9 @@ import (
 )
 
 // testPartiallyColdTenants pins the cleaned-shard coverage chain: a drop
-// completes once every tenant has been CLEANED, even if one of them is cold
-// again at the end. 4 tenants, 2 deactivated before the drop; one cold tenant
-// is activated (cleaned by the re-enqueued task) and deactivated again; the
-// last cold tenant is activated and cleaned. At that point all 4 tenants hold
-// no dropped-vector data — step 6 asserts the drop finalizes even though one
-// cleaned tenant is cold. Step 7 is a diagnostic that self-skips once step 6
-// holds. Requires the suite compose's tightened reconcile interval.
+// completes once every tenant has been CLEANED, even when one of them is cold
+// again at the end (steps in the t.Run names). Requires the suite compose's
+// tightened reconcile interval.
 func testPartiallyColdTenants() func(t *testing.T) {
 	return func(t *testing.T) {
 		const (
