@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,28 @@ func refCountTestIndex(t *testing.T, className string) (*Index, *Shard) {
 	return idx, underlyingShard(t, shard)
 }
 
+// releaseMisuseHook captures what the index logs, so a test can assert on the
+// release misuse reported by preventShutdown.
+func releaseMisuseHook(t *testing.T, idx *Index) *logrustest.Hook {
+	t.Helper()
+
+	logger, ok := idx.logger.(*logrus.Logger)
+	require.True(t, ok, "the test index must carry a concrete logger to hook")
+	return logrustest.NewLocal(logger)
+}
+
+// releaseMisuse returns the release misuse captured so far. The logger is shared
+// with the index's background work, so unrelated entries are ignored.
+func releaseMisuse(hook *logrustest.Hook) []*logrus.Entry {
+	var out []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, msgReleasedMoreThanOnce) {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
 // forwardToRemote points the router at a peer node so the local shard lookup
 // yields a nil shard and the operation is forwarded instead.
 func forwardToRemote(t *testing.T, idx *Index, className, shardName string) {
@@ -87,8 +110,9 @@ func batchDeleteErr(objs objects.BatchSimpleObjects, err error) error {
 
 // TestShardRefCountArity asserts that every data-path operation releases the
 // shard exactly as often as it acquired it, on both the local and the
-// forwarded-to-peer branch. A negative counter disables the in-use guard in
-// performShutdown, a positive one permanently blocks unloading.
+// forwarded-to-peer branch. A positive counter permanently blocks unloading. An
+// extra release is absorbed by preventShutdown and so leaves the counter at
+// zero; only the misuse it reports shows that a call site released twice.
 func TestShardRefCountArity(t *testing.T) {
 	className := "RefCountArity"
 
@@ -160,6 +184,7 @@ func TestShardRefCountArity(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			idx, shard := refCountTestIndex(t, className)
+			hook := releaseMisuseHook(t, idx)
 			if test.remote {
 				forwardToRemote(t, idx, className, shard.name)
 			}
@@ -173,6 +198,8 @@ func TestShardRefCountArity(t *testing.T) {
 				}
 				require.Equalf(t, int64(0), shard.inUseCounter.Load(),
 					"after %d operation(s) every acquire must have exactly one release", i+1)
+				require.Emptyf(t, releaseMisuse(hook),
+					"after %d operation(s) no call site may release twice", i+1)
 			}
 		})
 	}
@@ -280,23 +307,22 @@ func TestShardShutdownRefusedWhileInUse(t *testing.T) {
 // is reported rather than silently absorbed.
 func TestPreventShutdownReleaseIsIdempotent(t *testing.T) {
 	idx, shard := refCountTestIndex(t, "RefCountIdempotent")
-	hook := logrustest.NewLocal(idx.logger.(*logrus.Logger))
+	hook := releaseMisuseHook(t, idx)
 
 	release, err := shard.preventShutdown()
 	require.NoError(t, err)
 	require.Equal(t, int64(1), shard.inUseCounter.Load())
 
 	release()
-	require.Empty(t, hook.AllEntries(), "one release per acquire is not a misuse")
+	require.Empty(t, releaseMisuse(hook), "one release per acquire is not a misuse")
 
 	release()
 	release()
 
 	require.Equal(t, int64(0), shard.inUseCounter.Load())
-	entries := hook.AllEntries()
+	entries := releaseMisuse(hook)
 	require.Len(t, entries, 2, "each extra release must be reported")
 	for _, entry := range entries {
 		require.Equal(t, logrus.ErrorLevel, entry.Level)
-		require.Contains(t, entry.Message, "released more than once")
 	}
 }

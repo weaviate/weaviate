@@ -184,6 +184,8 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	return ec.ToError()
 }
 
+const msgReleasedMoreThanOnce = "shard reference released more than once per acquire"
+
 func (s *Shard) preventShutdown() (release func(), err error) {
 	if s.shutdownRequested.Load() {
 		return func() {}, errShutdownInProgress
@@ -204,7 +206,7 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 			s.index.logger.
 				WithField("action", "shard_ref_count").
 				WithField("shard", s.name).
-				Errorf("shard reference released more than once per acquire")
+				Error(msgReleasedMoreThanOnce)
 			return
 		}
 		s.refCountSub()
