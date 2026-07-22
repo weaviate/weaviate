@@ -466,9 +466,9 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		}
 
 		// Gate at apply time so the verdict is RAFT-deterministic. The FSM's own
-		// sharding state is the coverage baseline: a shard with no unit in the
-		// vouching task (e.g. a tenant that was COLD at enqueue) has not been
-		// cleaned, and removing the marker would strand its data.
+		// sharding state is the coverage baseline: a shard neither in the vouching
+		// task's units nor its inherited cleaned-shard set has not been cleaned,
+		// and removing the marker would strand its data.
 		if s.mutationGuard != nil {
 			if removed := removedDroppedVectorConfigs(&meta.Class, u); len(removed) > 0 {
 				shards := make([]string, 0, len(meta.Sharding.Physical))
