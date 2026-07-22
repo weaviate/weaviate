@@ -1473,7 +1473,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}
 
-	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
 	s.schemaManager.SetReplicationFSM(ms.replicationFSM)
 	ms.store = &s
 	return ms

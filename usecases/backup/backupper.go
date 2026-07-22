@@ -19,7 +19,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -30,14 +29,14 @@ type backupper struct {
 	logger         logrus.FieldLogger
 	cfg            config.Backup
 	sourcer        Sourcer
-	rbacSourcer    fsm.Snapshotter
+	rbacSourcer    rbacSnapshotter
 	dynUserSourcer dynUserSnapshotter
 	backends       BackupBackendProvider
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
 }
 
-func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer rbacSnapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
 		node:           node,
@@ -114,7 +113,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 
-		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, store, req.ID, b.lastOp.set, b.logger).
+		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, b.lastOp.set, b.logger).
 			withCompression(newZipConfig(req.Compression))
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)

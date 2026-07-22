@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -464,7 +465,11 @@ type snapshot struct {
 	Version        int        `json:"version"`
 }
 
-func (m *Manager) Snapshot() ([]byte, error) {
+// Snapshot serialises the RBAC state for RAFT snapshots and backups. Zero roles
+// captures the whole store; a non-empty set filters to those roles' casbin `p` rows (by p[0])
+// and `g` rows (by g[1], which carries the assignments plus the db:wv_internal_empty
+// placeholder).
+func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	// snapshot isn't always initialized, e.g. when RBAC is disabled
 	if m == nil {
 		return []byte{}, nil
@@ -476,13 +481,36 @@ func (m *Manager) Snapshot() ([]byte, error) {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	policy, err := m.casbin.GetPolicy()
-	if err != nil {
-		return nil, err
-	}
-	groupingPolicy, err := m.casbin.GetGroupingPolicy()
-	if err != nil {
-		return nil, err
+	var policy, groupingPolicy [][]string
+	if len(roles) == 0 {
+		var err error
+		policy, err = m.casbin.GetPolicy()
+		if err != nil {
+			return nil, err
+		}
+		groupingPolicy, err = m.casbin.GetGroupingPolicy()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		for _, name := range roles {
+			prefixed := conv.PrefixRoleName(name)
+			ps, err := m.casbin.GetFilteredNamedPolicy("p", 0, prefixed)
+			if err != nil {
+				return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
+			}
+			gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, prefixed)
+			if err != nil {
+				return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
+			}
+			// A live role always has >=1 row (the db:wv_internal_empty placeholder g-row),
+			// so zero rows means it is absent here: fail loud rather than ship a partial blob.
+			if len(ps) == 0 && len(gs) == 0 {
+				return nil, fmt.Errorf("role %q not found in snapshot source", name)
+			}
+			policy = append(policy, ps...)
+			groupingPolicy = append(groupingPolicy, gs...)
+		}
 	}
 
 	// Use a buffer to stream the JSON encoding
@@ -491,6 +519,16 @@ func (m *Manager) Snapshot() ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// ListAllRoles returns every role name known to the store (custom and built-in),
+// the candidate set includeRoles selectors resolve against.
+func (m *Manager) ListAllRoles() ([]string, error) {
+	roles, err := m.GetRoles()
+	if err != nil {
+		return nil, fmt.Errorf("GetRoles: %w", err)
+	}
+	return slices.Collect(maps.Keys(roles)), nil
 }
 
 func (m *Manager) Restore(b []byte) error {

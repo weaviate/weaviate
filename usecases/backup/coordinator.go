@@ -83,6 +83,13 @@ type UserLister interface {
 	ListAllUsers() []string
 }
 
+// RoleLister resolves includeRoles selectors. ListAllRoles returns every role
+// name (custom and built-in) — the candidate set selectors match against. Nil
+// when RBAC is disabled.
+type RoleLister interface {
+	ListAllRoles() ([]string, error)
+}
+
 // coordinator coordinates a distributed backup and restore operation (DBRO):
 //
 // - It determines what request to send to which shard.
@@ -197,6 +204,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		CompressionType: compressionType,
 		BaseBackupID:    req.BaseBackupID,
 		Users:           req.Users,
+		Roles:           req.Roles,
 	}
 
 	for key := range c.Participants {
@@ -542,6 +550,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				Backend:           req.Backend,
 				Classes:           gr.Classes,
 				Users:             req.Users,
+				Roles:             req.Roles,
 				Duration:          _BookingPeriod,
 				NodeMapping:       c.descriptor.NodeMapping,
 				Compression:       req.Compression,

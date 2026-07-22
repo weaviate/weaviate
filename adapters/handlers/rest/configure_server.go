@@ -170,7 +170,6 @@ func configureAuthorizer(appState *state.State) error {
 		}
 
 		appState.AuthzController = rbacController
-		appState.AuthzSnapshotter = rbacController
 		appState.RBAC = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {

@@ -23,7 +23,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -37,7 +36,7 @@ type restorer struct {
 	node              string // node name
 	logger            logrus.FieldLogger
 	sourcer           Sourcer
-	rbacSourcer       fsm.Snapshotter
+	rbacSourcer       rbacSnapshotter
 	dynUserSourcer    dynUserSnapshotter
 	backends          BackupBackendProvider
 	namespacesEnabled bool
@@ -51,7 +50,7 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter,
+	sourcer Sourcer, rbacSourcer rbacSnapshotter, dynUserSourcer dynUserSnapshotter,
 	backends BackupBackendProvider, namespacesEnabled bool,
 ) *restorer {
 	return &restorer{

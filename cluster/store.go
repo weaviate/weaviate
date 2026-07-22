@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	"github.com/weaviate/weaviate/cluster/namespaces"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
@@ -275,9 +274,6 @@ type Store struct {
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
 	tenantAddLocks *entsync.KeyLocker
 
-	// snapshotter is the snapshotter for the store
-	snapshotter fsm.Snapshotter
-
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
 
@@ -336,7 +332,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 	}
 }
 
-func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
+func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
@@ -393,9 +389,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		}),
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
-		snapshotter:             snapshotter,
 		authZController:         authZController,
-		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
 		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, cfg.Logger),
 		replicationManager:      replicationManager,
@@ -1044,7 +1039,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	recoveryConfig.DB = nil
 	// we don't use actual registry here, because we don't want to register metrics, it's already registered
 	// in actually FSM and this is FSM is temporary for recovery.
-	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry())
+	tempFSM := NewFSM(recoveryConfig, st.authZController, prometheus.NewPedanticRegistry())
 	if err := raft.RecoverCluster(st.raftConfig(),
 		&tempFSM,
 		st.logCache,
