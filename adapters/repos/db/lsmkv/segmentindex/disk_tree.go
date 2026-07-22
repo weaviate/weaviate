@@ -60,12 +60,10 @@ func (t *DiskTree) SetDataEnd(dataEnd uint64) {
 }
 
 // validateNodeRange reports whether a node's [start, end) is well-formed:
-// non-inverted, and within the data region when dataEnd is set. A corrupt
-// node with end < start makes every caller's make([]byte, end-start) wrap
-// to a huge uint64 and panic makeslice: len out of range; background
-// readers (compaction, flush, bloom-rebuild, cursors) have no recover
-// barrier for that panic, so this is caught here, once, at the point a
-// node's range is read out of the tree.
+// non-inverted, and within the data region when dataEnd is set. Uncaught,
+// end < start makes a caller's make([]byte, end-start) wrap to a huge
+// uint64 and panic, with no recover barrier in background readers
+// (compaction, flush, bloom-rebuild, cursors).
 func (t *DiskTree) validateNodeRange(start, end uint64) error {
 	if end < start {
 		return fmt.Errorf("node data range [%d,%d) is inverted", start, end)
@@ -94,14 +92,12 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	// every read is bounds-checked against dataLen-pos (never pos+n, which would
 	// wrap). Truncated or corrupt data yields NotFound or an error, never a panic.
 	//
-	// A legitimate descent visits at most as many nodes as the tree has total
-	// nodes (worst case: a fully degenerate, linked-list-shaped BST). Child
-	// offsets that are individually in-bounds can still form a cycle, which
-	// would otherwise spin this loop forever - and the hung reader holds the
-	// segment-group read view open, so Shutdown and compaction wedge behind
-	// it. maxIterations is a generous, allocation-free upper bound (real
-	// nodes are never smaller than TREE_KEY_STORE_OVERHEAD bytes) that never
-	// cuts off a real walk.
+	// Child offsets that are individually in-bounds can still form a cycle,
+	// spinning this loop forever; a hung reader holds the segment-group read
+	// view open, wedging Shutdown and compaction behind it. maxIterations
+	// bounds the walk at the tree's max possible node count (nodes are never
+	// smaller than TREE_KEY_STORE_OVERHEAD bytes), so it never cuts off a
+	// real walk.
 	maxIterations := dataLen/TREE_KEY_STORE_OVERHEAD + 1
 	for i := uint64(0); ; i++ {
 		if i >= maxIterations {

@@ -127,12 +127,10 @@ func TestHeaderValidateIndexBounds_RejectsSecondaryIndexTablePastContentsLen(t *
 	})
 }
 
-// TestHeaderValidateNonEmptyIndex pins weaviate/weaviate#12280 F1: an
-// IndexStart == contentsLen off-by-one passes ValidateIndexBounds (which
-// uses '>', not '>=') but leaves the primary index empty even though the
-// header claims data is present, silently serving empty reads.
+// TestHeaderValidateNonEmptyIndex pins weaviate/weaviate#12280: IndexStart
+// == contentsLen passes ValidateIndexBounds but leaves an empty index.
 func TestHeaderValidateNonEmptyIndex(t *testing.T) {
-	t.Run("QA Claude's exact repro shape: sec=0, 500-key 38016-byte segment, IndexStart=38016 (==len)", func(t *testing.T) {
+	t.Run("IndexStart exactly equal to a real segment's length: rejected", func(t *testing.T) {
 		h := &Header{IndexStart: 38016}
 		err := h.ValidateNonEmptyIndex(0)
 		require.Error(t, err)
@@ -156,24 +154,17 @@ func TestHeaderValidateNonEmptyIndex(t *testing.T) {
 	})
 
 	t.Run("StrategyRoaringSetRange with data (IndexStart > HeaderSize) and an empty index: accepted", func(t *testing.T) {
-		// flushDataRoaringSetRange never builds a primary DiskTree - a
-		// non-empty roaringsetrange segment legitimately has IndexStart >
-		// HeaderSize (data is present) with a zero-byte "index" region; this
-		// is caught over-broadly by the general rule above without the
-		// strategy exclusion. Pins the TestBucketWalReload/roaringsetrange
-		// regression this exact shape caused during round 3 implementation.
+		// flushDataRoaringSetRange has no primary DiskTree, so a non-empty
+		// segment legitimately has IndexStart > HeaderSize with a zero-byte
+		// index region.
 		h := &Header{IndexStart: 972, Strategy: StrategyRoaringSetRange}
 		require.NoError(t, h.ValidateNonEmptyIndex(0))
 	})
 
 	t.Run("StrategyInverted, all-tombstone flush (IndexStart > HeaderSize) and an empty index: accepted", func(t *testing.T) {
-		// flushDataInverted returns zero index keys whenever every value in
-		// the flush is a tombstone (inverted tombstones live in a separate
-		// bitmap, not per-key index entries), while IndexStart still moves
-		// past HeaderSize for the tombstone bitmap and propLength metadata
-		// that get written regardless. Pins the
-		// TestTombstoneWALReuse/update_with_threshold_0 regression this
-		// exact shape caused during round 3 implementation.
+		// flushDataInverted returns zero index keys when every flushed value
+		// is a tombstone (tombstones live in a separate bitmap, not per-key
+		// index entries), even though IndexStart still moves past HeaderSize.
 		h := &Header{IndexStart: 272, Strategy: StrategyInverted}
 		require.NoError(t, h.ValidateNonEmptyIndex(0))
 	})

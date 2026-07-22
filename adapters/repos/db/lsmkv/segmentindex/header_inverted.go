@@ -133,13 +133,10 @@ func ParseHeaderInverted(r io.Reader) (*HeaderInverted, error) {
 
 // ValidateOffsetsInBounds checks that KeysOffset, TombstoneOffset, and
 // PropertyLengthsOffset all fall within the segment's actual byte length.
-// LoadHeaderInverted can't do this itself since it only ever sees the
-// fixed-size inverted header, not the file; left unchecked, a corrupt
-// offset panics the first time a lazily-loaded reader (loadTombstones,
-// loadPropertyLengthsStats, loadPropertyLengthsLocked) slices
-// contents[offset:offset+n] - none of those callers have a request-level
-// recover barrier when invoked from a background reader (compaction,
-// flush, bloom-rebuild).
+// LoadHeaderInverted only ever sees the fixed-size inverted header, not the
+// file, so a corrupt offset left unchecked panics the first time a
+// lazily-loaded reader slices contents[offset:offset+n] with no recover
+// barrier (background compaction, flush, bloom-rebuild).
 func (h *HeaderInverted) ValidateOffsetsInBounds(contentsLen uint64) error {
 	offsets := []struct {
 		name   string
@@ -163,19 +160,11 @@ func (h *HeaderInverted) ValidateOffsetsInBounds(contentsLen uint64) error {
 
 // ValidateNonEmptyIndex rejects an empty primary index for a
 // StrategyInverted segment that claims to hold data (indexStart >
-// HeaderSize), UNLESS the segment's own propLengthCount - encoded as a
-// uint64 at PropertyLengthsOffset+8, see flushDataInverted - proves every
-// value in the flush was a tombstone. propLengthCount increments once per
-// unique docID that had at least one non-tombstone value, so it is zero
-// if and only if the primary index legitimately has zero entries:
-// inverted tombstones live in a separate bitmap, not per-key index
-// entries, but every non-tombstone value both indexes its term AND
-// updates propLengthCount for its docID, so the two can never diverge.
-// This is a narrower, per-segment discriminant than excluding
-// StrategyInverted outright: a genuinely all-tombstone flush's
-// propLengthCount is exactly 0 and is accepted, but a real (non-tombstone)
-// flush corrupted to an empty index has propLengthCount > 0 and is
-// rejected.
+// HeaderSize), unless propLengthCount (a uint64 at PropertyLengthsOffset+8;
+// see flushDataInverted) proves every flushed value was a tombstone.
+// propLengthCount increments once per docID with a non-tombstone value, so
+// it is zero exactly when the empty index is legitimate rather than
+// corrupt.
 func (h *HeaderInverted) ValidateNonEmptyIndex(contents []byte, primaryIndexLen int, indexStart uint64) error {
 	if primaryIndexLen != 0 || indexStart <= uint64(HeaderSize) {
 		return nil
