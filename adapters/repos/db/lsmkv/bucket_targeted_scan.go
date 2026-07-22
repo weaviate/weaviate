@@ -27,10 +27,8 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// TargetedScanEntry exposes one live replace-strategy entry for targeted reads.
-// Callers inspect Peek to decide which byte range of the value they need, so large
-// values are never read whole unless requested. The entry and every slice it hands
-// out are valid only until the callback returns.
+// TargetedScanEntry is one live entry served by ScanTargetedReplace. The entry
+// and every slice it hands out are valid only until the callback returns.
 type TargetedScanEntry struct {
 	ValueSize uint64
 	// Peek holds the first min(peekSize, ValueSize) bytes of the value.
@@ -75,12 +73,11 @@ func (e *TargetedScanEntry) ReadRange(from, to uint64) ([]byte, error) {
 	return b, nil
 }
 
-// ScanTargetedReplace visits every live entry of the bucket with merged-cursor
-// visibility but no merge: segments are scanned independently in parallel, and a
-// row is served only when no newer segment or memtable holds its key, so
-// superseded versions and deleted keys never surface. The probes are resolved
-// from in-memory bloom filters and indexes before any value bytes are read. fn
-// must be safe for concurrent use; a non-nil error aborts the scan.
+// ScanTargetedReplace visits every live entry with merged-cursor visibility but
+// no merge: segments are scanned independently in parallel, and a row is served
+// only when no newer segment or memtable holds its key — probed from in-memory
+// bloom filters and indexes before any value bytes are read. fn must be safe for
+// concurrent use; a non-nil error aborts the scan.
 func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int,
 	fn func(e *TargetedScanEntry) error, logger logrus.FieldLogger,
 ) error {
@@ -94,9 +91,8 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 	}
 
 	b.flushLock.RLock()
-	// memtable cursors flatten node pointers under the memtable lock at init; a
-	// concurrent same-key update reassigns a node's value slice after that, the same
-	// exposure Bucket.Cursor has
+	// memtable cursors flatten node pointers at init; concurrent same-key updates
+	// reassign value slices afterwards — the same exposure Bucket.Cursor has
 	inMem := []innerCursorReplace{b.active.newCursor()}
 	if b.flushing != nil {
 		inMem = append(inMem, b.flushing.newCursor())
@@ -120,8 +116,8 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 		return nil
 	}
 
-	// the wrapper turns worker panics into an error and a context cancel, so a
-	// failing task can never leave this function blocked with pinned segment refs
+	// worker panics become errors + a context cancel, so a failing task cannot
+	// leave this function blocked holding segment refs
 	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(parallel)
 	for _, task := range tasks {
@@ -183,9 +179,8 @@ func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask
 	return tasks
 }
 
-// scanTargetedMemtable serves one memtable's live rows. collect receives every
-// key the memtable holds (tombstones included, since they hide older versions)
-// and hideSets suppresses rows already superseded by newer memtables.
+// collect receives every key the memtable holds — tombstones included, they hide
+// older versions; hideSets suppresses rows superseded by newer memtables.
 func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize int,
 	hideSets []map[string]struct{}, collect map[string]struct{},
 	fn func(e *TargetedScanEntry) error,
@@ -264,8 +259,6 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 			return fmt.Errorf("targeted scan: node at %d smaller than its header", n.Start)
 		}
 
-		// newest-wins: a key held by any memtable or newer segment hides this row —
-		// resolved from in-memory state before any value bytes are read
 		for _, s := range hideSets {
 			if _, ok := s[string(n.Key)]; ok {
 				return nil
@@ -351,8 +344,8 @@ func checkNodeValueLen(valueLen uint64, n segmentNodeRange) error {
 	return nil
 }
 
-// segmentNodeRange is one node within a segment, in key order. Key comes from the
-// in-memory index, so it is available before any value bytes are read.
+// segmentNodeRange is one node within a segment; Key comes from the in-memory
+// index, available before any value bytes are read.
 type segmentNodeRange struct {
 	Key        []byte
 	Start, End uint64
@@ -384,9 +377,8 @@ func (s *segment) underlyingSegment() *segment {
 	return s
 }
 
-// hasKeyReplace reports whether the replace segment holds an entry (live or
-// tombstoned) for key, touching only the in-memory bloom filter and index — never
-// value bytes.
+// hasKeyReplace: does the segment hold an entry (live or tombstoned) for key,
+// answered from the in-memory bloom filter and index only.
 func (s *segment) hasKeyReplace(key []byte) bool {
 	if s.strategy != segmentindex.StrategyReplace {
 		return false

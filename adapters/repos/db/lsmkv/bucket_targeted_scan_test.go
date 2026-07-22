@@ -120,32 +120,32 @@ func TestScanTargetedReplace(t *testing.T) {
 	}
 }
 
-func TestScanTargetedReplaceEmptyBucket(t *testing.T) {
+func TestScanTargetedReplaceEdgeCases(t *testing.T) {
 	ctx := context.Background()
-	b := newReusableTestBucket(t, ctx)
-	defer b.Shutdown(ctx)
 
-	err := b.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
-		t.Fatal("callback must not run on an empty bucket")
-		return nil
-	}, nullLogger())
-	require.NoError(t, err)
-}
+	t.Run("empty bucket", func(t *testing.T) {
+		b := newReusableTestBucket(t, ctx)
+		defer b.Shutdown(ctx)
+		err := b.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
+			t.Fatal("callback must not run on an empty bucket")
+			return nil
+		}, nullLogger())
+		require.NoError(t, err)
+	})
 
-func TestScanTargetedReplaceContextCancelled(t *testing.T) {
-	ctx := context.Background()
-	b := newReusableTestBucket(t, ctx)
-	defer b.Shutdown(ctx)
+	t.Run("context cancelled", func(t *testing.T) {
+		b := newReusableTestBucket(t, ctx)
+		defer b.Shutdown(ctx)
+		for i := uint64(0); i < 3000; i++ {
+			require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%05d", i)), targetedTestValue(i, 20)))
+		}
+		require.NoError(t, b.FlushAndSwitch())
 
-	for i := uint64(0); i < 3000; i++ {
-		require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%05d", i)), targetedTestValue(i, 20)))
-	}
-	require.NoError(t, b.FlushAndSwitch())
-
-	cancelled, cancel := context.WithCancel(ctx)
-	cancel()
-	err := b.ScanTargetedReplace(cancelled, 16, 4, func(e *TargetedScanEntry) error {
-		return nil
-	}, nullLogger())
-	require.ErrorIs(t, err, context.Canceled)
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		err := b.ScanTargetedReplace(cancelled, 16, 4, func(e *TargetedScanEntry) error {
+			return nil
+		}, nullLogger())
+		require.ErrorIs(t, err, context.Canceled)
+	})
 }

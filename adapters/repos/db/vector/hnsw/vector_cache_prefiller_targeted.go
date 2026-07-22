@@ -29,9 +29,8 @@ const (
 	// prefillTargetedMinSchemaLen gates the two-read path: below it, skipping the
 	// properties schema saves too little to justify a second read.
 	prefillTargetedMinSchemaLen = 8 << 10
-	// prefillTargetedMinAvgEntrySize keeps small-object buckets on the cursor scan:
-	// their rows mostly take the whole-read fallback anyway, so the targeted path
-	// would only add its per-row index-walk overhead.
+	// prefillTargetedMinAvgEntrySize keeps small-object buckets on the cursor
+	// scan, where the targeted path would only add index-walk overhead.
 	prefillTargetedMinAvgEntrySize = 4 << 10
 )
 
@@ -44,11 +43,9 @@ func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
 		bucket.EstimatedEntrySize() >= prefillTargetedMinAvgEntrySize
 }
 
-// scanObjectVectorsTargeted feeds onVector from targeted reads of the objects
-// bucket: a bounded peek per entry plus, for large schemas, only the vector-bearing
-// tail. Superseded and deleted rows are hidden by the scan's in-memory key probes
-// before any read, so the liveness filter only covers HNSW-side exclusions
-// (unindexed docs, or tombstoned nodes whose bucket row is still live).
+// scanObjectVectorsTargeted reads a bounded peek per row plus, for large
+// schemas, only the vector-bearing tail. The scan hides superseded and deleted
+// rows itself; the liveness filter covers HNSW-side exclusions only.
 func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Bucket,
 	targetVector string, onVector prefillOnVector,
 ) error {
@@ -61,8 +58,8 @@ func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector
 	nodesLen := uint64(len(h.nodes))
 	h.RUnlock()
 
-	// tombstoned nodes stay in h.nodes until cleanup, but their objects-bucket rows
-	// are already deleted — the merged cursor would hide them, so this scan must too
+	// tombstoned nodes stay in h.nodes until cleanup while their bucket rows may
+	// still be live — they must not be prefilled
 	h.tombstoneLock.RLock()
 	tombstoned := make(map[uint64]struct{}, len(h.tombstones))
 	for id := range h.tombstones {
@@ -90,17 +87,15 @@ func (h *hnsw) targetedRowCallback(targetVector string, onVector prefillOnVector
 	}
 }
 
-// nodeAlive reports whether id has a live node. Doc ids are never reused, so a
-// superseded or deleted row's id has no live node; ids at or beyond the startup
-// snapshot come from live inserts, which preload their own vectors.
+// nodeAlive: doc ids are never reused, so a superseded or deleted row's id has
+// no live node; ids beyond the snapshot come from inserts that self-preload.
 func (h *hnsw) nodeAlive(id uint64, nodesLen uint64) bool {
 	if id >= nodesLen {
 		return false
 	}
 	h.shardedNodeLocks.RLock(id)
 	defer h.shardedNodeLocks.RUnlock(id)
-	// h.nodes can shrink under LockAll (index reset) after the snapshot; re-check
-	// the bound against the current slice under the shard lock
+	// h.nodes can shrink under LockAll (index reset); re-check under the shard lock
 	nodes := h.nodes
 	if id >= uint64(len(nodes)) {
 		return false
@@ -143,9 +138,8 @@ func (h *hnsw) targetedVectorFromEntry(e *lsmkv.TargetedScanEntry, targetVector 
 	return vec, true
 }
 
-// legacyVectorFromEntry serves the legacy (unnamed) vector, which sits at a fixed
-// offset in the value's front: usually straight from the peek, else via a bounded
-// prefix read — never the whole value.
+// legacyVectorFromEntry: the legacy vector sits at a fixed front offset — served
+// from the peek, or via a bounded prefix read, never the whole value.
 func (h *hnsw) legacyVectorFromEntry(e *lsmkv.TargetedScanEntry) ([]float32, bool) {
 	need, ok, err := storobj.LegacyVectorPrefixLen(e.Peek)
 	if err != nil {

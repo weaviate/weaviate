@@ -81,162 +81,131 @@ func prefillTargeted(t *testing.T, h *hnsw, target string) error {
 	})
 }
 
-// TestPrefillCacheTargetedEndToEnd runs the targeted-read prefill against
-// multi-segment named-vector data with superseded, deleted, and unindexed rows. The
-// liveness filter must make the cache exactly match the live set — for both the
-// large-schema tail path and the small-schema whole-read fallback.
-func TestPrefillCacheTargetedEndToEnd(t *testing.T) {
-	payloads := []struct {
+// TestPrefillTargetedMatchesCursorScan is the contract test: on identical data —
+// updates and deletes included — the targeted prefill must produce exactly the
+// cache the existing cursor-scan prefill produces, for named and legacy targets
+// and for schemas below and above the tail-read threshold.
+func TestPrefillTargetedMatchesCursorScan(t *testing.T) {
+	cases := []struct {
 		name    string
 		payload int
+		target  string
 	}{
-		{"small schema, whole-read fallback", 1024},
-		{"large schema, tail reads", 16 << 10},
+		{"named target, small schema (whole-read fallback)", 1024, "custom"},
+		{"named target, large schema (tail reads)", 16 << 10, "custom"},
+		{"legacy target, large schema", 16 << 10, ""},
 	}
 
-	for _, pl := range payloads {
-		t.Run(pl.name, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			store := newTestObjectsStore(t)
 			bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
-			exp := map[uint64][]float32{}
 			live := map[uint64]bool{}
-			vec := func(id uint64) []float32 {
-				return []float32{float32(id), float32(id) + 0.5, float32(id) * 2}
-			}
-			putLive := func(keyID, docID uint64) {
-				putTargetedObject(t, bucket, keyID, docID, pl.payload, nil,
-					map[string][]float32{"custom": vec(docID), "sibling": {9, 9}})
-				exp[docID] = vec(docID)
-				live[docID] = true
+			put := func(keyID, docID uint64, dims int) {
+				vec := make([]float32, dims)
+				for j := range vec {
+					vec[j] = float32(docID) + float32(j)*0.25
+				}
+				var legacyVec []float32
+				named := map[string][]float32{}
+				if tc.target == "" {
+					legacyVec = vec
+				} else {
+					named[tc.target] = vec
+					named["sibling"] = []float32{9, 9}
+				}
+				putTargetedObject(t, bucket, keyID, docID, tc.payload, legacyVec, named)
 			}
 
-			// segment 1: docs 0..29
+			// segment 1: docs 0..29 (doc 15 with a vector larger than the peek)
 			for i := uint64(0); i < 30; i++ {
-				putLive(i, i)
+				dims := 3
+				if i == 15 {
+					dims = 300
+				}
+				put(i, i, dims)
+				live[i] = true
 			}
 			require.NoError(t, bucket.FlushAndSwitch())
-
-			// segment 2: key 5 updated under docID 100 (docID 5 is now dead but its row
-			// survives in segment 1), key 7 deleted (docID 7 dead)
-			putLive(5, 100)
-			delete(exp, 5)
+			// segment 2: key 5 updated under docID 100, key 7 deleted
+			put(5, 100, 4)
+			live[100] = true
 			delete(live, 5)
 			require.NoError(t, bucket.Delete(keyForDocID(7)))
-			delete(exp, 7)
 			delete(live, 7)
 			require.NoError(t, bucket.FlushAndSwitch())
-
-			// memtable: docs 30..34, plus doc 40 indexed but lacking the target vector,
-			// plus doc 50 present in the bucket but never indexed (no live node)
+			// memtable: docs 30..34
 			for i := uint64(30); i < 35; i++ {
-				putLive(i, i)
+				put(i, i, 3)
+				live[i] = true
 			}
-			putTargetedObject(t, bucket, 40, 40, pl.payload, nil, map[string][]float32{"sibling": {1}})
-			live[40] = true
-			putTargetedObject(t, bucket, 50, 50, pl.payload, nil, map[string][]float32{"custom": {5, 5}})
 
-			// doc 20 is HNSW-tombstoned but not yet cleaned up: its node is still
-			// non-nil, so only the tombstone filter can exclude its segment-1 row
-			delete(exp, 20)
-
+			id := "vectors_" + tc.target
+			if tc.target == "" {
+				id = "main"
+			}
 			logger, _ := test.NewNullLogger()
 			mustHit := func(_ context.Context, id uint64) ([]float32, error) {
 				return nil, fmt.Errorf("unexpected cache miss for id %d", id)
 			}
-			c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
-			c.Grow(101)
+			collect := func(prefill func(h *hnsw) error) map[uint64][]float32 {
+				c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
+				c.Grow(101)
+				h := newTargetedTestIndex(store, c, id, live, 101)
+				require.NoError(t, prefill(h))
+				out := map[uint64][]float32{}
+				for docID := range live {
+					v, err := c.Get(context.Background(), docID)
+					require.NoError(t, err)
+					out[docID] = v
+				}
+				require.Equal(t, int64(len(live)), c.CountVectors())
+				return out
+			}
 
-			h := newTargetedTestIndex(store, c, "vectors_custom", live, 101)
-			h.tombstones[20] = struct{}{}
-			require.NoError(t, prefillTargeted(t, h, "custom"))
-
-			requireCacheContains(t, c, exp)
+			viaCursor := collect(func(h *hnsw) error {
+				return h.prefillCacheParallel(context.Background())
+			})
+			viaTargeted := collect(func(h *hnsw) error {
+				return prefillTargeted(t, h, tc.target)
+			})
+			require.Equal(t, viaCursor, viaTargeted)
 		})
 	}
 }
 
-// TestPrefillCacheTargetedLegacyVectors covers the legacy (unnamed) target: the
-// vector sits in the value's front, served from the peek when it fits and via a
-// bounded prefix read when it does not — with a properties payload large enough
-// that a whole-value read would dwarf either.
-func TestPrefillCacheTargetedLegacyVectors(t *testing.T) {
-	t.Setenv("HNSW_PREFILL_TARGETED_READS", "true")
-
+// TestPrefillTargetedHNSWExclusions covers the deliberate divergences from the
+// cursor scan: rows whose doc is not indexed, or whose node is HNSW-tombstoned
+// while the bucket row is still live, must not be prefilled.
+func TestPrefillTargetedHNSWExclusions(t *testing.T) {
 	store := newTestObjectsStore(t)
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 
 	exp := map[uint64][]float32{}
 	live := map[uint64]bool{}
-	put := func(id uint64, dims int) {
-		v := make([]float32, dims)
-		for j := range v {
-			v[j] = float32(id) + float32(j)*0.25
-		}
-		putTargetedObject(t, bucket, id, id, 16<<10, v, nil)
-		exp[id] = v
-		live[id] = true
-	}
-
-	// dims 3: vector fits in the 512B peek; dims 300: 44+4*300 > 512 forces the
-	// bounded prefix read
 	for i := uint64(0); i < 10; i++ {
-		put(i, 3)
+		vec := []float32{float32(i), float32(i) + 0.5}
+		putTargetedObject(t, bucket, i, i, 16<<10, nil, map[string][]float32{"custom": vec})
+		exp[i] = vec
+		live[i] = true
 	}
-	for i := uint64(10); i < 20; i++ {
-		put(i, 300)
-	}
+	// doc 20: in the bucket, never indexed; doc 5: indexed but HNSW-tombstoned
+	putTargetedObject(t, bucket, 20, 20, 16<<10, nil, map[string][]float32{"custom": {5, 5}})
 	require.NoError(t, bucket.FlushAndSwitch())
+	delete(exp, 5)
 
 	logger, _ := test.NewNullLogger()
 	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
 		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
 	}
 	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
-	c.Grow(20)
-
-	h := newTargetedTestIndex(store, c, "main", live, 20)
-	require.NoError(t, h.prefillCacheParallel(context.Background()))
+	c.Grow(21)
+	h := newTargetedTestIndex(store, c, "vectors_custom", live, 21)
+	h.tombstones[5] = struct{}{}
+	require.NoError(t, prefillTargeted(t, h, "custom"))
 
 	requireCacheContains(t, c, exp)
-}
-
-// TestPrefillCacheTargetedMatchesCursorScan pins the equivalence of the two scan
-// implementations on identical live data.
-func TestPrefillCacheTargetedMatchesCursorScan(t *testing.T) {
-	store := newTestObjectsStore(t)
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-
-	const n = 200
-	live := map[uint64]bool{}
-	for i := uint64(0); i < n; i++ {
-		putTargetedObject(t, bucket, i, i, 10<<10, nil,
-			map[string][]float32{"custom": {float32(i), float32(i) + 1}})
-		live[i] = true
-	}
-	require.NoError(t, bucket.FlushAndSwitch())
-
-	logger, _ := test.NewNullLogger()
-	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
-		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
-	}
-
-	run := func(env string) map[uint64][]float32 {
-		t.Setenv("HNSW_PREFILL_TARGETED_READS", env)
-		c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
-		c.Grow(n)
-		h := newTargetedTestIndex(store, c, "vectors_custom", live, n)
-		require.NoError(t, h.prefillCacheParallel(context.Background()))
-		out := map[uint64][]float32{}
-		for i := uint64(0); i < n; i++ {
-			v, err := c.Get(context.Background(), i)
-			require.NoError(t, err)
-			out[i] = v
-		}
-		return out
-	}
-
-	require.Equal(t, run("false"), run("true"))
 }
 
 // TestUseTargetedPrefillScanGate: the env flag alone is not enough — small-entry
