@@ -19,37 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// cloneDeletionsToBuf clones del into a pooled buffer, or returns nil when del
-// is empty (including nil — which is what SegmentNode.Deletions returns for an
-// empty region). Deletions are only ever consumed as an AndNot operand (see
-// BitmapLayers.Flatten, where the base layer's deletions are unused and every
-// other layer's deletions feed AndNotConc), and that operand treats nil as
-// empty, so no empty bitmap needs to be materialized for the common
-// no-tombstone case. Using IsEmpty rather than a nil check keeps this correct
-// regardless of how an empty del is represented. The release is nil (not a
-// shared noop) when nothing was pooled, so combineReleases can drop it without
-// allocating a wrapper closure.
-func cloneDeletionsToBuf(bitmapBufPool roaringset.BitmapBufPool, del *sroar.Bitmap) (*sroar.Bitmap, func()) {
-	if del.IsEmpty() {
-		return nil, nil
-	}
-	return bitmapBufPool.CloneToBuf(del)
-}
-
-// cloneAdditionsToBuf clones add into a pooled buffer, unless add is empty — in
-// which case it returns a fresh empty bitmap and a nil release. add may be nil
-// (SegmentNode.Additions returns nil for an empty region). Unlike deletions,
-// additions become the mutable accumulator base when layers are flattened, so a
-// non-nil (and non-shared, as it is mutated) bitmap must be returned. The
-// release is nil (not a shared noop) when nothing was pooled, so
-// combineReleases can drop it without allocating a wrapper closure.
-func cloneAdditionsToBuf(bitmapBufPool roaringset.BitmapBufPool, add *sroar.Bitmap) (*sroar.Bitmap, func()) {
-	if add.IsEmpty() {
-		return sroar.NewBitmap(), nil
-	}
-	return bitmapBufPool.CloneToBuf(add)
-}
-
 // combineReleases folds the additions and deletions release funcs into the
 // single release the caller expects. Either may be nil (empty region, nothing
 // pooled). A wrapper closure — which escapes and thus heap-allocates — is only
@@ -93,14 +62,20 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 		if err != nil {
 			return out, noopRelease, err
 		}
-		out.Deletions, releaseDel = cloneDeletionsToBuf(bitmapBufPool, sn.Deletions())
-		out.Additions, releaseAdd = cloneAdditionsToBuf(bitmapBufPool, sn.Additions())
+		out.Deletions, releaseDel = sn.DeletionsCloneToBuf(bitmapBufPool)
+		out.Additions, releaseAdd = sn.AdditionsCloneToBuf(bitmapBufPool)
+		if out.Additions == nil {
+			// additions become the mutable accumulator base when layers are
+			// flattened, so a non-nil (and non-shared, as it is mutated) bitmap
+			// is needed even when the node holds none
+			out.Additions = sroar.NewBitmap()
+		}
 	} else {
 		sn, release, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool)
 		if err != nil {
 			return out, noopRelease, err
 		}
-		out.Deletions, releaseDel = cloneDeletionsToBuf(bitmapBufPool, sn.Deletions())
+		out.Deletions, releaseDel = sn.DeletionsCloneToBuf(bitmapBufPool)
 		// reuse buffer of entire segment node.
 		// node's data might get overwritten by changes of underlying additions bitmap.
 		// overwrites should be safe, as other data is not used later on

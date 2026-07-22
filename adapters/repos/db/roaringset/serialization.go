@@ -85,6 +85,24 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 	return sroar.FromBuffer(buf)
 }
 
+// AdditionsCloneToBuf clones the node's additions bitmap into a buffer taken
+// from pool, without materializing an intermediate bitmap over the node's
+// memory first (one bitmap allocation and one container-table parse instead
+// of two). The clone is safe to use and mutate beyond the node's lifetime, up
+// to the pooled buffer's capacity.
+//
+// It returns (nil, nil) when the node holds no additions (length indicator
+// 0) — the release is non-nil exactly when the bitmap is.
+func (sn *SegmentNode) AdditionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, func()) {
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil, nil
+	}
+	return pool.CloneBytesToBuf(buf)
+}
+
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
 // creates a copy of the underlying buffer. This is safe to use indefinitely,
 // but much slower than [*SegmentNode.Additions] as it requires copying all the
@@ -127,6 +145,21 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 		return nil
 	}
 	return sroar.FromBuffer(buf)
+}
+
+// DeletionsCloneToBuf clones the node's deletions bitmap into a buffer taken
+// from pool; the deletions counterpart of [*SegmentNode.AdditionsCloneToBuf],
+// with the identical contract: (nil, nil) when the node holds no deletions,
+// otherwise the clone and its release, never one without the other.
+func (sn *SegmentNode) DeletionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, func()) {
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil, nil
+	}
+	return pool.CloneBytesToBuf(buf)
 }
 
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
