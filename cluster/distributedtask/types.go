@@ -243,15 +243,18 @@ type SchemaMutationDetector interface {
 
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
 // implements to gate removal of a dropped ("none") VectorConfig entry: removal
-// is permitted only once a completed cleanup task covers it, so the marker can't
-// vanish before the on-disk vectors are stripped. Dispatched by type assertion
-// from the SchemaMutationDetector registry. Same FSM-determinism contract as
-// [SchemaMutationDetector]: a pure function of its arguments.
+// is permitted only once a completed cleanup task covers it AND that task's
+// units covered every current shard — a shard without a unit (e.g. a tenant
+// that was COLD at enqueue) has not been stripped, so removing the marker would
+// strand its data. Dispatched by type assertion from the SchemaMutationDetector
+// registry. Same FSM-determinism contract as [SchemaMutationDetector]: a pure
+// function of its arguments.
 type VectorConfigRemovalGate interface {
 	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
-	// UpdateClass apply; non-nil rejects. existingTasks is the namespace-scoped
+	// UpdateClass apply; non-nil rejects. shards is the collection's shard set
+	// from the FSM state being applied; existingTasks is the namespace-scoped
 	// list at apply time.
-	CheckVectorConfigRemoval(className string, removedVectors []string, existingTasks []*Task) error
+	CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*Task) error
 }
 
 // RecoveryAwareProvider is an optional interface providers implement to

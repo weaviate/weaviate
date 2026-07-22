@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -72,8 +73,9 @@ type MutationGuard interface {
 	CheckTenantMutation(className string, tenants []string) error
 
 	// CheckVectorConfigRemoval gates removal of dropped ("none") VectorConfig
-	// entries on a completed cleanup task. Returns non-nil to reject.
-	CheckVectorConfigRemoval(className string, removedVectors []string) error
+	// entries on a completed cleanup task that covered every shard in shards.
+	// Returns non-nil to reject.
+	CheckVectorConfigRemoval(className string, removedVectors, shards []string) error
 }
 
 // Narrow slice of *cluster/distributedtask.Manager so schema doesn't
@@ -463,10 +465,18 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
-		// Gate at apply time so the verdict is RAFT-deterministic.
+		// Gate at apply time so the verdict is RAFT-deterministic. The FSM's own
+		// sharding state is the coverage baseline: a shard with no unit in the
+		// vouching task (e.g. a tenant that was COLD at enqueue) has not been
+		// cleaned, and removing the marker would strand its data.
 		if s.mutationGuard != nil {
 			if removed := removedDroppedVectorConfigs(&meta.Class, u); len(removed) > 0 {
-				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed); err != nil {
+				shards := make([]string, 0, len(meta.Sharding.Physical))
+				for name := range meta.Sharding.Physical {
+					shards = append(shards, name)
+				}
+				sort.Strings(shards)
+				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed, shards); err != nil {
 					return fmt.Errorf("%w: %w", ErrBadRequest, err)
 				}
 			}

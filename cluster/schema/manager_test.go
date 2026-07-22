@@ -602,6 +602,7 @@ type recordingMutationGuard struct {
 	lastClass   string
 	lastProp    string
 	lastRemoved []string
+	lastShards  []string
 	rejectWith  error
 }
 
@@ -624,10 +625,11 @@ func (g *recordingMutationGuard) CheckTenantMutation(class string, tenants []str
 	return g.rejectWith
 }
 
-func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedVectors []string) error {
+func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedVectors, shards []string) error {
 	g.called++
 	g.lastClass = class
 	g.lastRemoved = removedVectors
+	g.lastShards = shards
 	return g.rejectWith
 }
 
@@ -831,7 +833,9 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 			Class:        "C",
 			VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
 		}
-		ss := &sharding.State{Physical: map[string]sharding.Physical{}}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{
+			"shardB": {Name: "shardB"}, "shardA": {Name: "shardA"},
+		}}
 		require.NoError(t, sm.schema.addClass(initial, ss, 1))
 		return sm
 	}
@@ -846,6 +850,8 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.Contains(t, err.Error(), "cleanup task not FINISHED")
 		require.Equal(t, 1, guard.called, "gate must be consulted once")
 		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+		require.Equal(t, []string{"shardA", "shardB"}, guard.lastShards,
+			"gate must receive the FSM's shard set, sorted")
 	})
 
 	t.Run("removing a dropped entry succeeds when the gate allows", func(t *testing.T) {
@@ -857,6 +863,7 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, guard.called)
 		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+		require.Equal(t, []string{"shardA", "shardB"}, guard.lastShards)
 	})
 
 	t.Run("update that removes no dropped entry does not consult the gate", func(t *testing.T) {
