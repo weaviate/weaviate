@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -78,6 +79,38 @@ func TestSegmentCursor(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "seek and fail")
 	})
+}
+
+func TestSegmentCursor_EmptyRegionsSubstitutedWithNonNilLayer(t *testing.T) {
+	// SegmentNode.Additions/Deletions return nil for empty regions, but cursor
+	// consumers (compaction, sorting, ...) expect non-nil layer bitmaps. The
+	// cursor must materialize an empty bitmap instead of exposing nil.
+	build := func(t *testing.T, add, del *sroar.Bitmap) []byte {
+		sn, err := NewSegmentNode([]byte("00000"), add, del)
+		require.Nil(t, err)
+		return sn.ToBuffer()
+	}
+
+	cases := []struct {
+		name string
+		add  *sroar.Bitmap
+		del  *sroar.Bitmap
+	}{
+		{"both empty", NewBitmap(), NewBitmap()},
+		{"additions empty", NewBitmap(), NewBitmap(2, 3)},
+		{"deletions empty", NewBitmap(0, 1), NewBitmap()},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seg := build(t, tc.add, tc.del)
+			c := NewSegmentCursor(seg, nil)
+			_, layer, err := c.First()
+			require.Nil(t, err)
+			require.NotNil(t, layer.Additions)
+			require.NotNil(t, layer.Deletions)
+		})
+	}
 }
 
 func createDummySegment(t *testing.T, count uint64) ([]byte, []uint64) {

@@ -52,6 +52,43 @@ func TestSerialization_HappyPath(t *testing.T) {
 	assert.True(t, newDeletions.Contains(5))
 }
 
+func TestSerialization_EmptyBitmapsReturnNil(t *testing.T) {
+	// A node holding no additions/deletions writes a length indicator of 0 for
+	// the empty region(s). Additions()/Deletions() return nil in that case
+	// rather than allocating an empty bitmap.
+	key := []byte("my-key")
+
+	t.Run("both empty", func(t *testing.T) {
+		sn, err := NewSegmentNode(key, NewBitmap(), NewBitmap())
+		require.Nil(t, err)
+
+		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+		assert.Nil(t, newSN.Additions())
+		assert.Nil(t, newSN.Deletions())
+		assert.Equal(t, key, newSN.PrimaryKey())
+	})
+
+	t.Run("additions present, deletions empty", func(t *testing.T) {
+		sn, err := NewSegmentNode(key, NewBitmap(1, 2, 3), NewBitmap())
+		require.Nil(t, err)
+
+		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+		require.NotNil(t, newSN.Additions())
+		assert.True(t, newSN.Additions().Contains(2))
+		assert.Nil(t, newSN.Deletions())
+	})
+
+	t.Run("additions empty, deletions present", func(t *testing.T) {
+		sn, err := NewSegmentNode(key, NewBitmap(), NewBitmap(5, 7))
+		require.Nil(t, err)
+
+		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+		assert.Nil(t, newSN.Additions())
+		require.NotNil(t, newSN.Deletions())
+		assert.True(t, newSN.Deletions().Contains(5))
+	})
+}
+
 func TestSerialization_InitializingFromBufferTooLarge(t *testing.T) {
 	additions := NewBitmap(1, 2, 3, 4, 6)
 	deletions := NewBitmap(5, 7)

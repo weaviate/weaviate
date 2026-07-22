@@ -12,6 +12,7 @@
 package roaringset
 
 import (
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -53,9 +54,20 @@ func (c *segmentCursor) Next() ([]byte, BitmapLayer, error) {
 
 	sn := NewSegmentNodeFromBuffer(c.data[c.nextOffset:])
 	c.nextOffset += sn.Len()
+	// Additions/Deletions return nil for empty regions. Cursor consumers
+	// (compaction, sorting, aggregation, ...) expect non-nil layers, so
+	// materialize an empty bitmap here — matching the pre-nil behavior.
+	additions := sn.Additions()
+	if additions == nil {
+		additions = sroar.NewBitmap()
+	}
+	deletions := sn.Deletions()
+	if deletions == nil {
+		deletions = sroar.NewBitmap()
+	}
 	layer := BitmapLayer{
-		Additions: sn.Additions(),
-		Deletions: sn.Deletions(),
+		Additions: additions,
+		Deletions: deletions,
 	}
 	return sn.PrimaryKey(), layer, nil
 }

@@ -19,22 +19,54 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// emptyDeletions is a shared, immutable empty deletions bitmap returned instead
-// of cloning an empty deletions set on every roaringset read. Downstream every
-// consumer only reads a layer's Deletions (as an AndNot operand — see
-// BitmapLayers.Flatten and layer merge), so sharing one instance is safe. Never
-// mutate it.
-var emptyDeletions = sroar.NewBitmap()
-
-// cloneDeletionsToBuf clones del into a pooled buffer, unless del is empty — in
-// which case it returns the shared empty bitmap and a noop release, avoiding a
-// per-read clone (its pooled buffer + bitmap struct) for the common
-// no-tombstone case.
+// cloneDeletionsToBuf clones del into a pooled buffer, or returns nil when del
+// is empty (including nil — which is what SegmentNode.Deletions returns for an
+// empty region). Deletions are only ever consumed as an AndNot operand (see
+// BitmapLayers.Flatten, where the base layer's deletions are unused and every
+// other layer's deletions feed AndNotConc), and that operand treats nil as
+// empty, so no empty bitmap needs to be materialized for the common
+// no-tombstone case. Using IsEmpty rather than a nil check keeps this correct
+// regardless of how an empty del is represented. The release is nil (not a
+// shared noop) when nothing was pooled, so combineReleases can drop it without
+// allocating a wrapper closure.
 func cloneDeletionsToBuf(bitmapBufPool roaringset.BitmapBufPool, del *sroar.Bitmap) (*sroar.Bitmap, func()) {
 	if del.IsEmpty() {
-		return emptyDeletions, noopRelease
+		return nil, nil
 	}
 	return bitmapBufPool.CloneToBuf(del)
+}
+
+// cloneAdditionsToBuf clones add into a pooled buffer, unless add is empty — in
+// which case it returns a fresh empty bitmap and a nil release. add may be nil
+// (SegmentNode.Additions returns nil for an empty region). Unlike deletions,
+// additions become the mutable accumulator base when layers are flattened, so a
+// non-nil (and non-shared, as it is mutated) bitmap must be returned. The
+// release is nil (not a shared noop) when nothing was pooled, so
+// combineReleases can drop it without allocating a wrapper closure.
+func cloneAdditionsToBuf(bitmapBufPool roaringset.BitmapBufPool, add *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	if add.IsEmpty() {
+		return sroar.NewBitmap(), nil
+	}
+	return bitmapBufPool.CloneToBuf(add)
+}
+
+// combineReleases folds the additions and deletions release funcs into the
+// single release the caller expects. Either may be nil (empty region, nothing
+// pooled). A wrapper closure — which escapes and thus heap-allocates — is only
+// built when both are non-nil; in the common no-tombstone case (deletions
+// empty) the additions release is returned directly, and if neither pooled
+// anything the shared noop is reused.
+func combineReleases(releaseAdd, releaseDel func()) func() {
+	switch {
+	case releaseAdd == nil && releaseDel == nil:
+		return noopRelease
+	case releaseDel == nil:
+		return releaseAdd
+	case releaseAdd == nil:
+		return releaseDel
+	default:
+		return func() { releaseAdd(); releaseDel() }
+	}
 }
 
 // returned bitmaps are cloned and safe to mutate
@@ -62,7 +94,7 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 			return out, noopRelease, err
 		}
 		out.Deletions, releaseDel = cloneDeletionsToBuf(bitmapBufPool, sn.Deletions())
-		out.Additions, releaseAdd = bitmapBufPool.CloneToBuf(sn.Additions())
+		out.Additions, releaseAdd = cloneAdditionsToBuf(bitmapBufPool, sn.Additions())
 	} else {
 		sn, release, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool)
 		if err != nil {
@@ -75,7 +107,7 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 		out.Additions, releaseAdd = sn.AdditionsUnlimited(), release
 	}
 
-	return out, func() { releaseAdd(); releaseDel() }, nil
+	return out, combineReleases(releaseAdd, releaseDel), nil
 }
 
 func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
