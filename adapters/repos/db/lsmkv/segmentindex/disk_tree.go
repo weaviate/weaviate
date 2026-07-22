@@ -228,43 +228,57 @@ func (t *DiskTree) Next(key []byte) (Node, error) {
 	return t.seekAt(0, key, false)
 }
 
+// seekAt walks toward the node bounding key: an exact match when
+// includingKey, otherwise its in-order successor. Iterative rather than
+// recursive, for the same reason as Get's loop above: a child offset read
+// from possibly corrupt data can point back up the tree, and an unbounded
+// recursive descent crashes the process with an uncatchable stack overflow
+// instead of returning an error. candidate holds the closest node seen so
+// far whose key is strictly greater than key; it is the answer whenever
+// descending further right never turns up anything closer.
 func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, error) {
-	node, err := t.readNodeAt(offset)
-	if err != nil {
-		return Node{}, err
-	}
+	dataLen := uint64(len(t.data))
+	maxIterations := dataLen/TREE_KEY_STORE_OVERHEAD + 1
 
-	self := Node{
-		Key:   node.key,
-		Start: node.startPos,
-		End:   node.endPos,
-	}
+	var candidate Node
+	haveCandidate := false
 
-	if includingKey && bytes.Equal(key, node.key) {
-		return self, nil
-	}
+	for i := uint64(0); ; i++ {
+		if i >= maxIterations {
+			return Node{}, fmt.Errorf("node walk exceeded %d iterations at offset %d; corrupt or cyclic index data", maxIterations, offset)
+		}
 
-	if bytes.Compare(key, node.key) < 0 {
-		if node.leftChild < 0 {
+		node, err := t.readNodeAt(offset)
+		if err != nil {
+			return Node{}, err
+		}
+
+		self := Node{
+			Key:   node.key,
+			Start: node.startPos,
+			End:   node.endPos,
+		}
+
+		if includingKey && bytes.Equal(key, node.key) {
 			return self, nil
 		}
 
-		left, err := t.seekAt(node.leftChild, key, includingKey)
-		if err == nil {
-			return left, nil
+		if bytes.Compare(key, node.key) < 0 {
+			candidate = self
+			haveCandidate = true
+			if node.leftChild < 0 {
+				return self, nil
+			}
+			offset = node.leftChild
+		} else {
+			if node.rightChild < 0 {
+				if haveCandidate {
+					return candidate, nil
+				}
+				return Node{}, lsmkv.NotFound
+			}
+			offset = node.rightChild
 		}
-
-		if errors.Is(err, lsmkv.NotFound) {
-			return self, nil
-		}
-
-		return Node{}, err
-	} else {
-		if node.rightChild < 0 {
-			return Node{}, lsmkv.NotFound
-		}
-
-		return t.seekAt(node.rightChild, key, includingKey)
 	}
 }
 

@@ -193,6 +193,51 @@ func TestDiskTreeGet_CycleGuard(t *testing.T) {
 	}
 }
 
+// TestDiskTreeSeekNext_CycleGuard pins weaviate/weaviate#12280: seekAt (the
+// walk backing Seek/Next, and thus every disk-segment cursor) must not
+// crash on the same cyclic child pointer TestDiskTreeGet_CycleGuard above
+// pins for Get. An unbounded descent here fails as a process-killing stack
+// overflow, a fatal runtime error recover() cannot intercept - so unlike
+// the Get test above, this can't be caught with a goroutine+timeout; the
+// proof is that this test process survives at all and Seek/Next return a
+// clean error.
+func TestDiskTreeSeekNext_CycleGuard(t *testing.T) {
+	tree := NewTree(4)
+	tree.Insert([]byte("b"), 20, 21) // root
+	tree.Insert([]byte("a"), 10, 11) // left child
+	tree.Insert([]byte("d"), 30, 31) // right child
+	valid, err := tree.MarshalBinary()
+	require.NoError(t, err)
+
+	// Root's left child pointer, redirected to offset 0 (the root itself):
+	// an in-bounds, individually-valid offset that forms a self-cycle.
+	keyLen := int(binary.LittleEndian.Uint32(valid[0:4]))
+	childBase := 4 + keyLen + 16
+	corrupt := make([]byte, len(valid))
+	copy(corrupt, valid)
+	binary.LittleEndian.PutUint64(corrupt[childBase:], 0)
+
+	dTree := NewDiskTree(corrupt)
+
+	t.Run("Seek", func(t *testing.T) {
+		var seekErr error
+		require.NotPanics(t, func() {
+			_, seekErr = dTree.Seek([]byte("0")) // "0" < "a" < "b": descends left into the cycle
+		})
+		require.Error(t, seekErr, "a cyclic descent must terminate with an error, not resolve as if the key were simply missing")
+		require.Contains(t, seekErr.Error(), "exceeded")
+	})
+
+	t.Run("Next", func(t *testing.T) {
+		var nextErr error
+		require.NotPanics(t, func() {
+			_, nextErr = dTree.Next([]byte("0"))
+		})
+		require.Error(t, nextErr, "a cyclic descent must terminate with an error, not resolve as if the key were simply missing")
+		require.Contains(t, nextErr.Error(), "exceeded")
+	})
+}
+
 // TestDiskTreeReadTimeNodeSanity pins weaviate/weaviate#12280: a node with
 // End < Start must return a clean error, not panic downstream via
 // make([]byte, End-Start) wrapping to a huge length.
