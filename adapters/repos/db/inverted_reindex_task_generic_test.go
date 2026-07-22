@@ -569,3 +569,9 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 
 	require.NoError(t, shard.Shutdown(ctx))
 }
+
+func TestGetSegmentPathsToMove_WalkRootRemoved(t *testing.T) {
+	task := &ShardReindexTaskGeneric{}
+	_, _, err := task.getSegmentPathsToMove(filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir())
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
