@@ -34,6 +34,14 @@ type DropVectorIndexTaskPayload struct {
 	// same unit ID to the shard it covers. One unit per (shard, node).
 	UnitToNode  map[string]string `json:"unitToNode"`
 	UnitToShard map[string]string `json:"unitToShard"`
+
+	// DropEpochID scopes CleanedShards to one drop of the name: a re-created
+	// then re-dropped vector must not inherit the previous drop's coverage.
+	// Empty on payloads from older nodes (treated as chain-less).
+	DropEpochID string `json:"dropEpochId,omitempty"`
+	// CleanedShards are shards cleaned by ancestor tasks of this epoch; the
+	// task's own UnitToShard is not included (readers union the two).
+	CleanedShards []string `json:"cleanedShards,omitempty"`
 }
 
 func (p *DropVectorIndexTaskPayload) encode() ([]byte, error) {

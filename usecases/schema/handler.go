@@ -428,8 +428,11 @@ type DropVectorIndexEnqueuer interface {
 	// targetVector on collection.
 	HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error)
 	// EnqueueDropVectorIndex submits a fresh cleanup task (fresh task ID) for the
-	// given targets on collection.
-	EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error
+	// given targets on collection. freshEpoch is true only on the fresh-drop path
+	// (marker introduction): it mints a new drop epoch so no cleaned-shard
+	// coverage is inherited from a previous drop of a re-created name.
+	// Retriggers and reconciliation pass false to continue the current epoch.
+	EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string, freshEpoch bool) error
 }
 
 // enqueueDropVectorIndexCleanup submits the cleanup task for a freshly dropped
@@ -442,7 +445,7 @@ func (h *Handler) enqueueDropVectorIndexCleanup(ctx context.Context, collection,
 	if h.dropVectorEnqueuer == nil {
 		return nil
 	}
-	return h.dropVectorEnqueuer.EnqueueDropVectorIndex(ctx, collection, []string{targetVector})
+	return h.dropVectorEnqueuer.EnqueueDropVectorIndex(ctx, collection, []string{targetVector}, true)
 }
 
 // retriggerDropVectorIndexCleanup handles a drop re-issued on a vector whose marker
@@ -462,7 +465,7 @@ func (h *Handler) retriggerDropVectorIndexCleanup(ctx context.Context, collectio
 	if active {
 		return nil
 	}
-	if err := h.dropVectorEnqueuer.EnqueueDropVectorIndex(ctx, collection, []string{targetVector}); err != nil {
+	if err := h.dropVectorEnqueuer.EnqueueDropVectorIndex(ctx, collection, []string{targetVector}, false); err != nil {
 		h.logger.WithField("class", collection).WithField("targetVector", targetVector).
 			Warnf("drop vector index re-trigger: cleanup enqueue failed; reconciliation will retry: %v", err)
 	}
