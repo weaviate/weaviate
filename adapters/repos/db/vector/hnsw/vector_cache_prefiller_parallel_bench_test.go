@@ -247,28 +247,6 @@ func runTargetedPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfi
 	return took
 }
 
-func runTargetedAllVersionsPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig) time.Duration {
-	tb.Helper()
-	logger, _ := test.NewNullLogger()
-	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
-		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
-	}
-	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000_000, 1, logger, false, 0, nil)
-	c.Grow(uint64(cfg.n))
-	h := newPrefillBenchIndex(store, c, cfg.n)
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-
-	start := time.Now()
-	err := h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
-		return h.scanObjectVectorsTargetedAllVersions(ctx, bucket, prefillBenchTarget, onVector)
-	})
-	took := time.Since(start)
-
-	require.NoError(tb, err)
-	require.Equal(tb, int64(cfg.n), c.CountVectors())
-	return took
-}
-
 // BenchmarkPrefillNamedVectorsLargeProps is the read-amplification case the targeted
 // scan exists for: the properties schema dominates the value, so peek+jump reads a
 // small fraction of the bucket while both full-scan variants read all of it.
@@ -305,12 +283,6 @@ func BenchmarkPrefillNamedVectorsLargeProps(b *testing.B) {
 	b.Run("pread/targeted-scan", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			runTargetedPrefill(b, preadStore, cfg)
-		}
-		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
-	})
-	b.Run("pread/targeted-all-versions", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			runTargetedAllVersionsPrefill(b, preadStore, cfg)
 		}
 		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
 	})
@@ -389,16 +361,6 @@ func BenchmarkPrefillNamedVectorsChurned(b *testing.B) {
 			run(b, func(h *hnsw, bucket *lsmkv.Bucket) error {
 				return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
 					return h.scanObjectVectorsTargeted(ctx, bucket, prefillBenchTarget, onVector)
-				})
-			})
-		}
-		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
-	})
-	b.Run("pread/targeted-all-versions", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			run(b, func(h *hnsw, bucket *lsmkv.Bucket) error {
-				return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
-					return h.scanObjectVectorsTargetedAllVersions(ctx, bucket, prefillBenchTarget, onVector)
 				})
 			})
 		}

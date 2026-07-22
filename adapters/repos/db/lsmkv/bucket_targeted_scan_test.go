@@ -34,9 +34,9 @@ func targetedTestValue(id uint64, fillerLen int) []byte {
 	return v
 }
 
-// TestScanTargetedReplace verifies the no-merge contract: every live per-segment
-// version is visited exactly once (superseded versions included), tombstones hide
-// entries only in their own segment, memtable entries are covered, and Peek /
+// TestScanTargetedReplace verifies merged-cursor visibility plus the entry
+// mechanics: only the newest version of each key is served (updates across
+// segments and memtables supersede, deletes hide bucket-wide), and Peek /
 // ReadRange expose exact value bytes — in both mmap and pread modes.
 func TestScanTargetedReplace(t *testing.T) {
 	ctx := context.Background()
@@ -54,41 +54,43 @@ func TestScanTargetedReplace(t *testing.T) {
 			b := newReusableTestBucket(t, ctx, mode.opts...)
 			defer b.Shutdown(ctx)
 
-			// expected multiset of emitted values, keyed by embedded id
-			exp := map[uint64][][]byte{}
 			put := func(id uint64, fillerLen int) {
-				v := targetedTestValue(id, fillerLen)
-				require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), v))
-				exp[id] = append(exp[id], v)
+				require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen)))
 			}
-
-			// segment 1: ids 0..39, including two that will be superseded/deleted later
+			// segment 1: ids 0..39
 			for i := uint64(0); i < 40; i++ {
 				put(i, int(i)*7%300)
 			}
 			require.NoError(t, b.FlushAndSwitch())
-
-			// segment 2: id 5 updated (both versions must be emitted), id 7 deleted
-			// (segment-1 version must still be emitted), ids 40..59 new
-			put(5, 123)
-			require.NoError(t, b.Delete([]byte("key-007")))
+			// segment 2: updates 5..14, delete 20, new ids 40..59
+			for i := uint64(5); i < 15; i++ {
+				put(i, 500+int(i))
+			}
+			require.NoError(t, b.Delete([]byte("key-020")))
 			for i := uint64(40); i < 60; i++ {
 				put(i, 30)
 			}
 			require.NoError(t, b.FlushAndSwitch())
-
-			// memtable only: ids 60..69, plus id 8 deleted only in the memtable
+			// memtable: update a segment-2 winner, delete another, new ids 60..69
+			put(7, 900)
+			require.NoError(t, b.Delete([]byte("key-010")))
 			for i := uint64(60); i < 70; i++ {
 				put(i, 500)
 			}
-			require.NoError(t, b.Delete([]byte("key-008")))
+
+			expected := map[string]int{}
+			c := b.Cursor()
+			for k, v := c.First(); k != nil; k, v = c.Next() {
+				expected[string(v)]++
+				_ = k
+			}
+			c.Close()
 
 			const peekSize = 16
 			var mu sync.Mutex
-			got := map[uint64][][]byte{}
+			got := map[string]int{}
 			err := b.ScanTargetedReplace(ctx, peekSize, 4, func(e *TargetedScanEntry) error {
 				require.GreaterOrEqual(t, len(e.Peek), 8)
-				id := binary.BigEndian.Uint64(e.Peek[:8])
 
 				raw, err := e.ReadRange(0, 0)
 				require.NoError(t, err)
@@ -106,18 +108,14 @@ func TestScanTargetedReplace(t *testing.T) {
 				_, err = e.ReadRange(0, e.ValueSize+1)
 				require.Error(t, err)
 
-				cp := whole
 				mu.Lock()
-				got[id] = append(got[id], cp)
+				got[string(whole)]++
 				mu.Unlock()
 				return nil
 			}, nullLogger())
 			require.NoError(t, err)
 
-			require.Equal(t, len(exp), len(got), "distinct ids")
-			for id, want := range exp {
-				require.ElementsMatchf(t, want, got[id], "values for id %d", id)
-			}
+			require.Equal(t, expected, got)
 		})
 	}
 }
@@ -150,67 +148,4 @@ func TestScanTargetedReplaceContextCancelled(t *testing.T) {
 		return nil
 	}, nullLogger())
 	require.ErrorIs(t, err, context.Canceled)
-}
-
-// TestScanTargetedReplaceNewestWins_MatchesCursor: newest-wins mode must serve
-// exactly the merged cursor's live view — superseded versions hidden by newer
-// segments and memtables, deletes hidden bucket-wide — in both access modes.
-func TestScanTargetedReplaceNewestWins_MatchesCursor(t *testing.T) {
-	ctx := context.Background()
-
-	modes := []struct {
-		name string
-		opts []BucketOption
-	}{
-		{"mmap", nil},
-		{"pread", []BucketOption{WithPread(true), WithMinMMapSize(0)}},
-	}
-
-	for _, mode := range modes {
-		t.Run(mode.name, func(t *testing.T) {
-			b := newReusableTestBucket(t, ctx, mode.opts...)
-			defer b.Shutdown(ctx)
-
-			put := func(id uint64, fillerLen int) {
-				require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen)))
-			}
-			// segment 1
-			for i := uint64(0); i < 40; i++ {
-				put(i, int(i)*7%300)
-			}
-			require.NoError(t, b.FlushAndSwitch())
-			// segment 2: updates + a delete
-			for i := uint64(5); i < 15; i++ {
-				put(i, 500+int(i))
-			}
-			require.NoError(t, b.Delete([]byte("key-020")))
-			require.NoError(t, b.FlushAndSwitch())
-			// memtable: more updates + a delete of a segment-2 winner + new keys
-			put(7, 900)
-			put(50, 100)
-			require.NoError(t, b.Delete([]byte("key-010")))
-
-			expected := map[string]int{}
-			c := b.Cursor()
-			for k, v := c.First(); k != nil; k, v = c.Next() {
-				expected[string(v)]++
-				_ = k
-			}
-			c.Close()
-
-			var mu sync.Mutex
-			got := map[string]int{}
-			err := b.ScanTargetedReplaceNewestWins(ctx, 16, 4, func(e *TargetedScanEntry) error {
-				whole, err := e.ReadRange(0, 0)
-				require.NoError(t, err)
-				mu.Lock()
-				got[string(whole)]++
-				mu.Unlock()
-				return nil
-			}, nullLogger())
-			require.NoError(t, err)
-
-			require.Equal(t, expected, got)
-		})
-	}
 }

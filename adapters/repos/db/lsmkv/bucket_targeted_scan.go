@@ -75,30 +75,14 @@ func (e *TargetedScanEntry) ReadRange(from, to uint64) ([]byte, error) {
 	return b, nil
 }
 
-// ScanTargetedReplace visits every live entry of every memtable and disk segment,
-// WITHOUT merging across them: a key superseded in a newer segment is still visited
-// in every older segment holding it, ordering is not newest-wins, and a tombstone
-// only hides the entry in its own segment. Callers must be able to identify rows by
-// value content and tolerate stale versions. fn must be safe for concurrent use; a
-// non-nil error aborts the scan.
+// ScanTargetedReplace visits every live entry of the bucket with merged-cursor
+// visibility but no merge: segments are scanned independently in parallel, and a
+// row is served only when no newer segment or memtable holds its key, so
+// superseded versions and deleted keys never surface. The probes are resolved
+// from in-memory bloom filters and indexes before any value bytes are read. fn
+// must be safe for concurrent use; a non-nil error aborts the scan.
 func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int,
 	fn func(e *TargetedScanEntry) error, logger logrus.FieldLogger,
-) error {
-	return b.scanTargetedReplace(ctx, peekSize, parallel, fn, logger, false)
-}
-
-// ScanTargetedReplaceNewestWins is ScanTargetedReplace with merged-cursor
-// visibility: a row is served only when no newer segment or memtable holds its
-// key, so superseded versions and deleted keys never surface — resolved from
-// in-memory bloom filters and indexes, without reading any stale value bytes.
-func (b *Bucket) ScanTargetedReplaceNewestWins(ctx context.Context, peekSize, parallel int,
-	fn func(e *TargetedScanEntry) error, logger logrus.FieldLogger,
-) error {
-	return b.scanTargetedReplace(ctx, peekSize, parallel, fn, logger, true)
-}
-
-func (b *Bucket) scanTargetedReplace(ctx context.Context, peekSize, parallel int,
-	fn func(e *TargetedScanEntry) error, logger logrus.FieldLogger, newestWins bool,
 ) error {
 	MustBeExpectedStrategy(b.strategy, StrategyReplace)
 
@@ -124,19 +108,14 @@ func (b *Bucket) scanTargetedReplace(ctx context.Context, peekSize, parallel int
 	// inMem[0] is the active memtable (newest); a flushing memtable follows
 	var hideSets []map[string]struct{}
 	for _, c := range inMem {
-		var collect map[string]struct{}
-		if newestWins {
-			collect = map[string]struct{}{}
-		}
+		collect := map[string]struct{}{}
 		if err := scanTargetedMemtable(ctx, c, peekSize, hideSets, collect, fn); err != nil {
 			return err
 		}
-		if newestWins {
-			hideSets = append(hideSets, collect)
-		}
+		hideSets = append(hideSets, collect)
 	}
 
-	tasks := buildTargetedScanTasks(segments, parallel, newestWins)
+	tasks := buildTargetedScanTasks(segments, parallel)
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -158,14 +137,14 @@ func (b *Bucket) scanTargetedReplace(ctx context.Context, peekSize, parallel int
 type targetedScanTask struct {
 	seg        *segment
 	start, end []byte // key range [start,end); nil = open-ended
-	// newer holds the segments written after seg, newest first; non-nil only in
-	// newest-wins mode, where a key present in any of them hides seg's row
+	// newer holds the segments written after seg, newest first; a key present in
+	// any of them hides seg's row
 	newer []*segment
 }
 
 // buildTargetedScanTasks splits each segment into enough key ranges that the total
 // task count reaches the requested parallelism even when few segments exist.
-func buildTargetedScanTasks(segments []Segment, parallel int, newestWins bool) []targetedScanTask {
+func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask {
 	if len(segments) == 0 {
 		return nil
 	}
@@ -178,12 +157,10 @@ func buildTargetedScanTasks(segments []Segment, parallel int, newestWins bool) [
 
 	var tasks []targetedScanTask
 	for segIdx, seg := range underlying {
+		// segments arrive oldest to newest; probe newest first
 		var newer []*segment
-		if newestWins {
-			// segments arrive oldest to newest; probe newest first
-			for j := len(underlying) - 1; j > segIdx; j-- {
-				newer = append(newer, underlying[j])
-			}
+		for j := len(underlying) - 1; j > segIdx; j-- {
+			newer = append(newer, underlying[j])
 		}
 		seeds := [][]byte{}
 		if rangesPerSeg > 1 {
@@ -206,10 +183,9 @@ func buildTargetedScanTasks(segments []Segment, parallel int, newestWins bool) [
 	return tasks
 }
 
-// scanTargetedMemtable serves one memtable's live rows. In newest-wins mode,
-// collect receives every key the memtable holds (tombstones included, since they
-// hide older versions) and hideSets suppresses rows already superseded by newer
-// memtables.
+// scanTargetedMemtable serves one memtable's live rows. collect receives every
+// key the memtable holds (tombstones included, since they hide older versions)
+// and hideSets suppresses rows already superseded by newer memtables.
 func scanTargetedMemtable(ctx context.Context, c innerCursorReplace, peekSize int,
 	hideSets []map[string]struct{}, collect map[string]struct{},
 	fn func(e *TargetedScanEntry) error,
