@@ -97,6 +97,12 @@ func newTestIndexForRaftReadiness(
 	)
 	require.NoError(t, err)
 
+	// Stop the background lazy-shard loader before the mocks are torn down;
+	// a straggling load would call unstubbed mock methods after the test ends.
+	t.Cleanup(func() {
+		require.NoError(t, idx.Shutdown(context.Background()))
+	})
+
 	return idx, scheduler, mockSchemaGetter
 }
 
