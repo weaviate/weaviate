@@ -943,10 +943,17 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayers, release func(), err error) {
+// roaringSetGet folds all disk segments holding key into a single BitmapLayer.
+// The first segment that has the key becomes the base (its additions are cloned
+// into a pooled buffer with headroom); every later segment is merged in place
+// into that base via roaringSetMergeWith, so no per-layer slice is materialized.
+// If no segment has the key, a zero BitmapLayer (nil bitmaps) and a noop release
+// are returned. Callers fold this base together with the memtable layers using
+// roaringset.LayerMerger.
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayer, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
-		return nil, noopRelease, nil
+		return out, noopRelease, nil
 	}
 
 	// acquired (not the named return, which error paths overwrite with
@@ -960,13 +967,13 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 		// the in-place merges of the following layers (see field decl).
 		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolFactored)
 		if getErr == nil {
-			out = append(out, layer)
+			out = layer
 			acquired = layerRelease
 			i++
 			break
 		}
 		if !errors.Is(getErr, lsmkv.NotFound) {
-			return nil, noopRelease, getErr
+			return roaringset.BitmapLayer{}, noopRelease, getErr
 		}
 	}
 	defer func() {
@@ -976,9 +983,9 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 	}()
 
 	for ; i < ln; i++ {
-		if mergeErr := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool, maxConc); mergeErr != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, out, sg.bitmapBufPool, maxConc); mergeErr != nil {
 			err = mergeErr
-			return nil, noopRelease, err
+			return roaringset.BitmapLayer{}, noopRelease, err
 		}
 	}
 

@@ -104,6 +104,46 @@ func (bml BitmapLayers) Flatten(clone bool, maxConc int) *sroar.Bitmap {
 	return merged
 }
 
+// LayerMerger performs the same left-fold as [BitmapLayers.Flatten], but one
+// layer at a time, so callers that produce layers incrementally (e.g. disk →
+// flushing → active on a read) need not materialize a []BitmapLayer. Seed it
+// with the chronologically-first layer's additions, Add each subsequent layer
+// in order, then read Result.
+//
+// As in Flatten, the base layer's own deletions are irrelevant — only its
+// additions survive as the initial state. Feeding layers in the same order
+// Flatten would iterate them yields a byte-identical result.
+type LayerMerger struct {
+	merged  *sroar.Bitmap
+	maxConc int
+}
+
+// NewLayerMerger starts a fold from base, which becomes the accumulator and is
+// mutated in place by Add. If base is nil an empty bitmap is used. Pass
+// clone=true when base must not be mutated.
+func NewLayerMerger(base *sroar.Bitmap, clone bool, maxConc int) LayerMerger {
+	switch {
+	case base == nil:
+		base = sroar.NewBitmap()
+	case clone:
+		base = base.Clone()
+	}
+	return LayerMerger{merged: base, maxConc: maxConc}
+}
+
+// Add folds one subsequent layer into the accumulator: its deletions remove
+// existing elements, then its additions are unioned in — identical to one
+// iteration of Flatten's loop. A nil Additions/Deletions is treated as empty.
+func (m *LayerMerger) Add(layer BitmapLayer) {
+	m.merged.AndNotConc(layer.Deletions, m.maxConc)
+	m.merged.OrConc(layer.Additions, m.maxConc)
+}
+
+// Result returns the flattened bitmap accumulated so far.
+func (m LayerMerger) Result() *sroar.Bitmap {
+	return m.merged
+}
+
 // Merge turns two successive layers into one. It does not flatten the segment,
 // but keeps additions and deletions separate. This is because there are no
 // guarantees that the first segment was the root segment. A merge could run on
