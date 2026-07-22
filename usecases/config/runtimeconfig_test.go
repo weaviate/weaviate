@@ -215,6 +215,34 @@ func TestDisableGraphQLRuntimeOverride(t *testing.T) {
 	})
 }
 
+func TestBackupMaxIndividualFilesRuntimeOverride(t *testing.T) {
+	// ParseRuntimeConfig ignores unknown keys, so only an explicit assertion catches a
+	// renamed or misspelled yaml tag.
+	t.Run("yaml key is parsed", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte(`backup_max_individual_files: 250`))
+		require.NoError(t, err)
+		assert.Equal(t, 250, cfg.BackupMaxIndividualFiles.Get())
+	})
+
+	t.Run("override applies to the env-registered value and rejects non-positive", func(t *testing.T) {
+		t.Setenv("BACKUP_MAX_INDIVIDUAL_FILES", "40")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.Equal(t, 40, conf.Backup.MaxIndividualFiles.Get())
+
+		require.NoError(t, conf.Backup.MaxIndividualFiles.SetValue(250))
+		assert.Equal(t, 250, conf.Backup.MaxIndividualFiles.Get())
+
+		// The validator is attached to the value, so it guards the runtime path too.
+		require.Error(t, conf.Backup.MaxIndividualFiles.SetValue(0))
+		assert.Equal(t, 250, conf.Backup.MaxIndividualFiles.Get())
+
+		// Removing the key from the overrides file restores the env-supplied value.
+		conf.Backup.MaxIndividualFiles.Reset()
+		assert.Equal(t, 40, conf.Backup.MaxIndividualFiles.Get())
+	})
+}
+
 func TestUpdateRuntimeConfig(t *testing.T) {
 	log := logrus.New()
 	log.SetOutput(io.Discard)

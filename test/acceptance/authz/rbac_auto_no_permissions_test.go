@@ -90,9 +90,11 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/export/{backend}",
 		"/export/{backend}/{id}",
 		// Namespaces are disabled on this compose, so every method on the
-		// per-namespace endpoint returns 404 before authz runs. RBAC for
+		// per-namespace endpoints returns 404 before authz runs. RBAC for
 		// namespaces is covered in the namespaces suite.
 		"/namespaces/{namespace_id}",
+		"/namespaces/{namespace_id}/suspend",
+		"/namespaces/{namespace_id}/resume",
 	}
 
 	// These leak 404 on a non-existent backup ID because the meta is read
@@ -138,6 +140,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{aliasName}", "alias")
 		url = strings.ReplaceAll(url, "{groupType}", "oidc")
 		url = strings.ReplaceAll(url, "{namespace_id}", "someNamespace")
+		url = strings.ReplaceAll(url, "{collection}", className)
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")
@@ -161,6 +164,11 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			// on id validation before authz; send a valid id so it reaches authz.
 			if endpoint.path == "/backups/{backend}" && endpoint.method == http.MethodPost {
 				body = []byte(`{"id":"someid"}`)
+			}
+			// near-text's generated body is {} (allOf schema) and 422s on the
+			// required query before authz; send a valid query so it reaches authz.
+			if endpoint.path == "/search/{collection}/near-text" && endpoint.method == http.MethodPost {
+				body = []byte(`{"query":["ABC"]}`)
 			}
 
 			if endpoint.method == http.MethodPost || endpoint.method == http.MethodPut || endpoint.method == http.MethodPatch || endpoint.method == http.MethodDelete {

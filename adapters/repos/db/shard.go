@@ -89,7 +89,7 @@ type ShardLike interface {
 	ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string) ([]*storobj.Object, []float32, error)
-	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
 	DropVectorIndex(ctx context.Context, targetVector string) error
@@ -479,13 +479,10 @@ type Shard struct {
 
 	reindexer ShardReindexerV3
 
-	// Copy-on-write callback slices stored in atomic.Value for lock-free reads
-	// on the hot write path. Registration (rare) copies the slice behind
-	// propertyValueIndexCallbacksMu; iteration (every object write) loads the
-	// current snapshot without locking.
-	callbacksAddToPropertyValueIndex      atomic.Value // []onAddToPropertyValueIndex
-	callbacksRemoveFromPropertyValueIndex atomic.Value // []onDeleteFromPropertyValueIndex
-	propertyValueIndexCallbacksMu         sync.Mutex
+	// Folded snapshot (propValueIndexState) for lock-free reads on the write
+	// path; registration/arm/disarm publish a fresh copy under the mutex.
+	propValueIndexState           atomic.Value // *propValueIndexState
+	propertyValueIndexCallbacksMu sync.Mutex
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -600,7 +597,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		} else {
 			// dont lazy load segments on config update
 			if err = s.initTargetVector(ctx, targetVector, targetCfg, false); err != nil {
-				return fmt.Errorf("creating new vector index: %w", err)
+				// break, don't return: the deferred-like goroutine below must still
+				// run to restore StatusReady, otherwise a failure here leaves the
+				// shard read-only until restart.
+				err = fmt.Errorf("creating new vector index: %w", err)
+				break
 			}
 		}
 	}
@@ -965,50 +966,45 @@ func (s *Shard) Activity() (int32, int32) {
 	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
 }
 
+// registerAddToPropertyValueIndex appends callback to the folded write-path
+// snapshot and returns a disarm func that REMOVES it again (by id, copy-on-write
+// under the mutex). Removing rather than flagging keeps the slice bounded: the
+// backup-window migration path (re)registers a pair per run, so a
+// flag-and-keep disarm would leak one entry per migration onto the hot path for
+// the life of the shard. Disarm is idempotent — a second call finds no matching
+// id and no-ops.
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) func() {
-	disabled := &atomic.Bool{}
-	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if disabled.Load() {
-			return nil
-		}
-		return callback(shard, docID, property)
-	}
+	var id uint64
+	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+		id = cur.nextCallbackID
+		cur.nextCallbackID++
+		cur.add = appendAddCallback(cur.add, id, callback)
+		return cur
+	})
 
-	s.propertyValueIndexCallbacksMu.Lock()
-	var current []onAddToPropertyValueIndex
-	if v := s.callbacksAddToPropertyValueIndex.Load(); v != nil {
-		current = v.([]onAddToPropertyValueIndex)
+	return func() {
+		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+			cur.add = removeAddCallback(cur.add, id)
+			return cur
+		})
 	}
-	updated := make([]onAddToPropertyValueIndex, len(current)+1)
-	copy(updated, current)
-	updated[len(current)] = wrapped
-	s.callbacksAddToPropertyValueIndex.Store(updated)
-	s.propertyValueIndexCallbacksMu.Unlock()
-
-	return func() { disabled.Store(true) }
 }
 
 func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) func() {
-	disabled := &atomic.Bool{}
-	wrapped := func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if disabled.Load() {
-			return nil
-		}
-		return callback(shard, docID, property)
-	}
+	var id uint64
+	s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+		id = cur.nextCallbackID
+		cur.nextCallbackID++
+		cur.del = appendDeleteCallback(cur.del, id, callback)
+		return cur
+	})
 
-	s.propertyValueIndexCallbacksMu.Lock()
-	var current []onDeleteFromPropertyValueIndex
-	if v := s.callbacksRemoveFromPropertyValueIndex.Load(); v != nil {
-		current = v.([]onDeleteFromPropertyValueIndex)
+	return func() {
+		s.mutatePropValueIndexState(func(cur propValueIndexState) propValueIndexState {
+			cur.del = removeDeleteCallback(cur.del, id)
+			return cur
+		})
 	}
-	updated := make([]onDeleteFromPropertyValueIndex, len(current)+1)
-	copy(updated, current)
-	updated[len(current)] = wrapped
-	s.callbacksRemoveFromPropertyValueIndex.Store(updated)
-	s.propertyValueIndexCallbacksMu.Unlock()
-
-	return func() { disabled.Store(true) }
 }
 
 // AnyActiveMovement reports whether a replica movement is in flight for this shard.

@@ -27,8 +27,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/weaviate/weaviate/entities/dbuser"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -78,17 +80,9 @@ type User struct {
 }
 
 // UserView is an independent snapshot of [User] returned by [DBUser.GetUsers]
-// so callers can read fields without racing in-place mutators.
-type UserView struct {
-	Id                 string
-	Active             bool
-	InternalIdentifier string
-	ApiKeyFirstLetters string
-	CreatedAt          time.Time
-	LastUsedAt         time.Time
-	ImportedWithKey    bool
-	Namespace          string
-}
+// so callers can read fields without racing in-place mutators. It aliases
+// [dbuser.View] so a user is the same type at both ends of the RAFT hop.
+type UserView = dbuser.View
 
 // view returns a snapshot taken under the per-user RLock so it cannot
 // observe a torn write from UpdateLastUsedTimestamp.
@@ -114,6 +108,7 @@ type DBUser struct {
 	memoryOnlyData memoryOnlyData
 	path           string
 	enabled        bool
+	nsExister      namespaces.Exister
 }
 
 type DBUserSnapshot struct {
@@ -144,7 +139,10 @@ type memoryOnlyData struct {
 	importedApiKeysBlocked [][sha256.Size]byte
 }
 
-func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, error) {
+func NewDBUser(path string, enabled bool, logger logrus.FieldLogger, nsExister namespaces.Exister) (*DBUser, error) {
+	if nsExister == nil {
+		panic("apikey: namespaces exister must not be nil")
+	}
 	fullpath := fmt.Sprintf("%s/raft/db_users/", path)
 	err := createStorage(fullpath + FileName)
 	if err != nil {
@@ -171,7 +169,8 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 			weakKeyStorageById:     &sync.Map{},
 			importedApiKeysBlocked: make([][sha256.Size]byte, 0),
 		},
-		enabled: enabled,
+		enabled:   enabled,
+		nsExister: nsExister,
 	}
 
 	// we save every change to file after a request is done, EXCEPT the lastUsedAt time as we do not want to write to a
@@ -466,7 +465,12 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) != 1 {
 			continue
 		}
-		if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
+		u := c.data.Users[userId]
+		if u == nil {
+			// the user record is missing though its key resolved; fail closed
+			return nil, fmt.Errorf("invalid token")
+		}
+		if !u.Active {
 			return nil, fmt.Errorf("user deactivated")
 		}
 
@@ -475,15 +479,15 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 		}
 
 		// imported keys are always without a namespace, something is seriously wrong here
-		if c.data.Users[userId].Namespace != "" {
-			return nil, fmt.Errorf("imported key with namespace %v", c.data.Users[userId].Namespace)
+		if u.Namespace != "" {
+			return nil, fmt.Errorf("imported key with namespace %v", u.Namespace)
 		}
 
 		// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 		// user, only recording one of them is good enough
-		if c.data.Users[userId].TryLock() {
-			c.data.Users[userId].LastUsedAt = time.Now()
-			c.data.Users[userId].Unlock()
+		if u.TryLock() {
+			u.LastUsedAt = time.Now()
+			u.Unlock()
 		}
 
 		return &models.Principal{
@@ -522,13 +526,20 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	}
 	weakHashValue, ok := c.memoryOnlyData.weakKeyStorageById.Load(userId)
 	if !ok {
-		// Ensure only one Argon2 verification runs for this user
-		if _, err, _ := c.singleFlight.Do("auth:"+userId, func() (any, error) {
+		// Ensure only one Argon2 verification runs per user and key. Keying on
+		// the user alone would let a request joining an in-flight verification
+		// inherit a verdict reached for a different key.
+		keyHash := sha256.Sum256([]byte(key))
+		if _, err, _ := c.singleFlight.Do("auth:"+userId+":"+string(keyHash[:]), func() (any, error) {
 			return nil, c.validateStrongHash(key, secureHash, userId)
 		}); err != nil {
 			return nil, err
 		}
-		weakHashValue, _ = c.memoryOnlyData.weakKeyStorageById.Load(userId)
+		// A missing entry here would panic the type assertion below.
+		weakHashValue, ok = c.memoryOnlyData.weakKeyStorageById.Load(userId)
+		if !ok {
+			return nil, fmt.Errorf("invalid token")
+		}
 	}
 
 	weakHash := weakHashValue.([sha256.Size]byte)
@@ -536,24 +547,32 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		return nil, err
 	}
 
-	if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
+	u := c.data.Users[userId]
+	if u == nil {
+		// the user record is missing though its key resolved; fail closed
+		return nil, fmt.Errorf("invalid token")
+	}
+	if !u.Active {
 		return nil, fmt.Errorf("user deactivated")
 	}
 	if _, ok := c.data.UserKeyRevoked[userId]; ok {
 		return nil, fmt.Errorf("key is revoked")
 	}
+	if err := namespaces.RequireActive(c.nsExister, u.Namespace); err != nil {
+		return nil, err
+	}
 
 	// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 	// user, only recording one of them is good enough
-	if c.data.Users[userId].TryLock() {
-		c.data.Users[userId].LastUsedAt = time.Now()
-		c.data.Users[userId].Unlock()
+	if u.TryLock() {
+		u.LastUsedAt = time.Now()
+		u.Unlock()
 	}
 
 	return &models.Principal{
 		Username:         userId,
 		UserType:         models.UserTypeInputDb,
-		Namespace:        c.data.Users[userId].Namespace,
+		Namespace:        u.Namespace,
 		IsGlobalOperator: false,
 	}, nil
 }

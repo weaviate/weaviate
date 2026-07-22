@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -234,6 +235,21 @@ type Bucket struct {
 	// keep segments in memory for more performant search
 	// (currently used by roaringsetrange inverted indexes)
 	keepSegmentsInMemory bool
+
+	// rangeableInMemoryDeferred marks a bucket whose rep was intentionally left
+	// unbuilt (reindex ingest path). Selects a diagnostic log line only;
+	// rangeableServesFromMemory alone governs read-path selection.
+	rangeableInMemoryDeferred bool
+
+	// rangeableRepRebuilt flips once RebuildRangeableSegmentInMemory
+	// publishes a rep. Atomic and read unlocked; the false->true store
+	// happens under flushLock after the rep is fully built, so a reader
+	// observing true is guaranteed a populated rep.
+	rangeableRepRebuilt atomic.Bool
+
+	// Dedup for the rangeable diagnostic log lines, once per bucket-open.
+	rangeableDeferredLogOnce  sync.Once
+	rangeableFallbackWarnOnce sync.Once
 
 	// pool of buffers for bitmaps merges
 	// (currently used by roaringsetrange inverted indexes)
@@ -2131,18 +2147,14 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 
 	case StrategyRoaringSetRange:
-		if b.keepSegmentsInMemory {
+		if b.rangeableServesFromMemory() {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
 	case StrategyInverted:
-		// update property length only on flush
-		// we don't need to do it on compactions,
-		// as it is not currently tracking deletions
-		avg, count := seg.getInvertedData().avgPropertyLengthsAvg, seg.getInvertedData().avgPropertyLengthsCount
-		if count > 0 {
-			b.disk.averagePropSum.Add(uint64(avg * float64(count)))
-			b.disk.averagePropCount.Add(count)
-		}
+		// A flush only adds the new segment's live docs; deletes are subtracted
+		// later at compaction, once the tombstoned docs' lengths drop out of the
+		// merged segment (reconcileAveragePropertyLength).
+		b.disk.countSegmentAveragePropLength(seg)
 	}
 
 	return nil

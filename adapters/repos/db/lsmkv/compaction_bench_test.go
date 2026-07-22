@@ -106,3 +106,48 @@ func getFiles(t testing.TB, dirName string) map[string]int {
 	}
 	return fileTypes
 }
+
+// BenchmarkInvertedCompaction compacts two inverted segments whose terms
+// overlap (so postings are merged and re-encoded through the reusable pipeline),
+// with >BLOCK_SIZE docs per term to exercise the block-encode path. Run with
+// -benchmem to see the per-key/per-block allocation profile.
+func BenchmarkInvertedCompaction(b *testing.B) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	const (
+		numTerms = 100
+		docsPer  = 200 // > BLOCK_SIZE (128) -> multi-block postings
+	)
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		tmpDir := b.TempDir()
+		bu, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyInverted), WithKeepTombstones(true))
+		require.NoError(b, err)
+		bu.SetMemtableThreshold(1 << 30) // never auto-flush mid-segment
+
+		for seg := 0; seg < 2; seg++ {
+			for term := 0; term < numTerms; term++ {
+				key := []byte(fmt.Sprintf("term%d", term))
+				for d := 0; d < docsPer; d++ {
+					docID := uint64(seg*numTerms*docsPer + term*docsPer + d)
+					require.NoError(b, bu.MapSet(key, NewMapPairFromDocIdAndTf(docID, float32(d%10+1), float32(d%5+1), false)))
+				}
+			}
+			require.NoError(b, bu.FlushAndSwitch())
+		}
+		b.StartTimer()
+
+		ok, err := bu.disk.compactOnce(ctx)
+		require.NoError(b, err)
+		require.True(b, ok)
+
+		b.StopTimer()
+		require.NoError(b, bu.Shutdown(ctx))
+		b.StartTimer()
+	}
+}

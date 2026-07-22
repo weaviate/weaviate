@@ -376,6 +376,38 @@ func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
 	})
 }
 
+func TestEnvironmentBackupMaxIndividualFiles(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected int
+		wantErr  bool
+	}{
+		{name: "unset uses the default", value: "", expected: DefaultBackupMaxIndividualFiles},
+		{name: "valid value is parsed", value: "250", expected: 250},
+		{name: "one is the smallest accepted value", value: "1", expected: 1},
+		{name: "zero is rejected", value: "0", wantErr: true},
+		{name: "negative is rejected", value: "-1", wantErr: true},
+		{name: "non-numeric is rejected", value: "many", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BACKUP_MAX_INDIVIDUAL_FILES", tc.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "BACKUP_MAX_INDIVIDUAL_FILES")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, conf.Backup.MaxIndividualFiles.Get())
+		})
+	}
+}
+
 func TestEnvironmentSkipAccessCheck(t *testing.T) {
 	t.Run("unset defaults to false for both", func(t *testing.T) {
 		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "")
@@ -803,6 +835,39 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Equal(t, tt.expected, conf.DisableGraphQL.Get())
+			}
+		})
+	}
+}
+
+func TestEnvironmentExperimentalRESTSearchEnabled(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    bool
+		expectedErr bool
+	}{
+		{"Valid: true", []string{"true"}, true, false},
+		{"Valid: false", []string{"false"}, false, false},
+		{"Valid: 1", []string{"1"}, true, false},
+		{"Valid: 0", []string{"0"}, false, false},
+		{"Valid: on", []string{"on"}, true, false},
+		{"Valid: off", []string{"off"}, false, false},
+		// experimental feature: unset means disabled (opt-in)
+		{"not given", []string{}, false, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("EXPERIMENTAL_REST_SEARCH_ENABLED", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.ExperimentalRESTSearchEnabled.Get())
 			}
 		})
 	}

@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,20 +29,33 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// createTestBucketRoaringSet creates a RoaringSet bucket in the given
-// directory, suitable for testing PrependSegmentsFromBucket.
-func createTestBucketRoaringSet(t *testing.T, ctx context.Context, dir string) *Bucket {
+// createTestBucketWithOptionsAndLogger creates a bucket with the given
+// options and logger; shared by the createTestBucket* helpers below.
+func createTestBucketWithOptionsAndLogger(t *testing.T, ctx context.Context, dir string, logger logrus.FieldLogger, opts ...BucketOption) *Bucket {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-	opts := []BucketOption{
-		WithStrategy(StrategyRoaringSet),
-		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
-	}
 	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.NoError(t, err)
 	b.SetMemtableThreshold(1e9) // prevent auto-flush
 	return b
+}
+
+// createTestBucketWithOptions is createTestBucketWithOptionsAndLogger with
+// a discarded logger.
+func createTestBucketWithOptions(t *testing.T, ctx context.Context, dir string, opts ...BucketOption) *Bucket {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	return createTestBucketWithOptionsAndLogger(t, ctx, dir, logger, opts...)
+}
+
+// createTestBucketRoaringSet creates a RoaringSet bucket in the given
+// directory, suitable for testing PrependSegmentsFromBucket.
+func createTestBucketRoaringSet(t *testing.T, ctx context.Context, dir string) *Bucket {
+	t.Helper()
+	return createTestBucketWithOptions(t, ctx, dir,
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+	)
 }
 
 func TestSegmentGroup_PrependSegments(t *testing.T) {
@@ -304,7 +318,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		// compacted target bucket, further compaction merges src segments
 		// into dest segments (not just compacting each side independently).
 		//
-		// Setup (per reviewer request):
+		// Setup:
 		//   7 src segments → compact → 3 segments at levels [2, 1, 0]
 		//   9 dest segments → compact → 2 segments at levels [3, 0]
 		//   prepend → 5 segments: [2, 1, 0, 3, 0]
@@ -657,6 +671,90 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 	})
 }
 
+func createTestBucketRoaringSetRange(t *testing.T, ctx context.Context, dir string, keepSegmentsInMemory bool) *Bucket {
+	t.Helper()
+	return createTestBucketWithOptions(t, ctx, dir,
+		WithStrategy(StrategyRoaringSetRange),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithKeepSegmentsInMemory(keepSegmentsInMemory),
+	)
+}
+
+// createTestBucketRoaringSetRangeWithHook is createTestBucketRoaringSetRange
+// with the log hook preserved, for tests asserting on log output.
+func createTestBucketRoaringSetRangeWithHook(t *testing.T, ctx context.Context, dir string, keepSegmentsInMemory bool) (*Bucket, *test.Hook) {
+	t.Helper()
+	logger, hook := test.NewNullLogger()
+	b := createTestBucketWithOptionsAndLogger(t, ctx, dir, logger,
+		WithStrategy(StrategyRoaringSetRange),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithKeepSegmentsInMemory(keepSegmentsInMemory),
+	)
+	return b, hook
+}
+
+// TestSegmentGroup_PrependSegments_RoaringSetRangeGuard pins the
+// weaviate/weaviate#12199 guard: prepend into an active in-memory rep is
+// rejected before any file copy or splice.
+func TestSegmentGroup_PrependSegments_RoaringSetRangeGuard(t *testing.T) {
+	ctx := context.Background()
+
+	makeSource := func(t *testing.T) string {
+		t.Helper()
+		srcDir := t.TempDir()
+		src := createTestBucketRoaringSetRange(t, ctx, srcDir, false)
+		require.NoError(t, src.RoaringSetRangeAdd(42, 100))
+		require.NoError(t, src.FlushAndSwitch())
+		require.NoError(t, src.Shutdown(ctx))
+		return srcDir
+	}
+
+	t.Run("active rep: prepend rejected before mutation", func(t *testing.T) {
+		srcDir := makeSource(t)
+
+		tgtDir := t.TempDir()
+		tgt := createTestBucketRoaringSetRange(t, ctx, tgtDir, true) // rep active
+		defer tgt.Shutdown(ctx)
+		require.NotNil(t, tgt.disk.roaringSetRangeSegmentInMemory,
+			"keepSegmentsInMemory=true must build the rep at open")
+
+		segsBefore := tgt.disk.Len()
+		filesBefore := countDBFiles(t, tgtDir)
+
+		err := tgt.PrependSegmentsFromBucket(ctx, srcDir)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrPrependWouldDesyncInMemoryRep)
+		assert.Contains(t, err.Error(), "active in-memory representation")
+		assert.Contains(t, err.Error(), "keepSegmentsInMemory=false")
+
+		assert.Equal(t, segsBefore, tgt.disk.Len(), "segment list must be unmutated")
+		assert.Equal(t, filesBefore, countDBFiles(t, tgtDir), "no segment files may be copied")
+	})
+
+	t.Run("no rep: prepend proceeds as before", func(t *testing.T) {
+		srcDir := makeSource(t)
+
+		tgtDir := t.TempDir()
+		tgt := createTestBucketRoaringSetRange(t, ctx, tgtDir, false) // no rep
+		defer tgt.Shutdown(ctx)
+		require.Nil(t, tgt.disk.roaringSetRangeSegmentInMemory)
+
+		require.NoError(t, tgt.RoaringSetRangeAdd(7, 999))
+		require.NoError(t, tgt.FlushAndSwitch())
+		segsBefore := tgt.disk.Len()
+
+		require.NoError(t, tgt.PrependSegmentsFromBucket(ctx, srcDir))
+		assert.Equal(t, segsBefore+1, tgt.disk.Len(), "source segment must be spliced in")
+	})
+}
+
+func countDBFiles(t *testing.T, dir string) int {
+	t.Helper()
+	files, err := discoverDBFiles(dir)
+	require.NoError(t, err)
+	return len(files)
+}
+
 func TestParseSegmentTimestamp(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -858,18 +956,13 @@ func TestApplyTimestampShift(t *testing.T) {
 // createTestBucket creates a bucket with the given strategy.
 func createTestBucket(t *testing.T, ctx context.Context, dir, strategy string) *Bucket {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
 	opts := []BucketOption{
 		WithStrategy(strategy),
 	}
 	if strategy == StrategyRoaringSet {
 		opts = append(opts, WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 	}
-	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-	require.NoError(t, err)
-	b.SetMemtableThreshold(1e9)
-	return b
+	return createTestBucketWithOptions(t, ctx, dir, opts...)
 }
 
 // assertRoaringSetContains verifies that getting the key from the bucket
@@ -882,4 +975,87 @@ func assertRoaringSetContains(t *testing.T, b *Bucket, key []byte, expected []ui
 	for _, v := range expected {
 		assert.True(t, bm.Contains(v), "expected bitmap to contain %d for key %q", v, key)
 	}
+}
+
+// TestSegmentGroup_PrependSegments_InvertedAveragePropertyLength pins that
+// prepended StrategyInverted segments are folded into the avgdl accounting.
+// PrependSegmentsFromBucket makes them live in the group, so their documents
+// count toward the BM25 denominator exactly as a flushed segment's would;
+// leaving them uncounted under-reports avgdl for the whole shard.
+func TestSegmentGroup_PrependSegments_InvertedAveragePropertyLength(t *testing.T) {
+	ctx := context.Background()
+	term := []byte("shared")
+
+	// source: 100 docs, property length 10 each
+	srcDir := t.TempDir()
+	src := createTestBucket(t, ctx, srcDir, StrategyInverted)
+	for id := 0; id < 100; id++ {
+		require.NoError(t, src.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 10, false)))
+	}
+	require.NoError(t, src.FlushAndSwitch())
+	require.NoError(t, src.Shutdown(ctx))
+
+	// target: 10 docs of its own, property length 20 each
+	tgtDir := t.TempDir()
+	tgt := createTestBucket(t, ctx, tgtDir, StrategyInverted)
+	defer tgt.Shutdown(ctx)
+	for id := 1000; id < 1010; id++ {
+		require.NoError(t, tgt.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 20, false)))
+	}
+	require.NoError(t, tgt.FlushAndSwitch())
+
+	_, count := tgt.disk.GetAveragePropertyLength()
+	require.Equal(t, uint64(10), count, "control: only the target's own docs so far")
+
+	require.NoError(t, tgt.PrependSegmentsFromBucket(ctx, srcDir))
+
+	avg, count := tgt.disk.GetAveragePropertyLength()
+	require.Equal(t, uint64(110), count, "prepended segments must be counted into the avgdl accounting")
+	require.InDelta(t, (100*10.0+10*20.0)/110.0, avg, 1e-9)
+}
+
+// TestSegmentGroup_PrependSegments_InvertedCompactionDoesNotUnderflow pins the
+// consequence of the above: reconcileAveragePropertyLength subtracts a retired
+// segment's contribution at compaction, so a prepended segment that was never
+// counted underflows the running total to a wrapped uint64 — a garbage BM25
+// denominator for the whole shard, not merely an under-count.
+func TestSegmentGroup_PrependSegments_InvertedCompactionDoesNotUnderflow(t *testing.T) {
+	ctx := context.Background()
+	term := []byte("shared")
+
+	// source: 97 docs, all of which the target will tombstone
+	srcDir := t.TempDir()
+	src := createTestBucket(t, ctx, srcDir, StrategyInverted)
+	for id := 0; id < 97; id++ {
+		require.NoError(t, src.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 10, false)))
+	}
+	require.NoError(t, src.FlushAndSwitch())
+	require.NoError(t, src.Shutdown(ctx))
+
+	// target: 3 live docs of its own
+	tgtDir := t.TempDir()
+	tgt := createTestBucket(t, ctx, tgtDir, StrategyInverted)
+	defer tgt.Shutdown(ctx)
+	for id := 1000; id < 1003; id++ {
+		require.NoError(t, tgt.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 20, false)))
+	}
+	require.NoError(t, tgt.FlushAndSwitch())
+	require.NoError(t, tgt.PrependSegmentsFromBucket(ctx, srcDir))
+
+	// tombstone every prepended doc, then force the compaction that reclaims them
+	for id := 0; id < 97; id++ {
+		require.NoError(t, tgt.MapDeleteKey(term, NewMapPairFromDocIdAndTf(uint64(id), 1, 1, true).Key))
+	}
+	require.NoError(t, tgt.FlushAndSwitch())
+	for {
+		compacted, err := tgt.disk.compactOnce(ctx)
+		require.NoError(t, err)
+		if !compacted {
+			break
+		}
+	}
+
+	avg, count := tgt.disk.GetAveragePropertyLength()
+	require.Equal(t, uint64(3), count, "denominator must be the 3 survivors, not an underflowed uint64")
+	require.InDelta(t, 20.0, avg, 1e-9)
 }

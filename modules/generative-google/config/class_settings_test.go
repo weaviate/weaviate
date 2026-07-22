@@ -22,6 +22,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+func ptr[T any](v T) *T {
+	return &v
+}
+
 func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -30,10 +34,10 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantProjectID   string
 		wantModelID     string
 		wantModel       string
-		wantTemperature float64
-		wantTokenLimit  int
-		wantTopK        int
-		wantTopP        float64
+		wantTemperature *float64
+		wantTokenLimit  *int
+		wantTopK        *int
+		wantTopP        *float64
 		wantErr         error
 	}{
 		{
@@ -45,10 +49,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantProjectID:   "",
 			wantModelID:     "chat-bison-001",
 			wantModel:       "",
-			wantTemperature: 1.0,
-			wantTokenLimit:  1024,
-			wantTopK:        40,
-			wantTopP:        0.95,
 			wantErr:         nil,
 		},
 		{
@@ -61,10 +61,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "chat-bison",
-			wantTemperature: 1.0,
-			wantTokenLimit:  1024,
-			wantTopK:        40,
-			wantTopP:        0.95,
 			wantErr:         nil,
 		},
 		{
@@ -83,10 +79,10 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "google.com",
 			wantProjectID:   "cloud-project",
 			wantModelID:     "model-id",
-			wantTemperature: 0.25,
-			wantTokenLimit:  254,
-			wantTopK:        30,
-			wantTopP:        0.97,
+			wantTemperature: ptr(0.25),
+			wantTokenLimit:  ptr(254),
+			wantTopK:        ptr(30),
+			wantTopP:        ptr(0.97),
 			wantErr:         nil,
 		},
 		{
@@ -120,6 +116,42 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("topP has to be float value between 0 and 1"),
 		},
 		{
+			name: "wrong temperature type",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId":   "cloud-project",
+					"temperature": true,
+				},
+			},
+			wantErr: errors.Errorf("temperature has to be float value between 0 and 1"),
+		},
+		{
+			name: "wrong tokenLimit type",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId":  "cloud-project",
+					"tokenLimit": true,
+				},
+			},
+			wantErr: errors.Errorf("tokenLimit has to be an integer value between 1 and 1024"),
+		},
+		{
+			name: "tokenLimit validated against effective model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId":  "cloud-project",
+					"model":      "gemini-1.5-pro",
+					"tokenLimit": 5000,
+				},
+			},
+			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
+			wantProjectID:   "cloud-project",
+			wantModelID:     "chat-bison",
+			wantModel:       "gemini-1.5-pro",
+			wantTokenLimit:  ptr(5000),
+			wantErr:         nil,
+		},
+		{
 			name: "wrong all",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -143,10 +175,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "chat-bison-001",
-			wantTemperature: 1.0,
-			wantTokenLimit:  1024,
-			wantTopK:        40,
-			wantTopP:        0.95,
 			wantErr:         nil,
 		},
 		{
@@ -160,10 +188,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "chat-bison-001",
-			wantTemperature: 1.0,
-			wantTokenLimit:  1024,
-			wantTopK:        40,
-			wantTopP:        0.95,
 			wantErr:         nil,
 		},
 		{
@@ -177,10 +201,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "gemini-ultra",
-			wantTemperature: 1.0,
-			wantTokenLimit:  1024,
-			wantTopK:        40,
-			wantTopP:        0.95,
 			wantErr:         nil,
 		},
 	}
