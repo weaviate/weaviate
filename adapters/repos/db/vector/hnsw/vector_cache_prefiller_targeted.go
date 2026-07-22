@@ -49,21 +49,24 @@ func (h *hnsw) useTargetedPrefillScan(bucket *lsmkv.Bucket) bool {
 // tail. The underlying scan has no cross-segment merge and visits superseded and
 // deleted versions too, so every row is filtered by node liveness first — which also
 // skips the tail read for rows that no longer matter.
+// scanObjectVectorsTargeted uses the newest-wins scan: superseded and deleted
+// rows are hidden by in-memory key probes before any read, so the liveness filter
+// only covers HNSW-side exclusions (unindexed or tombstoned nodes whose bucket
+// row is still live).
 func (h *hnsw) scanObjectVectorsTargeted(ctx context.Context, bucket *lsmkv.Bucket,
 	targetVector string, onVector prefillOnVector,
 ) error {
-	return bucket.ScanTargetedReplace(ctx, prefillPeekBytes, prefillScanParallelism(),
+	return bucket.ScanTargetedReplaceNewestWins(ctx, prefillPeekBytes, prefillScanParallelism(),
 		h.targetedRowCallback(targetVector, onVector), h.logger)
 }
 
-// scanObjectVectorsTargetedNewestWins uses the newest-wins scan: superseded and
-// deleted rows are hidden by in-memory key probes before any read, so the
-// liveness filter only covers HNSW-side exclusions (unindexed or tombstoned
-// nodes whose bucket row is still live).
-func (h *hnsw) scanObjectVectorsTargetedNewestWins(ctx context.Context, bucket *lsmkv.Bucket,
+// scanObjectVectorsTargetedAllVersions keeps the no-merge scan reachable for
+// comparison benchmarks: stale rows surface and are filtered by node liveness
+// alone, each costing a peek read.
+func (h *hnsw) scanObjectVectorsTargetedAllVersions(ctx context.Context, bucket *lsmkv.Bucket,
 	targetVector string, onVector prefillOnVector,
 ) error {
-	return bucket.ScanTargetedReplaceNewestWins(ctx, prefillPeekBytes, prefillScanParallelism(),
+	return bucket.ScanTargetedReplace(ctx, prefillPeekBytes, prefillScanParallelism(),
 		h.targetedRowCallback(targetVector, onVector), h.logger)
 }
 

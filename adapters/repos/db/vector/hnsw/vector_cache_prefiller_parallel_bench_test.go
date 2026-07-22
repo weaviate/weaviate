@@ -247,7 +247,7 @@ func runTargetedPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfi
 	return took
 }
 
-func runTargetedNewestWinsPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig) time.Duration {
+func runTargetedAllVersionsPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig) time.Duration {
 	tb.Helper()
 	logger, _ := test.NewNullLogger()
 	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
@@ -260,7 +260,7 @@ func runTargetedNewestWinsPrefill(tb testing.TB, store *lsmkv.Store, cfg prefill
 
 	start := time.Now()
 	err := h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
-		return h.scanObjectVectorsTargetedNewestWins(ctx, bucket, prefillBenchTarget, onVector)
+		return h.scanObjectVectorsTargetedAllVersions(ctx, bucket, prefillBenchTarget, onVector)
 	})
 	took := time.Since(start)
 
@@ -308,9 +308,9 @@ func BenchmarkPrefillNamedVectorsLargeProps(b *testing.B) {
 		}
 		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
 	})
-	b.Run("pread/targeted-newest-wins", func(b *testing.B) {
+	b.Run("pread/targeted-all-versions", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			runTargetedNewestWinsPrefill(b, preadStore, cfg)
+			runTargetedAllVersionsPrefill(b, preadStore, cfg)
 		}
 		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
 	})
@@ -394,11 +394,11 @@ func BenchmarkPrefillNamedVectorsChurned(b *testing.B) {
 		}
 		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
 	})
-	b.Run("pread/targeted-newest-wins", func(b *testing.B) {
+	b.Run("pread/targeted-all-versions", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			run(b, func(h *hnsw, bucket *lsmkv.Bucket) error {
 				return h.prefillFromScan(context.Background(), func(ctx context.Context, onVector prefillOnVector) error {
-					return h.scanObjectVectorsTargetedNewestWins(ctx, bucket, prefillBenchTarget, onVector)
+					return h.scanObjectVectorsTargetedAllVersions(ctx, bucket, prefillBenchTarget, onVector)
 				})
 			})
 		}
