@@ -15,9 +15,12 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -29,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -330,4 +334,98 @@ func TestBM25FCrossPropertyAnd(t *testing.T) {
 	require.True(t, okCross)
 	require.True(t, okOr)
 	EqualFloats(t, sCross, sOr, 4)
+}
+
+func TestBM25FCrossPropertyAndNonInverted(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = false
+
+	logger := logrus.New()
+	repo, schemaGetter := newBM25BlockTestRepo(t, logger)
+	defer repo.Shutdown(context.Background())
+
+	props, _ := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "none")
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "unrelated journey", SearchOperator: common_filters.SearchOperatorAndCross}
+	_, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, additional.Properties{}, nil, "", 0, props)
+	require.ErrorContains(t, err, "BlockMax WAND")
+}
+
+// setupMixedTokenizationClass builds a class with two searched properties that use
+// different tokenizations (word vs. whitespace), which fragments cross-property AND
+// into two tokenization groups instead of the single group it requires.
+func setupMixedTokenizationClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger) []string {
+	vFalse := false
+	vTrue := true
+
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(1.2, 0.75, "none"),
+		Class:               "MixedTokClass",
+		Properties: []*models.Property{
+			{
+				Name:            "titleWord",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
+			},
+			{
+				Name:            "descWhitespace",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWhitespace,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
+			},
+		},
+	}
+
+	props := make([]string, len(class.Properties))
+	for i, prop := range class.Properties {
+		props[i] = prop.Name
+	}
+	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+
+	migrator := NewMigrator(repo, logger, "node1")
+	migrator.AddClass(context.Background(), class)
+
+	// "unrelated" only sits in titleWord, "journey" only in descWhitespace: neither
+	// property alone holds both query tokens, only the pair across properties does.
+	data := map[string]interface{}{"titleWord": "An unrelated title", "descWhitespace": "the journey continues"}
+	id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", 0)).String())
+	obj := &models.Object{Class: "MixedTokClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
+	require.Nil(t, repo.PutObject(context.Background(), obj, []float32{1, 3, 5, 0.4}, nil, nil, nil, 0))
+
+	return props
+}
+
+func TestBM25FCrossPropertyAndMixedTokenizationFails(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = true
+
+	logger := logrus.New()
+	repo, schemaGetter := newBM25BlockTestRepo(t, logger)
+	defer repo.Shutdown(context.Background())
+
+	searchProps := setupMixedTokenizationClass(t, repo, schemaGetter, logger)
+	idx := repo.GetIndex("MixedTokClass")
+	require.NotNil(t, idx)
+
+	addit := additional.Properties{}
+	const query = "unrelated journey"
+
+	kwrCross := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: query, SearchOperator: common_filters.SearchOperatorAndCross}
+	_, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrCross, nil, nil, addit, nil, "", 0, searchProps)
+	require.ErrorContains(t, err, "tokenization")
+
+	// the same properties stay searchable under the other operators
+	kwrAnd := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: query, SearchOperator: common_filters.SearchOperatorAnd}
+	resAnd, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrAnd, nil, nil, addit, nil, "", 0, searchProps)
+	require.Nil(t, err)
+	require.Empty(t, resAnd, "per-property AND should not match when tokens are split across properties")
+
+	kwrOr := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: query, SearchOperator: common_filters.SearchOperatorOr}
+	resOr, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrOr, nil, nil, addit, nil, "", 0, searchProps)
+	require.Nil(t, err)
+	require.Len(t, resOr, 1, "OR should match since each property holds at least one query token")
 }

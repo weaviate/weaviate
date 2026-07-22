@@ -123,6 +123,19 @@ func (m *MergedTerm) Advance() {
 	m.recompute()
 }
 
+// tombstoned reports whether any non-exhausted source currently at docID sees it
+// as deleted. Sources span segments and properties with different tombstone
+// views, so no single source can answer for the merged term.
+func (m *MergedTerm) tombstoned(docID uint64) bool {
+	for i := range m.sources {
+		s := m.sources[i].term
+		if !s.exhausted && s.idPointer == docID && s.tombstoned(docID) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *MergedTerm) Count() int {
 	return m.totalCount
 }
@@ -250,6 +263,24 @@ func DoBlockMaxAndCrossProp(ctx context.Context, limit int, mergedTerms []*Merge
 		if !isCandidate {
 			pivotID += 1
 			continue
+		}
+
+		// deferred tombstone hit (see deferTombstoneToScore): advance past the
+		// candidate without scoring it.
+		if deferTombstoneToScore {
+			pivotTombstoned := false
+			for _, mt := range mergedTerms {
+				if mt.tombstoned(pivotID) {
+					pivotTombstoned = true
+					break
+				}
+			}
+			if pivotTombstoned {
+				for _, mt := range mergedTerms {
+					mt.Advance()
+				}
+				continue
+			}
 		}
 
 		score := 0.0

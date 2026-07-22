@@ -163,7 +163,7 @@ func (b *BM25Searcher) wandBlock(
 
 	// Cross-property AND needs one shared queryTerms/index space to merge terms by
 	// query-term index, which only holds when a single tokenization group covers
-	// every searched property. Mixed tokenizations fall back to per-property AND.
+	// every searched property.
 	crossPropAnd := false
 	var crossPropQueryTerms []string
 	if params.SearchOperator == common_filters.SearchOperatorAndCross {
@@ -174,6 +174,9 @@ func (b *BM25Searcher) wandBlock(
 				nonEmptyGroups++
 				groupKey = tok
 			}
+		}
+		if nonEmptyGroups > 1 {
+			return nil, nil, false, fmt.Errorf("%s requires all searched properties to share the same tokenization and analyzer settings", common_filters.SearchOperatorAndCross)
 		}
 		if nonEmptyGroups == 1 && len(stats.queryTermsByTokenization[groupKey]) > 0 {
 			crossPropAnd = true

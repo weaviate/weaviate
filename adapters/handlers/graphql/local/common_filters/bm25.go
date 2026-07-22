@@ -51,7 +51,7 @@ func GenerateBM25SearchOperatorFields(prefixName string) *graphql.InputObjectFie
 								},
 								"AndCross": &graphql.EnumValueConfig{
 									Value:       SearchOperatorAndCross,
-									Description: "All tokens must match, but they may be spread across the searched properties (rather than all within one property)",
+									Description: "All tokens must match, but they may be spread across the searched properties (rather than all within one property); fails unless all searched properties share the same tokenization and analyzer settings",
 								},
 							},
 						}),
