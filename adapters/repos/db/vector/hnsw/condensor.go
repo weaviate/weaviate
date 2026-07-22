@@ -62,6 +62,14 @@ func (c *MemoryCondensor) Do(fileName string) error {
 
 	c.newLog = NewWriterSize(c.newLogFile, c.bufferSize)
 
+	// newLog and newLogFile are only used while condensing; release them on
+	// return so a reused condensor does not keep the write buffer in memory
+	// between runs.
+	defer func() {
+		c.newLog = nil
+		c.newLogFile = nil
+	}()
+
 	if res.Compressed {
 		if res.CompressionPQData != nil {
 			if err := c.AddPQCompression(*res.CompressionPQData); err != nil {

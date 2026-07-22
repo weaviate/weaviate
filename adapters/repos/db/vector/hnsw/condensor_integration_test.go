@@ -18,6 +18,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -1192,6 +1194,114 @@ func TestCondensorCrashSafety(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, fsyncCalled)
 	})
+}
+
+func TestCondensorReleasesBuffersAfterDo(t *testing.T) {
+	// A condensor is created once per index and reused for every condense. Its
+	// 1MB write buffer must not survive a Do call, or every idle index would
+	// pin one buffer for its lifetime.
+	tests := []struct {
+		name    string
+		fs      func() common.FS
+		wantErr bool
+	}{
+		{
+			name:    "successful condense",
+			fs:      func() common.FS { return common.NewOSFS() },
+			wantErr: false,
+		},
+		{
+			name: "condense fails mid-write",
+			fs: func() common.FS {
+				fs := common.NewTestFS()
+				fs.OnOpenFile = func(f common.File) common.File {
+					return &common.TestFile{
+						File: f,
+						OnWrite: func(b []byte) (int, error) {
+							return 0, errors.New("fake write error")
+						},
+					}
+				}
+				return fs
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+			m, clFilename := newMemoryCondensor(t, rootPath, tt.fs())
+
+			err := m.Do(clFilename)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Nil(t, m.newLog)
+			assert.Nil(t, m.newLogFile)
+		})
+	}
+}
+
+// BenchmarkCondensorRetainedMemory reports the heap a condensor keeps alive
+// after Do returns. Releasing the write buffer drops this from ~1MB per
+// condensor to near zero. To see the difference, run it against the pre-fix
+// code with a bounded count so that run does not retain b.N MB:
+//
+//	go test -tags integrationTest -run x -bench RetainedMemory -benchtime=200x
+func BenchmarkCondensorRetainedMemory(b *testing.B) {
+	rootPath := b.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	// Build one small uncondensed commit log and capture its bytes. Do consumes
+	// its input file, so each iteration condenses a fresh copy.
+	cl, err := NewCommitLogger(rootPath, "bench_src", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(b, err)
+	b.Cleanup(func() { cl.Shutdown(context.Background()) })
+
+	for id := 0; id < 4; id++ {
+		cl.AddNode(&vertex{id: uint64(id), level: 1})
+	}
+	cl.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3})
+	cl.SetEntryPointWithMaxLayer(0, 1)
+	require.NoError(b, cl.Flush())
+
+	srcName, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "bench_src"), common.NewOSFS())
+	require.NoError(b, err)
+	require.True(b, ok)
+	content, err := os.ReadFile(commitLogFileName(rootPath, "bench_src", srcName))
+	require.NoError(b, err)
+
+	files := make([]string, b.N)
+	for i := range files {
+		p := filepath.Join(rootPath, fmt.Sprintf("bench-%d.log", i))
+		require.NoError(b, os.WriteFile(p, content, 0o644))
+		files[i] = p
+	}
+
+	condensors := make([]*MemoryCondensor, 0, b.N)
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m := &MemoryCondensor{logger: logger, fs: common.NewOSFS(), bufferSize: 1024 * 1024}
+		require.NoError(b, m.Do(files[i]))
+		condensors = append(condensors, m)
+	}
+	b.StopTimer()
+
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	b.ReportMetric(float64(after.HeapAlloc-before.HeapAlloc)/float64(len(condensors)), "retained-B/condensor")
+	runtime.KeepAlive(condensors)
 }
 
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string, fileNames []string) {
