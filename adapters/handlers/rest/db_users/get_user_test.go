@@ -103,6 +103,88 @@ func TestSuccessGetUser(t *testing.T) {
 	}
 }
 
+// TestGetUserAPIKeyFirstLettersVisibility pins who sees the api-key hint on the
+// get endpoint: root always, a built-in admin only on namespace-enabled
+// clusters, everyone else never.
+func TestGetUserAPIKeyFirstLettersVisibility(t *testing.T) {
+	userID := "dynamic"
+	tests := []struct {
+		name              string
+		principal         *models.Principal
+		namespacesEnabled bool
+		callerRoles       map[string][]authorization.Policy
+		groupRoles        map[string][]authorization.Policy
+		wantFirstLetters  string
+	}{
+		{
+			name:              "root sees on namespaced cluster",
+			principal:         &models.Principal{Username: "root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: true,
+			wantFirstLetters:  "abc",
+		},
+		{
+			name:              "admin sees on namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: true,
+			callerRoles:       map[string][]authorization.Policy{authorization.Admin: {}},
+			wantFirstLetters:  "abc",
+		},
+		{
+			name:              "admin via group sees on namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb, Groups: []string{"admin-group"}},
+			namespacesEnabled: true,
+			callerRoles:       map[string][]authorization.Policy{},
+			groupRoles:        map[string][]authorization.Policy{authorization.Admin: {}},
+			wantFirstLetters:  "abc",
+		},
+		{
+			name:              "non-admin hidden on namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: true,
+			callerRoles:       map[string][]authorization.Policy{},
+			wantFirstLetters:  "",
+		},
+		{
+			name:              "admin hidden on non-namespaced cluster",
+			principal:         &models.Principal{Username: "not-root", UserType: models.UserTypeInputDb},
+			namespacesEnabled: false,
+			callerRoles:       map[string][]authorization.Policy{authorization.Admin: {}},
+			wantFirstLetters:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers", userID).Return(map[string]apikey.UserView{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
+			// role-less target so role visibility never authorizes
+			dynUser.On("GetRolesForUserOrGroup", userID, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+			if tt.callerRoles != nil {
+				// Maybe: not consulted on non-namespaced clusters.
+				dynUser.On("GetRolesForUserOrGroup", tt.principal.Username, authentication.AuthTypeDb, false).Return(tt.callerRoles, nil).Maybe()
+			}
+			for _, group := range tt.principal.Groups {
+				dynUser.On("GetRolesForUserOrGroup", group, authentication.AuthTypeDb, true).Return(tt.groupRoles, nil).Maybe()
+			}
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				rbacConfig:        rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+				dbUserEnabled:     true,
+				namespacesEnabled: tt.namespacesEnabled,
+			}
+
+			res := h.getUser(users.GetUserInfoParams{UserID: userID, HTTPRequest: req}, tt.principal)
+			parsed, ok := res.(*users.GetUserInfoOK)
+			require.True(t, ok, "got %T", res)
+			require.Equal(t, tt.wantFirstLetters, parsed.Payload.APIKeyFirstLetters)
+		})
+	}
+}
+
 func TestSuccessGetUserMultiNode(t *testing.T) {
 	returnedTime := time.Now()
 
