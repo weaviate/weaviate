@@ -1509,7 +1509,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			defer func() {
 				err := recover()
 				if err != nil {
-					for pos := range group.pos {
+					for _, pos := range group.pos {
 						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
@@ -1539,7 +1539,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 						return nil
 					})
 				if err != nil {
-					errs = []error{err}
+					errs = duplicateErr(err, len(group.objects))
 				}
 			}
 
