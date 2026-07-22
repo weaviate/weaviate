@@ -119,11 +119,10 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 	return false, nil
 }
 
-// EnqueueDropVectorIndex submits a fresh cleanup task (fresh task + op ID) with
-// one unit per (shard, replica) grouped by shard, so each replica node strips
-// its own objects bucket. Shards already cleaned by earlier tasks of the same
-// drop epoch get no unit; when accumulated coverage already spans every shard
-// and nothing is left to enqueue, the marker is finalized directly.
+// EnqueueDropVectorIndex submits a fresh cleanup task with one unit per
+// (shard, replica) grouped by shard. Shards already cleaned by this epoch's
+// earlier tasks get no unit; with coverage complete and nothing left to
+// enqueue, the marker is finalized directly.
 func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string, freshEpoch bool) error {
 	// Re-validate against the leader-consistent class: the marker commit and this
 	// enqueue are not atomic, and reconciliation may run off a stale local schema
@@ -254,10 +253,7 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 		if p.DropEpochID != newest.DropEpochID || !completedTaskStatus(task.Status) {
 			continue
 		}
-		for _, shard := range p.CleanedShards {
-			covered[shard] = struct{}{}
-		}
-		for _, shard := range p.UnitToShard {
+		for shard := range p.CoveredShards() {
 			covered[shard] = struct{}{}
 		}
 	}

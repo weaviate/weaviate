@@ -482,6 +482,40 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 		require.Equal(t, map[string]string{"s1__n1": "s1"}, p.UnitToShard)
 	})
 
+	t.Run("active same-epoch ancestor does not contribute coverage", func(t *testing.T) {
+		inFlight := completedEpochTask(t, "t2", "C", "E1", []string{"s2"}, nil, 10, "v1")
+		inFlight.Status = distributedtask.TaskStatusStarted
+		cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+			db.DropVectorIndexNamespace: {
+				completedEpochTask(t, "t1", "C", "E1", []string{"s1"}, nil, 0, "v1"),
+				inFlight,
+			},
+		}}
+		state := mtState(map[string]sharding.Physical{
+			"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1"),
+		})
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
+		p := decodeEnqueuedPayload(t, cluster)
+		require.Equal(t, []string{"s1"}, p.CleanedShards,
+			"an in-flight task's units are not cleaned yet and must not be inherited")
+		require.Equal(t, map[string]string{"s2__n1": "s2", "s3__n1": "s3"}, p.UnitToShard)
+	})
+
+	t.Run("coverage complete with a nil finalizer stays a deferred no-op", func(t *testing.T) {
+		cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+			db.DropVectorIndexNamespace: {
+				completedEpochTask(t, "t1", "C", "E1", []string{"s1"}, []string{"s2"}, 0, "v1"),
+			},
+		}}
+		state := mtState(map[string]sharding.Physical{"s1": hot("n1"), "s2": cold("n1")})
+		enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state} // no finalizer
+
+		require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}, false))
+		require.Empty(t, cluster.gotTaskID, "no task and no panic; the marker just stays")
+	})
+
 	t.Run("chain-less records (older nodes or aged out) start a fresh epoch", func(t *testing.T) {
 		cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
 			db.DropVectorIndexNamespace: {

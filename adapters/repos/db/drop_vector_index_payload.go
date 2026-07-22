@@ -40,8 +40,28 @@ type DropVectorIndexTaskPayload struct {
 	// Empty on payloads from older nodes (treated as chain-less).
 	DropEpochID string `json:"dropEpochId,omitempty"`
 	// CleanedShards are shards cleaned by ancestor tasks of this epoch; the
-	// task's own UnitToShard is not included (readers union the two).
+	// task's own UnitToShard is not included (readers use CoveredShards).
+	//
+	// Single-task coverage invariant: the enqueuer writes the FULL union of the
+	// epoch's completed predecessors into every new task (RAFT serializes
+	// same-target tasks), so one completed task's CoveredShards is the epoch's
+	// total coverage as of its enqueue. Finalize and the removal gate rely on
+	// this and read a single task — they never union across records.
 	CleanedShards []string `json:"cleanedShards,omitempty"`
+}
+
+// CoveredShards returns the shards this task accounts for: its own units plus
+// the inherited cleaned set. The single reader-side union (see the
+// CleanedShards invariant above).
+func (p *DropVectorIndexTaskPayload) CoveredShards() map[string]struct{} {
+	covered := make(map[string]struct{}, len(p.UnitToShard)+len(p.CleanedShards))
+	for _, shard := range p.UnitToShard {
+		covered[shard] = struct{}{}
+	}
+	for _, shard := range p.CleanedShards {
+		covered[shard] = struct{}{}
+	}
+	return covered
 }
 
 func (p *DropVectorIndexTaskPayload) encode() ([]byte, error) {
