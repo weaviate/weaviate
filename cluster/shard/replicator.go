@@ -65,6 +65,7 @@ type Replicator interface {
 	BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) (successes, failures int)
 	BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNames []string) (statuses map[string][]replica.AsyncCheckpointNodeStatus, successes, failures int)
 	CompareDigests(ctx context.Context, shardName string, host string, digests []routerTypes.RepairResponse) ([]routerTypes.RepairResponse, error)
+	PrefilterShardRoots(ctx context.Context, roots map[string]hashtree.Digest) (map[string]struct{}, replica.PrefilterStats)
 }
 
 // ShardReader provides read access to a local shard.
