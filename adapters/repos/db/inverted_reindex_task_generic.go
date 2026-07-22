@@ -141,6 +141,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // ShardReindexTaskGeneric is a strategy-parameterized implementation of
@@ -231,6 +232,13 @@ type ShardReindexTaskGeneric struct {
 	// drop()-vs-MkdirAll race deterministic. Always set — no test-only
 	// branch runs in production.
 	trackerMkdirGuard func(shard ShardLike) func(func() error) error
+
+	// rebuildRangeableRepFn dispatches [rebuildRangeableInMemoryReps]'s
+	// per-prop bucket rebuild; defaults to
+	// [lsmkv.Bucket.RebuildRangeableSegmentInMemory], tests substitute a
+	// failure-injecting wrapper. Always set - no test-only branch runs in
+	// production.
+	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -264,6 +272,9 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 		return shard.Index().withCloseRLockGuard
 	}
 	t.registerDoubleWriteCallbacksFn = t.registerDoubleWriteCallbacks
+	t.rebuildRangeableRepFn = func(ctx context.Context, b *lsmkv.Bucket) error {
+		return b.RebuildRangeableSegmentInMemory(ctx)
+	}
 	return t
 }
 
@@ -632,7 +643,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		//    RunPrepareOnShard first): ingest buckets are loaded in
 		//    the LSM store. Do the in-memory atomic SwapBucketPointer
 		//    via [runtimeSwap]. Disk rename is deferred to next
-		//    startup via OnBeforeLsmInit's recoverRuntimeSwapBuckets.
+		//    startup via [FinalizeCompletedMigrations].
 		//  - **Recovery fallback**: ingest buckets are NOT loaded.
 		//    In practice this is rare — post-restart, OnBeforeLsmInit's
 		//    IsMerged && !IsSwapped branch typically does the disk
@@ -799,11 +810,89 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt reindexTracker, props []string,
 ) error {
+	// Ordering contract: rebuild must run and be checked before
+	// OnMigrationComplete (see runtimeSwap for the full reasoning).
+	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
+		return err
+	}
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
 	t.trimOlderGenerationsLocked(logger, shard, rt, props)
 	logger.Info("RunSwapOnShard: recovery path complete")
+	return nil
+}
+
+// rebuildRangeableInMemoryReps restores the INDEX_RANGEABLE_IN_MEMORY
+// contract for buckets promoted by a reindex swap: ingest buckets open
+// without an in-memory rep, so without this they'd serve range reads from
+// disk until the next open. Idempotent.
+//
+// A rebuild failure degrades to disk serving (WARN-and-continue) instead of
+// failing the migration: data work (prepend, swap, tidy) has already
+// committed, disk serving is always correct, and only the in-memory
+// acceleration is deferred to next restart. Every degrade still logs at
+// ERROR and increments a metric so it stays visible.
+//
+// context.Canceled is the one error this function still returns, so
+// [runPerUnitPhase]'s errors.Is(context.Canceled) check keeps routing to
+// the transient ack path instead of a permanent FAILED or false FINISHED.
+func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, props []string,
+) error {
+	if t.strategy.TargetStrategy() != lsmkv.StrategyRoaringSetRange ||
+		!shard.Index().Config.IndexRangeableInMemory {
+		return nil
+	}
+
+	store := shard.Store()
+	className := shard.Index().Config.ClassName.String()
+	shardName := shard.Name()
+	for _, propName := range props {
+		bucketName := t.strategy.SourceBucketName(propName)
+
+		bucket := store.Bucket(bucketName)
+		if bucket == nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				// Missing buckets have legitimate transient causes (shutdown
+				// draining, a property dropped mid-migration); only treat this
+				// as a hard failure once we know the caller isn't shutting down.
+				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w", propName, ctxErr)
+			}
+			err := fmt.Errorf(
+				"rangeable index for property %q could not be activated for in-memory "+
+					"serving: bucket %q not found post-swap, rebuild the index to repair it",
+				propName, bucketName,
+			)
+			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", err)
+			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
+			continue
+		}
+
+		started := time.Now()
+		if err := t.rebuildRangeableRepFn(ctx, bucket); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				// Wrap ctxErr too: it guarantees errors.Is(context.Canceled)
+				// works even if the underlying err doesn't itself wrap
+				// ctx.Err(); err is kept for diagnostics.
+				return fmt.Errorf("rangeable in-memory rebuild aborted for property %q: %w: %w", propName, ctxErr, err)
+			}
+			wrapped := fmt.Errorf(
+				"rangeable index for property %q built and data intact, but could not be "+
+					"activated for in-memory serving: %w, rebuild the index to repair it",
+				propName, err,
+			)
+			logger.WithField("bucket", bucketName).Errorf("rangeable in-memory rebuild: %v", wrapped)
+			monitoring.GetMetrics().IncRangeableInMemoryRebuildDegraded(className, shardName, propName)
+			continue
+		}
+		if bucket.RangeableServesFromMemory() {
+			logger.WithFields(logrus.Fields{
+				"bucket": bucketName,
+				"took":   time.Since(started).String(),
+			}).Info("rangeable in-memory index built at migration finalize; serving range queries from memory")
+		}
+	}
 	return nil
 }
 
@@ -1371,6 +1460,12 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 				return zerotime, false, err
 			}
 		}
+		// Same ordering contract as runtimeSwap (see there for reasoning):
+		// this re-entry branch must recheck the rebuild too, or a retry
+		// could flip the schema without it ever succeeding.
+		if err = t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
+			return zerotime, false, err
+		}
 		err = t.strategy.OnMigrationComplete(ctx, shard)
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)
@@ -1892,14 +1987,27 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// markTidied signals that all on-disk cleanup that can be done inline
 	// has been done. The LIVE bucket's dir (ingest_<gen>) is still at its
 	// pre-swap name — that rename to the canonical name is deferred to
-	// next-restart recovery (OnBeforeLsmInit → recoverRuntimeSwapBuckets)
-	// because renaming a dir whose buckets are mmap'd by the in-memory
-	// store would corrupt the segment registry. At restart time, nothing
-	// has loaded that dir yet, so the rename is safe.
+	// next startup via [FinalizeCompletedMigrations], because renaming a
+	// dir whose buckets are mmap'd by the in-memory store would corrupt
+	// the segment registry. At restart time, nothing has loaded that dir
+	// yet, so the rename is safe.
 	if err := rt.markTidied(); err != nil {
 		return fmt.Errorf("marking tidied: %w", err)
 	}
 	logger.Debug("runtime swap: tidy complete (ingest→main rename deferred to next restart)")
+
+	// Ordering contract: rebuild must be checked before OnMigrationComplete.
+	//
+	// Unlike the semantic-migration family ([IsSemanticMigration]),
+	// FilterableToRangeableStrategy.OnMigrationComplete is not gated by
+	// task-terminal status - it RAFT-commits IndexRangeFilters=true
+	// unconditionally the first time any shard's swap reaches this line.
+	// Skipping the check would advertise range-query support while this
+	// shard still falls back to disk (or a corrupt segment parsed as empty
+	// - see [rebuildRangeableInMemoryReps]).
+	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
+		return err
+	}
 
 	// OnMigrationComplete: no-op for semantic migrations (the cluster-
 	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).
@@ -2162,6 +2270,9 @@ func (t *ShardReindexTaskGeneric) getSegmentPathsToMove(bucketPathSrc, bucketPat
 	needsRecover := false
 
 	err := filepath.WalkDir(bucketPathSrc, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
 		if d.IsDir() {
 			return nil
 		}
@@ -2427,7 +2538,21 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard *Shard, props []string,
 	keepLevelCompaction, keepTombstones bool,
 ) error {
-	bucketOpts := t.bucketOptions(shard, t.strategy.TargetStrategy(), keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
+	strategy := t.strategy.TargetStrategy()
+	bucketOpts := t.bucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
+
+	// Only the ingest bucket becomes the main bucket post-swap; reindex/backup
+	// buckets are torn down and never serve reads.
+	if strategy == lsmkv.StrategyRoaringSetRange && shard.Index().Config.IndexRangeableInMemory {
+		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
+		logger.WithField("props", props).Info(
+			"rangeable properties are serving from disk during reindex ingest; " +
+				"in-memory acceleration is restored automatically when the migration " +
+				"finalizes. A node restart, shard reload, or tenant reactivation only " +
+				"repairs this if that automatic rebuild fails.",
+		)
+	}
+
 	return t.loadBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
 }
 
@@ -2608,7 +2733,8 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 ) []lsmkv.BucketOption {
 	cfg := shard.Index().Config
 
-	return shard.makeDefaultBucketOptions(strategy,
+	opts := shard.makeDefaultBucketOptions(
+		strategy,
 		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
 		lsmkv.WithKeepTombstones(keepTombstones),
 		// overwrite DynamicMemtableSizing
@@ -2619,6 +2745,15 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard *Shard, strategy string,
 			memtableOptFactor*cfg.MemtablesMaxActiveSeconds,
 		),
 	)
+
+	// Override: RoaringSetRange ingest buckets never keep an in-memory rep.
+	// PrependSegmentsFromBucket can't rebuild it, so a kept rep would serve
+	// stale/empty range results until the next clean bucket open.
+	if strategy == lsmkv.StrategyRoaringSetRange {
+		opts = append(opts, lsmkv.WithKeepSegmentsInMemory(false))
+	}
+
+	return opts
 }
 
 // -----------------------------------------------------------------------------

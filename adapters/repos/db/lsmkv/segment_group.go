@@ -563,6 +563,103 @@ func (sg *SegmentGroup) resumeCompaction(_ context.Context) error {
 	return sg.compactionCallbackCtrl.Activate()
 }
 
+// buildRoaringSetRangeRep merges the current disk segments (ref-counted,
+// oldest to newest) into a fresh unpublished rep. Caller must have paused
+// compaction so the merged segments stay a stable prefix for
+// installRoaringSetRangeRep's catch-up.
+//
+// Caller must not call the returned release until installRoaringSetRangeRep
+// returns: holding the ref keeps a concurrent shutdown() from closing these
+// segments mid-merge. The release is deferred and only suppressed on
+// success, so a panic mid-merge still releases it instead of leaking a ref
+// that would hang the next shutdown() forever.
+func (sg *SegmentGroup) buildRoaringSetRangeRep(ctx context.Context) (*roaringsetrange.SegmentInMemory, []Segment, func(), error) {
+	segments, release := sg.getConsistentViewOfSegments()
+	ownershipTransferred := false
+	defer func() {
+		if !ownershipTransferred {
+			release()
+		}
+	}()
+
+	if sg.allocChecker != nil {
+		// Unbounded full-property build; refuse on memory pressure so the
+		// caller degrades to disk serving instead of risking an OOM kill.
+		var totalSize int64
+		for _, seg := range segments {
+			totalSize += seg.Size()
+		}
+		if err := sg.allocChecker.CheckAlloc(totalSize); err != nil {
+			sg.logger.WithFields(logrus.Fields{
+				"action":   "rangeable_inmemory_rebuild",
+				"event":    "rebuild_skipped_oom",
+				"bucket":   filepath.Base(sg.dir),
+				"segments": len(segments),
+			}).Warnf("skipping rangeable in-memory rebuild due to memory pressure: %v", err)
+			return nil, nil, nil, err
+		}
+	}
+
+	t := time.Now()
+	rep := roaringsetrange.NewSegmentInMemory(sg.logger)
+	for _, seg := range segments {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, nil, err
+		}
+		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
+			return nil, nil, nil, fmt.Errorf("merge segment into rangeable rep: %w", err)
+		}
+	}
+	sg.logger.WithFields(logrus.Fields{
+		"took":     time.Since(t).String(),
+		"bucket":   filepath.Base(sg.dir),
+		"segments": len(segments),
+		"size_mb":  fmt.Sprintf("%.3f", float64(rep.Size())/1024/1024),
+	}).Debug("rangeable segment-in-memory rebuilt")
+	ownershipTransferred = true
+	return rep, segments, release, nil
+}
+
+// installRoaringSetRangeRep merges segments appended after the bulk build
+// (flush appends only; compaction must stay paused) and publishes the rep.
+// Caller must hold the bucket's flushLock so no flush races the catch-up
+// with the publish. releaseBuilt always runs via defer, so a group shut
+// down mid-rebuild is never blocked past this call.
+//
+// Compaction staying paused for the whole span means appends only grow the
+// tail, so the catch-up view is always a superset of alreadyMerged. The
+// publish assignment pairs maintenanceLock.Lock() here with the RLock()
+// guard in PrependSegmentsFromBucket.
+func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentInMemory, alreadyMerged []Segment, releaseBuilt func()) error {
+	defer releaseBuilt()
+
+	segments, release := sg.getConsistentViewOfSegments()
+	defer release()
+
+	catchUpFrom := len(alreadyMerged)
+	if catchUpFrom > len(segments) {
+		// Should be unreachable while compaction stays paused (segments
+		// only grow); guard defensively against a slice-bounds panic.
+		sg.logger.WithFields(logrus.Fields{
+			"bucket":         filepath.Base(sg.dir),
+			"already_merged": catchUpFrom,
+			"current":        len(segments),
+		}).Debug("rangeable rep catch-up: segment count shrank since bulk build, skipping catch-up merge")
+		catchUpFrom = len(segments)
+	}
+
+	for _, seg := range segments[catchUpFrom:] {
+		if err := rep.MergeSegmentByCursor(seg.newRoaringSetRangeCursor()); err != nil {
+			return fmt.Errorf("catch-up merge segment into rangeable rep: %w", err)
+		}
+	}
+
+	sg.maintenanceLock.Lock()
+	sg.roaringSetRangeSegmentInMemory = rep
+	sg.maintenanceLock.Unlock()
+	return nil
+}
+
 func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn {
 	return func(key []byte) (bool, error) {
 		if len(segments) == 0 {
@@ -883,6 +980,15 @@ func (sg *SegmentGroup) count() int {
 	defer release()
 
 	return sg.countWithSegmentList(segments)
+}
+
+// roaringSetRangeDiskSegmentCount returns the on-disk segment count via a
+// cheap read lock only. Must not be held while bitmapsLock is held.
+func (sg *SegmentGroup) roaringSetRangeDiskSegmentCount() int {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	return len(sg.segments)
 }
 
 func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {

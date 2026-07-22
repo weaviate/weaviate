@@ -18,10 +18,12 @@ import (
 	"net"
 	"testing"
 
+	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -140,12 +142,12 @@ func TestClient_Query_ParseError(t *testing.T) {
 	require.Equal(t, codes.NotFound, st.Code())
 }
 
-// TestFromRPCError_NamespaceSentinels covers the round-trip from
+// TestFromRPCError_SentinelRoundTrip covers the round-trip from
 // toRPCError on the server to fromRPCError on the client for every
-// namespace sentinel. After this round-trip a caller must be able to
-// errors.Is the returned error to the original sentinel — the RPC pair
-// is the only sentinel re-chain point.
-func TestFromRPCError_NamespaceSentinels(t *testing.T) {
+// namespace and leadership sentinel. After this round-trip a caller must
+// be able to errors.Is the returned error to the original sentinel — the
+// RPC pair is the only sentinel re-chain point.
+func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
 		send error
@@ -160,7 +162,10 @@ func TestFromRPCError_NamespaceSentinels(t *testing.T) {
 		{name: "ErrNamespaceSuspended", send: namespaces.ErrNamespaceSuspended},
 		{name: "ErrCollectionSuspended", send: namespaces.ErrCollectionSuspended},
 		{name: "ErrNamespaceResuming", send: namespaces.ErrNamespaceResuming},
+		{name: "ErrStateChangedConcurrently", send: namespaces.ErrStateChangedConcurrently},
 		{name: "ErrNotFound", send: namespaces.ErrNotFound},
+		{name: "ErrNotLeader", send: types.ErrNotLeader},
+		{name: "ErrLeaderNotFound", send: types.ErrLeaderNotFound},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -245,40 +250,109 @@ func TestFromRPCError_NotFoundDisambiguation(t *testing.T) {
 	require.NotErrorIs(t, parsed, schemaUC.ErrNotFound)
 }
 
-// TestFromRPCError_SentinelMessagesMutuallyNonSubstring pins that no
-// FailedPrecondition-arm sentinel message is a substring of another, so
-// fromRPCError's substring re-chain can't chain the wrong sentinel.
+// TestFromRPCError_SentinelMessagesMutuallyNonSubstring pins that within
+// each code arm that re-chains by message, no sentinel message is a
+// substring of another, so fromRPCError can't chain the wrong sentinel.
 func TestFromRPCError_SentinelMessagesMutuallyNonSubstring(t *testing.T) {
-	sentinels := []struct {
+	type sentinel struct {
 		name string
 		err  error
-	}{
-		{name: "ErrNamespaceSuspended", err: namespaces.ErrNamespaceSuspended},
-		{name: "ErrCollectionSuspended", err: namespaces.ErrCollectionSuspended},
-		{name: "ErrNamespaceResuming", err: namespaces.ErrNamespaceResuming},
-		{name: "ErrNamespaceDeleting", err: namespaces.ErrNamespaceDeleting},
-		{name: "ErrNamespaceNotEmpty", err: namespaces.ErrNamespaceNotEmpty},
-		{name: "ErrInvalidState", err: namespaces.ErrInvalidState},
-		{name: "ErrInvalidStateTransition", err: namespaces.ErrInvalidStateTransition},
-		{name: "ErrMTDisabled", err: schema.ErrMTDisabled},
 	}
-	for _, a := range sentinels {
-		for _, b := range sentinels {
-			if a.name == b.name {
-				continue
+	arms := []struct {
+		name      string
+		sentinels []sentinel
+	}{
+		{
+			name: "FailedPrecondition",
+			sentinels: []sentinel{
+				{name: "ErrNamespaceSuspended", err: namespaces.ErrNamespaceSuspended},
+				{name: "ErrCollectionSuspended", err: namespaces.ErrCollectionSuspended},
+				{name: "ErrNamespaceResuming", err: namespaces.ErrNamespaceResuming},
+				{name: "ErrNamespaceDeleting", err: namespaces.ErrNamespaceDeleting},
+				{name: "ErrNamespaceNotEmpty", err: namespaces.ErrNamespaceNotEmpty},
+				{name: "ErrInvalidState", err: namespaces.ErrInvalidState},
+				{name: "ErrInvalidStateTransition", err: namespaces.ErrInvalidStateTransition},
+				{name: "ErrStateChangedConcurrently", err: namespaces.ErrStateChangedConcurrently},
+				{name: "ErrMTDisabled", err: schema.ErrMTDisabled},
+			},
+		},
+		{
+			name: "NotLeaderRPCCode",
+			sentinels: []sentinel{
+				{name: "ErrNotLeader", err: types.ErrNotLeader},
+				{name: "ErrLeaderNotFound", err: types.ErrLeaderNotFound},
+			},
+		},
+	}
+	for _, arm := range arms {
+		t.Run(arm.name, func(t *testing.T) {
+			for _, a := range arm.sentinels {
+				for _, b := range arm.sentinels {
+					if a.name == b.name {
+						continue
+					}
+					require.NotContains(t, a.err.Error(), b.err.Error(),
+						"%s message must not contain %s message", a.name, b.name)
+				}
 			}
-			require.NotContains(t, a.err.Error(), b.err.Error(),
-				"%s message must not contain %s message", a.name, b.name)
-		}
+		})
 	}
 }
 
-// TestNamespaceResuming_NotRetryable checks ErrNamespaceResuming maps to
-// FailedPrecondition and that code is not in the Apply/Query retry set, so
-// a resuming rejection is never silently retried.
-func TestNamespaceResuming_NotRetryable(t *testing.T) {
-	st, ok := status.FromError(toRPCError(namespaces.ErrNamespaceResuming))
-	require.True(t, ok)
-	require.Equal(t, codes.FailedPrecondition, st.Code())
+// TestFromRPCError_HashicorpLeadershipSentinelsRoundTrip pins that the raw
+// hashicorp sentinels a leader-local apply returns survive the hop as a
+// not-leader code. Without the types.IsNoLeader arm they render 500 instead
+// of the documented 503.
+func TestFromRPCError_HashicorpLeadershipSentinelsRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		send error
+	}{
+		{name: "raft.ErrLeadershipLost", send: raft.ErrLeadershipLost},
+		{name: "raft.ErrNotLeader", send: raft.ErrNotLeader},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire := toRPCError(test.send)
+			require.Equal(t, NotLeaderRPCCode, status.Code(wire))
+
+			parsed := fromRPCError(wire)
+			require.True(t, types.IsNoLeader(parsed),
+				"IsNoLeader must hold after the hop, else the handler renders 500")
+		})
+	}
+}
+
+// TestFromRPCError_UnrecognizedNotLeaderMessagePassesThrough pins that a
+// NotLeaderRPCCode status whose message names no leadership sentinel — the
+// code is also gRPC's own ResourceExhausted — is returned unchanged.
+func TestFromRPCError_UnrecognizedNotLeaderMessagePassesThrough(t *testing.T) {
+	wireErr := status.Error(NotLeaderRPCCode, "grpc: received message larger than max")
+	parsed := fromRPCError(wireErr)
+
+	require.Equal(t, wireErr, parsed)
+	require.NotErrorIs(t, parsed, types.ErrNotLeader)
+	require.NotErrorIs(t, parsed, types.ErrLeaderNotFound)
+}
+
+// TestDeterministicRejections_NotRetryable checks that these rejections map
+// to FailedPrecondition and that the code is not in the Apply/Query retry
+// set, so the caller sees them immediately instead of after the full backoff
+// schedule. Retrying is the caller's decision, not the transport's.
+func TestDeterministicRejections_NotRetryable(t *testing.T) {
+	sentinels := []struct {
+		name string
+		send error
+	}{
+		{name: "ErrNamespaceResuming", send: namespaces.ErrNamespaceResuming},
+		{name: "ErrStateChangedConcurrently", send: namespaces.ErrStateChangedConcurrently},
+	}
+	for _, tc := range sentinels {
+		t.Run(tc.name, func(t *testing.T) {
+			st, ok := status.FromError(toRPCError(tc.send))
+			require.True(t, ok)
+			require.Equal(t, codes.FailedPrecondition, st.Code())
+		})
+	}
 	require.NotContains(t, serviceConfig, "FAILED_PRECONDITION")
 }

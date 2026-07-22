@@ -155,7 +155,12 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 			return nil
 		}
 		if err := c.cleanupSingleNamespace(ctx, namespace); err != nil {
-			if errors.Is(err, types.ErrNotLeader) || ctx.Err() != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if types.IsNoLeader(err) {
+				// The new leader picks the namespace up on its next tick.
+				c.logger.WithField("namespace", namespace).Infof("cleanup namespace deferred, leadership moved: %v", err)
 				return nil
 			}
 			c.logger.WithField("namespace", namespace).Errorf("cleanup namespace: %v", err)

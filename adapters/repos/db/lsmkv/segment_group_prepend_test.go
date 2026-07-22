@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,20 +29,33 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// createTestBucketRoaringSet creates a RoaringSet bucket in the given
-// directory, suitable for testing PrependSegmentsFromBucket.
-func createTestBucketRoaringSet(t *testing.T, ctx context.Context, dir string) *Bucket {
+// createTestBucketWithOptionsAndLogger creates a bucket with the given
+// options and logger; shared by the createTestBucket* helpers below.
+func createTestBucketWithOptionsAndLogger(t *testing.T, ctx context.Context, dir string, logger logrus.FieldLogger, opts ...BucketOption) *Bucket {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
-	opts := []BucketOption{
-		WithStrategy(StrategyRoaringSet),
-		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
-	}
 	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.NoError(t, err)
 	b.SetMemtableThreshold(1e9) // prevent auto-flush
 	return b
+}
+
+// createTestBucketWithOptions is createTestBucketWithOptionsAndLogger with
+// a discarded logger.
+func createTestBucketWithOptions(t *testing.T, ctx context.Context, dir string, opts ...BucketOption) *Bucket {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	return createTestBucketWithOptionsAndLogger(t, ctx, dir, logger, opts...)
+}
+
+// createTestBucketRoaringSet creates a RoaringSet bucket in the given
+// directory, suitable for testing PrependSegmentsFromBucket.
+func createTestBucketRoaringSet(t *testing.T, ctx context.Context, dir string) *Bucket {
+	t.Helper()
+	return createTestBucketWithOptions(t, ctx, dir,
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+	)
 }
 
 func TestSegmentGroup_PrependSegments(t *testing.T) {
@@ -304,7 +318,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		// compacted target bucket, further compaction merges src segments
 		// into dest segments (not just compacting each side independently).
 		//
-		// Setup (per reviewer request):
+		// Setup:
 		//   7 src segments → compact → 3 segments at levels [2, 1, 0]
 		//   9 dest segments → compact → 2 segments at levels [3, 0]
 		//   prepend → 5 segments: [2, 1, 0, 3, 0]
@@ -657,6 +671,90 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 	})
 }
 
+func createTestBucketRoaringSetRange(t *testing.T, ctx context.Context, dir string, keepSegmentsInMemory bool) *Bucket {
+	t.Helper()
+	return createTestBucketWithOptions(t, ctx, dir,
+		WithStrategy(StrategyRoaringSetRange),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithKeepSegmentsInMemory(keepSegmentsInMemory),
+	)
+}
+
+// createTestBucketRoaringSetRangeWithHook is createTestBucketRoaringSetRange
+// with the log hook preserved, for tests asserting on log output.
+func createTestBucketRoaringSetRangeWithHook(t *testing.T, ctx context.Context, dir string, keepSegmentsInMemory bool) (*Bucket, *test.Hook) {
+	t.Helper()
+	logger, hook := test.NewNullLogger()
+	b := createTestBucketWithOptionsAndLogger(t, ctx, dir, logger,
+		WithStrategy(StrategyRoaringSetRange),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+		WithKeepSegmentsInMemory(keepSegmentsInMemory),
+	)
+	return b, hook
+}
+
+// TestSegmentGroup_PrependSegments_RoaringSetRangeGuard pins the
+// weaviate/weaviate#12199 guard: prepend into an active in-memory rep is
+// rejected before any file copy or splice.
+func TestSegmentGroup_PrependSegments_RoaringSetRangeGuard(t *testing.T) {
+	ctx := context.Background()
+
+	makeSource := func(t *testing.T) string {
+		t.Helper()
+		srcDir := t.TempDir()
+		src := createTestBucketRoaringSetRange(t, ctx, srcDir, false)
+		require.NoError(t, src.RoaringSetRangeAdd(42, 100))
+		require.NoError(t, src.FlushAndSwitch())
+		require.NoError(t, src.Shutdown(ctx))
+		return srcDir
+	}
+
+	t.Run("active rep: prepend rejected before mutation", func(t *testing.T) {
+		srcDir := makeSource(t)
+
+		tgtDir := t.TempDir()
+		tgt := createTestBucketRoaringSetRange(t, ctx, tgtDir, true) // rep active
+		defer tgt.Shutdown(ctx)
+		require.NotNil(t, tgt.disk.roaringSetRangeSegmentInMemory,
+			"keepSegmentsInMemory=true must build the rep at open")
+
+		segsBefore := tgt.disk.Len()
+		filesBefore := countDBFiles(t, tgtDir)
+
+		err := tgt.PrependSegmentsFromBucket(ctx, srcDir)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrPrependWouldDesyncInMemoryRep)
+		assert.Contains(t, err.Error(), "active in-memory representation")
+		assert.Contains(t, err.Error(), "keepSegmentsInMemory=false")
+
+		assert.Equal(t, segsBefore, tgt.disk.Len(), "segment list must be unmutated")
+		assert.Equal(t, filesBefore, countDBFiles(t, tgtDir), "no segment files may be copied")
+	})
+
+	t.Run("no rep: prepend proceeds as before", func(t *testing.T) {
+		srcDir := makeSource(t)
+
+		tgtDir := t.TempDir()
+		tgt := createTestBucketRoaringSetRange(t, ctx, tgtDir, false) // no rep
+		defer tgt.Shutdown(ctx)
+		require.Nil(t, tgt.disk.roaringSetRangeSegmentInMemory)
+
+		require.NoError(t, tgt.RoaringSetRangeAdd(7, 999))
+		require.NoError(t, tgt.FlushAndSwitch())
+		segsBefore := tgt.disk.Len()
+
+		require.NoError(t, tgt.PrependSegmentsFromBucket(ctx, srcDir))
+		assert.Equal(t, segsBefore+1, tgt.disk.Len(), "source segment must be spliced in")
+	})
+}
+
+func countDBFiles(t *testing.T, dir string) int {
+	t.Helper()
+	files, err := discoverDBFiles(dir)
+	require.NoError(t, err)
+	return len(files)
+}
+
 func TestParseSegmentTimestamp(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -858,18 +956,13 @@ func TestApplyTimestampShift(t *testing.T) {
 // createTestBucket creates a bucket with the given strategy.
 func createTestBucket(t *testing.T, ctx context.Context, dir, strategy string) *Bucket {
 	t.Helper()
-	logger, _ := test.NewNullLogger()
 	opts := []BucketOption{
 		WithStrategy(strategy),
 	}
 	if strategy == StrategyRoaringSet {
 		opts = append(opts, WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 	}
-	b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-	require.NoError(t, err)
-	b.SetMemtableThreshold(1e9)
-	return b
+	return createTestBucketWithOptions(t, ctx, dir, opts...)
 }
 
 // assertRoaringSetContains verifies that getting the key from the bucket
