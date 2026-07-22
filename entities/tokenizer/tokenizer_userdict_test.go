@@ -13,8 +13,10 @@ package tokenizer
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -72,6 +74,46 @@ func TestKagomeUserTokenizerForClass(t *testing.T) {
 
 	tokens = TokenizeForClass(models.PropertyTokenizationKagomeKr, "We", className)
 	assert.Equal(t, []string{"W", "e"}, tokens)
+}
+
+// TestKagomeJaUserTokenizerForClassBalancesThrottle pins the throttle
+// acquire/release pairing of the KagomeJa custom-dictionary branch in
+// TokenizeForClass. A release without a matching acquire blocks the calling
+// goroutine forever on an empty throttle channel (or steals another holder's
+// release), so the call is made from a guarded goroutine: a hang is reported
+// as a test failure instead of a suite timeout.
+func TestKagomeJaUserTokenizerForClassBalancesThrottle(t *testing.T) {
+	ptr := func(s string) *string { return &s }
+	className := "TestClassJaThrottle"
+	err := AddCustomDict(className, []*models.TokenizerUserDictConfig{{
+		Tokenizer: models.PropertyTokenizationKagomeJa,
+		Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{
+			{
+				Source: ptr("Weaviate"),
+				Target: ptr("We Aviate"),
+			},
+		},
+	}})
+	require.Nil(t, err)
+	defer func() {
+		require.Nil(t, AddCustomDict(className, nil))
+	}()
+
+	require.Zero(t, len(ApacTokenizerThrottle), "throttle must be empty before the call")
+
+	done := make(chan []string, 1)
+	go func() {
+		done <- TokenizeForClass(models.PropertyTokenizationKagomeJa, "Weaviate Semi Technologies", className)
+	}()
+
+	select {
+	case tokens := <-done:
+		assert.Equal(t, []string{"We", "Aviate", "Semi", "Technologies"}, tokens)
+	case <-time.After(30 * time.Second):
+		t.Fatal("TokenizeForClass(KagomeJa, custom dict) hung: throttle released without a matching acquire")
+	}
+
+	assert.Zero(t, len(ApacTokenizerThrottle), "throttle must be balanced (empty) after the call")
 }
 
 func TestKagomeUserTokenizerForClassValidate(t *testing.T) {

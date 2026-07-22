@@ -155,18 +155,26 @@ func init_gse_ch() error {
 	return nil
 }
 
+// TokenizeForClass tokenizes like [Tokenize], except that the kagome
+// tokenizations consult the class's custom user-dictionary tokenizer first.
+// Only those two tokenizations pay the customTokenizers lookup; every other
+// tokenization dispatches straight to Tokenize.
 func TokenizeForClass(tokenization string, in string, class string) []string {
-	tokenizer, ok := customTokenizers.Load(class)
-	if tokenization == models.PropertyTokenizationKagomeKr && ok && tokenizer.(*KagomeTokenizers).Korean != nil {
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
-	} else if tokenization == models.PropertyTokenizationKagomeJa && ok && tokenizer.(*KagomeTokenizers).Japanese != nil {
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
-	} else {
-		return Tokenize(tokenization, in)
+	switch tokenization {
+	case models.PropertyTokenizationKagomeKr:
+		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Korean != nil {
+			ApacTokenizerThrottle <- struct{}{}
+			defer func() { <-ApacTokenizerThrottle }()
+			return tokenizeKagome(custom.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
+		}
+	case models.PropertyTokenizationKagomeJa:
+		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Japanese != nil {
+			ApacTokenizerThrottle <- struct{}{}
+			defer func() { <-ApacTokenizerThrottle }()
+			return tokenizeKagome(custom.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
+		}
 	}
+	return Tokenize(tokenization, in)
 }
 
 func Tokenize(tokenization string, in string) []string {
