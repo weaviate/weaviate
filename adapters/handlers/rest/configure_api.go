@@ -44,6 +44,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/automaxprocs/maxprocs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -51,6 +52,7 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/grpcweb"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
@@ -65,7 +67,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -76,6 +80,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -92,6 +97,7 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
+	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
@@ -149,8 +155,10 @@ import (
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
 	modusages3 "github.com/weaviate/weaviate/modules/usage-s3"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -190,47 +198,6 @@ type vectorRepo interface {
 	SetSchemaGetter(schema.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
-}
-
-func getCores() (int, error) {
-	cpuset, err := os.ReadFile("/sys/fs/cgroup/cpuset/cpuset.cpus")
-	if err != nil {
-		return 0, errors.Wrap(err, "read cpuset")
-	}
-	return calcCPUs(strings.TrimSpace(string(cpuset)))
-}
-
-func calcCPUs(cpuString string) (int, error) {
-	cores := 0
-	if cpuString == "" {
-		return 0, nil
-	}
-
-	// Split by comma to handle multiple ranges
-	ranges := strings.Split(cpuString, ",")
-	for _, r := range ranges {
-		// Check if it's a range (contains a hyphen)
-		if strings.Contains(r, "-") {
-			parts := strings.Split(r, "-")
-			if len(parts) != 2 {
-				return 0, fmt.Errorf("invalid CPU range format: %s", r)
-			}
-			start, err := strconv.Atoi(parts[0])
-			if err != nil {
-				return 0, fmt.Errorf("invalid start of CPU range: %s", parts[0])
-			}
-			end, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return 0, fmt.Errorf("invalid end of CPU range: %s", parts[1])
-			}
-			cores += end - start + 1
-		} else {
-			// Single CPU
-			cores++
-		}
-	}
-
-	return cores, nil
 }
 
 func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
@@ -380,6 +347,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// serialize on the same per-(collection, property) mutex. See
 	// the field godoc on state.State for the race this closes.
 	appState.ReindexSubmitLocks = state.NewReindexSubmitLocks()
+	// ReindexDeleteMarkers lets GET /indexes suppress the post-DELETE
+	// finalize-window bleed; recorded by the DELETE handler, read by the
+	// GET-indexes handler. See the field godoc on state.State.
+	appState.ReindexDeleteMarkers = state.NewReindexDeleteMarkers()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -559,6 +530,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
 		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
@@ -589,32 +561,29 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationConcurrency:    appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency,
 			AsyncReplicationPropagationBatchSize:      appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize,
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
+			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
-		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
-		HNSWMaxLogSize:                               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWDisableSnapshots:                         appState.ServerConfig.Config.Persistence.HNSWDisableSnapshots,
-		HNSWSnapshotIntervalSeconds:                  appState.ServerConfig.Config.Persistence.HNSWSnapshotIntervalSeconds,
-		HNSWSnapshotOnStartup:                        appState.ServerConfig.Config.Persistence.HNSWSnapshotOnStartup,
-		HNSWSnapshotMinDeltaCommitlogsNumber:         appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber,
-		HNSWSnapshotMinDeltaCommitlogsSizePercentage: appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
-		HNSWWaitForCachePrefill:                      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		HNSWFlatSearchConcurrency:                    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
-		HNSWAcornFilterRatio:                         appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		HNSWGeoIndexEF:                               appState.ServerConfig.Config.HNSWGeoIndexEF,
-		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
-		TenantActivityReadLogLevel:                   appState.ServerConfig.Config.TenantActivityReadLogLevel,
-		TenantActivityWriteLogLevel:                  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
-		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
-		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
-		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
-		LazyPropertyLengthsEnabled:                   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
-		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
-		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
-		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
-		ShardRegistry:                                appState.ShardRegistry,
-		DisableDimensionMetrics:                      appState.ServerConfig.Config.DisableDimensionMetrics,
+		MaximumConcurrentShardLoads:  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		MaximumConcurrentBucketLoads: appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
+		HNSWMaxLogSize:               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:         appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		BM25FilterTombMergeGateRatio: appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
+		HNSWGeoIndexEF:               appState.ServerConfig.Config.HNSWGeoIndexEF,
+		VisitedListPoolMaxSize:       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		TenantActivityReadLogLevel:   appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel:  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:          appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:        appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:       appState.ServerConfig.Config.InvertedSorterDisabled,
+		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
+		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
+		HFreshEnabled:                appState.ServerConfig.Config.HFreshEnabled,
+		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
+		ShardRegistry:                appState.ShardRegistry,
+		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -756,10 +725,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
-			db.ReindexNamespace: db.ExtractReindexTaskCollection,
+			db.ReindexNamespace:         db.ExtractReindexTaskCollection,
+			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskCollection,
 		},
-		ReplicaMovementEnabled: appState.ServerConfig.Config.ReplicaMovementEnabled,
-		DrainSleep:             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		ReplicaMovementEnabled:  appState.ServerConfig.Config.ReplicaMovementEnabled,
+		DrainSleep:              appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		MaxTenantsPerCollection: appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
+		UsageLimitsErrorMessage: appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		DBLoadProgress:          repo.StartupLoadingProgress,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -818,6 +791,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger,
 	)
 
+	// Created here (not in the DTM wiring) so it can be injected into the schema
+	// manager at construction, and so the edit-op liveness provider is installed
+	// before ClusterService.Open drives restore-time shard loads.
+	dropVectorEnqueuer := newDropVectorIndexEnqueuer(appState.ClusterService, appState.ClusterService.Raft, appState.Logger)
+	editops.SetLivenessProvider(dropVectorEnqueuer.LiveOpIDs)
+
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
@@ -828,6 +807,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
 		appState.NamespacesController,
+		dropVectorEnqueuer,
 	)
 	if err != nil {
 		appState.Logger.
@@ -837,6 +817,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.SchemaManager = schemaManager
+
+	// Last-line transformer guard: strip only targets the local schema still marks
+	// dropped, so an edit op that outlived its drop (failed delete, missed sweep)
+	// no-ops instead of stripping a re-created vector. Installed before
+	// ClusterService.Open so restore-time compactions are covered.
+	transformers.SetDroppedTargetCheck(func(className, targetVector string) bool {
+		class := schemaManager.ReadOnlyClass(className)
+		if class == nil {
+			return false
+		}
+		return modelsext.IsVectorIndexDropped(class.VectorConfig[targetVector])
+	})
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
@@ -968,11 +960,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
+	// appState.RBAC is a typed nil when RBAC is disabled; pass an untyped-nil
+	// interface so the cleanup's nil check holds.
+	var rbacLister namespacecleanup.RBACLister
+	if appState.RBAC != nil {
+		rbacLister = appState.RBAC
+	}
 	namespaceCleanupCoordinator := namespacecleanup.NewCoordinator(
 		appState.NamespacesController,
 		rCluster.NewSchemaNamespaceLister(appState.ClusterService.SchemaReader()),
 		appState.APIKey.Dynamic,
 		appState.ClusterService.Raft,
+		rbacLister,
 		appState.ClusterService.IsLeader,
 		appState.Logger,
 	)
@@ -998,7 +997,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
-			l.WithError(err).Fatal("meta store failed to become ready; cannot verify namespace startup invariants")
+			l.Fatalf("meta store failed to become ready; cannot verify namespace startup invariants: %v", err)
 		}
 		schemaSnapshot := appState.SchemaManager.GetSchemaSkipAuth()
 		var classNames []string
@@ -1007,12 +1006,36 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				classNames = append(classNames, c.Class)
 			}
 		}
+		// RBAC rows feed only the NS-disabled checks, so fetch them solely on
+		// that path — a read error then means we can't verify the invariant and
+		// must fail closed, rather than crashing an NS-enabled node that never
+		// inspects this data.
+		var roleNames, policyResources, groupingSubjects []string
+		if !appState.ServerConfig.Config.Namespaces.Enabled && appState.RBAC != nil {
+			roles, err := appState.RBAC.GetRoles()
+			if err != nil {
+				l.Fatalf("namespace startup invariants: GetRoles: %v", err)
+			}
+			for name, policies := range roles {
+				roleNames = append(roleNames, name)
+				for _, p := range policies {
+					policyResources = append(policyResources, p.Resource)
+				}
+			}
+			groupingSubjects, err = appState.RBAC.ListGroupingSubjects()
+			if err != nil {
+				l.Fatalf("namespace startup invariants: ListGroupingSubjects: %v", err)
+			}
+		}
 		if err := enforceNamespaceStartupInvariants(
 			appState.ServerConfig.Config.Namespaces.Enabled,
 			appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 			appState.ServerConfig.Config.Replication.MaximumFactor,
 			classNames,
 			appState.ClusterService.NamespaceCount(),
+			roleNames,
+			policyResources,
+			groupingSubjects,
 		); err != nil {
 			l.Fatal(err)
 		}
@@ -1044,7 +1067,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
 
-	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx)
+	initReindexAndDistributedTasks(appState, repo, providers, recoveredReindexes, metricsRegisterer, serverShutdownCtx, dropVectorEnqueuer)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1201,9 +1224,10 @@ func initReindexAndDistributedTasks(
 	recoveredReindexes []db.RecoveredReindex,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
+	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
 	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.Logger,
+		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
@@ -1214,6 +1238,35 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
+	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
+	enterrors.GoWrapper(func() {
+		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
+	}, appState.Logger)
+
+	// Drop-vector-index distributed-task provider. Added to the providers map so the
+	// conflict/schema-mutation detector loops below auto-register it.
+	providers[db.DropVectorIndexNamespace] = db.NewDropVectorIndexProvider(
+		repo,
+		db.NewSchemaVectorConfigFinalizer(appState.SchemaManager),
+		appState.ClusterService.Raft,
+		appState.Logger,
+		appState.Cluster.LocalName(),
+		serverShutdownCtx,
+	)
+	// Startup reconciliation: enqueue cleanup for any "none" marker whose task
+	// is missing (crash, upgrade, or restore).
+	enterrors.GoWrapper(func() {
+		runDropVectorIndexReconciliation(
+			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
+			dropVectorReconcileInterval)
+	}, appState.Logger)
+
+	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
+		appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS").
+			Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
+	}
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -1281,7 +1334,7 @@ func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogg
 // A class name is considered namespace-qualified iff it contains
 // entschema.NamespaceSeparator (":"), which is forbidden in plain class names
 // by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
-func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int) error {
+func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnabled bool, maxReplicationFactor int, classNames []string, nsCount int, roleNames []string, policyResources []string, groupingSubjects []string) error {
 	var nonNamespacedCount, namespacedCount int
 	var nonNamespacedExample, namespacedExample string
 	for _, name := range classNames {
@@ -1313,7 +1366,53 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 		// Guards against disabling namespaces on a namespaced cluster.
 		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
 	}
+
+	// Role names, policy resources (what a role's permissions grant access to)
+	// and grouping subjects (who a role assignment binds) may each be
+	// namespace-qualified when NAMESPACES_ENABLED=true. With namespaces disabled
+	// they would be misinterpreted, so the rows are only inspected in that case.
+	if !enabled {
+		if n, ex := countQualified(roleNames, conv.ContainsNamespaceSeparator); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
+		}
+		// A users/<id> or groups/<type>/<name> resource may carry a ':' inside the
+		// id itself (e.g. an OIDC username), so its colon is not a namespace
+		// qualifier and the resource is skipped; collection/role shapes still count.
+		if n, ex := countQualified(policyResources, func(r string) bool {
+			return !conv.IsOpaqueIDResource(r) && conv.ContainsNamespaceSeparator(r)
+		}); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified role permission(s) (e.g. %q); refusing to start with inconsistent state", n, ex)
+		}
+		// Only a colon in a direct db user (e.g. db:customer1:alice) is a namespace
+		// qualifier — db names forbid ':'. OIDC names may contain ':', so oidc:
+		// subjects are ambiguous and skipped; groups are global regardless of name.
+		if n, ex := countQualified(groupingSubjects, func(s string) bool {
+			user, prefix, err := conv.GetUserAndPrefix(s)
+			if err != nil || prefix != string(authentication.AuthTypeDb) {
+				return false
+			}
+			return conv.ContainsNamespaceSeparator(user)
+		}); n > 0 {
+			return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d role assignment(s) to a namespace-qualified principal (e.g. %q); refusing to start with inconsistent state", n, ex)
+		}
+	}
 	return nil
+}
+
+// countQualified returns how many values satisfy isQualified and the first such
+// value, for a count + example diagnostic.
+func countQualified(values []string, isQualified func(string) bool) (int, string) {
+	var count int
+	var example string
+	for _, v := range values {
+		if isQualified(v) {
+			if count == 0 {
+				example = v
+			}
+			count++
+		}
+	}
+	return count, example
 }
 
 type metaStoreReady struct {
@@ -1389,6 +1488,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.OidcAuth = composer.New(
 		appState.ServerConfig.Config.Authentication,
+		appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger,
 		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
@@ -1418,9 +1518,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
-	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer, appState.Logger)
+	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ReindexDeleteMarkers, appState.ServerConfig.Config.Namespaces.Enabled)
 	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
@@ -1432,6 +1532,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
 	setupGraphQLHandlers(api, appState, appState.SchemaManager, appState.ServerConfig.Config.DisableGraphQL,
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
+	setupSearchHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
@@ -1457,6 +1558,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), telemeter.GetIntegrationTracker(), grpcInstrument...)
+	grpcWebHandler, err := grpcweb.NewHandler(grpcServer, appState)
+	if err != nil {
+		appState.Logger.WithField("action", "grpc_web_startup").
+			Fatalf("init grpc-web handler: %v", err)
+	}
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
@@ -1540,8 +1646,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
-		// gracefully stop gRPC server
-		grpcServer.GracefulStop()
+		// stop the gRPC server gracefully, but cap the wait so a stuck
+		// request can't block shutdown.
+		grpcStopped := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			grpcServer.GracefulStop()
+			close(grpcStopped)
+		}, appState.Logger)
+		select {
+		case <-grpcStopped:
+		case <-time.After(20 * time.Second):
+			appState.Logger.Warn("grpc graceful stop timed out, forcing stop")
+			grpcServer.Stop()
+		}
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
@@ -1585,14 +1702,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	startGrpcServer(grpcServer, appState)
 	setupMCPHandlers(api, appState, objectsManager)
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+
+	restHandler := setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	// Serve grpc-web on the REST port under /v1/grpc-web/ rather than a dedicated listener
+	return grpcweb.Mount("/v1/grpc-web", grpcWebHandler, restHandler,
+		func() bool { return appState.ServerConfig.Config.GRPC.GrpcWebEnabledOrDefault() })
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
+	// userLister lets the scheduler resolve includeUsers selectors. It stays
+	// nil when dynamic DB users are disabled, in which case includeUsers
+	// requests are rejected with a clear error rather than panicking.
+	var userLister backup.UserLister
+	if appState.ServerConfig.Config.Authentication.DBUsers.Enabled && appState.APIKey != nil && appState.APIKey.Dynamic != nil {
+		userLister = appState.APIKey.Dynamic
+	}
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, appState.Modules,
+		appState.DB, userLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		appState.Logger)
@@ -1649,7 +1777,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 
 	monitoring.InitConfig(serverConfig.Config.Monitoring)
 
-	if serverConfig.Config.DisableGraphQL {
+	if serverConfig.Config.DisableGraphQL.Get() {
 		logger.WithFields(logrus.Fields{
 			"action":          "startup",
 			"disable_graphql": true,
@@ -1699,6 +1827,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	}
 
 	serverConfig.Config.Cluster.RaftBootstrapExpect = serverConfig.Config.Raft.BootstrapExpect
+	serverConfig.Config.Cluster.RaftBootstrapTimeout = serverConfig.Config.Raft.BootstrapTimeout
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
@@ -1787,6 +1916,7 @@ func registerModules(appState *state.State) error {
 		modmistral.Name,
 		modtext2vecoctoai.Name,
 		modopenai.Name,
+		modgenerativedeepseek.Name,
 		moddigitalocean.Name,
 		modmorph.Name,
 		modvoyageai.Name,
@@ -2136,6 +2266,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativeopenai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativedeepseek.Name]; ok {
+		appState.Modules.Register(modgenerativedeepseek.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativedeepseek.Name).
 			Debug("enabled module")
 	}
 
@@ -2552,28 +2690,16 @@ func ParseVersionFromSwaggerSpec() string {
 
 func limitResources(appState *state.State) {
 	if os.Getenv("LIMIT_RESOURCES") == "true" {
-		appState.Logger.Info("Limiting resources:  memory: 80%, cores: all but one")
-		if os.Getenv("GOMAXPROCS") == "" {
-			// Fetch the number of cores from the cgroups cpuset
-			// and parse it into an int
-			cores, err := getCores()
-			if err == nil {
-				appState.Logger.WithField("cores", cores).
-					Warn("GOMAXPROCS not set, and unable to read from cgroups, setting to number of cores")
-				goruntime.GOMAXPROCS(cores)
-			} else {
-				cores = goruntime.NumCPU() - 1
-				if cores > 0 {
-					appState.Logger.WithField("cores", cores).
-						Warnf("Unable to read from cgroups: %v, setting to max cores to: %v", err, cores)
-					goruntime.GOMAXPROCS(cores)
-				}
-			}
+		appState.Logger.Info("Limiting resources: memory: 80%, cores: from cgroup CPU quota")
+		// Set GOMAXPROCS from the cgroup CPU quota. automaxprocs supports both
+		// cgroup v1 and v2 (unified hierarchy) and respects the GOMAXPROCS env var.
+		if _, err := maxprocs.Set(maxprocs.Logger(appState.Logger.Infof)); err != nil {
+			appState.Logger.Warnf("Unable to set GOMAXPROCS from cgroups: %v", err)
 		}
 
 		limit, err := memlimit.SetGoMemLimit(0.8)
 		if err != nil {
-			appState.Logger.WithError(err).Warnf("Unable to set memory limit from cgroups: %v", err)
+			appState.Logger.Warnf("Unable to set memory limit from cgroups: %v", err)
 			// Set memory limit to 90% of the available memory
 			limit := int64(float64(memory.TotalMemory()) * 0.8)
 			debug.SetMemoryLimit(limit)
@@ -2640,6 +2766,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
 		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
 		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
+		registered.AsyncReplicationRootPrefilterBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize
 		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
@@ -2649,6 +2776,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
+		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
@@ -2670,7 +2798,11 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
+		registered.BackupMaxIndividualFiles = appState.ServerConfig.Config.Backup.MaxIndividualFiles
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
+		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
+		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
+		registered.ExperimentalRESTSearchEnabled = appState.ServerConfig.Config.ExperimentalRESTSearchEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2686,14 +2818,14 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			config.ParseRuntimeConfig,
+			config.NewRuntimeConfigParser(appState.Logger),
 			config.UpdateRuntimeConfig,
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
 			prometheus.DefaultRegisterer)
 		if err != nil {
-			appState.Logger.WithField("action", "startup").Errorf("could not create runtime config manager: %v", err)
+			appState.Logger.WithField("action", "runtime_overrides_parse").Errorf("could not create runtime config manager: %v", err)
 		}
 		return cm
 	}
@@ -2714,7 +2846,7 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 				registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 				// common config
 				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsageShardConcurrency = appState.ServerConfig.Config.Usage.ShardConcurrency
 				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 			})
@@ -2736,6 +2868,17 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 					appState.Logger.WithField("action", "reconcile_async_replication").Error(err)
 				}
 			}, appState.Logger)
+			return nil
+		}
+		// GraphQL is loaded lazily on toggle: makeUpdateSchemaCall skips the build
+		// while disabled, so on enable rebuild from the current schema, and on
+		// disable drop the graph (it's no longer served).
+		hooks["DisableGraphQL"] = func() error {
+			if appState.ServerConfig.Config.DisableGraphQL.Get() {
+				appState.SetGraphQL(nil)
+			} else {
+				rebuildGraphQLOnEnable(appState)
+			}
 			return nil
 		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())

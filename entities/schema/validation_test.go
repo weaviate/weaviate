@@ -362,6 +362,29 @@ func TestValidateClassName_RejectsNamespaceSeparator(t *testing.T) {
 	}
 }
 
+// TestValidateTenantName_RejectsNamespaceSeparator locks in that tenant (shard)
+// names reject NamespaceSeparator (":"). RBAC's GlobalCallerWidens treats any ":"
+// in a resource path as a namespace prefix, which is only sound while the tenant
+// segment stays ":"-free. If ShardNameRegexCore is loosened to accept ":", this
+// fails and the consumers of NamespaceSeparator must be revisited.
+func TestValidateTenantName_RejectsNamespaceSeparator(t *testing.T) {
+	cases := []string{
+		"tenant" + NamespaceSeparator + "x",
+		NamespaceSeparator + "tenant",
+		"tenant" + NamespaceSeparator,
+		"a" + NamespaceSeparator + "b",
+		"customer1" + NamespaceSeparator + "shard1",
+	}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Error(t, ValidateTenantName(name),
+				"tenant name %q containing NamespaceSeparator must be rejected", name)
+			assert.Error(t, ValidateTenantNameIncludesRegex(name),
+				"tenant pattern %q containing NamespaceSeparator must be rejected", name)
+		})
+	}
+}
+
 // TestIndexNameRegexCore covers what IndexNameRegexCore accepts and rejects:
 // plain class names, "<namespace>:<class>" with a 3-36 char namespace, and
 // the boundary cases (hyphen edges, leading/trailing ":", more than one ":",

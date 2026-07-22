@@ -85,7 +85,21 @@ var (
 	// failed arrives — refusing here avoids overwriting a terminal
 	// status the operator (or fail-fast path) committed in the meantime.
 	ErrTaskNotInFinalizingState = errors.New("task is not in finalizing state")
+
+	// ErrTaskConflict matches a [ConflictDetector.CheckConflict] rejection: the
+	// new task overlaps an in-flight task on shared on-disk state. Deterministic
+	// and not retryable until the in-flight task terminates, so it wraps
+	// [ErrPermanentRejection] to let the REST submit path map it to 409, not 500.
+	ErrTaskConflict = errors.New("task conflicts with an in-flight task")
 )
+
+// ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
+// failure as deterministically unrecoverable (e.g. target property deleted
+// mid-flight, payload unparsable): the [Scheduler] fails the task
+// immediately instead of retrying. A plain error is transient and retried
+// up to the per-task bound. Distinct from [ErrPermanentRejection] (FSM
+// apply rejections crossing the RAFT/gRPC boundary).
+var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
 
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
 // permanent FSM rejections from generic Internal errors on the wire. It
@@ -110,6 +124,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrUnitAlreadyTerminal, "unit-terminal"},
 	{ErrUnitWrongNode, "unit-wrong-node"},
 	{ErrTaskNotInFinalizingState, "task-not-finalizing"},
+	{ErrTaskConflict, "task-conflict"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

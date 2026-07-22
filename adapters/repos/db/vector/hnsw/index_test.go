@@ -259,6 +259,50 @@ func createVectorHnswIndexTestConfig() Config {
 	}
 }
 
+func TestIsEmptyUnlocked_ZeroLengthNodes(t *testing.T) {
+	// Regression test: when h.nodes has length 0 and h.entryPointID is 0,
+	// isEmptyUnlocked must return true without panicking. Before the fix,
+	// the check used ">" instead of ">=" which caused an out-of-bounds
+	// access: h.nodes[0] on a zero-length slice.
+	t.Run("zero-length nodes slice must not panic", func(t *testing.T) {
+		index := createEmptyHnswIndexForTests(t, testVectorForID)
+		// Simulate state loaded from a snapshot with zero nodes
+		index.shardedNodeLocks.LockAll()
+		index.nodes = make([]*vertex, 0)
+		index.shardedNodeLocks.UnlockAll()
+		index.entryPointID = 0
+
+		assert.NotPanics(t, func() {
+			assert.True(t, index.isEmpty())
+		})
+	})
+
+	t.Run("entryPointID beyond nodes length must not panic", func(t *testing.T) {
+		index := createEmptyHnswIndexForTests(t, testVectorForID)
+		index.shardedNodeLocks.LockAll()
+		index.nodes = make([]*vertex, 5)
+		index.shardedNodeLocks.UnlockAll()
+		index.entryPointID = 5
+
+		assert.NotPanics(t, func() {
+			assert.True(t, index.isEmpty())
+		})
+	})
+
+	t.Run("search on empty nodes returns nil without panic", func(t *testing.T) {
+		index := createEmptyHnswIndexForTests(t, testVectorForID)
+		index.shardedNodeLocks.LockAll()
+		index.nodes = make([]*vertex, 0)
+		index.shardedNodeLocks.UnlockAll()
+		index.entryPointID = 0
+
+		res, dists, err := index.SearchByVector(context.Background(), []float32{0.1, 0.2, 0.3}, 10, nil)
+		assert.NoError(t, err)
+		assert.Nil(t, res)
+		assert.Nil(t, dists)
+	})
+}
+
 func TestHnswIndexContainsDoc(t *testing.T) {
 	testHnswIndexContainsDoc(t, genericVecTestHelperSingle())
 }

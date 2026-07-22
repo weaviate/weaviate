@@ -27,6 +27,7 @@ const (
 	endpointProperty      = "endpoint"
 	targetModelProperty   = "targetModel"
 	targetVariantProperty = "targetVariant"
+	dimensionsProperty    = "dimensions"
 )
 
 // Default values for service cannot be changed before we solve how old classes
@@ -132,6 +133,10 @@ func (ic *classSettings) TargetModel() string {
 
 func (ic *classSettings) TargetVariant() string {
 	return ic.getStringProperty(targetVariantProperty, "")
+}
+
+func (ic *classSettings) Dimensions() *int64 {
+	return ic.BaseClassSettings.GetPropertyAsInt64(dimensionsProperty, nil)
 }
 
 func isSagemaker(service string) bool {

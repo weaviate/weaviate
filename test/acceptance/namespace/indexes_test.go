@@ -108,36 +108,37 @@ func findIndexProp(t *testing.T, resp *models.IndexStatusResponse, name string) 
 	return nil
 }
 
-// TestNamespaces_IndexesUpdate covers PUT /v1/schema/{class}/indexes/{prop} for
-// both principals: an invalid body must resolve then fail validation (400, not
-// 404); a valid body submits a real reindex (202). Each subtest uses its own
-// class so in-flight reindexes don't conflict.
+// TestNamespaces_IndexesUpdate covers PUT .../index/{indexType} for both
+// principals: invalid body resolves then fails validation (400, not 404);
+// valid body submits a real reindex (202). Each subtest uses its own class.
 func TestNamespaces_IndexesUpdate(t *testing.T) {
 	t.Parallel()
 	ns1, _, user1Key, _ := twoNamespaces(t)
 
-	put := func(className, key string, body *models.IndexUpdateRequest) (*schema.SchemaObjectsIndexesUpdateAccepted, error) {
-		return helper.Client(t).Schema.SchemaObjectsIndexesUpdate(
-			schema.NewSchemaObjectsIndexesUpdateParams().
+	put := func(className, key string, body *models.IndexUpsertRequest) (*schema.SchemaObjectsIndexUpsertAccepted, error) {
+		_, accepted, err := helper.Client(t).Schema.SchemaObjectsIndexUpsert(
+			schema.NewSchemaObjectsIndexUpsertParams().
 				WithClassName(className).
 				WithPropertyName("title").
+				WithIndexName("filterable").
 				WithBody(body),
 			helper.CreateAuth(key),
 		)
+		return accepted, err
 	}
 	// "title" defaults to "word"; "lowercase" is a valid different target (202).
 	// "not-a-tokenization" is rejected only after the class+property resolve (400).
-	validBody := func() *models.IndexUpdateRequest {
-		return &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Tokenization: "lowercase"}}
+	validBody := func() *models.IndexUpsertRequest {
+		return &models.IndexUpsertRequest{Tokenization: "lowercase"}
 	}
-	invalidBody := func() *models.IndexUpdateRequest {
-		return &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Tokenization: "not-a-tokenization"}}
+	invalidBody := func() *models.IndexUpsertRequest {
+		return &models.IndexUpsertRequest{Tokenization: "not-a-tokenization"}
 	}
 	requireResolvedNot404 := func(t *testing.T, err error) {
 		require.Error(t, err)
-		var notFound *schema.SchemaObjectsIndexesUpdateNotFound
+		var notFound *schema.SchemaObjectsIndexUpsertNotFound
 		require.False(t, stderrors.As(err, &notFound), "class must resolve, not 404: %v", err)
-		var badReq *schema.SchemaObjectsIndexesUpdateBadRequest
+		var badReq *schema.SchemaObjectsIndexUpsertBadRequest
 		require.True(t, stderrors.As(err, &badReq), "expected 400 after resolution, got %T: %v", err, err)
 	}
 	// setupReindexClassInNs1 creates the class in ns1; its cleanup cancels the
@@ -154,9 +155,13 @@ func TestNamespaces_IndexesUpdate(t *testing.T) {
 			require.EventuallyWithT(t, func(c *assert.CollectT) {
 				// Cancel only matches STARTED tasks; retry covers the window
 				// where the task is transitioning and momentarily uncancellable.
-				_, _ = put(qualified, adminKey, &models.IndexUpdateRequest{
-					Filterable: &models.IndexUpdateFilterable{Cancel: true},
-				})
+				_, _ = helper.Client(t).Schema.SchemaObjectsIndexCancel(
+					schema.NewSchemaObjectsIndexCancelParams().
+						WithClassName(qualified).
+						WithPropertyName("title").
+						WithIndexName("filterable"),
+					helper.CreateAuth(adminKey),
+				)
 				assert.NoError(c, helper.DeleteClassAuthWithReturn(t, qualified, adminKey))
 			}, 30*time.Second, 200*time.Millisecond)
 		})

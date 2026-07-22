@@ -130,7 +130,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
 			schemaReaderMock := schema.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
-			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
+			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1", mock.Anything).Return(
 				map[string]string{
 					"shard1": models.TenantActivityStatusHOT,
 				}, nil).Maybe()
@@ -195,8 +195,9 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			}
 			// Build the routing plan
 			readPlan, err := myRouter.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-				Shard:  "shard1",
-				Tenant: tenant,
+				AllowTenantActivation: true,
+				Shard:                 "shard1",
+				Tenant:                tenant,
 			})
 			if testCase.expectedErrorStr != "" {
 				require.Error(t, err)
@@ -307,7 +308,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
 			schemaReaderMock := schema.NewMockSchemaReader(t)
 			schemaGetterMock := schema.NewMockSchemaGetter(t)
-			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
+			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1", mock.Anything).Return(
 				map[string]string{
 					"shard1": models.TenantActivityStatusHOT,
 				}, nil).Maybe()

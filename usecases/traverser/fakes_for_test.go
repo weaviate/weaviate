@@ -74,6 +74,11 @@ type fakeVectorSearcher struct {
 	calledWithLimit  int
 	calledWithOffset int
 	results          []search.Result
+
+	diversifyFn                      func(selection *searchparams.Selection, className, targetVector string, results []search.Result) ([]search.Result, error)
+	diversifyCalledSel               *searchparams.Selection
+	diversifyCalledTarget            string
+	diversifyCalledRelevanceFromDist bool
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
@@ -132,7 +137,19 @@ func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
-	return nil, nil
+	return objs, nil
+}
+
+func (f *fakeVectorSearcher) DiversifyResults(ctx context.Context, selection *searchparams.Selection,
+	className, targetVector string, results []search.Result, relevanceFromDist bool,
+) ([]search.Result, error) {
+	f.diversifyCalledSel = selection
+	f.diversifyCalledTarget = targetVector
+	f.diversifyCalledRelevanceFromDist = relevanceFromDist
+	if f.diversifyFn != nil {
+		return f.diversifyFn(selection, className, targetVector, results)
+	}
+	return results, nil
 }
 
 type fakeVectorRepo struct {
@@ -224,7 +241,7 @@ func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenant
 	return res, nil
 }
 
-func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil

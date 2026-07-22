@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -40,11 +41,13 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -194,6 +197,18 @@ type Config struct {
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
 	DrainSleep time.Duration
+
+	// MaxTenantsPerCollection caps tenants per collection (nil/negative =
+	// unlimited), enforced pre-commit on the leader.
+	MaxTenantsPerCollection *runtime.DynamicValue[int]
+
+	// UsageLimitsErrorMessage (USAGE_LIMITS_ERROR_MESSAGE) is rendered into the
+	// tenant-cap rejection, matching the handler fast-path.
+	UsageLimitsErrorMessage *runtime.DynamicValue[string]
+
+	// DBLoadProgress reports local shard-loading progress (loaded,
+	// total) while the DB is being restored on startup.
+	DBLoadProgress func() *db.StartupProgressSnapshot
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -255,6 +270,10 @@ type Store struct {
 	lastAppliedIndexToDB atomic.Uint64
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	// tenantAddLocks serializes AddTenants per class on the leader so the
+	// pre-commit tenant-cap check cannot race the apply that increments the count.
+	tenantAddLocks *entsync.KeyLocker
 
 	// snapshotter is the snapshotter for the store
 	snapshotter fsm.Snapshotter
@@ -321,6 +340,13 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
+	if dv := cfg.MaxTenantsPerCollection; dv != nil {
+		errTemplate := func() string { return "" }
+		if t := cfg.UsageLimitsErrorMessage; t != nil {
+			errTemplate = t.Get
+		}
+		schemaManager.SetTenantLimit(dv.Get, errTemplate)
+	}
 
 	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
 	// cascade-delete (weaviate/0-weaviate-issues#231).
@@ -347,6 +373,11 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		dynusersLister = cfg.DynamicUserController
 	}
 
+	var rbacLister namespaces.RBACNamespaceLister
+	if cfg.RBAC != nil {
+		rbacLister = cfg.RBAC
+	}
+
 	return Store{
 		cfg:          cfg,
 		log:          cfg.Logger,
@@ -361,11 +392,12 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:           schemaManager,
+		tenantAddLocks:          entsync.NewKeyLocker(),
 		snapshotter:             snapshotter,
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
-		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, cfg.Logger),
+		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, cfg.Logger),
 		replicationManager:      replicationManager,
 		distributedTasksManager: distributedTasksManager,
 		metrics:                 newStoreMetrics(cfg.NodeID, reg),
@@ -481,6 +513,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// However, we believe that 1 day should be more than sufficient.
 	f := func() { st.onLeaderFound(time.Hour * 24) }
 	enterrors.GoWrapper(f, st.log)
+	st.schemaManager.SetShouldLogSlowApply(st.shouldLogSlowApply)
 	return nil
 }
 
@@ -663,10 +696,33 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 				return nil
 			}
 			if time.Since(lastLog) >= logInterval {
-				st.log.Info("waiting for database to be restored")
+				st.log.WithFields(st.dbLoadProgressFields()).Info("waiting for database to be restored")
 				lastLog = time.Now()
 			}
 		}
+	}
+}
+
+// dbLoadProgressFields returns log fields describing shard-loading progress, or
+// nil when no progress source is configured or there are no shards to load.
+func (st *Store) dbLoadProgressFields() logrus.Fields {
+	if st.cfg.DBLoadProgress == nil {
+		return nil
+	}
+
+	snapshot := st.cfg.DBLoadProgress()
+	if snapshot == nil {
+		return nil
+	}
+
+	if snapshot.Total <= 0 {
+		return nil
+	}
+
+	return logrus.Fields{
+		"shards_loaded": snapshot.Loaded,
+		"shards_total":  snapshot.Total,
+		"progress":      fmt.Sprintf("%.0f%%", float64(snapshot.Loaded)/float64(snapshot.Total)*100),
 	}
 }
 
@@ -910,6 +966,12 @@ func (st *Store) reloadDBFromSchema() {
 
 func (st *Store) FSMHasCaughtUp() bool {
 	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
+}
+
+// shouldLogSlowApply reports whether slow RAFT apply diagnostics should be
+// emitted: current leader, store ready, and past startup FSM catch-up.
+func (st *Store) shouldLogSlowApply() bool {
+	return st.IsLeader() && st.Ready() && st.FSMHasCaughtUp()
 }
 
 type Response struct {

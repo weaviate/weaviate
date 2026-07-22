@@ -32,13 +32,14 @@ import (
 )
 
 var (
-	ErrClassExists             = errors.New("class already exists")
-	ErrClassNotFound           = errors.New("class not found")
-	ErrShardNotFound           = errors.New("shard not found")
-	ErrAliasExists             = errors.New("alias already exists")
-	ErrAliasNotFound           = errors.New("alias not found")
-	ErrMTDisabled              = errors.New("multi-tenancy is not enabled")
-	ErrTenantTransitionalState = errors.New("tenant is in a transitional state")
+	ErrClassExists               = errors.New("class already exists")
+	ErrClassNotFound             = errors.New("class not found")
+	ErrShardNotFound             = errors.New("shard not found")
+	ErrAliasExists               = errors.New("alias already exists")
+	ErrAliasNotFound             = errors.New("alias not found")
+	ErrMTDisabled                = errors.New("multi-tenancy is not enabled")
+	ErrTenantTransitionalState   = errors.New("tenant is in a transitional state")
+	ErrReplicaMovementInProgress = errors.New("replica movement in progress")
 )
 
 // PartialUpdateError wraps one or more schema errors that represent a partial
@@ -535,6 +536,25 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 	}
 
 	return nil
+}
+
+// tenantCapUsage returns the current physical-tenant count for class and how
+// many of the incoming names are not yet present. ok is false if class is
+// unknown.
+func (s *schema) tenantCapUsage(class string, incoming []string) (current, additions int, ok bool) {
+	meta := s.metaClass(class)
+	if meta == nil {
+		return 0, 0, false
+	}
+	meta.RLock()
+	defer meta.RUnlock()
+	current = len(meta.Sharding.Physical)
+	for _, name := range incoming {
+		if _, exists := meta.Sharding.Physical[name]; !exists {
+			additions++
+		}
+	}
+	return current, additions, true
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {

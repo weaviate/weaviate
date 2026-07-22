@@ -65,6 +65,9 @@ type Property struct {
 	// The properties of the nested object(s). Applies to object and object[] data types.
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
+	// Internal RAFT-replicated per-property flag: true iff this property's searchable (BM25) bucket is on the blockmax (StrategyInverted) index. Stamped at migration cutover. Absent/null means "not stamped" and is resolved against the class-wide UsingBlockMaxWAND flag. Internal use; clients must not set this.
+	SearchableBlockmax *bool `json:"searchableBlockmax,omitempty"`
+
 	// text analyzer
 	TextAnalyzer *TextAnalyzerConfig `json:"textAnalyzer,omitempty"`
 

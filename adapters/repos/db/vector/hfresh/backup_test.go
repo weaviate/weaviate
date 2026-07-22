@@ -79,7 +79,6 @@ func TestHFreshBackupListFiles(t *testing.T) {
 		expectedDirs := []string{
 			"analyze.queue.d",
 			"centroids.hnsw.commitlog.d",
-			"centroids.hnsw.snapshot.d",
 			"merge.queue.d",
 			"reassign.queue.d",
 			"split.queue.d",
@@ -135,5 +134,11 @@ func TestHFreshBackupListFiles(t *testing.T) {
 			}
 		}
 		require.True(t, hasCentroidCommitLog)
+	})
+
+	t.Run("SnapshotMutableFiles returns nil (hfresh seals files in PrepareForBackup)", func(t *testing.T) {
+		relPaths, err := index.SnapshotMutableFiles(t.Context(), cfg.RootPath, t.TempDir())
+		require.NoError(t, err)
+		require.Nil(t, relPaths)
 	})
 }

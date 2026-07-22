@@ -15,14 +15,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/hashicorp/raft"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -286,11 +291,14 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	return cl.leaderRpcConn, nil
 }
 
-// fromRPCError parses the error sent by rpc server to identify status
-// and chain sentinel errors accordingly. This is the only sentinel
-// re-chain point on the client side; the gRPC hop drops the errors.Is
-// chain and callers expect typed sentinels they can match against.
-// Sentinels that share a status code are disambiguated by message text.
+// fromRPCError parses the error sent by rpc server to identify status and chain
+// type-full errors accordingly, so the client can make decisions on typed errors
+// rather than raw gRPC status. It re-types by code: a usage-limit rejection
+// (LimitExceededRPCCode) becomes a *LimitExceededError — message from the status,
+// structured limit/value from the ErrorInfo detail — so a follower that forwarded
+// the request surfaces the full canonical 429; NotFound chains the sentinel.
+// NotLeaderRPCCode chains ErrLeaderNotFound/ErrNotLeader so a node that
+// forwarded the request can still recognise a leadership change and retry.
 func fromRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -301,6 +309,26 @@ func fromRPCError(err error) error {
 	}
 	msg := err.Error()
 	switch st.Code() {
+	case LimitExceededRPCCode:
+		le := &usagelimits.LimitExceededError{RenderedMessage: st.Message()}
+		for _, d := range st.Details() {
+			if info, ok := d.(*errdetails.ErrorInfo); ok {
+				le.Limit = usagelimits.LimitName(info.Metadata["limit"])
+				le.Value, _ = strconv.ParseInt(info.Metadata["value"], 10, 64)
+				break
+			}
+		}
+		return le
+	case NotLeaderRPCCode:
+		switch {
+		case strings.Contains(msg, types.ErrLeaderNotFound.Error()):
+			return errors.Join(err, types.ErrLeaderNotFound)
+		case strings.Contains(msg, types.ErrNotLeader.Error()),
+			strings.Contains(msg, raft.ErrLeadershipLost.Error()):
+			// raft.ErrNotLeader shares types.ErrNotLeader's message and matches
+			// the first arm; ErrLeadershipLost has its own wording.
+			return errors.Join(err, types.ErrNotLeader)
+		}
 	case codes.NotFound:
 		switch {
 		case strings.Contains(msg, namespaces.ErrNamespaceGone.Error()):
@@ -319,6 +347,14 @@ func fromRPCError(err error) error {
 			return errors.Join(err, namespaces.ErrInvalidStateTransition)
 		case strings.Contains(msg, namespaces.ErrInvalidState.Error()):
 			return errors.Join(err, namespaces.ErrInvalidState)
+		case strings.Contains(msg, namespaces.ErrNamespaceSuspended.Error()):
+			return errors.Join(err, namespaces.ErrNamespaceSuspended)
+		case strings.Contains(msg, namespaces.ErrCollectionSuspended.Error()):
+			return errors.Join(err, namespaces.ErrCollectionSuspended)
+		case strings.Contains(msg, namespaces.ErrNamespaceResuming.Error()):
+			return errors.Join(err, namespaces.ErrNamespaceResuming)
+		case strings.Contains(msg, namespaces.ErrStateChangedConcurrently.Error()):
+			return errors.Join(err, namespaces.ErrStateChangedConcurrently)
 		}
 	case codes.AlreadyExists:
 		if strings.Contains(msg, namespaces.ErrAlreadyExists.Error()) {

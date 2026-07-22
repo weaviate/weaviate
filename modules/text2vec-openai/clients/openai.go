@@ -69,6 +69,7 @@ func (v *client) getSettings(cfg moduletools.ClassConfig, action string) openai.
 		ResourceName:         settings.ResourceName(),
 		DeploymentID:         settings.DeploymentID(),
 		BaseURL:              settings.BaseURL(),
+		Endpoint:             settings.Endpoint(),
 		IsAzure:              settings.IsAzure(),
 		IsThirdPartyProvider: settings.IsThirdPartyProvider(),
 		ApiVersion:           settings.ApiVersion(),

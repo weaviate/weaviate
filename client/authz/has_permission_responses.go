@@ -58,6 +58,12 @@ func (o *HasPermissionReader) ReadResponse(response runtime.ClientResponse, cons
 			return nil, err
 		}
 		return nil, result
+	case 404:
+		result := NewHasPermissionNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewHasPermissionUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -329,6 +335,62 @@ func (o *HasPermissionForbidden) readResponse(response runtime.ClientResponse, c
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
+
+	return nil
+}
+
+// NewHasPermissionNotFound creates a HasPermissionNotFound with default headers values
+func NewHasPermissionNotFound() *HasPermissionNotFound {
+	return &HasPermissionNotFound{}
+}
+
+/*
+HasPermissionNotFound describes a response with status code 404, with default header values.
+
+No role found.
+*/
+type HasPermissionNotFound struct {
+}
+
+// IsSuccess returns true when this has permission not found response has a 2xx status code
+func (o *HasPermissionNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this has permission not found response has a 3xx status code
+func (o *HasPermissionNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this has permission not found response has a 4xx status code
+func (o *HasPermissionNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this has permission not found response has a 5xx status code
+func (o *HasPermissionNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this has permission not found response a status code equal to that given
+func (o *HasPermissionNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the has permission not found response
+func (o *HasPermissionNotFound) Code() int {
+	return 404
+}
+
+func (o *HasPermissionNotFound) Error() string {
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionNotFound ", 404)
+}
+
+func (o *HasPermissionNotFound) String() string {
+	return fmt.Sprintf("[POST /authz/roles/{id}/has-permission][%d] hasPermissionNotFound ", 404)
+}
+
+func (o *HasPermissionNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

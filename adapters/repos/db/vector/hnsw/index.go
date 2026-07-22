@@ -168,13 +168,13 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed       atomic.Bool
+	compressed atomic.Bool
+	// compressing spans Upgrade() through compressThenCallback completion;
+	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
+	compressing      atomic.Bool
 	doNotRescore     bool
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
-
-	disableSnapshots  bool
-	snapshotOnStartup bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -254,16 +254,20 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	PrepareForBackup(bool) error
+	// ActiveFilePath returns the absolute path of the file the writer would
+	// append to right now. The lookup happens under the commit-logger mutex,
+	// so it reflects the live append target at the moment of the call. The
+	// backup path uses this to exclude the active file by identity rather
+	// than by transient state (size==0): once any worker write hits the new
+	// file between PrepareForBackup and ListFiles, size==0 stops being a
+	// reliable witness that "this file is the writer's append target".
+	ActiveFilePath() string
 	AddPQCompression(compression.PQData) error
 	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
 	AddRQCompression(compression.RQData) error
 	AddBRQCompression(compression.BRQData) error
 	InitMaintenance()
-
-	CreateSnapshot() (bool, int64, error)
-	CreateAndLoadSnapshot() (*DeserializationResult, int64, error)
-	LoadSnapshot() (*DeserializationResult, int64, error)
 }
 
 type BufferedLinksLogger interface {
@@ -272,7 +276,7 @@ type BufferedLinksLogger interface {
 	Close() error // Close should Flush and Close
 }
 
-type MakeCommitLogger func() (CommitLogger, error)
+type MakeCommitLogger func(opts ...CommitlogOption) (CommitLogger, error)
 
 type HNSW = hnsw
 
@@ -340,8 +344,6 @@ func New(cfg Config, uc ent.UserConfig,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		acornFilterRatio:      cfg.AcornFilterRatio,
-		disableSnapshots:      cfg.DisableSnapshots,
-		snapshotOnStartup:     cfg.SnapshotOnStartup,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
@@ -667,6 +669,10 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	if h.compressed.Load() {
 		dist, err := distancer.DistanceToNode(node)
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "distToNode")
+			}
 			return 0, err
 		}
 
@@ -682,7 +688,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
-			return 0, nil
+			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err,
@@ -705,14 +711,37 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
-	h.shardedNodeLocks.RLock(h.entryPointID)
-	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
 
-	return h.isEmptyUnlocked()
+	empty := func() bool {
+		h.shardedNodeLocks.RLock(h.entryPointID)
+		defer h.shardedNodeLocks.RUnlock(h.entryPointID)
+
+		return h.isEmptyUnlocked()
+	}()
+	if !empty {
+		return false
+	}
+
+	// a nil entrypoint slot is not proof of emptiness: cleanup can remove a
+	// stranded entrypoint while live nodes remain
+	h.shardedNodeLocks.RLockAll()
+	defer h.shardedNodeLocks.RUnlockAll()
+
+	return !h.hasLiveNodesUnlocked()
 }
 
 func (h *hnsw) isEmptyUnlocked() bool {
-	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
+	return h.entryPointID >= uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
+}
+
+// callers must hold h.RLock and all sharded node locks
+func (h *hnsw) hasLiveNodesUnlocked() bool {
+	for _, node := range h.nodes {
+		if node != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
@@ -732,26 +761,15 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// Drop stops the index exactly as Shutdown does, then removes the commit log's
+// files. Dropping before stopping would leave the maintenance cycles and the
+// tombstone cleanup running against state being torn down underneath them.
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
-	// cancel tombstone cleanup goroutine
-	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
+	if err := h.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
-	if h.compressed.Load() {
-		err := h.compressor.Drop()
-		if err != nil {
-			return fmt.Errorf("failed to shutdown compressed store")
-		}
-	} else {
-		// cancel vector cache goroutine
-		h.cache.Drop()
-	}
-
-	// cancel commit logger last, as the tombstone cleanup cycle might still
-	// write while it's still running
-	err := h.commitLog.Drop(ctx, keepFiles)
-	if err != nil {
+	if err := h.commitLog.Drop(ctx, keepFiles); err != nil {
 		return errors.Wrap(err, "commit log drop")
 	}
 
@@ -911,6 +929,10 @@ func (h *hnsw) Multivector() bool {
 
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
+}
+
+func (h *hnsw) UpgradeInProgress() bool {
+	return h.compressing.Load()
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {

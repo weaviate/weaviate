@@ -22,14 +22,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testChangeTokenizationFilterable pins the journey class around
-// change-tokenization for properties with various index configurations.
-// Frontend repro 2026-05-14: PUT {"searchable":{"tokenization":X}} on a
-// filterable-only text property 400'd with "searchable bucket not found",
-// with no alternative body shape to retokenize the filterable bucket.
-// The fix adds {"filterable":{"tokenization":X}} as a new shape; this
-// test covers every (data type, IndexFilterable, IndexSearchable) state
-// against both body shapes.
+// testChangeTokenizationFilterable covers change-tokenization via PUT
+// .../index/filterable and .../index/searchable across every
+// (data type, IndexFilterable, IndexSearchable) state.
 func testChangeTokenizationFilterable(t *testing.T, restURI string) {
 	t.Run("filterable_only_text__filterable_tokenization", func(t *testing.T) {
 		testFilterableTokenizationFilterableOnly(t, restURI, "text")
@@ -88,9 +83,10 @@ func testFilterableTokenizationFilterableOnly(t *testing.T, restURI, dataType st
 	require.Equal(t, 1, equalFilterHits(t, className, "name", "alpha"),
 		"pre-migration: Equal('alpha') with field tokenization must match exactly one object")
 
-	// Submit {"filterable":{"tokenization":"word"}} — the new body shape.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "name",
-		`{"filterable":{"tokenization":"word"}}`)
+	// Submit PUT .../index/filterable {"tokenization":"word"} — the
+	// filterable-only retokenize shape.
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "name", "filterable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// Schema flag: Tokenization must now be "word".
@@ -114,11 +110,10 @@ func testFilterableTokenizationFilterableOnly(t *testing.T, restURI, dataType st
 		"post-migration: Equal('alpha') must still match exactly one object with word tokenization")
 }
 
-// testSearchableTokenizationOnFilterableOnlyRejected pins the better-error
-// case from frontend's repro. Before the fix the API 400'd with
-// "searchable bucket not found" which gave the caller no actionable next
-// step. The fix returns a 400 that names {"filterable":{"tokenization":...}}
-// as the right body shape instead.
+// testSearchableTokenizationOnFilterableOnlyRejected pins that creating a
+// searchable index with a tokenization diverging from the property's
+// existing filterable tokenization is rejected (400 naming the filterable
+// index) rather than silently desynchronizing the two buckets.
 func testSearchableTokenizationOnFilterableOnlyRejected(t *testing.T, restURI string) {
 	const className = "SearchableTokOnFilterableOnly"
 	trueVal, falseVal := true, false
@@ -137,12 +132,12 @@ func testSearchableTokenizationOnFilterableOnlyRejected(t *testing.T, restURI st
 	})
 	defer helper.DeleteClass(t, className)
 
-	resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, className, "name",
-		`{"searchable":{"tokenization":"word"}}`)
+	resp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, "name", "searchable",
+		`{"tokenization":"word"}`)
 	require.Equal(t, 400, resp.StatusCode,
-		"PUT {searchable:{tokenization:X}} on filterable-only must 400, not 5xx or 202")
+		"PUT .../index/searchable {tokenization:word} on filterable-only (tok=field) must 400, not 5xx or 202")
 	require.Contains(t, resp.Body, "filterable",
-		"the 400 body must point the caller at the {filterable:{tokenization:...}} shape; "+
+		"the 400 body must name the filterable index so the caller knows to retokenize it first; "+
 			"current body: %s", resp.Body)
 }
 
@@ -164,12 +159,15 @@ func testFilterableTokenizationOnSearchableOnlyRejected(t *testing.T, restURI st
 	})
 	defer helper.DeleteClass(t, className)
 
-	resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, className, "body",
-		`{"filterable":{"tokenization":"field"}}`)
+	resp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, "body", "filterable",
+		`{"tokenization":"field"}`)
 	require.Equal(t, 400, resp.StatusCode,
-		"PUT {filterable:{tokenization:X}} on searchable-only must 400")
-	require.Contains(t, resp.Body, "no filterable index",
-		"the 400 body must explain that the property has no filterable index; current body: %s", resp.Body)
+		"PUT .../index/filterable {tokenization:field} on searchable-only (tok=word) must 400")
+	// The property has no filterable index, so this takes the create path;
+	// creating one with a tokenization that diverges from the property's
+	// current tokenization ("word") is rejected.
+	require.Contains(t, resp.Body, "must match the property's current tokenization",
+		"the 400 body must explain the tokenization must match on filterable creation; current body: %s", resp.Body)
 }
 
 func testFilterableTokenizationOnBothIndexes(t *testing.T, restURI string) {
@@ -194,8 +192,8 @@ func testFilterableTokenizationOnBothIndexes(t *testing.T, restURI string) {
 		Class: className, Properties: map[string]interface{}{"name": "gamma"},
 	}))
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "name",
-		`{"filterable":{"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "name", "filterable",
+		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	require.Eventually(t, func() bool {
@@ -228,10 +226,10 @@ func testFilterableTokenizationOnNonText(t *testing.T, restURI string) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, className, "score",
-		`{"filterable":{"tokenization":"word"}}`)
+	resp := reindexhelpers.SubmitIndexUpsertRaw(t, restURI, className, "score", "filterable",
+		`{"tokenization":"word"}`)
 	require.Equal(t, 400, resp.StatusCode,
-		"PUT {filterable:{tokenization:X}} on a non-text property must 400")
+		"PUT .../index/filterable {tokenization:word} on a non-text property must 400")
 	require.Contains(t, resp.Body, "text type",
 		"the 400 body must say the property is not a text type; current body: %s", resp.Body)
 }

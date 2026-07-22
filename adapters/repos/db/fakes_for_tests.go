@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -94,7 +93,7 @@ func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenant
 	return res, nil
 }
 
-func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -353,7 +352,7 @@ func (f *FakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string, selection *searchparams.Selection,
+	properties []string,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return nil, nil, nil, nil
 }
@@ -404,30 +403,6 @@ func (f *FakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	fileName string, payload io.ReadSeekCloser,
 ) error {
 	return nil
-}
-
-func (f *FakeRemoteClient) PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error {
-	return nil
-}
-
-func (f *FakeRemoteClient) ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error {
-	return nil
-}
-
-func (f *FakeRemoteClient) ListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error) {
-	return nil, nil
-}
-
-func (f *FakeRemoteClient) GetFileMetadata(ctx context.Context, hostName, indexName, shardName,
-	fileName string,
-) (file.FileMetadata, error) {
-	return file.FileMetadata{}, nil
-}
-
-func (f *FakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, shardName,
-	fileName string,
-) (io.ReadCloser, error) {
-	return nil, nil
 }
 
 func (f *FakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
@@ -587,4 +562,10 @@ func (c *FakeReplicationClient) CreateAsyncCheckpoint(_ context.Context, _, _ st
 
 func (c *FakeReplicationClient) DeleteAsyncCheckpoint(_ context.Context, _, _ string, _ []string) error {
 	return nil
+}
+
+func (c *FakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return nil, nil
 }

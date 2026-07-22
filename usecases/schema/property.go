@@ -88,6 +88,9 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 			return nil, 0, err
 		}
 	}
+	// Strip RAFT-internal fields unconditionally (including merge-existing
+	// props, which the loop above skips) so a client can never seed them.
+	clearInternalPropertyFields(newProps...)
 
 	if err := h.setNewPropDefaults(class, newProps...); err != nil {
 		return nil, 0, err
@@ -119,26 +122,31 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
-// DeleteClassPropertyIndex deletes collection's property index
+// DeleteClassPropertyIndex deletes collection's property index. The bool
+// return reports whether a RAFT write occurred (false for a node-local no-op,
+// when the flag was already off) — callers use it to avoid synthesizing state
+// for a write that never reached RAFT.
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
-) error {
+) (bool, error) {
 	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
-		return err
+	// Collections (data+metadata), matching the REST pre-authz and the other
+	// index write verbs: dropping an index rewrites data, not metadata only.
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+		return false, err
 	}
 
 	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+		return false, fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if propertyName == "" {
-		return fmt.Errorf("property name cannot be empty")
+		return false, fmt.Errorf("property name cannot be empty")
 	}
 
 	// [SchemaReader.ReadOnlyClass] returns a SHALLOW clone of the live
@@ -169,7 +177,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		}
 	}
 	if prop == nil {
-		return fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
+		return false, fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
 	}
 
 	// We track the *single* field being mutated so we can pass a
@@ -204,17 +212,20 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			prop.IndexFilterable = &notExists
 			updateFields = []string{command.PropertyFieldIndexFilterable}
 		} else {
-			// nothing to do
-			return nil
+			// nothing to do — no RAFT write
+			return false, nil
 		}
 	case "searchable":
 		if prop.IndexSearchable != nil && *prop.IndexSearchable {
 			notExists := false
 			prop.IndexSearchable = &notExists
-			updateFields = []string{command.PropertyFieldIndexSearchable}
+			// Clear the blockmax stamp in the same masked write: it must not
+			// outlive its index, or a re-enable resolves stale blockmax truth.
+			prop.SearchableBlockmax = nil
+			updateFields = []string{command.PropertyFieldIndexSearchable, command.PropertyFieldSearchableBlockmax}
 		} else {
-			// nothing to do
-			return nil
+			// nothing to do — no RAFT write
+			return false, nil
 		}
 	case "rangeFilters":
 		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
@@ -222,20 +233,20 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			prop.IndexRangeFilters = &notExists
 			updateFields = []string{command.PropertyFieldIndexRangeFilters}
 		} else {
-			// nothing to do
-			return nil
+			// nothing to do — no RAFT write
+			return false, nil
 		}
 	default:
-		return fmt.Errorf("invalid property index type: %s", indexName)
+		return false, fmt.Errorf("invalid property index type: %s", indexName)
 	}
 
 	if err := h.validatePropertyIndexing(prop); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop, updateFields...); err != nil {
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
@@ -280,8 +291,10 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	}
 
 	if modelsext.IsVectorIndexDropped(cfg) {
-		// Already dropped, nothing to do.
-		return nil
+		// Marker already set: handle a re-issued drop (no-op while the cleanup is in
+		// flight, re-enqueue if it failed) rather than a blanket no-op, so a
+		// stuck/failed cleanup can be retried.
+		return h.retriggerDropVectorIndexCleanup(ctx, className, vectorIndexName)
 	}
 
 	// Keep the vector entry in the schema but set VectorIndexType to "none".
@@ -293,8 +306,19 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		VectorIndexType: vectorindex.VectorIndexTypeNone,
 	}
 
-	_, err = h.schemaManager.UpdateClass(ctx, class, nil)
-	return err
+	if _, err = h.schemaManager.UpdateClass(ctx, class, nil); err != nil {
+		return err
+	}
+
+	// Enqueue the distributed cleanup task that strips the dropped vector from
+	// stored objects and finalizes the schema removal. The marker above is already
+	// durably applied — the drop IS in effect — so an enqueue failure must not
+	// surface as a failed drop; periodic reconciliation retries the cleanup.
+	if err := h.enqueueDropVectorIndexCleanup(ctx, className, vectorIndexName); err != nil {
+		h.logger.WithField("class", className).WithField("targetVector", vectorIndexName).
+			Warnf("drop vector index: marker applied but cleanup enqueue failed; reconciliation will retry: %v", err)
+	}
+	return nil
 }
 
 // DeleteClassProperty from existing Schema

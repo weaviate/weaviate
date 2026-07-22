@@ -13,6 +13,8 @@ package cyclemanager
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -143,7 +145,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		assert.GreaterOrEqual(t, d, 25*time.Millisecond)
 	})
 
-	t.Run("register new while executing", func(t *testing.T) {
+	t.Run("register new while executing runs it on the next tick", func(t *testing.T) {
 		executedCounter1 := 0
 		callback1 := func(shouldAbort ShouldAbortCallback) bool {
 			time.Sleep(50 * time.Millisecond)
@@ -178,11 +180,10 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		callbacks.Register("c2", callback2)
 		callbacks.Register("c3", callback3)
 
-		// register 4th callback while other are executed,
-		//
-		// while 1st and 2nd are being processed (50ms),
-		// 3rd is waiting for available routine (without 3rd callback loop would be finished)
-		// 4th is registered (25ms) to be called next along with 3rd
+		// register 4th callback while the others are executing:
+		// 1st and 2nd are processed first (50ms), 3rd waits for a free routine.
+		// The tick dispatches the callbacks due when it started (c1, c2, c3), so
+		// the 4th, registered afterwards, is not part of this tick.
 		go func() {
 			chStarted <- struct{}{}
 			start := time.Now()
@@ -199,8 +200,12 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		assert.Equal(t, 1, executedCounter1)
 		assert.Equal(t, 1, executedCounter2)
 		assert.Equal(t, 1, executedCounter3)
-		assert.Equal(t, 1, executedCounter4)
+		assert.Equal(t, 0, executedCounter4)
 		assert.GreaterOrEqual(t, d, 100*time.Millisecond)
+
+		// the next tick picks up the 4th callback
+		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+		assert.Equal(t, 1, executedCounter4)
 	})
 
 	t.Run("idle tick executes nothing", func(t *testing.T) {
@@ -1662,6 +1667,134 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		assert.LessOrEqual(t, counter, max)
 		assert.LessOrEqual(t, d, 200*time.Millisecond)
 	})
+}
+
+func TestCycleCallback_Parallel_DueDispatch(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	shouldNotAbort := func() bool { return false }
+
+	t.Run("only due callbacks execute among many not-due", func(t *testing.T) {
+		const total = 200
+		var executed int64
+
+		callbacks := NewCallbackGroup("id", logger, 4)
+		// long interval: due on the first tick (registration allows immediate
+		// execution), not due afterwards
+		for i := 0; i < total; i++ {
+			callbacks.Register(fmt.Sprintf("c%d", i),
+				func(shouldAbort ShouldAbortCallback) bool {
+					atomic.AddInt64(&executed, 1)
+					return true
+				}, WithIntervals(NewFixedIntervals(time.Hour)))
+		}
+
+		// 1st tick: all due
+		assert.True(t, callbacks.CycleCallback(shouldNotAbort))
+		assert.Equal(t, int64(total), atomic.LoadInt64(&executed))
+
+		// 2nd tick: none due, nothing runs
+		assert.False(t, callbacks.CycleCallback(shouldNotAbort))
+		assert.Equal(t, int64(total), atomic.LoadInt64(&executed))
+	})
+
+	t.Run("concurrent register and unregister during cycles is race free", func(t *testing.T) {
+		callback := func(shouldAbort ShouldAbortCallback) bool { return true }
+
+		callbacks := NewCallbackGroup("id", logger, 4)
+		const stable = 8
+		for i := 0; i < stable; i++ {
+			callbacks.Register(fmt.Sprintf("stable%d", i), callback)
+		}
+
+		stop := make(chan struct{})
+		wg := new(sync.WaitGroup)
+		// churn: continuously register then unregister while cycles run
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				ctrl := callbacks.Register("churn", callback)
+				assert.NoError(t, ctrl.Unregister(context.Background()))
+			}
+		}()
+
+		for i := 0; i < 200; i++ {
+			callbacks.CycleCallback(shouldNotAbort)
+		}
+		close(stop)
+		wg.Wait()
+
+		// final tick prunes ids of the churned callbacks
+		callbacks.CycleCallback(shouldNotAbort)
+
+		group := callbacks.(*cycleCallbackGroup)
+		group.Lock()
+		defer group.Unlock()
+		assert.Len(t, group.callbacks, stable)
+		assert.Len(t, group.callbackIds, stable)
+	})
+}
+
+// BenchmarkCycleCallback_Parallel measures per-tick scheduling overhead of an
+// index-level group. The two regimes mirror the backoff decision in
+// index_cyclecallbacks.go: MT registers each shard entry with its own interval
+// (WithIntervals) and on a steady-state tick only a few shards are due; ST
+// registers entries with no interval (the ticker backs off instead), so every
+// entry is due whenever the group fires.
+func BenchmarkCycleCallback_Parallel(b *testing.B) {
+	logger, _ := test.NewNullLogger()
+	shouldNotAbort := func() bool { return false }
+	noop := func(shouldAbort ShouldAbortCallback) bool { return true }
+
+	cases := []struct {
+		name        string
+		multiTenant bool
+		registered  int
+		due         int // only meaningful for MT; ST is always all-due
+	}{
+		{name: "MT/registered=5000/due=0", multiTenant: true, registered: 5000, due: 0},
+		{name: "MT/registered=5000/due=5", multiTenant: true, registered: 5000, due: 5},
+		{name: "MT/registered=5000/due=200", multiTenant: true, registered: 5000, due: 200},
+		{name: "MT/registered=5000/due=1000", multiTenant: true, registered: 5000, due: 1000},
+		{name: "MT/registered=5000/due=5000", multiTenant: true, registered: 5000, due: 5000},
+		{name: "MT/registered=1000/due=5", multiTenant: true, registered: 1000, due: 5},
+		{name: "MT/registered=10000/due=5", multiTenant: true, registered: 10000, due: 5},
+		{name: "ST/registered=1000", registered: 1000},
+		{name: "ST/registered=5000", registered: 5000},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			callbacks := NewCallbackGroup("id", logger, 4)
+			for i := 0; i < tc.registered; i++ {
+				switch {
+				case !tc.multiTenant:
+					// ST: no per-entry interval, so always due when the group fires
+					callbacks.Register(fmt.Sprintf("st%d", i), noop)
+				case i < tc.due:
+					// MT due entry: interval already elapsed, due on every tick
+					callbacks.Register(fmt.Sprintf("due%d", i), noop,
+						WithIntervals(NewFixedIntervals(time.Nanosecond)))
+				default:
+					// MT backed-off entry: long interval; priming below records
+					// started=now so it stays not-due for the rest of the benchmark
+					callbacks.Register(fmt.Sprintf("idle%d", i), noop,
+						WithIntervals(NewFixedIntervals(time.Hour)))
+				}
+			}
+			callbacks.CycleCallback(shouldNotAbort)
+
+			b.ResetTimer()
+			for n := 0; n < b.N; n++ {
+				callbacks.CycleCallback(shouldNotAbort)
+			}
+		})
+	}
 }
 
 func TestCycleCallback_Sequential_Deactivate(t *testing.T) {

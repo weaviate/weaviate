@@ -208,10 +208,12 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL := c.getCohereUrl(ctxWithValue, baseURL)
+		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL)
+		assert.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v2/embed", buildURL)
 
-		buildURL = c.getCohereUrl(context.TODO(), baseURL)
+		buildURL, err = c.getCohereUrl(context.TODO(), baseURL)
+		assert.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v2/embed", buildURL)
 	})
 

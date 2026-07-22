@@ -218,6 +218,61 @@ func TestProvider_UpdateVector(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("with a dropped named vector index", func(t *testing.T) {
+		// Regression for #11917: dropping a named vector index leaves the vector
+		// in the schema with VectorIndexType "none" and a nil index config. A
+		// write must not be validated against the removed HNSW index.
+		className := "DropVectorBug"
+		dropped := models.VectorConfig{
+			Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+			VectorIndexType:   "none",
+			VectorIndexConfig: nil,
+		}
+		live := models.VectorConfig{
+			Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+			VectorIndexType:   "hnsw",
+			VectorIndexConfig: hnsw.UserConfig{},
+		}
+
+		tests := []struct {
+			name         string
+			vectorConfig map[string]models.VectorConfig
+			object       *models.Object
+		}{
+			{
+				name:         "write without the dropped vector succeeds",
+				vectorConfig: map[string]models.VectorConfig{"foo": dropped},
+				object:       &models.Object{Class: className},
+			},
+			{
+				name:         "write that still carries the dropped vector succeeds",
+				vectorConfig: map[string]models.VectorConfig{"foo": dropped},
+				object:       &models.Object{Class: className, Vectors: models.Vectors{"foo": []float32{0.1, 0.2}}},
+			},
+			{
+				name:         "write succeeds when a dropped index coexists with a live one",
+				vectorConfig: map[string]models.VectorConfig{"foo": dropped, "bar": live},
+				object:       &models.Object{Class: className},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				ctx := context.Background()
+				class := &models.Class{Class: className, VectorConfig: tt.vectorConfig}
+				sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+				logger, _ := test.NewNullLogger()
+
+				p := NewProvider(logger, config.Config{})
+				p.SetSchemaGetter(&fakeSchemaGetter{sch})
+
+				tt.object.ID = newUUID()
+				err := p.UpdateVector(ctx, tt.object, class, (&fakeObjectsRepo{}).Object, logger)
+				require.NoError(t, err)
+			})
+		}
+	})
+
 	t.Run("with ReferenceVectorizer", func(t *testing.T) {
 		ctx := context.Background()
 		modName := "some-vzr"

@@ -117,6 +117,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 ) (*models.Class, uint64, error) {
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
+	clearInternalPropertyFields(cls.Properties...)
 
 	// originalClassName must be passed to validateCanAddClass below: the
 	// qualified form ("<ns>:<Class>") fails ValidateClassName because
@@ -340,7 +341,7 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 	return vectorIndexConfig, nil
 }
 
-func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool, stripNamespaces bool) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -359,6 +360,17 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		if err := json.Unmarshal(d.Aliases, &aliases); err != nil {
 			return fmt.Errorf("unmarshal aliases: %w", err)
 		}
+	}
+
+	// Strip before RAFT so the propagated class name matches the participant's
+	// post-strip staging dir (see usecases/backup/restorer.restoreOne).
+	if stripNamespaces {
+		class.Class = namespacing.StripQualification(class.Class)
+		namespacing.StripPropertyDataTypes(class.Properties)
+		for _, alias := range aliases {
+			alias.Alias = namespacing.StripQualification(alias.Alias)
+		}
+		shardingState.IndexID = class.Class
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
@@ -456,7 +468,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// Namespaced callers send the stripped (short) class name in the body
 	// after a GET. Qualify it and require it to match the path so a
 	// mismatch surfaces explicitly instead of being silently overwritten.
-	if updated != nil && principal != nil && principal.Namespace != "" {
+	if updated != nil && namespacing.ConfinedNamespace(principal) != "" {
 		qualifiedBody, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, updated.Class)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
@@ -526,6 +538,20 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	// Initial class is read up-front for the grandfather-on-tighten skip
 	// in validateVectorSettingsAgainst.
 	initial := h.schemaReader.ReadOnlyClass(className)
+
+	if err := rejectVectorIndexTypeNone(initial, updated); err != nil {
+		vclasses, qErr := h.schemaManager.QueryReadOnlyClasses(className)
+		if qErr != nil {
+			return err
+		}
+		consistent, ok := vclasses[className]
+		if !ok || consistent.Class == nil {
+			return err
+		}
+		if err := rejectVectorIndexTypeNone(consistent.Class, updated); err != nil {
+			return err
+		}
+	}
 
 	if err := h.validateVectorSettingsAgainst(updated, initial); err != nil {
 		return err
@@ -741,6 +767,20 @@ func setPropertyDefaults(props ...*models.Property) {
 	setPropertyDefaultIndexing(props...)
 	for _, prop := range props {
 		setNestedPropertiesDefaults(prop.NestedProperties)
+	}
+}
+
+// clearInternalPropertyFields nils RAFT-internal per-property fields on
+// client-provided properties so they can only be set inside the engine.
+// SearchableBlockmax comes from on-disk state or the read-repair (which only
+// touches nil stamps); a client-seeded value would be a wrong stamp nothing
+// corrects. Create paths only — UpdateProperty's DeepEqual guard already
+// blocks mutation on update.
+func clearInternalPropertyFields(props ...*models.Property) {
+	for _, prop := range props {
+		if prop != nil {
+			prop.SearchableBlockmax = nil
+		}
 	}
 }
 
@@ -1036,6 +1076,29 @@ func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, 
 	}
 
 	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation)
+}
+
+// rejectVectorIndexTypeNone rejects a client update that newly introduces the
+// dropped-index sentinel (VectorIndexType=="none"); an existing "none" may
+// persist. That marker is set only server-side by DeleteClassVectorIndex.
+func rejectVectorIndexTypeNone(prev, next *models.Class) error {
+	if next == nil {
+		return nil
+	}
+	for name, nextCfg := range next.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(nextCfg) {
+			continue
+		}
+		if prev != nil {
+			if prevCfg, ok := prev.VectorConfig[name]; ok && modelsext.IsVectorIndexDropped(prevCfg) {
+				continue
+			}
+		}
+		return fmt.Errorf("vector %q: vectorIndexType %q is an internal sentinel for "+
+			"dropped indexes and cannot be set through a class update; use the drop "+
+			"vector index API instead", name, modelsext.VectorIndexTypeNone)
+	}
+	return nil
 }
 
 func (h *Handler) validateClassInvariants(

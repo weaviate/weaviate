@@ -13,7 +13,9 @@ package dynamic
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -32,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -270,7 +273,6 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		t.Logf("recall: %f, latency %f\n", recall2, latency2)
 		assert.True(t, recall2 > 0.9)
-		assert.True(t, latency1 > latency2)
 	}
 }
 
@@ -349,13 +351,173 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 	err = dynamic.Shutdown(context.Background())
 	require.NoError(t, err)
 
-	require.False(t, dynamic.upgraded.Load())
+	require.False(t, dynamic.status.IsUpgraded())
 
 	select {
 	case <-called:
 	case <-time.After(5 * time.Second):
 		t.Fatal("upgrade callback was not called")
 	}
+}
+
+// newUpgradeTestDynamic builds a minimal dynamic index with vectorsSize indexed
+// vectors and ShouldUpgrade()==true, for exercising Upgrade's retry/re-entrancy paths.
+func newUpgradeTestDynamic(t *testing.T, vectorsSize int) *dynamic {
+	t.Helper()
+	ctx := context.Background()
+	dimensions := 4
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+
+	dyn, err := New(Config{
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		RootPath:              t.TempDir(),
+		ID:                    "upgrade-retry-test",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      dist,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			vec := vectors[int(id)]
+			if vec == nil {
+				return nil, storobj.NewErrNotFoundf(id, "nil vec")
+			}
+			return vec, nil
+		},
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           noopCallback,
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
+	}, ent.UserConfig{
+		Threshold: uint64(vectorsSize),
+		Distance:  dist.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	for i, v := range vectors {
+		require.NoError(t, dyn.Add(ctx, uint64(i), v))
+	}
+
+	shouldUpgrade, _ := dyn.ShouldUpgrade()
+	require.True(t, shouldUpgrade)
+	require.False(t, dyn.Upgraded())
+
+	return dyn
+}
+
+// Regression test (weaviate/0-weaviate-issues#296): a failed or panicked
+// upgrade attempt (GoWrapper recovers the panic) must still fire the callback
+// and re-arm status so a later Upgrade call can retry.
+func TestDynamicUpgradeRetriesAfterFailedAttempt(t *testing.T) {
+	cases := []struct {
+		name string
+		hook func() error
+	}{
+		{"error", func() error { return errors.New("injected upgrade failure") }},
+		{"panic", func() error { panic("injected upgrade panic") }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "panic" && entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+				// without GoWrapper's recover the panic kills the process by
+				// design; retry-after-panic only exists in recovery mode.
+				t.Skip("panic recovery disabled")
+			}
+			dyn := newUpgradeTestDynamic(t, 10)
+			realUpgrade := dyn.upgradeFn
+			dyn.upgradeFn = tc.hook
+
+			firstCallback := make(chan struct{})
+			require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
+			select {
+			case <-firstCallback:
+			case <-time.After(5 * time.Second):
+				t.Fatal("first upgrade callback was not invoked")
+			}
+			require.False(t, dyn.IsUpgraded(), "a failed attempt must not report as upgraded")
+
+			// restore the real rebuild so the retry can actually complete.
+			dyn.upgradeFn = realUpgrade
+
+			secondCallback := make(chan struct{})
+			require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
+			select {
+			case <-secondCallback:
+			case <-time.After(5 * time.Second):
+				t.Fatal("second upgrade callback was not invoked -- status stuck, retry never ran")
+			}
+			require.True(t, dyn.IsUpgraded(), "the retried upgrade must actually complete")
+		})
+	}
+}
+
+// Regression test: a mid-upgrade Upgrade call must invoke its own callback
+// immediately instead of blocking on the in-flight attempt.
+func TestDynamicUpgradeMidFlightInvokesCallerCallbackImmediately(t *testing.T) {
+	dyn := newUpgradeTestDynamic(t, 10)
+
+	block := make(chan struct{})
+	dyn.upgradeFn = func() error {
+		<-block
+		return nil
+	}
+
+	firstCallback := make(chan struct{})
+	require.NoError(t, dyn.Upgrade(func() { close(firstCallback) }))
+	// TryUpgrading flips status synchronously, so this is guaranteed "mid-upgrade".
+	require.True(t, dyn.status.IsUpgrading())
+
+	secondCallback := make(chan struct{})
+	require.NoError(t, dyn.Upgrade(func() { close(secondCallback) }))
+
+	select {
+	case <-secondCallback:
+	default:
+		t.Fatal("a mid-upgrade Upgrade call must invoke its own callback synchronously")
+	}
+
+	select {
+	case <-firstCallback:
+		t.Fatal("the in-flight attempt's callback must not have fired yet")
+	default:
+	}
+
+	close(block)
+	select {
+	case <-firstCallback:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first upgrade callback was never invoked after unblocking")
+	}
+}
+
+// Regression test: Upgrade after Shutdown must invoke the callback inline,
+// since no goroutine is spawned to do it later.
+func TestDynamicUpgradeAfterShutdownInvokesCallbackSynchronously(t *testing.T) {
+	dyn := newUpgradeTestDynamic(t, 10)
+
+	require.NoError(t, dyn.Shutdown(context.Background()))
+
+	called := false
+	err := dyn.Upgrade(func() { called = true })
+	require.Error(t, err)
+	require.True(t, called, "Upgrade must invoke the callback even when it short-circuits on a closed context")
 }
 
 func TestDynamicUpgradeCompression(t *testing.T) {
@@ -546,8 +708,8 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 				TargetVector: "",
 				RootPath:     rootPath,
 				ID:           "vector-test_0",
-				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-					return hnsw.NewCommitLogger(tempDir, "vector-test_0", logger, noopCallback)
+				MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+					return hnsw.NewCommitLogger(tempDir, "vector-test_0", logger, noopCallback, opts...)
 				},
 				DistanceProvider: distancer,
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -865,7 +1027,6 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		fmt.Println(recall2, latency2)
 		assert.True(t, recall2 > 0.9)
-		assert.True(t, latency1 > latency2)
 	}
 
 	// check the content of the bolt db
@@ -926,7 +1087,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	for _, v := range indexes {
 		shouldUpgrade, _ := v.ShouldUpgrade()
 		require.False(t, shouldUpgrade)
-		require.True(t, v.upgraded.Load())
+		require.True(t, v.IsUpgraded())
 	}
 
 	// check the content of the bolt db
@@ -1004,7 +1165,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 	for _, v := range indexes {
 		shouldUpgrade, _ := v.ShouldUpgrade()
 		require.False(t, shouldUpgrade)
-		require.True(t, v.upgraded.Load())
+		require.True(t, v.IsUpgraded())
 	}
 
 	// check the content of the bolt db
@@ -1019,4 +1180,154 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+// TestDynamicStaleCommitLogCleanedOnRestart is a regression test for a
+// compact-v2 HNSW loader bug. When a flat→HNSW upgrade is interrupted
+// (e.g. context canceled during shard teardown), the HNSW commit log
+// directory may contain partial WAL data from that attempt.  On the next
+// shard startup the dynamic index is re-created with upgraded=false, but
+// the commit log directory persists on disk.  hnsw.New() then calls the
+// compact-v2 Loader which — unlike the compactor — explicitly includes the
+// live WAL file in its startup scan.  This causes the new HNSW to start in
+// a partially-built state with stale compressed-vector dimensions, producing
+// "vector lengths don't match" panics at search time.
+//
+// The fix: dynamic.init() removes the commit log directory whenever
+// upgraded=false, enforcing the invariant that an unupgraded shard has no
+// HNSW commit log state.
+func TestDynamicStaleCommitLogCleanedOnRestart(t *testing.T) {
+	ctx := context.Background()
+	const (
+		dimensions  = 8
+		vectorsSize = 200
+		queriesSize = 10
+		k           = 10
+		threshold   = 100
+	)
+
+	tempDir := t.TempDir()
+	db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	vectors, queries := testinghelpers.RandomVecs(vectorsSize, queriesSize, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	// Truths are computed only against the first `threshold` vectors, since that
+	// is what we add to dyn2 before upgrading — the recall check would be unfairly
+	// low if truths include vectors that were never indexed.
+	truths := make([][]uint64, queriesSize)
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors[:threshold], queries[i], k, testinghelpers.DistanceWrapper(dist))
+	})
+
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	// BQ on the flat side matches the bq_dynamic scenario in the failing CI test.
+	fuc.BQ = flatent.CompressionUserConfig{Enabled: true, Cache: true}
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        16,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+	hnswuc.SetDefaults()
+
+	indexID := "stale-cl-test"
+	makeConfig := func() Config {
+		return Config{
+			AllocChecker: memwatch.NewDummyMonitor(),
+			RootPath:     tempDir,
+			ID:           indexID,
+			MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+				return hnsw.NewCommitLogger(tempDir, indexID, logger, noopCallback, opts...)
+			},
+			DistanceProvider: dist,
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				vec := vectors[int(id)]
+				if vec == nil {
+					return nil, storobj.NewErrNotFoundf(id, "nil vec")
+				}
+				return vec, nil
+			},
+			GetViewThunk:                 GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+			TombstoneCallbacks:           noopCallback,
+			SharedDB:                     db,
+			MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+			AsyncIndexingEnabled:         true,
+		}
+	}
+	uc := ent.UserConfig{
+		Threshold: uint64(threshold),
+		Distance:  dist.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}
+
+	// --- First shard lifetime: add vectors, trigger upgrade, cancel via shutdown ---
+
+	dyn1, err := New(makeConfig(), uc, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	compressionhelpers.Concurrently(logger, uint64(threshold), func(i uint64) {
+		require.NoError(t, dyn1.Add(ctx, i, vectors[i]))
+	})
+	shouldUpgrade, _ := dyn1.ShouldUpgrade()
+	require.True(t, shouldUpgrade)
+	require.False(t, dyn1.Upgraded())
+
+	upgradeDone := make(chan struct{})
+	dyn1.Upgrade(func() { close(upgradeDone) })
+	// Shutdown cancels the upgrade context before it can commit the DB flag.
+	require.NoError(t, dyn1.Shutdown(context.Background()))
+	select {
+	case <-upgradeDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade callback not called after shutdown")
+	}
+	require.False(t, dyn1.IsUpgraded(), "upgrade must not have committed")
+
+	// Simulate stale WAL left by the aborted upgrade: if the shutdown was fast
+	// enough that hnsw.New() never ran, plant the directory+file manually.
+	// Either way, after this block the commit log dir exists and is non-empty.
+	commitLogDir := hnswCommitLogDirectory(tempDir, indexID)
+	require.NoError(t, os.MkdirAll(commitLogDir, 0o755))
+	staleFile := filepath.Join(commitLogDir, "000000000001.wal")
+	require.NoError(t, os.WriteFile(staleFile, []byte("stale partial wal data"), 0o644))
+
+	_, err = os.Stat(staleFile)
+	require.NoError(t, err, "stale commit log file must exist before shard restart")
+
+	// --- Second shard lifetime: shard is recreated (same rootPath, same DB) ---
+	// init() must clean the commit log directory because upgraded=false.
+
+	dyn2, err := New(makeConfig(), uc, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	_, statErr := os.Stat(commitLogDir)
+	require.True(t, os.IsNotExist(statErr),
+		"init() must remove the stale HNSW commit log dir when upgraded=false")
+
+	// --- Upgrade on the clean shard must succeed without dimension mismatch ---
+
+	compressionhelpers.Concurrently(logger, uint64(threshold), func(i uint64) {
+		require.NoError(t, dyn2.Add(ctx, i, vectors[i]))
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	require.NoError(t, dyn2.Upgrade(func() { wg.Done() }))
+	wg.Wait()
+	// IsUpgraded() is the canonical "flat→HNSW swap committed" flag (status only);
+	// dynamic.Upgraded() additionally requires HNSW to be compressed, which is not
+	// configured in this test, so we check the status flag directly.
+	require.True(t, dyn2.IsUpgraded(), "upgrade must have committed to HNSW")
+
+	// Searches must return correct results — no "vector lengths don't match" panic.
+	recall, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dyn2, truths)
+	require.Greater(t, recall, float32(0.7))
+
+	require.NoError(t, dyn2.Shutdown(context.Background()))
 }

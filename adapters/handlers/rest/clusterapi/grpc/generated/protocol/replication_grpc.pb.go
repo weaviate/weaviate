@@ -35,6 +35,7 @@ const (
 	ReplicationService_OverwriteObjects_FullMethodName         = "/clusterapi.ReplicationService/OverwriteObjects"
 	ReplicationService_FindUUIDs_FullMethodName                = "/clusterapi.ReplicationService/FindUUIDs"
 	ReplicationService_HashTreeLevel_FullMethodName            = "/clusterapi.ReplicationService/HashTreeLevel"
+	ReplicationService_CompareHashTreeRoots_FullMethodName     = "/clusterapi.ReplicationService/CompareHashTreeRoots"
 	ReplicationService_CountObjects_FullMethodName             = "/clusterapi.ReplicationService/CountObjects"
 	ReplicationService_CreateAsyncCheckpoint_FullMethodName    = "/clusterapi.ReplicationService/CreateAsyncCheckpoint"
 	ReplicationService_DeleteAsyncCheckpoint_FullMethodName    = "/clusterapi.ReplicationService/DeleteAsyncCheckpoint"
@@ -66,6 +67,7 @@ type ReplicationServiceClient interface {
 	OverwriteObjects(ctx context.Context, in *OverwriteObjectsRequest, opts ...grpc.CallOption) (*OverwriteObjectsResponse, error)
 	FindUUIDs(ctx context.Context, in *FindUUIDsRequest, opts ...grpc.CallOption) (*FindUUIDsResponse, error)
 	HashTreeLevel(ctx context.Context, in *HashTreeLevelRequest, opts ...grpc.CallOption) (*HashTreeLevelResponse, error)
+	CompareHashTreeRoots(ctx context.Context, in *CompareHashTreeRootsRequest, opts ...grpc.CallOption) (*CompareHashTreeRootsResponse, error)
 	CountObjects(ctx context.Context, in *CountObjectsRequest, opts ...grpc.CallOption) (*CountObjectsResponse, error)
 	// Async-checkpoint control plane; mirrors /replicas/indices/{class}/async-checkpoint.
 	CreateAsyncCheckpoint(ctx context.Context, in *CreateAsyncCheckpointRequest, opts ...grpc.CallOption) (*CreateAsyncCheckpointResponse, error)
@@ -241,6 +243,16 @@ func (c *replicationServiceClient) HashTreeLevel(ctx context.Context, in *HashTr
 	return out, nil
 }
 
+func (c *replicationServiceClient) CompareHashTreeRoots(ctx context.Context, in *CompareHashTreeRootsRequest, opts ...grpc.CallOption) (*CompareHashTreeRootsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompareHashTreeRootsResponse)
+	err := c.cc.Invoke(ctx, ReplicationService_CompareHashTreeRoots_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *replicationServiceClient) CountObjects(ctx context.Context, in *CountObjectsRequest, opts ...grpc.CallOption) (*CountObjectsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CountObjectsResponse)
@@ -306,6 +318,7 @@ type ReplicationServiceServer interface {
 	OverwriteObjects(context.Context, *OverwriteObjectsRequest) (*OverwriteObjectsResponse, error)
 	FindUUIDs(context.Context, *FindUUIDsRequest) (*FindUUIDsResponse, error)
 	HashTreeLevel(context.Context, *HashTreeLevelRequest) (*HashTreeLevelResponse, error)
+	CompareHashTreeRoots(context.Context, *CompareHashTreeRootsRequest) (*CompareHashTreeRootsResponse, error)
 	CountObjects(context.Context, *CountObjectsRequest) (*CountObjectsResponse, error)
 	// Async-checkpoint control plane; mirrors /replicas/indices/{class}/async-checkpoint.
 	CreateAsyncCheckpoint(context.Context, *CreateAsyncCheckpointRequest) (*CreateAsyncCheckpointResponse, error)
@@ -367,6 +380,9 @@ func (UnimplementedReplicationServiceServer) FindUUIDs(context.Context, *FindUUI
 }
 func (UnimplementedReplicationServiceServer) HashTreeLevel(context.Context, *HashTreeLevelRequest) (*HashTreeLevelResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method HashTreeLevel not implemented")
+}
+func (UnimplementedReplicationServiceServer) CompareHashTreeRoots(context.Context, *CompareHashTreeRootsRequest) (*CompareHashTreeRootsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompareHashTreeRoots not implemented")
 }
 func (UnimplementedReplicationServiceServer) CountObjects(context.Context, *CountObjectsRequest) (*CountObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CountObjects not implemented")
@@ -688,6 +704,24 @@ func _ReplicationService_HashTreeLevel_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReplicationService_CompareHashTreeRoots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompareHashTreeRootsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReplicationServiceServer).CompareHashTreeRoots(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReplicationService_CompareHashTreeRoots_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReplicationServiceServer).CompareHashTreeRoots(ctx, req.(*CompareHashTreeRootsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ReplicationService_CountObjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CountObjectsRequest)
 	if err := dec(in); err != nil {
@@ -830,6 +864,10 @@ var ReplicationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "HashTreeLevel",
 			Handler:    _ReplicationService_HashTreeLevel_Handler,
+		},
+		{
+			MethodName: "CompareHashTreeRoots",
+			Handler:    _ReplicationService_CompareHashTreeRoots_Handler,
 		},
 		{
 			MethodName: "CountObjects",

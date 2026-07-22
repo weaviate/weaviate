@@ -36,7 +36,7 @@ type testConfig struct {
 	BackupInterval *DynamicValue[time.Duration] `yaml:"backup_interval"`
 }
 
-func parseYaml(buf []byte) (*testConfig, error) {
+func parseYaml(buf []byte, _ map[string]struct{}) (*testConfig, error) {
 	var c testConfig
 	dec := yaml.NewDecoder(bytes.NewReader(buf))
 	dec.KnownFields(true)
@@ -47,7 +47,7 @@ func parseYaml(buf []byte) (*testConfig, error) {
 	return &c, nil
 }
 
-func updater(_ logrus.FieldLogger, source, parsed *testConfig, _ map[string]func() error) error {
+func updater(_ logrus.FieldLogger, source, parsed *testConfig, _ map[string]struct{}, _ map[string]func() error) error {
 	source.BackupInterval.SetValue(parsed.BackupInterval.Get())
 	return nil
 }
@@ -129,9 +129,9 @@ func TestConfigManager_loadConfig(t *testing.T) {
 
 		// calling parser => reloading the config
 		loadCount := 0
-		trackedParser := func(buf []byte) (*testConfig, error) {
+		trackedParser := func(buf []byte, skipped map[string]struct{}) (*testConfig, error) {
 			loadCount++
-			return parseYaml(buf)
+			return parseYaml(buf, skipped)
 		}
 
 		tmp, err := os.CreateTemp("", "valid_config.yaml")
@@ -201,9 +201,9 @@ func TestConfigManager_loadConfig(t *testing.T) {
 
 		// calling parser => reloading the config
 		loadCount := 0
-		trackedParser := func(buf []byte) (*testConfig, error) {
+		trackedParser := func(buf []byte, skipped map[string]struct{}) (*testConfig, error) {
 			loadCount++
-			return parseYaml(buf)
+			return parseYaml(buf, skipped)
 		}
 
 		tmp, err := os.CreateTemp("", "valid_config.yaml")
@@ -268,9 +268,9 @@ func TestConfigManager_loadConfig(t *testing.T) {
 
 		// calling parser => reloading the config
 		var loadCount atomic.Int64
-		trackedParser := func(buf []byte) (*testConfig, error) {
+		trackedParser := func(buf []byte, skipped map[string]struct{}) (*testConfig, error) {
 			loadCount.Add(1)
-			return parseYaml(buf)
+			return parseYaml(buf, skipped)
 		}
 
 		tmp, err := os.CreateTemp("", "valid_config.yaml")

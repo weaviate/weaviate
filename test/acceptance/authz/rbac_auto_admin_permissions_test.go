@@ -66,10 +66,14 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{id}", "someId")
 		url = strings.ReplaceAll(url, "{backend}", "filesystem")
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
+		url = strings.ReplaceAll(url, "{indexName}", "filterable")
+		url = strings.ReplaceAll(url, "{vectorIndexName}", "someVectorIndex")
 		url = strings.ReplaceAll(url, "{user_id}", "random-user")
 		url = strings.ReplaceAll(url, "{userType}", "db")
 		url = strings.ReplaceAll(url, "{groupType}", "oidc")
 		url = strings.ReplaceAll(url, "{aliasName}", "aliasName")
+		url = strings.ReplaceAll(url, "{collection}", className)
+		url = strings.ReplaceAll(url, "{namespace_id}", "someNamespace")
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")
@@ -80,8 +84,15 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 
 			endpoint.method = strings.ToUpper(endpoint.method)
 
+			body := endpoint.validGeneratedBodyData
+			// near-text's generated body is {} (allOf schema) and 422s on the
+			// required query before authz; send a valid query so it reaches authz.
+			if endpoint.path == "/search/{collection}/near-text" && endpoint.method == http.MethodPost {
+				body = []byte(`{"query":["ABC"]}`)
+			}
+
 			if endpoint.method == "POST" || endpoint.method == "PUT" || endpoint.method == "PATCH" || endpoint.method == "DELETE" {
-				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(endpoint.validGeneratedBodyData))
+				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(body))
 				require.Nil(t, err)
 				req.Header.Set("Content-Type", "application/json")
 

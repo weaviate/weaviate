@@ -16,9 +16,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -50,6 +49,33 @@ func buildUnitMaps(shardOwnership map[string][]string) (unitIDs []string, unitTo
 func isNumericProperty(prop *models.Property) bool {
 	dt, ok := entschema.AsPrimitive(prop.DataType)
 	return ok && (dt == entschema.DataTypeInt || dt == entschema.DataTypeNumber || dt == entschema.DataTypeDate)
+}
+
+// searchableIndexOn reports whether prop has a searchable index: text/text[]
+// with IndexSearchable on (nil defaults to on). Canonical predicate the
+// upsert/rebuild resolvers diff against; matches the GET status logic.
+func searchableIndexOn(prop *models.Property) bool {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok || (dt != entschema.DataTypeText && dt != entschema.DataTypeTextArray) {
+		return false
+	}
+	return prop.IndexSearchable == nil || *prop.IndexSearchable
+}
+
+// filterableIndexOn reports whether prop has a filterable index: any
+// primitive except blob/geoCoordinates/phoneNumber (and not references),
+// with IndexFilterable on (nil defaults to on).
+func filterableIndexOn(prop *models.Property) bool {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok {
+		return false // references
+	}
+	switch dt {
+	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
+		return false
+	default:
+		return prop.IndexFilterable == nil || *prop.IndexFilterable
+	}
 }
 
 // validateRangeableProperties validates that the named properties are
@@ -192,7 +218,8 @@ func validateEnableSearchableProperty(prop *models.Property, tokenization string
 }
 
 // validateFilterableTokenizationChange validates the body for
-// `PUT /v1/schema/{class}/indexes/{prop}` with `{filterable:{tokenization:X}}`.
+// `PUT /v1/schema/{class}/properties/{prop}/index/filterable` with a
+// diverging `{"tokenization":X}`.
 // Distinct from validateTokenizationChange: does NOT require a searchable
 // bucket — this is the filterable-only retokenize variant. The caller
 // dispatches to ReindexTypeChangeTokenizationFilterable which runs only
@@ -206,7 +233,7 @@ func validateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 		return fmt.Errorf("property %q is not a text type; filterable.tokenization only applies to text / text[]", prop.Name)
 	}
 	if prop.IndexFilterable == nil || !*prop.IndexFilterable {
-		return fmt.Errorf("property %q has no filterable index; nothing to retokenize. Enable filterable first via {\"filterable\":{\"enabled\":true}}", prop.Name)
+		return fmt.Errorf("property %q has no filterable index; nothing to retokenize. Enable it first via PUT /v1/schema/{className}/properties/%s/index/filterable with an empty body {}", prop.Name, prop.Name)
 	}
 	if !entschema.IsValidTokenization(targetTokenization) {
 		return fmt.Errorf("invalid tokenization %q", targetTokenization)
@@ -218,9 +245,9 @@ func validateFilterableTokenizationChange(prop *models.Property, targetTokenizat
 }
 
 func validateTokenizationChange(
-	appState *state.State,
 	class *models.Class,
-	collection, propName, targetTokenization string,
+	propName, targetTokenization string,
+	reindexTasks []*distributedtask.Task,
 ) (bucketStrategy string, err error) {
 	// Find the property.
 	var targetProp *models.Property
@@ -248,29 +275,11 @@ func validateTokenizationChange(
 		return "", fmt.Errorf("property %q already uses tokenization %q", propName, targetTokenization)
 	}
 
-	// Detect bucket strategy from the first shard's searchable bucket.
-	className := entschema.ClassName(collection)
-	idx := appState.DB.GetIndex(className)
-	if idx == nil {
-		return "", fmt.Errorf("collection index not found")
-	}
-
-	idx.ForEachShard(func(_ string, shard db.ShardLike) error {
-		if bucketStrategy != "" {
-			return nil
-		}
-		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-		bucket := shard.Store().Bucket(bucketName)
-		if bucket != nil {
-			bucketStrategy = bucket.Strategy()
-		}
-		return nil
-	})
-	if bucketStrategy == "" {
-		return "", fmt.Errorf("searchable bucket not found for property %q", propName)
-	}
-
-	return bucketStrategy, nil
+	// change-tokenization preserves the bucket's existing strategy, derived from
+	// RAFT-consistent state (durable stamp, else class flag/task list) — the
+	// stamp keeps a stamped-blockmax property on StrategyInverted after its task ages out.
+	return lsmkv.DefaultSearchableStrategy(
+		db.SearchablePropertyIsBlockmax(class, propName, reindexTasks)), nil
 }
 
 // buildUnitSpecs creates UnitSpec entries with GroupID = shardName (= tenant
@@ -288,120 +297,6 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	}
 	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
 	return specs
-}
-
-// validateBodyExclusivity guards against ambiguous PUT
-// /v1/schema/{class}/indexes/{prop} request bodies that the switch-based
-// dispatch in updateIndex would otherwise silently misroute.
-//
-// The dispatch is a switch on field truthiness. A request like
-// `{searchable:{rebuild:true}, filterable:{rebuild:true}}` would match the
-// first arm (searchable.rebuild) and silently ignore filterable.rebuild —
-// the user gets a 202 but only half the requested work runs. This helper
-// rejects such bodies up front with a 400 listing the offending fields.
-//
-// Rules:
-//   - At most one group (Searchable / Filterable / Rangeable) may be set.
-//   - Within a group, at most one verb may be set. Verbs:
-//   - Searchable: Enabled, Rebuild, Tokenization (without Enabled)
-//   - Filterable: Enabled, Rebuild
-//   - Rangeable:  Enabled
-//   - Searchable.Tokenization with Searchable.Enabled is allowed:
-//     enable-searchable REQUIRES a tokenization, so they are one verb, not two.
-//   - Zero verbs total is rejected (consistent with the default arm in
-//     updateIndex), so this helper covers that case too.
-func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
-	if body == nil {
-		return fmt.Errorf("request body required")
-	}
-
-	var groupsSet []string
-
-	// Searchable group.
-	if body.Searchable != nil {
-		var verbs []string
-		if body.Searchable.Enabled {
-			verbs = append(verbs, "searchable.enabled")
-		}
-		if body.Searchable.Rebuild {
-			verbs = append(verbs, "searchable.rebuild")
-		}
-		if body.Searchable.Algorithm != "" {
-			verbs = append(verbs, "searchable.algorithm")
-		}
-		// Tokenization is a verb on its own (change-tokenization) ONLY when
-		// Enabled is not set. With Enabled it is part of the enable verb.
-		if body.Searchable.Tokenization != "" && !body.Searchable.Enabled {
-			verbs = append(verbs, "searchable.tokenization")
-		}
-		if body.Searchable.Cancel {
-			verbs = append(verbs, "searchable.cancel")
-		}
-		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in searchable: %v — set exactly one of enabled, rebuild, algorithm, tokenization, or cancel (tokenization combined with enabled is allowed)", verbs)
-		}
-		if len(verbs) == 1 {
-			groupsSet = append(groupsSet, "searchable")
-		}
-	}
-
-	// Filterable group.
-	if body.Filterable != nil {
-		var verbs []string
-		if body.Filterable.Enabled {
-			verbs = append(verbs, "filterable.enabled")
-		}
-		if body.Filterable.Rebuild {
-			verbs = append(verbs, "filterable.rebuild")
-		}
-		// Tokenization is a verb on its own ONLY when Enabled is not set.
-		// Mirrors the searchable.tokenization rule above.
-		if body.Filterable.Tokenization != "" && !body.Filterable.Enabled {
-			verbs = append(verbs, "filterable.tokenization")
-		}
-		if body.Filterable.Cancel {
-			verbs = append(verbs, "filterable.cancel")
-		}
-		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in filterable: %v — set exactly one of enabled, rebuild, tokenization, or cancel", verbs)
-		}
-		if len(verbs) == 1 {
-			groupsSet = append(groupsSet, "filterable")
-		}
-	}
-
-	// Rangeable group.
-	if body.Rangeable != nil {
-		var verbs []string
-		if body.Rangeable.Enabled {
-			verbs = append(verbs, "rangeable.enabled")
-		}
-		if body.Rangeable.Rebuild {
-			verbs = append(verbs, "rangeable.rebuild")
-		}
-		if body.Rangeable.Cancel {
-			verbs = append(verbs, "rangeable.cancel")
-		}
-		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in rangeable: %v — set exactly one of enabled, rebuild, or cancel", verbs)
-		}
-		if len(verbs) == 1 {
-			groupsSet = append(groupsSet, "rangeable")
-		}
-	}
-
-	if len(groupsSet) > 1 {
-		return fmt.Errorf("multiple index groups set in one request (%v) — issue separate requests, one per group", groupsSet)
-	}
-	if len(groupsSet) == 0 {
-		// Keep this verb list in lockstep with the default-case 400
-		// in handlers_indexes.go::updateIndex.
-		return fmt.Errorf("no actionable change detected; set one of: " +
-			"searchable.algorithm, searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
-			"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, " +
-			"rangeable.cancel, rangeable.enabled, rangeable.rebuild")
-	}
-	return nil
 }
 
 // validateTenants checks that all specified tenants exist in the collection's

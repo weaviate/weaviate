@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,12 +43,31 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var objectCount int
+// realShardCountHandler answers the replica object-count endpoint with the true
+// per-shard count from repo, mirroring the production handler. Echoing a constant
+// per shard only matched the expected total while every shard (including the
+// local one) was counted over HTTP; the in-process short-circuit for local
+// replicas now returns real counts, so the fake must report reality too.
+func realShardCountHandler(getRepo func() *DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// /replicas/indices/{collection}/shards/{shard}/objects/_count
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) < 6 {
+			http.Error(w, "unexpected count path: "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		count, err := getRepo().CountObjects(r.Context(), parts[2], parts[4])
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		io.WriteString(w, strconv.Itoa(count))
+	}
+}
 
 func Test_Aggregations(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, strconv.Itoa(objectCount))
-	}))
+	var repo *DB
+	srv := httptest.NewServer(realShardCountHandler(func() *DB { return repo }))
 	t.Cleanup(srv.Close)
 
 	dirName := t.TempDir()
@@ -67,6 +87,7 @@ func Test_Aggregations(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
@@ -74,7 +95,7 @@ func Test_Aggregations(t *testing.T) {
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(srv.URL[7:], true).Maybe()
 	replicaClient, err := clients.NewReplicationClient(&http.Client{})
 	require.Nil(t, err)
-	repo, err := New(logger, "node1", Config{
+	repo, err = New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -93,7 +114,7 @@ func Test_Aggregations(t *testing.T) {
 		testNumericalAggregationsWithGrouping(repo, true))
 
 	t.Run("numerical aggregations without grouping (formerly Meta)",
-		testNumericalAggregationsWithoutGrouping(repo, true, 1))
+		testNumericalAggregationsWithoutGrouping(repo, true))
 
 	t.Run("numerical aggregations with filters",
 		testNumericalAggregationsWithFilters(repo))
@@ -112,9 +133,8 @@ func Test_Aggregations(t *testing.T) {
 }
 
 func Test_Aggregations_MultiShard(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, strconv.Itoa(objectCount))
-	}))
+	var repo *DB
+	srv := httptest.NewServer(realShardCountHandler(func() *DB { return repo }))
 	t.Cleanup(srv.Close)
 
 	dirName := t.TempDir()
@@ -135,6 +155,7 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
@@ -142,7 +163,7 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(srv.URL[7:], true).Maybe()
 	replicaClient2, err := clients.NewReplicationClient(&http.Client{})
 	require.Nil(t, err)
-	repo, err := New(logger, "node1", Config{
+	repo, err = New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -161,7 +182,7 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 		testNumericalAggregationsWithGrouping(repo, false))
 
 	t.Run("numerical aggregations without grouping (formerly Meta)",
-		testNumericalAggregationsWithoutGrouping(repo, false, len(physicalShards)))
+		testNumericalAggregationsWithoutGrouping(repo, false))
 
 	t.Run("numerical aggregations with filters",
 		testNumericalAggregationsWithFilters(repo))
@@ -1345,11 +1366,10 @@ func testNumericalAggregationsWithFilters(repo *DB) func(t *testing.T) {
 }
 
 func testNumericalAggregationsWithoutGrouping(repo *DB,
-	exact bool, countShards int,
+	exact bool,
 ) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("only meta count, no other aggregations", func(t *testing.T) {
-			objectCount = 90
 			params := aggregation.Params{
 				ClassName:        schema.ClassName(companyClass.Class),
 				IncludeMetaCount: true,
@@ -1359,11 +1379,12 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
+			// Real total across all shards, independent of shard count.
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					{
 						GroupedBy: nil,
-						Count:     90 * countShards,
+						Count:     90,
 					},
 				},
 			}
@@ -2029,7 +2050,6 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 		})
 
 		t.Run("array types, only meta count, no other aggregations", func(t *testing.T) {
-			objectCount = 2
 			params := aggregation.Params{
 				ClassName:        schema.ClassName(arrayTypesClass.Class),
 				IncludeMetaCount: true,
@@ -2039,11 +2059,12 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
+			// Real total across all shards, independent of shard count.
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					{
 						GroupedBy: nil,
-						Count:     2 * countShards,
+						Count:     2,
 					},
 				},
 			}

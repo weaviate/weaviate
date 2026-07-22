@@ -142,7 +142,10 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 		// admin's follower can be briefly behind on /nodes; poll until
 		// the original shard is visible on nodeA.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			home, other := homeNodeShards(t, ns+":ClassA", nodeA, adminKey)
+			home, other, ok := homeNodeShards(t, c, ns+":ClassA", nodeA, adminKey)
+			if !ok {
+				return
+			}
 			assert.Len(c, home, 1)
 			assert.Zero(c, other, "ClassA shard must not have moved off %s", nodeA)
 		}, 30*time.Second, 500*time.Millisecond, "ClassA shard never settled on %s", nodeA)
@@ -160,7 +163,10 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 			if _, err := helper.CreateClassAuthWithReturn(t, &models.Class{Class: probeName}, userKey); !assert.NoError(c, err) {
 				return
 			}
-			home, other := homeNodeShards(t, ns+":"+probeName, nodeB, adminKey)
+			home, other, ok := homeNodeShards(t, c, ns+":"+probeName, nodeB, adminKey)
+			if !ok {
+				return
+			}
 			if len(home) != 1 || other != 0 {
 				helper.DeleteClassAuth(t, ns+":"+probeName, adminKey)
 				assert.Failf(c, "wrong placement", "home=%d other=%d", len(home), other)
@@ -176,7 +182,8 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 }
 
 // TestNamespaces_CreateUserInMissingNamespace pins that CreateUser rejects
-// with 422 when the target namespace does not exist.
+// with 422 when the target namespace does not exist, and that the message
+// does not name the namespace.
 func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
 	t.Parallel()
 	ghost := uniqueNS()
@@ -198,8 +205,8 @@ func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
 	require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
 	require.NotNil(t, unproc.Payload)
 	require.NotEmpty(t, unproc.Payload.Error)
-	assert.Contains(t, unproc.Payload.Error[0].Message, "namespace",
-		"422 message must explain the namespace existence failure; got %q", unproc.Payload.Error[0].Message)
+	assert.NotContains(t, unproc.Payload.Error[0].Message, ghost)
+	assert.NotContains(t, unproc.Payload.Error[0].Message, "namespace")
 }
 
 // TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_node with 422.

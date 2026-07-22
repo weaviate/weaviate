@@ -72,6 +72,7 @@ func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
 
@@ -442,6 +443,80 @@ func TestOverwriteObjectsFromChangeLog_NonMonotonicTimestampSameUUIDKeepsMax(t *
 	require.NotNil(t, found)
 	assert.EqualValues(t, t10, found.Object().LastUpdateTimeUnix, "max-time entry must win within-buffer dedupe")
 	assert.EqualValues(t, "winner-t10", found.Object().Properties.(map[string]interface{})["stringProp"])
+}
+
+// TestOverwriteObjectsFromChangeLog_ReplayResolvesByUpdateTime pins the scale-out
+// stale-win race: a replayed entry older than local state must lose, decided
+// atomically under the docIdLock. Each case seeds local state, then replays one
+// stale entry against it.
+func TestOverwriteObjectsFromChangeLog_ReplayResolvesByUpdateTime(t *testing.T) {
+	id := strfmt.UUID("981c09f9-67f3-4e6e-a988-c53eaefbd58e")
+	const t5, t10, t20 = int64(5), int64(10), int64(20)
+
+	putLocal := func(t *testing.T, repo *DB, class string, ts int64, prop string) {
+		obj := &models.Object{
+			ID: id, Class: class, CreationTimeUnix: ts, LastUpdateTimeUnix: ts,
+			Properties: map[string]interface{}{"stringProp": prop}, Vector: []float32{1, 2, 3},
+		}
+		require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, nil, 0))
+	}
+	putEntry := func(t *testing.T, class string, ts int64, prop string) ChangeLogReplayEntry {
+		obj := &models.Object{
+			ID: id, Class: class, CreationTimeUnix: ts, LastUpdateTimeUnix: ts,
+			Properties: map[string]interface{}{"stringProp": prop}, Vector: []float32{4, 5, 6},
+		}
+		return ChangeLogReplayEntry{ID: id, LastUpdateTimeUnixMilli: ts, Payload: mustMarshalPayload(t, obj, obj.Vector)}
+	}
+
+	tests := []struct {
+		name     string
+		seed     func(t *testing.T, repo *DB, class string)
+		entry    func(t *testing.T, class string) ChangeLogReplayEntry
+		wantProp string // "" => object must be absent
+	}{
+		{
+			name:     "replayed PUT must not clobber a newer local write",
+			seed:     func(t *testing.T, repo *DB, class string) { putLocal(t, repo, class, t20, "newest") },
+			entry:    func(t *testing.T, class string) ChangeLogReplayEntry { return putEntry(t, class, t10, "captured") },
+			wantProp: "newest",
+		},
+		{
+			name: "replayed PUT must not resurrect a newer delete",
+			seed: func(t *testing.T, repo *DB, class string) {
+				putLocal(t, repo, class, t5, "seed")
+				require.Nil(t, repo.DeleteObject(context.Background(), class, id, time.UnixMilli(t20), nil, "", 0))
+			},
+			entry:    func(t *testing.T, class string) ChangeLogReplayEntry { return putEntry(t, class, t10, "captured") },
+			wantProp: "",
+		},
+		{
+			name: "replayed DELETE must not remove a newer local write",
+			seed: func(t *testing.T, repo *DB, class string) { putLocal(t, repo, class, t20, "newest") },
+			entry: func(t *testing.T, class string) ChangeLogReplayEntry {
+				return ChangeLogReplayEntry{ID: id, LastUpdateTimeUnixMilli: t10, IsDelete: true}
+			},
+			wantProp: "newest",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, idx, shard, class := setupReplayShard(t)
+			tc.seed(t, repo, class.Class)
+
+			require.Nil(t, idx.OverwriteObjectsFromChangeLog(
+				context.Background(), shard, []ChangeLogReplayEntry{tc.entry(t, class.Class)}))
+
+			found, err := repo.Object(context.Background(), class.Class, id, nil, additional.Properties{}, nil, "")
+			require.Nil(t, err)
+			if tc.wantProp == "" {
+				assert.Nil(t, found)
+				return
+			}
+			require.NotNil(t, found)
+			assert.Equal(t, tc.wantProp, found.Object().Properties.(map[string]interface{})["stringProp"])
+		})
+	}
 }
 
 // TestOverwriteObjectsFromChangeLog_DecodeErrorAborts guards the

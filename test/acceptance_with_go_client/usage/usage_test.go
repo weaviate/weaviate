@@ -73,8 +73,10 @@ func TestTenantStatusChanges(t *testing.T) {
 		require.NoError(t, err)
 	}
 	endUsage := atomic.Bool{}
-
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
 			if endUsage.Load() {
 				return
@@ -97,6 +99,10 @@ func TestTenantStatusChanges(t *testing.T) {
 			require.Equal(t, len(names), len(tenants))
 		}
 	}()
+	defer func() {
+		endUsage.Store(true)
+		wg.Wait()
+	}()
 
 	var eg errgroup.Group
 	for i := range tenants {
@@ -113,7 +119,6 @@ func TestTenantStatusChanges(t *testing.T) {
 		)
 	}
 	require.NoError(t, eg.Wait())
-	endUsage.Store(true)
 }
 
 func TestUsageTenantDelete(t *testing.T) {
@@ -156,7 +161,10 @@ func TestUsageTenantDelete(t *testing.T) {
 
 	endUsage := atomic.Bool{}
 	deletedTenants := atomic.Int32{}
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
 			if endUsage.Load() {
 				return
@@ -185,12 +193,16 @@ func TestUsageTenantDelete(t *testing.T) {
 		}
 	}()
 
+	defer func() {
+		endUsage.Store(true)
+		wg.Wait()
+	}()
+
 	for i := range tenants {
 		err := c.Schema().TenantsDeleter().WithClassName(className).WithTenants(tenants[i].Name).Do(ctx)
 		require.NoError(t, err)
 		deletedTenants.Add(1)
 	}
-	endUsage.Store(true)
 }
 
 func TestCollectionDeletion(t *testing.T) {
@@ -225,7 +237,10 @@ func TestCollectionDeletion(t *testing.T) {
 
 	endUsage := atomic.Bool{}
 	deletedClasses := atomic.Int32{}
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
 			if endUsage.Load() {
 				return
@@ -242,12 +257,16 @@ func TestCollectionDeletion(t *testing.T) {
 		}
 	}()
 
+	defer func() {
+		endUsage.Store(true)
+		wg.Wait()
+	}()
+
 	for i := 0; i < numClasses; i++ {
 		className := getClassName(t, i)
 		require.NoError(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
 		deletedClasses.Add(1)
 	}
-	endUsage.Store(true)
 }
 
 func TestAlterSchemaDropPropertyIndex(t *testing.T) {
@@ -541,7 +560,8 @@ func TestRestart(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	usage, err := getDebugUsageWithPort(debug)
+	// collect with concurrent shard readers, compare with the default report after restart
+	usage, err := getDebugUsageWithPort(debug, 4)
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 

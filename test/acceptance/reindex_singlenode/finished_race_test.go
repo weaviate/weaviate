@@ -109,8 +109,8 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		require.NoError(t, helper.CreateObject(t, obj))
 	}
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "filepath",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "filepath", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Poll /v1/tasks. On the first observation of FINISHED, immediately

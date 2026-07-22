@@ -59,12 +59,12 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 
 	// One container, every limit set tight enough to hit, and a custom
 	// message template that exercises both placeholders. Collection cap
-	// is 4 to leave room for the MT collection used in the tenant
-	// sub-test (1 MT + 3 single-tenant = 4 = at cap; a 5th create
-	// rejects).
+	// is 5 to leave room for the two MT collections used in the tenant
+	// sub-tests (1 plain MT + 1 auto-tenant MT + 3 single-tenant = 5 = at
+	// cap; a 6th create rejects).
 	compose, terminate := startContainer(t, ctx, mergeEnv(aggressiveFlushEnv(), map[string]string{
 		"MAXIMUM_ALLOWED_OBJECTS_COUNT":          "10",
-		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT":      "4",
+		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT":      "5",
 		"MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION": "2",
 		"MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION":  "1",
 		"USAGE_LIMITS_ERROR_MESSAGE":             "hit limit of {value} {limit}, upgrade at https://x",
@@ -75,10 +75,11 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 	httpURI := "http://" + compose.GetWeaviate().URI()
 	grpcURI := compose.GetWeaviate().GrpcURI()
 
-	// Set up the MT collection up front so the tenant sub-test can run
-	// without consuming a "collection" slot mid-suite. It counts toward
-	// MAXIMUM_ALLOWED_COLLECTIONS_COUNT (4).
+	// Set up the two MT collections up front so the tenant sub-tests can
+	// run without consuming "collection" slots mid-suite. Together they
+	// count for 2 toward MAXIMUM_ALLOWED_COLLECTIONS_COUNT (5).
 	createMTCollection(t, ctx, httpURI, "MTcoll")
+	createAutoTenantMTCollection(t, ctx, httpURI, "MTautocoll")
 
 	t.Run("shard limit on class create", func(t *testing.T) {
 		body := []byte(`{
@@ -105,19 +106,41 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 	})
 
 	t.Run("collection limit hit after cap", func(t *testing.T) {
-		// MTcoll already counts as 1; create 3 more (4 total = cap),
-		// then the 5th must 429.
+		// MTcoll + MTautocoll already count as 2; create 3 more (5 total
+		// = cap), then the 6th must 429.
 		for _, name := range []string{"C1", "C2", "C3"} {
 			createCollection(t, ctx, httpURI, name)
 		}
 		body := []byte(`{"class":"C4","vectorizer":"none"}`)
-		assertLimitExceeded(t, ctx, httpURI+"/v1/schema", body, "collections", 4)
+		assertLimitExceeded(t, ctx, httpURI+"/v1/schema", body, "collections", 5)
 	})
 
 	t.Run("tenant limit per collection", func(t *testing.T) {
 		// Cap is 2 — first two tenants succeed, third rejected.
 		addTenants(t, ctx, httpURI, "MTcoll", []string{"T1", "T2"}, false, "")
 		addTenants(t, ctx, httpURI, "MTcoll", []string{"T3"}, true, "tenants")
+		// Cap rejection must not break ingestion into already-created tenants.
+		postOK(t, ctx, httpURI+"/v1/objects",
+			[]byte(`{"class":"MTcoll","tenant":"T1","properties":{"i":0}}`))
+	})
+
+	t.Run("auto-tenant on object ingest dedupes existing tenants against cap", func(t *testing.T) {
+		// With autoTenantCreation enabled, object ingest routes the tenant
+		// name through AddTenants. The cap must count only truly-new
+		// tenants — ingesting into an existing one stays under cap; a new
+		// name beyond cap rejects.
+		objectsURL := httpURI + "/v1/objects"
+
+		// Fill to cap=2 via implicit auto-tenant creation.
+		postOK(t, ctx, objectsURL, []byte(`{"class":"MTautocoll","tenant":"T1","properties":{"i":0}}`))
+		postOK(t, ctx, objectsURL, []byte(`{"class":"MTautocoll","tenant":"T2","properties":{"i":1}}`))
+
+		// Existing tenant — must succeed.
+		postOK(t, ctx, objectsURL, []byte(`{"class":"MTautocoll","tenant":"T1","properties":{"i":2}}`))
+
+		// New tenant beyond cap — must reject.
+		body := []byte(`{"class":"MTautocoll","tenant":"T3","properties":{"i":3}}`)
+		assertLimitExceeded(t, ctx, objectsURL, body, "tenants", 2)
 	})
 
 	t.Run("object limit single create — loops until limit fires", func(t *testing.T) {
@@ -329,6 +352,17 @@ func createMTCollection(t *testing.T, ctx context.Context, httpURI, name string)
 	t.Helper()
 	body := []byte(fmt.Sprintf(
 		`{"class":"%s","vectorizer":"none","multiTenancyConfig":{"enabled":true}}`,
+		name))
+	postOK(t, ctx, httpURI+"/v1/schema", body)
+}
+
+// createAutoTenantMTCollection creates an MT class with autoTenantCreation
+// enabled, so an object write referencing an unknown tenant implicitly
+// creates that tenant via usecases/objects/auto_schema.go autoTenants().
+func createAutoTenantMTCollection(t *testing.T, ctx context.Context, httpURI, name string) {
+	t.Helper()
+	body := []byte(fmt.Sprintf(
+		`{"class":"%s","vectorizer":"none","multiTenancyConfig":{"enabled":true,"autoTenantCreation":true}}`,
 		name))
 	postOK(t, ctx, httpURI+"/v1/schema", body)
 }

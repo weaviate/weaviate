@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -53,7 +54,7 @@ func setupGraphQLHandlers(
 	api *operations.WeaviateAPI,
 	gqlProvider graphQLProvider,
 	m *schema.Manager,
-	disabled bool,
+	disabled *runtime.DynamicValue[bool],
 	namespacesEnabled bool,
 	metrics *monitoring.PrometheusMetrics,
 	logger logrus.FieldLogger,
@@ -84,7 +85,7 @@ func setupGraphQLHandlers(
 			}
 		}
 
-		if disabled {
+		if disabled.Get() {
 			metricRequestsTotal.logUserError()
 			err := fmt.Errorf("graphql api is disabled")
 			return graphql.NewGraphqlPostUnprocessableEntity().
@@ -174,6 +175,12 @@ func setupGraphQLHandlers(
 		err := m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authorization.Collections()...)
 		if err != nil {
 			return graphql.NewGraphqlBatchForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
+		}
+
+		if disabled.Get() {
+			metricRequestsTotal.logUserError()
+			return graphql.NewGraphqlBatchUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("graphql api is disabled")))
 		}
 
 		errorResponse := &models.ErrorResponse{}

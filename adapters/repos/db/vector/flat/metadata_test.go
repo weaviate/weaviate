@@ -13,10 +13,17 @@ package flat
 
 import (
 	"context"
+	"encoding/binary"
+	"os"
+	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -347,5 +354,184 @@ func Test_RQ8DataSerialization(t *testing.T) {
 		require.Equal(t, originalRQ8Data.Rounds, restoredRQ8Data.Rounds)
 		require.Equal(t, originalRQ8Data.Swaps, restoredRQ8Data.Swaps)
 		require.Equal(t, originalRQ8Data.Signs, restoredRQ8Data.Signs)
+	})
+}
+
+// ino returns path's inode: equal inodes mean a hardlink, different inodes an independent copy.
+func ino(t *testing.T, path string) uint64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	return info.Sys().(*syscall.Stat_t).Ino
+}
+
+// readStagedDimensions returns the dimensions persisted in a staged meta.db copy.
+func readStagedDimensions(t *testing.T, path string) (int32, bool) {
+	t.Helper()
+	db, err := bolt.Open(path, 0o600, &bolt.Options{ReadOnly: true, Timeout: 5 * time.Second})
+	require.NoError(t, err)
+	defer db.Close()
+
+	var (
+		dims  int32
+		found bool
+	)
+	require.NoError(t, db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return nil
+		}
+		v := b.Get([]byte("dimensions"))
+		if v == nil {
+			return nil
+		}
+		dims = int32(binary.LittleEndian.Uint32(v))
+		found = true
+		return nil
+	}))
+	return dims, found
+}
+
+// TestSnapshotMutableFiles is the primary regression for the torn-bbolt backup bug:
+// a post-snapshot write to meta.db must not alter the staged copy, which must be an
+// independent file, not a hardlink of the live meta.db.
+func TestSnapshotMutableFiles(t *testing.T) {
+	ctx := context.Background()
+	dp := distancer.NewCosineDistanceProvider()
+
+	newIndex := func(t *testing.T, rootPath, target string, uc flatent.UserConfig) *flat {
+		store := testinghelpers.NewDummyStore(t)
+		t.Cleanup(func() { store.Shutdown(context.Background()) })
+		index, err := New(Config{
+			ID:                "snapshot-test",
+			RootPath:          rootPath,
+			TargetVector:      target,
+			DistanceProvider:  dp,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		}, uc, store)
+		require.NoError(t, err)
+		return index
+	}
+
+	t.Run("staged copy is independent of post-snapshot setDimensions write", func(t *testing.T) {
+		rootPath := t.TempDir()
+		uc := flatent.UserConfig{}
+		uc.SetDefaults()
+		index := newIndex(t, rootPath, "", uc)
+
+		// First Add persists dimensions into meta.db.
+		require.NoError(t, index.Add(ctx, 1, []float32{1, 2, 3}))
+
+		staging := t.TempDir()
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		require.NoError(t, err)
+		require.Equal(t, []string{"meta.db"}, relPaths)
+
+		liveMeta := filepath.Join(rootPath, "meta.db")
+		stagedMeta := filepath.Join(staging, "meta.db")
+
+		require.NotEqual(t, ino(t, liveMeta), ino(t, stagedMeta),
+			"staged meta.db must be an independent copy, not a hardlink")
+
+		stagedDims, found := readStagedDimensions(t, stagedMeta)
+		require.True(t, found)
+		require.Equal(t, int32(3), stagedDims)
+
+		// Mutate the live meta.db after the snapshot.
+		require.NoError(t, index.setDimensions(99))
+
+		stagedDimsAfter, found := readStagedDimensions(t, stagedMeta)
+		require.True(t, found)
+		require.Equal(t, int32(3), stagedDimsAfter,
+			"staged copy must reflect pre-snapshot state, not the post-snapshot write")
+	})
+
+	t.Run("staged copy is independent of post-snapshot RQ8 persist write", func(t *testing.T) {
+		rootPath := t.TempDir()
+		uc := flatent.UserConfig{}
+		uc.SetDefaults()
+		uc.RQ = flatent.RQUserConfig{Enabled: true, Bits: 8, RescoreLimit: 10}
+		index := newIndex(t, rootPath, "", uc)
+
+		// First Add persists dimensions and RQ data into meta.db.
+		require.NoError(t, index.Add(ctx, 1, []float32{1, 2, 3, 4}))
+
+		staging := t.TempDir()
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		require.NoError(t, err)
+		require.Equal(t, []string{"meta.db"}, relPaths)
+
+		stagedMeta := filepath.Join(staging, "meta.db")
+		require.NotEqual(t, ino(t, filepath.Join(rootPath, "meta.db")), ino(t, stagedMeta),
+			"staged meta.db must be an independent copy, not a hardlink")
+
+		stagedBefore, err := os.ReadFile(stagedMeta)
+		require.NoError(t, err)
+
+		// persistRQData mutates meta.db in place after the snapshot.
+		require.NoError(t, index.persistRQData())
+
+		stagedAfter, err := os.ReadFile(stagedMeta)
+		require.NoError(t, err)
+		require.Equal(t, stagedBefore, stagedAfter,
+			"staged copy bytes must be unchanged by the post-snapshot RQ8 write")
+
+		_, found := readStagedDimensions(t, stagedMeta)
+		require.True(t, found)
+	})
+
+	t.Run("multi-target meta file snapshots to the correct relpath", func(t *testing.T) {
+		rootPath := t.TempDir()
+		uc := flatent.UserConfig{}
+		uc.SetDefaults()
+		index := newIndex(t, rootPath, "custom", uc)
+
+		require.NoError(t, index.Add(ctx, 1, []float32{1, 2}))
+
+		staging := t.TempDir()
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		require.NoError(t, err)
+		require.Equal(t, []string{"meta_custom.db"}, relPaths)
+
+		stagedMeta := filepath.Join(staging, "meta_custom.db")
+		require.NotEqual(t, ino(t, filepath.Join(rootPath, "meta_custom.db")), ino(t, stagedMeta))
+		dims, found := readStagedDimensions(t, stagedMeta)
+		require.True(t, found)
+		require.Equal(t, int32(2), dims)
+	})
+
+	t.Run("snapshots from a closed (nil) metadata handle", func(t *testing.T) {
+		rootPath := t.TempDir()
+		uc := flatent.UserConfig{}
+		uc.SetDefaults()
+		index := newIndex(t, rootPath, "", uc)
+
+		require.NoError(t, index.Add(ctx, 1, []float32{5, 6, 7}))
+		// The open-close-per-operation pattern leaves the handle nil between ops.
+		require.Nil(t, index.metadata, "precondition: metadata handle is closed")
+
+		staging := t.TempDir()
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		require.NoError(t, err)
+		require.Equal(t, []string{"meta.db"}, relPaths)
+		require.Nil(t, index.metadata, "snapshot must not assign a handle to index.metadata")
+
+		dims, found := readStagedDimensions(t, filepath.Join(staging, "meta.db"))
+		require.True(t, found)
+		require.Equal(t, int32(3), dims)
+	})
+
+	t.Run("no metadata file yet returns nil", func(t *testing.T) {
+		rootPath := t.TempDir()
+		// Simulate a never-written index by removing the meta.db that New created.
+		uc := flatent.UserConfig{}
+		uc.SetDefaults()
+		index := newIndex(t, rootPath, "", uc)
+		require.NoError(t, os.Remove(filepath.Join(rootPath, "meta.db")))
+
+		staging := t.TempDir()
+		relPaths, err := index.SnapshotMutableFiles(ctx, rootPath, staging)
+		require.NoError(t, err)
+		require.Nil(t, relPaths)
 	})
 }

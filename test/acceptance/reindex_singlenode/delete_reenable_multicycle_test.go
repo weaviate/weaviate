@@ -72,8 +72,8 @@ func testDeleteThenReEnableSearchableMultiCycle(t *testing.T, restURI string, cy
 	}
 
 	for cycle := 1; cycle <= cycles; cycle++ {
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
-			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable",
+			`{"tokenization":"word"}`)
 		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		requireSearchableEnabled(t, class, "body")
 		require.GreaterOrEqual(t, bm25Hits(t, class, "fox"), 3,
@@ -108,8 +108,8 @@ func testDeleteThenReEnableFilterableMultiCycle(t *testing.T, restURI string, cy
 	}
 
 	for cycle := 1; cycle <= cycles; cycle++ {
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-			`{"filterable":{"enabled":true}}`)
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
+			`{}`)
 		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		requireFilterableEnabled(t, class, "name")
 		require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha"),
@@ -143,8 +143,8 @@ func testDeleteThenReEnableRangeableMultiCycle(t *testing.T, restURI string, cyc
 	}
 
 	for cycle := 1; cycle <= cycles; cycle++ {
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
-			`{"rangeable":{"enabled":true}}`)
+		taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "score", "rangeFilters",
+			`{}`)
 		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		requireRangeableEnabled(t, class, "score")
 		require.Equal(t, 2, rangeFilterHits(t, class, "score", 30),

@@ -65,14 +65,16 @@ type State struct {
 	RBAC             *rbac.Manager
 	Crons            *cron.Crons
 
-	ServerConfig        *config.WeaviateConfig
-	LDIntegration       *configRuntime.LDIntegration
-	Logger              *logrus.Logger
-	gqlMutex            sync.Mutex
-	GraphQL             graphql.GraphQL
-	Modules             *modules.Provider
-	SchemaManager       *schema.Manager
-	Cluster             *cluster.State
+	ServerConfig  *config.WeaviateConfig
+	LDIntegration *configRuntime.LDIntegration
+	Logger        *logrus.Logger
+	gqlMutex      sync.Mutex
+	GraphQL       graphql.GraphQL
+	gqlGen        uint64
+	Modules       *modules.Provider
+	SchemaManager *schema.Manager
+	Cluster       *cluster.State
+
 	RemoteIndexIncoming *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
 	Traverser           *traverser.Traverser
@@ -111,8 +113,8 @@ type State struct {
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
 	// (collection, property) tuple across BOTH the reindex-submit
-	// handler (PUT /v1/schema/{class}/indexes/{prop}) and the
-	// destructive property-index handler (DELETE
+	// handler (PUT /v1/schema/{class}/properties/{prop}/index/{indexType})
+	// and the destructive property-index handler (DELETE
 	// /v1/schema/{class}/properties/{prop}/index/{indexName}).
 	//
 	// Motivating failure mode (pinned by
@@ -141,6 +143,11 @@ type State struct {
 	// single-node race window that any realistic UI/CLI flow can hit.
 	ReindexSubmitLocks *ReindexSubmitLocks
 
+	// ReindexDeleteMarkers lets GET /v1/schema/{class}/indexes suppress the
+	// finalize-window bleed for a just-deleted index. Shared between the
+	// DELETE handler (records) and GET-indexes (reads); see its godoc.
+	ReindexDeleteMarkers *ReindexDeleteMarkers
+
 	// UsageLimits gates the object-count cap only. Collections/tenants/
 	// shards caps are read directly at the schema-handler use sites.
 	UsageLimits *usagelimits.Manager
@@ -164,8 +171,36 @@ func (s *State) GetGraphQL() graphql.GraphQL {
 	return gql
 }
 
+// SetGraphQL replaces the served graph authoritatively — used by the serial
+// RAFT schema-apply path and the disable hook. It bumps the generation so an
+// in-flight lock-free rebuild that started earlier is discarded by
+// SetGraphQLIfCurrent rather than clobbering this newer graph.
 func (s *State) SetGraphQL(gql graphql.GraphQL) {
 	s.gqlMutex.Lock()
 	s.GraphQL = gql
+	s.gqlGen++
 	s.gqlMutex.Unlock()
+}
+
+// GraphQLGeneration returns the current graph generation. Capture it before a
+// lock-free rebuild and pass it to SetGraphQLIfCurrent.
+func (s *State) GraphQLGeneration() uint64 {
+	s.gqlMutex.Lock()
+	defer s.gqlMutex.Unlock()
+	return s.gqlGen
+}
+
+// SetGraphQLIfCurrent stores gql only if no authoritative SetGraphQL happened
+// since gen was captured. The DisableGraphQL enable hook rebuilds off the RAFT
+// apply goroutine; this stops a slow build from an older schema snapshot from
+// overwriting a newer, apply-built graph. Returns false if the store was skipped.
+func (s *State) SetGraphQLIfCurrent(gql graphql.GraphQL, gen uint64) bool {
+	s.gqlMutex.Lock()
+	defer s.gqlMutex.Unlock()
+	if s.gqlGen != gen {
+		return false
+	}
+	s.GraphQL = gql
+	s.gqlGen++
+	return true
 }

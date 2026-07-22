@@ -271,6 +271,9 @@ func assertGenerative(t *testing.T, generative *pb.GenerativeResult, params *pb.
 		if params.GetGoogle() != nil {
 			require.NotEmpty(t, metadata.GetGoogle())
 		}
+		if params.GetDeepseek() != nil {
+			require.NotEmpty(t, metadata.GetDeepseek())
+		}
 	}
 }
 

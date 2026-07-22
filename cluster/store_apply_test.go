@@ -122,6 +122,7 @@ func TestStore_Apply_CommandTypes(t *testing.T) {
 				ms.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(cls, nil)
 				ms.indexer.On("UpdateClass", mock.Anything).Return(nil)
 				ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				ms.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false)
 			},
 			expectError: false,
 			cmdData:     api.UpdateClassRequest{Class: cls, State: ss},
@@ -160,6 +161,14 @@ func TestStore_Apply_CommandTypes(t *testing.T) {
 				// No mocks needed for unknown type
 			},
 			expectError: false, // Unknown commands don't return errors, they just log
+			cmdData:     nil,
+		},
+		{
+			name:    "deprecated SyncShard wire value applies as an explicit no-op",
+			cmdType: api.ApplyRequest_Type(210), // raw wire value: pins acceptance independent of the generated constant
+			setupMocks: func(ms MockStore) {
+			},
+			expectError: false,
 			cmdData:     nil,
 		},
 	}

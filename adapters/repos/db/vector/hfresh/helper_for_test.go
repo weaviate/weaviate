@@ -112,7 +112,7 @@ func initializeDimensions(t *testing.T, tf *TestHFresh, vector []float32) {
 	}
 	size := uint32(len(vector))
 	tf.Index.dims = size
-	err := tf.Index.setMaxPostingSize()
+	err := tf.Index.setMaxPostingSize(size)
 	require.NoError(t, err)
 	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(tf.Index.dims), 42, tf.Index.config.DistanceProvider)
 	require.NoError(t, err)

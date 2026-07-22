@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -34,6 +35,29 @@ type DockerCompose struct {
 
 func (d *DockerCompose) Containers() []*DockerContainer {
 	return d.containers
+}
+
+// DumpWeaviateLogs writes the last `tail` log lines of every weaviate node to w.
+// Call from TestMain on failure to capture the leader side; the start-failure
+// dump only covers boot crashes, not mid-test misbehavior.
+func (d *DockerCompose) DumpWeaviateLogs(ctx context.Context, w io.Writer, tail int) {
+	for _, c := range d.containers {
+		if !strings.HasPrefix(c.name, "weaviate") {
+			continue
+		}
+		reader, err := c.container.Logs(ctx)
+		if err != nil {
+			fmt.Fprintf(w, "--- %s logs unavailable: %v ---\n", c.name, err)
+			continue
+		}
+		logs, _ := io.ReadAll(reader)
+		reader.Close()
+		lines := strings.Split(string(logs), "\n")
+		if len(lines) > tail {
+			lines = lines[len(lines)-tail:]
+		}
+		fmt.Fprintf(w, "--- %s logs (last %d lines) ---\n%s\n", c.name, tail, strings.Join(lines, "\n"))
+	}
 }
 
 func (d *DockerCompose) Terminate(ctx context.Context) error {

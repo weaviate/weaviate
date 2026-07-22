@@ -104,7 +104,7 @@ func (b *AuthBrokerTokenSource) fetchToken(ctx context.Context, identityToken st
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 500 {
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 		return nil, fmt.Errorf("%w: auth broker returned status %d", ErrRetryableAuthBroker, resp.StatusCode)
 	}
 

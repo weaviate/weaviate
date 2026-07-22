@@ -24,16 +24,23 @@ import (
 )
 
 // homeNodeShards splits the shards reported by GET /v1/nodes/<class> into
-// those on homeNode and a count of shards seen on any other node.
-func homeNodeShards(t *testing.T, qualifiedClass, homeNode, key string) (homeShards []*models.NodeShardStatus, otherNodeShardCount int) {
+// those on homeNode and a count of shards seen on any other node. Asserts
+// through c so an EventuallyWithT caller retries: /nodes fans out to every
+// node and 404s until all followers have applied the AddClass. ok is false
+// when the call has not yet succeeded.
+func homeNodeShards(t *testing.T, c *assert.CollectT, qualifiedClass, homeNode, key string) (homeShards []*models.NodeShardStatus, otherNodeShardCount int, ok bool) {
 	t.Helper()
 	verbose := "verbose"
 	resp, err := helper.Client(t).Nodes.NodesGetClass(
 		nodes.NewNodesGetClassParams().WithClassName(qualifiedClass).WithOutput(&verbose),
 		helper.CreateAuth(key),
 	)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Payload)
+	if !assert.NoError(c, err) {
+		return nil, 0, false
+	}
+	if !assert.NotNil(c, resp.Payload) {
+		return nil, 0, false
+	}
 	for _, n := range resp.Payload.Nodes {
 		if n.Name == homeNode {
 			homeShards = n.Shards
@@ -41,7 +48,7 @@ func homeNodeShards(t *testing.T, qualifiedClass, homeNode, key string) (homeSha
 		}
 		otherNodeShardCount += len(n.Shards)
 	}
-	return homeShards, otherNodeShardCount
+	return homeShards, otherNodeShardCount, true
 }
 
 // TestNamespaces_CollectionPinsToHomeNode places a namespaced collection
@@ -63,7 +70,10 @@ func TestNamespaces_CollectionPinsToHomeNode(t *testing.T) {
 	// CreateClassAuth returns once the leader has applied; the admin's
 	// follower may not yet reflect the new shard in /nodes. Poll briefly.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		home, other := homeNodeShards(t, ns+":Movies", homeNode, adminKey)
+		home, other, ok := homeNodeShards(t, c, ns+":Movies", homeNode, adminKey)
+		if !ok {
+			return
+		}
 		if !assert.Len(c, home, 1, "expected exactly one shard on home_node %q", homeNode) {
 			return
 		}
@@ -103,7 +113,10 @@ func TestNamespaces_TenantPinsToHomeNode(t *testing.T) {
 		// follower may not yet reflect the new shards in /nodes. Poll until
 		// the expected count is visible.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			home, other := homeNodeShards(t, ns+":Books", homeNode, adminKey)
+			home, other, ok := homeNodeShards(t, c, ns+":Books", homeNode, adminKey)
+			if !ok {
+				return
+			}
 			if !assert.Len(c, home, len(tenants), "expected one shard per tenant on home_node %q", homeNode) {
 				return
 			}
@@ -129,7 +142,10 @@ func TestNamespaces_TenantPinsToHomeNode(t *testing.T) {
 		// shard download from S3 and the index re-registration are async. Poll
 		// the /nodes endpoint until the unfrozen shard is back on home_node.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			home, other := homeNodeShards(t, ns+":Books", homeNode, adminKey)
+			home, other, ok := homeNodeShards(t, c, ns+":Books", homeNode, adminKey)
+			if !ok {
+				return
+			}
 			assert.Len(c, home, len(tenants))
 			assert.Zero(c, other, "reactivated tenant shard must remain on home_node")
 		}, 60*time.Second, 500*time.Millisecond, "unfrozen tenant never returned to home_node %q", homeNode)

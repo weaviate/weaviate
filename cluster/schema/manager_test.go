@@ -491,6 +491,14 @@ func (f *fakeReplicationFSM) SetUnCancellable(id uint64) error {
 	return nil
 }
 
+func (f *fakeReplicationFSM) HasActiveReplicationForShard(string, string) bool {
+	panic("unexpected HasActiveReplicationForShard call")
+}
+
+func (f *fakeReplicationFSM) HasActiveReplicationForCollection(string) bool {
+	panic("unexpected HasActiveReplicationForCollection call")
+}
+
 func (f *fakeReplicationFSM) DeleteReplicationsByCollection(string) error {
 	panic("unexpected DeleteReplicationsByCollection call")
 }
@@ -590,10 +598,11 @@ func TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable(
 // optionally rejects with a configured error. Used to pin the
 // SchemaManager.UpdateProperty guard call site (https://github.com/weaviate/0-weaviate-issues/issues/218).
 type recordingMutationGuard struct {
-	called     int
-	lastClass  string
-	lastProp   string
-	rejectWith error
+	called      int
+	lastClass   string
+	lastProp    string
+	lastRemoved []string
+	rejectWith  error
 }
 
 func (g *recordingMutationGuard) CheckPropertyUpdate(class, prop string) error {
@@ -612,6 +621,13 @@ func (g *recordingMutationGuard) CheckClassMutation(class string) error {
 func (g *recordingMutationGuard) CheckTenantMutation(class string, tenants []string) error {
 	g.called++
 	g.lastClass = class
+	return g.rejectWith
+}
+
+func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedVectors []string) error {
+	g.called++
+	g.lastClass = class
+	g.lastRemoved = removedVectors
 	return g.rejectWith
 }
 
@@ -782,6 +798,79 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	})
 }
 
+// TestSchemaManager_UpdateClass_VectorConfigRemovalGate pins the gate wiring
+// on the UpdateClass apply path: when an update removes a dropped ("none")
+// VectorConfig entry, the MutationGuard MUST be consulted with the removed names
+// and its rejection MUST propagate; an update that removes no dropped entry must
+// not consult the gate.
+func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
+	none := models.VectorConfig{VectorIndexType: "none"}
+	hnsw := models.VectorConfig{VectorIndexType: "hnsw"}
+
+	mkRequest := func(updated *models.Class) *cmd.ApplyRequest {
+		sub, err := json.Marshal(&cmd.UpdateClassRequest{Class: updated, State: nil})
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			Class:      "C",
+			Version:    2,
+			SubCommand: sub,
+		}
+	}
+
+	// newSM registers class C with a live "keep" and a dropped "vec1", and mocks
+	// ParseClassUpdate to return parsed (the post-update class the gate diffs against).
+	newSM := func(guard MutationGuard, parsed *models.Class) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		if guard != nil {
+			sm.SetMutationGuard(guard)
+		}
+		initial := &models.Class{
+			Class:        "C",
+			VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
+		}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{}}
+		require.NoError(t, sm.schema.addClass(initial, ss, 1))
+		return sm
+	}
+
+	t.Run("removing a dropped entry consults the gate and propagates rejection", func(t *testing.T) {
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw}}
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("cleanup task not FINISHED")}
+		sm := newSM(guard, parsed)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cleanup task not FINISHED")
+		require.Equal(t, 1, guard.called, "gate must be consulted once")
+		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+	})
+
+	t.Run("removing a dropped entry succeeds when the gate allows", func(t *testing.T) {
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw}}
+		guard := &recordingMutationGuard{} // allows
+		sm := newSM(guard, parsed)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.NoError(t, err)
+		require.Equal(t, 1, guard.called)
+		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+	})
+
+	t.Run("update that removes no dropped entry does not consult the gate", func(t *testing.T) {
+		// vec1 stays "none" (not removed); keep stays live.
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none}}
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("should not be reached")}
+		sm := newSM(guard, parsed)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.NoError(t, err)
+		require.Equal(t, 0, guard.called, "no dropped entry removed → gate not consulted")
+	})
+}
+
 // TestSchemaManager_DeleteTenants_MutationGuard pins the tenant-level
 // guard wiring on the DeleteTenants apply path.
 func TestSchemaManager_DeleteTenants_MutationGuard(t *testing.T) {
@@ -903,4 +992,50 @@ func TestSchemaManager_SetMutationGuard(t *testing.T) {
 
 	sm.SetMutationGuard(nil)
 	require.Nil(t, sm.mutationGuard, "nil clears the guard")
+}
+
+// TestPreApplyFilterRestoreClassCollision pins the pre-commit gate for
+// TYPE_RESTORE_CLASS. Class creation compares names case-insensitively
+// (ClassEqual) and index directories are lowercased on disk, so the restore
+// gate must reject fold-similar classes and aliases too — an exact-name
+// check would let a case-variant restore land its data in the existing
+// class's directory.
+func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
+	newManager := func(t *testing.T) *SchemaManager {
+		t.Helper()
+		sm := NewSchemaManager("testNode", nil, nil, prometheus.NewPedanticRegistry(), logrus.New())
+		require.NoError(t, sm.schema.addClass(&models.Class{Class: "Movies"},
+			&sharding.State{Physical: make(map[string]sharding.Physical)}, 0))
+		require.NoError(t, sm.schema.createAlias("Movies", "Films"))
+		return sm
+	}
+
+	tests := []struct {
+		name    string
+		class   string
+		wantErr string // "" means the restore is allowed through
+	}{
+		// The exact-match message is asserted verbatim elsewhere (e.g.
+		// cluster/raft_test.go) and must not change.
+		{name: "ExactClassNameRejected", class: "Movies", wantErr: "class name Movies already exists"},
+		{name: "CaseVariantClassRejected", class: "MOVIES", wantErr: `found similar class "Movies"`},
+		{name: "ExactAliasNameRejected", class: "Films", wantErr: "alias name Films already exists"},
+		{name: "CaseVariantAliasRejected", class: "FILMS", wantErr: `found similar alias "Films"`},
+		{name: "DistinctNameAllowed", class: "Books", wantErr: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sm := newManager(t)
+			err := sm.PreApplyFilter(&cmd.ApplyRequest{
+				Type:  cmd.ApplyRequest_TYPE_RESTORE_CLASS,
+				Class: tc.class,
+			})
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 }

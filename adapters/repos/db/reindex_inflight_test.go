@@ -33,6 +33,16 @@ func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuil
 	}
 }
 
+// makeCleanupBuilder builds a CleanupInProgressLookupBuilder reporting a fixed
+// set of (collection, shard) pairs as mid-cleanup.
+func makeCleanupBuilder(inProgress map[[2]string]bool) CleanupInProgressLookupBuilder {
+	return func() CleanupInProgressLookup {
+		return func(collection, shard string) bool {
+			return inProgress[[2]string{collection, shard}]
+		}
+	}
+}
+
 // TestAnyLiveReindexForShard_LiveTask pins that a DTM lookup reporting
 // a live task for the (collection, shard) tuple causes the gate to
 // refuse.
@@ -107,6 +117,42 @@ func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 		"nil lookup must allow (same path as unwired)")
 }
 
+// TestAnyLiveReindexForShard_CleanupInProgress pins the OR-d cleanup branch:
+// once the DTM task goes terminal (activity lookup false) but
+// autoCleanupAfterTerminal is still draining sidecars, the gate must still
+// refuse — a backup mid-cleanup would capture torn __reindex/__ingest state.
+func TestAnyLiveReindexForShard_CleanupInProgress(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{})) // no live task
+	db.SetReindexCleanupInProgressLookup(makeCleanupBuilder(map[[2]string]bool{
+		{"MyClass", "shard1"}: true,
+	}))
+	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"gate must refuse while terminal-task cleanup is still draining sidecars")
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard2"),
+		"cleanup branch must scope by shard")
+}
+
+// TestAnyLiveReindexForShard_CleanupBuilderUnwired pins that with no cleanup
+// builder installed the gate keeps activity-only semantics — older wiring paths
+// and fixtures install only the activity lookup.
+func TestAnyLiveReindexForShard_CleanupBuilderUnwired(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"no cleanup builder → activity-only semantics → allow")
+}
+
+// TestAnyLiveReindexForShard_CleanupReturnsNil pins fail-open when the cleanup
+// builder returns a nil closure (defensive against a misconfigured wiring).
+func TestAnyLiveReindexForShard_CleanupReturnsNil(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+	db.SetReindexCleanupInProgressLookup(func() CleanupInProgressLookup { return nil })
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"nil cleanup closure → allow (same as unwired)")
+}
+
 // TestRefuseIfReindexInFlight_ErrorShape pins that the error wraps the
 // sentinel, names the collection and shard, and surfaces the operator
 // remediation hint.
@@ -126,7 +172,7 @@ func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
 	assert.Contains(t, err.Error(), "ABC123", "error must name the shard")
 	assert.Contains(t, err.Error(), "JourneyClass", "error must name the collection")
-	assert.Contains(t, err.Error(), "indexes/", "error must include the remediation URL hint")
+	assert.Contains(t, err.Error(), "/index/<indexType>/cancel", "error must include the GA cancel-route remediation hint")
 }
 
 // TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask pins the happy

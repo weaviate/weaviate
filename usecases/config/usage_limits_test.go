@@ -69,7 +69,7 @@ usage_limits_error_message: "test {limit} {value}"
 	parsed, err := ParseRuntimeConfig(buf)
 	require.NoError(t, err)
 
-	require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
+	require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 
 	assert.Equal(t, 10, objects.Get())
 	assert.Equal(t, 2, tenants.Get())
