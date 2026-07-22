@@ -133,6 +133,10 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		// once tenants are active. A non-MT collection always has shards, so an empty
 		// map there is a real problem.
 		if state.PartitioningEnabled {
+			if e.logger != nil {
+				e.logger.WithField("collection", collection).
+					Info("drop-vector enqueue: no active tenant to clean; the marker stays until a tenant is activated")
+			}
 			return nil
 		}
 		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
