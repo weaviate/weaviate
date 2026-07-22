@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"testing"
 
+	casbinutil "github.com/casbin/casbin/v2/util"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/stretchr/testify/require"
@@ -861,6 +862,100 @@ func Test_pRoles(t *testing.T) {
 			require.Equal(t, tt.expected, p)
 		})
 	}
+}
+
+func Test_casbinSegment(t *testing.T) {
+	tests := []struct {
+		name     string
+		in       string
+		expected string
+	}{
+		{"literal stays bare", "alice", "alice"},
+		{"dotted literal stays bare (regex kept)", "alice.smith", "alice.smith"},
+		{"trailing wildcard expands, stays bare", "alice*", "alice.*"},
+		{"pure wildcard sentinel stays bare", "*", ".*"},
+		{"collection-vs-tenant marker stays bare", "#", "#"},
+		{"qualified literal keeps prefix, stays bare", "customer1:Movies", "customer1:Movies"},
+		{"alternation is wrapped", "x|y", "(x|y)"},
+		{"alternation with wildcard is wrapped", "x|*", "(x|.*)"},
+		{"qualified alternation keeps prefix outside the group", "customer1:x|*", "customer1:(x|.*)"},
+		{"colon-bearing id keeps its prefix outside the group", "okta:x|y", "okta:(x|y)"},
+		{"line anchor is wrapped", "^x", "(^x)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, casbinSegment(tt.in))
+		})
+	}
+}
+
+// Test_casbinSegmentConfinement drives KeyMatch5 to prove a wrapped alternation
+// stays inside its domain and segment, for every builder. Unwrapped, an
+// alternation's "...|.*" branch anchors to end-of-string and matches every
+// resource — the users and roles targets are the sharpest case, since they are
+// last so their escape branch has no structural suffix and reaches other
+// domains outright.
+func Test_casbinSegmentConfinement(t *testing.T) {
+	confinement := []struct {
+		name    string
+		pol     string
+		inside  string
+		outside string
+	}{
+		{"users", CasbinUsers("z|*"), "users/zztop", "roles/admin"},
+		{"roles", CasbinRoles("z|*"), "roles/zztop", "users/admin"},
+		{"groups", CasbinGroups("z|*", "oidc"), "groups/oidc/zztop", "roles/admin"},
+		// The data domain has no segment left that can reach another domain: the
+		// object segment is no longer caller-supplied, so every remaining
+		// alternation keeps the "/shards/.../objects/..." suffix after it. The
+		// tenant escape branch does drop the collection anchor though, so it
+		// reaches another collection.
+		{"data tenant", CasbinData("Movies", "t|*"), "data/collections/Movies/shards/tX/objects/oX", "data/collections/Other/shards/s1/objects/oX"},
+		{"collection", CasbinSchema("A|*", "#"), "schema/collections/AX/shards/#", "roles/admin"},
+		{"aliases alias", CasbinAliases("Movies", "a|*"), "aliases/collections/Movies/aliases/aX", "roles/admin"},
+	}
+	for _, tt := range confinement {
+		t.Run("alternation stays confined: "+tt.name, func(t *testing.T) {
+			require.False(t, casbinutil.KeyMatch5(tt.outside, tt.pol), "must not reach the outside target")
+			require.True(t, casbinutil.KeyMatch5(tt.inside, tt.pol), "must still match its own target")
+		})
+	}
+
+	t.Run("wildcard still matches everything in-segment", func(t *testing.T) {
+		require.True(t, casbinutil.KeyMatch5("users/anyone", CasbinUsers("*")))
+	})
+}
+
+// Test_casbinSegmentRoundTrip pins that a target survives the policy()/permission()
+// round-trip unchanged, so the confinement group added on write is stripped on
+// read-back. Covers bare literals/wildcards and wrapped alternations.
+func Test_casbinSegmentRoundTrip(t *testing.T) {
+	ids := []string{"alice", "a.b@corp", "x|y", "alice*", "team+eng", "urn:keycloak:alice"}
+	for _, id := range ids {
+		t.Run(id, func(t *testing.T) {
+			usersPolicy := []string{"", CasbinUsers(id), authorization.READ, authorization.UsersDomain}
+			perm, err := permission(usersPolicy, true)
+			require.NoError(t, err)
+			require.Equal(t, id, *perm.Users.Users)
+
+			rolesPolicy := []string{"", CasbinRoles(id), authorization.READ + "_" + authorization.ROLE_SCOPE_MATCH, authorization.RolesDomain}
+			perm, err = permission(rolesPolicy, true)
+			require.NoError(t, err)
+			require.Equal(t, id, *perm.Roles.Role)
+		})
+	}
+
+	// The tenant segment is not class-name-normalized, so it round-trips
+	// verbatim including a wrapped alternation. The object segment is not part
+	// of the check anymore, so it always reads back as the wildcard.
+	t.Run("data tenant", func(t *testing.T) {
+		dataPolicy := []string{"", CasbinData("Movies", "t|x"), authorization.READ, authorization.DataDomain}
+		perm, err := permission(dataPolicy, true)
+		require.NoError(t, err)
+		require.Equal(t, "t|x", *perm.Data.Tenant)
+		//nolint:staticcheck // asserting the deprecated field is exactly what this test is about
+		require.Equal(t, "*", *perm.Data.Object)
+	})
 }
 
 func Test_pCollections(t *testing.T) {

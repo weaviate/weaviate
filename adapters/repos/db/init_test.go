@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"os"
 	"path"
 	"testing"
@@ -21,6 +22,7 @@ import (
 
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -85,6 +87,40 @@ func TestApplyLazyShardAutoDetection(t *testing.T) {
 			require.Equal(t, tt.expectedEnableLazy, got)
 		})
 	}
+}
+
+// TestNewShard_AbortsWhenUsageFileRemovalFails pins that NewShard propagates a
+// failure to remove the stale precomputed usage file, rather than silently
+// ignoring it. Otherwise the outdated usage.json.tmp survives and later gets
+// served as the shard's usage once it is treated as unloaded (deactivated/COLD
+// tenant, unloaded lazy shard), reporting wrong object counts/storage bytes.
+func TestNewShard_AbortsWhenUsageFileRemovalFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-based test cannot run as root")
+	}
+
+	ctx := context.Background()
+	className := "UsageFileCleanup"
+	shard, index := testShard(t, ctx, className)
+	shardName := shard.Name()
+	// close the loaded shard so NewShard can re-init the same on-disk shard
+	require.NoError(t, shard.Shutdown(ctx))
+
+	// Make the usage-file removal fail in isolation: create usage.json.tmp as a
+	// non-empty directory and drop write permission on it, so os.RemoveAll fails
+	// on its child while the (writable) shard dir leaves the rest of NewShard
+	// unaffected.
+	usageTmp := path.Join(index.path(), shardName, "usage.json.tmp")
+	require.NoError(t, os.MkdirAll(usageTmp, 0o700))
+	require.NoError(t, os.WriteFile(path.Join(usageTmp, "child"), []byte("x"), 0o600))
+	require.NoError(t, os.Chmod(usageTmp, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(usageTmp, 0o700) })
+
+	_, err := NewShard(ctx, nil, shardName, index, &models.Class{Class: className},
+		index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+		index.shardReindexer, false, index.bitmapBufPool)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "remove computed usage file")
 }
 
 func TestTotalShardSizeBytes_FallsBackToDirSizeWhenNoMeta(t *testing.T) {

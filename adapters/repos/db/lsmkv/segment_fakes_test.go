@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -101,6 +100,14 @@ type fakeSegment struct {
 	refs                  int
 	path                  string
 	getCounter            int
+
+	// roaringSetReleases counts how many times the release func handed out by
+	// roaringSetGet was actually invoked, so tests can pin buffer-release
+	// behavior without a production seam.
+	roaringSetReleases int
+	// roaringSetMergeErr, when set, makes roaringSetMergeWith fail, simulating a
+	// mid-merge disk read error.
+	roaringSetMergeErr error
 
 	isMarkedForDeletion  bool
 	isStrippedExtensions bool
@@ -243,6 +250,11 @@ func (f *fakeSegment) markForDeletion() error {
 	return nil
 }
 
+func (f *fakeSegment) markForDeletionExceptSegment() error {
+	f.isMarkedForDeletion = true
+	return nil
+}
+
 func (f *fakeSegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error) {
 	panic("not implemented")
 }
@@ -345,14 +357,17 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 	if val, ok := f.roaringStore[string(key)]; ok {
 		return roaringset.BitmapLayer{
 			Additions: val.Clone(),
-		}, func() {}, nil
+		}, func() { f.roaringSetReleases++ }, nil
 	}
 
 	return roaringset.BitmapLayer{}, nil, lsmkv.NotFound
 }
 
-func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error {
+func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error {
 	f.getCounter++
+	if f.roaringSetMergeErr != nil {
+		return f.roaringSetMergeErr
+	}
 	layer, _, err := f.roaringSetGet(key, bitmapBufPool)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
@@ -361,8 +376,8 @@ func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 	}
 
 	input.Additions.
-		AndNotConc(layer.Deletions, concurrency.SROAR_MERGE).
-		OrConc(layer.Additions, concurrency.SROAR_MERGE)
+		AndNotConc(layer.Deletions, maxConc).
+		OrConc(layer.Additions, maxConc)
 
 	return nil
 }

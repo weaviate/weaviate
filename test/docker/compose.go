@@ -158,6 +158,7 @@ type Compose struct {
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
 	weaviateFiles                  []testcontainers.ContainerFile
+	weaviateHostGateway            bool
 }
 
 func New() *Compose {
@@ -603,6 +604,19 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+// WithWeaviateHostGateway adds a "host.docker.internal:host-gateway" entry to
+// every Weaviate container, letting container-side clients (e.g. the telemetry
+// pusher via TELEMETRY_URL) reach a server bound on the test host. Opt-in, so
+// existing tests are unaffected.
+//
+// Unlike testcontainers HostAccessPorts (which starts a per-container sshd
+// sidecar torn down on Stop), this is a plain extra-host entry that survives
+// container Stop/Start, so it works with the restart-based tests.
+func (d *Compose) WithWeaviateHostGateway() *Compose {
+	d.weaviateHostGateway = true
+	return d
+}
+
 // WithWeaviateFiles copies the given files into each Weaviate container
 // before it starts. Useful for injecting configuration files such as runtime
 // override YAML.
@@ -692,7 +706,16 @@ func (d *Compose) WithAutoschema() *Compose {
 }
 
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
-	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
+	// Telemetry is off by default so nothing reaches the real endpoint. Setting
+	// TELEMETRY_URL opts in and redirects every payload to that sink. An explicit
+	// DISABLE_TELEMETRY (either value) always wins.
+	if _, ok := d.weaviateEnvs["DISABLE_TELEMETRY"]; !ok {
+		if d.weaviateEnvs["TELEMETRY_URL"] != "" {
+			d.weaviateEnvs["DISABLE_TELEMETRY"] = "false"
+		} else {
+			d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
+		}
+	}
 	network, err := tescontainersnetwork.New(
 		ctx,
 		tescontainersnetwork.WithAttachable(),
@@ -938,7 +961,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -986,7 +1009,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	cs := make([]*DockerContainer, size)
 	image := os.Getenv(envTestWeaviateImage)
 	networkName := settings["network"]
-	settings["DISABLE_TELEMETRY"] = "true"
+	// Start already resolves DISABLE_TELEMETRY; default it only if unset.
+	if _, ok := settings["DISABLE_TELEMETRY"]; !ok {
+		settings["DISABLE_TELEMETRY"] = "true"
+	}
 	settings["DEBUG_ENDPOINTS_ENABLED"] = "true"
 	if d.withWeaviateBasicAuth {
 		settings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
@@ -1074,7 +1100,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node1"), d.weaviateFiles)
+			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node1"), d.weaviateFiles, d.weaviateHostGateway)
 		if err != nil {
 			return errors.Wrapf(err, "start %s", Weaviate1)
 		}
@@ -1090,7 +1116,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node2"), d.weaviateFiles)
+				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node2"), d.weaviateFiles, d.weaviateHostGateway)
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate2)
 			}
@@ -1107,7 +1133,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node3"), d.weaviateFiles)
+				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, wellKnownEndpointFunc("node3"), d.weaviateFiles, d.weaviateHostGateway)
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
 			}

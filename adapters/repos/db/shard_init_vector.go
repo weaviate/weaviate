@@ -371,6 +371,10 @@ func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector strin
 	}
 	queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
 	if err != nil {
+		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
+			return fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",
+				targetVector, err, shutdownErr)
+		}
 		return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 	}
 
@@ -390,6 +394,9 @@ func (s *Shard) initLegacyVector(ctx context.Context, lazyLoadSegments bool) err
 
 	queue, err := NewVectorIndexQueue(s, "", vectorIndex)
 	if err != nil {
+		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
+			return fmt.Errorf("%w (shutting down the orphaned vector index also failed: %w)", err, shutdownErr)
+		}
 		return err
 	}
 	s.vectorIndex = vectorIndex

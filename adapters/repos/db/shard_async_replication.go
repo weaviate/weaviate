@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -836,6 +837,8 @@ func (s *Shard) hashBeat(ctx context.Context, config AsyncReplicationConfig) (st
 
 	s.metrics.IncAsyncReplicationIterationCount()
 	s.metrics.IncAsyncReplicationIterationRunning()
+
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessAsyncReplication)()
 
 	defer func() {
 		s.metrics.DecAsyncReplicationIterationRunning()
