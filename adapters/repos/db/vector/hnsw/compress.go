@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -33,7 +34,12 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			h.compressActionLock.Unlock()
 		}
 	}()
-	data := h.cache.All()
+	if err := h.shutdownCtx.Err(); err != nil {
+		return err
+	}
+	h.cache.LockAll()
+	data := slices.Clone(h.cache.All())
+	h.cache.UnlockAll()
 	singleVector := !h.multivector.Load() || h.muvera.Load()
 	if cfg.PQ.Enabled || cfg.SQ.Enabled {
 		if h.isEmpty() {
