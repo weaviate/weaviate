@@ -587,6 +587,11 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 	hotShardNames := make([]string, 0, len(localShards))
 
+	// RAFT-backed object replication requires every local shard's ring member
+	// to be provisioned at startup (NewShard registers it), so lazy loading and
+	// the empty-shard skip below are bypassed when it is enabled.
+	eagerInit := !i.Config.EnableLazyLoadShards || i.Config.RaftReplicationEnabled
+
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
@@ -598,14 +603,14 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		shardName := shard.name
 		eg.Go(func() error {
 			switch {
-			case i.Config.EnableLazyLoadShards:
+			case !eagerInit:
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
 				return nil
 			default:
 				// avoid footprint of empty shards
-				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+				if !i.Config.RaftReplicationEnabled && i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
@@ -635,7 +640,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return err
 	}
 
-	if !i.Config.EnableLazyLoadShards {
+	if eagerInit {
 		i.allShardsReady.Store(true)
 		return nil
 	}

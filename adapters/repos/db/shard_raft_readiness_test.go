@@ -101,28 +101,76 @@ func newTestIndexForRaftReadiness(
 }
 
 func TestNewIndex_RaftEnabledBypassesLazyShardLoading(t *testing.T) {
-	class := &models.Class{
-		Class:               "RaftLazyBypassClass",
-		InvertedIndexConfig: &models.InvertedIndexConfig{},
-	}
-
-	state := &sharding.State{
-		Physical: map[string]sharding.Physical{
-			"shard1": {
-				Name:           "shard1",
-				BelongsToNodes: []string{"node1"},
-				Status:         models.TenantActivityStatusHOT,
-			},
+	tests := []struct {
+		name           string
+		enableLazyLoad bool
+		raftEnabled    bool
+		multiTenancy   bool
+		expectLazy     bool
+	}{
+		{
+			name:           "raft bypasses lazy loading",
+			enableLazyLoad: true,
+			raftEnabled:    true,
+			expectLazy:     false,
+		},
+		{
+			name:           "raft bypasses lazy loading with multi-tenancy",
+			enableLazyLoad: true,
+			raftEnabled:    true,
+			multiTenancy:   true,
+			expectLazy:     false,
+		},
+		{
+			// A fresh shard has no index counter file, so it reads as empty;
+			// raft must still create it eagerly to provision its ring member.
+			name:         "raft bypasses empty-shard skip for empty tenant shard",
+			raftEnabled:  true,
+			multiTenancy: true,
+			expectLazy:   false,
+		},
+		{
+			name:           "without raft lazy loading applies",
+			enableLazyLoad: true,
+			expectLazy:     true,
+		},
+		{
+			name:         "without raft empty tenant shard stays unloaded",
+			multiTenancy: true,
+			expectLazy:   true,
 		},
 	}
-	state.SetLocalName("node1")
 
-	idx, _, _ := newTestIndexForRaftReadiness(t, class, state, true, true)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			class := &models.Class{
+				Class:               "RaftLazyBypassClass",
+				InvertedIndexConfig: &models.InvertedIndexConfig{},
+			}
+			if tt.multiTenancy {
+				class.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+			}
 
-	loaded := idx.shards.Load("shard1")
-	require.NotNil(t, loaded)
-	_, isLazy := loaded.(*LazyLoadShard)
-	require.False(t, isLazy)
+			state := &sharding.State{
+				Physical: map[string]sharding.Physical{
+					"shard1": {
+						Name:           "shard1",
+						BelongsToNodes: []string{"node1"},
+						Status:         models.TenantActivityStatusHOT,
+					},
+				},
+				PartitioningEnabled: tt.multiTenancy,
+			}
+			state.SetLocalName("node1")
+
+			idx, _, _ := newTestIndexForRaftReadiness(t, class, state, tt.enableLazyLoad, tt.raftEnabled)
+
+			loaded := idx.shards.Load("shard1")
+			require.NotNil(t, loaded)
+			_, isLazy := loaded.(*LazyLoadShard)
+			require.Equal(t, tt.expectLazy, isLazy)
+		})
+	}
 }
 
 func TestNewShard_FailsWhenRaftReplicasLookupFails(t *testing.T) {
