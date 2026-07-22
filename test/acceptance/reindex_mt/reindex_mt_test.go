@@ -89,6 +89,10 @@ func TestMultiTenant_ReindexSuite(t *testing.T) {
 		testValidation(t, restURI)
 	})
 
+	t.Run("TenantScopedRebuildCancel", func(t *testing.T) {
+		testTenantScopedRebuildCancel(t, restURI)
+	})
+
 	// Restart for deferred finalization.
 	t.Run("PostRestart", func(t *testing.T) {
 		t.Log("restarting container for deferred finalize")
