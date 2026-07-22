@@ -43,9 +43,8 @@ type upsertPlan struct {
 	// in-flight task has an undecodable payload (see resolveUpsertPlan): the
 	// handler must respond 503, not a false 200.
 	failClosed bool
-	// joinTaskID names the in-flight task this request converges on. The
-	// desired configuration is NOT yet in place, so the response must point
-	// at that task rather than claim NO_OP.
+	// joinTaskID is the in-flight task this request converges on; the config
+	// isn't in place yet, so the response must name it, not claim NO_OP.
 	joinTaskID string
 }
 
@@ -114,8 +113,7 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 			return resp
 		}
 		if plan.joinTaskID != "" {
-			// Convergent on an in-flight task: no new task is submitted, but
-			// the configuration is not in place yet, so NO_OP would be a lie.
+			// Config isn't in place yet, so this can't be NO_OP.
 			return jsonResponder(http.StatusAccepted, &models.IndexUpdateResponse{
 				TaskID: namespacing.StripOwnNamespace(principal, plan.joinTaskID),
 				Status: reindexInProgressStatus,
@@ -275,8 +273,7 @@ func findProperty(class *models.Class, propertyName string) *models.Property {
 // PUT finds the desired configuration already in place (declarative upsert).
 const reindexNoOpStatus = "NO_OP"
 
-// reindexInProgressStatus is returned when a PUT converges on a task that is
-// still in flight: nothing new was submitted, but nothing is in place yet.
+// PUT converged on an already in-flight task; the config isn't in place yet.
 const reindexInProgressStatus = "IN_PROGRESS"
 
 // resolveUpsertPlan diffs the request against current state, returning a

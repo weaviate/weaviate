@@ -28,18 +28,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestSingleNode_InFlightConvergentUpsertMustNotReportNoOp pins the documented
-// meaning of 200 {"status":"NO_OP"} on PUT .../index/{indexType}: "desired
-// configuration already in place; no task submitted" (openapi-specs/schema.json,
-// docs/runtime-reindex.md).
-//
-// RED: a repeat PUT issued while the first task is still in flight is answered
-// NO_OP even though the index flag is still false and the index does not exist
-// yet. The caller is told "done", holds no taskId, and has nothing to poll —
-// so a task that later CANCELs or FAILs is invisible to it.
-//
-// All three index types are covered because three separate resolver sites
-// implement the same rule.
+// TestSingleNode_InFlightConvergentUpsertMustNotReportNoOp pins that a PUT
+// converging on an in-flight task must report that task's ID, not NO_OP.
 func TestSingleNode_InFlightConvergentUpsertMustNotReportNoOp(t *testing.T) {
 	ctx := context.Background()
 

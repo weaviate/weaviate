@@ -114,13 +114,10 @@ Query parameters (PUT and rebuild):
   `change-algorithm`) because the cluster-wide schema flip cannot be
   sub-scoped — all tenants must migrate together.
 
-Cancel takes no query parameters. A `tenants` value on a cancel URL is
-silently ignored, not rejected — the generated
-`SchemaObjectsIndexCancelParams` never reads the query string. Cancel is
-scoped by the task it targets, and that task already carries the tenant
+Cancel takes no query parameters; a `tenants` value on the URL is silently
+ignored. Cancel targets the task itself, which already carries the tenant
 set of the rebuild that submitted it, so `POST .../cancel` after
-`rebuild?tenants=t1,t2` stops exactly that work and never touches
-untargeted tenants.
+`rebuild?tenants=t1,t2` stops only that work, leaving other tenants untouched.
 
 Response shapes (PUT / rebuild / cancel):
 

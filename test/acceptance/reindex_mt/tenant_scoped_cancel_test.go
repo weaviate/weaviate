@@ -36,20 +36,9 @@ const scopedCancelMarkerObjects = 3
 // very filterable index the rebuild targets.
 const scopedCancelMarkerFilter = `{path:["score"], operator:Equal, valueInt:42}`
 
-// testTenantScopedRebuildCancel pins the scope contract between a
-// tenant-scoped rebuild and cancel: POST .../rebuild accepts `?tenants=`,
-// POST .../cancel does not, and cancel is nevertheless the exact inverse of
-// the rebuild's scope.
-//
-// A reindex task's identity is (collection, property, indexType) with no
-// tenant component: the task ID is minted from that tuple, the FSM only
-// cancels whole tasks, and the conflict gate rejects a second task on the
-// same property even for a disjoint tenant set. So a tenants-less cancel can
-// only ever hit the one task the rebuild created, and adding `?tenants=` to
-// cancel would promise a per-unit cancel the FSM cannot deliver.
-//
-// Untargeted tenants must stay out of it entirely: never enrolled as a task
-// unit, and still serving the same rows through the same index afterwards.
+// testTenantScopedRebuildCancel pins that cancel has no tenant scope: it
+// always targets the whole task, so cancelling a tenants-scoped rebuild must
+// leave untargeted tenants unenrolled and still serving their prior index.
 func testTenantScopedRebuildCancel(t *testing.T, restURI string) {
 	className := "MTScopedCancel"
 	targeted := []string{"a", "b"}
