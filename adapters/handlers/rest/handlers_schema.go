@@ -70,7 +70,7 @@ type reindexSubmitLockProvider interface {
 // reindexDeleteMarkerRecorder records accepted property-index DELETEs so the
 // GET-indexes handler can suppress the finalize-window bleed. Interface form
 // (not the concrete *state.ReindexDeleteMarkers) keeps schemaHandlers
-// testable without the full appState graph. nil-safe at the call site.
+// testable without the full appState graph.
 type reindexDeleteMarkerRecorder interface {
 	Record(collection, property, indexType string)
 }
@@ -235,17 +235,15 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// flight" to an unprivileged caller, and DeleteClassPropertyIndex only
 	// authorizes deep in its own body. Collections (data+metadata): dropping
 	// an index rewrites data, not just metadata.
-	if s.authorizer != nil {
-		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
-			authorization.Collections(qualifiedClass)...); err != nil {
-			s.metricRequestsTotal.logError(params.ClassName, err)
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				return schema.NewSchemaObjectsPropertiesDeleteForbidden().
-					WithPayload(errPayloadFromSingleErr(principal, err))
-			}
-			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+	if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
+		authorization.Collections(qualifiedClass)...); err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
+		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	// Serialize with the reindex-submit REST handler on the same
@@ -307,7 +305,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// Only record the marker on a real RAFT write: a node-local no-op (flag
 	// already off) never hit RAFT, so marking it would suppress a lagging
 	// follower's legitimate report before its FSM applies the flip.
-	if wrote && s.reindexDeleteMarkers != nil {
+	if wrote {
 		s.reindexDeleteMarkers.Record(qualifiedClass, params.PropertyName, indexName)
 	}
 
