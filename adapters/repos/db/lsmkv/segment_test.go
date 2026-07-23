@@ -189,6 +189,68 @@ func TestSegment_StripTmpExtensions(t *testing.T) {
 	}
 }
 
+// TestSegment_ListedDerivedFileMissingOnDisk covers a derived file that the
+// file list says exists while it is gone from disk: it is computed again
+// instead of failing the segment load.
+func TestSegment_ListedDerivedFileMissingOnDisk(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	existsOnLower := func(key []byte) (bool, error) { return false, nil }
+
+	tests := []struct {
+		name          string
+		writeMetadata bool
+		missingSuffix string
+	}{
+		{name: "bloom filter", missingSuffix: ".bloom"},
+		{name: "secondary bloom filter", missingSuffix: ".secondary.0.bloom"},
+		{name: "cna", missingSuffix: ".cna"},
+		{name: "metadata", writeMetadata: true, missingSuffix: ".metadata"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			expectedFileTypes := map[string]int{".db": 1, ".bloom": 3, ".cna": 1}
+			if tt.writeMetadata {
+				expectedFileTypes = map[string]int{".db": 1, ".metadata": 1}
+			}
+			createSegmentFilesUsingBucket(t, ctx, logger, dir, "segment-1234567890.db", []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithUseBloomFilter(true),
+				WithCalcCountNetAdditions(true),
+				WithWriteMetadata(tt.writeMetadata),
+				WithSecondaryIndices(2),
+			}, expectedFileTypes)
+
+			fileList := map[string]int64{}
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			for i := range entries {
+				info, err := entries[i].Info()
+				require.NoError(t, err)
+				fileList[entries[i].Name()] = info.Size()
+			}
+
+			missingFile := "segment-1234567890" + tt.missingSuffix
+			require.Contains(t, fileList, missingFile)
+			require.NoError(t, os.Remove(filepath.Join(dir, missingFile)))
+
+			seg, err := newSegment(filepath.Join(dir, "segment-1234567890.db"), logger, nil,
+				existsOnLower, segmentConfig{
+					useBloomFilter:        true,
+					calcCountNetAdditions: true,
+					writeMetadata:         tt.writeMetadata,
+					fileList:              fileList,
+				})
+			require.NoError(t, err)
+			defer seg.close()
+
+			require.FileExists(t, filepath.Join(dir, missingFile))
+		})
+	}
+}
+
 func createSegmentFilesUsingBucket(t *testing.T, ctx context.Context, logger logrus.FieldLogger, path, segmentFilename string,
 	bucketOptions []BucketOption, expectedFileTypes map[string]int,
 ) {
