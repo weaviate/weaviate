@@ -424,12 +424,12 @@ func TestSetShardsReady_MultipleIndices(t *testing.T) {
 }
 
 func TestSetShardsReady_SkipsNonResourcePressureReadonly(t *testing.T) {
-	// A shard that is READONLY due to a vector index config update should NOT
-	// be recovered by the resource scanner. Only shards set READONLY due to
-	// resource pressure should be transitioned back to READY.
-	configUpdateShard := NewMockShardLike(t)
-	configUpdateShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
-	configUpdateShard.EXPECT().GetStatusReason().Return(statusReasonVectorIndexUpdate)
+	// A shard that is READONLY for a non-resource-pressure reason (e.g. a manual
+	// user toggle) should NOT be recovered by the resource scanner. Only shards
+	// set READONLY due to resource pressure should be transitioned back to READY.
+	manualShard := NewMockShardLike(t)
+	manualShard.EXPECT().GetStatus().Return(storagestate.StatusReadOnly)
+	manualShard.EXPECT().GetStatusReason().Return(statusReasonManualUpdate)
 	// UpdateStatus should NOT be called
 
 	resourcePressureShard := NewMockShardLike(t)
@@ -438,7 +438,7 @@ func TestSetShardsReady_SkipsNonResourcePressureReadonly(t *testing.T) {
 	resourcePressureShard.EXPECT().UpdateStatus(storagestate.StatusReady.String(), mock.AnythingOfType("string")).Return(nil)
 
 	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{
-		"config_update_shard":     configUpdateShard,
+		"manual_readonly_shard":   manualShard,
 		"resource_pressure_shard": resourcePressureShard,
 	})
 	db.resourceScanState.isReadOnly = true
@@ -446,21 +446,21 @@ func TestSetShardsReady_SkipsNonResourcePressureReadonly(t *testing.T) {
 	db.setShardsReady()
 
 	assert.False(t, db.resourceScanState.isReadOnly)
-	configUpdateShard.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything)
+	manualShard.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything)
 	resourcePressureShard.AssertCalled(t, "UpdateStatus", storagestate.StatusReady.String(), mock.AnythingOfType("string"))
 }
 
-// A shard that is READONLY for a vector-index config update must stay READONLY
-// across a resource readonly→recovery cycle: the resource scanner must not
-// relabel it as resource-pressure and then recover it mid-update.
-func TestResourceCycle_DoesNotRecoverConfigUpdateShard(t *testing.T) {
-	// Simulate UpdateVectorIndexConfig having marked the shard READONLY.
+// A shard set READONLY for a non-resource-pressure reason (e.g. a manual user
+// toggle) must stay READONLY across a resource readonly→recovery cycle: the
+// resource scanner must not relabel it as resource-pressure and then recover it.
+func TestResourceCycle_DoesNotRecoverManualReadonlyShard(t *testing.T) {
+	// Simulate a manual readonly toggle having marked the shard READONLY.
 	shard, status, mu := newStatefulShardMock(t,
-		ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonVectorIndexUpdate})
+		ShardStatus{Status: storagestate.StatusReadOnly, Reason: statusReasonManualUpdate})
 
-	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{"config_update_shard": shard})
+	db := testResourceDB(t, 90, 90, map[string]*MockShardLike{"manual_readonly_shard": shard})
 
-	// Resource pressure trips while the config update is in flight.
+	// Resource pressure trips while the shard is manually READONLY.
 	mon := newTestMemMonitor(0, 100)
 	db.resourceUseReadonly(mon, diskUse{total: 100, free: 5, avail: 5})
 
@@ -470,8 +470,8 @@ func TestResourceCycle_DoesNotRecoverConfigUpdateShard(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Equal(t, storagestate.StatusReadOnly, status.Status,
-		"config-update shard must stay READONLY across a resource readonly→recovery cycle; "+
-			"resource recovery must not re-admit writes while the vector-index config update is still in flight")
+		"manually-readonly shard must stay READONLY across a resource readonly→recovery cycle; "+
+			"resource recovery must not re-admit writes that were not disabled by resource pressure")
 }
 
 func TestSetShardsReady_SkipsUserInitiatedReadonly(t *testing.T) {

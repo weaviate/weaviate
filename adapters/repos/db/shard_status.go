@@ -24,12 +24,11 @@ import (
 // ShardStatus.Reason and used by the recovery logic to decide whether a
 // READONLY shard can be automatically transitioned back to READY.
 const (
-	statusReasonResourcePressure  = "resource pressure"
-	statusReasonResourceRecovery  = "resource usage below threshold"
-	statusReasonManualUpdate      = "manually set by user"
-	statusReasonVectorIndexUpdate = "update vector index config"
-	statusReasonShutdown          = "shutdown"
-	statusReasonNotifyReady       = "notify ready"
+	statusReasonResourcePressure = "resource pressure"
+	statusReasonResourceRecovery = "resource usage below threshold"
+	statusReasonManualUpdate     = "manually set by user"
+	statusReasonShutdown         = "shutdown"
+	statusReasonNotifyReady      = "notify ready"
 )
 
 type ShardStatus struct {
