@@ -168,13 +168,18 @@ func (h *hnsw) Upgrade(callback func()) error {
 		return err
 	}
 
+	h.compressWg.Add(1)
 	enterrors.GoWrapper(func() { h.compressThenCallback(callback) }, h.logger)
 
 	return nil
 }
 
 func (h *hnsw) compressThenCallback(callback func()) {
+	// Done() must run before the callback: the callback may call Drop/Shutdown,
+	// which Wait on compressWg, so decrement first to avoid waiting on ourselves.
+	// compress()'s cache and commit-log work is already complete by this point.
 	defer callback()
+	defer h.compressWg.Done()
 
 	uc := ent.UserConfig{
 		PQ: h.pqConfig,
