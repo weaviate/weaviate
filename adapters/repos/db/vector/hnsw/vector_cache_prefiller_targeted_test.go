@@ -146,11 +146,8 @@ func TestPrefillTargetedMatchesCursorScan(t *testing.T) {
 				id = "main"
 			}
 			logger, _ := test.NewNullLogger()
-			mustHit := func(_ context.Context, id uint64) ([]float32, error) {
-				return nil, fmt.Errorf("unexpected cache miss for id %d", id)
-			}
 			collect := func(prefill func(h *hnsw) error) map[uint64][]float32 {
-				c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
+				c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
 				c.Grow(101)
 				h := newTargetedTestIndex(store, c, id, live, 101)
 				require.NoError(t, prefill(h))
@@ -196,10 +193,7 @@ func TestPrefillTargetedHNSWExclusions(t *testing.T) {
 	delete(exp, 5)
 
 	logger, _ := test.NewNullLogger()
-	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
-		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
-	}
-	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
 	c.Grow(21)
 	h := newTargetedTestIndex(store, c, "vectors_custom", live, 21)
 	h.tombstones[5] = struct{}{}

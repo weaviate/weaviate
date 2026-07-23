@@ -246,10 +246,15 @@ func TestMuveraParallelPrefillEligible(t *testing.T) {
 	}
 }
 
+// errOnCacheMiss is the VectorForID for prefill tests: every post-prefill Get must
+// be a cache hit, so any miss fails the test.
+func errOnCacheMiss(_ context.Context, id uint64) ([]float32, error) {
+	return nil, fmt.Errorf("unexpected cache miss for id %d", id)
+}
+
 // prefillParallelIntoCache fills an objects bucket with vecs (a legacy vector per id),
 // then runs prefillCacheParallel against a real cache wired so any miss errors. h.nodes
-// is sized to preGrown (and the cache grown to match when preGrown>0); preGrown==0
-// forces the defensive in-scan Grow path. Returns the populated cache.
+// and the cache are sized to preGrown. Returns the populated cache.
 func prefillParallelIntoCache(t *testing.T, vecs map[uint64][]float32, preGrown int,
 	dp distancer.Provider, normalizeOnRead bool,
 ) cache.Cache[float32] {
@@ -449,10 +454,7 @@ func TestPrefillCacheParallelDoesNotOverwriteNewerVectors(t *testing.T) {
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	logger, _ := test.NewNullLogger()
-	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
-		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
-	}
-	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
 	c.Grow(n)
 
 	inserted := map[uint64][]float32{3: {42, 42}, 7: {43, 43}}
@@ -571,10 +573,7 @@ func TestPrefillMuveraCacheParallelEndToEnd(t *testing.T) {
 	delete(exp, 42)
 
 	logger, _ := test.NewNullLogger()
-	mustHit := func(_ context.Context, id uint64) ([]float32, error) {
-		return nil, fmt.Errorf("unexpected cache miss for id %d", id)
-	}
-	c := cache.NewShardedFloat32LockCache(mustHit, nil, 1_000_000, 1, logger, false, 0, nil)
+	c := cache.NewShardedFloat32LockCache(errOnCacheMiss, nil, 1_000_000, 1, logger, false, 0, nil)
 	c.Grow(n)
 
 	h := &hnsw{
