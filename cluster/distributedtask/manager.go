@@ -278,14 +278,56 @@ func (m *Manager) RegisterTargetExtractor(namespace string, extractor TargetExtr
 	m.targetExtractors[namespace] = extractor
 }
 
+// HasActiveTasksForCollectionTargets reports whether any ACTIVE task in a
+// target-extractor namespace binds to `collection` and overlaps `targets`.
+// Consulted by the schema FSM before a drop-vector marker introduction: an
+// active task survives the purge, and a marker born next to it would inherit
+// the previous drop's records once it completes.
+func (m *Manager) HasActiveTasksForCollectionTargets(collection string, targets []string) bool {
+	if collection == "" || len(targets) == 0 {
+		return false
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	targetSet := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		targetSet[t] = struct{}{}
+	}
+	for namespace, tasksByID := range m.tasks {
+		extractor, ok := m.targetExtractors[namespace]
+		if !ok || extractor == nil {
+			continue
+		}
+		for _, task := range tasksByID {
+			if !task.Status.IsActive() {
+				continue
+			}
+			c, taskTargets, ok := extractor(task.Payload)
+			if !ok || c != collection {
+				continue
+			}
+			for _, t := range taskTargets {
+				if _, ok := targetSet[t]; ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // DeleteTasksForCollectionTargets drops NON-ACTIVE tasks whose payload binds to
 // `collection` and overlaps `targets`, in namespaces with a registered target
 // extractor. Called deterministically from the schema FSM when a new
 // drop-vector marker is introduced, so the previous drop of a re-created name
 // leaves no records for coverage inheritance or removal vouching to
-// misattribute to the new drop. Active tasks are skipped: one cannot exist for
-// a name whose marker is only now being introduced, and skipping keeps the
-// scheduler's running handles consistent.
+// misattribute to the new drop. Active tasks are skipped to keep the
+// scheduler's running handles consistent — the caller must therefore REFUSE
+// the introduction when HasActiveTasksForCollectionTargets is true (the
+// previous drop's task can still be SWAPPING for a moment after its finalize
+// removed the old marker), or the survivor would seed stale inheritance.
 func (m *Manager) DeleteTasksForCollectionTargets(collection string, targets []string) []TaskDescriptor {
 	if collection == "" || len(targets) == 0 {
 		return nil

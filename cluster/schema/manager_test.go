@@ -805,10 +805,15 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 // issues on drop-vector marker introduction.
 type fakeCascadeDeleter struct {
 	collectionCalls []string
+	activeMatch     bool
 	targetCalls     []struct {
 		collection string
 		targets    []string
 	}
+}
+
+func (f *fakeCascadeDeleter) HasActiveTasksForCollectionTargets(collection string, targets []string) bool {
+	return f.activeMatch
 }
 
 func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor {
@@ -863,6 +868,22 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 		require.Len(t, deleter.targetCalls, 1)
 		require.Equal(t, "C", deleter.targetCalls[0].collection)
 		require.Equal(t, []string{"vec1"}, deleter.targetCalls[0].targets)
+	})
+
+	t.Run("introduction is rejected while a matching task is still active", func(t *testing.T) {
+		// The SWAPPING race: the previous drop's task finalized (marker gone)
+		// but has not flipped FINISHED yet. Purging skips active tasks and
+		// never re-runs, so letting the marker in would leave a stale
+		// inheritance seed — the birth must be refused (retryable, ms window).
+		deleter := &fakeCascadeDeleter{activeMatch: true}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "still completing")
+		require.Empty(t, deleter.targetCalls, "no purge may run when the introduction is refused")
 	})
 
 	t.Run("an already-dropped entry does not re-purge", func(t *testing.T) {

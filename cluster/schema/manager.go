@@ -83,6 +83,7 @@ type MutationGuard interface {
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
 	DeleteTasksForCollectionTargets(collection string, targets []string) []distributedtask.TaskDescriptor
+	HasActiveTasksForCollectionTargets(collection string, targets []string) bool
 }
 
 type SchemaManager struct {
@@ -474,6 +475,15 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// vouching could misattribute them to the new drop.
 		if s.distributedTaskManager != nil {
 			if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
+				// The purge skips active tasks, so an introduction next to one
+				// (the previous drop still SWAPPING for a moment after its
+				// finalize) must be refused — the survivor would outlive the
+				// purge and seed stale coverage inheritance. Deterministic and
+				// retryable: the window closes when the task flips FINISHED.
+				if s.distributedTaskManager.HasActiveTasksForCollectionTargets(meta.Class.Class, introduced) {
+					return fmt.Errorf("%w: a previous drop of %v on %q is still completing; retry",
+						ErrBadRequest, introduced, meta.Class.Class)
+				}
 				if removed := s.distributedTaskManager.DeleteTasksForCollectionTargets(meta.Class.Class, introduced); len(removed) > 0 {
 					s.log.WithField("class", meta.Class.Class).
 						WithField("targets", introduced).
