@@ -51,7 +51,7 @@ func TestStoreBackup(t *testing.T) {
 func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
 
-	t.Run("assert that context timeout works for long compactions", func(t *testing.T) {
+	t.Run("assert that an expired context fails fast", func(t *testing.T) {
 		for _, buckets := range [][]string{
 			{"test_bucket"},
 			{"test_bucket1", "test_bucket2"},
@@ -77,10 +77,7 @@ func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				defer cancel()
 
 				err = store.PauseCompaction(expiredCtx)
-				require.NotNil(t, err)
-				assert.Equal(t, "long-running compaction in progress:"+
-					" deactivating callback 'store/compaction-non-objects/.' of 'classCompactionNonObjects' failed:"+
-					" context deadline exceeded", err.Error())
+				require.ErrorIs(t, err, context.DeadlineExceeded)
 
 				err = store.Shutdown(ctx)
 				require.Nil(t, err)
@@ -186,7 +183,7 @@ func resumeCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
 
-	t.Run("assert that context timeout works for long flushes", func(t *testing.T) {
+	t.Run("assert that an expired context fails fast", func(t *testing.T) {
 		for _, buckets := range [][]string{
 			{"test_bucket"},
 			{"test_bucket1", "test_bucket2"},
@@ -212,10 +209,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				defer cancel()
 
 				err = store.FlushMemtables(expiredCtx)
-				require.NotNil(t, err)
-				assert.Equal(t, "long-running memtable flush in progress:"+
-					" deactivating callback 'store/flush/.' of 'classFlush' failed:"+
-					" context deadline exceeded", err.Error())
+				require.ErrorIs(t, err, context.DeadlineExceeded)
 
 				err = store.Shutdown(ctx)
 				require.Nil(t, err)

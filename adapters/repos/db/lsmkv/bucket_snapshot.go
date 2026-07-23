@@ -143,6 +143,12 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 
 	snapshotDir := filepath.Join(snapshotsRoot, SnapshotDirPrefix+name)
 
+	// An expired context means the caller is gone; the flush and hard-link steps
+	// below take no context and would run to completion.
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
 	if err := b.pauseCompaction(ctx); err != nil {
 		return "", fmt.Errorf("pause compaction: %w", err)
 	}

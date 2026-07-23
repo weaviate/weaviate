@@ -27,6 +27,11 @@ import (
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (s *Store) PauseCompaction(ctx context.Context) error {
+	// An expired context means the caller is gone; don't start pausing.
+	if err := ctx.Err(); err != nil {
+		return errors.Wrap(err, "pause compaction")
+	}
+
 	if err := s.cycleCallbacks.compactionCallbacksCtrl.Deactivate(ctx); err != nil {
 		return errors.Wrap(err, "long-running compaction in progress")
 	}
@@ -72,6 +77,12 @@ func (s *Store) ResumeCompaction(ctx context.Context) error {
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (s *Store) FlushMemtables(ctx context.Context) error {
+	// An expired context means the caller is gone; the per-bucket flush below takes
+	// no context and would run to completion.
+	if err := ctx.Err(); err != nil {
+		return errors.Wrap(err, "flush memtables")
+	}
+
 	if err := s.cycleCallbacks.flushCallbacksCtrl.Deactivate(ctx); err != nil {
 		return errors.Wrap(err, "long-running memtable flush in progress")
 	}
