@@ -269,7 +269,29 @@ func (s *shardedLockCache[T]) PageSize() uint64 {
 
 var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// do nothing on default arch
-	// this function will be overridden for amd64
+	// this function will be overridden for amd64 and arm64
+}
+
+// prefetchMaxBytes bounds how much of a vector Prefetch requests. The first
+// lines cover a packed 4-bit code's hot prefix and start the access stream;
+// hardware stream prefetchers take over once the sequential reads begin.
+const prefetchMaxBytes = 256
+
+// prefetchVector issues cache-line prefetch hints for the start of vec.
+// Prefetching the data requires having read the slice header first: the
+// header's data pointer is a dependent load the CPU cannot follow on its
+// own, so hinting only the header address would leave the expensive DRAM
+// miss — the vector bytes — unhinted.
+func prefetchVector[T any](vec []T) {
+	if len(vec) == 0 {
+		return
+	}
+	var zero T
+	n := min(len(vec)*int(unsafe.Sizeof(zero)), prefetchMaxBytes)
+	base := uintptr(unsafe.Pointer(&vec[0]))
+	for off := 0; off < n; off += 64 {
+		prefetchFunc(base + uintptr(off))
+	}
 }
 
 func (s *shardedLockCache[T]) LockAll() {
@@ -282,9 +304,10 @@ func (s *shardedLockCache[T]) UnlockAll() {
 
 func (s *shardedLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
-	defer s.shardedLocks.RUnlock(id)
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
 
-	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
+	prefetchVector(vec)
 }
 
 func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
@@ -707,9 +730,10 @@ func (s *shardedMultipleLockCache[T]) UnlockAll() {
 
 func (s *shardedMultipleLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
-	defer s.shardedLocks.RUnlock(id)
+	vec := s.cache[id]
+	s.shardedLocks.RUnlock(id)
 
-	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
+	prefetchVector(vec)
 }
 
 func (s *shardedMultipleLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]T) {
