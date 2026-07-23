@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -120,9 +121,9 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 	// release shard 1x
 	release2()
 
-	// shutdown eventually completed, shard idle
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, true)
+	// shutdown eventually completed, shard idle. The last release hands the
+	// teardown to a background goroutine, so it does not complete inline.
+	requireShardShutEventually(t, shard)
 
 	// getting shard fails, shutdown completed
 	sameShardYetAgain, _, err := index.GetShard(context.Background(), shardName)
@@ -218,6 +219,13 @@ func requireShardShutdownRequested(t *testing.T, shard ShardLike, expected bool)
 	} else {
 		require.False(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should not be marked for shut down")
 	}
+}
+
+func requireShardShutEventually(t *testing.T, shard ShardLike) {
+	inner := shard.(*LazyLoadShard).shard
+	require.Eventually(t, func() bool {
+		return inner.shut.Load() && !inner.shutdownRequested.Load()
+	}, 10*time.Second, 10*time.Millisecond, "shard should be shut down once the last reference is released")
 }
 
 func requireShardShut(t *testing.T, shard ShardLike, expected bool) {
