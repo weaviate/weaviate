@@ -2877,7 +2877,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			}
 			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 			if err != nil {
-				return nil, func() {}, err
+				return nil, func() {}, fmt.Errorf("init local shard %q of index %s: %w", shardName, i.ID(), err)
 			}
 			i.shards.Store(shardName, shard)
 		}
