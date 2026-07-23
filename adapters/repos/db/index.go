@@ -1080,30 +1080,23 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return nil
 	}
 
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, object.Object.Tenant, targetShard.Shard, localShardOperationWrite, schemaVersion)
-	defer release()
-	if err != nil {
-		return err
-	}
+	return i.withShardOrRemote(ctx, object.Object.Tenant, targetShard.Shard, localShardOperationWrite, schemaVersion,
+		func(shard ShardLike) error {
+			i.backupLock.RLock(targetShard.Shard)
+			defer i.backupLock.RUnlock(targetShard.Shard)
 
-	// no replication, remote shard (or local not yet inited)
-	if shard == nil {
-		if err := i.remote.PutObject(ctx, targetShard.Shard, object, schemaVersion); err != nil {
-			return fmt.Errorf("put remote object: shard=%q: %w", targetShard.Shard, err)
-		}
-		return nil
-	}
+			if err := shard.PutObject(ctx, object); err != nil {
+				return fmt.Errorf("put local object: shard=%q: %w", targetShard.Shard, err)
+			}
 
-	// no replication, local shard
-	i.backupLock.RLock(targetShard.Shard)
-	defer i.backupLock.RUnlock(targetShard.Shard)
-
-	err = shard.PutObject(ctx, object)
-	if err != nil {
-		return fmt.Errorf("put local object: shard=%q: %w", targetShard.Shard, err)
-	}
-
-	return nil
+			return nil
+		},
+		func() error {
+			if err := i.remote.PutObject(ctx, targetShard.Shard, object, schemaVersion); err != nil {
+				return fmt.Errorf("put remote object: shard=%q: %w", targetShard.Shard, err)
+			}
+			return nil
+		})
 }
 
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
@@ -1197,7 +1190,8 @@ const (
 // getShardForDirectLocalOperation is used to try to get a shard for a local read/write operation.
 // It will return the shard if it is found, and a release function to release the shard.
 // The shard will be nil if the shard is not found, or if the local shard should not be used.
-// The caller should always call the release function.
+// The release function is never nil, including on error, so defer it immediately
+// after the call: an error can be returned after a reference was already taken.
 func (i *Index) getShardForDirectLocalOperation(
 	ctx context.Context,
 	tenantName, shardName string,
@@ -1211,7 +1205,7 @@ func (i *Index) getShardForDirectLocalOperation(
 
 	if schemaVersion > 0 {
 		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-			return nil, release, fmt.Errorf("wait for schema version %d: %w", schemaVersion, err)
+			return nil, release, fmt.Errorf("shard %q: wait for schema version %d: %w", shardName, schemaVersion, err)
 		}
 	}
 
@@ -1223,7 +1217,7 @@ func (i *Index) getShardForDirectLocalOperation(
 	case localShardOperationRead:
 		return i.getShardForRead(ctx, className, tenantName, shardName, shard, release)
 	default:
-		return nil, release, fmt.Errorf("invalid local shard operation: %s", operation)
+		return nil, release, fmt.Errorf("shard %q: invalid local shard operation: %s", shardName, operation)
 	}
 }
 
@@ -1256,10 +1250,13 @@ func (i *Index) getShardForWrite(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		shard, release, err = i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		// the reference we were handed is not returned to the caller, release it
+		release()
 		if err != nil {
-			return nil, release, err
+			return nil, initRelease, err
 		}
+		return initShard, initRelease, nil
 	}
 
 	return shard, release, nil
@@ -1293,13 +1290,38 @@ func (i *Index) getShardForRead(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		shard, release, err = i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		// the reference we were handed is not returned to the caller, release it
+		release()
 		if err != nil {
-			return nil, release, err
+			return nil, initRelease, err
 		}
+		return initShard, initRelease, nil
 	}
 
 	return shard, release, nil
+}
+
+// withShardOrRemote runs local against shardName, or remote when this node has no
+// shard to use: it is not among the shard's replicas, or the shard is not loaded here
+// and this node does not load it on demand — remote can resolve back to this node,
+// which is what loads it. A failed replica lookup does not by itself select remote:
+// an inactive tenant goes remote only with AutoTenantActivation on, otherwise a shard
+// loaded here is used as is. On error neither arm runs; the reference is released on
+// every path.
+func (i *Index) withShardOrRemote(ctx context.Context, tenantName, shardName string,
+	operation localShardOperation, schemaVersion uint64,
+	local func(shard ShardLike) error, remote func() error,
+) error {
+	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, operation, schemaVersion)
+	defer release()
+	if err != nil {
+		return err
+	}
+	if shard == nil {
+		return remote()
+	}
+	return local(shard)
 }
 
 func (i *Index) AsyncReplicationEnabled() bool {
@@ -1495,7 +1517,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			defer func() {
 				err := recover()
 				if err != nil {
-					for pos := range group.pos {
+					for _, pos := range group.pos {
 						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
@@ -1513,19 +1535,19 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
-				shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion)
-				defer release()
-				if err != nil {
-					errs = []error{err}
-				} else if shard != nil {
-					func() {
+				err := i.withShardOrRemote(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion,
+					func(shard ShardLike) error {
 						i.backupLock.RLock(shardName)
 						defer i.backupLock.RUnlock(shardName)
-						defer release()
 						errs = shard.PutObjectBatch(ctx, group.objects)
-					}()
-				} else {
-					errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
+						return nil
+					},
+					func() error {
+						errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
+						return nil
+					})
+				if err != nil {
+					errs = duplicateErr(err, len(group.objects))
 				}
 			}
 
@@ -1630,18 +1652,19 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
-			shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion)
-			if err != nil {
-				errs = duplicateErr(err, len(group.refs))
-			} else if shard != nil {
-				func() {
+			err := i.withShardOrRemote(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion,
+				func(shard ShardLike) error {
 					i.backupLock.RLock(shardName)
 					defer i.backupLock.RUnlock(shardName)
-					defer release()
 					errs = shard.AddReferencesBatch(ctx, group.refs)
-				}()
-			} else {
-				errs = i.remote.BatchAddReferences(ctx, shardName, group.refs, schemaVersion)
+					return nil
+				},
+				func() error {
+					errs = i.remote.BatchAddReferences(ctx, shardName, group.refs, schemaVersion)
+					return nil
+				})
+			if err != nil {
+				errs = duplicateErr(err, len(group.refs))
 			}
 		}
 
@@ -1699,20 +1722,23 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return obj, err
 	}
 
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
+	err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+		func(shard ShardLike) error {
+			var err error
+			if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
+				return fmt.Errorf("get local object: shard=%s: %w", shardName, err)
+			}
+			return nil
+		},
+		func() error {
+			var err error
+			if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
+				return fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
+			}
+			return nil
+		})
 	if err != nil {
 		return obj, err
-	}
-	defer release()
-
-	if shard != nil {
-		if obj, err = shard.ObjectByID(ctx, id, props, addl); err != nil {
-			return obj, fmt.Errorf("get local object: shard=%s: %w", shardName, err)
-		}
-	} else {
-		if obj, err = i.remote.GetObject(ctx, shardName, id, props, addl); err != nil {
-			return obj, fmt.Errorf("get remote object: shard=%s: %w", shardName, err)
-		}
 	}
 
 	return obj, nil
@@ -1791,23 +1817,20 @@ func (i *Index) multiObjectByID(ctx context.Context,
 
 	for shardName, group := range byShard {
 		var objects []*storobj.Object
-		var err error
-		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
+
+		err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+			func(shard ShardLike) error {
+				var err error
+				objects, err = shard.MultiObjectByID(ctx, group.ids)
+				return errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
+			},
+			func() error {
+				var err error
+				objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
+				return errors.Wrapf(err, "remote shard %s", shardName)
+			})
 		if err != nil {
 			return nil, err
-		} else if shard != nil {
-			func() {
-				defer release()
-				objects, err = shard.MultiObjectByID(ctx, group.ids)
-				if err != nil {
-					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
-				}
-			}()
-		} else {
-			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
-			if err != nil {
-				return nil, errors.Wrapf(err, "remote shard %s", shardName)
-			}
 		}
 
 		for i, obj := range objects {
@@ -1863,24 +1886,22 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		return i.replicator.Exists(ctx, cl, shardName, id)
 	}
 
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
-	defer release()
-	if err != nil {
-		return exists, err
-	}
-
-	if shard != nil {
-		exists, err = shard.Exists(ctx, id)
-		if err != nil {
-			err = fmt.Errorf("exists locally: shard=%q: %w", shardName, err)
-		}
-	} else {
-		exists, err = i.remote.Exists(ctx, shardName, id)
-		if err != nil {
-			owner, _ := i.getSchema.ShardOwner(i.Config.ClassName.String(), shardName)
-			err = fmt.Errorf("exists remotely: shard=%q owner=%q: %w", shardName, owner, err)
-		}
-	}
+	err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+		func(shard ShardLike) error {
+			var err error
+			if exists, err = shard.Exists(ctx, id); err != nil {
+				return fmt.Errorf("exists locally: shard=%q: %w", shardName, err)
+			}
+			return nil
+		},
+		func() error {
+			var err error
+			if exists, err = i.remote.Exists(ctx, shardName, id); err != nil {
+				owner, _ := i.getSchema.ShardOwner(i.Config.ClassName.String(), shardName)
+				return fmt.Errorf("exists remotely: shard=%q owner=%q: %w", shardName, owner, err)
+			}
+			return nil
+		})
 
 	return exists, err
 }
@@ -2056,51 +2077,47 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		return nil
 	}
 	localSeach := func(shardName string) error {
-		// Use getShardForDirectLocalOperation to get or initialize the shard for reads.
-		// This ensures shards are initialized when needed (e.g., after tenant reactivation).
-		// If shard doesn't exist locally or shouldn't be used, fall back to remote search.
-		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
-		defer release()
-		if err != nil {
-			return fmt.Errorf("error getting local shard %s: %w", shardName, err)
-		}
-		if shard == nil {
-			// This will make the code hit other remote replicas, and usually resolve any kind of eventual consistency issues just thanks to delaying
-			// the search to the other replica.
-			// This is not ideal, but it works for now.
-			return remoteSearch(shardName)
-		}
+		// Falls back to a remote search when there is no usable local shard; that
+		// forward is also what initializes the shard after tenant reactivation.
+		return i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+			func(shard ShardLike) error {
+				localCtx := helpers.InitSlowQueryDetails(ctx)
+				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
+				var shardStart time.Time
+				if addlProps.QueryProfile {
+					shardStart = time.Now()
+				}
+				objs, scores, err := shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
+				if err != nil {
+					return fmt.Errorf(
+						"local shard object search %s: %w", shard.ID(), err)
+				}
+				nodeName := i.getSchema.NodeName()
+				if addlProps.QueryProfile {
+					searchType := "keyword"
+					if keywordRanking == nil {
+						searchType = "object"
+					}
+					helpers.AddShardQueryProfile(ctx, shard.ID(), nodeName, searchType, time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
+				}
 
-		localCtx := helpers.InitSlowQueryDetails(ctx)
-		helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
-		var shardStart time.Time
-		if addlProps.QueryProfile {
-			shardStart = time.Now()
-		}
-		objs, scores, err := shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
-		if err != nil {
-			return fmt.Errorf(
-				"local shard object search %s: %w", shard.ID(), err)
-		}
-		nodeName := i.getSchema.NodeName()
-		if addlProps.QueryProfile {
-			searchType := "keyword"
-			if keywordRanking == nil {
-				searchType = "object"
-			}
-			helpers.AddShardQueryProfile(ctx, shard.ID(), nodeName, searchType, time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
-		}
+				if i.shardHasMultipleReplicasRead(tenant, shardName) {
+					storobj.AddOwnership(objs, nodeName, shardName)
+				}
 
-		if i.shardHasMultipleReplicasRead(tenant, shardName) {
-			storobj.AddOwnership(objs, nodeName, shardName)
-		}
+				shardResultLock.Lock()
+				resultObjects = append(resultObjects, objs...)
+				resultScores = append(resultScores, scores...)
+				shardResultLock.Unlock()
 
-		shardResultLock.Lock()
-		resultObjects = append(resultObjects, objs...)
-		resultScores = append(resultScores, scores...)
-		shardResultLock.Unlock()
-
-		return nil
+				return nil
+			},
+			func() error {
+				// Hitting the other remote replicas usually resolves any kind of
+				// eventual consistency issue just thanks to delaying the search to the
+				// other replica. This is not ideal, but it works for now.
+				return remoteSearch(shardName)
+			})
 	}
 	err := executor.ExecuteForEachShard(readPlan,
 		// Local Shard Search
@@ -2315,10 +2332,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	if len(readPlan.Shards()) == 1 && !i.Config.ForceFullReplicasSearch {
 		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, readPlan.Shards()[0], localShardOperationRead, 0)
+		defer release()
 		if err != nil {
 			return nil, nil, err
 		}
-		defer release()
 		if shard != nil {
 			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
 				sort, groupBy, additionalProps, shard, targetCombination, properties, selection)
@@ -2682,27 +2699,21 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		return nil
 	}
 
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationWrite, schemaVersion)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	// no replication, remote shard (or local not yet inited)
-	if shard == nil {
-		if err := i.remote.DeleteObject(ctx, shardName, id, deletionTime, schemaVersion); err != nil {
-			return fmt.Errorf("delete remote object: shard=%q: %w", shardName, err)
-		}
-		return nil
-	}
-
-	// no replication, local shard
-	i.backupLock.RLock(shardName)
-	defer i.backupLock.RUnlock(shardName)
-	if err = shard.DeleteObject(ctx, id, deletionTime); err != nil {
-		return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
-	}
-	return nil
+	return i.withShardOrRemote(ctx, tenant, shardName, localShardOperationWrite, schemaVersion,
+		func(shard ShardLike) error {
+			i.backupLock.RLock(shardName)
+			defer i.backupLock.RUnlock(shardName)
+			if err := shard.DeleteObject(ctx, id, deletionTime); err != nil {
+				return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
+			}
+			return nil
+		},
+		func() error {
+			if err := i.remote.DeleteObject(ctx, shardName, id, deletionTime, schemaVersion); err != nil {
+				return fmt.Errorf("delete remote object: shard=%q: %w", shardName, err)
+			}
+			return nil
+		})
 }
 
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
@@ -2827,6 +2838,7 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 // It is ensured that the returned instance is a fully loaded shard if ensureInit is set to true.
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
 // The returned shard cannot be closed until release is called.
+// release is never nil, including on error, so defer it immediately after the call.
 func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
 	shard ShardLike, release func(), err error,
 ) {
@@ -2834,7 +2846,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	defer i.closeLock.RUnlock()
 
 	if i.closed {
-		return nil, func() {}, errAlreadyShutdown
+		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, errAlreadyShutdown)
 	}
 
 	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
@@ -2853,7 +2865,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		className := i.Config.ClassName.String()
 		class := i.getSchema.ReadOnlyClass(className)
 		if class == nil {
-			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
+			return nil, func() {}, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, className)
 		}
 
 		i.shardCreateLocks.Lock(shardName)
@@ -2867,7 +2879,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			}
 			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 			if err != nil {
-				return nil, func() {}, err
+				return nil, func() {}, fmt.Errorf("init local shard %q of index %s: %w", shardName, i.ID(), err)
 			}
 			i.shards.Store(shardName, shard)
 		}
@@ -2914,28 +2926,22 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		return nil
 	}
 
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationWrite, schemaVersion)
-	if err != nil {
-		return err
-	}
-	defer release()
+	return i.withShardOrRemote(ctx, tenant, shardName, localShardOperationWrite, schemaVersion,
+		func(shard ShardLike) error {
+			i.backupLock.RLock(shardName)
+			defer i.backupLock.RUnlock(shardName)
+			if err := shard.MergeObject(ctx, merge); err != nil {
+				return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
+			}
 
-	// no replication, remote shard (or local not yet inited)
-	if shard == nil {
-		if err := i.remote.MergeObject(ctx, shardName, merge, schemaVersion); err != nil {
-			return fmt.Errorf("update remote object: shard=%q: %w", shardName, err)
-		}
-		return nil
-	}
-
-	// no replication, local shard
-	i.backupLock.RLock(shardName)
-	defer i.backupLock.RUnlock(shardName)
-	if err = shard.MergeObject(ctx, merge); err != nil {
-		return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
-	}
-
-	return nil
+			return nil
+		},
+		func() error {
+			if err := i.remote.MergeObject(ctx, shardName, merge, schemaVersion); err != nil {
+				return fmt.Errorf("update remote object: shard=%q: %w", shardName, err)
+			}
+			return nil
+		})
 }
 
 func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
@@ -2971,21 +2977,17 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		var err error
 		var res *aggregation.Result
 
-		var shard ShardLike
-		var release func()
-		// anonymous func is here to ensure release is executed after each loop iteration
-		func() {
-			shard, release, err = i.getShardForDirectLocalOperation(ctx, params.Tenant, shardName, localShardOperationRead, 0)
-			defer release()
-			if err == nil {
-				if shard != nil {
-					res, err = shard.Aggregate(ctx, params, modules)
-				} else {
-					res, err = i.remote.Aggregate(ctx, shardName, params)
-				}
-			}
-		}()
-
+		err = i.withShardOrRemote(ctx, params.Tenant, shardName, localShardOperationRead, 0,
+			func(shard ShardLike) error {
+				var err error
+				res, err = shard.Aggregate(ctx, params, modules)
+				return err
+			},
+			func() error {
+				var err error
+				res, err = i.remote.Aggregate(ctx, shardName, params)
+				return err
+			})
 		if err != nil {
 			return nil, errors.Wrapf(err, "shard %s", shardName)
 		}
@@ -3262,25 +3264,18 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 		}
 		var err error
 		var size int64
-		var shard ShardLike
-		var release func()
-
-		// anonymous func is here to ensure release is executed after each loop iteration
-		func() {
-			shard, release, err = i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
-			defer release()
-			if err == nil {
-				if shard != nil {
-					_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
-						size += queue.Size()
-						return nil
-					})
-				} else {
-					size, err = i.remote.GetShardQueueSize(ctx, shardName)
-				}
-			}
-		}()
-
+		err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+			func(shard ShardLike) error {
+				return shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+					size += queue.Size()
+					return nil
+				})
+			},
+			func() error {
+				var err error
+				size, err = i.remote.GetShardQueueSize(ctx, shardName)
+				return err
+			})
 		if err != nil {
 			return nil, errors.Wrapf(err, "shard %s", shardName)
 		}
@@ -3328,22 +3323,16 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 		}
 		var err error
 		var status string
-		var shard ShardLike
-		var release func()
-
-		// anonymous func is here to ensure release is executed after each loop iteration
-		func() {
-			shard, release, err = i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
-			defer release()
-			if err == nil {
-				if shard != nil {
-					status = shard.GetStatus().String()
-				} else {
-					status, err = i.remote.GetShardStatus(ctx, shardName)
-				}
-			}
-		}()
-
+		err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+			func(shard ShardLike) error {
+				status = shard.GetStatus().String()
+				return nil
+			},
+			func() error {
+				var err error
+				status, err = i.remote.GetShardStatus(ctx, shardName)
+				return err
+			})
 		if err != nil {
 			return nil, errors.Wrapf(err, "shard %s", shardName)
 		}
@@ -3422,25 +3411,22 @@ func (i *Index) findUUIDs(ctx context.Context,
 
 	results := make(map[string][]strfmt.UUID)
 	for _, shardName := range readPlan.Shards() {
-		var shard ShardLike
-		var release func()
 		var err error
 
 		if i.shardHasMultipleReplicasRead(tenant, shardName) {
 			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, cl, perShardLimit)
 		} else {
-			// anonymous func is here to ensure release is executed after each loop iteration
-			func() {
-				shard, release, err = i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
-				defer release()
-				if err == nil {
-					if shard != nil {
-						results[shardName], err = shard.FindUUIDs(ctx, filters, perShardLimit)
-					} else {
-						results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters, perShardLimit)
-					}
-				}
-			}()
+			err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+				func(shard ShardLike) error {
+					var err error
+					results[shardName], err = shard.FindUUIDs(ctx, filters, perShardLimit)
+					return err
+				},
+				func() error {
+					var err error
+					results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters, perShardLimit)
+					return err
+				})
 		}
 
 		if err != nil {
@@ -3519,21 +3505,21 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
 					dryRun, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
-				shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationWrite, schemaVersion)
-				defer release()
+				err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationWrite, schemaVersion,
+					func(shard ShardLike) error {
+						i.backupLock.RLock(shardName)
+						defer i.backupLock.RUnlock(shardName)
+						objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+						return nil
+					},
+					func() error {
+						objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun, schemaVersion)
+						return nil
+					})
 				if err != nil {
 					objs = objects.BatchSimpleObjects{
 						objects.BatchSimpleObject{Err: err},
 					}
-				} else if shard != nil {
-					func() {
-						i.backupLock.RLock(shardName)
-						defer i.backupLock.RUnlock(shardName)
-						defer release()
-						objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
-					}()
-				} else {
-					objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun, schemaVersion)
 				}
 			}
 
@@ -3677,22 +3663,39 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 		return errors.New("vector index is not hnsw")
 	}
 
+	// held before the reset: a shard that can no longer be referenced must not end
+	// up with an emptied vector index and no reindex to refill it
+	backgroundRelease, err := shard.preventShutdown()
+	if err != nil {
+		return err
+	}
+
 	// Reset the vector index
 	err = shard.DebugResetVectorIndex(ctx, targetVector)
 	if err != nil {
+		backgroundRelease()
 		return errors.Wrap(err, "failed to reset vector index")
 	}
 
 	// Reindex in the background
-	enterrors.GoWrapper(func() {
-		err = shard.FillQueue(targetVector, 0)
-		if err != nil {
-			i.logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
-			return
-		}
-	}, i.logger)
+	i.runInBackground(shardName, "failed to reindex vector index", backgroundRelease, func() error {
+		return shard.FillQueue(targetVector, 0)
+	})
 
 	return nil
+}
+
+// runInBackground runs f in a goroutine and releases the shard reference it was
+// handed once f returns. The caller's own reference only lasts until the caller
+// returns, which would let the shard shut down while f is still using it.
+func (i *Index) runInBackground(shardName, failureMsg string, release func(), f func() error) {
+	enterrors.GoWrapper(func() {
+		defer release()
+
+		if err := f(); err != nil {
+			i.logger.WithField("shard", shardName).Errorf("%s: %v", failureMsg, err)
+		}
+	}, i.logger)
 }
 
 func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector string) error {
@@ -3705,14 +3708,16 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 		return errors.New("shard not found")
 	}
 
-	// Repair in the background
-	enterrors.GoWrapper(func() {
-		err := shard.RepairIndex(context.Background(), targetVector)
-		if err != nil {
-			i.logger.WithField("shard", shardName).WithError(err).Error("failed to repair vector index")
-			return
-		}
-	}, i.logger)
+	backgroundRelease, err := shard.preventShutdown()
+	if err != nil {
+		return err
+	}
+
+	// Repair in the background. The closing context aborts it on shutdown, which
+	// would otherwise wait for the repair to finish.
+	i.runInBackground(shardName, "failed to repair vector index", backgroundRelease, func() error {
+		return shard.RepairIndex(i.closingCtx, targetVector)
+	})
 
 	return nil
 }
@@ -3752,14 +3757,16 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 		return errors.New("shard not found")
 	}
 
-	// Repair in the background
-	enterrors.GoWrapper(func() {
-		err := shard.RequantizeIndex(context.Background(), targetVector)
-		if err != nil {
-			i.logger.WithField("shard", shardName).WithError(err).Error("failed to requantize vector index")
-			return
-		}
-	}, i.logger)
+	backgroundRelease, err := shard.preventShutdown()
+	if err != nil {
+		return err
+	}
+
+	// Requantize in the background. The closing context aborts it on shutdown,
+	// which would otherwise wait for the requantization to finish.
+	i.runInBackground(shardName, "failed to requantize vector index", backgroundRelease, func() error {
+		return shard.RequantizeIndex(i.closingCtx, targetVector)
+	})
 
 	return nil
 }

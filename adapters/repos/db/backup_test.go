@@ -871,7 +871,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
 
 	mockShard := NewMockShardLike(t)
-	mockShard.EXPECT().preventShutdown().Return(nil, errors.New("shard is shutting down"))
+	mockShard.EXPECT().preventShutdown().Return(func() {}, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
 	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())

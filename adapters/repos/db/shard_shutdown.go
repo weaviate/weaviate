@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -183,6 +184,8 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	return ec.ToError()
 }
 
+const msgReleasedMoreThanOnce = "shard reference released more than once per acquire"
+
 func (s *Shard) preventShutdown() (release func(), err error) {
 	if s.shutdownRequested.Load() {
 		return func() {}, errShutdownInProgress
@@ -195,7 +198,19 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	}
 
 	s.refCountAdd()
-	return func() { s.refCountSub() }, nil
+	// Releasing more than once per acquire would drive the counter negative and
+	// disable the in-use guard in performShutdown, so absorb it and report it.
+	var released atomic.Bool
+	return func() {
+		if !released.CompareAndSwap(false, true) {
+			s.index.logger.
+				WithField("action", "shard_ref_count").
+				WithField("shard", s.name).
+				Error(msgReleasedMoreThanOnce)
+			return
+		}
+		s.refCountSub()
+	}, nil
 }
 
 func (s *Shard) refCountAdd() {
@@ -203,9 +218,8 @@ func (s *Shard) refCountAdd() {
 }
 
 func (s *Shard) refCountSub() {
-	s.inUseCounter.Add(-1)
 	// if the counter is 0, we can shutdown
-	if s.inUseCounter.Load() == 0 && s.shutdownRequested.Load() {
+	if s.inUseCounter.Add(-1) == 0 && s.shutdownRequested.Load() {
 		s.performShutdown(context.TODO())
 	}
 }
