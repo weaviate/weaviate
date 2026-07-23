@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -370,6 +371,90 @@ func TestSearcher(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, test.f)
 	}
+}
+
+func TestHybridCombinerAutocutRunsBeforeSelection(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	mk := func(id strfmt.UUID, score float32) *search.Result {
+		return &search.Result{ID: id, Score: score, SecondarySortValue: score}
+	}
+
+	resultSet := [][]*search.Result{{
+		mk("00000000-0000-0000-0000-000000000001", 1.0),
+		mk("00000000-0000-0000-0000-000000000002", 0.95),
+		mk("00000000-0000-0000-0000-000000000003", 0.10),
+		mk("00000000-0000-0000-0000-000000000004", 0.05),
+	}}
+	weights := []float64{1.0}
+	names := []string{"keyword"}
+
+	// A SelectionFn that emulates MMR: it reverses (scrambles relevance order),
+	// destroying score monotonicity. It records the input it was handed so we can
+	// assert autocut trimmed the set before selection saw it.
+	t.Run("autocut trims before selection sees the results", func(t *testing.T) {
+		var selectionInput []search.Result
+		selectionFn := func(ctx context.Context, fused []search.Result) ([]search.Result, error) {
+			selectionInput = append([]search.Result(nil), fused...)
+			// reverse to make the resulting order non-monotonic in Score
+			out := make([]search.Result, len(fused))
+			for i := range fused {
+				out[i] = fused[len(fused)-1-i]
+			}
+			return out, nil
+		}
+
+		params := &Params{
+			HybridSearch: &searchparams.HybridSearch{
+				Type:            "hybrid",
+				Alpha:           0,
+				FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
+			},
+			Autocut:     1,
+			SelectionFn: selectionFn,
+		}
+
+		res, err := HybridCombiner(ctx, params, cloneResultSet(resultSet), weights, names, logger, nil, nil)
+		require.NoError(t, err)
+
+		// Autocut (n=1) cuts at the gap after the top 2 relevance results, so the
+		// SelectionFn only ever sees those 2 — never the low-relevance tail.
+		require.Len(t, selectionInput, 2)
+		assert.Equal(t, strfmt.UUID("00000000-0000-0000-0000-000000000001"), selectionInput[0].ID)
+		assert.Equal(t, strfmt.UUID("00000000-0000-0000-0000-000000000002"), selectionInput[1].ID)
+
+		require.Len(t, res, 2)
+	})
+
+	t.Run("without selection autocut still trims at the gap", func(t *testing.T) {
+		params := &Params{
+			HybridSearch: &searchparams.HybridSearch{
+				Type:            "hybrid",
+				Alpha:           0,
+				FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
+			},
+			Autocut: 1,
+		}
+
+		res, err := HybridCombiner(ctx, params, cloneResultSet(resultSet), weights, names, logger, nil, nil)
+		require.NoError(t, err)
+		require.Len(t, res, 2)
+		assert.Equal(t, strfmt.UUID("00000000-0000-0000-0000-000000000001"), res[0].ID)
+		assert.Equal(t, strfmt.UUID("00000000-0000-0000-0000-000000000002"), res[1].ID)
+	})
+}
+
+func cloneResultSet(in [][]*search.Result) [][]*search.Result {
+	out := make([][]*search.Result, len(in))
+	for i := range in {
+		out[i] = make([]*search.Result, len(in[i]))
+		for j := range in[i] {
+			r := *in[i][j]
+			out[i][j] = &r
+		}
+	}
+	return out
 }
 
 type fakeModuleProvider struct {

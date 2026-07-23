@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"testing"
 
+	casbinutil "github.com/casbin/casbin/v2/util"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/stretchr/testify/require"
@@ -951,6 +952,107 @@ func Test_pRoles(t *testing.T) {
 	}
 }
 
+func Test_casbinSegment(t *testing.T) {
+	tests := []struct {
+		name     string
+		in       string
+		expected string
+	}{
+		{"literal stays bare", "alice", "alice"},
+		{"dotted literal stays bare (regex kept)", "alice.smith", "alice.smith"},
+		{"trailing wildcard expands, stays bare", "alice*", "alice.*"},
+		{"pure wildcard sentinel stays bare", "*", ".*"},
+		{"collection-vs-tenant marker stays bare", "#", "#"},
+		{"qualified literal keeps prefix, stays bare", "customer1:Movies", "customer1:Movies"},
+		{"alternation is wrapped", "x|y", "(x|y)"},
+		{"alternation with wildcard is wrapped", "x|*", "(x|.*)"},
+		{"qualified alternation keeps prefix outside the group", "customer1:x|*", "customer1:(x|.*)"},
+		{"colon-bearing id keeps its prefix outside the group", "okta:x|y", "okta:(x|y)"},
+		{"line anchor is wrapped", "^x", "(^x)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, casbinSegment(tt.in))
+		})
+	}
+}
+
+// Test_casbinSegmentConfinement drives KeyMatch5 to prove a wrapped alternation
+// stays inside its domain and segment, for every builder. Unwrapped, an
+// alternation's "...|.*" branch anchors to end-of-string and matches every
+// resource — the object segment is the sharpest case, since it is last so its
+// escape branch has no structural suffix and reaches other domains outright.
+func Test_casbinSegmentConfinement(t *testing.T) {
+	crossDomain := []struct {
+		name    string
+		pol     string
+		inside  string
+		outside string
+	}{
+		{"users", CasbinUsers("z|*"), "users/zztop", "roles/admin"},
+		{"roles", CasbinRoles("z|*"), "roles/zztop", "users/admin"},
+		{"groups", CasbinGroups("z|*", "oidc"), "groups/oidc/zztop", "roles/admin"},
+		{"data object", CasbinData("Movies", "*", "o|*"), "data/collections/Movies/shards/s1/objects/oX", "roles/admin"},
+		{"data tenant", CasbinData("Movies", "t|*", "*"), "data/collections/Movies/shards/tX/objects/oX", "roles/admin"},
+		{"collection", CasbinSchema("A|*", "#"), "schema/collections/AX/shards/#", "roles/admin"},
+		{"aliases alias", CasbinAliases("Movies", "a|*"), "aliases/collections/Movies/aliases/aX", "roles/admin"},
+		{"namespaces", CasbinNamespaces("z|*"), "namespaces/zztop", "roles/admin"},
+	}
+	for _, tt := range crossDomain {
+		t.Run("alternation confined to its domain: "+tt.name, func(t *testing.T) {
+			require.False(t, casbinutil.KeyMatch5(tt.outside, tt.pol), "must not reach another domain")
+			require.True(t, casbinutil.KeyMatch5(tt.inside, tt.pol), "must still match its own domain")
+		})
+	}
+
+	t.Run("wildcard still matches everything in-segment", func(t *testing.T) {
+		require.True(t, casbinutil.KeyMatch5("users/anyone", CasbinUsers("*")))
+	})
+}
+
+// Test_casbinSegmentRoundTrip pins that a target survives the policy()/permission()
+// round-trip unchanged, so the confinement group added on write is stripped on
+// read-back. Covers bare literals/wildcards and wrapped alternations.
+func Test_casbinSegmentRoundTrip(t *testing.T) {
+	ids := []string{"alice", "a.b@corp", "x|y", "alice*", "team+eng", "urn:keycloak:alice"}
+	for _, id := range ids {
+		t.Run(id, func(t *testing.T) {
+			usersPolicy := []string{"", CasbinUsers(id), authorization.READ, authorization.UsersDomain}
+			perm, err := permission(usersPolicy, true)
+			require.NoError(t, err)
+			require.Equal(t, id, *perm.Users.Users)
+
+			rolesPolicy := []string{"", CasbinRoles(id), authorization.READ + "_" + authorization.ROLE_SCOPE_MATCH, authorization.RolesDomain}
+			perm, err = permission(rolesPolicy, true)
+			require.NoError(t, err)
+			require.Equal(t, id, *perm.Roles.Role)
+		})
+	}
+
+	// The data object segment is not class-name-normalized, so it round-trips
+	// verbatim including a wrapped alternation.
+	t.Run("data object", func(t *testing.T) {
+		dataPolicy := []string{"", CasbinData("Movies", "tenant1", "o|x"), authorization.READ, authorization.DataDomain}
+		perm, err := permission(dataPolicy, true)
+		require.NoError(t, err)
+		require.Equal(t, "o|x", *perm.Data.Object)
+	})
+
+	// The namespace target carries the confinement group on write and must be
+	// stripped on read-back.
+	t.Run("namespace", func(t *testing.T) {
+		in := &models.Permission{
+			Action:     authorization.String(authorization.ManageNamespaces),
+			Namespaces: &models.PermissionNamespaces{Namespace: authorization.String("z|x")},
+		}
+		pol, err := policy(in)
+		require.NoError(t, err)
+		perm, err := permission([]string{"", pol.Resource, pol.Verb, pol.Domain}, true)
+		require.NoError(t, err)
+		require.Equal(t, "z|x", *perm.Namespaces.Namespace)
+	})
+}
+
 func Test_pCollections(t *testing.T) {
 	tests := []struct {
 		collection string
@@ -1283,6 +1385,64 @@ func TestIsOpaqueIDResource(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.resource, func(t *testing.T) {
 			require.Equal(t, tt.want, IsOpaqueIDResource(tt.resource))
+		})
+	}
+}
+
+func TestSubjectNamespace(t *testing.T) {
+	tests := []struct {
+		name          string
+		subject       string
+		wantUser      string
+		wantAuthType  authentication.AuthType
+		wantNamespace string
+		wantErr       bool
+	}{
+		{
+			name:          "namespaced db principal",
+			subject:       "db:customer1:bob",
+			wantUser:      "customer1:bob",
+			wantAuthType:  authentication.AuthTypeDb,
+			wantNamespace: "customer1",
+		},
+		{
+			name:          "namespaced oidc principal",
+			subject:       "oidc:customer1:carol",
+			wantUser:      "customer1:carol",
+			wantAuthType:  authentication.AuthTypeOIDC,
+			wantNamespace: "customer1",
+		},
+		{
+			name:          "global db principal has no namespace",
+			subject:       "db:bob",
+			wantUser:      "bob",
+			wantAuthType:  authentication.AuthTypeDb,
+			wantNamespace: "",
+		},
+		{
+			name:          "group subject is global",
+			subject:       "group:customer1:eng",
+			wantUser:      "customer1:eng",
+			wantAuthType:  "",
+			wantNamespace: "",
+		},
+		{
+			name:    "unparseable subject errors",
+			subject: "no-separator",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user, authType, namespace, err := SubjectNamespace(tt.subject)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantUser, user)
+			require.Equal(t, tt.wantAuthType, authType)
+			require.Equal(t, tt.wantNamespace, namespace)
 		})
 	}
 }

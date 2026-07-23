@@ -28,9 +28,11 @@ typical journeys it unlocks:
   flipped only after every shard has committed its swap.
 - Add a missing inverted index after the fact: `enable-filterable`,
   `enable-searchable`, `enable-rangeable`.
+- Migrate a searchable index from WAND (Map) to BlockMax (Inverted):
+  `change-algorithm`.
 - Repair a bucket suspected of corruption: `repair-filterable`,
-  `repair-searchable` (which is also the Map → Blockmax format
-  upgrade), `repair-rangeable`.
+  `rebuild-searchable` (rebuild an existing BlockMax bucket in place),
+  `repair-rangeable`.
 - Cancel an in-flight migration; the cluster cleans up the partial
   state and the property is back to its pre-submit on-disk shape.
 
@@ -49,61 +51,110 @@ The whole feature is built on top of three substrates:
   `DeleteClass` or `UpdateProperty`.
 
 The reindex feature itself is the orchestration that ties these
-together into one user-visible verb on `PUT
-/v1/schema/{class}/indexes/{property}`.
+together into a small REST surface rooted at
+`/v1/schema/{className}/properties/{propertyName}/index/{indexType}`.
 
 ## 2. REST surface
 
-### `PUT /v1/schema/{class}/indexes/{property}`
+### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
-Submit a migration. Body shape selects which one:
+Declaratively upsert one inverted index. `{indexType}` is one of
+`filterable`, `searchable`, `rangeFilters` (`rangeable`, the former Preview
+name, is accepted as a write-only alias; GET returns `rangeFilters`).
 
-| Body | Migration type | Notes |
+The body (`IndexUpsertRequest`) carries only configuration, never a verb:
+`tokenization` (searchable / filterable) and `algorithm` (searchable
+only). `rangeFilters` takes no fields. An empty body `{}` is valid and
+means "ensure the index exists with its current/default config". At most
+one of tokenization / algorithm may change per call. The server diffs the
+body against current state and picks the migration:
+
+| Path + body | Effect | Migration type |
 |---|---|---|
-| `{"searchable":{"enabled":true,"tokenization":"word"}}` | `enable-searchable` | Creates a Blockmax bucket, flips `IndexSearchable=true` + `Tokenization` on completion. Requires `text`/`text[]`. |
-| `{"filterable":{"enabled":true}}` | `enable-filterable` | Creates a RoaringSet bucket, flips `IndexFilterable=true`. |
-| `{"rangeable":{"enabled":true}}` | `enable-rangeable` | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). |
-| `{"searchable":{"tokenization":"trigram"}}` | `change-tokenization` | Rewrites BOTH searchable and filterable buckets when both exist. |
-| `{"filterable":{"tokenization":"word"}}` | `change-tokenization-filterable` | Filterable-only retokenize variant. Use when the property has no searchable index. |
-| `{"searchable":{"rebuild":true}}` | `repair-searchable` | Rebuild the searchable bucket. Also serves as the Map → Blockmax upgrade — `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property has been rebuilt. |
-| `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
-| `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
-| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a STARTED task is cancelled, 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled). |
+| `.../index/searchable` `{"tokenization":"word"}`, no searchable index yet | Creates a Blockmax bucket, flips `IndexSearchable=true` + `Tokenization`. `text`/`text[]` only; `tokenization` required. | `enable-searchable` |
+| `.../index/searchable` `{"tokenization":"trigram"}`, index exists | Rewrites BOTH the searchable and filterable buckets when both exist. | `change-tokenization` |
+| `.../index/searchable` `{"algorithm":"blockmax"}`, index on WAND | Map → Blockmax upgrade. `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` once every searchable property is blockmax. `wand` is rejected (deprecated); this is the only WAND → Blockmax path. | `change-algorithm` |
+| `.../index/filterable` `{}`, no filterable index yet | Creates a RoaringSet bucket, flips `IndexFilterable=true`. A supplied tokenization must equal the property's current one. | `enable-filterable` |
+| `.../index/filterable` `{"tokenization":"word"}`, index exists | Filterable-only retokenize (leaves the searchable bucket untouched). | `change-tokenization-filterable` |
+| `.../index/rangeFilters` `{}`, no range index yet | Creates a RoaringSetRange bucket, flips `IndexRangeFilters=true`. Numeric types only (`int`, `number`, `date`). | `enable-rangeable` |
 
-Query parameters:
+A PUT whose desired config already matches current state AND has no reindex
+task in flight submits no task and returns `200` with `{"status":"NO_OP"}`.
+A PUT that converges on a task still in flight also submits no task, but the
+config is not in place yet, so it returns `202` with that task's `taskId`.
+
+`202` with `{"status":"STARTED", "taskId": ...}` means a task is running for
+the requested configuration and `taskId` is the handle to poll. It does not
+assert that this call created the task: a request that converges on an
+already-running migration joins it and receives that task's ID.
+
+### `POST /v1/schema/{className}/properties/{propertyName}/index/{indexType}/rebuild`
+
+Rebuild the index from stored objects with unchanged configuration
+(repair / format refresh). No request body. A WAND searchable index is
+rejected — migrate to Blockmax first via `PUT {"algorithm":"blockmax"}`.
+
+| Index type | Effect | Migration type |
+|---|---|---|
+| `searchable` (already Blockmax) | Rebuild the Blockmax bucket. | `rebuild-searchable` |
+| `filterable` | RoaringSet refresh. | `repair-filterable` |
+| `rangeFilters` | RoaringSetRange rebuild. | `repair-rangeable` |
+
+### `POST /v1/schema/{className}/properties/{propertyName}/index/{indexType}/cancel`
+
+Cancel the in-flight task on `(class, property, indexType)`. No request
+body. Idempotent: `202` + `Status: CANCELLED` (with `taskId`) when a
+STARTED task is cancelled, `202` + `Status: NO_OP` (no `taskId`) when
+nothing matches (already finished, never submitted, or already
+cancelled). Never `404` for "nothing to cancel".
+
+Query parameters (PUT and rebuild):
 
 - `?tenants=t1,t2` — scope to named tenants on a multi-tenant class.
-  Required only when the operator wants a subset. Rejected on
-  single-tenant classes. Rejected on semantic migrations
-  (`change-tokenization*`) because the cluster-wide schema flip cannot
-  be sub-scoped — all tenants must migrate together.
+  Rejected on single-tenant classes. On PUT, allowed only when the
+  operation is format-only (`rangeFilters` creation); rebuild allows it
+  for every index type. Rejected on semantic migrations
+  (`enable-searchable`, `enable-filterable`, `change-tokenization*`,
+  `change-algorithm`) because the cluster-wide schema flip cannot be
+  sub-scoped — all tenants must migrate together.
 
-Response shapes:
+Cancel takes no query parameters; a `tenants` value on the URL is silently
+ignored. Cancel targets the task itself, which already carries the tenant
+set of the rebuild that submitted it, so `POST .../cancel` after
+`rebuild?tenants=t1,t2` stops only that work, leaving other tenants untouched.
 
-- `202 Accepted` — for submit, body contains the new task ID. For the
-  cancel verb, body is an `IndexUpdateResponse` with `Status: CANCELLED`
-  + `taskId` when a STARTED task was cancelled, or `Status: NO_OP` (no
-  `taskId`) when nothing matched. The cancel verb is idempotent and
-  never returns 404 for "no task to cancel".
-- `400 Bad Request` — validation failure with a structured next-step
-  hint (e.g. "property X has no searchable index; use
-  `{filterable:{tokenization:...}}` to retokenize the filterable bucket").
+Response shapes (PUT / rebuild / cancel):
+
+- `200 OK` — PUT only: desired config already in place AND no task in
+  flight, so no task submitted (`{"status":"NO_OP"}`).
+- `202 Accepted` — a task is running for the requested configuration (PUT /
+  rebuild, `status: STARTED`, `taskId` naming that task), or cancel
+  processed; body is an `IndexUpdateResponse` (`taskId` + `status`).
+  `STARTED` asserts that the task is running, not that this call created it:
+  a PUT converging on an already-running migration joins it and receives that
+  task's ID.
+- `400 Bad Request` — validation failure with an actionable hint (e.g.
+  "property X has no searchable index; PUT
+  `/v1/schema/{className}/properties/X/index/searchable` with a
+  tokenization to add one first").
 - `404 Not Found` — class or property doesn't exist.
 - `409 Conflict` — an in-flight task already touches this property.
-  The error names the offending task ID and migration type.
-- `429 / 503` — per-collection in-flight cap reached (default 32) or
-  cluster-service unavailable.
+  The error names the offending task ID.
+- `422 Unprocessable Entity` — `{indexType}` outside the enum.
+- `429 / 503` — per-collection in-flight cap reached (default 32), or the
+  cluster service is unavailable / an in-flight task's payload cannot be
+  parsed so conflict-freedom cannot be proven.
 
-### `DELETE /v1/schema/{class}/properties/{property}/index/{indexName}`
+### `DELETE /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
-Drop a configured inverted index. `indexName` is one of `filterable`,
-`searchable`, `rangeFilters`. Flips the corresponding schema flag to
-false and scrubs all migration sentinels + sidecar buckets so a
-subsequent re-enable starts from a clean slate. Subject to the same
-MutationGuard as `UpdateProperty` — rejected while a reindex on this
-property is in flight.
+Drop a configured inverted index. `{indexType}` is one of `filterable`,
+`searchable`, `rangeFilters` (`rangeable` accepted as an alias). Flips the
+corresponding schema flag to false and scrubs all migration sentinels +
+sidecar buckets so a subsequent re-enable starts from a clean slate.
+Subject to the same MutationGuard as `UpdateProperty` — rejected while a
+reindex on this property is in flight.
 
-### `GET /v1/schema/{class}/indexes`
+### `GET /v1/schema/{className}/indexes`
 
 Per-property, per-index-type snapshot:
 
@@ -132,8 +183,30 @@ entry render as `indexing@100%` for up to 10s (the bound, see
 "None" between task FINISHED and the schema-flag flip, which was the
 user-visible face of weaviate/weaviate#10675.
 
-Read-access is gated on `READ` of `CollectionsMetadata`; `PUT`/`DELETE`
-require the stronger `UPDATE` on `Collections`.
+### RBAC
+
+Authorization is symmetric across every index write verb: `PUT` (upsert),
+`POST .../rebuild`, `POST .../cancel`, and `DELETE` all require `UPDATE` on
+`Collections`, which resolves to **both** `update_collections` (metadata) and
+`update_data`. A per-property index write rewrites indexed data, so metadata
+permission alone is insufficient — a caller with only `update_collections`
+gets `403`.
+
+`GET .../indexes` requires `READ` on `CollectionsMetadata`, i.e.
+`read_collections`.
+
+| Verb | Permissions |
+| --- | --- |
+| `GET .../indexes` | `read_collections` |
+| `PUT .../index/{indexType}` | `update_collections` + `update_data` |
+| `POST .../index/{indexType}/rebuild` | `update_collections` + `update_data` |
+| `POST .../index/{indexType}/cancel` | `update_collections` + `update_data` |
+| `DELETE .../index/{indexType}` | `update_collections` + `update_data` |
+
+Mutations authorize before any conflict/in-flight pre-flight, so an
+unprivileged caller never learns whether a reindex is running (no `404`/`409`
+leak). The REST handler and the manager (`DeleteClassPropertyIndex`) enforce
+the same permission.
 
 ## 3. End-to-end lifecycle
 
@@ -176,7 +249,7 @@ preceding a transition on the per-task field. Annotations
 
 ```
                 ┌────────────────────────────────────────────────────────┐
-                │             PUT /v1/schema/{class}/indexes/{p}         │
+                │         PUT .../properties/{prop}/index/{type}         │
                 └──────────────────────────┬─────────────────────────────┘
                                            │
         ┌──────────────────────────────────▼─────────────────────────────┐
@@ -607,11 +680,12 @@ tidied / lower-gen sidecars / in-flight gens left alone for
 
 ### 4.5 Strategy implementations — `inverted_reindex_strategy_*.go`
 
-Seven strategy implementations, one file each:
+Eight strategy implementations, one file each:
 
 | Strategy | Type | Source bucket | Target bucket | OnMigrationComplete |
 |---|---|---|---|---|
-| `MapToBlockmaxStrategy` | `repair-searchable` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `MapToBlockmaxStrategy` | `change-algorithm` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | Per-prop: bump `BucketGeneration`; class-level: flip `UsingBlockMaxWAND` once every searchable prop is on Blockmax. |
+| `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Inverted/Blockmax) | `searchable` (Inverted/Blockmax) | No-op (rebuild in place; no schema change). |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
 | `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` so this shard's queries observe ready=true at the same moment as the RAFT flip; per-prop `IndexRangeFilters=true` via `UpdatePropertyInternalFromMigration`. Format-only. |
 | `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
@@ -699,14 +773,17 @@ change-tokenization              ✓                ✓ (tokenization)
 change-tokenization-filterable   ✓                ✓ (tokenization)
 enable-filterable                ✓                ✓ (ForceFilterable)
 enable-searchable                ✓                ✓ (ForceSearchable + tokenization)
+change-algorithm                 ✓                
 enable-rangeable                                  
 repair-filterable                                 
-repair-searchable                                 
+rebuild-searchable                               
 repair-rangeable                                  
 ```
 
-The four semantic migrations need both the cluster-wide barrier and
-the per-shard analyzer overlay; the four format-only migrations need
+The five semantic migrations need the cluster-wide barrier; the four
+that change tokenization or force-enable an index additionally need the
+per-shard analyzer overlay (`change-algorithm` does not — it only swaps
+the searchable bucket strategy). The four format-only migrations need
 neither.
 
 ## 6. Crash safety
@@ -942,6 +1019,11 @@ Per-tenant unit groups (Journey 4 from the DTM doc): one
 as each tenant's replicas all finish. Tenant A starts serving new
 data immediately even while tenant B is still reindexing.
 
+Status after cancelling a tenant-scoped task is reported at the
+collection level: `GET /v1/schema/{className}/indexes` renders
+`cancelled` for the property as a whole. The task is the unit of
+identity, so there is no per-tenant index-status surface.
+
 `FROZEN` tenants are rejected by the MutationGuard. A reindex on a
 tenant that transitions to FROZEN mid-flight fails the affected unit;
 the post-completion ack barrier propagates that failure to the task.
@@ -1150,7 +1232,7 @@ phases of different concerns and don't share state.
 
 ## 12. Cancel + DELETE-property-index
 
-**Cancel** (`{"<type>":{"cancel":true}}`):
+**Cancel** (`POST .../index/{indexType}/cancel`):
 
 1. Find the STARTED task targeting `(collection, prop, indexType)`.
    If none matches (already finished, never submitted, or already
@@ -1172,7 +1254,7 @@ defense-in-depth cleanup will pick up the work. If the node crashes
 mid-cancel, the on-disk state survives; the next submit's pre-cleanup
 catches that gap.
 
-**DELETE `/properties/{p}/index/{name}`:**
+**DELETE `/properties/{propertyName}/index/{indexType}`:**
 
 1. Acquire the same `ReindexSubmitLocks` entry as PUT (closes the
    race described in §4.1).
@@ -1194,7 +1276,53 @@ Operators should not rely on backup/restore or schema migration
 interacting cleanly with an in-flight or recently-completed reindex
 while running v1.38 Preview.
 
-## 14. Files of interest
+## 14. Upgrade / operations: `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS`
+
+This knob sets how long FINISHED distributed tasks (completed reindex
+tasks included) linger in the RAFT task list before garbage collection.
+`0` means immediate GC on the next scheduler tick. It is now accepted
+because the per-property blockmax truth is durable in the schema stamp,
+so no reader depends on FINISHED reindex tasks lingering.
+
+Keep `DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS` at its default until
+every node runs the durable-stamp version. During a mixed-version
+(v1.38/v1.39) rolling upgrade window `0` is unsafe two ways:
+
+- A stamp-blind older node that does not hold the shard can transiently
+  mis-resolve a partial-class property once the completed task is GC'd.
+  This self-heals once every node is on the new version.
+- On rollback, `0` fails an older node's startup (fail-loud, not data
+  corruption).
+
+Set `0` (immediate GC of completed tasks) only once every node runs the
+durable-stamp version.
+
+One narrower residual remains even at the default TTL. Between node
+startup and the first `RunSearchableBlockmaxRepair` pass, a pre-stamp
+residual class (blockmax on disk, nil stamp, class flag false) is not yet
+seeded, so it still resolves through the legacy class-flag/task-list path.
+A client that issues a change-tokenization on such a class inside that
+window can mis-resolve its searchable bucket. This is client-triggered and
+transient: it self-heals the moment the repair seeds the stamp, and it is
+narrower than the automatic post-restart corruption the stamp closed. The
+TTL does not govern it; the window is bounded by the repair's first pass,
+not by task GC.
+
+The repair seeds the stamp from two sources — a loaded shard's on-disk
+blockmax bucket, or a still-present FINISHED blockmax task — so a cold
+(unloaded) shard is still covered as long as its completed task is in the
+list. `TTL=0` breaks that: it can GC the FINISHED task before any repair
+pass observes it, and with no on-disk evidence either (cold shard) the
+stamp is never seeded until that shard next loads. Keeping the default TTL
+avoids this residual.
+
+**Downgrade:** the stamp is an additive `searchableBlockmax` property field;
+an older binary ignores it and derives blockmax from the class flag / task
+list as before, so a downgrade does not corrupt data. The residual is only
+that a partial-class property seeded solely by the stamp (its FINISHED task
+already GC'd) resolves as WAND on the older binary until a re-migration.
+
+## 15. Files of interest
 
 **REST**
 
@@ -1244,7 +1372,7 @@ while running v1.38 Preview.
 - `cluster/schema/meta_class.go` — `MergePropsMasked` fieldmask apply path.
 - `usecases/schema/` — `UpdatePropertyInternal`, `UpdatePropertyInternalFromMigration`.
 
-## 15. Tests of interest
+## 16. Tests of interest
 
 Tests are layered: unit close to the symbol; per-package integration
 (build tag `integrationTest`) where multi-component interaction
@@ -1343,7 +1471,7 @@ test packages.
 - Atomic-phase regression guard — `inverted_reindex_task_generic_test.go`
   (the `testHookPostPropSwap` wall-clock budget assertion).
 
-## 16. Deferred simplifications
+## 17. Deferred simplifications
 
 [`docs/proposals/deferred_reindex_simplifications.md`](./proposals/deferred_reindex_simplifications.md)
 catalogues three refactors that the scout pass identified as

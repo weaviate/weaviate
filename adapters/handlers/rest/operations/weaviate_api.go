@@ -47,6 +47,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/tokenize"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
@@ -340,6 +341,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ReplicationReplicationDetailsHandler: replication.ReplicationDetailsHandlerFunc(func(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ReplicationDetails has not yet been implemented")
 		}),
+		NamespacesResumeNamespaceHandler: namespaces.ResumeNamespaceHandlerFunc(func(params namespaces.ResumeNamespaceParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation namespaces.ResumeNamespace has not yet been implemented")
+		}),
 		AuthzRevokeRoleFromGroupHandler: authz.RevokeRoleFromGroupHandlerFunc(func(params authz.RevokeRoleFromGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RevokeRoleFromGroup has not yet been implemented")
 		}),
@@ -361,11 +365,17 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsGetHandler: schema.SchemaObjectsGetHandlerFunc(func(params schema.SchemaObjectsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsGet has not yet been implemented")
 		}),
+		SchemaSchemaObjectsIndexCancelHandler: schema.SchemaObjectsIndexCancelHandlerFunc(func(params schema.SchemaObjectsIndexCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsIndexCancel has not yet been implemented")
+		}),
+		SchemaSchemaObjectsIndexRebuildHandler: schema.SchemaObjectsIndexRebuildHandlerFunc(func(params schema.SchemaObjectsIndexRebuildParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsIndexRebuild has not yet been implemented")
+		}),
+		SchemaSchemaObjectsIndexUpsertHandler: schema.SchemaObjectsIndexUpsertHandlerFunc(func(params schema.SchemaObjectsIndexUpsertParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsIndexUpsert has not yet been implemented")
+		}),
 		SchemaSchemaObjectsIndexesGetHandler: schema.SchemaObjectsIndexesGetHandlerFunc(func(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsIndexesGet has not yet been implemented")
-		}),
-		SchemaSchemaObjectsIndexesUpdateHandler: schema.SchemaObjectsIndexesUpdateHandlerFunc(func(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation schema.SchemaObjectsIndexesUpdate has not yet been implemented")
 		}),
 		SchemaSchemaObjectsPropertiesAddHandler: schema.SchemaObjectsPropertiesAddHandlerFunc(func(params schema.SchemaObjectsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesAdd has not yet been implemented")
@@ -387,6 +397,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		SchemaSchemaObjectsVectorsDeleteHandler: schema.SchemaObjectsVectorsDeleteHandlerFunc(func(params schema.SchemaObjectsVectorsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsVectorsDelete has not yet been implemented")
+		}),
+		SearchSearchNearTextHandler: search.SearchNearTextHandlerFunc(func(params search.SearchNearTextParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchNearText has not yet been implemented")
+		}),
+		NamespacesSuspendNamespaceHandler: namespaces.SuspendNamespaceHandlerFunc(func(params namespaces.SuspendNamespaceParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation namespaces.SuspendNamespace has not yet been implemented")
 		}),
 		SchemaTenantExistsHandler: schema.TenantExistsHandlerFunc(func(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantExists has not yet been implemented")
@@ -650,6 +666,8 @@ type WeaviateAPI struct {
 	ReplicationReplicateHandler replication.ReplicateHandler
 	// ReplicationReplicationDetailsHandler sets the operation handler for the replication details operation
 	ReplicationReplicationDetailsHandler replication.ReplicationDetailsHandler
+	// NamespacesResumeNamespaceHandler sets the operation handler for the resume namespace operation
+	NamespacesResumeNamespaceHandler namespaces.ResumeNamespaceHandler
 	// AuthzRevokeRoleFromGroupHandler sets the operation handler for the revoke role from group operation
 	AuthzRevokeRoleFromGroupHandler authz.RevokeRoleFromGroupHandler
 	// AuthzRevokeRoleFromUserHandler sets the operation handler for the revoke role from user operation
@@ -664,10 +682,14 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsDeleteHandler schema.SchemaObjectsDeleteHandler
 	// SchemaSchemaObjectsGetHandler sets the operation handler for the schema objects get operation
 	SchemaSchemaObjectsGetHandler schema.SchemaObjectsGetHandler
+	// SchemaSchemaObjectsIndexCancelHandler sets the operation handler for the schema objects index cancel operation
+	SchemaSchemaObjectsIndexCancelHandler schema.SchemaObjectsIndexCancelHandler
+	// SchemaSchemaObjectsIndexRebuildHandler sets the operation handler for the schema objects index rebuild operation
+	SchemaSchemaObjectsIndexRebuildHandler schema.SchemaObjectsIndexRebuildHandler
+	// SchemaSchemaObjectsIndexUpsertHandler sets the operation handler for the schema objects index upsert operation
+	SchemaSchemaObjectsIndexUpsertHandler schema.SchemaObjectsIndexUpsertHandler
 	// SchemaSchemaObjectsIndexesGetHandler sets the operation handler for the schema objects indexes get operation
 	SchemaSchemaObjectsIndexesGetHandler schema.SchemaObjectsIndexesGetHandler
-	// SchemaSchemaObjectsIndexesUpdateHandler sets the operation handler for the schema objects indexes update operation
-	SchemaSchemaObjectsIndexesUpdateHandler schema.SchemaObjectsIndexesUpdateHandler
 	// SchemaSchemaObjectsPropertiesAddHandler sets the operation handler for the schema objects properties add operation
 	SchemaSchemaObjectsPropertiesAddHandler schema.SchemaObjectsPropertiesAddHandler
 	// SchemaSchemaObjectsPropertiesDeleteHandler sets the operation handler for the schema objects properties delete operation
@@ -682,6 +704,10 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
 	// SchemaSchemaObjectsVectorsDeleteHandler sets the operation handler for the schema objects vectors delete operation
 	SchemaSchemaObjectsVectorsDeleteHandler schema.SchemaObjectsVectorsDeleteHandler
+	// SearchSearchNearTextHandler sets the operation handler for the search near text operation
+	SearchSearchNearTextHandler search.SearchNearTextHandler
+	// NamespacesSuspendNamespaceHandler sets the operation handler for the suspend namespace operation
+	NamespacesSuspendNamespaceHandler namespaces.SuspendNamespaceHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
 	SchemaTenantExistsHandler schema.TenantExistsHandler
 	// SchemaTenantsCreateHandler sets the operation handler for the tenants create operation
@@ -1052,6 +1078,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ReplicationReplicationDetailsHandler == nil {
 		unregistered = append(unregistered, "replication.ReplicationDetailsHandler")
 	}
+	if o.NamespacesResumeNamespaceHandler == nil {
+		unregistered = append(unregistered, "namespaces.ResumeNamespaceHandler")
+	}
 	if o.AuthzRevokeRoleFromGroupHandler == nil {
 		unregistered = append(unregistered, "authz.RevokeRoleFromGroupHandler")
 	}
@@ -1073,11 +1102,17 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaSchemaObjectsGetHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsGetHandler")
 	}
+	if o.SchemaSchemaObjectsIndexCancelHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsIndexCancelHandler")
+	}
+	if o.SchemaSchemaObjectsIndexRebuildHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsIndexRebuildHandler")
+	}
+	if o.SchemaSchemaObjectsIndexUpsertHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsIndexUpsertHandler")
+	}
 	if o.SchemaSchemaObjectsIndexesGetHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsIndexesGetHandler")
-	}
-	if o.SchemaSchemaObjectsIndexesUpdateHandler == nil {
-		unregistered = append(unregistered, "schema.SchemaObjectsIndexesUpdateHandler")
 	}
 	if o.SchemaSchemaObjectsPropertiesAddHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesAddHandler")
@@ -1099,6 +1134,12 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsVectorsDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsVectorsDeleteHandler")
+	}
+	if o.SearchSearchNearTextHandler == nil {
+		unregistered = append(unregistered, "search.SearchNearTextHandler")
+	}
+	if o.NamespacesSuspendNamespaceHandler == nil {
+		unregistered = append(unregistered, "namespaces.SuspendNamespaceHandler")
 	}
 	if o.SchemaTenantExistsHandler == nil {
 		unregistered = append(unregistered, "schema.TenantExistsHandler")
@@ -1586,6 +1627,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/namespaces/{namespace_id}/resume"] = namespaces.NewResumeNamespace(o.context, o.NamespacesResumeNamespaceHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/authz/groups/{id}/revoke"] = authz.NewRevokeRoleFromGroup(o.context, o.AuthzRevokeRoleFromGroupHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -1611,14 +1656,22 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/schema/{className}"] = schema.NewSchemaObjectsGet(o.context, o.SchemaSchemaObjectsGetHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/schema/{className}/properties/{propertyName}/index/{indexName}/cancel"] = schema.NewSchemaObjectsIndexCancel(o.context, o.SchemaSchemaObjectsIndexCancelHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/schema/{className}/properties/{propertyName}/index/{indexName}/rebuild"] = schema.NewSchemaObjectsIndexRebuild(o.context, o.SchemaSchemaObjectsIndexRebuildHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/schema/{className}/properties/{propertyName}/index/{indexName}"] = schema.NewSchemaObjectsIndexUpsert(o.context, o.SchemaSchemaObjectsIndexUpsertHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/schema/{className}/indexes"] = schema.NewSchemaObjectsIndexesGet(o.context, o.SchemaSchemaObjectsIndexesGetHandler)
-	if o.handlers["PUT"] == nil {
-		o.handlers["PUT"] = make(map[string]http.Handler)
-	}
-	o.handlers["PUT"]["/schema/{className}/indexes/{propertyName}"] = schema.NewSchemaObjectsIndexesUpdate(o.context, o.SchemaSchemaObjectsIndexesUpdateHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1647,6 +1700,14 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/{className}/vectors/{vectorIndexName}/index"] = schema.NewSchemaObjectsVectorsDelete(o.context, o.SchemaSchemaObjectsVectorsDeleteHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/near-text"] = search.NewSearchNearText(o.context, o.SearchSearchNearTextHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/namespaces/{namespace_id}/suspend"] = namespaces.NewSuspendNamespace(o.context, o.NamespacesSuspendNamespaceHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}

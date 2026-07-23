@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 
@@ -24,6 +25,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 var ErrBadRequest = errors.New("bad request")
@@ -164,18 +166,19 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// don't allow to create roles if there is already a role present
+	// Scan all roles, not just the exact names, to enforce short-name
+	// uniqueness across namespaces. The handler's pre-check read is not atomic
+	// with this write; applies run serially, so this is the authoritative guard.
 	if req.RoleCreation {
-		names := make([]string, 0, len(req.Roles))
-		for name := range req.Roles {
-			names = append(names, name)
-		}
-		roles, err := m.authZ.GetRoles(names...)
+		allRoles, err := m.authZ.GetRoles()
 		if err != nil {
 			return err
 		}
-		if len(roles) > 0 {
-			return fmt.Errorf("%w: roles already exist", ErrBadRequest)
+		existing := maps.Keys(allRoles)
+		for name := range req.Roles {
+			if namespacing.FindShortNameConflict(existing, name) != namespacing.NoRoleConflict {
+				return fmt.Errorf("%w: roles already exist", ErrBadRequest)
+			}
 		}
 	}
 

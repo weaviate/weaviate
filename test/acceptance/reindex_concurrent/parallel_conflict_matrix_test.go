@@ -11,12 +11,10 @@
 
 // Package reindex_concurrent — parallel-conflict matrix.
 //
-// Frontend hit a Sev 1 on 2026-05-14: two parallel PUTs to
-// /v1/schema/{class}/indexes/{prop} (enable-filterable + enable-rangeable on
-// the SAME property) both failed. Root cause (per agent on the primary fix
-// branch): strategy selection reads stale state and the sentinel-dir
-// lifecycle collides between concurrent migrations targeting the same
-// property.
+// Root cause: two parallel index writes on the SAME property (e.g.
+// enable-filterable + enable-rangeFilters) can race — strategy selection
+// reads stale state and the sentinel-dir lifecycle collides between
+// concurrent migrations on the same property.
 //
 // This file pins every realistic adjacent parallel-conflict scenario on the
 // same (collection, property) tuple as RED tests. When the primary fix
@@ -108,7 +106,7 @@ func TestParallelConflictMatrix(t *testing.T) {
 	}()
 
 	// Scenario 1: the primary Sev 1 repro.
-	t.Run("enable_filterable__enable_rangeable", func(t *testing.T) {
+	t.Run("enable_filterable__enable_rangeFilters", func(t *testing.T) {
 		testParallel_EnableFilterableEnableRangeable(t, restURI)
 	})
 
@@ -117,11 +115,11 @@ func TestParallelConflictMatrix(t *testing.T) {
 		testParallel_EnableFilterableEnableSearchable(t, restURI)
 	})
 
-	// Scenario 3: enable-searchable + enable-rangeable on text[]. The
-	// rangeable PUT is validator-rejected (text isn't numeric). Pins that
+	// Scenario 3: enable-searchable + enable-rangeFilters on text[]. The
+	// rangeFilters PUT is validator-rejected (text isn't numeric). Pins that
 	// the validator rejection doesn't corrupt the searchable enable's
 	// sentinel state.
-	t.Run("enable_searchable__enable_rangeable_textArray", func(t *testing.T) {
+	t.Run("enable_searchable__enable_rangeFilters_textArray", func(t *testing.T) {
 		testParallel_EnableSearchableEnableRangeable(t, restURI)
 	})
 
@@ -130,31 +128,31 @@ func TestParallelConflictMatrix(t *testing.T) {
 		testParallel_EnableFilterableChangeTokenization(t, restURI)
 	})
 
-	// Scenario 5: change-tok-both + enable-rangeable on a SINGLE text
-	// property. The rangeable PUT is validator-rejected. Pins that
+	// Scenario 5: change-tok-both + enable-rangeFilters on a SINGLE text
+	// property. The rangeFilters PUT is validator-rejected. Pins that
 	// rejection doesn't corrupt the change-tok task.
-	t.Run("change_tokenization_both__enable_rangeable_text_rejected", func(t *testing.T) {
+	t.Run("change_tokenization_both__enable_rangeFilters_text_rejected", func(t *testing.T) {
 		testParallel_ChangeTokBothEnableRangeableOnText(t, restURI)
 	})
 
 	// Scenario 6: change-tok-filterable + change-tokenization (both) in
-	// parallel. Both touch filterable → expect 409 on one.
+	// parallel. Both touch filterable → never two distinct writers on it.
 	t.Run("change_tok_filterable__change_tokenization_both", func(t *testing.T) {
 		testParallel_ChangeTokFilterableChangeTokBoth(t, restURI)
 	})
 
-	// Scenario 7: repair-filterable + repair-rangeable on same property.
-	t.Run("repair_filterable__repair_rangeable", func(t *testing.T) {
+	// Scenario 7: repair-filterable + repair-rangeFilters on same property.
+	t.Run("repair_filterable__repair_rangeFilters", func(t *testing.T) {
 		testParallel_RepairFilterableRepairRangeable(t, restURI)
 	})
 
-	// Scenario 8: repair-filterable + enable-rangeable on same property.
-	t.Run("repair_filterable__enable_rangeable", func(t *testing.T) {
+	// Scenario 8: repair-filterable + enable-rangeFilters on same property.
+	t.Run("repair_filterable__enable_rangeFilters", func(t *testing.T) {
 		testParallel_RepairFilterableEnableRangeable(t, restURI)
 	})
 
-	// Scenario 9: enable-filterable + DELETE-rangeable.
-	t.Run("enable_filterable__delete_rangeable", func(t *testing.T) {
+	// Scenario 9: enable-filterable + DELETE-rangeFilters.
+	t.Run("enable_filterable__delete_rangeFilters", func(t *testing.T) {
 		testParallel_EnableFilterableDeleteRangeable(t, restURI)
 	})
 
@@ -176,7 +174,7 @@ func TestParallelConflictMatrix(t *testing.T) {
 }
 
 // =============================================================================
-// Scenario 1: enable-filterable + enable-rangeable (PRIMARY REPRO)
+// Scenario 1: enable-filterable + enable-rangeFilters (PRIMARY REPRO)
 // =============================================================================
 //
 // Pre-state: int property with both flags disabled. Per typesConflict the
@@ -203,13 +201,13 @@ func testParallel_EnableFilterableEnableRangeable(t *testing.T, restURI string) 
 
 	seedIntObjects(t, class, "score", matrixObjectCount)
 
-	rA := newPR("enable-filterable", `{"filterable":{"enabled":true}}`)
-	rB := newPR("enable-rangeable", `{"rangeable":{"enabled":true}}`)
+	rA := newUpsertPR("enable-filterable", "filterable", `{}`)
+	rB := newUpsertPR("enable-rangeFilters", "rangeFilters", `{}`)
 	fireParallelPUTs(t, restURI, class, "score", rA, rB)
 
 	assertNoFiveXX(t, rA)
 	assertNoFiveXX(t, rB)
-	assertAtLeastOneAccepted(t, "enable-filterable+enable-rangeable", rA, rB)
+	assertAtLeastOneAccepted(t, "enable-filterable+enable-rangeFilters", rA, rB)
 
 	awaitTerminalP(t, restURI, rA)
 	awaitTerminalP(t, restURI, rB)
@@ -217,14 +215,14 @@ func testParallel_EnableFilterableEnableRangeable(t *testing.T, restURI string) 
 	if rA.terminal == "FINISHED" {
 		hits := equalIntFilterHits(t, class, "score", 0)
 		assert.Greater(t, hits, 0,
-			"[enable-filterable+enable-rangeable] Equal(score=0) after FINISHED must hit; "+
+			"[enable-filterable+enable-rangeFilters] Equal(score=0) after FINISHED must hit; "+
 				"got %d. Empty bucket = Sev 1 silent data loss", hits)
 	}
 	if rB.terminal == "FINISHED" {
 		hits := rangeIntFilterHits(t, class, "score", matrixObjectCount/2)
 		assert.Greater(t, hits, 0,
-			"[enable-filterable+enable-rangeable] LessThan(score=%d) after FINISHED must hit; "+
-				"got %d. Empty rangeable bucket = Sev 1 silent data loss", matrixObjectCount/2, hits)
+			"[enable-filterable+enable-rangeFilters] LessThan(score=%d) after FINISHED must hit; "+
+				"got %d. Empty rangeFilters bucket = Sev 1 silent data loss", matrixObjectCount/2, hits)
 	}
 	if rA.terminal == "FINISHED" && rB.terminal == "FINISHED" {
 		eventualBothFlags(t, class, "score", true, true)
@@ -254,8 +252,8 @@ func testParallel_EnableFilterableEnableSearchable(t *testing.T, restURI string)
 
 	seedTextObjects(t, class, "name", matrixObjectCount)
 
-	rA := newPR("enable-filterable", `{"filterable":{"enabled":true}}`)
-	rB := newPR("enable-searchable", `{"searchable":{"enabled":true,"tokenization":"word"}}`)
+	rA := newUpsertPR("enable-filterable", "filterable", `{}`)
+	rB := newUpsertPR("enable-searchable", "searchable", `{"tokenization":"word"}`)
 	fireParallelPUTs(t, restURI, class, "name", rA, rB)
 
 	assertNoFiveXX(t, rA)
@@ -278,11 +276,11 @@ func testParallel_EnableFilterableEnableSearchable(t *testing.T, restURI string)
 }
 
 // =============================================================================
-// Scenario 3: enable-searchable + enable-rangeable on text[]
+// Scenario 3: enable-searchable + enable-rangeFilters on text[]
 // =============================================================================
 //
 // Same-property parallel: enable-searchable on text[] accepted +
-// enable-rangeable rejected (text[] not numeric). Pins that rejection
+// enable-rangeFilters rejected (text[] not numeric). Pins that rejection
 // doesn't corrupt the searchable enable's sentinel state.
 func testParallel_EnableSearchableEnableRangeable(t *testing.T, restURI string) {
 	const class = "ParallelEnSearchEnRange"
@@ -304,17 +302,17 @@ func testParallel_EnableSearchableEnableRangeable(t *testing.T, restURI string) 
 
 	seedTextArrayObjects(t, class, "tags", matrixObjectCount)
 
-	rA := newPR("enable-searchable", `{"searchable":{"enabled":true,"tokenization":"word"}}`)
-	rB := newPR("enable-rangeable", `{"rangeable":{"enabled":true}}`)
+	rA := newUpsertPR("enable-searchable", "searchable", `{"tokenization":"word"}`)
+	rB := newUpsertPR("enable-rangeFilters", "rangeFilters", `{}`)
 	fireParallelPUTs(t, restURI, class, "tags", rA, rB)
 
 	assertNoFiveXX(t, rA)
 	assertNoFiveXX(t, rB)
 	assert.False(t, rB.accepted,
-		"[enable-searchable+enable-rangeable] enable-rangeable on text[] must be rejected by validator; "+
+		"[enable-searchable+enable-rangeFilters] enable-rangeFilters on text[] must be rejected by validator; "+
 			"got status=%d body=%s", rB.statusCode, rB.body)
 	assert.True(t, rA.accepted,
-		"[enable-searchable+enable-rangeable] enable-searchable on text[] must be accepted; "+
+		"[enable-searchable+enable-rangeFilters] enable-searchable on text[] must be accepted; "+
 			"got status=%d body=%s", rA.statusCode, rA.body)
 
 	awaitTerminalP(t, restURI, rA)
@@ -322,7 +320,7 @@ func testParallel_EnableSearchableEnableRangeable(t *testing.T, restURI string) 
 	if rA.terminal == "FINISHED" {
 		hits := bm25HitsForProp(t, class, "tags", "word_0")
 		assert.Greater(t, hits, 0,
-			"[enable-searchable+enable-rangeable] bm25(tags=word_0) after FINISHED must hit; got %d", hits)
+			"[enable-searchable+enable-rangeFilters] bm25(tags=word_0) after FINISHED must hit; got %d", hits)
 	}
 }
 
@@ -354,8 +352,8 @@ func testParallel_EnableFilterableChangeTokenization(t *testing.T, restURI strin
 
 	seedTextObjects(t, class, "name", matrixObjectCount)
 
-	rA := newPR("enable-filterable", `{"filterable":{"enabled":true}}`)
-	rB := newPR("change-tokenization", `{"searchable":{"tokenization":"field"}}`)
+	rA := newUpsertPR("enable-filterable", "filterable", `{}`)
+	rB := newUpsertPR("change-tokenization", "searchable", `{"tokenization":"field"}`)
 	fireParallelPUTs(t, restURI, class, "name", rA, rB)
 
 	assertNoFiveXX(t, rA)
@@ -393,7 +391,7 @@ func testParallel_EnableFilterableChangeTokenization(t *testing.T, restURI strin
 }
 
 // =============================================================================
-// Scenario 5: change-tok-both + enable-rangeable on a SINGLE text property
+// Scenario 5: change-tok-both + enable-rangeFilters on a SINGLE text property
 // =============================================================================
 func testParallel_ChangeTokBothEnableRangeableOnText(t *testing.T, restURI string) {
 	const class = "ParallelChangeTokBothEnRangeText"
@@ -415,17 +413,17 @@ func testParallel_ChangeTokBothEnableRangeableOnText(t *testing.T, restURI strin
 
 	seedTextObjects(t, class, "name", matrixObjectCount)
 
-	rA := newPR("change-tok-both", `{"searchable":{"tokenization":"field"}}`)
-	rB := newPR("enable-rangeable-text", `{"rangeable":{"enabled":true}}`)
+	rA := newUpsertPR("change-tok-both", "searchable", `{"tokenization":"field"}`)
+	rB := newUpsertPR("enable-rangeFilters-text", "rangeFilters", `{}`)
 	fireParallelPUTs(t, restURI, class, "name", rA, rB)
 
 	assertNoFiveXX(t, rA)
 	assertNoFiveXX(t, rB)
 	assert.False(t, rB.accepted,
-		"[change-tok-both+enable-rangeable-text] enable-rangeable on text must be 4xx; "+
+		"[change-tok-both+enable-rangeFilters-text] enable-rangeFilters on text must be 4xx; "+
 			"got status=%d body=%s", rB.statusCode, rB.body)
 	assert.True(t, rA.accepted,
-		"[change-tok-both+enable-rangeable-text] change-tok-both must be accepted; "+
+		"[change-tok-both+enable-rangeFilters-text] change-tok-both must be accepted; "+
 			"got status=%d body=%s", rA.statusCode, rA.body)
 
 	awaitTerminalP(t, restURI, rA)
@@ -433,7 +431,7 @@ func testParallel_ChangeTokBothEnableRangeableOnText(t *testing.T, restURI strin
 	if rA.terminal == "FINISHED" {
 		hits := equalTextFilterHits(t, class, "name", "word_0 word_0")
 		assert.Greater(t, hits, 0,
-			"[change-tok-both+enable-rangeable-text] post change-tok, Equal('word_0 word_0') "+
+			"[change-tok-both+enable-rangeFilters-text] post change-tok, Equal('word_0 word_0') "+
 				"under field tokenization must hit; got %d. "+
 				"Empty filterable bucket after rejected sibling = sentinel collision (Sev 1)", hits)
 	}
@@ -443,8 +441,9 @@ func testParallel_ChangeTokBothEnableRangeableOnText(t *testing.T, restURI strin
 // Scenario 6: change-tok-filterable + change-tok-both in parallel
 // =============================================================================
 //
-// Both touch filterable on overlapping property → at least one 409
-// expected.
+// Both touch filterable on the same property. Either order is legal: whichever
+// request loses the submit lock either 409s or converges on the winner's
+// target, so only two distinct writers on the bucket is a failure.
 func testParallel_ChangeTokFilterableChangeTokBoth(t *testing.T, restURI string) {
 	const class = "ParallelChangeTokFiltBoth"
 	trueVal := true
@@ -465,25 +464,21 @@ func testParallel_ChangeTokFilterableChangeTokBoth(t *testing.T, restURI string)
 
 	seedTextObjects(t, class, "name", matrixObjectCount)
 
-	rA := newPR("change-tok-filterable", `{"filterable":{"tokenization":"field"}}`)
-	rB := newPR("change-tok-both", `{"searchable":{"tokenization":"field"}}`)
+	rA := newUpsertPR("change-tok-filterable", "filterable", `{"tokenization":"field"}`)
+	rB := newUpsertPR("change-tok-both", "searchable", `{"tokenization":"field"}`)
 	fireParallelPUTs(t, restURI, class, "name", rA, rB)
 
 	assertNoFiveXX(t, rA)
 	assertNoFiveXX(t, rB)
 	assertAtLeastOneAccepted(t, "change-tok-filt+change-tok-both", rA, rB)
 
-	conflicts := 0
-	if rA.statusCode == http.StatusConflict {
-		conflicts++
+	// Two accepted requests naming different tasks means two writers race the
+	// same filterable bucket. Same task ID is a convergent join, not a race.
+	if rA.accepted && rB.accepted && rA.taskID != rB.taskID {
+		t.Errorf("[change-tok-filt+change-tok-both] BOTH accepted with distinct tasks — "+
+			"two writers race the same filterable bucket. taskIDs: A=%s B=%s",
+			rA.taskID, rB.taskID)
 	}
-	if rB.statusCode == http.StatusConflict {
-		conflicts++
-	}
-	assert.GreaterOrEqual(t, conflicts, 1,
-		"[change-tok-filt+change-tok-both] at least one must 409; got rA=%d rB=%d. "+
-			"Both 202 means conflict checker lets two writers race on the filterable bucket",
-		rA.statusCode, rB.statusCode)
 
 	awaitTerminalP(t, restURI, rA)
 	awaitTerminalP(t, restURI, rB)
@@ -497,7 +492,7 @@ func testParallel_ChangeTokFilterableChangeTokBoth(t *testing.T, restURI string)
 }
 
 // =============================================================================
-// Scenario 7: repair-filterable + repair-rangeable on same property
+// Scenario 7: repair-filterable + repair-rangeFilters on same property
 // =============================================================================
 func testParallel_RepairFilterableRepairRangeable(t *testing.T, restURI string) {
 	const class = "ParallelRepairFiltRepairRange"
@@ -518,13 +513,13 @@ func testParallel_RepairFilterableRepairRangeable(t *testing.T, restURI string) 
 
 	seedIntObjects(t, class, "score", matrixObjectCount)
 
-	rA := newPR("repair-filterable", `{"filterable":{"rebuild":true}}`)
-	rB := newPR("repair-rangeable", `{"rangeable":{"rebuild":true}}`)
+	rA := newRebuildPR("repair-filterable", "filterable")
+	rB := newRebuildPR("repair-rangeFilters", "rangeFilters")
 	fireParallelPUTs(t, restURI, class, "score", rA, rB)
 
 	assertNoFiveXX(t, rA)
 	assertNoFiveXX(t, rB)
-	assertAtLeastOneAccepted(t, "repair-filterable+repair-rangeable", rA, rB)
+	assertAtLeastOneAccepted(t, "repair-filterable+repair-rangeFilters", rA, rB)
 
 	awaitTerminalP(t, restURI, rA)
 	awaitTerminalP(t, restURI, rB)
@@ -539,15 +534,15 @@ func testParallel_RepairFilterableRepairRangeable(t *testing.T, restURI string) 
 		hits := rangeIntFilterHits(t, class, "score", matrixObjectCount/2)
 		assert.Greater(t, hits, 0,
 			"[repair-filt+repair-range] after FINISHED, LessThan(score=%d) must hit; got %d. "+
-				"Empty rangeable post-rebuild = Sev 1 silent data loss", matrixObjectCount/2, hits)
+				"Empty rangeFilters post-rebuild = Sev 1 silent data loss", matrixObjectCount/2, hits)
 	}
 }
 
 // =============================================================================
-// Scenario 8: repair-filterable + enable-rangeable on same property
+// Scenario 8: repair-filterable + enable-rangeFilters on same property
 // =============================================================================
 //
-// Repair tears the existing filterable bucket while enable-rangeable
+// Repair tears the existing filterable bucket while enable-rangeFilters
 // backfills from it. Shared lifecycle hazard even though typesConflict
 // considers them non-overlapping.
 func testParallel_RepairFilterableEnableRangeable(t *testing.T, restURI string) {
@@ -569,13 +564,13 @@ func testParallel_RepairFilterableEnableRangeable(t *testing.T, restURI string) 
 
 	seedIntObjects(t, class, "score", matrixObjectCount)
 
-	rA := newPR("repair-filterable", `{"filterable":{"rebuild":true}}`)
-	rB := newPR("enable-rangeable", `{"rangeable":{"enabled":true}}`)
+	rA := newRebuildPR("repair-filterable", "filterable")
+	rB := newUpsertPR("enable-rangeFilters", "rangeFilters", `{}`)
 	fireParallelPUTs(t, restURI, class, "score", rA, rB)
 
 	assertNoFiveXX(t, rA)
 	assertNoFiveXX(t, rB)
-	assertAtLeastOneAccepted(t, "repair-filterable+enable-rangeable", rA, rB)
+	assertAtLeastOneAccepted(t, "repair-filterable+enable-rangeFilters", rA, rB)
 
 	awaitTerminalP(t, restURI, rA)
 	awaitTerminalP(t, restURI, rB)
@@ -588,14 +583,14 @@ func testParallel_RepairFilterableEnableRangeable(t *testing.T, restURI string) 
 	if rB.terminal == "FINISHED" {
 		hits := rangeIntFilterHits(t, class, "score", matrixObjectCount/2)
 		assert.Greater(t, hits, 0,
-			"[repair-filt+en-range] post FINISHED on rangeable, LessThan(%d) must hit; got %d. "+
-				"If 0, enable-rangeable backfill ran against a torn filterable bucket (Sev 1)",
+			"[repair-filt+en-range] post FINISHED on rangeFilters, LessThan(%d) must hit; got %d. "+
+				"If 0, enable-rangeFilters backfill ran against a torn filterable bucket (Sev 1)",
 			matrixObjectCount/2, hits)
 	}
 }
 
 // =============================================================================
-// Scenario 9: enable-filterable + DELETE-rangeable
+// Scenario 9: enable-filterable + DELETE-rangeFilters
 // =============================================================================
 //
 // DELETE is NOT a distributed task — it bypasses checkReindexConflict. The
@@ -625,7 +620,7 @@ func testParallel_EnableFilterableDeleteRangeable(t *testing.T, restURI string) 
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	rEnable := newPR("enable-filterable", `{"filterable":{"enabled":true}}`)
+	rEnable := newUpsertPR("enable-filterable", "filterable", `{}`)
 	var deleteStatus int
 	var deleteBody []byte
 
@@ -657,7 +652,7 @@ func testParallel_EnableFilterableDeleteRangeable(t *testing.T, restURI string) 
 
 	assertNoFiveXX(t, rEnable)
 	assert.Less(t, deleteStatus, 500,
-		"[en-filt+del-range] DELETE rangeable must NOT 5xx; got %d body=%s", deleteStatus, string(deleteBody))
+		"[en-filt+del-range] DELETE rangeFilters must NOT 5xx; got %d body=%s", deleteStatus, string(deleteBody))
 
 	awaitTerminalP(t, restURI, rEnable)
 
@@ -697,7 +692,7 @@ func testParallel_ChangeTokBothDeleteSearchable(t *testing.T, restURI string) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	rChangeTok := newPR("change-tok-both", `{"searchable":{"tokenization":"field"}}`)
+	rChangeTok := newUpsertPR("change-tok-both", "searchable", `{"tokenization":"field"}`)
 	var deleteStatus int
 	var deleteBody []byte
 
@@ -777,8 +772,8 @@ func testParallel_EnableFilterableCancelSame(t *testing.T, restURI string) {
 	logger, _ := logrustest.NewNullLogger()
 	var wg sync.WaitGroup
 	wg.Add(2)
-	rSubmit := newPR("enable-filterable", `{"filterable":{"enabled":true}}`)
-	rCancel := newPR("cancel-filterable", `{"filterable":{"cancel":true}}`)
+	rSubmit := newUpsertPR("enable-filterable", "filterable", `{}`)
+	rCancel := newCancelPR("cancel-filterable", "filterable")
 
 	// submitted is closed once the submit PUT has returned, which publishes
 	// rSubmit.taskID to the cancel goroutine (channel close provides the
@@ -864,20 +859,20 @@ func testParallel_EnableFilterableTwiceIdempotency(t *testing.T, restURI string)
 
 	seedIntObjects(t, class, "score", matrixObjectCount)
 
-	body := `{"filterable":{"enabled":true}}`
-	rA := newPR("enable-filterable-A", body)
-	rB := newPR("enable-filterable-B", body)
+	rA := newUpsertPR("enable-filterable-A", "filterable", `{}`)
+	rB := newUpsertPR("enable-filterable-B", "filterable", `{}`)
 	fireParallelPUTs(t, restURI, class, "score", rA, rB)
 
 	assertNoFiveXX(t, rA)
 	assertNoFiveXX(t, rB)
 	assertAtLeastOneAccepted(t, "enable-filterable-twice", rA, rB)
 
-	// If both are accepted, conflict checker missed the overlap (BUG).
-	if rA.accepted && rB.accepted {
-		t.Errorf("[en-filt-twice] BOTH PUTs accepted (202) — conflict checker missed identical-op overlap. "+
-			"taskIDs: A=%s B=%s. This races two writers against the same filterable bucket",
-			rA.taskID, rB.taskID)
+	// Two accepted requests naming different tasks means the conflict checker
+	// missed the overlap. Same task ID is a convergent join, not a race.
+	if rA.accepted && rB.accepted && rA.taskID != rB.taskID {
+		t.Errorf("[en-filt-twice] BOTH PUTs accepted with distinct tasks — conflict checker "+
+			"missed identical-op overlap. taskIDs: A=%s B=%s. This races two writers "+
+			"against the same filterable bucket", rA.taskID, rB.taskID)
 	}
 
 	awaitTerminalP(t, restURI, rA)
@@ -895,11 +890,14 @@ func testParallel_EnableFilterableTwiceIdempotency(t *testing.T, restURI string)
 // Shared helpers
 // =============================================================================
 
-// parallelResult is the captured outcome of one PUT request fired against
-// the indexes endpoint.
+// parallelResult is the captured outcome of one index-write request fired
+// against the GA per-index-type endpoint
+// .../properties/{prop}/index/{indexType}[/rebuild|/cancel].
 type parallelResult struct {
 	label       string
-	requestBody string
+	indexType   string // "filterable" | "searchable" | "rangeFilters"
+	verb        string // "" → PUT upsert; "rebuild"/"cancel" → POST sub-resource
+	requestBody string // JSON upsert body; empty for rebuild/cancel
 	statusCode  int
 	body        string
 	taskID      string // populated only when statusCode==202
@@ -907,13 +905,25 @@ type parallelResult struct {
 	terminal    string // populated by awaitTerminalP: FINISHED/FAILED/CANCELLED/""
 }
 
-func newPR(label, body string) *parallelResult {
-	return &parallelResult{label: label, requestBody: body}
+// newUpsertPR builds a PUT .../index/{indexType} upsert op carrying the GA
+// declarative body (e.g. `{}` or `{"tokenization":"field"}`).
+func newUpsertPR(label, indexType, body string) *parallelResult {
+	return &parallelResult{label: label, indexType: indexType, requestBody: body}
 }
 
-// fireParallelPUTs issues two PUTs to /v1/schema/{class}/indexes/{prop} in
-// parallel via enterrors.GoWrapper. Populates the two parallelResult
-// pointers in place.
+// newRebuildPR builds a POST .../index/{indexType}/rebuild op.
+func newRebuildPR(label, indexType string) *parallelResult {
+	return &parallelResult{label: label, indexType: indexType, verb: "rebuild"}
+}
+
+// newCancelPR builds a POST .../index/{indexType}/cancel op.
+func newCancelPR(label, indexType string) *parallelResult {
+	return &parallelResult{label: label, indexType: indexType, verb: "cancel"}
+}
+
+// fireParallelPUTs issues the two ops against
+// .../properties/{prop}/index/{indexType}[/rebuild|/cancel] in parallel via
+// enterrors.GoWrapper. Populates the two parallelResult pointers in place.
 func fireParallelPUTs(t *testing.T, restURI, class, prop string, rA, rB *parallelResult) {
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
@@ -934,17 +944,29 @@ func fireParallelPUTs(t *testing.T, restURI, class, prop string, rA, rB *paralle
 	t.Logf("parallel B %s: status=%d body=%s", rB.label, rB.statusCode, rB.body)
 }
 
-// executePR issues the request stored on the parallelResult and populates
-// statusCode/body/taskID/accepted on the same struct.
+// executePR issues the stored request and populates statusCode/body/taskID/
+// accepted. verb=="" is a PUT upsert with r.requestBody; "rebuild"/"cancel"
+// is a bodyless POST to the matching sub-resource.
 func executePR(restURI, class, prop string, r *parallelResult) {
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, class, prop)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(r.requestBody)))
+	url := fmt.Sprintf("http://%s/v1/schema/%s/properties/%s/index/%s", restURI, class, prop, r.indexType)
+	method := http.MethodPut
+	var reader io.Reader
+	switch r.verb {
+	case "rebuild", "cancel":
+		url += "/" + r.verb
+		method = http.MethodPost
+	default:
+		reader = bytes.NewReader([]byte(r.requestBody))
+	}
+	req, err := http.NewRequest(method, url, reader)
 	if err != nil {
 		r.statusCode = 0
 		r.body = err.Error()
 		return
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if r.verb == "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		r.statusCode = 0
@@ -1207,7 +1229,7 @@ func eventualSingleFlag(t *testing.T, class, prop, flag string, want bool) {
 				return p.IndexFilterable != nil && *p.IndexFilterable == want
 			case "searchable":
 				return p.IndexSearchable != nil && *p.IndexSearchable == want
-			case "rangeable":
+			case "rangeFilters":
 				return p.IndexRangeFilters != nil && *p.IndexRangeFilters == want
 			}
 		}

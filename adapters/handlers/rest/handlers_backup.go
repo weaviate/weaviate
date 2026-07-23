@@ -131,6 +131,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		Path:         overridePath,
 		Include:      params.Body.Include,
 		Exclude:      params.Body.Exclude,
+		IncludeUsers: params.Body.IncludeUsers,
 		Compression:  compressionFromBCfg(params.Body.Config),
 		BaseBackupID: baseBackupID,
 	})
@@ -268,7 +269,8 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		overridePath = *params.Path
 	}
 	status, err := s.manager.RestorationStatus(
-		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
+		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {

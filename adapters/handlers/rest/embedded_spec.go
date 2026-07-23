@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.0-dev"
+    "version": "1.39.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -1087,6 +1087,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "404": {
+            "description": "No role found."
           },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
@@ -3013,14 +3016,8 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-          "409": {
-            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3100,7 +3097,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state, which stops its dynamic users from authenticating; their rows, along with classes and aliases, are reclaimed by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
         "tags": [
           "namespaces"
         ],
@@ -3142,6 +3139,132 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/resume": {
+      "post": {
+        "description": "Return a suspended namespace to the \"active\" state, so its dynamic users authenticate again and its resources accept writes. Repeated calls against an already-active namespace are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Resume a namespace",
+        "operationId": "resumeNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is active."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/suspend": {
+      "post": {
+        "description": "Move a namespace to the \"suspended\" state. Suspending stops the namespace's users from authenticating and blocks the creation of new classes, aliases, users, roles, and role assignments, but retains the namespace and everything it owns. Repeated calls against an already-suspended namespace are idempotent and return 202. Use the resume endpoint to return it to \"active\".",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Suspend a namespace",
+        "operationId": "suspendNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is suspended."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5652,94 +5775,6 @@ func init() {
         }
       }
     },
-    "/schema/{className}/indexes/{propertyName}": {
-      "put": {
-        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
-        "tags": [
-          "schema"
-        ],
-        "summary": "Update index configuration for a property (triggers reindex)",
-        "operationId": "schema.objects.indexes.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
-            "name": "tenants",
-            "in": "query"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/IndexUpdateRequest"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Reindex task submitted.",
-            "schema": {
-              "$ref": "#/definitions/IndexUpdateResponse"
-            }
-          },
-          "400": {
-            "description": "Invalid request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "409": {
-            "description": "Conflicting reindex task already running.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error occurred.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "503": {
-            "description": "Distributed tasks not enabled.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
     "/schema/{className}/properties": {
       "post": {
         "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
@@ -5801,8 +5836,130 @@ func init() {
       }
     },
     "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "put": {
+        "description": "Upserts the inverted index of a property, identified by ` + "`" + `indexName` + "`" + `. The body describes the desired index configuration; the server diffs it against the current state and either creates the index, migrates its configuration, or does nothing. Index-mutating work is asynchronous: a ` + "`" + `202` + "`" + ` with a task ID is returned when a reindex task is submitted, and ` + "`" + `200` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when the desired configuration is already in place. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Declaratively create or migrate a property's inverted index",
+        "operationId": "schema.objects.index.upsert",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be upserted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type to upsert. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only valid on multi-tenant collections and only when the resulting operation is format-only (on PUT that is ` + "`" + `rangeFilters` + "`" + ` creation). Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpsertRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Desired configuration already in place AND no reindex task in flight; no task submitted. Body carries ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "202": {
+            "description": "A reindex task is running for the requested configuration; the body carries its ` + "`" + `taskId` + "`" + ` with ` + "`" + `{\"status\":\"STARTED\"}` + "`" + `. A request converging on an already-running migration joins it and receives that task's ID.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failure; the message carries an actionable hint.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      },
       "delete": {
-        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + ` (with ` + "`" + `rangeable` + "`" + ` accepted as an alias for ` + "`" + `rangeFilters` + "`" + `).",
         "tags": [
           "schema"
         ],
@@ -5827,10 +5984,11 @@ func init() {
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "rangeable"
             ],
             "type": "string",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the inverted index to delete from the property. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
             "name": "indexName",
             "in": "path",
             "required": true
@@ -5857,6 +6015,199 @@ func init() {
           },
           "500": {
             "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}/cancel": {
+      "post": {
+        "description": "Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a ` + "`" + `202` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when there is nothing to cancel). ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Cancel the in-flight reindex task on a property's inverted index",
+        "operationId": "schema.objects.index.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose reindex task should be cancelled.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type whose in-flight task should be cancelled. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a live task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property. \"Nothing to cancel\" is NOT a 404 — it returns 202 with status NO_OP.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}/rebuild": {
+      "post": {
+        "description": "Rebuilds the inverted index from the stored objects with its current configuration (repair / format refresh). No request body. Index-mutating work is asynchronous: a ` + "`" + `202` + "`" + ` with a task ID is returned. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rebuild a property's inverted index with unchanged configuration",
+        "operationId": "schema.objects.index.rebuild",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be rebuilt.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type to rebuild. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Allowed for all index types on multi-tenant collections (rebuilds are format-only). Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failure; the message carries an actionable hint.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6489,6 +6840,99 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
         ]
+      }
+    },
+    "/search/{collection}/near-text": {
+      "post": {
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-text",
+        "operationId": "search.nearText",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-text search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearTextRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/tasks": {
@@ -7182,7 +7626,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -7193,7 +7637,14 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeUsers": {
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured and each is authorized individually.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8475,15 +8926,20 @@ func init() {
         "targetTokenization": {
           "type": "string"
         },
+        "taskId": {
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, and the finalize-window override); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "type": "string"
+        },
         "tokenization": {
           "type": "string"
         },
         "type": {
+          "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",
           "type": "string",
           "enum": [
             "filterable",
             "searchable",
-            "rangeable"
+            "rangeFilters"
           ]
         }
       }
@@ -8502,55 +8958,6 @@ func init() {
         }
       }
     },
-    "IndexUpdateFilterable": {
-      "type": "object",
-      "properties": {
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "type": "boolean"
-        },
-        "tokenization": {
-          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
-          "type": "string"
-        }
-      }
-    },
-    "IndexUpdateRangeable": {
-      "type": "object",
-      "properties": {
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
-          "type": "boolean"
-        }
-      }
-    },
-    "IndexUpdateRequest": {
-      "type": "object",
-      "properties": {
-        "filterable": {
-          "$ref": "#/definitions/IndexUpdateFilterable"
-        },
-        "rangeable": {
-          "$ref": "#/definitions/IndexUpdateRangeable"
-        },
-        "searchable": {
-          "$ref": "#/definitions/IndexUpdateSearchable"
-        }
-      }
-    },
     "IndexUpdateResponse": {
       "type": "object",
       "properties": {
@@ -8562,28 +8969,16 @@ func init() {
         }
       }
     },
-    "IndexUpdateSearchable": {
+    "IndexUpsertRequest": {
+      "description": "Desired index configuration for ` + "`" + `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}` + "`" + `. The server diffs the body against the current state and either creates the index, migrates its configuration, or returns a NO_OP. Only fields relevant to the target index type are honored: ` + "`" + `tokenization` + "`" + ` applies to ` + "`" + `searchable` + "`" + `/` + "`" + `filterable` + "`" + `, ` + "`" + `algorithm` + "`" + ` applies to ` + "`" + `searchable` + "`" + `. ` + "`" + `rangeFilters` + "`" + ` takes no config fields. An empty body ` + "`" + `{}` + "`" + ` is valid and means \"ensure the index exists with its current/default config\". At most one configuration change may be requested per call (a body implying both a tokenization and an algorithm change is rejected).",
       "type": "object",
       "properties": {
         "algorithm": {
-          "description": "Switch the BM25 algorithm for this property's searchable index. Currently only ` + "`" + `blockmax` + "`" + ` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported.",
-          "type": "string",
-          "enum": [
-            "blockmax"
-          ]
-        },
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "description": "When true, rebuilds the searchable index for this property from the stored objects. Preserves the current tokenization and BM25 algorithm. Only valid when the property's current algorithm is ` + "`" + `blockmax` + "`" + `; on a WAND property the request is rejected with guidance to use ` + "`" + `algorithm:\"blockmax\"` + "`" + ` first.",
-          "type": "boolean"
+          "description": "Target BM25 algorithm for a ` + "`" + `searchable` + "`" + ` index. Only ` + "`" + `blockmax` + "`" + ` is a valid target (input aliases ` + "`" + `block-max` + "`" + `, ` + "`" + `block_max` + "`" + `, ` + "`" + `blockmaxwand` + "`" + `, ` + "`" + `bmw` + "`" + ` are accepted case-insensitively). From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` index it is a NO_OP. ` + "`" + `wand` + "`" + ` is rejected (deprecated); downgrade is intentionally not supported.",
+          "type": "string"
         },
         "tokenization": {
+          "description": "Target tokenization for a ` + "`" + `searchable` + "`" + ` or ` + "`" + `filterable` + "`" + ` index. Required when creating a ` + "`" + `searchable` + "`" + ` index; optional otherwise (omitted = keep the current value). On ` + "`" + `filterable` + "`" + ` creation it must be omitted or equal the property's current tokenization.",
           "type": "string"
         }
       }
@@ -8728,10 +9123,12 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
+            "suspended",
+            "resuming",
             "deleting"
           ]
         }
@@ -9468,6 +9865,11 @@ func init() {
             "$ref": "#/definitions/NestedProperty"
           },
           "x-omitempty": true
+        },
+        "searchableBlockmax": {
+          "description": "Internal RAFT-replicated per-property flag: true iff this property's searchable (BM25) bucket is on the blockmax (StrategyInverted) index. Stamped at migration cutover. Absent/null means \"not stamped\" and is resolved against the class-wide UsingBlockMaxWAND flag. Internal use; clients must not set this.",
+          "type": "boolean",
+          "x-nullable": true
         },
         "textAnalyzer": {
           "$ref": "#/definitions/TextAnalyzerConfig"
@@ -10237,6 +10639,258 @@ func init() {
         }
       }
     },
+    "SearchCommon": {
+      "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "type": "object",
+      "properties": {
+        "autoLimit": {
+          "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "consistencyLevel": {
+          "description": "The consistency level for the read.",
+          "type": "string",
+          "enum": [
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ]
+        },
+        "groupBy": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "groupedTask": {
+          "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "limit": {
+          "description": "The maximum number of objects to return. Omitted or ` + "`" + `0` + "`" + ` falls back to the server default (` + "`" + `QUERY_DEFAULTS_LIMIT` + "`" + `); a value above ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` is rejected.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "numberOfGroups": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objectsPerGroup": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "offset": {
+          "description": "The number of objects to skip before returning results. Used with ` + "`" + `limit` + "`" + ` for pagination.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "rerank": {
+          "description": "Reserved for reranking. Returns 422 (not yet supported).",
+          "$ref": "#/definitions/SearchRerank"
+        },
+        "returnMetadata": {
+          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "distance",
+              "certainty",
+              "score",
+              "explainScore",
+              "creationTime",
+              "lastUpdateTime"
+            ]
+          }
+        },
+        "returnProperties": {
+          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "singlePrompt": {
+          "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "tenant": {
+          "description": "The tenant to search in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter to limit the objects that are searched.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "SearchNearTextRequest": {
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The concept(s) to search for, as an array of strings. Multiple entries perform a multi-concept search. A single concept is a one-element array, e.g. ` + "`" + `[\"space opera\"]` + "`" + `.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "targetVector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
+        }
+      }
+    },
+    "SearchResponse": {
+      "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
+      "type": "object",
+      "required": [
+        "results",
+        "tookMs"
+      ],
+      "properties": {
+        "results": {
+          "description": "The matched objects, ordered by relevance.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchResultObject"
+          },
+          "x-omitempty": false
+        },
+        "tookMs": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
+    "SearchResultMetadata": {
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "type": "object",
+      "properties": {
+        "certainty": {
+          "description": "The normalized certainty of the hit. Only computable on cosine-distance vector indexes.",
+          "type": "number",
+          "format": "double",
+          "x-nullable": true
+        },
+        "creationTime": {
+          "description": "The object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "distance": {
+          "description": "The vector distance between the hit and the query.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "explainScore": {
+          "description": "An explanation of how the score was computed.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "lastUpdateTime": {
+          "description": "The object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "score": {
+          "description": "The relevance score of the hit.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        }
+      }
+    },
+    "SearchResultObject": {
+      "description": "A single search hit: the object's ` + "`" + `id` + "`" + ` (always returned), the selected non-reference properties under ` + "`" + `properties` + "`" + `, the selected cross-references under ` + "`" + `references` + "`" + `, and the requested retrieval metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "id",
+        "properties"
+      ],
+      "properties": {
+        "id": {
+          "description": "The object's UUID. Always returned.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the request selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/JsonObject"
+            }
+          }
+        }
+      }
+    },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
       "type": "object",
@@ -10957,6 +11611,10 @@ func init() {
       "name": "graphql"
     },
     {
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+      "name": "search"
+    },
+    {
       "name": "meta"
     },
     {
@@ -11016,7 +11674,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.39.0-dev"
+    "version": "1.39.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -12043,6 +12701,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "404": {
+            "description": "No role found."
           },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
@@ -13969,14 +14630,8 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-          "409": {
-            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14056,7 +14711,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state, which stops its dynamic users from authenticating; their rows, along with classes and aliases, are reclaimed by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
         "tags": [
           "namespaces"
         ],
@@ -14098,6 +14753,132 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/resume": {
+      "post": {
+        "description": "Return a suspended namespace to the \"active\" state, so its dynamic users authenticate again and its resources accept writes. Repeated calls against an already-active namespace are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Resume a namespace",
+        "operationId": "resumeNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is active."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/suspend": {
+      "post": {
+        "description": "Move a namespace to the \"suspended\" state. Suspending stops the namespace's users from authenticating and blocks the creation of new classes, aliases, users, roles, and role assignments, but retains the namespace and everything it owns. Repeated calls against an already-suspended namespace are idempotent and return 202. Use the resume endpoint to return it to \"active\".",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Suspend a namespace",
+        "operationId": "suspendNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is suspended."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -16718,94 +17499,6 @@ func init() {
         }
       }
     },
-    "/schema/{className}/indexes/{propertyName}": {
-      "put": {
-        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
-        "tags": [
-          "schema"
-        ],
-        "summary": "Update index configuration for a property (triggers reindex)",
-        "operationId": "schema.objects.indexes.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
-            "name": "tenants",
-            "in": "query"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/IndexUpdateRequest"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Reindex task submitted.",
-            "schema": {
-              "$ref": "#/definitions/IndexUpdateResponse"
-            }
-          },
-          "400": {
-            "description": "Invalid request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "409": {
-            "description": "Conflicting reindex task already running.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error occurred.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "503": {
-            "description": "Distributed tasks not enabled.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      }
-    },
     "/schema/{className}/properties": {
       "post": {
         "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
@@ -16867,8 +17560,130 @@ func init() {
       }
     },
     "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "put": {
+        "description": "Upserts the inverted index of a property, identified by ` + "`" + `indexName` + "`" + `. The body describes the desired index configuration; the server diffs it against the current state and either creates the index, migrates its configuration, or does nothing. Index-mutating work is asynchronous: a ` + "`" + `202` + "`" + ` with a task ID is returned when a reindex task is submitted, and ` + "`" + `200` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when the desired configuration is already in place. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Declaratively create or migrate a property's inverted index",
+        "operationId": "schema.objects.index.upsert",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be upserted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type to upsert. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only valid on multi-tenant collections and only when the resulting operation is format-only (on PUT that is ` + "`" + `rangeFilters` + "`" + ` creation). Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpsertRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Desired configuration already in place AND no reindex task in flight; no task submitted. Body carries ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + `.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "202": {
+            "description": "A reindex task is running for the requested configuration; the body carries its ` + "`" + `taskId` + "`" + ` with ` + "`" + `{\"status\":\"STARTED\"}` + "`" + `. A request converging on an already-running migration joins it and receives that task's ID.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failure; the message carries an actionable hint.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      },
       "delete": {
-        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + ` (with ` + "`" + `rangeable` + "`" + ` accepted as an alias for ` + "`" + `rangeFilters` + "`" + `).",
         "tags": [
           "schema"
         ],
@@ -16893,10 +17708,11 @@ func init() {
             "enum": [
               "filterable",
               "searchable",
-              "rangeFilters"
+              "rangeFilters",
+              "rangeable"
             ],
             "type": "string",
-            "description": "The name of the inverted index to delete from the property.",
+            "description": "The name of the inverted index to delete from the property. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
             "name": "indexName",
             "in": "path",
             "required": true
@@ -16923,6 +17739,199 @@ func init() {
           },
           "500": {
             "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}/cancel": {
+      "post": {
+        "description": "Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a ` + "`" + `202` + "`" + ` with ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` is returned when there is nothing to cancel). ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Cancel the in-flight reindex task on a property's inverted index",
+        "operationId": "schema.objects.index.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose reindex task should be cancelled.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type whose in-flight task should be cancelled. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Cancellation processed. Body carries ` + "`" + `{\"status\":\"CANCELLED\",\"taskId\":...}` + "`" + ` when a live task was cancelled, or ` + "`" + `{\"status\":\"NO_OP\"}` + "`" + ` when there was nothing to cancel.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property. \"Nothing to cancel\" is NOT a 404 — it returns 202 with status NO_OP.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}/rebuild": {
+      "post": {
+        "description": "Rebuilds the inverted index from the stored objects with its current configuration (repair / format refresh). No request body. Index-mutating work is asynchronous: a ` + "`" + `202` + "`" + ` with a task ID is returned. ` + "`" + `indexName` + "`" + ` accepts ` + "`" + `rangeable` + "`" + ` as an alias for ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rebuild a property's inverted index with unchanged configuration",
+        "operationId": "schema.objects.index.rebuild",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be rebuilt.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters",
+              "rangeable"
+            ],
+            "type": "string",
+            "description": "The inverted index type to rebuild. ` + "`" + `rangeable` + "`" + ` is accepted as a write-path alias for ` + "`" + `rangeFilters` + "`" + `.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Allowed for all index types on multi-tenant collections (rebuilds are format-only). Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failure; the message carries an actionable hint.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Conflicting in-flight reindex task; the message names the offending task ID.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid ` + "`" + `indexName` + "`" + ` path value.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "Per-collection cap of concurrent active reindex tasks reached.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Cluster service unavailable, or an in-flight task's payload cannot be parsed so conflict-freedom cannot be proven.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17555,6 +18564,99 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
         ]
+      }
+    },
+    "/search/{collection}/near-text": {
+      "post": {
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-text",
+        "operationId": "search.nearText",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-text search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearTextRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/tasks": {
@@ -18248,7 +19350,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -18259,7 +19361,14 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeUsers": {
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured and each is authorized individually.",
           "type": "array",
           "items": {
             "type": "string"
@@ -19726,15 +20835,20 @@ func init() {
         "targetTokenization": {
           "type": "string"
         },
+        "taskId": {
+          "description": "ID of the reindex task driving this index entry. Present on every task-driven entry (` + "`" + `pending` + "`" + `, ` + "`" + `indexing` + "`" + `, ` + "`" + `failed` + "`" + `, ` + "`" + `cancelled` + "`" + `, and the finalize-window override); absent on a plain ` + "`" + `ready` + "`" + ` entry. A coupled searchable+filterable tokenization migration reports the same ` + "`" + `taskId` + "`" + ` on both affected entries.",
+          "type": "string"
+        },
         "tokenization": {
           "type": "string"
         },
         "type": {
+          "description": "Canonical inverted-index type. Always one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, ` + "`" + `rangeFilters` + "`" + ` — never the ` + "`" + `rangeable` + "`" + ` write-path alias.",
           "type": "string",
           "enum": [
             "filterable",
             "searchable",
-            "rangeable"
+            "rangeFilters"
           ]
         }
       }
@@ -19753,55 +20867,6 @@ func init() {
         }
       }
     },
-    "IndexUpdateFilterable": {
-      "type": "object",
-      "properties": {
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "type": "boolean"
-        },
-        "tokenization": {
-          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
-          "type": "string"
-        }
-      }
-    },
-    "IndexUpdateRangeable": {
-      "type": "object",
-      "properties": {
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
-          "type": "boolean"
-        }
-      }
-    },
-    "IndexUpdateRequest": {
-      "type": "object",
-      "properties": {
-        "filterable": {
-          "$ref": "#/definitions/IndexUpdateFilterable"
-        },
-        "rangeable": {
-          "$ref": "#/definitions/IndexUpdateRangeable"
-        },
-        "searchable": {
-          "$ref": "#/definitions/IndexUpdateSearchable"
-        }
-      }
-    },
     "IndexUpdateResponse": {
       "type": "object",
       "properties": {
@@ -19813,28 +20878,16 @@ func init() {
         }
       }
     },
-    "IndexUpdateSearchable": {
+    "IndexUpsertRequest": {
+      "description": "Desired index configuration for ` + "`" + `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}` + "`" + `. The server diffs the body against the current state and either creates the index, migrates its configuration, or returns a NO_OP. Only fields relevant to the target index type are honored: ` + "`" + `tokenization` + "`" + ` applies to ` + "`" + `searchable` + "`" + `/` + "`" + `filterable` + "`" + `, ` + "`" + `algorithm` + "`" + ` applies to ` + "`" + `searchable` + "`" + `. ` + "`" + `rangeFilters` + "`" + ` takes no config fields. An empty body ` + "`" + `{}` + "`" + ` is valid and means \"ensure the index exists with its current/default config\". At most one configuration change may be requested per call (a body implying both a tokenization and an algorithm change is rejected).",
       "type": "object",
       "properties": {
         "algorithm": {
-          "description": "Switch the BM25 algorithm for this property's searchable index. Currently only ` + "`" + `blockmax` + "`" + ` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported.",
-          "type": "string",
-          "enum": [
-            "blockmax"
-          ]
-        },
-        "cancel": {
-          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
-          "type": "boolean"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "rebuild": {
-          "description": "When true, rebuilds the searchable index for this property from the stored objects. Preserves the current tokenization and BM25 algorithm. Only valid when the property's current algorithm is ` + "`" + `blockmax` + "`" + `; on a WAND property the request is rejected with guidance to use ` + "`" + `algorithm:\"blockmax\"` + "`" + ` first.",
-          "type": "boolean"
+          "description": "Target BM25 algorithm for a ` + "`" + `searchable` + "`" + ` index. Only ` + "`" + `blockmax` + "`" + ` is a valid target (input aliases ` + "`" + `block-max` + "`" + `, ` + "`" + `block_max` + "`" + `, ` + "`" + `blockmaxwand` + "`" + `, ` + "`" + `bmw` + "`" + ` are accepted case-insensitively). From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` index it is a NO_OP. ` + "`" + `wand` + "`" + ` is rejected (deprecated); downgrade is intentionally not supported.",
+          "type": "string"
         },
         "tokenization": {
+          "description": "Target tokenization for a ` + "`" + `searchable` + "`" + ` or ` + "`" + `filterable` + "`" + ` index. Required when creating a ` + "`" + `searchable` + "`" + ` index; optional otherwise (omitted = keep the current value). On ` + "`" + `filterable` + "`" + ` creation it must be omitted or equal the property's current tokenization.",
           "type": "string"
         }
       }
@@ -19979,10 +21032,12 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
+            "suspended",
+            "resuming",
             "deleting"
           ]
         }
@@ -20904,6 +21959,11 @@ func init() {
           },
           "x-omitempty": true
         },
+        "searchableBlockmax": {
+          "description": "Internal RAFT-replicated per-property flag: true iff this property's searchable (BM25) bucket is on the blockmax (StrategyInverted) index. Stamped at migration cutover. Absent/null means \"not stamped\" and is resolved against the class-wide UsingBlockMaxWAND flag. Internal use; clients must not set this.",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "textAnalyzer": {
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
@@ -21678,6 +22738,258 @@ func init() {
         }
       }
     },
+    "SearchCommon": {
+      "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "type": "object",
+      "properties": {
+        "autoLimit": {
+          "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "consistencyLevel": {
+          "description": "The consistency level for the read.",
+          "type": "string",
+          "enum": [
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ]
+        },
+        "groupBy": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "groupedTask": {
+          "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "limit": {
+          "description": "The maximum number of objects to return. Omitted or ` + "`" + `0` + "`" + ` falls back to the server default (` + "`" + `QUERY_DEFAULTS_LIMIT` + "`" + `); a value above ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` is rejected.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "numberOfGroups": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objectsPerGroup": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "offset": {
+          "description": "The number of objects to skip before returning results. Used with ` + "`" + `limit` + "`" + ` for pagination.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "rerank": {
+          "description": "Reserved for reranking. Returns 422 (not yet supported).",
+          "$ref": "#/definitions/SearchRerank"
+        },
+        "returnMetadata": {
+          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "distance",
+              "certainty",
+              "score",
+              "explainScore",
+              "creationTime",
+              "lastUpdateTime"
+            ]
+          }
+        },
+        "returnProperties": {
+          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "singlePrompt": {
+          "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "tenant": {
+          "description": "The tenant to search in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter to limit the objects that are searched.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "SearchNearTextRequest": {
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The concept(s) to search for, as an array of strings. Multiple entries perform a multi-concept search. A single concept is a one-element array, e.g. ` + "`" + `[\"space opera\"]` + "`" + `.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "targetVector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
+        }
+      }
+    },
+    "SearchResponse": {
+      "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
+      "type": "object",
+      "required": [
+        "results",
+        "tookMs"
+      ],
+      "properties": {
+        "results": {
+          "description": "The matched objects, ordered by relevance.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchResultObject"
+          },
+          "x-omitempty": false
+        },
+        "tookMs": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
+    "SearchResultMetadata": {
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "type": "object",
+      "properties": {
+        "certainty": {
+          "description": "The normalized certainty of the hit. Only computable on cosine-distance vector indexes.",
+          "type": "number",
+          "format": "double",
+          "x-nullable": true
+        },
+        "creationTime": {
+          "description": "The object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "distance": {
+          "description": "The vector distance between the hit and the query.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "explainScore": {
+          "description": "An explanation of how the score was computed.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "lastUpdateTime": {
+          "description": "The object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "score": {
+          "description": "The relevance score of the hit.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        }
+      }
+    },
+    "SearchResultObject": {
+      "description": "A single search hit: the object's ` + "`" + `id` + "`" + ` (always returned), the selected non-reference properties under ` + "`" + `properties` + "`" + `, the selected cross-references under ` + "`" + `references` + "`" + `, and the requested retrieval metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "id",
+        "properties"
+      ],
+      "properties": {
+        "id": {
+          "description": "The object's UUID. Always returned.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the request selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/JsonObject"
+            }
+          }
+        }
+      }
+    },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
       "type": "object",
@@ -22408,6 +23720,10 @@ func init() {
     },
     {
       "name": "graphql"
+    },
+    {
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+      "name": "search"
     },
     {
       "name": "meta"

@@ -147,6 +147,102 @@ autoschema_enabled: true`)
 	})
 }
 
+func TestDisableGraphQLRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	t.Run("parses disable_graphql from the overrides file", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte("disable_graphql: true"))
+		require.NoError(t, err)
+		assert.Equal(t, true, cfg.DisableGraphQL.Get())
+	})
+
+	t.Run("override wins over the env default, then removal reverts (env default false)", func(t *testing.T) {
+		source := &WeaviateRuntimeConfig{
+			DisableGraphQL: runtime.NewDynamicValue(false),
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("disable_graphql: true"))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, true, source.DisableGraphQL.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(""))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, false, source.DisableGraphQL.Get())
+	})
+
+	t.Run("removal reverts to the env default, not a hardcoded false", func(t *testing.T) {
+		// Seed def=true (the DISABLE_GRAPHQL=true-at-boot operator). This is the case
+		// that discriminates a correct Reset() — which reverts to def — from one that
+		// zeroes the value: pushing a transient disable_graphql=false and then removing
+		// the key must land back on true, not false.
+		source := &WeaviateRuntimeConfig{
+			DisableGraphQL: runtime.NewDynamicValue(true),
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("disable_graphql: false"))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, false, source.DisableGraphQL.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(""))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, true, source.DisableGraphQL.Get())
+	})
+
+	t.Run("hook keyed on the DisableGraphQL field fires only on change", func(t *testing.T) {
+		// The lazy GraphQL rebuild relies on this hook firing when the flag flips;
+		// the key must match the struct field name, and a no-op reload must not fire.
+		source := &WeaviateRuntimeConfig{DisableGraphQL: runtime.NewDynamicValue(false)}
+		var calls int
+		hooks := map[string]func() error{"DisableGraphQL": func() error { calls++; return nil }}
+
+		apply := func(yaml string) {
+			parsed, err := ParseRuntimeConfig([]byte(yaml))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, hooks))
+		}
+
+		apply("disable_graphql: true")
+		assert.Equal(t, 1, calls)
+		apply("disable_graphql: true") // unchanged
+		assert.Equal(t, 1, calls)
+		apply("disable_graphql: false")
+		assert.Equal(t, 2, calls)
+	})
+}
+
+func TestBackupMaxIndividualFilesRuntimeOverride(t *testing.T) {
+	// ParseRuntimeConfig ignores unknown keys, so only an explicit assertion catches a
+	// renamed or misspelled yaml tag.
+	t.Run("yaml key is parsed", func(t *testing.T) {
+		cfg, err := ParseRuntimeConfig([]byte(`backup_max_individual_files: 250`))
+		require.NoError(t, err)
+		assert.Equal(t, 250, cfg.BackupMaxIndividualFiles.Get())
+	})
+
+	t.Run("override applies to the env-registered value and rejects non-positive", func(t *testing.T) {
+		t.Setenv("BACKUP_MAX_INDIVIDUAL_FILES", "40")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.Equal(t, 40, conf.Backup.MaxIndividualFiles.Get())
+
+		require.NoError(t, conf.Backup.MaxIndividualFiles.SetValue(250))
+		assert.Equal(t, 250, conf.Backup.MaxIndividualFiles.Get())
+
+		// The validator is attached to the value, so it guards the runtime path too.
+		require.Error(t, conf.Backup.MaxIndividualFiles.SetValue(0))
+		assert.Equal(t, 250, conf.Backup.MaxIndividualFiles.Get())
+
+		// Removing the key from the overrides file restores the env-supplied value.
+		conf.Backup.MaxIndividualFiles.Reset()
+		assert.Equal(t, 40, conf.Backup.MaxIndividualFiles.Get())
+	})
+}
+
 func TestUpdateRuntimeConfig(t *testing.T) {
 	log := logrus.New()
 	log.SetOutput(io.Discard)
@@ -462,6 +558,26 @@ maximum_allowed_collections_count: 13`)
 		require.NoError(t, err)
 		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, 0*time.Second, raftDrainSleep.Get())
+	})
+
+	t.Run("updating grpc_web_enabled (default true)", func(t *testing.T) {
+		// registered default is true (grpc-web on by default); pin that the
+		// snake_case key toggles it off and that removing the override restores
+		// the default rather than sticking at false.
+		reg := &WeaviateRuntimeConfig{
+			GRPCWebEnabled: runtime.NewDynamicValue(true),
+		}
+		assert.Equal(t, true, reg.GRPCWebEnabled.Get())
+
+		parsed, err := ParseRuntimeConfig([]byte(`grpc_web_enabled: false`))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
+		assert.Equal(t, false, reg.GRPCWebEnabled.Get())
+
+		parsed, err = ParseRuntimeConfig([]byte(``))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
+		assert.Equal(t, true, reg.GRPCWebEnabled.Get())
 	})
 
 	t.Run("updating raft_timeouts_multiplier", func(t *testing.T) {

@@ -40,7 +40,31 @@ var dateLayouts = [...]string{
 	"2006-01-02T15:04:05", "2006-01-02",
 }
 
+// applyBoostScoring re-scores, re-sorts, then paginates by OriginalOffset/OriginalLimit.
 func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.Result {
+	if boost == nil || len(boost.Conditions) == 0 || len(results) == 0 || boost.Weight <= 0 {
+		return results
+	}
+
+	results = boostScoreAndSort(results, boost)
+
+	offset := boost.OriginalOffset
+	limit := boost.OriginalLimit
+	if offset > 0 {
+		if offset >= len(results) {
+			return nil
+		}
+		results = results[offset:]
+	}
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results
+}
+
+// boostScoreAndSort re-scores and re-sorts without paginating (the caller, e.g. MMR, paginates).
+func boostScoreAndSort(results []search.Result, boost *filters.Boost) []search.Result {
 	if boost == nil || len(boost.Conditions) == 0 || len(results) == 0 {
 		return results
 	}
@@ -141,19 +165,6 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 		}
 		return 0
 	})
-
-	// Apply offset, then truncate to limit.
-	offset := boost.OriginalOffset
-	limit := boost.OriginalLimit
-	if offset > 0 {
-		if offset >= len(results) {
-			return nil
-		}
-		results = results[offset:]
-	}
-	if limit > 0 && len(results) > limit {
-		results = results[:limit]
-	}
 
 	return results
 }

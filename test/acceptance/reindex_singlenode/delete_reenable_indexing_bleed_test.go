@@ -70,8 +70,7 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 		// compete for the "finalize-window winner" pick).
 		for cycle := 1; cycle <= 3; cycle++ {
 			runEnableThenDeleteCycle(t, restURI, class, "body",
-				`{"searchable":{"enabled":true,"tokenization":"word"}}`,
-				"searchable",
+				"searchable", `{"tokenization":"word"}`,
 				func() { requireSearchableEnabled(t, class, "body") })
 			assertNoIndexBleedAfterDelete(t, restURI, class, "body", "searchable",
 				"cycle %d: after DELETE: GET /indexes must NOT surface any searchable entry — schema flag is off and no reindex is in flight.", cycle)
@@ -98,8 +97,7 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 
 		for cycle := 1; cycle <= 2; cycle++ {
 			runEnableThenDeleteCycle(t, restURI, class, "name",
-				`{"filterable":{"enabled":true}}`,
-				"filterable",
+				"filterable", `{}`,
 				func() { requireFilterableEnabled(t, class, "name") })
 			assertNoIndexBleedAfterDelete(t, restURI, class, "name", "filterable",
 				"cycle %d: after DELETE filterable, GET /indexes must NOT surface any filterable entry on %q", cycle, class)
@@ -130,34 +128,32 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 		// entry must surface for the deleted index.
 		for cycle := 1; cycle <= 2; cycle++ {
 			runEnableThenDeleteCycle(t, restURI, class, "score",
-				`{"rangeable":{"enabled":true}}`,
-				"rangeFilters",
+				"rangeFilters", `{}`,
 				func() { requireRangeableEnabled(t, class, "score") })
-			assertNoIndexBleedAfterDelete(t, restURI, class, "score", "rangeable",
-				"cycle %d: after DELETE rangeFilters, GET /indexes must NOT surface any rangeable entry on %q", cycle, class)
+			assertNoIndexBleedAfterDelete(t, restURI, class, "score", "rangeFilters",
+				"cycle %d: after DELETE rangeFilters, GET /indexes must NOT surface any rangeFilters entry on %q", cycle, class)
 		}
 	})
 }
 
-// runEnableThenDeleteCycle submits a PUT to enable an index on the named
-// property, waits for FINISHED, asserts the schema flag flipped on via the
-// per-index-type require* helper, then DELETEs the index by its REST name
-// (which is "searchable"/"filterable"/"rangeFilters" — distinct from the
-// GET /indexes status-block type name "rangeable" for the rangeable case).
+// runEnableThenDeleteCycle submits a PUT upsert to create an index, waits
+// for FINISHED, asserts the flag flipped, then DELETEs it. The same
+// indexType segment names the index everywhere (submit, DELETE, and GET
+// /indexes status), so one parameter covers all three.
 //
 // Shared by the bleed test's 3 subtests (searchable / filterable /
 // rangeable) so the enable→FINISHED→DELETE shape stays identical across
 // the per-migration-type variants of the same Sev 1 repro.
 func runEnableThenDeleteCycle(
 	t *testing.T,
-	restURI, class, propName, putBody, deleteIndexName string,
+	restURI, class, propName, indexType, submitBody string,
 	requireEnabled func(),
 ) {
 	t.Helper()
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, propName, putBody)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, propName, indexType, submitBody)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireEnabled()
-	deleteIndex(t, restURI, class, propName, deleteIndexName)
+	deleteIndex(t, restURI, class, propName, indexType)
 }
 
 // assertNoIndexBleedAfterDelete is the inverse of the FINISHED-task
@@ -172,8 +168,8 @@ func runEnableThenDeleteCycle(
 // immediately at t=0, the fix lets the poll converge inside the window.
 //
 // `idxStatusType` is the GET /indexes status-block type name (one of
-// "searchable" / "filterable" / "rangeable"), distinct from the DELETE
-// URL's `indexName` ("searchable" / "filterable" / "rangeFilters").
+// "searchable" / "filterable" / "rangeFilters"); under the GA API it matches
+// the DELETE URL's index segment exactly.
 func assertNoIndexBleedAfterDelete(
 	t *testing.T,
 	restURI, class, propName, idxStatusType, msgAndArgsFmt string,

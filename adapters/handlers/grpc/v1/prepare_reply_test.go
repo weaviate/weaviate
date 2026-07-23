@@ -1329,7 +1329,8 @@ func TestGRPCReply(t *testing.T) {
 	for _, tt := range tests {
 		replier := NewReplier(false, fakeGenerativeParams{}, nil, nil)
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, scheme)
+			getClass := func(className string) (*models.Class, error) { return scheme.GetClass(className), nil }
+			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, newSchemaResolver(getClass))
 			if tt.hasError {
 				require.NotNil(t, err)
 			} else {
@@ -1421,9 +1422,10 @@ func TestTargetCollectionStripping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			getClass := func(className string) (*models.Class, error) { return scheme.GetClass(className), nil }
 			replier := NewReplier(false, fakeGenerativeParams{}, tc.principal, nil)
 			got, err := replier.extractPropertiesAnswer(
-				scheme,
+				newSchemaResolver(getClass),
 				map[string]interface{}{},
 				search.SelectProperties{}, // no properties → no schema walk needed
 				tc.className,
@@ -1486,8 +1488,9 @@ func TestRefTargetCollectionStripping(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			replier := NewReplier(false, fakeGenerativeParams{}, tc.principal, nil)
+			getClass := func(className string) (*models.Class, error) { return scheme.GetClass(className), nil }
 			got, err := replier.extractRefPropertiesAnswer(
-				scheme,
+				newSchemaResolver(getClass),
 				map[string]interface{}{},
 				search.SelectProperties{}, // no properties → no schema walk needed
 				tc.className,

@@ -69,6 +69,8 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 			i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)
 			return nil, err
 		}
+		i.logger.WithField("op_id", opID).WithField("shard", shardName).
+			Debugf("created replica snapshot: %d files", len(files))
 		i.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName, isSnapshot: true})
 		return files, nil
 	}
@@ -87,6 +89,8 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 		return nil, fmt.Errorf("shard %q could not list replica snapshot files: %w", shardName, err)
 	}
 
+	i.logger.WithField("op_id", opID).WithField("shard", shardName).
+		Debugf("created replica snapshot: %d files", len(files))
 	i.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName, isSnapshot: false})
 	return files, nil
 }

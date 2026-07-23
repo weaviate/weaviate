@@ -41,20 +41,6 @@ type fakeNamespacesExister struct {
 	defaultHomeNode string
 }
 
-func (f fakeNamespacesExister) Exists(name string) bool {
-	if _, ok := f.byName[name]; ok {
-		return true
-	}
-	return f.defaultHomeNode != ""
-}
-
-func (f fakeNamespacesExister) IsActive(name string) bool {
-	if ns, ok := f.byName[name]; ok {
-		return ns.State == cmd.NamespaceStateActive
-	}
-	return f.defaultHomeNode != ""
-}
-
 func (f fakeNamespacesExister) GetNamespace(name string) (cmd.Namespace, bool) {
 	if ns, ok := f.byName[name]; ok {
 		return ns, true
@@ -91,7 +77,7 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil,
-		fakeNamespacesExister{defaultHomeNode: "node-1"})
+		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager

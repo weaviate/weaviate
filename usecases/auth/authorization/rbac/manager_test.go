@@ -163,6 +163,139 @@ func equalPolicies(a, b []string) bool {
 	return true
 }
 
+// TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload pins that an
+// already-absent role in a batch delete does not drop persistence of the roles
+// (and their assignments) removed alongside it: the cleanup cascade calls
+// DeleteRoles with many names, and a concurrent delete can leave one already
+// gone. Reloading the policy from disk (a restart) must still see every removed
+// role and assignment gone.
+func TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload(t *testing.T) {
+	const (
+		roleA = "batchRoleA"
+		roleB = "batchRoleB"
+		roleC = "batchRoleC"
+	)
+	allRoles := []string{roleA, roleB, roleC}
+	user := conv.UserNameWithTypeFromId("batch-user", authentication.AuthTypeDb)
+
+	tests := []struct {
+		name       string
+		preRemoved []string // roles deleted (and persisted) before the batch
+	}{
+		{name: "no pre-removed role", preRemoved: nil},
+		{name: "some roles already absent", preRemoved: []string{roleB}},
+		{name: "all roles already absent", preRemoved: allRoles},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			for _, r := range allRoles {
+				require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+					r: {{Resource: "data/collections/Movies/shards/*/objects/*", Verb: authorization.READ, Domain: authorization.DataDomain}},
+				}))
+			}
+			// Assign every role so the batch must also persist assignment removal.
+			require.NoError(t, m.AddRolesForUser(user, allRoles))
+
+			if len(tt.preRemoved) > 0 {
+				require.NoError(t, m.DeleteRoles(tt.preRemoved...))
+			}
+
+			require.NoError(t, m.DeleteRoles(allRoles...))
+
+			// Drop in-memory state and reload from the persisted policy file,
+			// which is what a restart does.
+			require.NoError(t, m.casbin.LoadPolicy())
+
+			got, err := m.GetRoles()
+			require.NoError(t, err)
+			for _, r := range allRoles {
+				_, exists := got[r]
+				require.Falsef(t, exists, "role %q must stay deleted across reload", r)
+			}
+
+			assignments, err := m.GetRolesForUserOrGroup("batch-user", authentication.AuthTypeDb, false)
+			require.NoError(t, err)
+			require.Empty(t, assignments, "assignments must stay removed across reload")
+		})
+	}
+}
+
+// TestManager_CountNamespaceLocalRBAC pins the filtering: a namespace-local
+// role and assignments to its direct principals count (even when the assigned
+// role is global), while global roles and out-of-namespace subjects do not.
+func TestManager_CountNamespaceLocalRBAC(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+		"customer1:editor": {{Resource: "data/collections/customer1:Movies/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}},
+		"auditor":          {{Resource: "data/collections/Movies/shards/*/objects/*", Verb: "R", Domain: authorization.DataDomain}},
+	}))
+	// Namespaced db user with a local role, namespaced oidc user with a global
+	// role, and a global db user with the global role.
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("customer1:alice", authentication.AuthTypeDb), []string{"customer1:editor"}))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("customer1:carol", authentication.AuthTypeOIDC), []string{"auditor"}))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("bob", authentication.AuthTypeDb), []string{"auditor"}))
+	// A namespace-named group is still a global assignment: it must not count,
+	// else the namespace could never be removed (the cascade leaves it).
+	require.NoError(t, m.AddRolesForUser(conv.PrefixGroupName("customer1:team"), []string{"auditor"}))
+
+	// 1 local role + 2 namespaced assignments (alice, carol); auditor + bob + group excluded.
+	got, err := m.CountNamespaceLocalRBAC("customer1")
+	require.NoError(t, err)
+	assert.Equal(t, 3, got)
+
+	// The cascade enumeration surfaces the two namespaced users, never the
+	// namespace-named group: a group is global, so it must never be treated as a
+	// namespace-local subject the cascade would try to revoke from.
+	_, subjects, err := m.NamespaceLocalRBAC("customer1")
+	require.NoError(t, err)
+	ids := make([]string, len(subjects))
+	for i, s := range subjects {
+		ids[i] = s.ID
+	}
+	assert.ElementsMatch(t, []string{"customer1:alice", "customer1:carol"}, ids)
+
+	other, err := m.CountNamespaceLocalRBAC("customer2")
+	require.NoError(t, err)
+	assert.Equal(t, 0, other)
+
+	// Revoking a namespaced subject's global-role assignment — what the delete
+	// cascade does — drives the gate down: carol holds only the global auditor
+	// role, so revoking it drops the count by one.
+	require.NoError(t, m.RevokeRolesForUser(conv.UserNameWithTypeFromId("customer1:carol", authentication.AuthTypeOIDC), "auditor"))
+	got, err = m.CountNamespaceLocalRBAC("customer1")
+	require.NoError(t, err)
+	assert.Equal(t, 2, got)
+}
+
+// TestManager_NamespaceLocalRBAC_FailsClosedOnUnparseableRow pins the gate's
+// fail-closed contract: an unparseable grouping subject must surface as an
+// error, not be skipped — a silent undercount would let the removal-block gate
+// read zero and remove a namespace while an assignment survives.
+func TestManager_NamespaceLocalRBAC_FailsClosedOnUnparseableRow(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	// Inject a grouping row whose subject has no auth-type prefix, so
+	// GetUserAndPrefix can't parse it.
+	_, err = m.casbin.AddRoleForUser("malformed-no-prefix", conv.PrefixRoleName("auditor"))
+	require.NoError(t, err)
+
+	_, _, err = m.NamespaceLocalRBAC("customer1")
+	require.Error(t, err)
+
+	_, err = m.CountNamespaceLocalRBAC("customer1")
+	require.Error(t, err)
+}
+
 func TestSnapshotNilCasbin(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	m := &Manager{
@@ -664,6 +797,57 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			finalGroupingPolicies, err := m.casbin.GetGroupingPolicy()
 			require.NoError(t, err)
 			assert.Equal(t, finalGroupingPolicies, tt.groupingsExpected)
+		})
+	}
+}
+
+// TestCheckPermissions_OperatorWithNamespaceTreatedAsGlobal pins that the
+// enforce path derives confinement via namespacing.ConfinedNamespace: a global
+// operator is unconfined even if a namespace is set on its principal, so it
+// keeps access to operator-only domains. A namespace-bound (non-operator)
+// principal with the same role is still denied those domains.
+func TestCheckPermissions_OperatorWithNamespaceTreatedAsGlobal(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	const subject = "operator-user"
+	_, err = m.casbin.AddRoleForUser(
+		conv.UserNameWithTypeFromId(subject, authentication.AuthTypeDb),
+		conv.PrefixRoleName(authorization.Root),
+	)
+	require.NoError(t, err)
+
+	// cluster/* is an operator-only domain: denied to confined callers.
+	resource := authorization.Cluster()
+
+	tests := []struct {
+		name      string
+		principal *models.Principal
+		want      bool
+	}{
+		{
+			name:      "operator without namespace",
+			principal: &models.Principal{Username: subject, UserType: models.UserTypeInputDb, IsGlobalOperator: true},
+			want:      true,
+		},
+		{
+			name:      "operator with stray namespace stays unconfined",
+			principal: &models.Principal{Username: subject, UserType: models.UserTypeInputDb, IsGlobalOperator: true, Namespace: "customer1"},
+			want:      true,
+		},
+		{
+			name:      "namespaced non-operator stays confined",
+			principal: &models.Principal{Username: subject, UserType: models.UserTypeInputDb, Namespace: "customer1"},
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			allowed, err := m.checkPermissions(tt.principal, resource, authorization.READ)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, allowed)
 		})
 	}
 }

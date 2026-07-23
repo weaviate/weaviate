@@ -386,11 +386,12 @@ func TestValidateNoQualifiedNamespaceInPolicies(t *testing.T) {
 	namespaced := &models.Principal{Username: "alice", Namespace: "customer1"}
 
 	tests := []struct {
-		name              string
-		namespacesEnabled bool
-		principal         *models.Principal
-		policies          []authorization.Policy
-		wantErr           bool
+		name                 string
+		namespacesEnabled    bool
+		principal            *models.Principal
+		policies             []authorization.Policy
+		allowGlobalQualified bool
+		wantErr              bool
 	}{
 		{
 			name:              "namespaces disabled: qualified resource accepted",
@@ -457,12 +458,29 @@ func TestValidateNoQualifiedNamespaceInPolicies(t *testing.T) {
 			policies:          []authorization.Policy{{Resource: "schema/collections/customer1:Movies/shards/#"}},
 			wantErr:           true,
 		},
+		// allowGlobalQualified lifts the restriction for a global caller (the
+		// hasPermission read path), but never for a namespaced one.
+		{
+			name:                 "allowGlobalQualified: global qualified resource accepted",
+			namespacesEnabled:    true,
+			principal:            global,
+			policies:             []authorization.Policy{{Resource: "schema/collections/customer1:Movies/shards/#"}},
+			allowGlobalQualified: true,
+		},
+		{
+			name:                 "allowGlobalQualified: namespaced qualified resource still rejected",
+			namespacesEnabled:    true,
+			principal:            namespaced,
+			policies:             []authorization.Policy{{Resource: "schema/collections/customer2:Movies/shards/#"}},
+			allowGlobalQualified: true,
+			wantErr:              true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := &authZHandlers{namespacesEnabled: tt.namespacesEnabled}
-			err := h.validateNoQualifiedNamespaceInPolicies(tt.principal, tt.policies)
+			err := h.validateNoQualifiedNamespaceInPolicies(tt.principal, tt.policies, tt.allowGlobalQualified)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "namespace-qualified")

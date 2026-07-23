@@ -1062,3 +1062,92 @@ func noopVectorizerConfig() any {
 func uuidFromInt(in int) strfmt.UUID {
 	return strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", in)).String())
 }
+
+// TestMerge_StripsDroppedVectors pins BOTH stripDroppedVectors call sites
+// through the real storage paths: a property-only merge (mergeObjectInStorage)
+// and a reference-only batch (mutableMergeObjectLSM) must not re-persist a
+// vector whose schema entry was dropped after the object was stored — the
+// carried-over copy would land in a fresh post-snapshot segment the cleanup
+// pending-set never covers, and survive the drop.
+func TestMerge_StripsDroppedVectors(t *testing.T) {
+	var (
+		ctx    = context.Background()
+		source = &models.Class{
+			Class:               "MergeDropVecSource",
+			InvertedIndexConfig: invertedConfig(),
+			Properties: []*models.Property{
+				{Name: "text", DataType: schema.DataTypeText.PropString()},
+				{Name: "toTarget", DataType: []string{"MergeDropVecTarget"}},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				"keep": {Vectorizer: noopVectorizerConfig(), VectorIndexConfig: enthnsw.NewDefaultUserConfig()},
+				"gone": {Vectorizer: noopVectorizerConfig(), VectorIndexConfig: enthnsw.NewDefaultUserConfig()},
+			},
+		}
+		target = &models.Class{
+			Class:               "MergeDropVecTarget",
+			InvertedIndexConfig: invertedConfig(),
+			Properties: []*models.Property{
+				{Name: "name", DataType: schema.DataTypeText.PropString()},
+			},
+		}
+		mergedID = strfmt.UUID("11111111-1111-1111-1111-111111111111")
+		refdID   = strfmt.UUID("22222222-2222-2222-2222-222222222222")
+		targetID = strfmt.UUID("33333333-3333-3333-3333-333333333333")
+
+		db = createTestDatabaseWithClass(t, monitoring.GetMetrics(), source, target)
+	)
+
+	for _, id := range []strfmt.UUID{mergedID, refdID} {
+		require.NoError(t, db.PutObject(ctx, &models.Object{
+			ID:         id,
+			Class:      source.Class,
+			Properties: map[string]interface{}{"text": "before"},
+		}, nil, map[string][]float32{"keep": randVector(10), "gone": randVector(10)}, nil, nil, 0))
+	}
+	require.NoError(t, db.PutObject(ctx, &models.Object{
+		ID:         targetID,
+		Class:      target.Class,
+		Properties: map[string]interface{}{"name": "t"},
+	}, nil, nil, nil, nil, 0))
+
+	// Drop "gone" AFTER the objects are stored: both already carry it — exactly
+	// the carry-over hazard the strips guard.
+	source.VectorConfig["gone"] = droppedCfg()
+
+	t.Run("property merge strips the dropped vector", func(t *testing.T) {
+		require.NoError(t, db.Merge(ctx, objects.MergeDocument{
+			Class:           source.Class,
+			ID:              mergedID,
+			PrimitiveSchema: map[string]interface{}{"text": "after"},
+			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
+		}, nil, "", 0))
+
+		obj, err := db.ObjectByID(ctx, mergedID, nil, additional.Properties{}, "")
+		require.NoError(t, err)
+		require.Contains(t, obj.Vectors, "keep")
+		require.NotContains(t, obj.Vectors, "gone",
+			"property merge must not re-persist the dropped vector")
+	})
+
+	t.Run("reference-only batch strips the dropped vector", func(t *testing.T) {
+		from, err := crossref.ParseSource(fmt.Sprintf(
+			"weaviate://localhost/MergeDropVecSource/%s/toTarget", refdID))
+		require.NoError(t, err)
+		to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", targetID))
+		require.NoError(t, err)
+
+		refs, err := db.AddBatchReferences(ctx,
+			objects.BatchReferences{{From: from, To: to}}, nil, 0)
+		require.NoError(t, err)
+		for _, ref := range refs {
+			require.NoError(t, ref.Err)
+		}
+
+		obj, err := db.ObjectByID(ctx, refdID, nil, additional.Properties{}, "")
+		require.NoError(t, err)
+		require.Contains(t, obj.Vectors, "keep")
+		require.NotContains(t, obj.Vectors, "gone",
+			"reference-only batch must not re-persist the dropped vector")
+	})
+}

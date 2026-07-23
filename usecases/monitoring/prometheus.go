@@ -73,6 +73,9 @@ type PrometheusMetrics struct {
 	MmapOperations                      *prometheus.CounterVec
 	MmapProcMaps                        prometheus.Gauge
 
+	// Reindex metrics
+	RangeableInMemoryRebuildDegraded *prometheus.CounterVec
+
 	// Backup/Restore metrics
 	BackupRestoreDurations            *prometheus.SummaryVec
 	BackupStoreDurations              *prometheus.SummaryVec
@@ -121,6 +124,9 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
+	StartupShardsLoaded prometheus.Gauge
+	StartupShardsToLoad prometheus.Gauge
+
 	ShardsLoaded    prometheus.Gauge
 	ShardsUnloaded  prometheus.Gauge
 	ShardsLoading   prometheus.Gauge
@@ -145,13 +151,6 @@ type PrometheusMetrics struct {
 	// Keeping metering to only the critical buckets (objects, vectors_compressed)
 	// helps cut down on noise when monitoring
 	LSMCriticalBucketsOnly bool
-
-	// Deprecated metrics, keeping around because the classification features
-	// seems to sill use the old logic. However, those metrics are not actually
-	// used for the schema anymore, but only for the classification features.
-	SchemaTxOpened   *prometheus.CounterVec
-	SchemaTxClosed   *prometheus.CounterVec
-	SchemaTxDuration *prometheus.SummaryVec
 
 	// Vectorization
 	T2VBatches            *prometheus.GaugeVec
@@ -231,7 +230,7 @@ func NewHTTPServerMetrics(namespace string, reg prometheus.Registerer) *HTTPServ
 			Namespace: namespace,
 			Name:      "http_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving requests.",
-			Buckets:   LatencyBuckets,
+			Buckets:   RequestLatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
@@ -277,7 +276,7 @@ func NewGRPCServerMetrics(namespace string, reg prometheus.Registerer) *GRPCServ
 			Namespace: namespace,
 			Name:      "grpc_server_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving requests.",
-			Buckets:   LatencyBuckets,
+			Buckets:   RequestLatencyBuckets,
 		}, []string{"grpc_service", "method", "status"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
@@ -352,6 +351,7 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.StartupProgress.DeletePartialMatch(labels)
 	pm.StartupDurations.DeletePartialMatch(labels)
 	pm.StartupDiskIO.DeletePartialMatch(labels)
+	pm.RangeableInMemoryRebuildDegraded.DeletePartialMatch(labels)
 	return nil
 }
 
@@ -390,6 +390,12 @@ var (
 	// LatencyBuckets is default histogram bucket for response time (in seconds).
 	// It also includes request that served *very* fast and *very* slow
 	LatencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+
+	// RequestLatencyBuckets prepends sub-ms boundaries (down to 100µs) to
+	// LatencyBuckets for the HTTP/gRPC request-duration histograms, so
+	// histogram_quantile resolves sub-5ms requests instead of collapsing them into
+	// one bucket. Derived from LatencyBuckets so the shared tail can't drift.
+	RequestLatencyBuckets = append([]float64{.0001, .00025, .0005, .001, .0025}, LatencyBuckets...)
 
 	// sizeBuckets defines buckets for request/response body sizes (in bytes).
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
@@ -578,6 +584,12 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of entries in /proc/self/maps",
 		}),
 
+		// Reindex metrics
+		RangeableInMemoryRebuildDegraded: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "rangeable_inmemory_rebuild_degraded_total",
+			Help: "Number of times the rangeable in-memory rebuild at reindex finalize degraded to disk serving instead of activating in-memory acceleration",
+		}, []string{"class_name", "shard_name", "property"}),
+
 		// Queue metrics
 		QueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "queue_size",
@@ -706,6 +718,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "startup_diskio_throughput",
 			Help: "Disk I/O throuhput in bytes per second",
 		}, []string{"operation", "class_name", "shard_name"}),
+		StartupShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_startup_shards_loaded",
+			Help: "Number of eagerly-loaded local shards that have finished loading during startup",
+		}),
+		StartupShardsToLoad: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_startup_shards_to_load",
+			Help: "Number of local shards expected to load eagerly during startup",
+		}),
 		QueryDimensions: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "query_dimensions_total",
 			Help: "The vector dimensions used by any read-query that involves vectors",
@@ -756,7 +776,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{
-			Name: "7oaded",
+			Name: "shards_loaded",
 			Help: "Number of shards loaded",
 		}),
 		ShardsUnloaded: promauto.NewGauge(prometheus.GaugeOpts{
@@ -776,20 +796,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "shard_halt_for_transfer_force_resume_total",
 			Help: "Halt-for-transfer inactivity watchdog firings. Non-zero indicates a transfer was force-resumed mid-stream.",
 		}, []string{}),
-
-		// Schema TX-metrics. Can be removed when RAFT is ready
-		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "schema_tx_opened_total",
-			Help: "Total number of opened schema transactions",
-		}, []string{"ownership"}),
-		SchemaTxClosed: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "schema_tx_closed_total",
-			Help: "Total number of closed schema transactions. A close must be either successful or failed",
-		}, []string{"ownership", "status"}),
-		SchemaTxDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "schema_tx_duration_seconds",
-			Help: "Mean duration of a tx by status",
-		}, []string{"ownership", "status"}),
 
 		// RAFT-based schema metrics
 		SchemaWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{
@@ -1018,6 +1024,14 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 	}
 
 	return nil
+}
+
+func (m *PrometheusMetrics) IncRangeableInMemoryRebuildDegraded(className, shardName, propName string) {
+	m.RangeableInMemoryRebuildDegraded.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"property":   propName,
+	}).Inc()
 }
 
 // --- Objects TTL: main ---

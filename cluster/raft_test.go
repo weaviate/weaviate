@@ -275,61 +275,6 @@ func TestRaftEndpoints(t *testing.T) {
 	require.Nil(t, err)
 	assert.Equal(t, []string{"Node-1"}, ss.Physical["T2"].BelongsToNodes)
 
-	// SyncShard with active tenant
-	_, err = srv.SyncShard(ctx, "", "", "")
-	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	m.indexer.On("LoadShard", "C", "A").Return(nil).Times(1)
-	_, err = srv.SyncShard(ctx, "C", "A", "Node-1")
-	assert.Nil(t, err)
-
-	// SyncShard with inactive tenant
-	_, err = srv.UpdateShardStatus(ctx, "C", "A", "INACTIVE")
-	assert.Nil(t, err)
-
-	_, err = srv.SyncShard(ctx, "", "", "")
-	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	m.indexer.On("ShutdownShard", "C", "A").Return(nil).Times(1)
-	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	_, err = srv.SyncShard(ctx, "C", "A", "Node-1")
-	assert.Nil(t, err)
-
-	_, err = srv.UpdateShardStatus(ctx, "C", "A", "ACTIVE")
-	assert.Nil(t, err)
-
-	// SyncShard with absent tenant
-	_, err = srv.SyncShard(ctx, "", "", "")
-	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	m.indexer.On("ShutdownShard", "C", "T0").Return(nil).Times(1)
-	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	_, err = srv.SyncShard(ctx, "C", "T0", "Node-1")
-	assert.Nil(t, err)
-
-	// Add single-tenant collection
-	cls = &models.Class{
-		Class: "D",
-	}
-	ss = &sharding.State{
-		PartitioningEnabled: false,
-		Physical:            map[string]sharding.Physical{"S0": {Name: "S0"}},
-		Virtual:             []sharding.Virtual{{}}, // Doesn't matter for test
-	}
-	_, err = srv.AddClass(ctx, cls, ss)
-	assert.Nil(t, err)
-	assert.Equal(t, schemaReader.ClassEqual("D"), "D")
-
-	// SyncShard with ST collection and present shard
-	m.indexer.On("ShutdownShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	m.indexer.On("LoadShard", "D", "S0").Return(nil).Times(1)
-	_, err = srv.SyncShard(ctx, "D", "S0", "Node-1")
-	assert.Nil(t, err)
-
-	// SyncShard with ST collection and absent shard
-	m.indexer.On("ShutdownShard", "D", "S0").Return(nil).Times(1)
-	m.indexer.On("LoadShard", mock.Anything, mock.Anything).Return(nil).Times(0)
-	_, err = srv.SyncShard(ctx, "D", "S0", "Node-1")
-	assert.Nil(t, err)
-
 	// UpdateTenants
 	_, err = srv.UpdateTenants(ctx, "", &command.UpdateTenantsRequest{})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
@@ -612,4 +557,38 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		_, err := r.ApplyReplicationScalePlan(ctx, plan)
 		require.ErrorContains(t, err, "invalid scale plan: source node")
 	})
+}
+
+// TestClusterID_CommittedByRealRaftLeader drives cluster-id commit through a
+// real single-node raft leader end to end (onLeaderFound -> Execute -> Apply -> commit).
+func TestClusterID_CommittedByRealRaftLeader(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	defer srv.Close(ctx)
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
+
+	require.True(t, tryNTimesWithWait(25, 200*time.Millisecond, srv.store.IsLeader),
+		"node did not become raft leader")
+	require.True(t, tryNTimesWithWait(10, 200*time.Millisecond, srv.Ready),
+		"node did not become ready")
+
+	// generous ceiling for a loaded CI runner; onLeaderFound commits once a leader is found
+	require.True(t, tryNTimesWithWait(75, 200*time.Millisecond, func() bool {
+		return srv.store.ClusterID() != ""
+	}), "leader did not commit a clusterId via real raft within timeout")
+
+	id := srv.store.ClusterID()
+	require.NotEmpty(t, id)
+
+	// Set-once under real raft: another leader commit attempt must not change it.
+	srv.store.maybeCommitClusterID()
+	assert.Equal(t, id, srv.store.ClusterID(),
+		"clusterId must be stable once committed (set-once)")
 }

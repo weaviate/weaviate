@@ -109,6 +109,12 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 		err := h.manager.AddTask(c, 100)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated conflict")
+		// The rejection must be classifiable as a conflict (→ REST 409) via
+		// errors.Is on the sentinel + umbrella, end-to-end.
+		require.ErrorIs(t, err, ErrTaskConflict,
+			"a CheckConflict rejection must ride the ErrTaskConflict sentinel")
+		require.ErrorIs(t, err, ErrPermanentRejection,
+			"conflict rejections must classify as permanent (FailedPrecondition on the wire)")
 
 		// Confirm the task was NOT registered.
 		tasks, err2 := h.manager.ListDistributedTasks(context.Background())
@@ -292,6 +298,45 @@ func TestManager_CancelTask_Failures(t *testing.T) {
 	})
 }
 
+// TestManager_CancelTask_RejectsNonStartedActive pins that CancelTask aborts
+// only STARTED tasks: a task that reached PREPARING/SWAPPING is rejected with
+// ErrTaskNotRunning, which cancelReindexTask maps to 202 NO_OP, not 500.
+func TestManager_CancelTask_RejectsNonStartedActive(t *testing.T) {
+	const (
+		ns      = "test"
+		taskID  = "1"
+		version = uint64(10)
+	)
+	cancel := func(t *testing.T, h *testHarness) error {
+		return h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+			Namespace:             ns,
+			Id:                    taskID,
+			Version:               version,
+			CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+	}
+
+	t.Run("SWAPPING task rejected with ErrTaskNotRunning", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		addTaskWithUnits(t, h, ns, taskID, version, []string{"su-1"})
+		completeUnit(t, h, ns, taskID, version, "node-1", "su-1")
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusSwapping, tasks[ns][0].Status)
+
+		require.ErrorIs(t, cancel(t, h), ErrTaskNotRunning)
+	})
+
+	t.Run("PREPARING task rejected with ErrTaskNotRunning", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		addBarrierTaskWithUnits(t, h, ns, taskID, version, []string{"su-1"})
+		completeUnit(t, h, ns, taskID, version, "node-1", "su-1")
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusPreparing, tasks[ns][0].Status)
+
+		require.ErrorIs(t, cancel(t, h), ErrTaskNotRunning)
+	})
+}
+
 func TestManager_CleanUpTask_Failures(t *testing.T) {
 	t.Run("task does not exist", func(t *testing.T) {
 		var (
@@ -403,6 +448,47 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 		err = h.manager.CleanUpTask(cleanUpCmd)
 		require.ErrorContains(t, err, "too fresh")
 	})
+}
+
+// TestManager_CleanUpTask_TTLZeroBoundary pins the too-fresh boundary at
+// TTL=0: the manager rejects cleanup while Since<=TTL, so Since==0 is
+// rejected and only a later tick (Since>0) succeeds — the asymmetry with the
+// scheduler's TTL<=Since eligibility (already true at Since==0) ensures
+// cleanup never races a reader that just observed the FINISHED task.
+func TestManager_CleanUpTask_TTLZeroBoundary(t *testing.T) {
+	const (
+		ns  = "test"
+		id  = "1"
+		ver = uint64(10)
+	)
+	h := newTestHarness(t)
+	h.completedTaskTTL = 0
+	h.init(t)
+
+	// ms-align the fake clock so FinishedAt (ms precision) equals Now exactly,
+	// making Since==0 deterministic rather than a sub-ms remainder.
+	if rem := h.clock.Now().UnixNano() % int64(time.Millisecond); rem != 0 {
+		h.clock.Advance(time.Duration(int64(time.Millisecond) - rem))
+	}
+	finishedMs := h.clock.Now().UnixMilli()
+
+	addTaskWithUnits(t, h, ns, id, ver, []string{"su-1"})
+	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace: ns, Id: id, Version: ver, CancelledAtUnixMillis: finishedMs,
+	})))
+
+	cleanUp := func() error {
+		return h.manager.CleanUpTask(toCmd(t, &cmd.CleanUpDistributedTaskRequest{
+			Namespace: ns, Id: id, Version: ver,
+		}))
+	}
+
+	require.ErrorContains(t, cleanUp(), "too fresh",
+		"at Since==0 the manager rejects cleanup (Since <= TTL) even at TTL=0")
+
+	h.clock.Advance(time.Millisecond)
+	require.NoError(t, cleanUp(),
+		"once Since is strictly positive the TTL=0 task is cleanable")
 }
 
 func TestManager_ListDistributedTasksPayload(t *testing.T) {
@@ -1355,6 +1441,76 @@ func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T
 		"late ack must not be recorded on a terminal task")
 }
 
+// TestManager_MarkTaskFailed pins the SWAPPING → FAILED FSM path
+// (weaviate/0-weaviate-issues#297): idempotent, refuses to overwrite FINISHED.
+func TestManager_MarkTaskFailed(t *testing.T) {
+	markFailed := func(t *testing.T, h *testHarness, ns, id string, version uint64, errMsg string) error {
+		return h.manager.MarkTaskFailed(toCmd(t, &cmd.MarkTaskFailedRequest{
+			Namespace:          ns,
+			Id:                 id,
+			Version:            version,
+			Error:              errMsg,
+			FailedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+	}
+
+	t.Run("transitions SWAPPING to FAILED and records the error", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+		completeUnit(t, h, "ns", "task1", version, "node-1", "u")
+
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
+		finishedAt := tasks["ns"][0].FinishedAt
+
+		require.NoError(t, markFailed(t, h, "ns", "task1", version, "schema flip failed at finalize"))
+
+		tasks, _ = h.manager.ListDistributedTasks(context.Background())
+		task := tasks["ns"][0]
+		require.Equal(t, TaskStatusFailed, task.Status)
+		require.Contains(t, task.Error, "schema flip failed at finalize")
+		require.Equal(t, finishedAt, task.FinishedAt,
+			"FinishedAt must stay at the AllUnitsTerminal moment, matching other FAILED paths")
+	})
+
+	t.Run("is idempotent: second call on FAILED is a no-op", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+		completeUnit(t, h, "ns", "task1", version, "node-1", "u")
+
+		require.NoError(t, markFailed(t, h, "ns", "task1", version, "first failure"))
+		require.NoError(t, markFailed(t, h, "ns", "task1", version, "second failure"))
+
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusFailed, tasks["ns"][0].Status)
+		require.Contains(t, tasks["ns"][0].Error, "first failure")
+		require.NotContains(t, tasks["ns"][0].Error, "second failure",
+			"idempotent second call must not append another error")
+	})
+
+	t.Run("refuses to fail a task that already reached FINISHED", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+		completeUnit(t, h, "ns", "task1", version, "node-1", "u")
+		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+			Namespace:             "ns",
+			Id:                    "task1",
+			Version:               version,
+			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+
+		err := markFailed(t, h, "ns", "task1", version, "too late")
+		require.Error(t, err, "the first terminal transition must win")
+		require.ErrorIs(t, err, ErrTaskNotInFinalizingState)
+
+		tasks, _ := h.manager.ListDistributedTasks(context.Background())
+		require.Equal(t, TaskStatusFinished, tasks["ns"][0].Status)
+	})
+}
+
 // TestManager_SnapshotRestore_WithPostCompletionAcks pins the
 // crash-safety property the https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A fix relies on:
 // the per-node acks survive RAFT snapshot/restore. Without this, a
@@ -1554,6 +1710,79 @@ func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
 		err := h.manager.CheckClassMutation("C")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "simulated")
+	})
+}
+
+// fakeRemovalGate is a SchemaMutationDetector that also implements
+// VectorConfigRemovalGate, so CheckVectorConfigRemoval can type-assert it out of
+// the shared detector registry.
+type fakeRemovalGate struct {
+	*fakeSchemaMutationDetector
+	gateCalled    int
+	lastRemoved   []string
+	lastTaskCount int
+	gateReject    error
+}
+
+func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed []string, existing []*Task) error {
+	f.gateCalled++
+	f.lastClassName = className
+	f.lastRemoved = removed
+	f.lastTaskCount = len(existing)
+	return f.gateReject
+}
+
+// TestManager_CheckVectorConfigRemoval_DispatchToGates pins the dispatch:
+// CheckVectorConfigRemoval consults only detectors that also implement
+// VectorConfigRemovalGate, passes the namespace-scoped task list, propagates the
+// gate's rejection, and is a no-op for an empty removal list.
+func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
+	t.Run("no detectors registered → nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}))
+	})
+
+	t.Run("empty removal list → gate not consulted", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}, gateReject: fmt.Errorf("should not be reached")}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", nil))
+		require.Equal(t, 0, gate.gateCalled)
+	})
+
+	t.Run("gate returns nil → removal allowed, full task list passed", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace: "drop-vector-index", Id: "T1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(), UnitIds: []string{"su-1"},
+		})
+		require.NoError(t, h.manager.AddTask(c, 100))
+
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}))
+		require.Equal(t, 1, gate.gateCalled)
+		require.Equal(t, []string{"v1"}, gate.lastRemoved)
+		require.Equal(t, 1, gate.lastTaskCount, "gate must receive the FSM-stored task list")
+	})
+
+	t.Run("gate returns error → CheckVectorConfigRemoval propagates", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}, gateReject: fmt.Errorf("cleanup not FINISHED")}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
+		err := h.manager.CheckVectorConfigRemoval("C", []string{"v1"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cleanup not FINISHED")
+	})
+
+	t.Run("detector without the gate interface → skipped", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		// fakeSchemaMutationDetector does NOT implement VectorConfigRemovalGate.
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("should not be reached")},
+		})
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}))
 	})
 }
 

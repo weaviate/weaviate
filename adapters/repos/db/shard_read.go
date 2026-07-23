@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -154,6 +153,10 @@ func (s *Shard) MultiObjectRawByID(ctx context.Context, ids []strfmt.UUID) ([][]
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	for i, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 		if err != nil {
 			return nil, err
@@ -181,6 +184,10 @@ func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	for i, q := range query {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		idBytes, err := uuid.MustParse(q.ID).MarshalBinary()
 		if err != nil {
 			return nil, err
@@ -222,7 +229,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		return nil, fmt.Errorf("invalid final UUID %q: %w", finalUUID, err)
 	}
 
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceReusable()
+	// Digest mode: only the header is read below, so skip the full value copy.
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -278,7 +286,8 @@ func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.Repair
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	cursor := bucket.Cursor()
+	// Digest mode: only the header is read below (localTime), skip the full value.
+	cursor := bucket.CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
 	defer cursor.Close()
 
 	firstUUID, err := uuid.Parse(sourceDigests[0].ID)
@@ -545,7 +554,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(),
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version()).
-			WithTokenizationResolver(s.TokenizationFor)
+			WithTokenizationResolver(s.TokenizationFor).
+			WithSearchableBucketPinningResolver(s.PinTokenizationAndSearchableBucket)
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
 			return nil, nil, err
@@ -597,7 +607,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -720,14 +730,6 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				return nil
 			}
 
-			if selection != nil {
-				ids, dists, err = s.applySelection(ctx, selection, targetVector, ids, dists, limit)
-				if err != nil {
-					return fmt.Errorf("mmr selection for target %q: %w", targetVector, err)
-				}
-				limit = int(selection.MMR.Limit)
-			}
-
 			idss[i] = ids
 			distss[i] = dists
 			return nil
@@ -789,50 +791,6 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 	return objs, distCombined, nil
-}
-
-func (s *Shard) applySelection(ctx context.Context, selection *searchparams.Selection, targetVector string, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
-	distProv := distancerForConfig(s.index.GetVectorIndexConfig(targetVector))
-
-	// Pre-fetch candidate vectors from the object store
-	var addProps additional.Properties
-	if targetVector == "" {
-		addProps = additional.Properties{Vector: true}
-	} else {
-		addProps = additional.Properties{Vectors: []string{targetVector}}
-	}
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, addProps, nil, s.index.logger)
-	if err != nil {
-		return nil, nil, fmt.Errorf("mmr selection: fetch vectors: %w", err)
-	}
-
-	vecMap := make(map[uint64][]float32, len(ids))
-	for i, obj := range objs {
-		if obj == nil {
-			continue
-		}
-		var vec []float32
-		if targetVector == "" {
-			vec = obj.Vector
-		} else {
-			vec = obj.Vectors[targetVector]
-		}
-		vecMap[ids[i]] = vec
-	}
-
-	vecForID := func(_ context.Context, id uint64) ([]float32, error) {
-		return vecMap[id], nil
-	}
-
-	sel, err := selector.New(selection, distProv.SingleDist, vecForID, k)
-	if err != nil {
-		return nil, nil, fmt.Errorf("mmr selection: %w", err)
-	}
-	if sel == nil {
-		return ids, dists, nil
-	}
-	return sel.Select(ctx, ids, dists)
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
@@ -1031,7 +989,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	}
 	s.AppendChangeLogDelete(idBytes, logTime)
 
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime, logTime); err != nil {
 		return errors.Wrap(err, "object deletion in hashtree")
 	}
 

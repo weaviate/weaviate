@@ -93,7 +93,7 @@ func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenant
 	return res, nil
 }
 
-func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -352,7 +352,7 @@ func (f *FakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string, selection *searchparams.Selection,
+	properties []string,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return nil, nil, nil, nil
 }
@@ -562,4 +562,10 @@ func (c *FakeReplicationClient) CreateAsyncCheckpoint(_ context.Context, _, _ st
 
 func (c *FakeReplicationClient) DeleteAsyncCheckpoint(_ context.Context, _, _ string, _ []string) error {
 	return nil
+}
+
+func (c *FakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return nil, nil
 }

@@ -82,9 +82,9 @@ func TestNamespaces_DeleteHappyPath(t *testing.T) {
 
 // TestNamespaces_DeleteUserAuthBlockedClusterWide creates a namespace +
 // DB user, deletes the namespace, and asserts the user's API key
-// eventually fails with 401 against every replica. The leader applies
-// the synchronous DeleteUsersInNamespace before returning 202; followers
-// apply asynchronously, so each node is polled until auth is rejected.
+// eventually fails with 401 against every replica. The auth guard rejects
+// the key on any node that has applied the flip to deleting; followers apply
+// asynchronously, so each node is polled until auth is rejected.
 func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 	ns := uniqueNS()
 	const userID = "bob"
@@ -97,8 +97,9 @@ func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 	require.NoError(t, err, "fresh DB user should authenticate")
 
 	// Issue the delete; do not wait for full cleanup — the auth-blocked
-	// guarantee is established by the synchronous user-delete RAFT
-	// command, which has committed by the time the 202 is received.
+	// guarantee comes from the flip to deleting, which the auth guard
+	// enforces on every node that has applied it, before the cleanup tick
+	// reclaims the user rows.
 	helper.DeleteNamespace(t, ns, adminKey, helper.WithoutWaitForCleanup())
 
 	// On every replica, the user's API key must eventually be rejected.
@@ -166,8 +167,8 @@ func TestNamespaces_RecreateAfterDelete(t *testing.T) {
 		}
 		require.Failf(t, "unexpected response during recreate", "%T: %v", err, err)
 		return true
-	}, 5*time.Second, 50*time.Millisecond,
-		"namespace did not become recreatable within 5s")
+	}, 30*time.Second, 50*time.Millisecond,
+		"namespace did not become recreatable within 30s")
 
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
 }

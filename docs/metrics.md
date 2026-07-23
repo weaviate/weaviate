@@ -333,13 +333,6 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | `shards_loading` | Number of shards in process of loading | `Gauge` | `-` | - Low 
 | `shards_unloading` | Number of shards in process of unloading | `Gauge` | `-` | - Low 
 
-#### Schema Metrics
-| Name | Description | Type | Labels | High Cardinality |
-|---|---|---|---|---|
-| `schema_tx_opened_total` | Total number of opened schema transactions | `Counter` | `ownership` | - Low 
-| `schema_tx_closed_total` | Total number of closed schema transactions | `Counter` | `ownership, status` | - Low 
-| `schema_tx_duration_seconds` | Mean duration of a tx by status | `Summary` | `ownership, status` | - Low 
-
 #### Tombstone Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|

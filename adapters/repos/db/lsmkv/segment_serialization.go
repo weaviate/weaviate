@@ -253,6 +253,108 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 	return nil
 }
 
+// ParseReplaceNodeDigestIntoPread parses like ParseReplaceNodeIntoPread but
+// keeps only the first valuePrefixLen value bytes, so out.value never grows to
+// the full (vector-sized) payload. out.offset still spans the whole node so the
+// cursor advances correctly; skipped bytes are read from r but not allocated.
+func ParseReplaceNodeDigestIntoPread(r io.Reader, secondaryIndexCount uint16, valuePrefixLen int, out *segmentReplaceNode) error {
+	out.offset = 0
+
+	// 9 bytes covers the largest uninterrupted read (tombstone + value length).
+	var tmpBuf [9]byte
+
+	if _, err := io.ReadFull(r, tmpBuf[:9]); err != nil {
+		return errors.Wrap(err, "read tombstone and value length")
+	}
+	out.tombstone = tmpBuf[0] != 0
+	out.offset += 9
+	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
+
+	prefix := uint64(valuePrefixLen)
+	if prefix > valueLength {
+		prefix = valueLength
+	}
+	if int(prefix) > cap(out.value) {
+		out.value = make([]byte, prefix)
+	} else {
+		out.value = out.value[:prefix]
+	}
+	if _, err := io.ReadFull(r, out.value); err != nil {
+		return errors.Wrap(err, "read value prefix")
+	}
+	out.offset += int(prefix)
+	if valueLength > prefix {
+		skipped, err := io.CopyN(io.Discard, r, int64(valueLength-prefix))
+		if err != nil {
+			return errors.Wrap(err, "skip value remainder")
+		}
+		out.offset += int(skipped)
+	}
+
+	if _, err := io.ReadFull(r, tmpBuf[:4]); err != nil {
+		return errors.Wrap(err, "read key length encoding")
+	}
+	keyLength := binary.LittleEndian.Uint32(tmpBuf[:4])
+	out.offset += 4
+
+	if int(keyLength) > cap(out.primaryKey) {
+		out.primaryKey = make([]byte, keyLength)
+	} else {
+		out.primaryKey = out.primaryKey[:keyLength]
+	}
+	if _, err := io.ReadFull(r, out.primaryKey); err != nil {
+		return errors.Wrap(err, "read key")
+	}
+	out.offset += int(keyLength)
+
+	for j := 0; j < int(secondaryIndexCount); j++ {
+		if _, err := io.ReadFull(r, tmpBuf[:4]); err != nil {
+			return errors.Wrap(err, "read secondary key length encoding")
+		}
+		secKeyLen := binary.LittleEndian.Uint32(tmpBuf[:4])
+		out.offset += 4
+		if secKeyLen == 0 {
+			continue
+		}
+		skipped, err := io.CopyN(io.Discard, r, int64(secKeyLen))
+		if err != nil {
+			return errors.Wrap(err, "skip secondary key")
+		}
+		out.offset += int(skipped)
+	}
+
+	out.secondaryIndexCount = secondaryIndexCount
+	return nil
+}
+
+// ParseReplaceNodeDigestIntoMMAP is the mmap counterpart of
+// ParseReplaceNodeDigestIntoPread: it keeps only the first valuePrefixLen value
+// bytes, zero-copy (out.value/out.primaryKey sub-slice the buffer, valid only
+// until the next call, as in ParseReplaceNodeIntoMMAP).
+func ParseReplaceNodeDigestIntoMMAP(r *byteops.ReadWriter, secondaryIndexCount uint16, valuePrefixLen int, out *segmentReplaceNode) error {
+	out.tombstone = r.ReadUint8() == 0x01
+	valueLength := r.ReadUint64()
+
+	prefix := uint64(valuePrefixLen)
+	if prefix > valueLength {
+		prefix = valueLength
+	}
+	out.value = r.ReadBytesFromBuffer(prefix)
+	if valueLength > prefix {
+		r.MoveBufferPositionForward(valueLength - prefix)
+	}
+
+	out.primaryKey = r.ReadBytesFromBufferWithUint32LengthIndicator()
+
+	for j := 0; j < int(secondaryIndexCount); j++ {
+		r.DiscardBytesFromBufferWithUint32LengthIndicator()
+	}
+
+	out.secondaryIndexCount = secondaryIndexCount
+	out.offset = int(r.Position)
+	return nil
+}
+
 func ParseReplaceNodeIntoMMAP(r *byteops.ReadWriter, secondaryIndexCount uint16, out *segmentReplaceNode) error {
 	out.tombstone = r.ReadUint8() == 0x01
 	valueLength := r.ReadUint64()

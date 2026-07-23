@@ -67,7 +67,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 
 	uri := restURIOf(compose, 1)
 	trueVal := true
-	createCollection(t, uri, className, 3, 3, []*models.Property{
+	createCollection(t, compose, uri, className, 3, 3, []*models.Property{
 		{
 			Name:            propName,
 			DataType:        []string{"text"},
@@ -83,8 +83,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 
 	// Tokenization-changing migration creates both searchable and
 	// filterable trackers per (shard, replica).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, propName,
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, uri, className, propName, "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted change-tokenization task: %s", taskID)
 
 	// Cancel as soon as the task hits STARTED. Inserting a sleep here
@@ -160,21 +160,14 @@ func awaitTaskStartedFast(t *testing.T, restURI, taskID string, timeout time.Dur
 	}, timeout, 50*time.Millisecond, "task %s should reach STARTED", taskID)
 }
 
-// cancelReindexProperty sends {<indexType>: {cancel: true}} to
-// PUT /v1/schema/<class>/indexes/<prop> and requires a 202.
+// cancelReindexProperty cancels an in-flight reindex on (property,
+// indexType) via POST .../index/{indexType}/cancel and asserts 202.
 func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType string) {
 	t.Helper()
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
-	body := fmt.Sprintf(`{%q:{"cancel":true}}`, indexType)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(body)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	respBody, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusAccepted, resp.StatusCode,
-		"cancel returned %d: %s", resp.StatusCode, string(respBody))
+	if indexType == "rangeable" {
+		indexType = "rangeFilters"
+	}
+	reindexhelpers.CancelIndex(t, restURI, className, propName, indexType)
 }
 
 // collectShardNamesForClass returns every distinct shard name owned by
@@ -264,8 +257,9 @@ func scanClassDirAllNodes(
 	return survivors
 }
 
-// createS3Backup posts to /v1/backups/s3 and waits up to 120s for a
-// SUCCESS terminal status.
+// createS3Backup posts to /v1/backups/s3 and waits for SUCCESS: an in-flight
+// backup sends Index.drop down the rename-aside keepFiles path, defeating the
+// post-delete "class dir removed" assertion. Budget sized for a starved VM.
 func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) error {
 	t.Helper()
 	body := map[string]interface{}{
@@ -287,7 +281,7 @@ func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) e
 		return fmt.Errorf("backup create returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	deadline := time.Now().Add(120 * time.Second)
+	deadline := time.Now().Add(300 * time.Second)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -309,7 +303,7 @@ func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) e
 			return fmt.Errorf("backup FAILED: %s", status.Error)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("backup did not reach SUCCESS/FAILED in 120s; last status: %s", status.Status)
+			return fmt.Errorf("backup did not reach SUCCESS/FAILED in 300s; last status: %s", status.Status)
 		}
 		<-ticker.C
 	}

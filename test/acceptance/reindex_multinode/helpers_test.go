@@ -20,11 +20,14 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -61,9 +64,22 @@ func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...str
 	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
 
-// createCollection creates a class with the given shard count and replication factor
-// via the REST API.
-func createCollection(t *testing.T, restURI, className string, shardCount, rf int, properties []*models.Property) {
+func textProps(names ...string) []*models.Property {
+	props := make([]*models.Property, 0, len(names))
+	for _, name := range names {
+		props = append(props, &models.Property{
+			Name:         name,
+			DataType:     []string{"text"},
+			Tokenization: "word",
+		})
+	}
+	return props
+}
+
+// createCollection creates a class via the REST API, then blocks until it is
+// in every node's local schema view: a lagging follower fails consistency=ALL
+// writes, and retrying isn't safe (auto-UUIDs would duplicate).
+func createCollection(t *testing.T, compose *docker.DockerCompose, restURI, className string, shardCount, rf int, properties []*models.Property) {
 	t.Helper()
 
 	class := map[string]interface{}{
@@ -91,6 +107,31 @@ func createCollection(t *testing.T, restURI, className string, shardCount, rf in
 
 	respBody, _ := io.ReadAll(resp.Body)
 	require.Equal(t, http.StatusOK, resp.StatusCode, "create class failed: %s", string(respBody))
+
+	// consistency:false forces a local read; the default proxies to the
+	// leader, which would hide a lagging follower.
+	for _, node := range compose.Containers() {
+		if !strings.HasPrefix(node.Name(), "weaviate-") {
+			continue
+		}
+		nodeURI := node.URI()
+		require.Eventuallyf(t, func() bool {
+			req, err := http.NewRequest(http.MethodGet,
+				fmt.Sprintf("http://%s/v1/schema/%s", nodeURI, className), nil)
+			if err != nil {
+				return false
+			}
+			req.Header.Set("consistency", "false")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return false
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			return resp.StatusCode == http.StatusOK
+		}, 60*time.Second, 100*time.Millisecond,
+			"class %s must be locally visible on node %s before consistency=ALL writes", className, node.Name())
+	}
 }
 
 // deleteCollection deletes a class via the REST API.
@@ -354,21 +395,15 @@ func assertQueryConsistency(t *testing.T, results [][]string) {
 	}
 }
 
-// getClassFromNode retrieves a class schema from a specific node.
+// getClassFromNode is LEADER-PROXIED (default GET consistency): fine for
+// cluster-level assertions, never a per-node visibility gate — use
+// reindexhelpers.AwaitTokenizationVisible for gating.
 func getClassFromNode(t *testing.T, restURI, className string) *models.Class {
 	t.Helper()
 
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s", restURI, className))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, "get class failed: %s", string(body))
-
-	var class models.Class
-	require.NoError(t, json.Unmarshal(body, &class))
-	return &class
+	class, ok := reindexhelpers.FetchClass(restURI, className, false)
+	require.True(t, ok, "get class %s via %s failed", className, restURI)
+	return class
 }
 
 // tryImportObject attempts to import a single object and returns an error
@@ -403,29 +438,14 @@ func tryImportObject(restURI, className, text string) error {
 	return nil
 }
 
-// tryGetPropertyTokenization retrieves a property's tokenization from a node.
-// Returns "" if the request fails or the property is not found.
+// tryGetPropertyTokenization is LEADER-PROXIED (default GET consistency):
+// fine for cluster-level assertions, never a per-node visibility gate — use
+// reindexhelpers.AwaitTokenizationVisible for gating. "" = failed/not found.
 func tryGetPropertyTokenization(restURI, className, propName string) string {
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s", restURI, className))
-	if err != nil {
+	class, ok := reindexhelpers.FetchClass(restURI, className, false)
+	if !ok {
 		return ""
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return ""
-	}
-
-	var class models.Class
-	if err := json.Unmarshal(body, &class); err != nil {
-		return ""
-	}
-
 	for _, prop := range class.Properties {
 		if prop.Name == propName {
 			return prop.Tokenization
@@ -622,6 +642,11 @@ func filterMigrationLogLines(s string) []string {
 		"recovered untidied", "swap INCOMPLETE", "swap complete",
 		"runtime swap", "trim:",
 		"distributed task", "distributedtask",
+		// raft leadership lines: correlate with the FINISHED vs
+		// local-schema race (see AwaitTokenizationVisible).
+		"entering follower state", "entering candidate state",
+		"entering leader state", "election won", "leadership",
+		"raft_node_state",
 	}
 	var out []string
 	for _, line := range strings.Split(s, "\n") {
@@ -874,10 +899,13 @@ func classifyProbeSamples(t *testing.T, samples []probeSample, baseline, expecte
 				s.nodeID, s.count, lo, hi)
 		default:
 			c.Partial++
-			if c.FirstPartial.IsZero() {
+			// min/max by timestamp, not arrival order: per-node probe goroutines interleave.
+			if c.FirstPartial.IsZero() || s.t.Before(c.FirstPartial) {
 				c.FirstPartial = s.t
 			}
-			c.LastPartial = s.t
+			if s.t.After(c.LastPartial) {
+				c.LastPartial = s.t
+			}
 			t.Logf("partial @ +%v node=%d count=%d (baseline=%d, post=%d)",
 				s.t.Sub(migrationStart).Round(time.Millisecond),
 				s.nodeID, s.count, baseline, expectedAfter)
@@ -914,4 +942,102 @@ func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAf
 		}
 	}
 	return late
+}
+
+// awaitRangeCountSettledNoFallback polls until the range count converges,
+// then asserts the disk-fallback WARN never appeared in the container logs.
+func awaitRangeCountSettledNoFallback(
+	ctx context.Context, t *testing.T,
+	container interface {
+		Logs(context.Context) (io.ReadCloser, error)
+	},
+	restURI, className string, lo, hi, expected int,
+	countFailMsgFmt string, countFailArg interface{},
+	warnFailMsg string,
+) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		c, e := rangeCount(restURI, className, "score", lo, hi)
+		return e == nil && c == expected
+	}, 60*time.Second, 200*time.Millisecond, countFailMsgFmt, countFailArg)
+
+	for i := 0; i < 5; i++ {
+		_, _ = rangeCount(restURI, className, "score", lo, hi)
+	}
+	time.Sleep(2 * time.Second) // let the container flush stdout
+
+	assert.Zero(t, countInLogs(ctx, t, container, fallbackWARNSubstr), warnFailMsg)
+}
+
+// rangeCountProbeCounters aggregates the results of a background polling
+// loop started by startRangeCountPolling.
+type rangeCountProbeCounters struct {
+	wrongCounts atomic.Int64
+	queryRuns   atomic.Int64
+	queryErrors atomic.Int64
+}
+
+// startRangeCountPolling launches one goroutine per node, firing a
+// range-count query every 50ms until stopCh closes. onWrong/onError run
+// concurrently and must be goroutine-safe.
+func startRangeCountPolling(
+	compose *docker.DockerCompose, className string, lo, hi, expected, nodeCount int,
+	onWrong func(nodeIdx, got int), onError func(nodeIdx int, err error),
+) (counters *rangeCountProbeCounters, stopCh chan struct{}, wg *sync.WaitGroup) {
+	counters = &rangeCountProbeCounters{}
+	stopCh = make(chan struct{})
+	wg = &sync.WaitGroup{}
+	for nodeIdx := 1; nodeIdx <= nodeCount; nodeIdx++ {
+		wg.Add(1)
+		uri := restURIOf(compose, nodeIdx)
+		idx := nodeIdx
+		go func() {
+			defer wg.Done()
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopCh:
+					return
+				case <-ticker.C:
+				}
+				count, err := rangeCount(uri, className, "score", lo, hi)
+				counters.queryRuns.Add(1)
+				if err != nil {
+					counters.queryErrors.Add(1)
+					if onError != nil {
+						onError(idx, err)
+					}
+					continue
+				}
+				if count != expected {
+					counters.wrongCounts.Add(1)
+					if onWrong != nil {
+						onWrong(idx, count)
+					}
+				}
+			}
+		}()
+	}
+	return counters, stopCh, wg
+}
+
+// Pins a false positive: out-of-order partial timestamps must not regress LastPartial.
+func TestClassifyProbeSamples_OutOfOrderPartials(t *testing.T) {
+	start := time.Now()
+	samples := []probeSample{
+		{t: start.Add(2092 * time.Millisecond), nodeID: 1, count: 970}, // partial, arrives first
+		{t: start.Add(1990 * time.Millisecond), nodeID: 3, count: 970}, // partial, earlier timestamp
+		{t: start.Add(3 * time.Second), nodeID: 2, count: 0},           // post
+	}
+	c := classifyProbeSamples(t, samples, 1500, 0, start)
+
+	require.Equal(t, 2, c.Partial)
+	require.Equal(t, start.Add(1990*time.Millisecond), c.FirstPartial, "FirstPartial must be the earliest timestamp")
+	require.Equal(t, start.Add(2092*time.Millisecond), c.LastPartial, "LastPartial must be the latest timestamp")
+	require.False(t, c.LastPartial.Before(c.FirstPartial), "window must never be negative")
+
+	// with a correct anchor no partial can post-date it
+	anchor := c.LastPartial.Add(100 * time.Millisecond)
+	require.Zero(t, countLatePartials(t, samples, 1500, 0, anchor, start))
 }

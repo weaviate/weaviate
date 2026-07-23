@@ -152,7 +152,7 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 ) ([]uint64, error) {
 	startTime := time.Now()
 	hasMoreNesting := len(sort) > 1
-	cursor := bucket.CursorRoaringSet()
+	cursor := bucket.CursorRoaringSetCtx(ctx)
 	defer cursor.Close()
 
 	foundIDs := make([]uint64, 0, limit)
@@ -278,7 +278,7 @@ func (is *invertedSorter) processDESCWindow(
 ) ([]uint64, int, error) {
 	rowsEvaluated := 0
 	idsFoundInWindow := make([]uint64, 0, limit)
-	cursor := bucket.CursorRoaringSet()
+	cursor := bucket.CursorRoaringSetCtx(ctx)
 	defer cursor.Close()
 
 	for k, v := cursor.Seek(startKey); k != nil; k, v = cursor.Next() {

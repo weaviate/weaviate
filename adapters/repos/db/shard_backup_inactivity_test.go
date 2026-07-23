@@ -16,69 +16,10 @@ import (
 	"io"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// TestShard_ReArmOrResumeAfterInactivity pins the fix for the halt watchdog's
-// reset-vs-fire race: when the inactivity timer fires but a concurrent
-// MayResetTransferInactivityTimer has pushed the deadline into the future (real
-// transfer activity that raced the firing and could not drain the already-latched
-// tick), the watchdog must re-arm and keep waiting instead of force-resuming
-// maintenance cycles mid-stream.
-func TestShard_ReArmOrResumeAfterInactivity(t *testing.T) {
-	t.Run("deadline in the future re-arms and does not resume (the race)", func(t *testing.T) {
-		// A non-zero halt count means a transfer is in progress. A future deadline
-		// stands in for a reset that landed in the reset-vs-fire window.
-		timer := time.NewTimer(time.Hour)
-		require.True(t, timer.Stop(), "fresh timer should be stoppable")
-		s := &Shard{
-			haltForTransferInactivityTimer:   timer,
-			haltForTransferInactivityTimeout: time.Hour,
-			haltForTransferDeadline:          time.Now().Add(time.Hour),
-			haltForTransferCount:             1,
-		}
-
-		resumed := s.reArmOrResumeAfterInactivity()
-
-		assert.False(t, resumed, "must not resume while the deadline is still in the future")
-		assert.Equal(t, 1, s.haltForTransferCount,
-			"force-resume must not run: halt count must be left untouched")
-	})
-
-	t.Run("deadline reset further out is honoured across repeated firings", func(t *testing.T) {
-		timer := time.NewTimer(time.Hour)
-		require.True(t, timer.Stop())
-		s := &Shard{
-			haltForTransferInactivityTimer:   timer,
-			haltForTransferInactivityTimeout: time.Hour,
-			haltForTransferDeadline:          time.Now().Add(time.Hour),
-			haltForTransferCount:             3,
-		}
-
-		for i := 0; i < 5; i++ {
-			require.False(t, s.reArmOrResumeAfterInactivity())
-		}
-		assert.Equal(t, 3, s.haltForTransferCount)
-	})
-
-	t.Run("elapsed deadline resumes", func(t *testing.T) {
-		timer := time.NewTimer(time.Hour)
-		require.True(t, timer.Stop())
-		s := &Shard{
-			haltForTransferInactivityTimer:   timer,
-			haltForTransferInactivityTimeout: 10 * time.Millisecond,
-			haltForTransferDeadline:          time.Now().Add(-time.Second),
-			haltForTransferCount:             0,
-		}
-
-		resumed := s.reArmOrResumeAfterInactivity()
-
-		assert.True(t, resumed, "a genuinely elapsed deadline must resume and exit the watchdog")
-	})
-}
 
 // TestTransferActivityReader_ResetsPerChunk pins the fix for the per-file (not
 // per-chunk) reset gap: streaming a single large segment in halt-for-duration

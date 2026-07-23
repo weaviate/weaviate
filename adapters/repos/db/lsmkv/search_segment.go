@@ -110,7 +110,9 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			if firstNonExhausted == -1 {
 				firstNonExhausted = pivotPoint
 			}
-			cumScore += results[pivotPoint].idf
+			// compared against worstDist, a boosted score, so the bound must carry
+			// propertyBoost too; bare idf skips top-K docs for boosted properties.
+			cumScore += results[pivotPoint].idf * results[pivotPoint].propertyBoost
 			if cumScore >= worstDist {
 				pivotID = results[pivotPoint].idPointer
 				for i := pivotPoint + 1; i < len(results); i++ {
@@ -218,15 +220,15 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 		} else {
 			nextList := pivotPoint
-			maxWeight := results[nextList].idf
+			maxWeight := results[nextList].idf * results[nextList].propertyBoost
 			next := uint64(math.MaxUint64) // max uint
 
 			candidates := results[:pivotPoint+1]
 			for i := range candidates {
 				t := candidates[i]
-				if i < pivotPoint && t.idf > maxWeight {
+				if w := t.idf * t.propertyBoost; i < pivotPoint && w > maxWeight {
 					nextList = i
-					maxWeight = t.idf
+					maxWeight = w
 				}
 				if t.currentBlockMaxId < next {
 					next = t.currentBlockMaxId
@@ -244,14 +246,14 @@ func DoBlockMaxWand(ctx context.Context, limit int, results Terms, averagePropLe
 			}
 			results[nextList].AdvanceAtLeast(next)
 
-			// Full pass, not reinsertRight: AdvanceAtLeastShallow above de-sorts the
-			// whole prefix, not just nextList; repairing one element hangs long queries.
-			for i := nextList + 1; i < len(results); i++ {
-				if results[i].idPointer < results[i-1].idPointer {
-					results[i], results[i-1] = results[i-1], results[i]
-				} else if results[i].exhausted && i < len(results)-1 {
-					results[i], results[i+1] = results[i+1], results[i]
-				}
+			// A shallow advance in the upper-bound loop (needFullSort) can de-sort the
+			// whole prefix, not just nextList; the full sort repairs it and keeps long
+			// many-term queries (many terms sharing the pivot) from spinning forever.
+			if needFullSort {
+				results.sortByID()
+				needFullSort = false
+			} else {
+				results.reinsertRight(nextList)
 			}
 
 		}

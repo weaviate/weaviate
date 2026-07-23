@@ -12,6 +12,7 @@
 package replication_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -43,6 +44,21 @@ func seedOpOfType(t *testing.T, fsm *replication.ShardReplicationFSM, opID uint6
 	return uuid
 }
 
+func seedOpFull(t *testing.T, fsm *replication.ShardReplicationFSM, opID uint64, srcNode, tgtNode, collection, shard string, transferType api.ShardReplicationTransferType) strfmt.UUID {
+	t.Helper()
+	uuid := strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", opID))
+	require.NoError(t, fsm.Replicate(opID, &api.ReplicationReplicateShardRequest{
+		Version:          api.ReplicationCommandVersionV0,
+		Uuid:             uuid,
+		SourceNode:       srcNode,
+		SourceCollection: collection,
+		SourceShard:      shard,
+		TargetNode:       tgtNode,
+		TransferType:     transferType.String(),
+	}))
+	return uuid
+}
+
 // driveToState advances the op via UpdateReplicationOpStatus. CANCELLED
 // requires CancellationComplete (the FSM rejects it here) — see driveToCancelled.
 func driveToState(t *testing.T, fsm *replication.ShardReplicationFSM, opID uint64, state api.ShardReplicationState) {
@@ -64,6 +80,219 @@ func driveToCancelled(t *testing.T, fsm *replication.ShardReplicationFSM, opID u
 		Version: api.ReplicationCommandVersionV0,
 		Id:      opID,
 	}))
+}
+
+// admissionOp declares one op for a TestReplicate_Admission row: it is seeded via
+// Replicate (which is itself subject to admission), then driven to its state.
+type admissionOp struct {
+	id           uint64
+	srcNode      string
+	tgtNode      string
+	transferType api.ShardReplicationTransferType
+	state        api.ShardReplicationState
+}
+
+func TestReplicate_Admission(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+
+	cases := []struct {
+		name string
+		// setup ops are admitted (must all succeed) and driven to their state, then
+		// final is the op under test.
+		setup   []admissionOp
+		final   admissionOp
+		wantErr bool // true ⇒ final must be rejected with ErrShardAlreadyReplicating
+	}{
+		// --- source-guard isolation: shared source FQDN, disjoint targets ---
+		{
+			name:    "source: two active MOVEs rejected",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.HYDRATING}},
+			final:   admissionOp{id: 2, srcNode: "node1", tgtNode: "node3", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			name:    "source: cancelled MOVE then new MOVE allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.CANCELLED}},
+			final:   admissionOp{id: 2, srcNode: "node1", tgtNode: "node3", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: false,
+		},
+		{
+			name:    "source: completed COPY (READY) then new MOVE allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.COPY, state: api.READY}},
+			final:   admissionOp{id: 2, srcNode: "node1", tgtNode: "node3", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: false,
+		},
+		{
+			name:    "source: active COPY then COPY allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.COPY, state: api.HYDRATING}},
+			final:   admissionOp{id: 2, srcNode: "node1", tgtNode: "node3", transferType: api.COPY, state: api.REGISTERED},
+			wantErr: false,
+		},
+		// --- target-guard isolation: shared target FQDN, disjoint sources ---
+		{
+			name:    "target: two active MOVEs from distinct sources rejected",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.HYDRATING}},
+			final:   admissionOp{id: 2, srcNode: "node3", tgtNode: "node2", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			name:    "target: active COPY then MOVE from distinct source rejected",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.COPY, state: api.HYDRATING}},
+			final:   admissionOp{id: 2, srcNode: "node3", tgtNode: "node2", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			name:    "target: cancelled MOVE then active MOVE from distinct source allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.CANCELLED}},
+			final:   admissionOp{id: 2, srcNode: "node3", tgtNode: "node2", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: false,
+		},
+		{
+			name:    "target: completed COPY (READY) then active COPY from distinct source allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.COPY, state: api.READY}},
+			final:   admissionOp{id: 2, srcNode: "node3", tgtNode: "node2", transferType: api.COPY, state: api.REGISTERED},
+			wantErr: false,
+		},
+		{
+			name:    "target: two active COPYs from distinct sources allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.COPY, state: api.HYDRATING}},
+			final:   admissionOp{id: 2, srcNode: "node3", tgtNode: "node2", transferType: api.COPY, state: api.REGISTERED},
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			for _, op := range tc.setup {
+				seedOpFull(t, fsm, op.id, op.srcNode, op.tgtNode, coll, shard, op.transferType)
+				switch op.state {
+				case api.REGISTERED:
+				case api.CANCELLED:
+					driveToCancelled(t, fsm, op.id)
+				default:
+					driveToState(t, fsm, op.id, op.state)
+				}
+			}
+
+			uuid := strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", tc.final.id))
+			err := fsm.Replicate(tc.final.id, &api.ReplicationReplicateShardRequest{
+				Version:          api.ReplicationCommandVersionV0,
+				Uuid:             uuid,
+				SourceNode:       tc.final.srcNode,
+				SourceCollection: coll,
+				SourceShard:      shard,
+				TargetNode:       tc.final.tgtNode,
+				TransferType:     tc.final.transferType.String(),
+			})
+
+			if tc.wantErr {
+				require.ErrorIs(t, err, replication.ErrShardAlreadyReplicating)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestReplicate_RejectsSourceFromInFlightTarget(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+	cases := []struct {
+		name    string
+		setup   []admissionOp
+		final   admissionOp
+		wantErr bool
+	}{
+		{
+			name:    "MOVE sourcing a replica still being moved in is rejected",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.INTEGRATING}},
+			final:   admissionOp{id: 2, srcNode: "node2", tgtNode: "node3", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			name:    "COPY sourcing a replica still being moved in is rejected (incomplete read)",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.INTEGRATING}},
+			final:   admissionOp{id: 2, srcNode: "node2", tgtNode: "node3", transferType: api.COPY, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			name:    "MOVE sourcing a replica still being copied in is rejected",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.COPY, state: api.HYDRATING}},
+			final:   admissionOp{id: 2, srcNode: "node2", tgtNode: "node3", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			name:    "MOVE sourcing a FINALIZING target is rejected",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.FINALIZING}},
+			final:   admissionOp{id: 2, srcNode: "node2", tgtNode: "node3", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			// DEHYDRATING n2 is complete (its drain finished before this state), but we
+			// err closed and reject until READY — pins the conservative boundary.
+			name:    "MOVE sourcing a DEHYDRATING target is rejected (conservative)",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.DEHYDRATING}},
+			final:   admissionOp{id: 2, srcNode: "node2", tgtNode: "node3", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: true,
+		},
+		{
+			name:    "sourcing a READY target is allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.READY}},
+			final:   admissionOp{id: 2, srcNode: "node2", tgtNode: "node3", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: false,
+		},
+		{
+			name:    "sourcing a CANCELLED target is allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.CANCELLED}},
+			final:   admissionOp{id: 2, srcNode: "node2", tgtNode: "node3", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: false,
+		},
+		{
+			name:    "disjoint moves are allowed",
+			setup:   []admissionOp{{id: 1, srcNode: "node1", tgtNode: "node2", transferType: api.MOVE, state: api.INTEGRATING}},
+			final:   admissionOp{id: 2, srcNode: "node3", tgtNode: "node4", transferType: api.MOVE, state: api.REGISTERED},
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			for _, op := range tc.setup {
+				seedOpFull(t, fsm, op.id, op.srcNode, op.tgtNode, coll, shard, op.transferType)
+				switch op.state {
+				case api.REGISTERED:
+				case api.CANCELLED:
+					driveToCancelled(t, fsm, op.id)
+				default:
+					driveToState(t, fsm, op.id, op.state)
+				}
+			}
+
+			uuid := strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", tc.final.id))
+			err := fsm.Replicate(tc.final.id, &api.ReplicationReplicateShardRequest{
+				Version:          api.ReplicationCommandVersionV0,
+				Uuid:             uuid,
+				SourceNode:       tc.final.srcNode,
+				SourceCollection: coll,
+				SourceShard:      shard,
+				TargetNode:       tc.final.tgtNode,
+				TransferType:     tc.final.transferType.String(),
+			})
+
+			if tc.wantErr {
+				require.ErrorIs(t, err, replication.ErrShardAlreadyReplicating)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 // TestShardReplicationFSM_CancelReplication firewalls the cancel-conflict
