@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -2866,4 +2867,33 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 // for full semantics and preconditions.
 func (b *Bucket) PrependSegmentsFromBucket(ctx context.Context, srcDir string) error {
 	return b.disk.PrependSegmentsFromBucket(ctx, srcDir)
+}
+
+func (b *Bucket) GetKeysCount() (uint32, error) {
+	segmentsBloom, err := b.disk.GetKeysBloomFilter()
+	if err != nil {
+		return 0, err
+	}
+
+	// iterate all keys in memtable. b.flushing is a nil interface at rest, so a
+	// single-value type assertion would panic — use the comma-ok form.
+	for _, mem := range []memtable{b.active, b.flushing} {
+		m, ok := mem.(*Memtable)
+		if !ok || m == nil {
+			continue
+		}
+		keys, err := m.GetKeys()
+		if err != nil {
+			return 0, err
+		}
+		// No disk filter to add into: size a fresh one to 1.5x this memtable's
+		// key count, leaving headroom for the second memtable's keys.
+		if segmentsBloom == nil {
+			segmentsBloom = bloom.NewWithEstimates(uint(len(keys)*3/2), 0.001)
+		}
+		for _, key := range keys {
+			segmentsBloom.Add(key)
+		}
+	}
+	return segmentsBloom.ApproximatedSize(), nil
 }

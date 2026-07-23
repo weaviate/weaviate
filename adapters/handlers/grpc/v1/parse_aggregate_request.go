@@ -72,8 +72,9 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 		properties := make([]aggregation.ParamProperty, len(req.Aggregations))
 		for i := range req.Aggregations {
 			properties[i] = aggregation.ParamProperty{
-				Name:        schema.PropertyName(req.Aggregations[i].Property),
-				Aggregators: parseAggregations(req.Aggregations[i]),
+				Name:                   schema.PropertyName(req.Aggregations[i].Property),
+				Aggregators:            parseAggregations(req.Aggregations[i]),
+				ApproximateCardinality: req.Aggregations[i].ApproximateCardinality,
 			}
 		}
 		params.Properties = properties
