@@ -111,6 +111,19 @@ func decodeDropVectorIndexPayload(data []byte) (*DropVectorIndexTaskPayload, err
 	return &p, nil
 }
 
+// ExtractDropVectorIndexTaskTargets is the target extractor registered with
+// the DTM Manager so a NEW drop's marker introduction can purge the previous
+// drop's task records for the same (collection, target) — stale records must
+// not exist while a marker they don't belong to stands, or coverage
+// inheritance could adopt them. ok is false on an unparseable payload.
+func ExtractDropVectorIndexTaskTargets(payload []byte) (collection string, targets []string, ok bool) {
+	p, err := decodeDropVectorIndexPayload(payload)
+	if err != nil {
+		return "", nil, false
+	}
+	return p.Collection, p.Targets, true
+}
+
 // ExtractDropVectorIndexTaskCollection is the collection extractor registered
 // with the DTM Manager so the DeleteClass cascade can drop this namespace's task
 // records (mirrors ExtractReindexTaskCollection). ok is false on an unparseable

@@ -82,6 +82,7 @@ type MutationGuard interface {
 // depend on the full Manager surface and tests can stub it. nil-safe.
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
+	DeleteTasksForCollectionTargets(collection string, targets []string) []distributedtask.TaskDescriptor
 }
 
 type SchemaManager struct {
@@ -465,6 +466,23 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
+		// A NEWLY introduced drop marker purges the previous drop's task records
+		// for the same (collection, target) in this same apply — atomically and
+		// RAFT-deterministically. A re-created then re-dropped name therefore
+		// starts with a clean record slate: stale records must not exist next to
+		// a marker they don't belong to, or coverage inheritance and removal
+		// vouching could misattribute them to the new drop.
+		if s.distributedTaskManager != nil {
+			if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
+				if removed := s.distributedTaskManager.DeleteTasksForCollectionTargets(meta.Class.Class, introduced); len(removed) > 0 {
+					s.log.WithField("class", meta.Class.Class).
+						WithField("targets", introduced).
+						WithField("removed_count", len(removed)).
+						Info("purged previous drop's task records on new drop-vector marker")
+				}
+			}
+		}
+
 		// Gate at apply time so the verdict is RAFT-deterministic. The FSM's own
 		// sharding state is the coverage baseline: a shard neither in the vouching
 		// task's units nor its inherited cleaned-shard set has not been cleaned,
@@ -514,6 +532,24 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// introducedDroppedVectorConfigs returns the names of VectorConfig entries that
+// are dropped ("none") in next but were live or absent in prev — i.e. markers
+// this update introduces.
+func introducedDroppedVectorConfigs(prev, next *models.Class) []string {
+	var introduced []string
+	for name, cfg := range next.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		if prevCfg, ok := prev.VectorConfig[name]; ok && modelsext.IsVectorIndexDropped(prevCfg) {
+			continue
+		}
+		introduced = append(introduced, name)
+	}
+	sort.Strings(introduced)
+	return introduced
 }
 
 // removedDroppedVectorConfigs returns the names of dropped ("none") VectorConfig

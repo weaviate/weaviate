@@ -1821,6 +1821,53 @@ func TestManager_CheckTenantMutation_DispatchToDetectors(t *testing.T) {
 	})
 }
 
+func TestManager_DeleteTasksForCollectionTargets(t *testing.T) {
+	targetExtractor := func(payload []byte) (string, []string, bool) {
+		var p struct {
+			Collection string   `json:"collection"`
+			Targets    []string `json:"targets"`
+		}
+		if err := json.Unmarshal(payload, &p); err != nil || p.Collection == "" {
+			return "", nil, false
+		}
+		return p.Collection, p.Targets, true
+	}
+
+	h := newTestHarness(t).init(t)
+	h.manager.RegisterTargetExtractor("drop", targetExtractor)
+
+	mkTask := func(id string, payload any, status TaskStatus) {
+		t.Helper()
+		bytes, err := json.Marshal(payload)
+		require.NoError(t, err)
+		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "drop",
+			Id:                    id,
+			Payload:               bytes,
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			UnitIds:               []string{"u-" + id},
+		}), 1))
+		h.manager.tasks["drop"][id].Status = status
+	}
+	mkTask("match-1", map[string]any{"collection": "Foo", "targets": []string{"v1"}}, TaskStatusFinished)
+	mkTask("match-2", map[string]any{"collection": "Foo", "targets": []string{"v1", "v2"}}, TaskStatusFailed)
+	mkTask("other-target", map[string]any{"collection": "Foo", "targets": []string{"v9"}}, TaskStatusFinished)
+	mkTask("other-coll", map[string]any{"collection": "Bar", "targets": []string{"v1"}}, TaskStatusFinished)
+	mkTask("still-active", map[string]any{"collection": "Foo", "targets": []string{"v1"}}, TaskStatusStarted)
+
+	removed := h.manager.DeleteTasksForCollectionTargets("Foo", []string{"v1"})
+	removedIDs := make([]string, 0, len(removed))
+	for _, d := range removed {
+		removedIDs = append(removedIDs, d.ID)
+	}
+	sort.Strings(removedIDs)
+	require.Equal(t, []string{"match-1", "match-2"}, removedIDs,
+		"non-active records overlapping the target are purged; other targets, collections, and active tasks survive")
+
+	require.Empty(t, h.manager.DeleteTasksForCollectionTargets("", []string{"v1"}))
+	require.Empty(t, h.manager.DeleteTasksForCollectionTargets("Foo", nil))
+}
+
 func TestManager_DeleteTasksForCollection(t *testing.T) {
 	// Conservative: ("", false) on parse error keeps the cascade from
 	// matching when the payload is not the expected shape.
