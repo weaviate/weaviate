@@ -3063,9 +3063,9 @@ func (i *Index) drop() error {
 	lastBackup := i.lastBackup.Load()
 	keepFiles := lastBackup != nil
 
+	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
-	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
 	dropShard := func(shardName string, _ ShardLike) error {
 		eg.Go(func() error {
 			i.backupLock.RLock(shardName)
@@ -3079,7 +3079,9 @@ func (i *Index) drop() error {
 				return nil // shard already does not exist
 			}
 			if err := shard.drop(keepFiles); err != nil {
-				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
+				ec.Add(err)
+				i.logger.WithField("action", "drop_shard").
+					WithField("shard", shard.ID()).Error(err)
 			}
 
 			return nil
@@ -3088,34 +3090,52 @@ func (i *Index) drop() error {
 	}
 
 	i.shards.Range(dropShard)
-	if err := eg.Wait(); err != nil {
-		return err
-	}
+
+	// the error group only carries a recovered worker panic, which would
+	// otherwise leave the shard un-dropped without failing the call
+	ec.Add(eg.Wait())
 
 	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
 	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	if err := i.stopCycleManagers(ctx, "drop"); err != nil &&
-		!stderrors.Is(err, context.Canceled) && !stderrors.Is(err, context.DeadlineExceeded) {
-		return err
+	// the index is torn down regardless, so the cycles must stop and the
+	// directory must be renamed even when a shard or a cycle failed; a cycle that
+	// ran out of time must not hide one that failed for another reason
+	for _, cause := range causesOf(i.stopCycleManagers(ctx, "drop")) {
+		if !stderrors.Is(cause, context.Canceled) && !stderrors.Is(cause, context.DeadlineExceeded) {
+			ec.Add(cause)
+		}
 	}
 
 	if keepFiles {
 		// backup framework expects the DeleteMarkerAdd-prefixed rename
-		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
+		if err := os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID()))); err != nil {
+			ec.Add(fmt.Errorf("rename index for delete marker: %w", err))
+		}
+	} else {
+		// rename sync (must complete even if ctx is expired); RemoveAll async
+		deleted, err := renameForAsyncDelete(i.path(), i.logger)
+		if err != nil {
+			ec.Add(fmt.Errorf("rename index for async delete: %w", err))
+		} else if deleted != "" {
+			spawnAsyncDelete(deleted, i.logger)
+		}
 	}
+	return ec.ToErrorLimited(maxReportedErrors)
+}
 
-	// rename sync (must complete even if ctx is expired); RemoveAll async
-	deleted, err := renameForAsyncDelete(i.path(), i.logger)
-	if err != nil {
-		return fmt.Errorf("rename index for async delete: %w", err)
+// causesOf splits a joined error into the errors it was built from, so a caller
+// can judge each one on its own. A nil error has no causes.
+func causesOf(err error) []error {
+	if err == nil {
+		return nil
 	}
-	if deleted != "" {
-		spawnAsyncDelete(deleted, i.logger)
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		return joined.Unwrap()
 	}
-	return nil
+	return []error{err}
 }
 
 func (i *Index) dropShards(names []string) error {
