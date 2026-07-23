@@ -63,6 +63,7 @@ type Manager struct {
 	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
 	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors map[string]CollectionExtractor
+	targetExtractors     map[string]TargetExtractor
 
 	completedTaskTTL time.Duration
 
@@ -245,6 +246,7 @@ func NewManager(params ManagerParameters) *Manager {
 	return &Manager{
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
+		targetExtractors:     make(map[string]TargetExtractor),
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
@@ -263,6 +265,68 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
+}
+
+// RegisterTargetExtractor opts a task namespace into
+// DeleteTasksForCollectionTargets. Same contract as RegisterCollectionExtractor.
+func (m *Manager) RegisterTargetExtractor(namespace string, extractor TargetExtractor) {
+	if namespace == "" || extractor == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetExtractors[namespace] = extractor
+}
+
+// DeleteTasksForCollectionTargets drops NON-ACTIVE tasks whose payload binds to
+// `collection` and overlaps `targets`, in namespaces with a registered target
+// extractor. Called deterministically from the schema FSM when a new
+// drop-vector marker is introduced, so the previous drop of a re-created name
+// leaves no records for coverage inheritance or removal vouching to
+// misattribute to the new drop. Active tasks are skipped: one cannot exist for
+// a name whose marker is only now being introduced, and skipping keeps the
+// scheduler's running handles consistent.
+func (m *Manager) DeleteTasksForCollectionTargets(collection string, targets []string) []TaskDescriptor {
+	if collection == "" || len(targets) == 0 {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	targetSet := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		targetSet[t] = struct{}{}
+	}
+	var removed []TaskDescriptor
+	for namespace, tasksByID := range m.tasks {
+		extractor, ok := m.targetExtractors[namespace]
+		if !ok || extractor == nil {
+			continue
+		}
+		for taskID, task := range tasksByID {
+			if task.Status.IsActive() {
+				continue
+			}
+			c, taskTargets, ok := extractor(task.Payload)
+			if !ok || c != collection {
+				continue
+			}
+			overlaps := false
+			for _, t := range taskTargets {
+				if _, ok := targetSet[t]; ok {
+					overlaps = true
+					break
+				}
+			}
+			if !overlaps {
+				continue
+			}
+			delete(tasksByID, taskID)
+			removed = append(removed, task.TaskDescriptor)
+		}
+	}
+	return removed
 }
 
 // DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called

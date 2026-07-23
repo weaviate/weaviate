@@ -37,6 +37,11 @@ type SchedulerNotifier interface {
 // CollectionExtractor returns the schema-collection a task's payload is
 // bound to ("", false for non-scoped / unparseable). Register via
 // [Manager.RegisterCollectionExtractor] to opt a namespace into
+// TargetExtractor reads a task payload's (collection, target vectors) binding
+// for [Manager.DeleteTasksForCollectionTargets]; ok=false skips the record.
+// Same determinism contract as [CollectionExtractor].
+type TargetExtractor func(payload []byte) (collection string, targets []string, ok bool)
+
 // [Manager.DeleteTasksForCollection] — closes
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
