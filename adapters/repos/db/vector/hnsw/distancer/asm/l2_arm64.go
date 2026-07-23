@@ -156,29 +156,30 @@ func L2ByteARM64(x []uint8, y []uint8) uint32 {
 	case 4:
 		return l24[uint8, uint32](x, y)
 	case 6:
-		// manually inlined l26(x, y)
-		diff := x[5] - y[5]
+		// manually inlined l26(x, y). The differences must be widened before
+		// squaring: uint8 arithmetic would truncate the squares mod 256.
+		diff := uint32(x[5]) - uint32(y[5])
 		sum := diff * diff
 
-		diff = x[4] - y[4]
+		diff = uint32(x[4]) - uint32(y[4])
 		sum += diff * diff
 
-		return l24[uint8, uint32](x, y) + uint32(sum)
+		return l24[uint8, uint32](x, y) + sum
 	case 8:
 		// manually inlined l28(x, y)
-		diff := x[7] - y[7]
+		diff := uint32(x[7]) - uint32(y[7])
 		sum := diff * diff
 
-		diff = x[6] - y[6]
+		diff = uint32(x[6]) - uint32(y[6])
 		sum += diff * diff
 
-		diff = x[5] - y[5]
+		diff = uint32(x[5]) - uint32(y[5])
 		sum += diff * diff
 
-		diff = x[4] - y[4]
+		diff = uint32(x[4]) - uint32(y[4])
 		sum += diff * diff
 
-		return l24[uint8, uint32](x, y) + uint32(sum)
+		return l24[uint8, uint32](x, y) + sum
 	case 10:
 		return l210[uint8, uint32](x, y)
 	case 12:

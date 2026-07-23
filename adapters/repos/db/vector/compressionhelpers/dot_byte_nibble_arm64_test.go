@@ -13,7 +13,11 @@
 
 package compressionhelpers
 
-import "golang.org/x/sys/cpu"
+import (
+	"golang.org/x/sys/cpu"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+)
 
 // Both NEON variants are testable on any ASIMD machine; UDOT additionally
 // needs the DotProd extension.
@@ -33,6 +37,28 @@ func dotNibbleNibbleVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 	}
 	if cpu.ARM64.HasASIMDDP {
 		variants["udot"] = dotNibbleNibbleUDOT
+	}
+	return variants
+}
+
+func dotByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
+	variants := map[string]func(a, b []byte) uint32{}
+	if cpu.ARM64.HasASIMD {
+		variants["goat"] = asm.DotByteARM64
+	}
+	if cpu.ARM64.HasASIMDDP {
+		variants["udot"] = dotByteUDOT
+	}
+	return variants
+}
+
+func l2ByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
+	variants := map[string]func(a, b []byte) uint32{}
+	if cpu.ARM64.HasASIMD {
+		variants["goat"] = asm.L2ByteARM64
+	}
+	if cpu.ARM64.HasASIMDDP {
+		variants["udot"] = l2ByteUDOT
 	}
 	return variants
 }

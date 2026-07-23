@@ -31,6 +31,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/integrity"
 )
 
+// walWriterBufferSize is the bufio buffer of the WAL writer. The default 4KB
+// bufio size is smaller than a single object entry at common embedding
+// dimensions (a 1536d vector alone is 6KB), which degrades every WAL append
+// into one or two direct write syscalls; at high import rates those syscalls
+// dominate the profile. 64KB batches ~10 such entries per syscall while
+// keeping the per-memtable memory footprint acceptable for deployments with
+// many active shards. Durability is unaffected: the WAL contract is the
+// explicit flush in writeWAL() at the end of each batch plus the periodic
+// sync cycle, not individual buffer flushes.
+const walWriterBufferSize = 64 * 1024
+
 type memtableCommitLogger interface {
 	writeEntry(commitType CommitType, nodeBytes []byte) error
 	put(node segmentReplaceNode) error
@@ -266,7 +277,7 @@ func newCommitLogger(path, strategy string, fileSize int64) (*commitLogger, erro
 		observeWrite.Observe(float64(written))
 	})
 
-	out.writer = bufio.NewWriter(meteredF)
+	out.writer = bufio.NewWriterSize(meteredF, walWriterBufferSize)
 
 	if out.n.Load() == 0 {
 		out.checksumWriter = integrity.NewCRC32Writer(out.writer)

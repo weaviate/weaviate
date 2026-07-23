@@ -182,6 +182,31 @@ func newBRQAdapter(dim int, seed uint64, m distancer.Provider) *datasetQuantizer
 	}
 }
 
+// newBQAdapter uses the classic sign-bit BinaryQuantizer. BQ has no
+// asymmetric distancer: the query is encoded too and compared via Hamming
+// distance, matching the flat/HNSW BQ search path.
+func newBQAdapter(m distancer.Provider) *datasetQuantizer {
+	bq := compressionhelpers.NewBinaryQuantizer(m)
+	var codes [][]uint64
+	return &datasetQuantizer{
+		name: "bq",
+		encodeAll: func(vectors [][]float32) {
+			codes = make([][]uint64, len(vectors))
+			for i, v := range vectors {
+				codes[i] = bq.Encode(v)
+			}
+		},
+		queryDist: func(q []float32) func(i int) float32 {
+			cq := bq.Encode(q)
+			return func(i int) float32 {
+				dist, _ := bq.DistanceBetweenCompressedVectors(cq, codes[i])
+				return dist
+			}
+		},
+		compressedSize: func() int { return 8 * len(codes[0]) },
+	}
+}
+
 // topK keeps the k smallest distances seen so far. Insertion cost is O(k) but
 // only on improvement, which happens O(k log(n/k)) times on random input.
 type topK struct {
@@ -279,6 +304,7 @@ func BenchmarkQuantizerDataset(b *testing.B) {
 			newRQ4RAdapter(dim, seed, m),
 			newRQ8Adapter(dim, seed, m),
 			newBRQAdapter(dim, seed, m),
+			newBQAdapter(m),
 		}
 		for _, quant := range quantizers {
 			b.Run(fmt.Sprintf("%s/%s/encode", cfg.subset, quant.name), func(b *testing.B) {

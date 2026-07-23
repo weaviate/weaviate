@@ -22,3 +22,11 @@ func dotByteNibbleVariantsUnderTest() map[string]func(q, packed []byte) uint32 {
 func dotNibbleNibbleVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 	return map[string]func(a, b []byte) uint32{}
 }
+
+func dotByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
+	return map[string]func(a, b []byte) uint32{}
+}
+
+func l2ByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
+	return map[string]func(a, b []byte) uint32{}
+}

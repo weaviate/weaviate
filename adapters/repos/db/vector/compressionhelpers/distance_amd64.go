@@ -18,8 +18,8 @@ import (
 
 func init() {
 	if cpu.X86.HasAVX2 {
-		l2SquaredByteImpl = asm.L2ByteAVX256
-		dotByteImpl = asm.DotByteAVX256
+		l2SquaredByteImpl = l2ByteWideAVX2
+		dotByteImpl = dotByteWideAVX2
 		hammingBitwiseImpl = asm.HammingBitwiseAVX256
 		dotByteNibbleImpl = dotByteNibbleAVX2
 		dotNibbleNibbleImpl = dotNibbleNibbleAVX2

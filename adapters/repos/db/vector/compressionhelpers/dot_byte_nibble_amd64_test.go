@@ -13,7 +13,11 @@
 
 package compressionhelpers
 
-import "golang.org/x/sys/cpu"
+import (
+	"golang.org/x/sys/cpu"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+)
 
 func dotByteNibbleVariantsUnderTest() map[string]func(q, packed []byte) uint32 {
 	variants := map[string]func(q, packed []byte) uint32{}
@@ -27,6 +31,24 @@ func dotNibbleNibbleVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 	variants := map[string]func(a, b []byte) uint32{}
 	if cpu.X86.HasAVX2 {
 		variants["avx2"] = dotNibbleNibbleAVX2
+	}
+	return variants
+}
+
+func dotByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
+	variants := map[string]func(a, b []byte) uint32{}
+	if cpu.X86.HasAVX2 {
+		variants["goat"] = asm.DotByteAVX256
+		variants["wide-avx2"] = dotByteWideAVX2
+	}
+	return variants
+}
+
+func l2ByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
+	variants := map[string]func(a, b []byte) uint32{}
+	if cpu.X86.HasAVX2 {
+		variants["goat"] = asm.L2ByteAVX256
+		variants["wide-avx2"] = l2ByteWideAVX2
 	}
 	return variants
 }

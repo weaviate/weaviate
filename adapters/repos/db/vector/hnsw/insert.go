@@ -256,8 +256,11 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 
 		h.metrics.InsertVector()
 
-		vector = h.normalizeVec(vector)
+		vector, release := h.normalizeVecForInsert(vector)
 		err := h.addOne(ctx, vector, node)
+		if release != nil {
+			release()
+		}
 		if err != nil {
 			return err
 		}

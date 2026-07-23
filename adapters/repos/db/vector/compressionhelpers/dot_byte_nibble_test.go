@@ -19,9 +19,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// nibbleKernelSizes covers all remainder paths of the SIMD kernels: the
-// 32-byte main loop, the 16-byte chunk, the scalar tail, and combinations.
-var nibbleKernelSizes = []int{0, 1, 2, 7, 8, 15, 16, 17, 31, 32, 33, 47, 48, 63, 64, 65, 100, 127, 128, 512, 768, 1000}
+// nibbleKernelSizes covers all remainder paths of the SIMD kernels (32/64
+// byte main loops, 16-byte chunks, scalar tails) and every small-size branch
+// of the goat wrapper switches in distancer/asm (which special-case lengths
+// up to 12; length 8 had a uint8 truncation bug in L2ByteARM64 once).
+var nibbleKernelSizes = []int{
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+	31, 32, 33, 47, 48, 63, 64, 65, 100, 127, 128, 512, 768, 1000,
+}
 
 func randomNibbleKernelInput(half int, rng *rand.Rand) (q, packed []byte) {
 	q = make([]byte, 2*half)
