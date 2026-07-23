@@ -32,12 +32,12 @@ func (c *unregisterCallbackCtrl) Unregister(ctx context.Context) error {
 
 type dropCompressor struct {
 	compressionhelpers.VectorCompressor
-	dropped bool
-	err     error
+	drops int
+	err   error
 }
 
 func (c *dropCompressor) Drop() error {
-	c.dropped = true
+	c.drops++
 	return c.err
 }
 
@@ -52,7 +52,10 @@ func TestShutdownReleasesVectors(t *testing.T) {
 		unregisterErr error
 		compressed    bool
 		compressorErr error
-		wantErrs      []string
+		// repeat the teardown to pin that the vectors are released only once
+		shutdownTwice     bool
+		dropAfterShutdown bool
+		wantErrs          []string
 	}{
 		{
 			name: "no failure",
@@ -102,6 +105,28 @@ func TestShutdownReleasesVectors(t *testing.T) {
 				"drop compressed store", compressorErr.Error(),
 			},
 		},
+		{
+			name:          "second shutdown after a failed one",
+			commitLogErr:  commitLogErr,
+			shutdownTwice: true,
+			wantErrs:      []string{"shutdown commit log", commitLogErr.Error()},
+		},
+		{
+			name:          "compressed, second shutdown after a failed one",
+			commitLogErr:  commitLogErr,
+			compressed:    true,
+			shutdownTwice: true,
+			wantErrs:      []string{"shutdown commit log", commitLogErr.Error()},
+		},
+		{
+			name:              "drop after shutdown",
+			dropAfterShutdown: true,
+		},
+		{
+			name:              "compressed, drop after shutdown",
+			compressed:        true,
+			dropAfterShutdown: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -118,13 +143,19 @@ func TestShutdownReleasesVectors(t *testing.T) {
 			index.compressed.Store(test.compressed)
 
 			err := index.Shutdown(context.Background())
+			if test.shutdownTwice {
+				err = index.Shutdown(context.Background())
+			}
+			if test.dropAfterShutdown {
+				require.NoError(t, index.Drop(context.Background(), true))
+			}
 
 			if test.compressed {
-				require.True(t, compressor.dropped)
-				require.False(t, cache.dropped)
+				require.Equal(t, 1, compressor.drops)
+				require.Equal(t, 0, cache.drops)
 			} else {
-				require.True(t, cache.dropped)
-				require.False(t, compressor.dropped)
+				require.Equal(t, 1, cache.drops)
+				require.Equal(t, 0, compressor.drops)
 			}
 
 			if len(test.wantErrs) == 0 {

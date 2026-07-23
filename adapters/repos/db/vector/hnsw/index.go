@@ -120,6 +120,7 @@ type hnsw struct {
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
+	releaseVectorsOnce  sync.Once
 
 	commitLog CommitLogger
 
@@ -766,14 +767,8 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
-	if h.compressed.Load() {
-		err := h.compressor.Drop()
-		if err != nil {
-			return fmt.Errorf("failed to shutdown compressed store")
-		}
-	} else {
-		// cancel vector cache goroutine
-		h.cache.Drop()
+	if err := h.releaseVectors(); err != nil {
+		return err
 	}
 
 	// cancel commit logger last, as the tombstone cleanup cycle might still
@@ -795,13 +790,24 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 
 	// release the vectors even if the steps above failed, otherwise a failed
 	// teardown keeps the whole cache in memory
-	if h.compressed.Load() {
-		ec.AddWrapf(h.compressor.Drop(), "drop compressed store")
-	} else {
-		h.cache.Drop()
-	}
+	ec.Add(h.releaseVectors())
 
 	return ec.ToError()
+}
+
+// releaseVectors frees the vectors held in memory. Only the first call does the
+// work: dropping a cache notifies a goroutine that exits on the first
+// notification, so a repeated drop would block forever.
+func (h *hnsw) releaseVectors() error {
+	var err error
+	h.releaseVectorsOnce.Do(func() {
+		if h.compressed.Load() {
+			err = errors.Wrap(h.compressor.Drop(), "drop compressed store")
+		} else {
+			h.cache.Drop()
+		}
+	})
+	return err
 }
 
 func (h *hnsw) Flush() error {

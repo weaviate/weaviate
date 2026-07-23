@@ -80,8 +80,8 @@ func newFakeCache() *fakeCache {
 }
 
 type fakeCache struct {
-	store   map[uint64]struct{}
-	dropped bool
+	store map[uint64]struct{}
+	drops int
 }
 
 func (f *fakeCache) MultiGet(ctx context.Context, id []uint64) ([][]float32, []error) {
@@ -138,7 +138,7 @@ func (f *fakeCache) All() [][]float32 {
 }
 
 func (f *fakeCache) Drop() {
-	f.dropped = true
+	f.drops++
 }
 
 func (f *fakeCache) CopyMaxSize() int64 {
