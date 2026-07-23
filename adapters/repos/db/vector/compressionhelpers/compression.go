@@ -83,7 +83,7 @@ type VectorCompressor interface {
 	NewDistancerFromID(id uint64) (CompressorDistancer, error)
 	NewBag() CompressionDistanceBag
 
-	PersistCompression(CommitLogger)
+	PersistCompression(CommitLogger) error
 	Stats() CompressionStats
 	Get(id uint64) ([]float32, error)
 	GetCompressed(id uint64) (any, error)
@@ -503,8 +503,8 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(ctx context.C
 	}).Info("prefilled compressed vector cache for multivector")
 }
 
-func (compressor *quantizedVectorsCompressor[T]) PersistCompression(logger CommitLogger) {
-	compressor.quantizer.PersistCompression(logger)
+func (compressor *quantizedVectorsCompressor[T]) PersistCompression(logger CommitLogger) error {
+	return compressor.quantizer.PersistCompression(logger)
 }
 
 func NewHNSWPQCompressor(

@@ -149,7 +149,10 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			})
 	}
 
-	h.compressor.PersistCompression(h.commitLog)
+	// Persist the codebook before flipping the index to compressed.
+	if err := h.compressor.PersistCompression(h.commitLog); err != nil {
+		return fmt.Errorf("persisting compression: %w", err)
+	}
 	h.compressed.Store(true)
 	h.cache.Drop()
 	return nil
