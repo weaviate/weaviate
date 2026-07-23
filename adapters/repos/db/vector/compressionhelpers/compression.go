@@ -46,6 +46,10 @@ type CompressorDistancer interface {
 	DistanceToFloat(vec []float32) (float32, error)
 }
 
+type BatchCompressorDistancer interface {
+	DistancesToNodes(ids []uint64, dists []float32) []error
+}
+
 type ReturnDistancerFn func()
 
 type CommitLogger interface {
@@ -1188,6 +1192,11 @@ func RestoreRQMultiCompressor(
 type quantizedCompressorDistancer[T byte | uint64] struct {
 	compressor *quantizedVectorsCompressor[T]
 	distancer  quantizerDistancer[T]
+
+	// vecs is the scratch buffer of DistancesToNodes. It makes that method
+	// unsafe for concurrent use; the search layer owning this distancer calls
+	// it from a single goroutine.
+	vecs [][]T
 }
 
 func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (float32, error) {
@@ -1200,6 +1209,36 @@ func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (flo
 			"got a nil or zero-length vector at docID %d", id)
 	}
 	return distancer.distancer.Distance(compressedVector)
+}
+
+// DistancesToNodes implements BatchCompressorDistancer. Cache misses fall
+// back to the loading DistanceToNode path per id, so error semantics match
+// calling DistanceToNode for each id individually.
+func (distancer *quantizedCompressorDistancer[T]) DistancesToNodes(ids []uint64, dists []float32) []error {
+	if cap(distancer.vecs) < len(ids) {
+		distancer.vecs = make([][]T, len(ids))
+	}
+	vecs := distancer.vecs[:len(ids)]
+	for i, id := range ids {
+		vecs[i] = distancer.compressor.cache.PrefetchGet(id)
+	}
+	var errs []error
+	for i, id := range ids {
+		var err error
+		if len(vecs[i]) == 0 {
+			dists[i], err = distancer.DistanceToNode(id)
+		} else {
+			dists[i], err = distancer.distancer.Distance(vecs[i])
+		}
+		if err != nil {
+			if errs == nil {
+				errs = make([]error, len(ids))
+			}
+			errs[i] = err
+		}
+		vecs[i] = nil
+	}
+	return errs
 }
 
 func (distancer *quantizedCompressorDistancer[T]) DistanceToFloat(vector []float32) (float32, error) {

@@ -21,7 +21,7 @@ import (
 )
 
 // TestPrefetch exercises the data-prefetch path: empty slots, short vectors
-// (below one cache line), vectors longer than prefetchMaxBytes, and
+// (below one cache line), vectors longer than the cache's prefetch cap, and
 // concurrent use against Preload under the race detector. Prefetch is a
 // hint, so there is nothing to assert beyond memory safety.
 func TestPrefetch(t *testing.T) {
@@ -30,10 +30,11 @@ func TestPrefetch(t *testing.T) {
 	c := NewShardedByteLockCache(vecForID, 1000, 1, logger, 0, memwatch.NewDummyMonitor())
 	defer c.Drop()
 
-	c.Preload(0, []byte{1})                   // shorter than a cache line
-	c.Preload(1, make([]byte, 784))           // longer than prefetchMaxBytes
-	c.Preload(2, nil)                         // explicit nil
-	for _, id := range []uint64{0, 1, 2, 3} { // 3 was never loaded
+	c.Preload(0, []byte{1})                                   // shorter than a cache line
+	c.Preload(1, make([]byte, 784))                           // a d1536 4-bit code, fully covered
+	c.Preload(2, nil)                                         // explicit nil
+	c.Preload(4, make([]byte, compressedPrefetchMaxBytes+64)) // longer than the cap
+	for _, id := range []uint64{0, 1, 2, 3, 4} {              // 3 was never loaded
 		c.Prefetch(id)
 	}
 
