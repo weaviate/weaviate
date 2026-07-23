@@ -127,3 +127,21 @@ func TestVectorFromTailPreTargetVectorObject(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, got)
 }
+
+// TestVectorFromTailCorruptSections: a mislocated or truncated tail must fail as an
+// error, never panic in the shared decoder.
+func TestVectorFromTailCorruptSections(t *testing.T) {
+	data := marshalledTestObject(t, "Test", nil, map[string][]float32{"custom": {1, 2}}, 200)
+	tailStart, _, ok, err := VectorTailOffsetFromPeek(data[:min(512, len(data))])
+	require.NoError(t, err)
+	require.True(t, ok)
+	tail := data[tailStart:]
+
+	for cut := 1; cut < len(tail); cut++ {
+		_, err := VectorFromTail(tail[:cut], "custom")
+		_ = err // any outcome but a panic is acceptable for a truncated tail
+	}
+	// garbage bytes where the section lengths should be
+	_, err = VectorFromTail([]byte{9, 9, 9, 9, 9}, "custom")
+	require.Error(t, err)
+}

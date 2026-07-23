@@ -85,5 +85,25 @@ func VectorFromTail(tail []byte, targetVector string) ([]float32, error) {
 		rw.MoveBufferPositionForward(sectionLen)
 	}
 
+	// validate both target-vector prefixes and the segment bound: the shared
+	// decoder assumes a well-formed buffer and would panic on a mislocated tail
+	pos := rw.Position
+	if pos >= uint64(len(tail)) {
+		return unmarshalSingleTargetVector(&rw, targetVector, nil) // pre-target-vector object
+	}
+	if pos+4 > uint64(len(tail)) {
+		return nil, fmt.Errorf("truncated target-vector offsets length")
+	}
+	offsetsLen := uint64(rw.ReadUint32())
+	if rw.Position+offsetsLen+4 > uint64(len(tail)) {
+		return nil, fmt.Errorf("truncated target-vector offsets")
+	}
+	rw.MoveBufferPositionForward(offsetsLen)
+	segLen := uint64(rw.ReadUint32())
+	if rw.Position+segLen > uint64(len(tail)) {
+		return nil, fmt.Errorf("truncated target-vector segment")
+	}
+	rw.MoveBufferToAbsolutePosition(pos)
+
 	return unmarshalSingleTargetVector(&rw, targetVector, nil)
 }

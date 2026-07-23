@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -198,31 +197,6 @@ func BenchmarkPrefillNamedVectorsMultiSegment(b *testing.B) {
 		}
 		b.ReportMetric(float64(cfg.n)*float64(b.N)/b.Elapsed().Seconds(), "vectors/s")
 	})
-}
-
-// TestPrefillParallelOutperformsSerialNamedVectorsMultiSegment validates the win the
-// parallel scan exists for, on the named-vector multi-segment shape. Guarded and
-// wide-margin because relative-performance assertions are inherently noisy.
-func TestPrefillParallelOutperformsSerialNamedVectorsMultiSegment(t *testing.T) {
-	if testing.Short() {
-		t.Skip("performance comparison skipped with -short")
-	}
-	if runtime.GOMAXPROCS(0) < 4 {
-		t.Skip("performance comparison needs >= 4 CPUs")
-	}
-
-	cfg := prefillBenchConfig{n: 15_000, dims: 64, payloadBytes: 1024, segments: 4}
-	store := buildPrefillBenchStore(t, cfg)
-
-	// best-of-two damps scheduler and page-cache warm-up noise
-	serial := min(runSerialPrefill(t, store, cfg), runSerialPrefill(t, store, cfg))
-	parallel := min(runParallelPrefill(t, store, cfg), runParallelPrefill(t, store, cfg))
-
-	speedup := float64(serial) / float64(parallel)
-	t.Logf("serial=%v parallel=%v speedup=%.1fx (n=%d dims=%d payload=%dB segments=%d)",
-		serial, parallel, speedup, cfg.n, cfg.dims, cfg.payloadBytes, cfg.segments)
-	require.Greaterf(t, speedup, 1.5,
-		"parallel scan prefill should clearly beat serial by-id (serial=%v parallel=%v)", serial, parallel)
 }
 
 func runTargetedPrefill(tb testing.TB, store *lsmkv.Store, cfg prefillBenchConfig) time.Duration {

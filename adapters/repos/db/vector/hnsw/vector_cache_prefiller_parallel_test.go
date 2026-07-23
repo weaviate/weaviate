@@ -303,16 +303,20 @@ func TestPrefillCacheParallelEndToEnd(t *testing.T) {
 	requireCacheContains(t, c, exp)
 }
 
-// TestPrefillCacheParallelGrowsBeyondPreGrown exercises the defensive Grow path: with
-// preGrown == 0 every id triggers cache.Grow from concurrent scanners, swapping the
-// cache slice under load. Run with -race to catch a missing lock on the grow.
-func TestPrefillCacheParallelGrowsBeyondPreGrown(t *testing.T) {
-	const n = 2000
-	exp := make(map[uint64][]float32, n)
+// TestPrefillCacheParallelSkipsBeyondNodeRange: ids at or beyond the restored node
+// range are not preloaded — live inserts self-preload, and a corrupt key must not
+// size the cache.
+func TestPrefillCacheParallelSkipsBeyondNodeRange(t *testing.T) {
+	const n = 100
+	vecs := make(map[uint64][]float32, n)
 	for i := uint64(0); i < n; i++ {
-		exp[i] = []float32{float32(i), float32(i) + 1}
+		vecs[i] = []float32{float32(i), float32(i) + 1}
 	}
-	c := prefillParallelIntoCache(t, exp, 0, distancer.NewDotProductProvider(), false)
+	exp := map[uint64][]float32{}
+	for i := uint64(0); i < 40; i++ {
+		exp[i] = vecs[i]
+	}
+	c := prefillParallelIntoCache(t, vecs, 40, distancer.NewDotProductProvider(), false)
 	requireCacheContains(t, c, exp)
 }
 

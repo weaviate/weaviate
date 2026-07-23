@@ -162,18 +162,22 @@ func (h *hnsw) prefillFromScan(ctx context.Context,
 		if h.compressed.Load() {
 			return errPrefillCompressionActive
 		}
+		// advisory: racing workers can overshoot by their in-flight rows, but
+		// crossing maxSize is the cache's own full behavior (replaceIfFull) and
+		// reachable through inserts regardless
 		if h.cache.CountVectors() >= h.cache.CopyMaxSize() {
 			return errPrefillCacheFull
+		}
+		if id >= preGrown {
+			// the cache is pre-grown to len(h.nodes) at restore; ids beyond it are
+			// either live inserts (which self-preload) or corrupt keys that must not
+			// size the cache
+			return nil
 		}
 		// cosine-dot keeps normalized vectors in the cache; the serial path gets this
 		// from the cache's normalizeOnRead wrapper, which the preload bypasses. vec is
 		// a fresh per-vector allocation, so normalizing in place is safe.
 		h.normalizeVecInPlace(vec)
-		if id >= preGrown {
-			// Cache is pre-grown to len(h.nodes) at restore, so live ids are in-bounds;
-			// grow only for an id from a write that landed after we snapshotted the count.
-			h.cache.Grow(id)
-		}
 		if !h.cache.PreloadIfAbsent(id, vec) {
 			return nil
 		}
