@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -104,7 +105,15 @@ func testRedropAfterRecreate() func(t *testing.T) {
 			// only the previous drop's records exist when reconciliation runs.
 			setTenantStatusEventually(t, className, tenant, models.TenantActivityStatusCOLD)
 			setTenantStatusEventually(t, className, tenant2, models.TenantActivityStatusCOLD)
-			dropTargetVector(t, className, dropped)
+			// The first drop's task may still be SWAPPING for a moment after
+			// its finalize removed the marker; a re-drop in that window is
+			// refused ("still completing") and is retryable by contract.
+			require.EventuallyWithT(t, func(collect *assert.CollectT) {
+				_, err := helper.Client(t).Schema.SchemaObjectsVectorsDelete(
+					clschema.NewSchemaObjectsVectorsDeleteParams().
+						WithClassName(className).WithVectorIndexName(dropped), nil)
+				assert.NoError(collect, err)
+			}, 30*time.Second, 250*time.Millisecond)
 			setTenantStatusEventually(t, className, tenant, models.TenantActivityStatusHOT)
 			setTenantStatusEventually(t, className, tenant2, models.TenantActivityStatusHOT)
 		})

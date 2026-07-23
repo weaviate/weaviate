@@ -1780,6 +1780,13 @@ func TestManager_DeleteTasksForCollectionTargets(t *testing.T) {
 
 	require.Empty(t, h.manager.DeleteTasksForCollectionTargets("", []string{"v1"}))
 	require.Empty(t, h.manager.DeleteTasksForCollectionTargets("Foo", nil))
+
+	// The probe the schema FSM consults before allowing a marker introduction:
+	// only the surviving ACTIVE match reports true.
+	require.True(t, h.manager.HasActiveTasksForCollectionTargets("Foo", []string{"v1"}))
+	require.False(t, h.manager.HasActiveTasksForCollectionTargets("Foo", []string{"v9"}))
+	require.False(t, h.manager.HasActiveTasksForCollectionTargets("Bar", []string{"v9"}))
+	require.False(t, h.manager.HasActiveTasksForCollectionTargets("", []string{"v1"}))
 }
 
 func TestManager_DeleteTasksForCollection(t *testing.T) {
