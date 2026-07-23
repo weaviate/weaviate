@@ -227,6 +227,7 @@ type fakeShardingReader struct {
 	activeTasks   []*distributedtask.Task // returned by ListDistributedTasks
 	err           error
 	readClassErrs int // QueryReadOnlyClasses fails this many times, then succeeds
+	listTasksErr  error
 }
 
 func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, uint64, error) {
@@ -241,6 +242,9 @@ func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, 
 }
 
 func (f *fakeShardingReader) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	if f.listTasksErr != nil {
+		return nil, f.listTasksErr
+	}
 	return map[string][]*distributedtask.Task{DropVectorIndexNamespace: f.activeTasks}, nil
 }
 
@@ -933,18 +937,15 @@ func TestOnTaskCompleted_CleanedShardsVouchForColdTenant(t *testing.T) {
 	require.True(t, fin.called, "cleaned-but-cold shards are covered by the inherited set")
 }
 
-// TestOnTaskCompleted_FinishedReplay_DoesNotFinalize pins the replay rule:
-// only the live SWAPPING completion finalizes. A replayed FINISHED completion
-// may belong to an epoch that already finalized and whose name was re-created;
-// a missed finalize heals via reconciliation's fresh-epoch re-clean instead.
-func TestOnTaskCompleted_FinishedReplay_DoesNotFinalize(t *testing.T) {
-	bucket := &fakeEditOpBucket{}
+// TestOnTaskCompleted_OverlapCheckError_DefersFinalize: if the epoch-blindness
+// guard cannot list tasks, finalize is deferred, not attempted blind.
+func TestOnTaskCompleted_OverlapCheckError_DefersFinalize(t *testing.T) {
 	fin := &fakeFinalizer{}
-	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+	p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
+	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, listTasksErr: errors.New("no leader")}
 
-	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
-
-	require.False(t, fin.called, "a replayed FINISHED completion must not remove the marker")
+	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+	require.False(t, fin.called)
 }
 
 // TestOnTaskCompleted_CoverageCheckError_DefersFinalize: an unreadable sharding

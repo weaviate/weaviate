@@ -512,6 +512,11 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 	// same rule. A replayed FINISHED completion may belong to a drop that
 	// already finalized and whose name was re-created — reconciliation heals a
 	// genuinely missed finalize with a fresh-epoch re-clean instead.
+	//
+	// Known bounded race: a peer whose OnTaskCompleted early-returned (this
+	// callback always acks) can flip the task to FINISHED before THIS node's
+	// removal lands, so the gate rejects a legitimate finalize. Also healed by
+	// reconciliation; worst case one reconcile interval of delay.
 	if task.Status != distributedtask.TaskStatusSwapping {
 		logger.WithField("status", task.Status).
 			Info("drop-vector: task-completion replay: not SWAPPING; leaving the marker to reconciliation")
