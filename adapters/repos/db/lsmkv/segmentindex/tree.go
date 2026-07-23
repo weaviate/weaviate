@@ -371,13 +371,13 @@ func MarshalSortedKeys(w io.Writer, keys []KeyRedux, dataStartOffset uint64) (in
 	// Emit nodes in van Emde Boas order; their offsets follow the write order,
 	// so compute them in a first pass before writing.
 	order := vebPositions(bfsToSorted, n)
-	if err := checkAllNodesEmitted(order, n); err != nil {
-		return 0, err
-	}
-	diskOffsets, totalSize := vebOffsets(order, bfsToSorted, n, func(si int32) int64 {
+	diskOffsets, totalSize, err := vebOffsets(order, bfsToSorted, n, func(si int32) int64 {
 		// node size: keyLen(4) + key + start(8) + end(8) + left(8) + right(8)
 		return int64(TREE_KEY_STORE_OVERHEAD + len(keys[si].Key))
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
 
@@ -437,12 +437,12 @@ func MarshalSortedKeysFromKeys(w io.Writer, keys []Key) (int64, error) {
 	fillBFS(bfsToSorted, 0, 0, n-1)
 
 	order := vebPositions(bfsToSorted, n)
-	if err := checkAllNodesEmitted(order, n); err != nil {
-		return 0, err
-	}
-	diskOffsets, totalSize := vebOffsets(order, bfsToSorted, n, func(si int32) int64 {
+	diskOffsets, totalSize, err := vebOffsets(order, bfsToSorted, n, func(si int32) int64 {
 		return int64(TREE_KEY_STORE_OVERHEAD + len(keys[si].Key))
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
 
@@ -530,13 +530,13 @@ func marshalSortedSecondaryFromKeys(w io.Writer, keys []Key, pos int) (int64, er
 	// Emit nodes in van Emde Boas order; their offsets follow the write order,
 	// so compute them in a first pass before writing.
 	order := vebPositions(bfsToIdx, n)
-	if err := checkAllNodesEmitted(order, n); err != nil {
-		return 0, err
-	}
-	diskOffsets, totalSize := vebOffsets(order, bfsToIdx, n, func(si int32) int64 {
+	diskOffsets, totalSize, err := vebOffsets(order, bfsToIdx, n, func(si int32) int64 {
 		ki := sortedIndices[si]
 		return int64(TREE_KEY_STORE_OVERHEAD + len(keys[ki].SecondaryKeys[pos]))
 	})
+	if err != nil {
+		return 0, err
+	}
 
 	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
 	for _, p := range order {
@@ -639,34 +639,36 @@ func vebPositions(mapping []int32, nodeCount int) []int32 {
 	return out
 }
 
-// checkAllNodesEmitted fails if vebPositions did not emit every key. vebPositions
-// prunes on an empty heap position, which is safe only while every present node
-// has a present parent (guaranteed by fillBFS); a dropped node would silently
-// omit a key from the index.
-func checkAllNodesEmitted(order []int32, n int) error {
-	if len(order) != n {
-		return fmt.Errorf("segment index writer emitted %d of %d nodes", len(order), n)
-	}
-	return nil
-}
-
 // vebOffsets assigns each present node its byte offset in the serialized output
 // by walking heap positions in write order. In van Emde Boas order write order
 // and offset order differ, so offsets need this separate pass before children can
 // be pointed at. The result is indexed by sorted index (mapping[heapPos]), so it
 // holds nodeCount entries instead of the tree capacity, which is up to 2x larger.
-func vebOffsets(order, mapping []int32, nodeCount int, nodeSize func(sortedIdx int32) int64) (offsetOf []int64, total int64) {
+//
+// It fails unless order lists every node exactly once. vebPositions prunes on an
+// empty heap position: a node it dropped would be missing from the index while its
+// parent still points at offset 0, the root, and a node listed twice would be
+// written twice.
+func vebOffsets(order, mapping []int32, nodeCount int, nodeSize func(sortedIdx int32) int64) (offsetOf []int64, total int64, err error) {
 	offsetOf = make([]int64, nodeCount)
-	// An unassigned offset would read as 0, pointing a parent back at the root.
 	for i := range offsetOf {
 		offsetOf[i] = -1
 	}
 	for _, p := range order {
 		si := mapping[p]
+		if offsetOf[si] >= 0 {
+			return nil, 0, fmt.Errorf("segment index writer listed sorted index %d twice", si)
+		}
 		offsetOf[si] = total
 		total += nodeSize(si)
 	}
-	return offsetOf, total
+	for si, offset := range offsetOf {
+		if offset < 0 {
+			return nil, 0, fmt.Errorf("segment index writer assigned no offset to sorted index %d of %d",
+				si, nodeCount)
+		}
+	}
+	return offsetOf, total, nil
 }
 
 // childOffset returns the serialized byte offset of the child at heap position
