@@ -53,6 +53,32 @@ func IsVectorIndexDropped(cfg models.VectorConfig) bool {
 	return cfg.VectorIndexType == VectorIndexTypeNone
 }
 
+// DropEpochIDKey carries the drop's generation token inside a dropped entry's
+// otherwise-unused (and unparsed) VectorIndexConfig. Minted in the same raft
+// commit that sets the "none" marker, immutable for the drop's lifetime, and
+// removed with the entry at finalize — so cleanup-task records of a PREVIOUS
+// drop of a re-created name can never be mistaken for the current drop's.
+const DropEpochIDKey = "dropEpochId"
+
+// DropEpochID returns the dropped entry's generation token, or "" for markers
+// written by nodes predating the token (treated as a wildcard by verifiers,
+// and as chain-less by coverage inheritance).
+func DropEpochID(cfg models.VectorConfig) string {
+	m, ok := cfg.VectorIndexConfig.(map[string]any)
+	if !ok {
+		return ""
+	}
+	epoch, _ := m[DropEpochIDKey].(string)
+	return epoch
+}
+
+// DropEpochMatches reports whether a cleanup-task payload epoch may act on a
+// marker with the given epoch: an epoch-less marker (older node) accepts any
+// payload; a token-bearing marker accepts only its own epoch.
+func DropEpochMatches(markerEpoch, payloadEpoch string) bool {
+	return markerEpoch == "" || markerEpoch == payloadEpoch
+}
+
 func ClassUsesVectorisation(class *models.Class) bool {
 	needsVectorisation := func(name string) bool {
 		return name != "" && name != "none"

@@ -538,6 +538,22 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	// in validateVectorSettingsAgainst.
 	initial := h.schemaReader.ReadOnlyClass(className)
 
+	// Dropped entries are system-owned: their VectorIndexConfig carries the
+	// drop's generation token, and a client update must not be able to alter
+	// it (matching an old drop's epoch would let that drop's task records act
+	// on this marker). Copy the current entry's config through; dropped→live
+	// flips are still rejected by the parser, and removals are gated by the
+	// FSM. Same copy-through pattern as SkipDefaultQuantization.
+	if initial != nil {
+		for name, updatedCfg := range updated.VectorConfig {
+			initialCfg, ok := initial.VectorConfig[name]
+			if ok && modelsext.IsVectorIndexDropped(initialCfg) && modelsext.IsVectorIndexDropped(updatedCfg) {
+				updatedCfg.VectorIndexConfig = initialCfg.VectorIndexConfig
+				updated.VectorConfig[name] = updatedCfg
+			}
+		}
+	}
+
 	if err := rejectVectorIndexTypeNone(initial, updated); err != nil {
 		vclasses, qErr := h.schemaManager.QueryReadOnlyClasses(className)
 		if qErr != nil {

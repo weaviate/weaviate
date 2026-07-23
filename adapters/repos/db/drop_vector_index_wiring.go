@@ -155,7 +155,7 @@ func deepCopyClass(c *models.Class) (*models.Class, error) {
 
 const dropVectorFinalizeMaxAttempts = 5
 
-func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error {
+func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string, dropEpochID string) error {
 	var lastErr error
 	for attempt := 0; attempt < dropVectorFinalizeMaxAttempts; attempt++ {
 		// Fresh read each attempt so a concurrent update doesn't get clobbered.
@@ -178,8 +178,10 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		for name, cfg := range next.VectorConfig {
 			// Exact-case match (target vector names are case-sensitive identifiers:
 			// a case-differing sibling is a DIFFERENT vector whose marker must stay);
-			// only remove an entry still marked dropped (keep a live re-creation).
-			if slices.Contains(targets, name) && modelsext.IsVectorIndexDropped(cfg) {
+			// only remove an entry still marked dropped (keep a live re-creation)
+			// AND belonging to this drop's epoch (never a re-dropped name's marker).
+			if slices.Contains(targets, name) && modelsext.IsVectorIndexDropped(cfg) &&
+				modelsext.DropEpochMatches(modelsext.DropEpochID(cfg), dropEpochID) {
 				delete(next.VectorConfig, name)
 				changed = true
 			}

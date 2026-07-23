@@ -137,6 +137,57 @@ func TestDropVectorIndex_UpdateClassRejectsNoneIntroduction(t *testing.T) {
 	require.ErrorContains(t, err, "internal sentinel for dropped indexes")
 }
 
+// TestDropVectorIndex_UpdateClassPreservesMarkerConfig pins the copy-through:
+// a client update cannot alter a dropped entry's VectorIndexConfig — it holds
+// the drop's generation token, and matching an old epoch would let that
+// drop's task records act on this marker.
+func TestDropVectorIndex_UpdateClassPreservesMarkerConfig(t *testing.T) {
+	ctx := context.Background()
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+	className := "DropSentinelClass"
+	current := &models.Class{
+		Class: className,
+		VectorConfig: map[string]models.VectorConfig{
+			"foo": {
+				VectorIndexType:   modelsext.VectorIndexTypeNone,
+				VectorIndexConfig: map[string]interface{}{modelsext.DropEpochIDKey: "genuine-epoch"},
+				Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			},
+		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+	fakeSchemaManager.On("ReadOnlyClass", className).Return(current)
+	fakeSchemaManager.On("QueryReadOnlyClasses", []string{className}).
+		Return(map[string]versioned.Class{className: {Class: current}}, nil)
+	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+
+	tampered := &models.Class{
+		Class:       className,
+		Description: "tampering attempt",
+		VectorConfig: map[string]models.VectorConfig{
+			"foo": {
+				VectorIndexType:   modelsext.VectorIndexTypeNone,
+				VectorIndexConfig: map[string]interface{}{modelsext.DropEpochIDKey: "forged-epoch"},
+				Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			},
+		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+
+	require.NoError(t, handler.UpdateClass(ctx, nil, className, tampered))
+
+	var sent *models.Class
+	for _, call := range fakeSchemaManager.Calls {
+		if call.Method == "UpdateClass" {
+			sent = call.Arguments[0].(*models.Class)
+		}
+	}
+	require.NotNil(t, sent)
+	require.Equal(t, "genuine-epoch", modelsext.DropEpochID(sent.VectorConfig["foo"]),
+		"the marker's token must be copied through, not the client's value")
+}
+
 func TestDropVectorIndex_UpdateClassAllowsExistingNoneOnStaleNode(t *testing.T) {
 	ctx := context.Background()
 	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})

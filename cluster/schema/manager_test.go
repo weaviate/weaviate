@@ -603,6 +603,7 @@ type recordingMutationGuard struct {
 	lastProp    string
 	lastRemoved []string
 	lastShards  []string
+	lastEpochs  map[string]string
 	rejectWith  error
 }
 
@@ -625,11 +626,12 @@ func (g *recordingMutationGuard) CheckTenantMutation(class string, tenants []str
 	return g.rejectWith
 }
 
-func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedVectors, shards []string) error {
+func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedVectors, shards []string, epochs map[string]string) error {
 	g.called++
 	g.lastClass = class
 	g.lastRemoved = removedVectors
 	g.lastShards = shards
+	g.lastEpochs = epochs
 	return g.rejectWith
 }
 
@@ -830,8 +832,11 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 			sm.SetMutationGuard(guard)
 		}
 		initial := &models.Class{
-			Class:        "C",
-			VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
+			Class: "C",
+			VectorConfig: map[string]models.VectorConfig{
+				"keep": hnsw,
+				"vec1": {VectorIndexType: "none", VectorIndexConfig: map[string]interface{}{"dropEpochId": "E1"}},
+			},
 		}
 		ss := &sharding.State{Physical: map[string]sharding.Physical{
 			"shardB": {Name: "shardB"}, "shardA": {Name: "shardA"}, "shardC": {Name: "shardC"},
@@ -852,6 +857,8 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
 		require.Equal(t, []string{"shardA", "shardB", "shardC"}, guard.lastShards,
 			"gate must receive the FSM's shard set, sorted")
+		require.Equal(t, map[string]string{"vec1": "E1"}, guard.lastEpochs,
+			"gate must receive the removed marker's generation token")
 	})
 
 	t.Run("removing a dropped entry succeeds when the gate allows", func(t *testing.T) {

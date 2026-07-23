@@ -251,9 +251,10 @@ type SchemaMutationDetector interface {
 type VectorConfigRemovalGate interface {
 	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
 	// UpdateClass apply; non-nil rejects. shards is the collection's shard set
-	// from the FSM state being applied; existingTasks is the namespace-scoped
-	// list at apply time.
-	CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*Task) error
+	// and epochs the removed markers' generation tokens, both read from the FSM
+	// pre-image of the entry being applied; existingTasks is the
+	// namespace-scoped list at apply time.
+	CheckVectorConfigRemoval(className string, removedVectors, shards []string, epochs map[string]string, existingTasks []*Task) error
 }
 
 // RecoveryAwareProvider is an optional interface providers implement to

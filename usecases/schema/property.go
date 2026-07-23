@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -293,6 +294,10 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	class.VectorConfig[vectorIndexName] = models.VectorConfig{
 		Vectorizer:      cfg.Vectorizer,
 		VectorIndexType: vectorindex.VectorIndexTypeNone,
+		// The generation token: identity of THIS drop, minted with the marker
+		// itself so it exists even if no cleanup task is ever enqueued. Every
+		// verifier compares task payloads against it (see modelsext.DropEpochID).
+		VectorIndexConfig: map[string]any{modelsext.DropEpochIDKey: uuid.NewString()},
 	}
 
 	if _, err = h.schemaManager.UpdateClass(ctx, class, nil); err != nil {

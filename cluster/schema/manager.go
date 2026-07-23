@@ -73,9 +73,11 @@ type MutationGuard interface {
 	CheckTenantMutation(className string, tenants []string) error
 
 	// CheckVectorConfigRemoval gates removal of dropped ("none") VectorConfig
-	// entries on a completed cleanup task that covered every shard in shards.
+	// entries: only the completing (SWAPPING) cleanup task of the SAME drop
+	// epoch, covering every shard in shards, vouches. epochs maps each removed
+	// vector to its marker's generation token ("" for pre-token markers).
 	// Returns non-nil to reject.
-	CheckVectorConfigRemoval(className string, removedVectors, shards []string) error
+	CheckVectorConfigRemoval(className string, removedVectors, shards []string, epochs map[string]string) error
 }
 
 // Narrow slice of *cluster/distributedtask.Manager so schema doesn't
@@ -476,7 +478,11 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 					shards = append(shards, name)
 				}
 				sort.Strings(shards)
-				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed, shards); err != nil {
+				epochs := make(map[string]string, len(removed))
+				for _, name := range removed {
+					epochs[name] = modelsext.DropEpochID(meta.Class.VectorConfig[name])
+				}
+				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed, shards, epochs); err != nil {
 					return fmt.Errorf("%w: %w", ErrBadRequest, err)
 				}
 			}

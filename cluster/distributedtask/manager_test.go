@@ -1639,7 +1639,7 @@ type fakeRemovalGate struct {
 	gateReject    error
 }
 
-func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed, shards []string, existing []*Task) error {
+func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed, shards []string, epochs map[string]string, existing []*Task) error {
 	f.gateCalled++
 	f.lastClassName = className
 	f.lastRemoved = removed
@@ -1655,14 +1655,14 @@ func (f *fakeRemovalGate) CheckVectorConfigRemoval(className string, removed, sh
 func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
 	t.Run("no detectors registered → nil", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
-		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"}))
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"}, nil))
 	})
 
 	t.Run("empty removal list → gate not consulted", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}, gateReject: fmt.Errorf("should not be reached")}
 		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
-		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", nil, []string{"s1"}))
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", nil, []string{"s1"}, nil))
 		require.Equal(t, 0, gate.gateCalled)
 	})
 
@@ -1677,7 +1677,7 @@ func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
 		})
 		require.NoError(t, h.manager.AddTask(c, 100))
 
-		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"}))
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"}, nil))
 		require.Equal(t, 1, gate.gateCalled)
 		require.Equal(t, []string{"v1"}, gate.lastRemoved)
 		require.Equal(t, []string{"s1"}, gate.lastShards, "gate must receive the shard set")
@@ -1688,7 +1688,7 @@ func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		gate := &fakeRemovalGate{fakeSchemaMutationDetector: &fakeSchemaMutationDetector{}, gateReject: fmt.Errorf("cleanup not FINISHED")}
 		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{"drop-vector-index": gate})
-		err := h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"})
+		err := h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"}, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "cleanup not FINISHED")
 	})
@@ -1699,7 +1699,7 @@ func TestManager_CheckVectorConfigRemoval_DispatchToGates(t *testing.T) {
 		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
 			"reindex": &fakeSchemaMutationDetector{rejectWith: fmt.Errorf("should not be reached")},
 		})
-		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"}))
+		require.NoError(t, h.manager.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"}, nil))
 	})
 }
 

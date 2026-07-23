@@ -134,7 +134,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	// snapshot. A target that is no longer marked dropped (class deleted and
 	// re-created, or already finalized elsewhere) must not get a cleanup task —
 	// that task would strip a live vector.
-	targets, err := e.stillDroppedTargets(collection, targets)
+	targets, markerEpoch, err := e.stillDroppedTargets(collection, targets)
 	if err != nil {
 		return fmt.Errorf("drop-vector enqueue: verify targets for %q: %w", collection, err)
 	}
@@ -162,7 +162,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
 	}
 
-	epoch, cleaned, err := e.epochAndInheritedCoverage(ctx, collection, targets, state)
+	epoch, cleaned, err := e.epochAndInheritedCoverage(ctx, collection, targets, state, markerEpoch)
 	if err != nil {
 		return fmt.Errorf("drop-vector enqueue: coverage inheritance for %q: %w", collection, err)
 	}
@@ -203,49 +203,35 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 	return e.clusterService.AddDistributedTaskWithGroups(ctx, db.DropVectorIndexNamespace, taskID, payload, specs)
 }
 
-// epochAndInheritedCoverage resolves the drop epoch and the cleaned-shard set
-// accumulated by completed tasks of that epoch.
-//
-// A marker can only coexist with an INCOMPLETE chain of its own drop: the
-// previous drop's marker can vanish only via finalize (which requires a
-// complete chain) or class delete (which cascade-deletes the task records).
-// So a complete chain — or no usable chain — next to a marker is a closed
-// epoch's residue (re-created then re-dropped name, or a finalize that never
-// landed): mint a fresh epoch and re-clean everything, never trust it. That
-// costs one idempotent full re-clean; the alternative trusts stale coverage
-// and finalizes over unstripped vectors.
+// epochAndInheritedCoverage returns the payload epoch for a new task of this
+// drop and the cleaned-shard set accumulated by its completed earlier tasks.
+// The marker's generation token IS the epoch: minted with the marker itself,
+// it identifies the drop regardless of which task records survived, so records
+// of a previous drop of a re-created name can never be inherited (they carry
+// the previous token). A pre-token marker ("" — written by an older node) gets
+// a fresh unique epoch per task and inherits nothing: pre-chain semantics,
+// never stale coverage.
 func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
-	collection string, targets []string, state *sharding.State,
+	collection string, targets []string, state *sharding.State, markerEpoch string,
 ) (string, []string, error) {
+	if markerEpoch == "" {
+		return uuid.NewString(), nil, nil
+	}
 	tasks, err := e.clusterService.ListDistributedTasks(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	// The newest matching task (raft-assigned Version: monotonic and
-	// deterministic, unlike node wall clocks) names the candidate epoch.
-	var newest *db.DropVectorIndexTaskPayload
-	var newestVersion uint64
-	matching := make(map[*distributedtask.Task]*db.DropVectorIndexTaskPayload)
+	covered := map[string]struct{}{}
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
+		if !task.Status.IsCompleted() {
+			continue
+		}
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
 			e.warnSkippedPayload("coverage-inheritance", task.ID, err)
 			continue
 		}
-		if !strings.EqualFold(p.Collection, collection) || !sameTargetSet(p.Targets, targets) {
-			continue
-		}
-		matching[task] = p
-		if newest == nil || task.Version > newestVersion {
-			newest, newestVersion = p, task.Version
-		}
-	}
-	if newest == nil || newest.DropEpochID == "" {
-		return uuid.NewString(), nil, nil
-	}
-	covered := map[string]struct{}{}
-	for task, p := range matching {
-		if p.DropEpochID != newest.DropEpochID || !task.Status.IsCompleted() {
+		if p.DropEpochID != markerEpoch || !strings.EqualFold(p.Collection, collection) || !sameTargetSet(p.Targets, targets) {
 			continue
 		}
 		for shard := range p.CoveredShards() {
@@ -261,11 +247,7 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 		}
 	}
 	sort.Strings(cleaned)
-	if len(shardsNotIn(state, cleaned)) == 0 {
-		// Complete chain next to a marker — closed-epoch residue. See above.
-		return uuid.NewString(), nil, nil
-	}
-	return newest.DropEpochID, cleaned, nil
+	return markerEpoch, cleaned, nil
 }
 
 // sameTargetSet reports whether two target lists contain the same names with
@@ -314,36 +296,35 @@ func withoutCleanedShards(ownership map[string][]string, cleaned []string) map[s
 }
 
 // shardsNotIn returns the state's shards absent from the given set, sorted.
-func shardsNotIn(state *sharding.State, set []string) []string {
-	covered := make(map[string]struct{}, len(set))
-	for _, shard := range set {
-		covered[shard] = struct{}{}
-	}
-	shardNames := make([]string, 0, len(state.Physical))
-	for shard := range state.Physical {
-		shardNames = append(shardNames, shard)
-	}
-	return db.ShardsNotCovered(shardNames, covered)
-}
-
-// stillDroppedTargets filters targets to those still present and marked dropped
-// in the leader-consistent class. A missing class means nothing to clean.
-func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets []string) ([]string, error) {
+// stillDroppedTargets filters targets to those still present and marked
+// dropped in the leader-consistent class, and returns their shared drop epoch
+// (the marker's generation token; "" for markers written by pre-token nodes).
+// A missing class means nothing to clean. Multi-target enqueues must share one
+// epoch — every current caller is single-target.
+func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets []string) ([]string, string, error) {
 	vclasses, err := e.schemaState.QueryReadOnlyClasses(collection)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	class := vclasses[collection].Class
 	if class == nil {
-		return nil, nil
+		return nil, "", nil
 	}
 	var still []string
+	var epoch string
 	for _, target := range targets {
-		if cfg, ok := class.VectorConfig[target]; ok && modelsext.IsVectorIndexDropped(cfg) {
-			still = append(still, target)
+		cfg, ok := class.VectorConfig[target]
+		if !ok || !modelsext.IsVectorIndexDropped(cfg) {
+			continue
 		}
+		targetEpoch := modelsext.DropEpochID(cfg)
+		if len(still) > 0 && targetEpoch != epoch {
+			return nil, "", fmt.Errorf("targets %v span different drop epochs; enqueue them separately", targets)
+		}
+		still = append(still, target)
+		epoch = targetEpoch
 	}
-	return still, nil
+	return still, epoch, nil
 }
 
 // activeShardOwnership builds node -> shard-names from a sharding state, limited

@@ -24,12 +24,14 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testRedropAfterRecreate pins the closed-epoch fence end to end: drop a
-// vector, let it finalize, re-create the name and write new vectors, then
-// re-drop through an all-cold window so the fresh enqueue mints no task while
-// the previous drop's FINISHED records still exist. The re-drop must re-clean
-// the re-created vectors — adopting the stale records' coverage would finalize
-// with the new vectors never stripped.
+// testRedropAfterRecreate pins the generation token end to end: drop a
+// vector, let it finalize, re-create the name and write new vectors, add a
+// NEW tenant, then re-drop through an all-cold window so the fresh enqueue
+// mints no task while the previous drop's FINISHED records still exist. The
+// grown tenant set is the shape that broke record-only epoch inference (the
+// stale records look "incomplete" against it); the marker's token makes them
+// unmistakable — the re-drop must re-clean every tenant, never finalize over
+// the re-created vectors.
 func testRedropAfterRecreate() func(t *testing.T) {
 	return func(t *testing.T) {
 		const (
@@ -39,15 +41,16 @@ func testRedropAfterRecreate() func(t *testing.T) {
 			dim       = 32
 			perTenant = 8
 			tenant    = "tenant-1"
+			tenant2   = "tenant-2" // created between the drops — the grown-set twist
 		)
 
-		insert := func(t *testing.T, idBase int) {
+		insert := func(t *testing.T, target string, idBase int) {
 			batch := make([]*models.Object, perTenant)
 			for i := range perTenant {
 				batch[i] = &models.Object{
 					ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-0000000024%02d", idBase+i)),
 					Class:      className,
-					Tenant:     tenant,
+					Tenant:     target,
 					Properties: map[string]any{"name": fmt.Sprintf("object-%d", idBase+i)},
 					Vectors: models.Vectors{
 						dropped: randVec(dim, float32(idBase+i)),
@@ -78,37 +81,44 @@ func testRedropAfterRecreate() func(t *testing.T) {
 				clschema.NewSchemaObjectsCreateParams().WithObjectClass(cls), nil)
 			require.NoError(t, err)
 			helper.CreateTenants(t, className, []*models.Tenant{{Name: tenant}})
-			insert(t, 0)
+			insert(t, tenant, 0)
 
 			dropTargetVector(t, className, dropped)
 			eventuallyTargetVectorRemoved(t, className, dropped)
 		})
 
-		t.Run("re-create the name and write new vectors", func(t *testing.T) {
+		t.Run("re-create the name, write new vectors, add a tenant", func(t *testing.T) {
 			cls := helper.GetClass(t, className)
 			cls.VectorConfig[dropped] = noneVectorConfig()
 			_, err := helper.Client(t).Schema.SchemaObjectsUpdate(
 				clschema.NewSchemaObjectsUpdateParams().WithClassName(className).WithObjectClass(cls), nil)
 			require.NoError(t, err)
-			insert(t, 50)
+			insert(t, tenant, 50)
+
+			helper.CreateTenants(t, className, []*models.Tenant{{Name: tenant2}})
+			insert(t, tenant2, 80)
 		})
 
 		t.Run("re-drop through an all-cold window", func(t *testing.T) {
 			// Cold BEFORE the drop: the fresh enqueue then mints no task, and
 			// only the previous drop's records exist when reconciliation runs.
 			setTenantStatusEventually(t, className, tenant, models.TenantActivityStatusCOLD)
+			setTenantStatusEventually(t, className, tenant2, models.TenantActivityStatusCOLD)
 			dropTargetVector(t, className, dropped)
 			setTenantStatusEventually(t, className, tenant, models.TenantActivityStatusHOT)
+			setTenantStatusEventually(t, className, tenant2, models.TenantActivityStatusHOT)
 		})
 
-		t.Run("the re-drop re-cleans instead of adopting stale coverage", func(t *testing.T) {
+		t.Run("the re-drop re-cleans every tenant instead of adopting stale coverage", func(t *testing.T) {
 			eventuallyTargetVectorRemoved(t, className, dropped)
-			objs := listTenantObjectsWithVectors(t, className, tenant)
-			require.Len(t, objs, 2*perTenant)
-			for _, obj := range objs {
-				require.NotContains(t, obj.Vectors, dropped,
-					"the re-dropped vectors must be stripped, not finalized over")
-				require.Equal(t, dim, vecDim(t, obj.Vectors[sibling]))
+			for tenantName, want := range map[string]int{tenant: 2 * perTenant, tenant2: perTenant} {
+				objs := listTenantObjectsWithVectors(t, className, tenantName)
+				require.Len(t, objs, want)
+				for _, obj := range objs {
+					require.NotContains(t, obj.Vectors, dropped,
+						"the re-dropped vectors must be stripped, not finalized over")
+					require.Equal(t, dim, vecDim(t, obj.Vectors[sibling]))
+				}
 			}
 		})
 	}

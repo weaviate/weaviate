@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
 )
@@ -70,6 +71,8 @@ func TestDeleteClassVectorIndex_FreshDrop_SetsMarkerAndEnqueues(t *testing.T) {
 
 	require.Equal(t, vectorindex.VectorIndexTypeNone, cls.VectorConfig["foo"].VectorIndexType,
 		"marker must be set on the dropped vector")
+	require.NotEmpty(t, modelsext.DropEpochID(cls.VectorConfig["foo"]),
+		"the marker must carry its generation token from the same commit")
 	sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything)
 	require.Equal(t, [][]string{{"foo"}}, enq.enqueued)
 	require.Equal(t, []string{"C"}, enq.enqueuedAt)

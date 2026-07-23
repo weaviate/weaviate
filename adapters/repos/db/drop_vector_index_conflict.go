@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
 // CheckConflict implements distributedtask.ConflictDetector. Called under the
@@ -105,14 +106,14 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 // the name a stale record would remove the new drop's marker over unstripped
 // vectors. A marker whose finalize was missed heals through reconciliation
 // (fresh-epoch re-clean), not through record replay.
-func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
+func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors, shards []string, epochs map[string]string, existingTasks []*distributedtask.Task) error {
 	for _, vec := range removedVectors {
 		if id, active := p.dropCovers(className, vec, existingTasks, stillStrippingStatus); active {
 			return fmt.Errorf(
 				"cannot remove dropped vector %q on %s: cleanup task %q is still active for it",
 				vec, className, id)
 		}
-		vouched, coversVec, uncovered := p.completedDropVoucher(className, vec, shards, existingTasks)
+		vouched, coversVec, uncovered := p.completedDropVoucher(className, vec, shards, epochs[vec], existingTasks)
 		if vouched {
 			continue
 		}
@@ -136,11 +137,14 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 // missing shards of the closest task — mirroring the finalize deferral, which
 // keeps the marker until a single task covers everyone.
 func (p *DropVectorIndexProvider) completedDropVoucher(className, vec string, shards []string,
-	existingTasks []*distributedtask.Task,
+	markerEpoch string, existingTasks []*distributedtask.Task,
 ) (vouched, coversVec bool, uncovered []string) {
 	swappingOnly := func(s distributedtask.TaskStatus) bool { return s == distributedtask.TaskStatusSwapping }
 	p.eachDropCovering(className, vec, existingTasks, swappingOnly,
 		func(task *distributedtask.Task, existP *DropVectorIndexTaskPayload) bool {
+			if !modelsext.DropEpochMatches(markerEpoch, existP.DropEpochID) {
+				return true // a different drop of the same name — no say over this marker
+			}
 			coversVec = true
 			missing := ShardsNotCovered(shards, existP.CoveredShards())
 			if len(missing) == 0 {

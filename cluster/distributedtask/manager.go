@@ -157,7 +157,7 @@ func (m *Manager) CheckTenantMutation(className string, tenants []string) error 
 // that also implements [VectorConfigRemovalGate]. Called from the schema FSM's
 // UpdateClass apply; a non-nil error rejects the update. Same RAFT-determinism
 // contract as [Manager.CheckClassMutation].
-func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, shards []string) error {
+func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, shards []string, epochs map[string]string) error {
 	if len(removedVectors) == 0 {
 		return nil
 	}
@@ -172,7 +172,7 @@ func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, sha
 		for _, t := range m.tasks[namespace] {
 			existing = append(existing, t)
 		}
-		if err := gate.CheckVectorConfigRemoval(className, removedVectors, shards, existing); err != nil {
+		if err := gate.CheckVectorConfigRemoval(className, removedVectors, shards, epochs, existing); err != nil {
 			return err
 		}
 	}

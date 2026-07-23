@@ -453,9 +453,14 @@ func TestSameTargetSet(t *testing.T) {
 // mint a wrong epoch, so the error surfaces for the caller to retry.
 func TestEnqueueDropVectorIndex_TaskListError_Surfaces(t *testing.T) {
 	cluster := &fakeClusterDropClient{listErr: fmt.Errorf("no leader")}
-	state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
-		"s1": {BelongsToNodes: []string{"n1"}},
-	})}
+	state := &fakeShardingState{
+		state: shardingState(false, map[string]sharding.Physical{
+			"s1": {BelongsToNodes: []string{"n1"}},
+		}),
+		// A token-bearing marker: inheritance needs the task list, so the
+		// list failure must surface (a pre-token marker skips the list).
+		vectorCfg: map[string]models.VectorConfig{"v1": droppedWithEpoch("E1")},
+	}
 	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
 	err := enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"})
@@ -463,42 +468,50 @@ func TestEnqueueDropVectorIndex_TaskListError_Surfaces(t *testing.T) {
 	require.Empty(t, cluster.gotTaskID)
 }
 
-// TestEnqueueDropVectorIndex_GrownShardSetAfterFinalize is the RED pin for the
-// closed-epoch fence hole: a finalized epoch whose collection gained a shard
-// afterwards looks INCOMPLETE against the grown shard set, so the fence fails
-// to fire and the stale epoch's coverage is inherited into a genuinely new
-// drop — its completion would finalize with the re-created vectors on the old
-// shards never stripped. The new drop must start a fresh epoch and clean
-// every shard.
+// droppedWithEpoch is a marker entry carrying the drop's generation token.
+func droppedWithEpoch(epoch string) models.VectorConfig {
+	return models.VectorConfig{
+		VectorIndexType:   modelsext.VectorIndexTypeNone,
+		VectorIndexConfig: map[string]any{modelsext.DropEpochIDKey: epoch},
+	}
+}
+
+// TestEnqueueDropVectorIndex_GrownShardSetAfterFinalize pins the re-drop repro
+// that broke the record-inference fence: the previous drop's FINISHED record
+// covers everything that existed at its finalize, a shard was created since,
+// and the marker belongs to a NEW drop. The marker's generation token makes
+// the stale record unmistakable — the new task must carry the marker's epoch,
+// inherit nothing, and clean every shard.
 func TestEnqueueDropVectorIndex_GrownShardSetAfterFinalize(t *testing.T) {
 	hot := func(nodes ...string) sharding.Physical {
 		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
 	}
 	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
 		db.DropVectorIndexNamespace: {
-			// The previous drop's record: covered everything that existed then.
 			epochTask(t, "C", "t1", "E1", 1, distributedtask.TaskStatusFinished, []string{"s1", "s2"}, nil),
 		},
 	}}
-	state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{
-		"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1"), // s3 created after the finalize
-	})}
+	state := &fakeShardingState{
+		state: shardingState(true, map[string]sharding.Physical{
+			"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1"), // s3 created after the finalize
+		}),
+		vectorCfg: map[string]models.VectorConfig{"v1": droppedWithEpoch("E2")},
+	}
 	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
 	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
 	p := decodeEnqueuedPayload(t, cluster)
-	require.NotEqual(t, "E1", p.DropEpochID, "a finalized epoch must not be continued")
+	require.Equal(t, "E2", p.DropEpochID, "the task carries the marker's epoch, not the record's")
 	require.Empty(t, p.CleanedShards, "stale coverage must not be inherited")
 	require.Equal(t, map[string]string{"s1__n1": "s1", "s2__n1": "s2", "s3__n1": "s3"}, p.UnitToShard,
 		"every shard must be cleaned by the new drop")
 }
 
-// TestEnqueueDropVectorIndex_CoverageInheritance pins the chain rules: inherit
-// cleaned-shard coverage only from completed same-epoch tasks of an INCOMPLETE
-// chain — a complete chain next to a marker is a closed epoch's residue
-// (re-created then re-dropped name, or a missed finalize) and must start a
-// fresh epoch with a full re-clean. Cleaned shards get no unit; when every
-// active shard is cleaned and the remainder is inactive, nothing is enqueued.
+// TestEnqueueDropVectorIndex_CoverageInheritance pins the chain rules: the
+// marker's generation token is the epoch; coverage is inherited only from
+// completed task records carrying that same token. Cleaned shards get no
+// unit; when every active shard is cleaned and the remainder is inactive,
+// nothing is enqueued. A pre-token marker inherits nothing.
 func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 	hot := func(nodes ...string) sharding.Physical {
 		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
@@ -510,6 +523,7 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		markerEpoch string // "" = pre-token marker
 		tasks       []*distributedtask.Task
 		shards      map[string]sharding.Physical
 		nonMT       bool
@@ -519,7 +533,8 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 		wantNoTask  bool
 	}{
 		{
-			name:        "incomplete chain: inherit coverage, skip cleaned shards",
+			name:        "matching records: inherit coverage, skip cleaned shards",
+			markerEpoch: "E1",
 			tasks:       []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
 			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1")},
 			wantEpoch:   "E1",
@@ -527,17 +542,27 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits:   map[string]string{"s2__n1": "s2"},
 		},
 		{
-			// The P0 re-create pin: a chain that covers every current shard can
-			// only be a finalized (closed) epoch's residue — trusting it would
-			// finalize a re-dropped name with nothing stripped.
-			name:      "complete chain is closed-epoch residue: fresh epoch, full re-clean",
-			tasks:     []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil)},
-			shards:    map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
-			wantEpoch: "",
-			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
+			name:        "a previous drop's records are not inherited (re-created + re-dropped name)",
+			markerEpoch: "E2",
+			tasks:       []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil)},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch:   "E2",
+			wantUnits:   map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
 		},
 		{
-			name: "active same-epoch task contributes nothing",
+			name:        "SWAPPING earlier task's coverage is inherited",
+			markerEpoch: "E1",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, distributedtask.TaskStatusSwapping, []string{"s1"}, nil),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1")},
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2"},
+		},
+		{
+			name:        "active same-epoch task contributes nothing",
+			markerEpoch: "E1",
 			tasks: []*distributedtask.Task{
 				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
 				epochTask(t, "C", "t2", "E1", 2, distributedtask.TaskStatusStarted, []string{"s2"}, nil),
@@ -548,7 +573,8 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
 		},
 		{
-			name: "FAILED task contributes nothing",
+			name:        "FAILED task contributes nothing",
+			markerEpoch: "E1",
 			tasks: []*distributedtask.Task{
 				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
 				epochTask(t, "C", "t2", "E1", 2, distributedtask.TaskStatusFailed, []string{"s2"}, nil),
@@ -559,54 +585,8 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
 		},
 		{
-			name: "coverage does not cross epochs",
-			tasks: []*distributedtask.Task{
-				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil),
-				epochTask(t, "C", "t2", "E2", 2, fin, []string{"s2"}, nil),
-			},
-			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
-			wantEpoch:   "E2",
-			wantCleaned: []string{"s2"},
-			wantUnits:   map[string]string{"s1__n1": "s1"},
-		},
-		{
-			name: "current epoch picked by raft version, not record order",
-			tasks: []*distributedtask.Task{
-				epochTask(t, "C", "t2", "E2", 7, fin, []string{"s2"}, nil),
-				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil),
-			},
-			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
-			wantEpoch:   "E2",
-			wantCleaned: []string{"s2"},
-			wantUnits:   map[string]string{"s1__n1": "s1"},
-		},
-		{
-			name:      "chain-less records (older nodes or aged out) start a fresh epoch",
-			tasks:     []*distributedtask.Task{epochTask(t, "C", "t1", "", 1, fin, []string{"s1"}, nil)},
-			shards:    map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
-			wantEpoch: "",
-			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
-		},
-		{
-			name:      "foreign collection records are ignored",
-			tasks:     []*distributedtask.Task{epochTask(t, "Other", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil)},
-			shards:    map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
-			wantEpoch: "",
-			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
-		},
-		{
-			// Rule-9 pin for TaskStatus.IsCompleted's SWAPPING half at this level.
-			name: "SWAPPING earlier task's coverage is inherited",
-			tasks: []*distributedtask.Task{
-				epochTask(t, "C", "t1", "E1", 1, distributedtask.TaskStatusSwapping, []string{"s1"}, nil),
-			},
-			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1")},
-			wantEpoch:   "E1",
-			wantCleaned: []string{"s1"},
-			wantUnits:   map[string]string{"s2__n1": "s2"},
-		},
-		{
-			name: "corrupt records are skipped, not fatal",
+			name:        "corrupt records are skipped, not fatal",
+			markerEpoch: "E1",
 			tasks: []*distributedtask.Task{
 				corruptRecordTask("bad"),
 				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
@@ -617,9 +597,9 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits:   map[string]string{"s2__n1": "s2"},
 		},
 		{
-			name: "inherited coverage is pruned to current shards",
+			name:        "inherited coverage is pruned to current shards",
+			markerEpoch: "E1",
 			tasks: []*distributedtask.Task{
-				// sDeleted's tenant is gone; it must not ride along in payloads forever.
 				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, []string{"sDeleted"}),
 			},
 			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1")},
@@ -628,7 +608,8 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits:   map[string]string{"s2__n1": "s2"},
 		},
 		{
-			name: "a node whose every shard is cleaned gets no units",
+			name:        "a node whose every shard is cleaned gets no units",
+			markerEpoch: "E1",
 			tasks: []*distributedtask.Task{
 				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil),
 			},
@@ -638,8 +619,25 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits:   map[string]string{"s3__n2": "s3"},
 		},
 		{
+			name:        "pre-token marker inherits nothing and mints a unique epoch",
+			markerEpoch: "",
+			tasks:       []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch:   "",
+			wantUnits:   map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
+		},
+		{
+			name:        "foreign collection records are ignored",
+			markerEpoch: "E1",
+			tasks:       []*distributedtask.Task{epochTask(t, "Other", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil)},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch:   "E1",
+			wantUnits:   map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
+		},
+		{
 			// Non-MT shards carry no tenant status; the chain rules apply the same.
-			name:        "non-MT collection: incomplete chain inherits and skips cleaned",
+			name:        "non-MT collection: matching records inherit and skip cleaned",
+			markerEpoch: "E1",
 			tasks:       []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
 			shards:      map[string]sharding.Physical{"s1": {BelongsToNodes: []string{"n1"}}, "s2": {BelongsToNodes: []string{"n1"}}},
 			nonMT:       true,
@@ -648,10 +646,11 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits:   map[string]string{"s2__n1": "s2"},
 		},
 		{
-			name:       "all active shards cleaned, remainder cold: defer without a task",
-			tasks:      []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
-			shards:     map[string]sharding.Physical{"s1": hot("n1"), "s2": cold("n1")},
-			wantNoTask: true,
+			name:        "all active shards cleaned, remainder cold: defer without a task",
+			markerEpoch: "E1",
+			tasks:       []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": cold("n1")},
+			wantNoTask:  true,
 		},
 	}
 
@@ -660,7 +659,14 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
 				db.DropVectorIndexNamespace: tt.tasks,
 			}}
-			state := &fakeShardingState{state: shardingState(!tt.nonMT, tt.shards)}
+			marker := dropped()
+			if tt.markerEpoch != "" {
+				marker = droppedWithEpoch(tt.markerEpoch)
+			}
+			state := &fakeShardingState{
+				state:     shardingState(!tt.nonMT, tt.shards),
+				vectorCfg: map[string]models.VectorConfig{"v1": marker},
+			}
 			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
 			require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
@@ -673,7 +679,9 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 				require.NotEmpty(t, p.DropEpochID)
 				for _, task := range tt.tasks {
 					prev, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
-					require.NoError(t, err)
+					if err != nil {
+						continue
+					}
 					require.NotEqual(t, prev.DropEpochID, p.DropEpochID,
 						"a fresh epoch must not continue any recorded epoch")
 				}

@@ -58,11 +58,12 @@ type dropVectorShards interface {
 	EnsureDroppedVectorFilesRemoved(collection, shard string, targets []string) error
 }
 
-// dropVectorSchemaFinalizer removes the dropped named-vector entries from a
-// class's VectorConfig cluster-wide via fresh read-modify-write. Idempotent:
-// re-running after the entries are already gone is a no-op.
+// dropVectorSchemaFinalizer removes the dropped named-vector entries of the
+// given drop epoch from a class's VectorConfig cluster-wide via fresh
+// read-modify-write. Idempotent: re-running after the entries are already gone
+// is a no-op; entries of a DIFFERENT epoch are left untouched.
 type dropVectorSchemaFinalizer interface {
-	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error
+	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string, dropEpochID string) error
 }
 
 // dropVectorSchemaReader provides leader-consistent schema reads: the sharding
@@ -523,7 +524,7 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 		return nil
 	}
 
-	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets); err != nil {
+	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets, payload.DropEpochID); err != nil {
 		// Leave the marker in place; reconciliation re-cleans and re-finalizes.
 		logger.Errorf("drop-vector: task-completion: removing VectorConfig entries failed: %v", err)
 		return nil
@@ -557,9 +558,12 @@ func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Ta
 	return false, nil
 }
 
-// targetsStillDropped reports whether every payload target is still present and
-// marked dropped in the leader-consistent class. A missing class or entry means
-// the drop was superseded (class deleted/re-created, or the name freed).
+// targetsStillDropped reports whether every payload target is still present,
+// marked dropped, AND belongs to this payload's drop epoch in the
+// leader-consistent class. A missing class or entry means the drop was
+// superseded (class deleted/re-created, or the name freed); an epoch mismatch
+// means the marker belongs to a NEWER drop of a re-created name, which this
+// task's records must not act on.
 func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTaskPayload) (bool, error) {
 	vclasses, err := p.sharding.QueryReadOnlyClasses(payload.Collection)
 	if err != nil {
@@ -571,7 +575,8 @@ func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTa
 	}
 	for _, target := range payload.Targets {
 		cfg, ok := class.VectorConfig[target]
-		if !ok || !modelsext.IsVectorIndexDropped(cfg) {
+		if !ok || !modelsext.IsVectorIndexDropped(cfg) ||
+			!modelsext.DropEpochMatches(modelsext.DropEpochID(cfg), payload.DropEpochID) {
 			return false, nil
 		}
 	}

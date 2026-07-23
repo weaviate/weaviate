@@ -177,7 +177,7 @@ type fakeFinalizer struct {
 	err        error
 }
 
-func (f *fakeFinalizer) RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error {
+func (f *fakeFinalizer) RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string, dropEpochID string) error {
 	f.called = true
 	f.collection = collection
 	f.targets = targets
@@ -738,6 +738,25 @@ func TestOnGroupCompleted_ReplayAfterRecreate_SkipsFileRemoval(t *testing.T) {
 	require.Empty(t, shards.removed, "a live index's files must not be touched")
 }
 
+// TestOnGroupCompleted_OldEpochReplay_SkipsFileRemoval: the marker belongs to
+// a NEWER drop of the re-created name; the old epoch's replayed completion
+// must not touch its files.
+func TestOnGroupCompleted_OldEpochReplay_SkipsFileRemoval(t *testing.T) {
+	shards := &fakeShards{}
+	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
+	p.sharding = &fakeShardingReader{
+		shards: []string{"shard1"},
+		vectorCfg: map[string]models.VectorConfig{"v1": {
+			VectorIndexType:   "none",
+			VectorIndexConfig: map[string]any{"dropEpochId": "E2"},
+		}},
+	}
+
+	// dropTask's payload is epoch-less — a record from the previous drop.
+	require.NoError(t, p.OnGroupCompleted(dropTask(distributedtask.TaskStatusFinished, nil), "g", []string{"u1"}))
+	require.Empty(t, shards.removed, "an old epoch's replay must not act on a newer drop's marker")
+}
+
 // TestOnGroupCompleted_VerifyError_SurfacesForRetry: an unverifiable marker
 // state must not proceed to file removal.
 func TestOnGroupCompleted_VerifyError_SurfacesForRetry(t *testing.T) {
@@ -1053,37 +1072,37 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	t.Run("finished task never vouches (stale-record replay safety)", func(t *testing.T) {
 		// A FINISHED record outlives finalize by the task TTL; after a
 		// re-create + re-drop it would remove the new drop's marker.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1", "v2")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "only the completing cleanup task")
 	})
 
 	t.Run("collection matches case-insensitively, target exact-case only", func(t *testing.T) {
-		require.NoError(t, p.CheckVectorConfigRemoval("c", []string{"v1"}, nil,
+		require.NoError(t, p.CheckVectorConfigRemoval("c", []string{"v1"}, nil, nil,
 			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")}),
 			"collection names are case-insensitive")
-		require.Error(t, p.CheckVectorConfigRemoval("C", []string{"V1"}, nil,
+		require.Error(t, p.CheckVectorConfigRemoval("C", []string{"V1"}, nil, nil,
 			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")}),
 			"a case-differing sibling is a DIFFERENT vector; a voucher for v1 must not vouch for V1")
 	})
 
 	t.Run("swapping task covering the vector allows removal", func(t *testing.T) {
 		// OnTaskCompleted fires at SWAPPING; rejecting it self-blocks the finalizer.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil,
 			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")})
 		require.NoError(t, err)
 	})
 
 	t.Run("corrupt swapping task does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil,
 			[]*distributedtask.Task{corruptDropTask("t1", distributedtask.TaskStatusSwapping)})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "only the completing cleanup task")
 	})
 
 	t.Run("corrupt active task does not block a valid voucher", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil,
 			[]*distributedtask.Task{
 				corruptDropTask("t1", distributedtask.TaskStatusStarted),
 				swappingDropTask("t2", "C", "v1"),
@@ -1092,7 +1111,7 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 
 	t.Run("active (not finished) task rejects removal", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil,
 			[]*distributedtask.Task{activeDropTask("t1", "C", "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "still active")
@@ -1101,44 +1120,44 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	t.Run("newer active task blocks a replayed old task's removal", func(t *testing.T) {
 		// Epoch-blindness: an old FINISHED task covers v1, but a newer drop of the
 		// re-used name is running — removal would free the name mid-cleanup.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1"), activeDropTask("t2", "C", "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "still active")
 	})
 
 	t.Run("no task at all rejects removal (manual PATCH to skip cleanup)", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil)
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil, nil)
 		require.Error(t, err)
 	})
 
 	t.Run("finished task on a different collection does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "Other", "v1")})
 		require.Error(t, err)
 	})
 
 	t.Run("finished task not covering the vector does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v9")})
 		require.Error(t, err)
 	})
 
 	t.Run("every removed vector must be covered", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"}, nil, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")})
 		require.Error(t, err, "v2 has no finished task")
 	})
 
 	t.Run("empty removal list is a no-op", func(t *testing.T) {
-		require.NoError(t, p.CheckVectorConfigRemoval("C", nil, nil, nil))
+		require.NoError(t, p.CheckVectorConfigRemoval("C", nil, nil, nil, nil))
 	})
 
 	// Coverage half of the gate: a completed task vouches only if its units
 	// covered every current shard — a FINISHED task that deferred finalize over
 	// a cold tenant must not double as a removal voucher.
 	t.Run("swapping task covering all shards vouches", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"}, nil,
 			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
 		require.NoError(t, err)
 	})
@@ -1146,14 +1165,14 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	t.Run("finished task covering all shards still does not vouch", func(t *testing.T) {
 		// The re-drop repro's manual-removal half: a closed epoch's FINISHED
 		// record covers everything yet must not remove a newer drop's marker.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"}, nil,
 			[]*distributedtask.Task{finishedDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "only the completing cleanup task")
 	})
 
 	t.Run("swapping task with an uncovered shard does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"}, nil,
 			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not covered")
@@ -1161,7 +1180,7 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 
 	t.Run("any single swapping task covering everything vouches", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"}, nil,
 			[]*distributedtask.Task{
 				finishedDropTaskCovering("t1", "C", []string{"s1"}, "v1"),
 				swappingDropTaskCovering("t2", "C", []string{"s1", "s2"}, "v1"),
@@ -1173,7 +1192,7 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 		// Mirrors the finalize deferral: a single task must cover everyone —
 		// cross-task memory travels as that task's CleanedShards, not by
 		// unioning arbitrary records here.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"}, nil,
 			[]*distributedtask.Task{
 				swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1"),
 				swappingDropTaskCovering("t2", "C", []string{"s2"}, "v1"),
@@ -1183,7 +1202,7 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 
 	t.Run("the closest task's missing shards are reported", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"}, nil,
 			[]*distributedtask.Task{
 				swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1"),       // misses s2, s3
 				swappingDropTaskCovering("t2", "C", []string{"s1", "s2"}, "v1"), // misses only s3
@@ -1194,9 +1213,44 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 
 	t.Run("a multi-target voucher covers each removed vector", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"}, []string{"s1"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"}, []string{"s1"}, nil,
 			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1", "v2")})
 		require.NoError(t, err)
+	})
+
+	t.Run("a voucher from a different drop epoch has no say", func(t *testing.T) {
+		// The re-drop repro's gate half: the marker carries a generation
+		// token; a SWAPPING task of another epoch — however complete — must
+		// not remove it.
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"},
+			map[string]string{"v1": "E2"},
+			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")}) // epoch-less payload
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "only the completing cleanup task")
+	})
+
+	t.Run("a matching-epoch voucher is accepted", func(t *testing.T) {
+		task := swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")
+		payload := &DropVectorIndexTaskPayload{
+			Collection: "C", Targets: []string{"v1"}, OpID: "op-t1",
+			UnitToShard: map[string]string{"s1__u0": "s1"}, DropEpochID: "E2",
+		}
+		task.Payload, _ = payload.encode()
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"},
+			map[string]string{"v1": "E2"}, []*distributedtask.Task{task})
+		require.NoError(t, err)
+	})
+
+	t.Run("a pre-token marker accepts any epoch (wildcard)", func(t *testing.T) {
+		task := swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")
+		payload := &DropVectorIndexTaskPayload{
+			Collection: "C", Targets: []string{"v1"}, OpID: "op-t1",
+			UnitToShard: map[string]string{"s1__u0": "s1"}, DropEpochID: "E9",
+		}
+		task.Payload, _ = payload.encode()
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"},
+			map[string]string{"v1": ""}, []*distributedtask.Task{task})
+		require.NoError(t, err, "markers written by pre-token nodes keep pre-token semantics")
 	})
 
 	t.Run("a task's inherited CleanedShards count as coverage", func(t *testing.T) {
@@ -1207,7 +1261,7 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 			CleanedShards: []string{"s2"},
 		}
 		task.Payload, _ = payload.encode()
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"}, nil,
 			[]*distributedtask.Task{task})
 		require.NoError(t, err, "units plus the inherited cleaned set span all shards")
 	})

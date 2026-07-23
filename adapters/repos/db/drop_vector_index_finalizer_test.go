@@ -63,7 +63,7 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		}}}
 		f := &schemaVectorConfigFinalizer{mgr: up}
 
-		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}))
+		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}, ""))
 		require.Equal(t, 1, up.updateCalls)
 		require.NotContains(t, up.updated.VectorConfig, "drop")
 		require.Contains(t, up.updated.VectorConfig, "keep")
@@ -79,7 +79,7 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		}}}
 		f := &schemaVectorConfigFinalizer{mgr: up}
 
-		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}))
+		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}, ""))
 		require.Equal(t, 1, up.updateCalls)
 		require.NotContains(t, up.updated.VectorConfig, "drop")
 		require.Contains(t, up.updated.VectorConfig, "Drop", "the sibling's marker must survive")
@@ -91,7 +91,7 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		}}}
 		f := &schemaVectorConfigFinalizer{mgr: up}
 
-		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}))
+		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}, ""))
 		require.Zero(t, up.updateCalls, "nothing to remove must not issue an update")
 	})
 
@@ -101,13 +101,13 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		}}}
 		f := &schemaVectorConfigFinalizer{mgr: up}
 
-		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}))
+		require.NoError(t, f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}, ""))
 		require.Zero(t, up.updateCalls, "a live same-name entry must not be removed")
 	})
 
 	t.Run("class not found errors", func(t *testing.T) {
 		f := &schemaVectorConfigFinalizer{mgr: &fakeClassUpdater{class: nil}}
-		require.Error(t, f.RemoveDroppedVectorConfig(ctx, "missing", []string{"drop"}))
+		require.Error(t, f.RemoveDroppedVectorConfig(ctx, "missing", []string{"drop"}, ""))
 	})
 
 	t.Run("retry exhaustion surfaces the last error", func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		}
 		f := &schemaVectorConfigFinalizer{mgr: up}
 
-		err := f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"})
+		err := f.RemoveDroppedVectorConfig(ctx, "C", []string{"drop"}, "")
 		require.Error(t, err)
 		require.ErrorContains(t, err, "raft busy")
 		require.Equal(t, dropVectorFinalizeMaxAttempts, up.updateCalls, "must exhaust the bounded retry")
@@ -132,7 +132,7 @@ func TestRemoveDroppedVectorConfig(t *testing.T) {
 		cctx, cancel := context.WithCancel(ctx)
 		cancel()
 
-		require.Error(t, f.RemoveDroppedVectorConfig(cctx, "C", []string{"drop"}))
+		require.Error(t, f.RemoveDroppedVectorConfig(cctx, "C", []string{"drop"}, ""))
 		require.LessOrEqual(t, up.updateCalls, dropVectorFinalizeMaxAttempts)
 	})
 }
@@ -172,7 +172,7 @@ func TestRemoveDroppedVectorConfig_UpdatedClassDoesNotAliasOriginal(t *testing.T
 	up := &fakeClassUpdater{class: orig}
 	f := &schemaVectorConfigFinalizer{mgr: up}
 
-	require.NoError(t, f.RemoveDroppedVectorConfig(context.Background(), "C", []string{"drop"}))
+	require.NoError(t, f.RemoveDroppedVectorConfig(context.Background(), "C", []string{"drop"}, ""))
 	require.NotNil(t, up.updated)
 
 	keptCfg, ok := up.updated.VectorConfig["keep"].VectorIndexConfig.(map[string]interface{})
