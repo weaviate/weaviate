@@ -1,0 +1,197 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+syntax = "proto3";
+
+// NOTE run `buf generate` from `cluster/data/proto` to regenerate code
+package weaviate.internal.data;
+
+option go_package = "github.com/weaviate/weaviate/cluster/data/proto";
+
+// ApplyRequest represents a command to be applied to a shard's RAFT FSM.
+// Each physical shard has its own RAFT cluster for object replication.
+message ApplyRequest {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_PUT_OBJECT = 1;
+    TYPE_DELETE_OBJECT = 2;
+    TYPE_MERGE_OBJECT = 3;
+    TYPE_PUT_OBJECTS_BATCH = 4;
+    TYPE_DELETE_OBJECTS_BATCH = 5;
+    TYPE_ADD_REFERENCES = 6;
+  }
+
+  Type type = 1;
+  string class = 2;
+  string shard = 3;
+  uint64 version = 4;
+  bytes sub_command = 5;
+  bool compressed = 6;
+}
+
+// ApplyResponse is returned by the FSM after applying a command.
+message ApplyResponse {
+  uint64 version = 1;
+  string leader = 2;
+  optional string error = 3;
+}
+
+// ShardRaftSnapshot represents the snapshot metadata for a shard's RAFT FSM.
+// The actual object data is stored in the LSM store, so the snapshot only
+// contains the last applied index for consistency verification.
+message ShardRaftSnapshot {
+  // The last RAFT log index that was applied to the shard
+  uint64 last_applied_index = 1;
+
+  // Shard identification
+  string class_name = 2;
+  string shard_name = 3;
+
+  // Node that created this snapshot
+  string node_id = 4;
+}
+
+// ShardReplicationService handles forwarding of shard operations from
+// followers to leaders in per-shard RAFT clusters.
+service ShardReplicationService {
+  rpc Apply(ApplyRequest) returns (ApplyResponse) {}
+
+  // State transfer RPCs for out-of-band snapshot restore.
+  // When a follower falls too far behind and needs a full state transfer,
+  // these RPCs allow it to download shard data from the leader.
+  rpc CreateTransferSnapshot(CreateTransferSnapshotRequest) returns (CreateTransferSnapshotResponse) {}
+  rpc GetSnapshotFile(GetSnapshotFileRequest) returns (stream SnapshotFileChunk) {}
+  rpc ReleaseTransferSnapshot(ReleaseTransferSnapshotRequest) returns (ReleaseTransferSnapshotResponse) {}
+
+  // GetLastAppliedIndex returns the leader's last applied RAFT log index.
+  // Used by followers to determine how far they need to catch up before
+  // performing a local read.
+  rpc GetLastAppliedIndex(GetLastAppliedIndexRequest) returns (GetLastAppliedIndexResponse) {}
+}
+
+// PutObjectRequest is sent from a follower to the leader to apply a PutObject operation.
+message PutObjectRequest {
+  // Serialized storobj.Object
+  bytes object = 3;
+
+  // Schema version for compatibility validation
+  uint64 schema_version = 4;
+
+  // Unique request ID for idempotency (optional, can be 0)
+  uint64 request_id = 5;
+}
+
+// PutObjectResponse is returned after applying a PutObject operation.
+message PutObjectResponse {
+  // The RAFT log index at which this command was applied (0 on error)
+  uint64 applied_index = 1;
+
+  // Current leader address (useful when returning NotLeader error)
+  string leader = 2;
+
+  // Error message if the operation failed (empty on success)
+  string error = 3;
+}
+
+// DeleteObjectRequest is the sub-command for TYPE_DELETE_OBJECT.
+message DeleteObjectRequest {
+  string id = 1;
+  int64 deletion_time_unix = 2;
+  uint64 schema_version = 3;
+}
+
+// MergeObjectRequest is the sub-command for TYPE_MERGE_OBJECT.
+// MergeDocument contains map[string]interface{} fields, so it is serialized as JSON bytes.
+message MergeObjectRequest {
+  bytes merge_document_json = 1;
+  uint64 schema_version = 2;
+}
+
+// PutObjectsBatchRequest is the sub-command for TYPE_PUT_OBJECTS_BATCH.
+// Each entry in objects is a storobj.Object serialized via MarshalBinary().
+message PutObjectsBatchRequest {
+  repeated bytes objects = 1;
+  uint64 schema_version = 2;
+}
+
+// DeleteObjectsBatchRequest is the sub-command for TYPE_DELETE_OBJECTS_BATCH.
+message DeleteObjectsBatchRequest {
+  repeated string uuids = 1;
+  int64 deletion_time_unix = 2;
+  bool dry_run = 3;
+  uint64 schema_version = 4;
+}
+
+// AddReferencesRequest is the sub-command for TYPE_ADD_REFERENCES.
+// BatchReference has nested refs, so it is serialized as JSON bytes.
+message AddReferencesRequest {
+  bytes references_json = 1;
+  uint64 schema_version = 2;
+}
+
+// CreateTransferSnapshotRequest asks the leader to create a hardlink snapshot
+// of the specified shard's files for out-of-band state transfer.
+message CreateTransferSnapshotRequest {
+  string class = 1;
+  string shard = 2;
+}
+
+// SnapshotFileInfo describes a single file in a transfer snapshot.
+message SnapshotFileInfo {
+  string name = 1;    // relative file path within staging dir
+  int64 size = 2;     // file size in bytes
+  uint32 crc32 = 3;   // CRC32 checksum
+}
+
+// CreateTransferSnapshotResponse returns the snapshot ID and list of files
+// available for download.
+message CreateTransferSnapshotResponse {
+  string snapshot_id = 1;
+  repeated SnapshotFileInfo files = 2;
+}
+
+// GetSnapshotFileRequest asks the leader to stream a specific file from
+// a previously created transfer snapshot.
+message GetSnapshotFileRequest {
+  string snapshot_id = 1;
+  string file_name = 2;
+}
+
+// SnapshotFileChunk is a streamed chunk of a snapshot file.
+message SnapshotFileChunk {
+  int64 offset = 1;
+  bytes data = 2;
+  bool eof = 3;
+}
+
+// ReleaseTransferSnapshotRequest tells the leader to clean up the staging
+// directory for a completed (or failed) transfer snapshot.
+message ReleaseTransferSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+// ReleaseTransferSnapshotResponse is empty — success is indicated by a nil error.
+message ReleaseTransferSnapshotResponse {
+}
+
+// GetLastAppliedIndexRequest asks a node for its last applied RAFT log index
+// for a specific shard.
+message GetLastAppliedIndexRequest {
+  string class = 1;
+  string shard = 2;
+  // If true, verify leadership before returning the index (for linearizable reads).
+  bool verify_leader = 3;
+}
+
+// GetLastAppliedIndexResponse returns the node's last applied RAFT log index.
+message GetLastAppliedIndexResponse {
+  uint64 last_applied_index = 1;
+}

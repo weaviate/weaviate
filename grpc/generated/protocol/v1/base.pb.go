@@ -26,6 +26,9 @@ const (
 	ConsistencyLevel_CONSISTENCY_LEVEL_ONE         ConsistencyLevel = 1
 	ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM      ConsistencyLevel = 2
 	ConsistencyLevel_CONSISTENCY_LEVEL_ALL         ConsistencyLevel = 3
+	ConsistencyLevel_CONSISTENCY_LEVEL_EVENTUAL    ConsistencyLevel = 4
+	ConsistencyLevel_CONSISTENCY_LEVEL_STRONG      ConsistencyLevel = 5
+	ConsistencyLevel_CONSISTENCY_LEVEL_DIRECT      ConsistencyLevel = 6
 )
 
 // Enum value maps for ConsistencyLevel.
@@ -35,12 +38,18 @@ var (
 		1: "CONSISTENCY_LEVEL_ONE",
 		2: "CONSISTENCY_LEVEL_QUORUM",
 		3: "CONSISTENCY_LEVEL_ALL",
+		4: "CONSISTENCY_LEVEL_EVENTUAL",
+		5: "CONSISTENCY_LEVEL_STRONG",
+		6: "CONSISTENCY_LEVEL_DIRECT",
 	}
 	ConsistencyLevel_value = map[string]int32{
 		"CONSISTENCY_LEVEL_UNSPECIFIED": 0,
 		"CONSISTENCY_LEVEL_ONE":         1,
 		"CONSISTENCY_LEVEL_QUORUM":      2,
 		"CONSISTENCY_LEVEL_ALL":         3,
+		"CONSISTENCY_LEVEL_EVENTUAL":    4,
+		"CONSISTENCY_LEVEL_STRONG":      5,
+		"CONSISTENCY_LEVEL_DIRECT":      6,
 	}
 )
 
@@ -1545,12 +1554,15 @@ const file_v1_base_proto_rawDesc = "" +
 	"VectorType\x12\x1b\n" +
 	"\x17VECTOR_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17VECTOR_TYPE_SINGLE_FP32\x10\x01\x12\x1a\n" +
-	"\x16VECTOR_TYPE_MULTI_FP32\x10\x02*\x89\x01\n" +
+	"\x16VECTOR_TYPE_MULTI_FP32\x10\x02*\xe5\x01\n" +
 	"\x10ConsistencyLevel\x12!\n" +
 	"\x1dCONSISTENCY_LEVEL_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15CONSISTENCY_LEVEL_ONE\x10\x01\x12\x1c\n" +
 	"\x18CONSISTENCY_LEVEL_QUORUM\x10\x02\x12\x19\n" +
-	"\x15CONSISTENCY_LEVEL_ALL\x10\x03Bn\n" +
+	"\x15CONSISTENCY_LEVEL_ALL\x10\x03\x12\x1e\n" +
+	"\x1aCONSISTENCY_LEVEL_EVENTUAL\x10\x04\x12\x1c\n" +
+	"\x18CONSISTENCY_LEVEL_STRONG\x10\x05\x12\x1c\n" +
+	"\x18CONSISTENCY_LEVEL_DIRECT\x10\x06Bn\n" +
 	"#io.weaviate.client.grpc.protocol.v1B\x11WeaviateProtoBaseZ4github.com/weaviate/weaviate/grpc/generated;protocolb\x06proto3"
 
 var (

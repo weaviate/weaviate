@@ -26,6 +26,10 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 	className string, id strfmt.UUID, tenant string, class *models.Class, schemaVersion uint64,
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
+		if err := m.vectorRepo.EnsureReplicaCaughtUp(ctx, className, id, tenant); err != nil {
+			return fmt.Errorf("ensure replica caught up: %w", err)
+		}
+
 		parent, err := m.vectorRepo.Object(ctx, className, id,
 			search.SelectProperties{}, additional.Properties{}, nil, tenant)
 		if err != nil {

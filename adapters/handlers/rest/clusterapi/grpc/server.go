@@ -19,6 +19,8 @@ import (
 	"net"
 	"strings"
 
+	"github.com/weaviate/weaviate/cluster/shard"
+	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	_ "google.golang.org/grpc/encoding/gzip" // Install the gzip compressor
@@ -95,6 +97,13 @@ func NewServer(
 
 	weaviateV1FileReplicationService := NewFileReplicationService(config.FileReplicationRepo, config.FileReplicationSchema, fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
+
+	// Register shard replication service if RAFT registry is available
+	if config.State.ShardRegistry != nil {
+		server := shard.NewServer(config.State.ShardRegistry, config.State.Logger)
+		shardproto.RegisterShardReplicationServiceServer(s, server)
+		config.State.Logger.Info("registered shard replication gRPC service")
+	}
 
 	replicationService := NewReplicationService(config.Replicator)
 	pb.RegisterReplicationServiceServer(s, replicationService)

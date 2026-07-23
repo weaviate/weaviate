@@ -386,6 +386,12 @@ func extractReplicationProperties(level *pb.ConsistencyLevel) *additional.Replic
 		return &additional.ReplicationProperties{ConsistencyLevel: "QUORUM"}
 	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_ALL:
 		return &additional.ReplicationProperties{ConsistencyLevel: "ALL"}
+	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_EVENTUAL:
+		return &additional.ReplicationProperties{ConsistencyLevel: "EVENTUAL"}
+	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_STRONG:
+		return &additional.ReplicationProperties{ConsistencyLevel: "STRONG"}
+	case pb.ConsistencyLevel_CONSISTENCY_LEVEL_DIRECT:
+		return &additional.ReplicationProperties{ConsistencyLevel: "DIRECT"}
 	default:
 		return nil
 	}

@@ -46,6 +46,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/shard"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -241,7 +242,7 @@ type Index struct {
 	// invertedIndexConfig is updated, so reads on hot query paths do not need
 	// to take invertedIndexConfigLock. Always access via getStopwordProvider().
 	stopwordProvider atomic.Pointer[stopwords.Provider]
-	replicator       *replica.Replicator
+	replicator       shard.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
@@ -312,6 +313,9 @@ type Index struct {
 	// canceled when either Shutdown or Drop called
 	closingCtx    context.Context
 	closingCancel context.CancelFunc
+
+	// Per-index RAFT manager (only set if RaftReplicationEnabled)
+	raft *shard.Raft
 
 	// always true if lazy shard loading is off, in the case of lazy shard
 	// loading will be set to true once the last shard was loaded.
@@ -468,9 +472,43 @@ func NewIndex(
 	}
 
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, nodeResolver, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
+	// Create the base replicator which handles 2PC/async replication
+	baseReplicator, err := replica.NewReplicator(cfg.ClassName.String(), router, nodeResolver, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
+	}
+
+	if cfg.RaftReplicationEnabled && cfg.ShardRegistry != nil {
+		// Get or create per-index Raft manager from the global registry
+		indexRaft, err := cfg.ShardRegistry.GetOrCreateRaft(class.Class)
+		if err != nil {
+			return nil, fmt.Errorf("create index raft for %q: %w", class.Class, err)
+		}
+		index.raft = indexRaft
+
+		// Wrap with RAFT router - overrides PutObject to use RAFT,
+		// delegates all other methods to the backing replicator
+		index.replicator = shard.Newreplicator(shard.RouterConfig{
+			NodeID:            index.getSchema.NodeName(),
+			Logger:            logger,
+			Raft:              indexRaft,
+			ClassName:         class.Class,
+			BackingReplicator: baseReplicator,
+			RpcClientMaker:    cfg.ShardRegistry.RpcClientMaker,
+			LocalShardReader: func(shardName string) (shard.ShardReader, func(), error) {
+				s, release, err := index.GetShard(context.Background(), shardName)
+				if err != nil {
+					return nil, release, err
+				}
+				if s == nil {
+					return nil, release, nil
+				}
+				return s, release, nil
+			},
+			Registry: cfg.ShardRegistry,
+		})
+	} else {
+		index.replicator = baseReplicator
 	}
 
 	if cfg.AsyncReplicationScheduler == nil && cfg.ReplicationFactor > 1 {
@@ -549,6 +587,11 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 	hotShardNames := make([]string, 0, len(localShards))
 
+	// RAFT-backed object replication requires every local shard's ring member
+	// to be provisioned at startup (NewShard registers it), so lazy loading and
+	// the empty-shard skip below are bypassed when it is enabled.
+	eagerInit := !i.Config.EnableLazyLoadShards || i.Config.RaftReplicationEnabled
+
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
@@ -560,14 +603,14 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		shardName := shard.name
 		eg.Go(func() error {
 			switch {
-			case i.Config.EnableLazyLoadShards:
+			case !eagerInit:
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
 				return nil
 			default:
 				// avoid footprint of empty shards
-				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+				if !i.Config.RaftReplicationEnabled && i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
@@ -597,7 +640,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return err
 	}
 
-	if !i.Config.EnableLazyLoadShards {
+	if eagerInit {
 		i.allShardsReady.Store(true)
 		return nil
 	}
@@ -662,6 +705,13 @@ func (i *Index) unloadedShardIsEmpty(shardName string) bool {
 }
 
 func (i *Index) loadLocalShardIfActive(shardName string) error {
+	// Admit as an in-flight operation so a concurrent Shutdown/drop waits for
+	// this load instead of tearing the index down underneath it.
+	if err := i.enterRead(); err != nil {
+		return nil
+	}
+	defer i.exitRead()
+
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
@@ -677,7 +727,9 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 			return nil
 		}
-		return lazyShard.Load(context.Background())
+		// closingCtx (not Background) so an index close aborts the load
+		// promptly instead of blocking beginClose behind a full shard init
+		return lazyShard.Load(i.closingCtx)
 	}
 
 	return nil
@@ -1156,7 +1208,9 @@ type IndexConfig struct {
 	LazyPropertyLengthsEnabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled     func() bool
 
-	HFreshEnabled bool
+	HFreshEnabled          bool
+	RaftReplicationEnabled bool
+	ShardRegistry          *shard.Registry
 
 	AutoTenantActivation bool
 
@@ -1165,6 +1219,20 @@ type IndexConfig struct {
 
 func indexID(class schema.ClassName) string {
 	return strings.ToLower(string(class))
+}
+
+// ensureReplicaCaughtUp waits for the local RAFT replica to catch up to the
+// leader's applied index for the shard that owns the given object. This
+// prevents stale reads on followers after a write on the leader.
+func (i *Index) ensureReplicaCaughtUp(ctx context.Context, id strfmt.UUID, tenant string) error {
+	if i.Config.ShardRegistry == nil {
+		return nil // RAFT not enabled
+	}
+	shardName, err := i.shardResolver.ResolveShardByObjectID(ctx, id, tenant)
+	if err != nil {
+		return nil // let the actual read handle shard resolution errors
+	}
+	return i.Config.ShardRegistry.WaitForShardReady(ctx, i.Config.ClassName.String(), shardName)
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -1191,10 +1259,13 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		}
 	}
 	if replProps == nil {
-		replProps = defaultConsistency()
+		replProps = i.defaultConsistency()
 	}
 	if i.shardHasMultipleReplicasWrite(tenantName, targetShard.Shard) {
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+		if err := i.validateConsistencyLevel(cl); err != nil {
+			return fmt.Errorf("validate consistency level: %w", err)
+		}
 		if err := i.replicator.PutObject(ctx, targetShard.Shard, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", targetShard.Shard, err)
 		}
@@ -1708,7 +1779,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 	out := make([]error, len(objects))
 	if replProps == nil {
-		replProps = defaultConsistency()
+		replProps = i.defaultConsistency()
 	}
 	if schemaVersion > 0 {
 		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
@@ -1754,8 +1825,14 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			tenantName := group.objects[0].Object.Tenant
 			var errs []error
 			if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
-					routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+				cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+				if err := i.validateConsistencyLevel(cl); err != nil {
+					for _, pos := range group.pos {
+						out[pos] = fmt.Errorf("validate consistency level: %w", err)
+					}
+					return
+				}
+				errs = i.replicator.PutObjects(ctx, shardName, group.objects, cl, schemaVersion)
 			} else {
 				shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion)
 				defer release()
@@ -1832,7 +1909,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		pos  []int
 	}
 	if replProps == nil {
-		replProps = defaultConsistency()
+		replProps = i.defaultConsistency()
 	}
 	// Stamp once so all replicas write the same LastUpdateTime; otherwise
 	// per-replica time.Now() diverges and triggers spurious async-replication
@@ -1872,7 +1949,15 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		tenantName := group.refs[0].Tenant
 		var errs []error
 		if i.shardHasMultipleReplicasWrite(tenantName, shardName) {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+			cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+			if err := i.validateConsistencyLevel(cl); err != nil {
+				errs = duplicateErr(fmt.Errorf("validate consistency level: %w", err), len(group.refs))
+				for j, e := range errs {
+					out[group.pos[j]] = e
+				}
+				continue
+			}
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs, cl, schemaVersion)
 		} else {
 			shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion)
 			if err != nil {
@@ -1933,7 +2018,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	if i.shardHasMultipleReplicasRead(tenant, shardName) {
 		if replProps == nil {
-			replProps = defaultConsistency()
+			replProps = i.defaultConsistency()
 		}
 		if replProps.NodeName != "" {
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, addl)
@@ -2101,7 +2186,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	var exists bool
 	if i.shardHasMultipleReplicasRead(tenant, shardName) {
 		if replProps == nil {
-			replProps = defaultConsistency()
+			replProps = i.defaultConsistency()
 		}
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		return i.replicator.Exists(ctx, cl, shardName, id)
@@ -2154,7 +2239,10 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
+	cl, err := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
+	if err != nil {
+		return nil, nil, err
+	}
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -2299,7 +2387,20 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 		return nil
 	}
-	localSeach := func(shardName string) error {
+	localSearch := func(shardName string) error {
+		// For RAFT-backed shards, EnsureReadConsistency handles consistency:
+		// - EVENTUAL: no-op (read local)
+		// - STRONG: waits for local FSM to catch up to leader's commit index
+		// - DIRECT: returns false if this node isn't leader
+		localReady, err := i.replicator.EnsureReadConsistency(ctx, shardName, readPlan.ConsistencyLevel)
+		if err != nil {
+			return fmt.Errorf("ensure read consistency for shard %s: %w", shardName, err)
+		}
+		if !localReady {
+			// DIRECT on non-leader: forward search to the leader node
+			return remoteSearch(shardName)
+		}
+
 		// Use getShardForDirectLocalOperation to get or initialize the shard for reads.
 		// This ensures shards are initialized when needed (e.g., after tenant reactivation).
 		// If shard doesn't exist locally or shouldn't be used, fall back to remote search.
@@ -2351,7 +2452,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		func(replica routerTypes.Replica) error {
 			shardName := replica.ShardName
 			eg.Go(func() error {
-				return localSeach(shardName)
+				return localSearch(shardName)
 			}, shardName)
 			return nil
 		},
@@ -2547,7 +2648,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
+	cl, err := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
+	if err != nil {
+		return nil, nil, err
+	}
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -2605,6 +2709,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		return nil
 	}
 	localSearch := func(shardName string) error {
+		// For RAFT-backed shards, EnsureReadConsistency handles consistency
+		localReady, prepErr := i.replicator.EnsureReadConsistency(ctx, shardName, readPlan.ConsistencyLevel)
+		if prepErr != nil {
+			return fmt.Errorf("ensure read consistency for shard %s: %w", shardName, prepErr)
+		}
+		if !localReady {
+			return remoteSearch(shardName)
+		}
+
 		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
 			return err
@@ -2802,9 +2915,12 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 	if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 		if replProps == nil {
-			replProps = defaultConsistency()
+			replProps = i.defaultConsistency()
 		}
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+		if err := i.validateConsistencyLevel(cl); err != nil {
+			return fmt.Errorf("validate consistency level: %w", err)
+		}
 		if err := i.replicator.DeleteObject(ctx, shardName, id, deletionTime, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate deletion: shard=%q %w", shardName, err)
 		}
@@ -3035,9 +3151,12 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 
 	if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 		if replProps == nil {
-			replProps = defaultConsistency()
+			replProps = i.defaultConsistency()
 		}
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+		if err := i.validateConsistencyLevel(cl); err != nil {
+			return fmt.Errorf("validate consistency level: %w", err)
+		}
 		if err := i.replicator.MergeObject(ctx, shardName, &merge, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate single update: %w", err)
 		}
@@ -3210,6 +3329,12 @@ func (i *Index) drop() error {
 		return err
 	}
 
+	if i.Config.RaftReplicationEnabled && i.Config.ShardRegistry != nil {
+		if err := i.Config.ShardRegistry.DeleteRaft(i.Config.ClassName.String()); err != nil {
+			i.logger.WithFields(fields).Errorf("delete raft manager: %v", err)
+		}
+	}
+
 	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
 	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -3281,6 +3406,17 @@ func (i *Index) dropShards(names []string) error {
 
 			shard, ok := i.shards.LoadAndDelete(name)
 			if !ok {
+				// Not loaded, so no Store to stop — but the group's persisted
+				// raft state must still be purged or it resurrects on the next
+				// same-name creation. OnShardDropped handles the storeless
+				// case by group ID.
+				if i.Config.RaftReplicationEnabled && i.raft != nil {
+					if err := i.raft.OnShardDropped(name); err != nil {
+						ec.Add(err)
+						i.logger.WithField("action", "drop_shard").WithField("shard", name).
+							Errorf("raft teardown for unloaded shard %q: %v", name, err)
+					}
+				}
 				// Ensure that if the shard is not loaded we delete any reference on disk for any data.
 				// This ensures that we also delete inactive shards/tenants
 				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
@@ -3550,7 +3686,10 @@ func (i *Index) findUUIDs(ctx context.Context,
 ) (map[string][]strfmt.UUID, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
-	cl := i.consistencyLevel(repl)
+	cl, err := i.consistencyLevel(repl)
+	if err != nil {
+		return nil, err
+	}
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, err
@@ -3596,11 +3735,15 @@ func (i *Index) findUUIDs(ctx context.Context,
 func (i *Index) consistencyLevel(
 	repl *additional.ReplicationProperties,
 	defaultOverride ...routerTypes.ConsistencyLevel,
-) routerTypes.ConsistencyLevel {
+) (routerTypes.ConsistencyLevel, error) {
 	if repl == nil {
-		repl = defaultConsistency(defaultOverride...)
+		repl = i.defaultConsistency(defaultOverride...)
 	}
-	return routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
+	cl := routerTypes.ConsistencyLevel(repl.ConsistencyLevel)
+	if err := i.validateConsistencyLevel(cl); err != nil {
+		return "", err
+	}
+	return cl, nil
 }
 
 func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
@@ -3639,7 +3782,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 	}
 
 	if replProps == nil {
-		replProps = defaultConsistency()
+		replProps = i.defaultConsistency()
 	}
 
 	wg := &sync.WaitGroup{}
@@ -3653,8 +3796,15 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 
 			var objs objects.BatchSimpleObjects
 			if i.shardHasMultipleReplicasWrite(tenant, shardName) {
+				cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+				if err := i.validateConsistencyLevel(cl); err != nil {
+					ch <- result{objs: objects.BatchSimpleObjects{
+						objects.BatchSimpleObject{Err: fmt.Errorf("validate consistency level: %w", err)},
+					}}
+					return
+				}
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
-					dryRun, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+					dryRun, cl, schemaVersion)
 			} else {
 				shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationWrite, schemaVersion)
 				defer release()
@@ -3707,14 +3857,27 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 }
 
-func defaultConsistency(defaultOverride ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
+func (i *Index) defaultConsistency(defaultOverride ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
 	rp := &additional.ReplicationProperties{}
 	if len(defaultOverride) != 0 {
 		rp.ConsistencyLevel = string(defaultOverride[0])
+	} else if i.isRaftBacked() {
+		rp.ConsistencyLevel = string(routerTypes.ConsistencyLevelEventual)
 	} else {
 		rp.ConsistencyLevel = string(routerTypes.ConsistencyLevelQuorum)
 	}
 	return rp
+}
+
+func (i *Index) isRaftBacked() bool {
+	return i.Config.RaftReplicationEnabled && i.Config.ShardRegistry != nil
+}
+
+func (i *Index) validateConsistencyLevel(cl routerTypes.ConsistencyLevel) error {
+	// if i.isRaftBacked() && cl.Is2PC() {
+	// 	return fmt.Errorf("consistency level %s is not supported for RAFT-backed shards; use EVENTUAL, STRONG, or DIRECT", cl)
+	// }
+	return nil
 }
 
 func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []float32) {

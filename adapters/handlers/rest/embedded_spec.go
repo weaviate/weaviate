@@ -10158,6 +10158,11 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
+        },
+        "raftEnabled": {
+          "description": "Whether to use Raft for replication (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
@@ -22251,6 +22256,11 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
+        },
+        "raftEnabled": {
+          "description": "Whether to use Raft for replication (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },

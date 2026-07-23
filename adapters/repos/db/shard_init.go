@@ -156,6 +156,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
+	// Clean up any orphaned transfer snapshot directories left from a previous crash.
+	s.cleanupOrphanedTransferSnapshots()
+
 	// Finalize any completed migrations whose directory renames were deferred
 	// from a runtime swap. This must run before bucket loading (initNonVector)
 	// so that buckets are found at their canonical directory names.
@@ -203,6 +206,32 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	_ = s.reindexer.RunAfterLsmInit(ctx, s)
 	_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
+
+	// Register shard with RAFT manager if RAFT replication is enabled.
+	// RAFT-backed classes require shard-store registration during initialization;
+	// failing here must fail shard creation so AddClass doesn't return with a
+	// partially usable shard.
+	if index.isRaftBacked() && index.raft != nil {
+		className := index.Config.ClassName.String()
+		members, err := index.getSchema.ShardReplicas(className, shardName)
+		if err != nil {
+			return nil, fmt.Errorf("raft shard registration: get replicas for %s/%s: %w", className, shardName, err)
+		}
+		if len(members) == 0 {
+			return nil, fmt.Errorf("raft shard registration: no replicas for %s/%s", className, shardName)
+		}
+		if err := index.raft.OnShardCreated(ctx, shardName, members, s); err != nil {
+			return nil, fmt.Errorf("raft shard registration: %s/%s: %w", className, shardName, err)
+		}
+
+		index.logger.WithFields(logrus.Fields{
+			"action":  "raft_shard_registration",
+			"shard":   shardName,
+			"index":   index.ID(),
+			"members": members,
+		}).Info("registered shard with RAFT manager")
+	}
+
 	return s, nil
 }
 

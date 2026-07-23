@@ -110,7 +110,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, fmt.Errorf("delete object from bucket: %w", err)
 	}
 
-	if err = s.store.WriteWALs(); err != nil {
+	if err = s.writeWALs(); err != nil {
 		return false, fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 

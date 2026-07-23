@@ -93,6 +93,19 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
 
+	// Unregister shard from RAFT manager if RAFT replication is enabled.
+	// Unload semantics: the Store stops but its persisted group state is
+	// kept so a restart can recover the group.
+	if s.index.Config.RaftReplicationEnabled && s.index.raft != nil {
+		if err := s.index.raft.OnShardUnloaded(s.name); err != nil {
+			s.index.logger.WithError(err).WithField("action", "raft_shard_unregistration").
+				Warnf("failed to unregister shard %q from RAFT manager", s.name)
+		} else {
+			s.index.logger.WithField("action", "raft_shard_unregistration").
+				Infof("unregistered shard %q from RAFT manager", s.name)
+		}
+	}
+
 	s.haltForTransferMux.Lock()
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
 	s.mayStopInactivityMonitoring()

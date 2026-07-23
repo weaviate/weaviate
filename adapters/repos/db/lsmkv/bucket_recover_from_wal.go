@@ -40,6 +40,12 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 		return errors.Wrap(err, "recover commit log")
 	}
 
+	// WAL-less buckets have no commit logs to recover from.
+	// Durability is provided by the RAFT log instead.
+	if b.walDisabled {
+		return nil
+	}
+
 	var walFileNames []string
 	for file, size := range files {
 		if filepath.Ext(file) != ".wal" {
