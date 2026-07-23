@@ -1253,10 +1253,13 @@ func (i *Index) getShardForWrite(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		shard, release, err = i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		// the reference we were handed is not returned to the caller, release it
+		release()
 		if err != nil {
-			return nil, release, err
+			return nil, initRelease, err
 		}
+		return initShard, initRelease, nil
 	}
 
 	return shard, release, nil
@@ -1290,10 +1293,13 @@ func (i *Index) getShardForRead(
 	if shard == nil {
 		// this to handle MT auto enable and RF=1 case
 		ensureInit := i.Config.AutoTenantActivation || !i.replicationEnabled()
-		shard, release, err = i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		initShard, initRelease, err := i.getOptInitLocalShard(ctx, shardName, ensureInit)
+		// the reference we were handed is not returned to the caller, release it
+		release()
 		if err != nil {
-			return nil, release, err
+			return nil, initRelease, err
 		}
+		return initShard, initRelease, nil
 	}
 
 	return shard, release, nil
@@ -2830,6 +2836,7 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 // It is ensured that the returned instance is a fully loaded shard if ensureInit is set to true.
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
 // The returned shard cannot be closed until release is called.
+// release is never nil, including on error, so defer it immediately after the call.
 func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
 	shard ShardLike, release func(), err error,
 ) {

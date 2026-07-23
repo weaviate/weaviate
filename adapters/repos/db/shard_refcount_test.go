@@ -259,6 +259,83 @@ func TestShardRefCountSchemaWaitFailure(t *testing.T) {
 	}
 }
 
+// TestShardLookupReleasesReplacedReference asserts that getShardForWrite and
+// getShardForRead release the reference they were handed whenever they hand back
+// a different one. The caller only defers the returned release, so a dropped one
+// keeps the counter above zero and blocks unloading for good.
+func TestShardLookupReleasesReplacedReference(t *testing.T) {
+	className := "RefCountReplacedReference"
+
+	tests := []struct {
+		name string
+		// blockInit exercises the branch where the shard cannot be initialized,
+		// which still has to release the reference it was handed
+		blockInit bool
+		run       func(ctx context.Context, idx *Index, shardName string, release func()) (ShardLike, func(), error)
+	}{
+		{
+			name: "write",
+			run: func(ctx context.Context, idx *Index, shardName string, release func()) (ShardLike, func(), error) {
+				return idx.getShardForWrite(ctx, className, "", shardName, nil, release)
+			},
+		},
+		{
+			name: "read",
+			run: func(ctx context.Context, idx *Index, shardName string, release func()) (ShardLike, func(), error) {
+				return idx.getShardForRead(ctx, className, "", shardName, nil, release)
+			},
+		},
+		{
+			name: "write with failing init", blockInit: true,
+			run: func(ctx context.Context, idx *Index, shardName string, release func()) (ShardLike, func(), error) {
+				return idx.getShardForWrite(ctx, className, "", shardName, nil, release)
+			},
+		},
+		{
+			name: "read with failing init", blockInit: true,
+			run: func(ctx context.Context, idx *Index, shardName string, release func()) (ShardLike, func(), error) {
+				return idx.getShardForRead(ctx, className, "", shardName, nil, release)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			idx, shard := refCountTestIndex(t, className)
+			hook := releaseMisuseHook(t, idx)
+
+			// the reference handed over along with the nil shard that makes the
+			// lookup initialize one
+			release, err := shard.preventShutdown()
+			require.NoError(t, err)
+			require.Equal(t, int64(1), shard.inUseCounter.Load())
+
+			wantInUse := int64(1)
+			if test.blockInit {
+				idx.shards.LoadAndDelete(shard.name)
+				idx.backupProtectedShards.Store(shard.name, struct{}{})
+				wantInUse = 0
+			}
+
+			got, gotRelease, err := test.run(t.Context(), idx, shard.name, release)
+			require.NotNil(t, gotRelease, "the returned release is what the caller defers")
+			if test.blockInit {
+				require.Error(t, err)
+				require.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, got, "the shard must be initialized")
+			}
+			require.Equal(t, wantInUse, shard.inUseCounter.Load(),
+				"the reference that is not handed back must be released")
+
+			gotRelease()
+			require.Equal(t, int64(0), shard.inUseCounter.Load())
+			require.Empty(t, releaseMisuse(hook), "no reference may be released twice")
+		})
+	}
+}
+
 // TestShardShutdownRefusedWhileInUse asserts that the in-use guard still holds
 // after data-path traffic. A counter driven negative by an over-release lets
 // performShutdown tear the store down under an active reader.
