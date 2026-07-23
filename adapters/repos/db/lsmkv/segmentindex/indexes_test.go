@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"testing"
 
@@ -193,6 +194,131 @@ func TestSortedKeyWritersLargeN(t *testing.T) {
 			})
 		}
 	}
+}
+
+// FuzzSortedKeyWriters generalizes TestSortedKeyWritersLargeN, which pins both
+// the key count and the key shape: one ascending family whose lengths cycle
+// through seven values. The fuzzer picks the key set instead, so it reaches
+// empty keys, keys sharing long prefixes, widths that vary from key to key, and
+// counts anywhere around the power-of-two boundaries where the tree gains a
+// level.
+//
+// Every case asserts the same thing: the writer's output resolves like the
+// balanced tree built by NewBalanced over the same nodes, which is the property
+// the van Emde Boas reordering has to preserve.
+//
+// The seed corpus runs on every `go test`; mutation needs an explicit run:
+//
+//	go test -run x -fuzz FuzzSortedKeyWriters ./adapters/repos/db/lsmkv/segmentindex/
+func FuzzSortedKeyWriters(f *testing.F) {
+	// Each seed is a length-prefixed key sequence, the encoding fuzzKeys reads.
+	f.Add([]byte{})
+	f.Add([]byte{0x00})                                   // a single empty key
+	f.Add([]byte{0x01, 'a', 0x01, 'b', 0x01, 'c'})        // three one-byte keys
+	f.Add([]byte{0x03, 'a', 'a', 'a', 0x01, 'z'})         // mixed widths
+	f.Add([]byte{0x02, 'a', 'a', 0x03, 'a', 'a', 'b'})    // shared prefix
+	f.Add(bytes.Repeat([]byte{0x01, 'k'}, 40))            // duplicates, deduped away
+	f.Add([]byte{0x05, 'k', 'e', 'y'})                    // length runs past the input
+	f.Add(bytes.Repeat([]byte{0x02, 'a', 'b', 0x00}, 64)) // many keys, empty ones mixed in
+
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		keys := fuzzKeys(raw)
+		if len(keys) == 0 {
+			return
+		}
+
+		for _, writer := range sortedKeyWriters() {
+			nodes := writer.indexedNodes(keys)
+
+			// Reference path: the level-order writer over the same nodes.
+			sort.Sort(nodes)
+			tree := NewBalanced(nodes)
+			var wantBuf bytes.Buffer
+			_, err := tree.MarshalBinaryInto(&wantBuf)
+			require.NoError(t, err, writer.name)
+
+			var gotBuf bytes.Buffer
+			gotN, err := writer.write(&gotBuf, keys)
+			require.NoError(t, err, writer.name)
+			require.Equal(t, int64(gotBuf.Len()), gotN,
+				"%s: reported size must match the bytes written", writer.name)
+
+			requireSameTree(t, wantBuf.Bytes(), gotBuf.Bytes(), nodeKeys(nodes))
+
+			// requireSameTree only proves the two writers agree. Check the values
+			// themselves too, since MarshalSortedKeys derives Start from the previous
+			// key's ValueEnd rather than reading it.
+			dTree := NewDiskTree(gotBuf.Bytes())
+			for _, node := range nodes {
+				got, err := dTree.Get(node.Key)
+				require.NoError(t, err, "%s: Get(%q)", writer.name, node.Key)
+				assert.Equal(t, node.Key, got.Key, writer.name)
+				assert.Equal(t, node.Start, got.Start, "%s: start of %q", writer.name, node.Key)
+				assert.Equal(t, node.End, got.End, "%s: end of %q", writer.name, node.Key)
+
+				// Seek descends through readNodeAt rather than Get's own loop, so it
+				// reads the child offsets the vEB reordering rewrote via a second path.
+				seeked, err := dTree.Seek(node.Key)
+				require.NoError(t, err, "%s: Seek(%q)", writer.name, node.Key)
+				assert.Equal(t, node.Key, seeked.Key, writer.name)
+			}
+
+			allKeys, err := dTree.AllKeys()
+			require.NoError(t, err, writer.name)
+			assert.ElementsMatch(t, nodeKeys(nodes), allKeys, writer.name)
+		}
+	})
+}
+
+// fuzzKeys decodes raw into the sorted, unique key set the writers require: a
+// sequence of one-byte lengths each followed by that many bytes. Duplicates are
+// dropped rather than passed on, since a duplicate key breaks the writers'
+// contract and would only rediscover Tree.insertAt's panic.
+func fuzzKeys(raw []byte) []Key {
+	// Bounded so one input stays cheap enough to keep the fuzzer's throughput up.
+	const (
+		maxKeys   = 256
+		maxKeyLen = 48
+	)
+
+	var raws [][]byte
+	for pos := 0; pos < len(raw) && len(raws) < maxKeys; {
+		keyLen := int(raw[pos]) % (maxKeyLen + 1)
+		pos++
+		if keyLen > len(raw)-pos {
+			keyLen = len(raw) - pos
+		}
+		raws = append(raws, raw[pos:pos+keyLen])
+		pos += keyLen
+	}
+
+	slices.SortFunc(raws, bytes.Compare)
+	raws = slices.CompactFunc(raws, bytes.Equal)
+
+	keys := make([]Key, len(raws))
+	offset := 0
+	for i, key := range raws {
+		// Every key holds a non-empty value, so Start and End differ and a writer
+		// that mixed the two up would not still pass.
+		span := len(key) + 1
+		keys[i] = Key{Key: key, ValueStart: offset, ValueEnd: offset + span}
+		offset += span
+
+		// Secondary keys are the primary key reversed — still unique, but in a
+		// different order — and absent on every third key, so the secondary writer
+		// has to sort and filter rather than mirror the primary index.
+		if i%3 != 0 {
+			keys[i].SecondaryKeys = [][]byte{reversedKey(key)}
+		}
+	}
+
+	return keys
+}
+
+func reversedKey(key []byte) []byte {
+	out := bytes.Clone(key)
+	slices.Reverse(out)
+	return out
 }
 
 // TestWriteDirectly verifies that writeDirectly produces valid output and that
