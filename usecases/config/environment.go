@@ -98,6 +98,10 @@ func FromEnv(config *Config) error {
 		config.TrackVectorDimensions = true
 	}
 
+	if v := strings.TrimSpace(os.Getenv("TOKENIZER_BPE_DIR")); v != "" {
+		config.TokenizerBPEDir = v
+	}
+
 	timeout := 30 * time.Second
 	opt := os.Getenv("MINIMUM_INTERNAL_TIMEOUT")
 	if opt != "" {
