@@ -1239,6 +1239,62 @@ func Test_NoRace_QuantizedSearchFunctionality(t *testing.T) {
 	}
 }
 
+func Test_NoRace_BQManhattanSearchIsTranslationInvariant(t *testing.T) {
+	ctx := context.Background()
+	manhattan := distancer.NewManhattanProvider()
+
+	runCase := func(t *testing.T, vectors [][]float32, query []float32) ([]uint64, []float32) {
+		store, dirName := createTestStore(t)
+		index, err := New(Config{
+			ID:                "test-bq-manhattan-translation-" + uuid.New().String(),
+			RootPath:          dirName,
+			DistanceProvider:  manhattan,
+			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		}, flatent.UserConfig{
+			BQ: flatent.CompressionUserConfig{
+				Enabled:      true,
+				Cache:        true,
+				RescoreLimit: 0,
+			},
+		}, store)
+		require.NoError(t, err)
+		defer index.Shutdown(context.Background())
+
+		for id, vec := range vectors {
+			require.NoError(t, index.Add(ctx, uint64(id+1), vec))
+		}
+
+		results, distances, err := index.SearchByVector(ctx, query, 1, nil)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+		require.Len(t, distances, 1)
+
+		return results, distances
+	}
+
+	baseVectors := [][]float32{
+		{-0.1, -0.1},
+		{1.0, 1.0},
+		{2.0, 2.0},
+		{3.0, 3.0},
+	}
+	baseQuery := []float32{0.0, 0.0}
+
+	translatedVectors := [][]float32{
+		{9.9, 9.9},
+		{11.0, 11.0},
+		{12.0, 12.0},
+		{13.0, 13.0},
+	}
+	translatedQuery := []float32{10.0, 10.0}
+
+	baseResults, baseDistances := runCase(t, baseVectors, baseQuery)
+	translatedResults, translatedDistances := runCase(t, translatedVectors, translatedQuery)
+
+	require.Equal(t, []uint64{1}, baseResults, "base nearest neighbor: distances=%v", baseDistances)
+	require.Equal(t, []uint64{1}, translatedResults, "translated nearest neighbor: distances=%v", translatedDistances)
+}
+
 func Test_NoRace_EdgeCases(t *testing.T) {
 	ctx := context.Background()
 	distancer := distancer.NewCosineDistanceProvider()
