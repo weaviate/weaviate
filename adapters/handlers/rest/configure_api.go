@@ -1197,7 +1197,7 @@ func initReindexAndDistributedTasks(
 	enterrors.GoWrapper(func() {
 		runDropVectorIndexReconciliation(
 			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
-			dropVectorReconcileIntervalFromEnv(appState.Logger))
+			appState.ServerConfig.Config.DistributedTasks.DropVectorReconcileInterval)
 	}, appState.Logger)
 
 	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {

@@ -168,6 +168,40 @@ func TestEnvironmentPersistence_dataPath(t *testing.T) {
 	}
 }
 
+func TestEnvironmentDropVectorReconcileInterval(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       []string
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{"valid", []string{"5"}, 5 * time.Second, false},
+		{"not given", []string{}, DefaultDropVectorReconcileInterval, false},
+		{"zero", []string{"0"}, -1, true},
+		{"negative", []string{"-30"}, -1, true},
+		{"not parsable", []string{"garbage"}, -1, true},
+		// Above the cap: unchecked, seconds*time.Second would overflow negative
+		// and the reconcile loop would spin flat out.
+		{"over the cap", []string{"10000000000"}, -1, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.DistributedTasks.DropVectorReconcileInterval)
+			}
+		})
+	}
+}
+
 func TestEnvironmentMemtable_MaxSize(t *testing.T) {
 	factors := []struct {
 		name        string

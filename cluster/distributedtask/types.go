@@ -244,7 +244,7 @@ type SchemaMutationDetector interface {
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
 // implements to gate removal of a dropped ("none") VectorConfig entry: removal
 // is permitted only once a completed cleanup task covers it AND that task's
-// units ∪ inherited cleaned-shard set span every current shard — a shard in
+// units plus its inherited cleaned-shard set span every current shard — a shard in
 // neither has not been stripped, so removing the marker would strand its data.
 // Dispatched by type assertion from the SchemaMutationDetector registry. Same
 // FSM-determinism contract as [SchemaMutationDetector]: a pure function of its
@@ -445,6 +445,13 @@ func (t TaskStatus) IsActive() bool {
 	default:
 		return false
 	}
+}
+
+// IsCompleted is true once every unit of the task succeeded: SWAPPING
+// (completion callbacks in flight) or FINISHED. FAILED/CANCELLED tasks are
+// terminal but NOT completed — their units' work cannot be assumed done.
+func (t TaskStatus) IsCompleted() bool {
+	return t == TaskStatusSwapping || t == TaskStatusFinished
 }
 
 // IsCoordinationPhase is true for the post-units, pre-terminal phases

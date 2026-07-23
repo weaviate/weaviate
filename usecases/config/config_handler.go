@@ -919,6 +919,9 @@ type DistributedTasksConfig struct {
 	CompletedTaskTTL      time.Duration              `json:"completedTaskTTL" yaml:"completedTaskTTL"`
 	SchedulerTickInterval time.Duration              `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
 	ReindexConcurrency    *runtime.DynamicValue[int] `json:"reindexConcurrency" yaml:"reindexConcurrency"`
+	// DropVectorReconcileInterval paces the drop-vector marker reconciliation
+	// loop (safety net for markers without a live cleanup task).
+	DropVectorReconcileInterval time.Duration `json:"dropVectorReconcileInterval" yaml:"dropVectorReconcileInterval"`
 }
 
 type Persistence struct {

@@ -50,7 +50,13 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
-	DefaultReindexConcurrency                    = 2
+	// DefaultDropVectorReconcileInterval paces the drop-vector marker
+	// reconciliation loop; a safety net, so infrequent by default.
+	DefaultDropVectorReconcileInterval = 15 * time.Minute
+	// maxDropVectorReconcileIntervalSeconds caps the override (7 days) well
+	// below the point where seconds*time.Second would overflow.
+	maxDropVectorReconcileIntervalSeconds = 7 * 24 * 60 * 60
+	DefaultReindexConcurrency             = 2
 
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicationEngineFileCopyWorkers   = 10
@@ -1377,6 +1383,20 @@ func FromEnv(config *Config) error {
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
+	); err != nil {
+		return err
+	}
+
+	if err = parseIntVerify(
+		"DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
+		int(DefaultDropVectorReconcileInterval.Seconds()),
+		func(val int) { config.DistributedTasks.DropVectorReconcileInterval = time.Duration(val) * time.Second },
+		func(val int, envName string) error {
+			if val < 1 || val > maxDropVectorReconcileIntervalSeconds {
+				return fmt.Errorf("%s must be between 1 and %d, got %d", envName, maxDropVectorReconcileIntervalSeconds, val)
+			}
+			return nil
+		},
 	); err != nil {
 		return err
 	}
