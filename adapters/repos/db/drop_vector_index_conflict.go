@@ -98,13 +98,14 @@ func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants 
 }
 
 // CheckVectorConfigRemoval implements distributedtask.VectorConfigRemovalGate:
-// a still-stripping drop on the vector blocks removal (epoch protection, even
-// against an older FINISHED voucher); otherwise a completed task must vouch AND
-// its CoveredShards (units ∪ inherited cleaned set) must span every current
-// shard — a task that deferred over an uncovered shard must not double as a
-// removal voucher. SWAPPING vouches and never blocks: OnTaskCompleted — whose
-// finalize is this very removal — fires at SWAPPING, and the gate cannot
-// recognize "self".
+// a still-stripping drop on the vector blocks removal, and only a SWAPPING
+// task whose CoveredShards span every current shard vouches — that is, only
+// the completing task's own in-flight finalize (OnTaskCompleted fires at
+// SWAPPING; the gate cannot recognize "self"). FINISHED records never vouch:
+// they outlive finalize by the task TTL, and after a re-create + re-drop of
+// the name a stale record would remove the new drop's marker over unstripped
+// vectors. A marker whose finalize was missed heals through reconciliation
+// (fresh-epoch re-clean), not through record replay.
 func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*distributedtask.Task) error {
 	for _, vec := range removedVectors {
 		if id, active := p.dropCovers(className, vec, existingTasks, stillStrippingStatus); active {
@@ -118,21 +119,20 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 		}
 		if coversVec {
 			return fmt.Errorf(
-				"cannot remove dropped vector %q on %s: shards %v are not covered by any completed cleanup task "+
-					"(tenant inactive at enqueue or created since); cleanup is re-enqueued automatically once they are active",
+				"cannot remove dropped vector %q on %s: shards %v are not covered by the completing cleanup task; "+
+					"cleanup re-runs automatically and the entry is removed once every shard is covered",
 				vec, className, uncovered)
 		}
 		return fmt.Errorf(
-			"cannot remove dropped vector %q on %s: no completed cleanup task covers it; "+
-				"the data may still be being stripped, or the completed task record has aged out — "+
-				"cleanup is re-enqueued automatically and the entry is removed once it completes",
+			"cannot remove dropped vector %q on %s: only the completing cleanup task may remove the entry; "+
+				"cleanup re-runs automatically and the entry is removed once it completes",
 			vec, className)
 	}
 	return nil
 }
 
-// completedDropVoucher scans completed tasks covering vec on className and
-// reports whether one of them covered every shard in shards (vouched). When
+// completedDropVoucher scans SWAPPING tasks covering vec on className and
+// reports whether one of them covers every shard in shards (vouched). When
 // tasks cover the vector but none covers all shards, uncovered holds the
 // missing shards of the closest task — mirroring the finalize deferral, which
 // keeps the marker until a single task covers everyone.
@@ -140,7 +140,7 @@ func (p *DropVectorIndexProvider) completedDropVoucher(className, vec string, sh
 	existingTasks []*distributedtask.Task,
 ) (vouched, coversVec bool, uncovered []string) {
 	for _, task := range existingTasks {
-		if !completedStatus(task.Status) {
+		if task.Status != distributedtask.TaskStatusSwapping {
 			continue
 		}
 		existP, err := decodeDropVectorIndexPayload(task.Payload)
@@ -177,11 +177,6 @@ func (p *DropVectorIndexProvider) completedDropVoucher(className, vec string, sh
 // stillStrippingStatus matches pre-SWAPPING tasks; they block removal.
 func stillStrippingStatus(s distributedtask.TaskStatus) bool {
 	return s.IsActive() && s != distributedtask.TaskStatusSwapping
-}
-
-// completedStatus matches tasks with every unit succeeded; they vouch for removal.
-func completedStatus(s distributedtask.TaskStatus) bool {
-	return s == distributedtask.TaskStatusSwapping || s == distributedtask.TaskStatusFinished
 }
 
 // dropCovers reports whether a drop-vector task matching statusMatch covers vec
