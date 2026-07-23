@@ -202,6 +202,69 @@ func TestEnvironmentDropVectorReconcileInterval(t *testing.T) {
 	}
 }
 
+// TestEnvironmentDistributedTasksIntervals pins the caps on the two sibling
+// DTM knobs: unchecked, seconds*time.Second (hours*time.Hour) overflows into
+// a negative duration — the tick interval panics time.NewTicker after boot,
+// and a negative TTL silently expires every completed task record.
+func TestEnvironmentDistributedTasksIntervals(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         string
+		value       []string
+		expected    time.Duration
+		read        func(c *Config) time.Duration
+		expectedErr bool
+	}{
+		{
+			name: "tick valid", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+			value: []string{"5"}, expected: 5 * time.Second,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.SchedulerTickInterval },
+		},
+		{
+			name: "tick not given", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+			value: []string{}, expected: DefaultDistributedTasksSchedulerTickInterval,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.SchedulerTickInterval },
+		},
+		{name: "tick zero", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", value: []string{"0"}, expectedErr: true},
+		{name: "tick negative", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", value: []string{"-30"}, expectedErr: true},
+		{name: "tick over the cap", env: "DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", value: []string{"10000000000"}, expectedErr: true},
+		{
+			name: "ttl valid", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			value: []string{"48"}, expected: 48 * time.Hour,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.CompletedTaskTTL },
+		},
+		{
+			name: "ttl not given", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			value: []string{}, expected: DefaultDistributedTasksCompletedTaskTTL,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.CompletedTaskTTL },
+		},
+		{
+			// 0 is the "clean completed tasks on the next tick" sentinel.
+			name: "ttl zero", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+			value: []string{"0"}, expected: 0,
+			read: func(c *Config) time.Duration { return c.DistributedTasks.CompletedTaskTTL },
+		},
+		{name: "ttl negative", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", value: []string{"-1"}, expectedErr: true},
+		{name: "ttl over the cap", env: "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", value: []string{"10000000000"}, expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv(tt.env, tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, tt.read(&conf))
+			}
+		})
+	}
+}
+
 func TestEnvironmentMemtable_MaxSize(t *testing.T) {
 	factors := []struct {
 		name        string

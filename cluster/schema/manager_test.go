@@ -812,21 +812,20 @@ type fakeCascadeDeleter struct {
 	}
 }
 
-func (f *fakeCascadeDeleter) HasActiveTasksForCollectionTargets(collection string, targets []string) bool {
-	return f.activeMatch
-}
-
 func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor {
 	f.collectionCalls = append(f.collectionCalls, collection)
 	return nil
 }
 
-func (f *fakeCascadeDeleter) DeleteTasksForCollectionTargets(collection string, targets []string) []distributedtask.TaskDescriptor {
+func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargets(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
+	if f.activeMatch {
+		return nil, distributedtask.ErrTaskStillActiveForTargets
+	}
 	f.targetCalls = append(f.targetCalls, struct {
 		collection string
 		targets    []string
 	}{collection, targets})
-	return []distributedtask.TaskDescriptor{{ID: "purged", Version: 1}}
+	return []distributedtask.TaskDescriptor{{ID: "purged", Version: 1}}, nil
 }
 
 // TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords pins the stale
@@ -896,6 +895,28 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
 		require.Empty(t, deleter.targetCalls,
 			"retriggers and unrelated updates must not purge the ACTIVE drop's records")
+	})
+
+	t.Run("a rejected apply must not purge (gate runs first)", func(t *testing.T) {
+		// One PUT that both introduces a marker on vecA and illegally removes
+		// the dropped vecB: the removal gate rejects the apply, and vecA's
+		// records must still exist — a purge before the reject would erase
+		// them from an update that never applied, with nothing to roll back.
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"vecA": hnsw, "vecB": {VectorIndexType: none},
+		}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"vecA": {VectorIndexType: none},
+		}}
+		sm := newSM(deleter, initial, parsed)
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("vecB cleanup not complete")}
+		sm.SetMutationGuard(guard)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.Equal(t, []string{"vecB"}, guard.lastRemoved)
+		require.Empty(t, deleter.targetCalls, "no purge may run on a rejected apply")
 	})
 }
 

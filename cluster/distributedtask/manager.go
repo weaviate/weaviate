@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -268,7 +269,7 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 }
 
 // RegisterTargetExtractor opts a task namespace into
-// DeleteTasksForCollectionTargets. Same contract as RegisterCollectionExtractor.
+// PurgeTasksForCollectionTargets. Same contract as RegisterCollectionExtractor.
 func (m *Manager) RegisterTargetExtractor(namespace string, extractor TargetExtractor) {
 	if namespace == "" || extractor == nil {
 		return
@@ -278,59 +279,25 @@ func (m *Manager) RegisterTargetExtractor(namespace string, extractor TargetExtr
 	m.targetExtractors[namespace] = extractor
 }
 
-// HasActiveTasksForCollectionTargets reports whether any ACTIVE task in a
-// target-extractor namespace binds to `collection` and overlaps `targets`.
-// Consulted by the schema FSM before a drop-vector marker introduction: an
-// active task survives the purge, and a marker born next to it would inherit
-// the previous drop's records once it completes.
-func (m *Manager) HasActiveTasksForCollectionTargets(collection string, targets []string) bool {
-	if collection == "" || len(targets) == 0 {
-		return false
-	}
+// ErrTaskStillActiveForTargets means PurgeTasksForCollectionTargets found an
+// ACTIVE task bound to the given (collection, targets) and deleted nothing.
+var ErrTaskStillActiveForTargets = errors.New("a task bound to these targets is still active")
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	targetSet := make(map[string]struct{}, len(targets))
-	for _, t := range targets {
-		targetSet[t] = struct{}{}
-	}
-	for namespace, tasksByID := range m.tasks {
-		extractor, ok := m.targetExtractors[namespace]
-		if !ok || extractor == nil {
-			continue
-		}
-		for _, task := range tasksByID {
-			if !task.Status.IsActive() {
-				continue
-			}
-			c, taskTargets, ok := extractor(task.Payload)
-			if !ok || c != collection {
-				continue
-			}
-			for _, t := range taskTargets {
-				if _, ok := targetSet[t]; ok {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-// DeleteTasksForCollectionTargets drops NON-ACTIVE tasks whose payload binds to
+// PurgeTasksForCollectionTargets drops NON-ACTIVE tasks whose payload binds to
 // `collection` and overlaps `targets`, in namespaces with a registered target
 // extractor. Called deterministically from the schema FSM when a new
 // drop-vector marker is introduced, so the previous drop of a re-created name
 // leaves no records for coverage inheritance or removal vouching to
-// misattribute to the new drop. Active tasks are skipped to keep the
-// scheduler's running handles consistent — the caller must therefore REFUSE
-// the introduction when HasActiveTasksForCollectionTargets is true (the
-// previous drop's task can still be SWAPPING for a moment after its finalize
-// removed the old marker), or the survivor would seed stale inheritance.
-func (m *Manager) DeleteTasksForCollectionTargets(collection string, targets []string) []TaskDescriptor {
+// misattribute to the new drop. An ACTIVE match aborts with
+// [ErrTaskStillActiveForTargets] and deletes NOTHING: active tasks must keep
+// the scheduler's running handles consistent (the previous drop's task can
+// still be SWAPPING for a moment after its finalize removed the old marker),
+// and such a survivor next to a fresh marker would seed stale coverage
+// inheritance — the caller must refuse the marker introduction and let the
+// client retry once the task settles.
+func (m *Manager) PurgeTasksForCollectionTargets(collection string, targets []string) ([]TaskDescriptor, error) {
 	if collection == "" || len(targets) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	m.mu.Lock()
@@ -340,16 +307,17 @@ func (m *Manager) DeleteTasksForCollectionTargets(collection string, targets []s
 	for _, t := range targets {
 		targetSet[t] = struct{}{}
 	}
-	var removed []TaskDescriptor
+	type match struct {
+		namespace, taskID string
+		desc              TaskDescriptor
+	}
+	var matches []match
 	for namespace, tasksByID := range m.tasks {
 		extractor, ok := m.targetExtractors[namespace]
 		if !ok || extractor == nil {
 			continue
 		}
 		for taskID, task := range tasksByID {
-			if task.Status.IsActive() {
-				continue
-			}
 			c, taskTargets, ok := extractor(task.Payload)
 			if !ok || c != collection {
 				continue
@@ -364,11 +332,19 @@ func (m *Manager) DeleteTasksForCollectionTargets(collection string, targets []s
 			if !overlaps {
 				continue
 			}
-			delete(tasksByID, taskID)
-			removed = append(removed, task.TaskDescriptor)
+			if task.Status.IsActive() {
+				return nil, fmt.Errorf("%w: task %s/%s (status %s)",
+					ErrTaskStillActiveForTargets, namespace, taskID, task.Status)
+			}
+			matches = append(matches, match{namespace: namespace, taskID: taskID, desc: task.TaskDescriptor})
 		}
 	}
-	return removed
+	var removed []TaskDescriptor
+	for _, hit := range matches {
+		delete(m.tasks[hit.namespace], hit.taskID)
+		removed = append(removed, hit.desc)
+	}
+	return removed, nil
 }
 
 // DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
@@ -1136,6 +1112,11 @@ func (m *Manager) Restore(bytes []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// The FSM contract (see Store.Restore) requires discarding all previous
+	// state: merging would resurrect tasks the snapshot's producer deleted
+	// (e.g. records purged on a drop-vector marker introduction), and this
+	// node alone would then refuse applies its peers accept.
+	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {

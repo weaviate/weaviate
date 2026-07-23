@@ -82,8 +82,7 @@ type MutationGuard interface {
 // depend on the full Manager surface and tests can stub it. nil-safe.
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
-	DeleteTasksForCollectionTargets(collection string, targets []string) []distributedtask.TaskDescriptor
-	HasActiveTasksForCollectionTargets(collection string, targets []string) bool
+	PurgeTasksForCollectionTargets(collection string, targets []string) ([]distributedtask.TaskDescriptor, error)
 }
 
 type SchemaManager struct {
@@ -467,32 +466,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			}
 		}
 
-		// A NEWLY introduced drop marker purges the previous drop's task records
-		// for the same (collection, target) in this same apply — atomically and
-		// RAFT-deterministically. A re-created then re-dropped name therefore
-		// starts with a clean record slate: stale records must not exist next to
-		// a marker they don't belong to, or coverage inheritance and removal
-		// vouching could misattribute them to the new drop.
-		if s.distributedTaskManager != nil {
-			if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
-				// The purge skips active tasks, so an introduction next to one
-				// (the previous drop still SWAPPING for a moment after its
-				// finalize) must be refused — the survivor would outlive the
-				// purge and seed stale coverage inheritance. Deterministic and
-				// retryable: the window closes when the task flips FINISHED.
-				if s.distributedTaskManager.HasActiveTasksForCollectionTargets(meta.Class.Class, introduced) {
-					return fmt.Errorf("%w: a previous drop of %v on %q is still completing; retry",
-						ErrBadRequest, introduced, meta.Class.Class)
-				}
-				if removed := s.distributedTaskManager.DeleteTasksForCollectionTargets(meta.Class.Class, introduced); len(removed) > 0 {
-					s.log.WithField("class", meta.Class.Class).
-						WithField("targets", introduced).
-						WithField("removed_count", len(removed)).
-						Info("purged previous drop's task records on new drop-vector marker")
-				}
-			}
-		}
-
 		// Gate at apply time so the verdict is RAFT-deterministic. The FSM's own
 		// sharding state is the coverage baseline: a shard neither in the vouching
 		// task's units nor its inherited cleaned-shard set has not been cleaned,
@@ -506,6 +479,33 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 				sort.Strings(shards)
 				if err := s.mutationGuard.CheckVectorConfigRemoval(meta.Class.Class, removed, shards); err != nil {
 					return fmt.Errorf("%w: %w", ErrBadRequest, err)
+				}
+			}
+		}
+
+		// A NEWLY introduced drop marker purges the previous drop's task records
+		// for the same (collection, target) in this same apply — atomically and
+		// RAFT-deterministically. A re-created then re-dropped name therefore
+		// starts with a clean record slate: stale records must not exist next to
+		// a marker they don't belong to, or coverage inheritance and removal
+		// vouching could misattribute them to the new drop. An introduction next
+		// to a still-ACTIVE previous task (SWAPPING for a moment after its
+		// finalize) is refused instead — deterministic and retryable, the window
+		// closes when the task flips FINISHED. This is the LAST reject path:
+		// purging is a mutation, so no later check may fail the apply or the
+		// records would be gone from a rejected update.
+		if s.distributedTaskManager != nil {
+			if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
+				removed, err := s.distributedTaskManager.PurgeTasksForCollectionTargets(meta.Class.Class, introduced)
+				if err != nil {
+					return fmt.Errorf("%w: a previous drop of %v on %q is still completing; retry: %w",
+						ErrBadRequest, introduced, meta.Class.Class, err)
+				}
+				if len(removed) > 0 {
+					s.log.WithField("class", meta.Class.Class).
+						WithField("targets", introduced).
+						WithField("removed_count", len(removed)).
+						Info("purged previous drop's task records on new drop-vector marker")
 				}
 			}
 		}

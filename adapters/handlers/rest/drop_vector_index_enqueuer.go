@@ -71,9 +71,10 @@ func (e *dropVectorIndexEnqueuer) logInfo(collection, msg string) {
 
 // warnSkippedPayload surfaces an undecodable active-task payload instead of
 // silently skipping it (the skip itself is deliberate fail-open behavior).
-func (e *dropVectorIndexEnqueuer) warnSkippedPayload(where, taskID string, err error) {
-	if e.logger != nil {
-		e.logger.WithField("task", taskID).
+// Package-level so no skip site can silently re-inline a divergent copy.
+func warnSkippedPayload(logger logrus.FieldLogger, where, taskID string, err error) {
+	if logger != nil {
+		logger.WithField("task", taskID).
 			Warnf("drop-vector %s: skipping active task with unparseable payload: %v", where, err)
 	}
 }
@@ -106,10 +107,7 @@ func activeDropCovers(tasks map[string][]*distributedtask.Task, collection, targ
 		}
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
-			if logger != nil {
-				logger.WithField("task", task.ID).
-					Warnf("drop-vector has-active-drop: skipping active task with unparseable payload: %v", err)
-			}
+			warnSkippedPayload(logger, "has-active-drop", task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(p.Collection, collection) {
@@ -234,7 +232,7 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
-			e.warnSkippedPayload("coverage-inheritance", task.ID, err)
+			warnSkippedPayload(e.logger, "coverage-inheritance", task.ID, err)
 			continue
 		}
 		if !strings.EqualFold(p.Collection, collection) || !sameTargetSet(p.Targets, targets) {
@@ -396,7 +394,7 @@ func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]str
 		}
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
-			e.warnSkippedPayload("live-op-ids", task.ID, err)
+			warnSkippedPayload(e.logger, "live-op-ids", task.ID, err)
 			continue
 		}
 		live[p.OpID] = struct{}{}

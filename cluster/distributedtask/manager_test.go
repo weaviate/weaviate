@@ -528,6 +528,37 @@ func TestManager_SnapshotRestore(t *testing.T) {
 	assertTasks(t, expectedTasks, tasks)
 }
 
+// TestManager_Restore_ReplacesPreviousState pins the FSM snapshot contract
+// (see Store.Restore): pre-restore state is discarded, not merged. A follower
+// that merged would resurrect records the leader deleted — e.g. tasks purged
+// on a drop-vector marker introduction — and then alone reject applies its
+// peers accept.
+func TestManager_Restore_ReplacesPreviousState(t *testing.T) {
+	var (
+		h   = newTestHarness(t).init(t)
+		now = h.clock.Now().Truncate(time.Millisecond)
+	)
+	expectedTasks := ingestSampleTasks(t, h.manager, now)
+
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	h = newTestHarness(t).init(t)
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "stale-ns",
+		Id:                    "deleted-on-leader",
+		Payload:               []byte("stale"),
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 1))
+	require.NoError(t, h.manager.Restore(snap))
+
+	tasks, err := h.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	require.NotContains(t, tasks, "stale-ns", "restore must drop state absent from the snapshot")
+	assertTasks(t, expectedTasks, tasks)
+}
+
 func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Task {
 	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             "ns1",
@@ -1821,7 +1852,7 @@ func TestManager_CheckTenantMutation_DispatchToDetectors(t *testing.T) {
 	})
 }
 
-func TestManager_DeleteTasksForCollectionTargets(t *testing.T) {
+func TestManager_PurgeTasksForCollectionTargets(t *testing.T) {
 	targetExtractor := func(payload []byte) (string, []string, bool) {
 		var p struct {
 			Collection string   `json:"collection"`
@@ -1835,44 +1866,65 @@ func TestManager_DeleteTasksForCollectionTargets(t *testing.T) {
 
 	h := newTestHarness(t).init(t)
 	h.manager.RegisterTargetExtractor("drop", targetExtractor)
+	// Both registrations are invalid and must be ignored, not panic or match.
+	h.manager.RegisterTargetExtractor("", targetExtractor)
+	h.manager.RegisterTargetExtractor("nil-extractor", nil)
 
-	mkTask := func(id string, payload any, status TaskStatus) {
+	mkTask := func(namespace, id string, payload any, status TaskStatus) {
 		t.Helper()
 		bytes, err := json.Marshal(payload)
 		require.NoError(t, err)
 		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace:             "drop",
+			Namespace:             namespace,
 			Id:                    id,
 			Payload:               bytes,
 			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
 			UnitIds:               []string{"u-" + id},
 		}), 1))
-		h.manager.tasks["drop"][id].Status = status
+		h.manager.tasks[namespace][id].Status = status
 	}
-	mkTask("match-1", map[string]any{"collection": "Foo", "targets": []string{"v1"}}, TaskStatusFinished)
-	mkTask("match-2", map[string]any{"collection": "Foo", "targets": []string{"v1", "v2"}}, TaskStatusFailed)
-	mkTask("other-target", map[string]any{"collection": "Foo", "targets": []string{"v9"}}, TaskStatusFinished)
-	mkTask("other-coll", map[string]any{"collection": "Bar", "targets": []string{"v1"}}, TaskStatusFinished)
-	mkTask("still-active", map[string]any{"collection": "Foo", "targets": []string{"v1"}}, TaskStatusStarted)
+	fooV1 := map[string]any{"collection": "Foo", "targets": []string{"v1"}}
+	mkTask("drop", "match-1", fooV1, TaskStatusFinished)
+	mkTask("drop", "match-2", map[string]any{"collection": "Foo", "targets": []string{"v1", "v2"}}, TaskStatusFailed)
+	mkTask("drop", "other-target", map[string]any{"collection": "Foo", "targets": []string{"v9"}}, TaskStatusFinished)
+	mkTask("drop", "other-coll", map[string]any{"collection": "Bar", "targets": []string{"v1"}}, TaskStatusFinished)
+	// ok=false payload: no collection field — the extractor must skip it.
+	mkTask("drop", "corrupt", map[string]any{"targets": []string{"v1"}}, TaskStatusFinished)
+	// Namespaces without a (valid) extractor never match, whatever the payload.
+	mkTask("no-extractor", "foreign-ns", fooV1, TaskStatusFinished)
+	mkTask("nil-extractor", "nil-ns", fooV1, TaskStatusFinished)
 
-	removed := h.manager.DeleteTasksForCollectionTargets("Foo", []string{"v1"})
+	removed, err := h.manager.PurgeTasksForCollectionTargets("", []string{"v1"})
+	require.NoError(t, err)
+	require.Empty(t, removed, "empty collection is a no-op")
+	removed, err = h.manager.PurgeTasksForCollectionTargets("Foo", nil)
+	require.NoError(t, err)
+	require.Empty(t, removed, "nil targets is a no-op")
+
+	// An ACTIVE match refuses the whole purge before any deletion.
+	mkTask("drop", "still-active", fooV1, TaskStatusStarted)
+	removed, err = h.manager.PurgeTasksForCollectionTargets("Foo", []string{"v1"})
+	require.ErrorIs(t, err, ErrTaskStillActiveForTargets)
+	require.Empty(t, removed)
+	require.Contains(t, h.manager.tasks["drop"], "match-1",
+		"an active match must abort the purge with nothing deleted")
+
+	// Once the active task settles, the purge removes every non-active match.
+	h.manager.tasks["drop"]["still-active"].Status = TaskStatusFinished
+	removed, err = h.manager.PurgeTasksForCollectionTargets("Foo", []string{"v1"})
+	require.NoError(t, err)
 	removedIDs := make([]string, 0, len(removed))
 	for _, d := range removed {
 		removedIDs = append(removedIDs, d.ID)
 	}
 	sort.Strings(removedIDs)
-	require.Equal(t, []string{"match-1", "match-2"}, removedIDs,
-		"non-active records overlapping the target are purged; other targets, collections, and active tasks survive")
-
-	require.Empty(t, h.manager.DeleteTasksForCollectionTargets("", []string{"v1"}))
-	require.Empty(t, h.manager.DeleteTasksForCollectionTargets("Foo", nil))
-
-	// The probe the schema FSM consults before allowing a marker introduction:
-	// only the surviving ACTIVE match reports true.
-	require.True(t, h.manager.HasActiveTasksForCollectionTargets("Foo", []string{"v1"}))
-	require.False(t, h.manager.HasActiveTasksForCollectionTargets("Foo", []string{"v9"}))
-	require.False(t, h.manager.HasActiveTasksForCollectionTargets("Bar", []string{"v9"}))
-	require.False(t, h.manager.HasActiveTasksForCollectionTargets("", []string{"v1"}))
+	require.Equal(t, []string{"match-1", "match-2", "still-active"}, removedIDs,
+		"non-active records overlapping the target are purged; other targets and collections survive")
+	require.Contains(t, h.manager.tasks["drop"], "other-target")
+	require.Contains(t, h.manager.tasks["drop"], "other-coll")
+	require.Contains(t, h.manager.tasks["drop"], "corrupt")
+	require.Contains(t, h.manager.tasks["no-extractor"], "foreign-ns")
+	require.Contains(t, h.manager.tasks["nil-extractor"], "nil-ns")
 }
 
 func TestManager_DeleteTasksForCollection(t *testing.T) {

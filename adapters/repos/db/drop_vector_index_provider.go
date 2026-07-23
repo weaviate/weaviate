@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -97,6 +98,20 @@ type DropVectorIndexProvider struct {
 	// verifyRetryBackoff spaces the arm-time verify retries (leader-read blips);
 	// overridable in tests.
 	verifyRetryBackoff time.Duration
+
+	// verifiedStillDropped memoizes targetsStillDropped per task version for
+	// OnGroupCompleted: a restart replays one group completion per tenant
+	// (GroupID == shardName), which would otherwise cost one leader-consistent
+	// schema read each. Every event that can change the answer — this task's
+	// finalize, or a re-drop after the task settled — bumps the task's version
+	// or deletes the task, so a memo hit can never serve a stale verdict.
+	verifiedMu           sync.Mutex
+	verifiedStillDropped map[string]stillDroppedMemo // key: task ID
+}
+
+type stillDroppedMemo struct {
+	version      uint64
+	stillDropped bool
 }
 
 // NewDropVectorIndexProvider builds the provider. localNode filters units to the
@@ -110,14 +125,15 @@ func NewDropVectorIndexProvider(
 	serverCtx context.Context,
 ) *DropVectorIndexProvider {
 	return &DropVectorIndexProvider{
-		shards:             shards,
-		schema:             schema,
-		sharding:           sharding,
-		logger:             logger,
-		localNode:          localNode,
-		serverCtx:          serverCtx,
-		pollInterval:       defaultDropVectorPollInterval,
-		verifyRetryBackoff: 2 * time.Second,
+		shards:               shards,
+		schema:               schema,
+		sharding:             sharding,
+		logger:               logger,
+		localNode:            localNode,
+		serverCtx:            serverCtx,
+		pollInterval:         defaultDropVectorPollInterval,
+		verifyRetryBackoff:   2 * time.Second,
+		verifiedStillDropped: map[string]stillDroppedMemo{},
 	}
 }
 
@@ -133,9 +149,12 @@ func (p *DropVectorIndexProvider) GetLocalTasks() []distributedtask.TaskDescript
 	return nil
 }
 
-// CleanupTask is a no-op: the provider keeps no per-task local state (the
-// scheduler owns the task handle; edit-ops bookkeeping is owned by the bucket).
+// CleanupTask drops the task's verify memo; all other per-task state is owned
+// elsewhere (the scheduler owns the task handle, the bucket the edit-ops).
 func (p *DropVectorIndexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error {
+	p.verifiedMu.Lock()
+	defer p.verifiedMu.Unlock()
+	delete(p.verifiedStillDropped, desc.ID)
 	return nil
 }
 
@@ -189,20 +208,11 @@ func (p *DropVectorIndexProvider) processUnits(
 	// data; refuse instead — the failed task deletes its ops and leaves any real
 	// marker for a retry. The leader read gets the same bounded tolerance as the
 	// drain poll: a momentary leader blip must not fail a whole drop task.
-	var stillDropped bool
-	var verifyErr error
-	for attempt := 0; attempt < maxConsecutivePollErrors; attempt++ {
-		stillDropped, verifyErr = p.targetsStillDropped(payload)
-		if verifyErr == nil {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return // shutdown: leave units in place, the task resumes after restart
-		case <-time.After(p.verifyRetryBackoff):
-		}
-	}
+	stillDropped, verifyErr := p.targetsStillDroppedWithRetry(ctx, payload)
 	if verifyErr != nil {
+		if ctx.Err() != nil {
+			return // shutdown: leave units in place, the task resumes after restart
+		}
 		for _, unitID := range pending {
 			p.failUnit(ctx, task, unitID, "verify targets still marked dropped: "+verifyErr.Error())
 		}
@@ -392,9 +402,11 @@ func (p *DropVectorIndexProvider) OnGroupCompleted(
 	}
 	// Restart-replay guard: this callback re-fires for up to the task TTL, and
 	// the target may have been finalized and RE-CREATED since — removing files
-	// then would delete the live index. Same verify processUnits runs before
-	// arming.
-	stillDropped, err := p.targetsStillDropped(payload)
+	// then would delete the live index. Same verify (and same leader-blip
+	// retry) processUnits runs before arming; an error after the retries fails
+	// the group's ack, and a restart replays the callback. Memoized per task
+	// version: one leader read serves every tenant's replayed callback.
+	stillDropped, err := p.memoizedTargetsStillDropped(task, payload)
 	if err != nil {
 		return fmt.Errorf("verify targets still dropped: %w", err)
 	}
@@ -477,6 +489,29 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 		return nil
 	}
 
+	// Only the live completion (SWAPPING) finalizes; the FSM gate enforces the
+	// same rule. A replayed FINISHED completion may belong to a drop that
+	// already finalized and whose name was re-created — reconciliation heals a
+	// genuinely missed finalize with a fresh-epoch re-clean instead. Checked
+	// before the coverage and active-drop reads below: those are two
+	// leader-consistent RPCs, and a replay pays them on every restart within
+	// the task TTL just to discard the answers here.
+	//
+	// Known bounded race: a peer whose OnTaskCompleted early-returned (this
+	// callback always acks) can flip the task to FINISHED before THIS node's
+	// removal lands, so this check — or the FSM gate — rejects a legitimate
+	// finalize. Reconciliation heals it, but not cheaply: the record being
+	// FINISHED, the closed-epoch fence mints a fresh epoch and re-cleans every
+	// shard, a full segment rewrite of the collection. The same full re-clean
+	// recurs when a completed record expires (CompletedTaskTTL, default 5
+	// days) while a never-activated tenant holds the marker open, because
+	// coverage inheritance restarts from zero.
+	if task.Status != distributedtask.TaskStatusSwapping {
+		logger.WithField("status", task.Status).
+			Info("drop-vector: task-completion replay: not SWAPPING; leaving the marker to reconciliation")
+		return nil
+	}
+
 	// Only remove the schema entry once THIS task covered every current shard.
 	// A tenant that was inactive at enqueue (or created since) has no unit here;
 	// removing the marker would strand its data — the marker is what activation
@@ -505,21 +540,6 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 		return nil
 	} else if blocked {
 		logger.Info("drop-vector: task-completion: a newer drop task on the same target is active; leaving its schema marker")
-		return nil
-	}
-
-	// Only the live completion (SWAPPING) finalizes; the FSM gate enforces the
-	// same rule. A replayed FINISHED completion may belong to a drop that
-	// already finalized and whose name was re-created — reconciliation heals a
-	// genuinely missed finalize with a fresh-epoch re-clean instead.
-	//
-	// Known bounded race: a peer whose OnTaskCompleted early-returned (this
-	// callback always acks) can flip the task to FINISHED before THIS node's
-	// removal lands, so the gate rejects a legitimate finalize. Also healed by
-	// reconciliation; worst case one reconcile interval of delay.
-	if task.Status != distributedtask.TaskStatusSwapping {
-		logger.WithField("status", task.Status).
-			Info("drop-vector: task-completion replay: not SWAPPING; leaving the marker to reconciliation")
 		return nil
 	}
 
@@ -576,6 +596,55 @@ func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTa
 		}
 	}
 	return true, nil
+}
+
+// targetsStillDroppedWithRetry is targetsStillDropped with the bounded
+// leader-blip tolerance every verify site shares: a momentary leader read
+// failure must not fail a whole drop task. ctx aborts between attempts.
+func (p *DropVectorIndexProvider) targetsStillDroppedWithRetry(
+	ctx context.Context, payload *DropVectorIndexTaskPayload,
+) (bool, error) {
+	var stillDropped bool
+	var err error
+	for attempt := 0; attempt < maxConsecutivePollErrors; attempt++ {
+		stillDropped, err = p.targetsStillDropped(payload)
+		if err == nil {
+			return stillDropped, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(p.verifyRetryBackoff):
+		}
+	}
+	return false, err
+}
+
+// memoizedTargetsStillDropped serves OnGroupCompleted's verify from the
+// per-task-version memo (see verifiedStillDropped for why a hit can never be
+// stale). Errors are not memoized.
+func (p *DropVectorIndexProvider) memoizedTargetsStillDropped(
+	task *distributedtask.Task, payload *DropVectorIndexTaskPayload,
+) (bool, error) {
+	memo, ok := func() (stillDroppedMemo, bool) {
+		p.verifiedMu.Lock()
+		defer p.verifiedMu.Unlock()
+		m, ok := p.verifiedStillDropped[task.ID]
+		return m, ok
+	}()
+	if ok && memo.version == task.Version {
+		return memo.stillDropped, nil
+	}
+	stillDropped, err := p.targetsStillDroppedWithRetry(p.serverCtx, payload)
+	if err != nil {
+		return false, err
+	}
+	func() {
+		p.verifiedMu.Lock()
+		defer p.verifiedMu.Unlock()
+		p.verifiedStillDropped[task.ID] = stillDroppedMemo{version: task.Version, stillDropped: stillDropped}
+	}()
+	return stillDropped, nil
 }
 
 // uncoveredShards returns the collection's current shards (leader-consistent)
