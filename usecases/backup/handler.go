@@ -82,9 +82,8 @@ type NodeResolver interface {
 	LeaderID() string
 }
 
-// dynUserSnapshotter is the backup-side contract for the dynamic-user FSM,
-// deliberately separate from fsm.Snapshotter (RAFT log compaction): the
-// variadic filter only makes sense for backups.
+// dynUserSnapshotter is the backup-side contract for the dynamic-user FSM. The variadic
+// Snapshot filters to a user subset for backups; zero args is the full snapshot.
 type dynUserSnapshotter interface {
 	Snapshot(userIDs ...string) ([]byte, error)
 	Restore(snapshot []byte, stripNamespaces bool) error
