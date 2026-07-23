@@ -370,7 +370,7 @@ func MarshalSortedKeys(w io.Writer, keys []KeyRedux, dataStartOffset uint64) (in
 
 	// Emit nodes in van Emde Boas order; their offsets follow the write order,
 	// so compute them in a first pass before writing.
-	order := vebPositions(bfsToSorted)
+	order := vebPositions(bfsToSorted, n)
 	if err := checkAllNodesEmitted(order, n); err != nil {
 		return 0, err
 	}
@@ -436,7 +436,7 @@ func MarshalSortedKeysFromKeys(w io.Writer, keys []Key) (int64, error) {
 	}
 	fillBFS(bfsToSorted, 0, 0, n-1)
 
-	order := vebPositions(bfsToSorted)
+	order := vebPositions(bfsToSorted, n)
 	if err := checkAllNodesEmitted(order, n); err != nil {
 		return 0, err
 	}
@@ -529,7 +529,7 @@ func marshalSortedSecondaryFromKeys(w io.Writer, keys []Key, pos int) (int64, er
 
 	// Emit nodes in van Emde Boas order; their offsets follow the write order,
 	// so compute them in a first pass before writing.
-	order := vebPositions(bfsToIdx)
+	order := vebPositions(bfsToIdx, n)
 	if err := checkAllNodesEmitted(order, n); err != nil {
 		return 0, err
 	}
@@ -612,10 +612,12 @@ func fillBFS(bfsToSorted []int32, targetPos, leftBound, rightBound int) {
 // nodes are contiguous.
 //
 // mapping[p] is >= 0 for a present node and -1 for an empty position; its length
-// is the tree capacity and must be a power of two. The root (position 0) is
-// always emitted first, so it lands at offset 0.
-func vebPositions(mapping []int32) []int32 {
-	out := make([]int32, 0, len(mapping))
+// is the tree capacity and must be a power of two. nodeCount is how many present
+// nodes mapping holds; it sizes the result exactly, where the capacity would
+// over-allocate it by up to 2x. The root (position 0) is always emitted first, so
+// it lands at offset 0.
+func vebPositions(mapping []int32, nodeCount int) []int32 {
+	out := make([]int32, 0, nodeCount)
 	height := bits.Len(uint(len(mapping))) - 1 // capacity == 1<<height
 	var rec func(root, h int)
 	rec = func(root, h int) {
