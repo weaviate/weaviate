@@ -30,6 +30,8 @@ type ErrorCompounder interface {
 
 	First() error
 	ToError() error
+	// ToErrorLimited reports at most limit errors, but never fewer than one, and
+	// how many it left out.
 	ToErrorLimited(limit int) error
 }
 
@@ -127,6 +129,10 @@ func (ec *errorCompounder) toError(limit int) error {
 		return true
 	}
 	f(ec.top)
+	// without the count a truncated message reads like the complete list
+	if omitted := ec.Len() - len(errs); omitted > 0 {
+		fmt.Fprintf(&b, " (and %d more)", omitted)
+	}
 	return &compoundError{msg: b.String(), errs: errs}
 }
 

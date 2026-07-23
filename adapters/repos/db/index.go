@@ -94,6 +94,10 @@ import (
 // NumCPU anyway, so we're not any worse off.
 var _NUMCPU = runtime.GOMAXPROCS(0)
 
+// maxReportedErrors bounds how many failures a shard-wide or index-wide operation
+// reports, so a node with many tenants cannot produce a multi-megabyte message.
+const maxReportedErrors = 10
+
 // shardMap is a sync.Map which specialized in storing shards
 type shardMap sync.Map
 
@@ -3157,7 +3161,7 @@ func (i *Index) dropShards(names []string) error {
 	// the error group only carries a recovered worker panic, which would
 	// otherwise leave the shard un-dropped without failing the call
 	ec.Add(eg.Wait())
-	return ec.ToError()
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
@@ -3191,7 +3195,7 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 	// the error group only carries a recovered worker panic, which would
 	// otherwise leave the shard un-dropped without failing the call
 	ec.Add(eg.Wait())
-	return ec.ToError()
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
@@ -3225,7 +3229,7 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	// the cycle managers must stop even when a shard failed to shut down
 	ec.Add(i.stopCycleManagers(ctx, "shutdown"))
 
-	return ec.ToError()
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 // stopCycleManagers asks every cycle to stop before waiting for any of them, so

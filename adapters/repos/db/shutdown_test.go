@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -147,6 +148,15 @@ func requireCyclesStopped(t *testing.T, cc *indexCycleCallbacks) {
 	}, time.Second, 10*time.Millisecond, "cycle managers left running")
 }
 
+// failingShards names count shards that all fail to shut down with err.
+func failingShards(count int, err error) map[string]error {
+	shardErrs := make(map[string]error, count)
+	for i := range count {
+		shardErrs[fmt.Sprintf("shard%d", i)] = err
+	}
+	return shardErrs
+}
+
 // newShutdownTestIndex builds an index with one mock shard per entry of shardErrs,
 // each returning its entry's error from Shutdown, and with all cycle managers running.
 func newShutdownTestIndex(t *testing.T, shardErrs map[string]error) *Index {
@@ -245,6 +255,12 @@ func TestIndexShutdownStopsCycleManagersDespiteShardFailure(t *testing.T) {
 			wantErrIs:       []error{errInUse, errDiskGone},
 		},
 		{
+			name:            "shard failures beyond the limit are only counted",
+			shardErrs:       failingShards(maxReportedErrors+2, errInUse),
+			wantErrContains: []string{"still in use", "(and 2 more)"},
+			wantErrIs:       []error{errInUse},
+		},
+		{
 			name:            "shard failure and cycle manager failure are both reported",
 			shardErrs:       map[string]error{"shard1": errInUse},
 			stallCompaction: true,
@@ -300,6 +316,14 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 	errInUse := errors.New("still in use")
 	errDiskGone := errors.New("disk gone")
 
+	failingIndices := func(count int) []indexSpec {
+		specs := make([]indexSpec, count)
+		for i := range specs {
+			specs[i] = indexSpec{name: fmt.Sprintf("Class%d", i), shardErr: errInUse}
+		}
+		return specs
+	}
+
 	tests := []struct {
 		name            string
 		indices         []indexSpec
@@ -328,6 +352,12 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			},
 			wantErrContains: []string{`shutdown index "Alpha"`, `shutdown index "Beta"`, "disk gone"},
 			wantErrIs:       []error{errInUse, errDiskGone},
+		},
+		{
+			name:            "index failures beyond the limit are only counted",
+			indices:         failingIndices(maxReportedErrors + 2),
+			wantErrContains: []string{"still in use", "(and 2 more)"},
+			wantErrIs:       []error{errInUse},
 		},
 	}
 

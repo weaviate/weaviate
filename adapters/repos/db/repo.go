@@ -633,7 +633,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		db.indexCheckpoints.Close()
 	}
 
-	return ec.ToError()
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 type job struct {

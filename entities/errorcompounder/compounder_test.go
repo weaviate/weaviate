@@ -87,7 +87,7 @@ func TestErrorCompounder(t *testing.T) {
 			ec.Add(err3)
 
 			err := ec.ToErrorLimited(2)
-			assert.EqualError(t, err, "111, 222")
+			assert.EqualError(t, err, "111, 222 (and 1 more)")
 			assert.ErrorIs(t, err, err1)
 			assert.ErrorIs(t, err, err2)
 			assert.NotErrorIs(t, err, err3)
@@ -276,13 +276,17 @@ func TestErrorCompounder(t *testing.T) {
 			ec.Add(err1)
 			ec.Add(err2)
 			assert.ErrorContains(t, ec.ToError(), "111, 222")
-			assert.ErrorContains(t, ec.ToErrorLimited(3), "111, 222")
+			// nothing is left out, so neither limit reports a count
+			assert.EqualError(t, ec.ToErrorLimited(3), "111, 222")
+			assert.EqualError(t, ec.ToErrorLimited(2), "111, 222")
 
 			ec.Add(err3)
 			ec.Add(err4)
 			ec.Add(err5)
-			assert.ErrorContains(t, ec.ToError(), "111, 222, 333, 444, 555")
-			assert.ErrorContains(t, ec.ToErrorLimited(3), "111, 222, 333")
+			assert.EqualError(t, ec.ToError(), "111, 222, 333, 444, 555")
+			assert.EqualError(t, ec.ToErrorLimited(3), "111, 222, 333 (and 2 more)")
+			// a limit below one still reports one error
+			assert.EqualError(t, ec.ToErrorLimited(0), "111 (and 4 more)")
 		}
 
 		run(t, New())
@@ -312,7 +316,8 @@ func TestErrorCompounder(t *testing.T) {
 			assert.ErrorContains(t, ec2.ToErrorLimited(2), "\"lvl1\": {111, 222}")
 			ec2.AddGroups(err5)
 			assert.ErrorContains(t, ec2.ToError(), "555, \"lvl1\": {111, 222, 333}")
-			assert.ErrorContains(t, ec2.ToErrorLimited(2), "555, \"lvl1\": {111}")
+			// the count covers the errors left out inside the group as well
+			assert.EqualError(t, ec2.ToErrorLimited(2), "555, \"lvl1\": {111} (and 2 more)")
 
 			ec3 := create()
 			ec3.AddGroups(err1, "lvl1", "lvl2")

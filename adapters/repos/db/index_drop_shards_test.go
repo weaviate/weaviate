@@ -109,7 +109,8 @@ func TestIndexDropShards(t *testing.T) {
 }
 
 // TestIndexDropShardsCollectsConcurrentFailures pins that no shard error is lost
-// when many shards are dropped in parallel. Run with -race.
+// when many shards are dropped in parallel, and that the returned message stays
+// bounded. Run with -race.
 func TestIndexDropShardsCollectsConcurrentFailures(t *testing.T) {
 	const shardCount = 32
 
@@ -153,7 +154,9 @@ func TestIndexDropShardsCollectsConcurrentFailures(t *testing.T) {
 			err := tt.drop(t, idx, names)
 
 			require.Error(t, err)
-			require.Equal(t, shardCount, strings.Count(err.Error(), tt.wantErrPerShard))
+			reported := strings.Count(err.Error(), tt.wantErrPerShard)
+			require.Equal(t, maxReportedErrors, reported)
+			require.Contains(t, err.Error(), fmt.Sprintf("(and %d more)", shardCount-reported))
 		})
 	}
 }
