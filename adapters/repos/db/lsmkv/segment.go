@@ -288,6 +288,11 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
+	// ParseHeader never sees the file, only the fixed-size header, so the
+	// length check must happen here.
+	if err := header.ValidateIndexBounds(uint64(len(contents))); err != nil {
+		return nil, fmt.Errorf("validate header: %w", err)
+	}
 
 	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
@@ -317,6 +322,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
 	}
 
+	// An IndexStart == segment length off-by-one passes ValidateIndexBounds
+	// but leaves the primary index empty even though the header claims data
+	// is present; catch it here where the final (checksum-trimmed) index
+	// length is known.
+	if err := header.ValidateNonEmptyIndex(len(primaryIndex)); err != nil {
+		return nil, fmt.Errorf("validate header: %w", err)
+	}
+
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
@@ -328,9 +341,31 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		if err != nil {
 			return nil, errors.Wrap(err, "load inverted header")
 		}
+		if err := invertedHeader.ValidateOffsetsInBounds(uint64(len(contents))); err != nil {
+			return nil, fmt.Errorf("validate inverted header: %w", err)
+		}
 		dataStartPos = invertedHeader.KeysOffset
 		dataEndPos = invertedHeader.TombstoneOffset
+
+		// A narrower, per-segment check than header.ValidateNonEmptyIndex's
+		// blanket StrategyInverted exclusion above: it can now use
+		// propLengthCount to distinguish real corruption from a legitimate
+		// all-tombstone flush.
+		if err := invertedHeader.ValidateNonEmptyIndex(contents, len(primaryIndex), header.IndexStart); err != nil {
+			return nil, fmt.Errorf("validate header: %w", err)
+		}
 	}
+
+	// An in-bounds but corrupt IndexStart can silently land the index on the
+	// wrong bytes; Get() would then resolve to NotFound rather than error.
+	// Catch it here once, at open time.
+	if err := primaryDiskIndex.ValidateRootInBounds(dataStartPos, dataEndPos); err != nil {
+		return nil, fmt.Errorf("validate primary index: %w", err)
+	}
+	// Arms the per-node-read range check (see DiskTree.validateNodeRange) for
+	// every subsequent Get/Seek/Next/AllKeys against this index, catching a
+	// corrupt interior node the root-only check above cannot see.
+	primaryDiskIndex.SetDataEnd(dataEndPos)
 
 	stratLabel := header.Strategy.String()
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -392,7 +427,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && i == int(seg.secondaryIndexCount-1) {
 				secondary = secondary[:len(secondary)-segmentindex.ChecksumSize]
 			}
-			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
+			secondaryDiskIndex := segmentindex.NewDiskTree(secondary)
+			if err := secondaryDiskIndex.ValidateRootInBounds(dataStartPos, dataEndPos); err != nil {
+				return nil, fmt.Errorf("validate secondary index %d: %w", i, err)
+			}
+			secondaryDiskIndex.SetDataEnd(dataEndPos)
+			seg.secondaryIndices[i] = secondaryDiskIndex
 		}
 	}
 

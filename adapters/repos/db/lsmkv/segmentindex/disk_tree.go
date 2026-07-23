@@ -30,6 +30,12 @@ const TREE_KEY_STORE_OVERHEAD = 36
 // pretty much useless for anything else
 type DiskTree struct {
 	data []byte
+
+	// dataEnd is the exclusive end of the segment's data region, set once by
+	// SetDataEnd after open-time validation has run. Zero (the default)
+	// disables the upper-bound half of the read-time node sanity check; the
+	// start<=end ordering half always applies regardless.
+	dataEnd uint64
 }
 
 type dtNode struct {
@@ -44,6 +50,28 @@ func NewDiskTree(data []byte) *DiskTree {
 	return &DiskTree{
 		data: data,
 	}
+}
+
+// SetDataEnd records the segment's data region end for the read-time node
+// sanity check (see Get and readNode). Called once, after construction, by
+// the segment open path once the data region is known.
+func (t *DiskTree) SetDataEnd(dataEnd uint64) {
+	t.dataEnd = dataEnd
+}
+
+// validateNodeRange reports whether a node's [start, end) is well-formed:
+// non-inverted, and within the data region when dataEnd is set. Uncaught,
+// end < start makes a caller's make([]byte, end-start) wrap to a huge
+// uint64 and panic, with no recover barrier in background readers
+// (compaction, flush, bloom-rebuild, cursors).
+func (t *DiskTree) validateNodeRange(start, end uint64) error {
+	if end < start {
+		return fmt.Errorf("node data range [%d,%d) is inverted", start, end)
+	}
+	if t.dataEnd > 0 && end > t.dataEnd {
+		return fmt.Errorf("node data range [%d,%d) is outside the segment's data region (end %d)", start, end, t.dataEnd)
+	}
+	return nil
 }
 
 func (t *DiskTree) Get(key []byte) (Node, error) {
@@ -63,7 +91,19 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	// pos can be an arbitrary child offset read from possibly corrupt data, so
 	// every read is bounds-checked against dataLen-pos (never pos+n, which would
 	// wrap). Truncated or corrupt data yields NotFound or an error, never a panic.
-	for {
+	//
+	// Child offsets that are individually in-bounds can still form a cycle,
+	// spinning this loop forever; a hung reader holds the segment-group read
+	// view open, wedging Shutdown and compaction behind it. maxIterations
+	// bounds the walk at the tree's max possible node count (nodes are never
+	// smaller than TREE_KEY_STORE_OVERHEAD bytes), so it never cuts off a
+	// real walk.
+	maxIterations := dataLen/TREE_KEY_STORE_OVERHEAD + 1
+	for i := uint64(0); ; i++ {
+		if i >= maxIterations {
+			return out, fmt.Errorf("node walk exceeded %d iterations at pos %d; corrupt or cyclic index data", maxIterations, pos)
+		}
+
 		// node layout: [keyLen:4][key:keyLen][start:8][end:8][left:8][right:8].
 		if pos+4 > dataLen || pos+4 < 4 {
 			return out, lsmkv.NotFound
@@ -82,9 +122,14 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 			if avail < 16 { // start + end
 				return out, fmt.Errorf("node value at %d out of range", pos)
 			}
+			start := binary.LittleEndian.Uint64(data[pos:])
+			end := binary.LittleEndian.Uint64(data[pos+8:])
+			if err := t.validateNodeRange(start, end); err != nil {
+				return out, err
+			}
 			out.Key = bytes.Clone(data[pos-keyLen : pos])
-			out.Start = binary.LittleEndian.Uint64(data[pos:])
-			out.End = binary.LittleEndian.Uint64(data[pos+8:])
+			out.Start = start
+			out.End = end
 			return out, nil
 		} else if keyEqual < 0 {
 			if avail < 24 { // start + end + left child
@@ -98,6 +143,29 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 			pos = binary.LittleEndian.Uint64(data[pos+24:]) // skip start+end+left, read right child
 		}
 	}
+}
+
+// ValidateRootInBounds is an O(1) check that the root node (if the tree is
+// non-empty) falls within the given data region. It catches an in-bounds
+// but corrupt IndexStart that would otherwise make Get() silently resolve
+// to NotFound instead of erroring; every legitimately-written segment's
+// root satisfies this by construction.
+func (t *DiskTree) ValidateRootInBounds(dataStart, dataEnd uint64) error {
+	if len(t.data) == 0 {
+		return nil
+	}
+	root, err := t.readNodeAt(0)
+	if err != nil {
+		return fmt.Errorf("read root node: %w", err)
+	}
+	if root.startPos < dataStart || root.startPos > dataEnd ||
+		root.endPos < dataStart || root.endPos > dataEnd {
+		return fmt.Errorf(
+			"root node data range [%d,%d) is outside the segment's data region [%d,%d)",
+			root.startPos, root.endPos, dataStart, dataEnd,
+		)
+	}
+	return nil
 }
 
 func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
@@ -136,6 +204,9 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 
 	out.startPos = rw.ReadUint64()
 	out.endPos = rw.ReadUint64()
+	if err := t.validateNodeRange(out.startPos, out.endPos); err != nil {
+		return out, int(rw.Position), err
+	}
 	out.leftChild = int64(rw.ReadUint64())
 	out.rightChild = int64(rw.ReadUint64())
 	return out, int(rw.Position), nil
@@ -157,43 +228,53 @@ func (t *DiskTree) Next(key []byte) (Node, error) {
 	return t.seekAt(0, key, false)
 }
 
+// seekAt is iterative, not recursive: a corrupt cyclic child offset would
+// otherwise recurse without bound and crash the process (see Get above).
+// candidate holds the closest key > the search key seen so far, returned
+// once the right subtree runs out.
 func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, error) {
-	node, err := t.readNodeAt(offset)
-	if err != nil {
-		return Node{}, err
-	}
+	dataLen := uint64(len(t.data))
+	maxIterations := dataLen/TREE_KEY_STORE_OVERHEAD + 1
 
-	self := Node{
-		Key:   node.key,
-		Start: node.startPos,
-		End:   node.endPos,
-	}
+	var candidate Node
+	haveCandidate := false
 
-	if includingKey && bytes.Equal(key, node.key) {
-		return self, nil
-	}
+	for i := uint64(0); ; i++ {
+		if i >= maxIterations {
+			return Node{}, fmt.Errorf("node walk exceeded %d iterations at offset %d; corrupt or cyclic index data", maxIterations, offset)
+		}
 
-	if bytes.Compare(key, node.key) < 0 {
-		if node.leftChild < 0 {
+		node, err := t.readNodeAt(offset)
+		if err != nil {
+			return Node{}, err
+		}
+
+		self := Node{
+			Key:   node.key,
+			Start: node.startPos,
+			End:   node.endPos,
+		}
+
+		if includingKey && bytes.Equal(key, node.key) {
 			return self, nil
 		}
 
-		left, err := t.seekAt(node.leftChild, key, includingKey)
-		if err == nil {
-			return left, nil
+		if bytes.Compare(key, node.key) < 0 {
+			candidate = self
+			haveCandidate = true
+			if node.leftChild < 0 {
+				return self, nil
+			}
+			offset = node.leftChild
+		} else {
+			if node.rightChild < 0 {
+				if haveCandidate {
+					return candidate, nil
+				}
+				return Node{}, lsmkv.NotFound
+			}
+			offset = node.rightChild
 		}
-
-		if errors.Is(err, lsmkv.NotFound) {
-			return self, nil
-		}
-
-		return Node{}, err
-	} else {
-		if node.rightChild < 0 {
-			return Node{}, lsmkv.NotFound
-		}
-
-		return t.seekAt(node.rightChild, key, includingKey)
 	}
 }
 

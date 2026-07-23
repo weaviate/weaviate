@@ -67,7 +67,8 @@ func (h *Header) PrimaryIndex(source []byte) ([]byte, error) {
 	}
 
 	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
+		source[h.IndexStart:h.secondaryIndexOffsetsEnd()],
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +100,8 @@ func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
 	}
 
 	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
+		source[h.IndexStart:h.secondaryIndexOffsetsEnd()],
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -130,5 +132,66 @@ func ParseHeader(data []byte) (*Header, error) {
 		return nil, fmt.Errorf("unsupported version %d", out.Version)
 	}
 
+	// IndexStart < HeaderSize only happens on a corrupted/truncated/zeroed
+	// file; left undetected, readers panic slicing contents[HeaderSize:IndexStart]
+	// or silently treat the segment as empty (data loss). Reject it here, the
+	// one choke point every segment open goes through.
+	if out.IndexStart < uint64(HeaderSize) {
+		return nil, fmt.Errorf(
+			"corrupt segment header: index start %d is before the header end (%d); "+
+				"segment file is truncated, zeroed, or otherwise corrupted",
+			out.IndexStart, HeaderSize,
+		)
+	}
+
 	return out, nil
+}
+
+// ValidateIndexBounds checks that IndexStart and (if set) the secondary
+// index offset table fall within the segment's actual byte length.
+// ParseHeader can't do this itself since it never sees the file, only the
+// fixed-size header; skipping it panics on the first slice read.
+func (h *Header) ValidateIndexBounds(contentsLen uint64) error {
+	if h.IndexStart > contentsLen {
+		return fmt.Errorf(
+			"corrupt segment header: index start %d is past the segment end (%d); "+
+				"segment file is truncated or otherwise corrupted",
+			h.IndexStart, contentsLen,
+		)
+	}
+	if h.SecondaryIndices > 0 {
+		if end := h.secondaryIndexOffsetsEnd(); end > contentsLen {
+			return fmt.Errorf(
+				"corrupt segment header: secondary index table end %d is past the segment "+
+					"end (%d); segment file is truncated or otherwise corrupted",
+				end, contentsLen,
+			)
+		}
+	}
+	return nil
+}
+
+// ValidateNonEmptyIndex rejects an empty primary index when the header
+// claims the segment holds data (IndexStart > HeaderSize): for most
+// strategies that state is only reachable via corruption, typically an
+// off-by-one where IndexStart == the segment's actual length, which passes
+// ValidateIndexBounds ('>' not '>=') but would otherwise open clean and
+// silently serve empty reads.
+//
+// StrategyRoaringSetRange (no primary DiskTree by design) and
+// StrategyInverted (an all-tombstone flush legitimately has an empty
+// index; see HeaderInverted.ValidateNonEmptyIndex for its narrower check)
+// are excluded.
+func (h *Header) ValidateNonEmptyIndex(primaryIndexLen int) error {
+	if h.Strategy == StrategyRoaringSetRange || h.Strategy == StrategyInverted {
+		return nil
+	}
+	if h.IndexStart > uint64(HeaderSize) && primaryIndexLen == 0 {
+		return fmt.Errorf(
+			"corrupt segment header: index start %d is past the header end (%d) but the "+
+				"primary index is empty; segment file is truncated or otherwise corrupted",
+			h.IndexStart, HeaderSize,
+		)
+	}
+	return nil
 }
