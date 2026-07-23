@@ -3201,26 +3201,26 @@ func (i *Index) Shutdown(ctx context.Context) error {
 
 	i.closingCancel()
 
-	// TODO allow every resource cleanup to run, before returning early with error
-	if err := i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
+	ec := errorcompounder.NewSafe()
+
+	ec.Add(i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
 		i.backupLock.RLock(name)
 		defer i.backupLock.RUnlock(name)
 
 		if err := shard.Shutdown(ctx); err != nil {
 			if !errors.Is(err, errAlreadyShutdown) {
-				return errors.Wrapf(err, "shutdown shard %q", name)
+				ec.AddWrapf(err, "shutdown shard %q", name)
+				return nil
 			}
 			i.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
 		}
 		return nil
-	}); err != nil {
-		return err
-	}
-	if err := i.stopCycleManagers(ctx, "shutdown"); err != nil {
-		return err
-	}
+	}))
 
-	return nil
+	// the cycle managers must stop even when a shard failed to shut down
+	ec.Add(i.stopCycleManagers(ctx, "shutdown"))
+
+	return ec.ToError()
 }
 
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {

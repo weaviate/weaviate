@@ -37,6 +37,7 @@ import (
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -607,11 +608,11 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	// keep going on failure: a failing step must not skip the cleanup below
+	ec := errorcompounder.New()
+
 	// shut down the async workers
-	err := db.scheduler.Close(ctx)
-	if err != nil {
-		return errors.Wrap(err, "close scheduler")
-	}
+	ec.AddWrapf(db.scheduler.Close(ctx), "close scheduler")
 
 	if db.metricsObserver != nil {
 		db.metricsObserver.Shutdown()
@@ -621,8 +622,8 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	defer db.indexLock.Unlock()
 	defer db.asyncReplicationScheduler.Close()
 	for id, index := range db.indices {
-		if err := index.Shutdown(ctx); err != nil {
-			return errors.Wrapf(err, "shutdown index %q", id)
+		if err := index.Shutdown(ctx); err != nil && !errors.Is(err, errAlreadyShutdown) {
+			ec.AddWrapf(err, "shutdown index %q", id)
 		}
 	}
 
@@ -632,7 +633,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		db.indexCheckpoints.Close()
 	}
 
-	return nil
+	return ec.ToError()
 }
 
 type job struct {
