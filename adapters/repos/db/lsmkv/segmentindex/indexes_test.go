@@ -268,6 +268,85 @@ func TestWriteDirectly(t *testing.T) {
 		assert.True(t, buf.Len() > 16, "output must include offset table + indexes")
 	})
 
+	// The offset table is written before the indexes themselves, so a size that
+	// does not match what is written makes every offset point at the wrong bytes.
+	t.Run("sizes the offset table was built from must match what is written", func(t *testing.T) {
+		primarySize := computePrimaryIndexSize(keys)
+		secondarySizes := []int64{
+			computeSecondaryIndexSize(keys, 0),
+			computeSecondaryIndexSize(keys, 1),
+		}
+
+		tests := []struct {
+			name           string
+			keys           []Key
+			primarySize    int64
+			secondarySizes []int64
+			expectedErr    string
+		}{
+			{
+				name:           "primary too small",
+				keys:           keys,
+				primarySize:    primarySize - 1,
+				secondarySizes: secondarySizes,
+				expectedErr:    "primary index size mismatch",
+			},
+			{
+				name:           "primary too large",
+				keys:           keys,
+				primarySize:    primarySize + 1,
+				secondarySizes: secondarySizes,
+				expectedErr:    "primary index size mismatch",
+			},
+			{
+				name:           "first secondary wrong",
+				keys:           keys,
+				primarySize:    primarySize,
+				secondarySizes: []int64{secondarySizes[0] + 3, secondarySizes[1]},
+				expectedErr:    "secondary index 0 size mismatch",
+			},
+			{
+				name:           "last secondary wrong",
+				keys:           keys,
+				primarySize:    primarySize,
+				secondarySizes: []int64{secondarySizes[0], secondarySizes[1] - 3},
+				expectedErr:    "secondary index 1 size mismatch",
+			},
+			{
+				name:           "no keys but non-zero sizes",
+				keys:           nil,
+				primarySize:    primarySize,
+				secondarySizes: secondarySizes,
+				expectedErr:    "primary index size mismatch",
+			},
+			{
+				name:           "fewer precomputed sizes than secondary indexes falls back to computing",
+				keys:           keys,
+				primarySize:    primarySize,
+				secondarySizes: secondarySizes[:1],
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				idx := &Indexes{
+					Keys:                           test.keys,
+					SecondaryIndexCount:            2,
+					SizesPrecomputed:               true,
+					PrecomputedPrimaryIndexSize:    test.primarySize,
+					PrecomputedSecondaryIndexSizes: test.secondarySizes,
+				}
+				var buf bytes.Buffer
+				_, err := idx.WriteTo(&buf)
+				if test.expectedErr == "" {
+					require.NoError(t, err)
+					return
+				}
+				require.ErrorContains(t, err, test.expectedErr)
+			})
+		}
+	})
+
 	t.Run("no secondary indices bypasses writeDirectly", func(t *testing.T) {
 		primaryOnly := []Key{
 			{Key: []byte("aaa"), ValueStart: 0, ValueEnd: 10},

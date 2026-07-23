@@ -474,6 +474,61 @@ func TestMarshalSortedKeysEmptyInput(t *testing.T) {
 	assert.Equal(t, 0, buf.Len())
 }
 
+// Comparing only len(order) against the node count misses an order that has the
+// right length yet lists one node twice and another not at all, so vebOffsets
+// checks per node instead.
+func TestVEBOffsets(t *testing.T) {
+	// 3 keys in a height-2 tree: heap positions 0, 1, 2 hold sorted indices 1, 0, 2.
+	const nodeCount = 3
+	mapping := []int32{1, 0, 2, -1}
+	nodeSize := func(int32) int64 { return 10 }
+
+	tests := []struct {
+		name      string
+		order     []int32
+		wantErr   bool
+		wantOff   []int64
+		wantTotal int64
+	}{
+		{
+			name:      "every node emitted",
+			order:     []int32{0, 1, 2},
+			wantOff:   []int64{10, 0, 20},
+			wantTotal: 30,
+		},
+		{
+			name:    "node dropped",
+			order:   []int32{0, 1},
+			wantErr: true,
+		},
+		{
+			name:    "node listed twice in place of another",
+			order:   []int32{0, 1, 1},
+			wantErr: true,
+		},
+		{
+			name:    "node listed twice on top of a complete order",
+			order:   []int32{0, 1, 2, 1},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			offsets, total, err := vebOffsets(test.order, mapping, nodeCount, nodeSize)
+			if test.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, offsets)
+				assert.Zero(t, total)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantOff, offsets)
+			assert.Equal(t, test.wantTotal, total)
+		})
+	}
+}
+
 // A dataStartOffset past the first key's ValueEnd would serialize start > end;
 // MarshalSortedKeys must reject it rather than emit a corrupt index.
 func TestMarshalSortedKeysRejectsOffsetPastFirstValueEnd(t *testing.T) {
