@@ -474,7 +474,7 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 			defer wg.Done()
 			<-start
 			for range 10 {
-				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, []string{"text"}); err != nil {
+				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, []string{"text"}, nil); err != nil {
 					errs <- err
 				}
 			}
@@ -515,22 +515,165 @@ func TestCalculateUnloadedDimensionsUsageAll(t *testing.T) {
 	require.NoError(t, b.Shutdown(ctx))
 
 	targetVectors := []string{"text", "image", "missing"}
-	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors)
+	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors, nil)
 	require.NoError(t, err)
 	require.Len(t, all, len(targetVectors))
-	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"])
-	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"])
-	assert.Equal(t, types.Dimensionality{}, all["missing"])
+	text := types.Dimensionality{Dimensions: 128, Count: 5}
+	image := types.Dimensionality{Dimensions: 512, Count: 3}
+	assert.Equal(t, DimensionalityUsage{Raw: text, Reported: text}, all["text"])
+	assert.Equal(t, DimensionalityUsage{Raw: image, Reported: image}, all["image"])
+	assert.Equal(t, DimensionalityUsage{}, all["missing"])
 
 	// parity with the single-vector variant
 	for _, targetVector := range targetVectors {
 		single, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, targetVector)
 		require.NoError(t, err)
-		assert.Equal(t, all[targetVector], single, targetVector)
+		assert.Equal(t, all[targetVector].Raw, single, targetVector)
 	}
 
+	// muvera vectors report the encoded dimensionality, Raw stays untouched
+	withMuvera, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors,
+		map[string]int{"text": 2560, "missing": 2560})
+	require.NoError(t, err)
+	assert.Equal(t, DimensionalityUsage{Raw: text, Reported: types.Dimensionality{Dimensions: 2560, Count: 5}}, withMuvera["text"])
+	assert.Equal(t, DimensionalityUsage{Raw: image, Reported: image}, withMuvera["image"])
+	assert.Equal(t, DimensionalityUsage{}, withMuvera["missing"], "no objects → no reported dimensionality")
+
 	// no target vectors → nothing to calculate, no bucket open
-	none, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, nil)
+	none, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, none)
+}
+
+// Pins a cursor-termination bug: dims bytes can sort after a longer vector name sharing a
+// prefix ("texts…" < "text\x80…" for dims 128), which used to zero the shorter name's report.
+func TestCalculateTargetVectorDimensionsFromBucket_PrefixCollision(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	writeDims := func(t *testing.T, b *lsmkv.Bucket, targetVector string, dims uint32, docIDs []uint64) {
+		key := make([]byte, len(targetVector)+4)
+		copy(key, targetVector)
+		binary.LittleEndian.PutUint32(key[len(targetVector):], dims)
+		for _, docID := range docIDs {
+			require.NoError(t, b.RoaringSetAddOne(key, docID))
+		}
+	}
+
+	dirName := t.TempDir()
+	b, err := lsmkv.NewBucketCreator().NewBucket(ctx, filepath.Join(dirName, "dimensions"), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	writeDims(t, b, "text", 128, []uint64{1, 2, 3})
+	writeDims(t, b, "texts", 128, []uint64{4, 5})
+	writeDims(t, b, "", 128, []uint64{6}) // legacy key "\x80…" sorts after both named vectors
+	require.NoError(t, b.FlushMemtable())
+
+	text, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, "text")
+	require.NoError(t, err)
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 3}, text)
+
+	texts, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, "texts")
+	require.NoError(t, err)
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 2}, texts)
+
+	legacy, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, "")
+	require.NoError(t, err)
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 1}, legacy)
+}
+
+func TestCalculateMuveraDimensionsUsageFromBucket(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	const encodedDims = 2560
+
+	type dimEntry struct {
+		targetVector string
+		dims         uint32
+		docIDs       []uint64
+	}
+	// multi-vector objects vary in per-object total dims; dims=0 entries are objects without a vector
+	entries := []dimEntry{
+		{"colbert", 0, []uint64{7, 8}},
+		{"colbert", 1280, []uint64{1, 2}},
+		{"colbert", 2560, []uint64{3, 4, 5}},
+		{"colbert", 12800, []uint64{6}},
+		{"other", 0, []uint64{5}},
+		{"other", 128, []uint64{1, 2, 3, 4}},
+		{"novectors", 0, []uint64{1, 2, 3}},
+	}
+
+	tests := []struct {
+		name     string
+		strategy string
+		write    func(t *testing.T, b *lsmkv.Bucket, e dimEntry)
+	}{
+		{
+			name:     "roaring set strategy",
+			strategy: lsmkv.StrategyRoaringSet,
+			write: func(t *testing.T, b *lsmkv.Bucket, e dimEntry) {
+				key := make([]byte, len(e.targetVector)+4)
+				copy(key, e.targetVector)
+				binary.LittleEndian.PutUint32(key[len(e.targetVector):], e.dims)
+				for _, docID := range e.docIDs {
+					require.NoError(t, b.RoaringSetAddOne(key, docID))
+				}
+			},
+		},
+		{
+			name:     "legacy map collection strategy",
+			strategy: lsmkv.StrategyMapCollection,
+			write: func(t *testing.T, b *lsmkv.Bucket, e dimEntry) {
+				key := make([]byte, len(e.targetVector)+4)
+				copy(key, e.targetVector)
+				binary.LittleEndian.PutUint32(key[len(e.targetVector):], e.dims)
+				for _, docID := range e.docIDs {
+					docIDBytes := make([]byte, 8)
+					binary.LittleEndian.PutUint64(docIDBytes, docID)
+					require.NoError(t, b.MapSet(key, lsmkv.MapPair{Key: docIDBytes, Value: []byte{}}))
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirName := t.TempDir()
+			b, err := lsmkv.NewBucketCreator().NewBucket(ctx, filepath.Join(dirName, "dimensions"), "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				lsmkv.WithStrategy(tt.strategy))
+			require.NoError(t, err)
+			defer b.Shutdown(ctx)
+
+			for _, entry := range entries {
+				tt.write(t, b, entry)
+			}
+			require.NoError(t, b.FlushMemtable())
+
+			muvera, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "colbert", encodedDims)
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{Dimensions: encodedDims, Count: 6}, muvera)
+
+			// raw calculation keeps its first-entry semantics for the same data
+			raw, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, "colbert")
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{Dimensions: 1280, Count: 2}, raw)
+
+			otherMuvera, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "other", encodedDims)
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{Dimensions: encodedDims, Count: 4}, otherMuvera)
+
+			missing, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "missing", encodedDims)
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{}, missing)
+
+			noVectors, err := CalculateMuveraDimensionsUsageFromBucket(ctx, b, "novectors", encodedDims)
+			require.NoError(t, err)
+			assert.Equal(t, types.Dimensionality{}, noVectors, "only dims=0 entries → zero report")
+		})
+	}
 }

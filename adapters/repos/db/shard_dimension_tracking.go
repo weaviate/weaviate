@@ -69,6 +69,15 @@ func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types
 	return s.calcTargetVectorDimensions(ctx, targetVector)
 }
 
+// MuveraDimensionsUsage reports the fixed MUVERA-encoded dimensionality with the total object count for a target vector
+func (s *Shard) MuveraDimensionsUsage(ctx context.Context, targetVector string, encodedDimensions int) (types.Dimensionality, error) {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return types.Dimensionality{}, errors.Errorf("muveraDimensionsUsage: no bucket dimensions")
+	}
+	return shardusage.CalculateMuveraDimensionsUsageFromBucket(ctx, b, targetVector, encodedDimensions)
+}
+
 // Dimensions returns the total number of dimensions for a given vector
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) (int, error) {
 	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
