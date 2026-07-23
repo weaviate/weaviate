@@ -445,6 +445,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		MaxSegmentSize:                      appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
 		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
 		IndexRangeableInMemory:              appState.ServerConfig.Config.Persistence.IndexRangeableInMemory,
+		IndexRoaringSetInMemory:             appState.ServerConfig.Config.Persistence.IndexRoaringSetInMemory,
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:                 appState.ServerConfig.Config.QueryMaximumResults,
@@ -750,6 +751,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		} else {
 			metaStoreReady.success()
 		}
+	}, appState.Logger)
+
+	// The allow-list check reads the schema, which is only populated once the
+	// meta store has restored it; db.init runs before the restore.
+	enterrors.GoWrapper(func() {
+		if err := metaStoreReady.waitForMetaStore(); err != nil {
+			return
+		}
+		appState.DB.WarnUnmatchedRoaringSetInMemoryEntries()
 	}, appState.Logger)
 
 	// TODO-RAFT: refactor remove this sleep

@@ -97,6 +97,7 @@ type SegmentGroup struct {
 	lastCompactionCall time.Time
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
+	roaringSetSegmentInMemory      *roaringset.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
 	lazyPropertyLengths            *configRuntime.DynamicValue[bool]
@@ -133,7 +134,7 @@ type sgConfig struct {
 	maxSegmentSize               int64
 	cleanupInterval              time.Duration
 	enableChecksumValidation     bool
-	keepSegmentsInMemory         bool
+	keepMergedSegmentsInMemory   bool
 	MinMMapSize                  int64
 	bm25config                   *models.BM25Config
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
@@ -532,7 +533,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sg.averagePropLength.Store(&stats)
 
 	case StrategyRoaringSetRange:
-		if cfg.keepSegmentsInMemory {
+		if cfg.keepMergedSegmentsInMemory {
 			t := time.Now()
 			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory(sg.logger)
 			for _, seg := range sg.segments {
@@ -546,6 +547,22 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				"bucket":  filepath.Base(cfg.dir),
 				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetRangeSegmentInMemory.Size())/1024/1024),
 			}).Debug("rangeable segment-in-memory built")
+		}
+
+	case StrategyRoaringSet:
+		if cfg.keepMergedSegmentsInMemory {
+			t := time.Now()
+			sg.roaringSetSegmentInMemory = roaringset.NewSegmentInMemory(sg.logger)
+			for _, seg := range sg.segments {
+				if err := sg.roaringSetSegmentInMemory.MergeSegmentByCursor(seg.newRoaringSetCursor()); err != nil {
+					return nil, fmt.Errorf("build segment-in-memory of strategy '%s': %w", sg.strategy, err)
+				}
+			}
+			logger.WithFields(logrus.Fields{
+				"took":    time.Since(t).String(),
+				"bucket":  filepath.Base(cfg.dir),
+				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetSegmentInMemory.Size())/1024/1024),
+			}).Debug("roaringset segment-in-memory built")
 		}
 	}
 

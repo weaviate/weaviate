@@ -301,6 +301,15 @@ func TestCompaction(t *testing.T) {
 			},
 		},
 		{
+			name: "compactionRoaringSetStrategy_Random in memory",
+			f:    compactionRoaringSetStrategy_Random,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+				WithKeepMergedSegmentsInMemory(true),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()),
+			},
+		},
+		{
 			name: "compactionRoaringSetStrategy",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
 				compactionRoaringSetStrategy(ctx, t, opts, 19168, 19168)

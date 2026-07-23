@@ -197,12 +197,13 @@ type Bucket struct {
 	// ensuring segment files have integrity before reading them.
 	enableChecksumValidation bool
 
-	// keep segments in memory for more performant search
-	// (currently used by roaringsetrange inverted indexes)
-	keepSegmentsInMemory bool
+	// keep one always-merged in-memory form (additions minus deletions)
+	// for more performant search
+	// (used by roaringsetrange inverted and roaringset filterable indexes)
+	keepMergedSegmentsInMemory bool
 
 	// pool of buffers for bitmaps merges
-	// (currently used by roaringsetrange inverted indexes)
+	// (used by roaringsetrange inverted and roaringset filterable indexes)
 	bitmapBufPool roaringset.BitmapBufPool
 
 	// add information like the level and the strategy into the filename so these things can be checked without loading
@@ -276,6 +277,14 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
+	// The merged in-memory read path clones bitmaps through the buffer pool,
+	// so without one the first read would dereference a nil interface. Fail at
+	// construction instead: lsmkv is also used as a library, where a panic on
+	// read is worse than an error on open.
+	if b.keepMergedSegmentsInMemory && b.bitmapBufPool == nil {
+		return nil, errors.New("WithKeepMergedSegmentsInMemory requires WithBitmapBufPool to be set")
+	}
+
 	if !b.immutable && IsSnapshotDir(dir) {
 		return nil, fmt.Errorf("cannot open a snapshot directory (%q) with NewBucket; use NewSnapshotBucket instead", dir)
 	}
@@ -327,7 +336,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			maxSegmentSize:               b.maxSegmentSize,
 			cleanupInterval:              b.segmentsCleanupInterval,
 			enableChecksumValidation:     b.enableChecksumValidation,
-			keepSegmentsInMemory:         b.keepSegmentsInMemory,
+			keepMergedSegmentsInMemory:   b.keepMergedSegmentsInMemory,
 			MinMMapSize:                  b.minMMapSize,
 			bm25config:                   b.bm25Config,
 			lazyPropertyLengths:          b.lazyPropertyLengths,
@@ -2017,8 +2026,12 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 
 	case StrategyRoaringSetRange:
-		if b.keepSegmentsInMemory {
+		if b.keepMergedSegmentsInMemory {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
+		}
+	case StrategyRoaringSet:
+		if b.disk.roaringSetSegmentInMemory != nil {
+			b.disk.roaringSetSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSet())
 		}
 	case StrategyInverted:
 		// A flush only adds the new segment's live docs; deletes are subtracted
