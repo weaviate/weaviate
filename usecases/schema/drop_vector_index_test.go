@@ -24,25 +24,23 @@ import (
 )
 
 type fakeDropEnqueuer struct {
-	active      bool
-	activeErr   error
-	enqueueErr  error
-	enqueued    [][]string
-	enqueuedAt  []string // collection per enqueue call
-	freshEpochs []bool   // freshEpoch per enqueue call
+	active     bool
+	activeErr  error
+	enqueueErr error
+	enqueued   [][]string
+	enqueuedAt []string // collection per enqueue call
 }
 
 func (f *fakeDropEnqueuer) HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error) {
 	return f.active, f.activeErr
 }
 
-func (f *fakeDropEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string, freshEpoch bool) error {
+func (f *fakeDropEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
 	if f.enqueueErr != nil {
 		return f.enqueueErr
 	}
 	f.enqueued = append(f.enqueued, targets)
 	f.enqueuedAt = append(f.enqueuedAt, collection)
-	f.freshEpochs = append(f.freshEpochs, freshEpoch)
 	return nil
 }
 
@@ -75,8 +73,6 @@ func TestDeleteClassVectorIndex_FreshDrop_SetsMarkerAndEnqueues(t *testing.T) {
 	sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything)
 	require.Equal(t, [][]string{{"foo"}}, enq.enqueued)
 	require.Equal(t, []string{"C"}, enq.enqueuedAt)
-	require.Equal(t, []bool{true}, enq.freshEpochs,
-		"a fresh drop mints a new epoch — no cleaned-shard inheritance across drops of a re-created name")
 }
 
 func TestDeleteClassVectorIndex_ReTrigger_SameTarget_Active_NoOp(t *testing.T) {
@@ -103,8 +99,6 @@ func TestDeleteClassVectorIndex_ReTrigger_SameTarget_Failed_ReEnqueues(t *testin
 
 	sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
 	require.Equal(t, [][]string{{"foo"}}, enq.enqueued, "a failed cleanup must be re-enqueued (fresh task)")
-	require.Equal(t, []bool{false}, enq.freshEpochs,
-		"a re-trigger continues the current epoch so accumulated coverage is kept")
 }
 
 func TestDeleteClassVectorIndex_ReTrigger_DifferentTarget_SecondTask(t *testing.T) {
