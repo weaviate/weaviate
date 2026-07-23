@@ -262,6 +262,89 @@ func TestShardRefCountSchemaWaitFailure(t *testing.T) {
 	}
 }
 
+// TestWithShardOrRemoteRunsOneArm asserts that withShardOrRemote runs the local
+// arm only when it has a usable local shard, the remote arm whenever it has not,
+// and neither when the lookup fails — releasing the reference and passing the
+// arm's error on in every case. A local arm that ran with no shard would touch a
+// nil shard; a skipped remote arm would silently drop the operation.
+func TestWithShardOrRemoteRunsOneArm(t *testing.T) {
+	className := "WithShardOrRemote"
+	const schemaVersion = uint64(7)
+
+	errArm := errors.New("arm failed")
+
+	tests := []struct {
+		name string
+		// forwarded points the router at a peer, so there is no usable local shard
+		forwarded bool
+		// failSchemaWait makes the lookup fail before it can pick a branch
+		failSchemaWait bool
+		// failArm makes the branch that runs return errArm
+		failArm    bool
+		operation  localShardOperation
+		wantLocal  bool
+		wantRemote bool
+	}{
+		{name: "local read", operation: localShardOperationRead, wantLocal: true},
+		{name: "local write", operation: localShardOperationWrite, wantLocal: true},
+		{name: "forwarded read", forwarded: true, operation: localShardOperationRead, wantRemote: true},
+		{name: "forwarded write", forwarded: true, operation: localShardOperationWrite, wantRemote: true},
+		{name: "failed lookup", failSchemaWait: true, operation: localShardOperationWrite},
+		{name: "failing local arm", failArm: true, operation: localShardOperationWrite, wantLocal: true},
+		{
+			name: "failing remote arm", forwarded: true, failArm: true,
+			operation: localShardOperationWrite, wantRemote: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			idx, shard := refCountTestIndex(t, className)
+			if test.forwarded {
+				forwardToRemote(t, idx, className, shard.name)
+			}
+
+			var version uint64
+			if test.failSchemaWait {
+				version = schemaVersion
+				schemaReader := idx.schemaReader.(*schemaUC.MockSchemaReader)
+				schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).
+					Return(context.Canceled).Once()
+			}
+
+			armErr := error(nil)
+			if test.failArm {
+				armErr = errArm
+			}
+
+			var ranLocal, ranRemote bool
+			err := idx.withShardOrRemote(t.Context(), "", shard.name, test.operation, version,
+				func(got ShardLike) error {
+					ranLocal = true
+					require.NotNil(t, got, "the local arm must never be handed a nil shard")
+					return armErr
+				},
+				func() error {
+					ranRemote = true
+					return armErr
+				})
+
+			switch {
+			case test.failArm:
+				require.ErrorIs(t, err, errArm, "the arm's error must reach the caller")
+			case test.failSchemaWait:
+				require.Error(t, err)
+			default:
+				require.NoError(t, err)
+			}
+			require.Equal(t, test.wantLocal, ranLocal, "local arm")
+			require.Equal(t, test.wantRemote, ranRemote, "remote arm")
+			require.Equal(t, int64(0), shard.inUseCounter.Load(),
+				"every branch must release the shard reference")
+		})
+	}
+}
+
 // TestShardLookupReleasesReplacedReference asserts that getShardForWrite and
 // getShardForRead release the reference they were handed whenever they hand back
 // a different one. The caller only defers the returned release, so a dropped one
