@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -797,6 +798,83 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 		err := sm.DeleteClass(mkRequest("C"), true, false)
 		require.NoError(t, err,
 			"with no guard registered and schemaOnly=true, DeleteClass on a non-existent class is a no-op")
+	})
+}
+
+// fakeCascadeDeleter records the target-scoped purge calls the schema FSM
+// issues on drop-vector marker introduction.
+type fakeCascadeDeleter struct {
+	collectionCalls []string
+	targetCalls     []struct {
+		collection string
+		targets    []string
+	}
+}
+
+func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor {
+	f.collectionCalls = append(f.collectionCalls, collection)
+	return nil
+}
+
+func (f *fakeCascadeDeleter) DeleteTasksForCollectionTargets(collection string, targets []string) []distributedtask.TaskDescriptor {
+	f.targetCalls = append(f.targetCalls, struct {
+		collection string
+		targets    []string
+	}{collection, targets})
+	return []distributedtask.TaskDescriptor{{ID: "purged", Version: 1}}
+}
+
+// TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords pins the stale
+// record purge: introducing a drop marker deletes the previous drop's task
+// records for that (collection, target) in the SAME apply — a re-created then
+// re-dropped name must start with a clean slate, or coverage inheritance and
+// removal vouching could adopt the closed drop's records.
+func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T) {
+	const none = "none"
+	hnsw := models.VectorConfig{VectorIndexType: "hnsw"}
+
+	mkRequest := func(updated *models.Class) *cmd.ApplyRequest {
+		sub, err := json.Marshal(&cmd.UpdateClassRequest{Class: updated, State: nil})
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			Class:      "C",
+			Version:    2,
+			SubCommand: sub,
+		}
+	}
+	newSM := func(deleter *fakeCascadeDeleter, initial, parsed *models.Class) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm.SetDistributedTaskManager(deleter)
+		require.NoError(t, sm.schema.addClass(initial,
+			&sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+		return sm
+	}
+
+	t.Run("live to none purges the target's records", func(t *testing.T) {
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		require.Len(t, deleter.targetCalls, 1)
+		require.Equal(t, "C", deleter.targetCalls[0].collection)
+		require.Equal(t, []string{"vec1"}, deleter.targetCalls[0].targets)
+	})
+
+	t.Run("an already-dropped entry does not re-purge", func(t *testing.T) {
+		deleter := &fakeCascadeDeleter{}
+		cfg := map[string]models.VectorConfig{"vec1": {VectorIndexType: none}, "keep": hnsw}
+		initial := &models.Class{Class: "C", VectorConfig: cfg}
+		parsed := &models.Class{Class: "C", VectorConfig: cfg}
+		sm := newSM(deleter, initial, parsed)
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		require.Empty(t, deleter.targetCalls,
+			"retriggers and unrelated updates must not purge the ACTIVE drop's records")
 	})
 }
 

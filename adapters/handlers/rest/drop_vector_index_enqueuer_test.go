@@ -463,35 +463,15 @@ func TestEnqueueDropVectorIndex_TaskListError_Surfaces(t *testing.T) {
 	require.Empty(t, cluster.gotTaskID)
 }
 
-// TestEnqueueDropVectorIndex_GrownShardSetAfterFinalize is the RED pin for the
-// closed-epoch fence hole: a finalized epoch whose collection gained a shard
-// afterwards looks INCOMPLETE against the grown shard set, so the fence fails
-// to fire and the stale epoch's coverage is inherited into a genuinely new
-// drop — its completion would finalize with the re-created vectors on the old
-// shards never stripped. The new drop must start a fresh epoch and clean
-// every shard.
-func TestEnqueueDropVectorIndex_GrownShardSetAfterFinalize(t *testing.T) {
-	hot := func(nodes ...string) sharding.Physical {
-		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
-	}
-	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
-		db.DropVectorIndexNamespace: {
-			// The previous drop's record: covered everything that existed then.
-			epochTask(t, "C", "t1", "E1", 1, distributedtask.TaskStatusFinished, []string{"s1", "s2"}, nil),
-		},
-	}}
-	state := &fakeShardingState{state: shardingState(true, map[string]sharding.Physical{
-		"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1"), // s3 created after the finalize
-	})}
-	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
-
-	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
-	p := decodeEnqueuedPayload(t, cluster)
-	require.NotEqual(t, "E1", p.DropEpochID, "a finalized epoch must not be continued")
-	require.Empty(t, p.CleanedShards, "stale coverage must not be inherited")
-	require.Equal(t, map[string]string{"s1__n1": "s1", "s2__n1": "s2", "s3__n1": "s3"}, p.UnitToShard,
-		"every shard must be cleaned by the new drop")
-}
+// NOTE on the grown-shard-set re-drop hazard: given a STALE record (a
+// finalized previous drop of a re-created name) plus a shard created since,
+// this enqueuer's fence alone would mis-inherit — the state is locally
+// indistinguishable from an in-progress chain. Soundness comes from upstream:
+// the schema FSM purges the previous drop's records in the same raft apply
+// that introduces a new marker (see
+// TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords and the
+// re-drop e2e), so stale records cannot exist next to a marker they don't
+// belong to.
 
 // TestEnqueueDropVectorIndex_CoverageInheritance pins the chain rules: inherit
 // cleaned-shard coverage only from completed same-epoch tasks of an INCOMPLETE

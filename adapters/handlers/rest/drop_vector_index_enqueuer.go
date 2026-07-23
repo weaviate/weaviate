@@ -214,6 +214,11 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 // landed): mint a fresh epoch and re-clean everything, never trust it. That
 // costs one idempotent full re-clean; the alternative trusts stale coverage
 // and finalizes over unstripped vectors.
+//
+// The inference is sound only because stale records cannot coexist with a
+// marker they don't belong to: introducing a marker purges the previous
+// drop's records in the same raft apply (schema FSM marker-introduction
+// purge). Do not weaken that purge without revisiting this function.
 func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 	collection string, targets []string, state *sharding.State,
 ) (string, []string, error) {
