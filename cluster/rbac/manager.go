@@ -21,7 +21,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/fsm"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -33,12 +32,11 @@ var ErrBadRequest = errors.New("bad request")
 type Manager struct {
 	authZ       *rbac.Manager
 	authNconfig config.Authentication
-	snapshotter fsm.Snapshotter
 	logger      logrus.FieldLogger
 }
 
-func NewManager(authZ *rbac.Manager, authNconfig config.Authentication, snapshotter fsm.Snapshotter, logger logrus.FieldLogger) *Manager {
-	return &Manager{authZ: authZ, authNconfig: authNconfig, snapshotter: snapshotter, logger: logger}
+func NewManager(authZ *rbac.Manager, authNconfig config.Authentication, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, authNconfig: authNconfig, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
@@ -284,17 +282,17 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) Snapshot() ([]byte, error) {
-	if m.snapshotter == nil {
+	if m.authZ == nil {
 		return nil, nil
 	}
-	return m.snapshotter.Snapshot()
+	return m.authZ.Snapshot()
 }
 
 func (m *Manager) Restore(b []byte) error {
-	if m.snapshotter == nil {
+	if m.authZ == nil {
 		return nil
 	}
-	if err := m.snapshotter.Restore(b); err != nil {
+	if err := m.authZ.Restore(b); err != nil {
 		return err
 	}
 	m.logger.Info("successfully restored rbac from snapshot")

@@ -60,6 +60,8 @@ type Scheduler struct {
 	backends   BackupBackendProvider
 	// nil when dynamic DB users are not enabled.
 	userLister UserLister
+	// nil when RBAC is not enabled.
+	roleLister RoleLister
 	schema     schemaManger
 }
 
@@ -69,6 +71,7 @@ func NewScheduler(
 	client client,
 	sourcer Selector,
 	userLister UserLister,
+	roleLister RoleLister,
 	backends BackupBackendProvider,
 	nodeResolver NodeResolver,
 	schema schemaManger,
@@ -79,6 +82,7 @@ func NewScheduler(
 		authorizer: authorizer,
 		backends:   backends,
 		userLister: userLister,
+		roleLister: roleLister,
 		schema:     schema,
 		backupper: newCoordinator(
 			sourcer,
@@ -156,13 +160,13 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	classes, users, err := s.validateBackupRequest(ctx, store, req)
+	sel, err := s.validateBackupRequest(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	if !explicitInclude {
-		classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes)
+		sel.classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, sel.classes)
 		if err != nil {
 			return nil, err
 		}
@@ -175,8 +179,9 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Method:       OpCreate,
 		ID:           req.ID,
 		Backend:      req.Backend,
-		Classes:      classes,
-		Users:        users,
+		Classes:      sel.classes,
+		Users:        sel.users,
+		Roles:        sel.roles,
 		Compression:  req.Compression,
 		Bucket:       req.Bucket,
 		Path:         req.Path,
@@ -188,7 +193,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		st := s.backupper.lastOp.get()
 		status := string(st.Status)
 		return &models.BackupCreateResponse{
-			Classes: classes,
+			Classes: sel.classes,
 			ID:      req.ID,
 			Backend: req.Backend,
 			Status:  &status,
@@ -636,36 +641,43 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 	return cs, nil
 }
 
-// validateBackupRequest resolves the request into concrete classes and
-// users. users is empty unless includeUsers was supplied.
-func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) (classes, users []string, err error) {
+// backupSelections is what a backup request resolves to. Zero value is all-nil:
+// no users/roles (ordinary class-only backup) matching the empty→nil convention
+// in resolveUsers/resolveRoles.
+type backupSelections struct {
+	classes, users, roles []string
+}
+
+// validateBackupRequest resolves the request into concrete classes, users, and
+// roles. users/roles are empty unless includeUsers/includeRoles were supplied.
+func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) (selections backupSelections, err error) {
 	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
-		return nil, nil, errLocalBackendDBRO
+		return selections, errLocalBackendDBRO
 	}
 
-	if err := validateID(req.ID); err != nil {
-		return nil, nil, err
+	if err = validateID(req.ID); err != nil {
+		return selections, err
 	}
 	if req.BaseBackupID != "" {
-		if err := validateID(req.BaseBackupID); err != nil {
-			return nil, nil, fmt.Errorf("base backup id: %w", err)
+		if err = validateID(req.BaseBackupID); err != nil {
+			return selections, fmt.Errorf("base backup id: %w", err)
 		}
 		if req.ID == req.BaseBackupID {
-			return nil, nil, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
+			return selections, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", req.BaseBackupID)
 		}
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, nil, errIncludeExclude
+		return selections, errIncludeExclude
 	}
 
 	if dup := findDuplicate(req.Include); dup != "" {
-		return nil, nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
+		return selections, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 
 	// Get all available classes first for wildcard expansion
 	allClasses := s.backupper.selector.ListClasses(ctx)
 	if len(allClasses) == 0 {
-		return nil, nil, fmt.Errorf("no available classes to backup, there's nothing to do here")
+		return selections, fmt.Errorf("no available classes to backup, there's nothing to do here")
 	}
 
 	// Expand wildcards in Include list
@@ -674,37 +686,46 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	// Expand wildcards in Exclude list
 	exclude := expandWildcards(req.Exclude, allClasses)
 
-	classes = include
+	classes := include
 	if len(classes) == 0 {
 		classes = allClasses
 	}
 	if classes = filterClasses(classes, exclude); len(classes) == 0 {
-		return nil, nil, fmt.Errorf("empty class list: please choose from : %v", allClasses)
+		return selections, fmt.Errorf("empty class list: please choose from : %v", allClasses)
 	}
 
 	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
-		return nil, nil, err
+		return selections, err
 	}
 
-	users, err = s.resolveUsers(req.IncludeUsers)
+	users, err := s.resolveUsers(req.IncludeUsers)
 	if err != nil {
-		return nil, nil, err
+		return selections, err
 	}
 
-	if err := s.checkIfBackupExists(ctx, store, req); err != nil {
-		return nil, nil, err
+	roles, err := s.resolveRoles(req.IncludeRoles)
+	if err != nil {
+		return selections, err
+	}
+
+	if err = s.checkIfBackupExists(ctx, store, req); err != nil {
+		return selections, err
 	}
 
 	// validate base backup chain
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get compression type: %w", err)
+		return selections, fmt.Errorf("get compression type: %w", err)
 	}
-	if _, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
-		return nil, nil, fmt.Errorf("resolve base backup chain: %w", err)
+	if _, err = resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+		return selections, fmt.Errorf("resolve base backup chain: %w", err)
 	}
 
-	return classes, users, nil
+	selections.classes = classes
+	selections.users = users
+	selections.roles = roles
+
+	return
 }
 
 // resolveUsers expands includeUsers selectors. Empty input → nil (ordinary
@@ -742,6 +763,63 @@ func resolveUserSelectors(includeUsers, allUsers []string) ([]string, error) {
 		return nil, fmt.Errorf("no dynamic users match 'includeUsers' %v", includeUsers)
 	}
 	return users, nil
+}
+
+// resolveRoles expands includeRoles selectors. Empty input → nil (ordinary
+// backup; full RBAC snapshot is the participant's default).
+func (s *Scheduler) resolveRoles(includeRoles []string) ([]string, error) {
+	if len(includeRoles) == 0 {
+		return nil, nil
+	}
+	if s.roleLister == nil {
+		return nil, errors.New("'includeRoles' was set but RBAC is not enabled")
+	}
+	allRoles, err := s.roleLister.ListAllRoles()
+	if err != nil {
+		return nil, fmt.Errorf("list all roles: %w", err)
+	}
+	return resolveRoleSelectors(includeRoles, allRoles)
+}
+
+// resolveRoleSelectors mirrors resolveUserSelectors ('*'/'?' wildcards, dedup,
+// exact selectors must exist, non-empty list matching nothing errors) with two
+// RBAC-specific rules: an explicit built-in selector is rejected, and wildcard
+// expansion draws from custom roles only so '*'/'?' never select a built-in
+// (restore re-applies built-ins from env/code regardless).
+func resolveRoleSelectors(includeRoles, allRoles []string) ([]string, error) {
+	if dup := findDuplicate(includeRoles); dup != "" {
+		return nil, fmt.Errorf("role list 'includeRoles' contains duplicate: %s", dup)
+	}
+
+	for _, r := range includeRoles {
+		if slices.Contains(authorization.BuiltInRoles, r) {
+			return nil, fmt.Errorf("role %q in 'includeRoles' is a built-in role and cannot be backed up", r)
+		}
+	}
+
+	candidates := make([]string, 0, len(allRoles))
+	for _, r := range allRoles {
+		if slices.Contains(authorization.BuiltInRoles, r) {
+			continue
+		}
+		candidates = append(candidates, r)
+	}
+
+	roles := expandWildcards(includeRoles, candidates)
+
+	known := make(map[string]struct{}, len(candidates))
+	for _, r := range candidates {
+		known[r] = struct{}{}
+	}
+	for _, r := range roles {
+		if _, ok := known[r]; !ok {
+			return nil, fmt.Errorf("role %q in 'includeRoles' does not exist", r)
+		}
+	}
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("no roles match 'includeRoles' %v", includeRoles)
+	}
+	return roles, nil
 }
 
 func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, req *BackupRequest) error {

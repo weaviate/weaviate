@@ -31,7 +31,7 @@ func newTestManager(t *testing.T) *Manager {
 	policyPath := filepath.Join(t.TempDir(), "policy.csv")
 	authZ, err := rbac.New(policyPath, rbacconf.Config{Enabled: true}, config.Authentication{}, true, logrus.New())
 	require.NoError(t, err)
-	return NewManager(authZ, config.Authentication{}, nil, logrus.New())
+	return NewManager(authZ, config.Authentication{}, logrus.New())
 }
 
 func applyCreateRole(m *Manager, name string) error {

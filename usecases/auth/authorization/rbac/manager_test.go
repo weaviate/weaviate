@@ -12,6 +12,7 @@
 package rbac
 
 import (
+	"bytes"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -130,6 +131,136 @@ func TestSnapshotAndRestore(t *testing.T) {
 			assert.ElementsMatch(t, addedGroupingPolicies, restoredAddedGroupingPolicies)
 		})
 	}
+}
+
+// TestSnapshotRolesFilter pins the variadic Snapshot(roles...) filter: a
+// zero-arg call is the byte-identical full snapshot; a named set selects p-rows
+// by p[0] and g-rows (assignments plus the db:wv_internal_empty placeholder) by
+// g[1]; an unknown role fails loud rather than shipping a partial blob; and a
+// subset blob round-trips through Restore to exactly the selected roles.
+func TestSnapshotRolesFilter(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	// seed builds a manager with two fully-populated custom roles and one role
+	// that exists only through its placeholder g-row (no permissions).
+	seed := func(t *testing.T) *Manager {
+		m, err := setupTestManager(t, logger)
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("customAdmin"), "*", authorization.READ, authorization.SchemaDomain)
+		require.NoError(t, err)
+		_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("customAdmin"))
+		require.NoError(t, err)
+		_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("editor"), "collections/*", authorization.UPDATE, authorization.SchemaDomain)
+		require.NoError(t, err)
+		_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("editor"))
+		require.NoError(t, err)
+		_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), conv.PrefixRoleName("emptyRole"))
+		require.NoError(t, err)
+		return m
+	}
+
+	roleP := func(t *testing.T, m *Manager, role string) [][]string {
+		p, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role))
+		require.NoError(t, err)
+		return p
+	}
+	roleG := func(t *testing.T, m *Manager, role string) [][]string {
+		g, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
+		require.NoError(t, err)
+		return g
+	}
+
+	t.Run("zero args is the byte-identical full snapshot", func(t *testing.T) {
+		m := seed(t)
+		got, err := m.Snapshot()
+		require.NoError(t, err)
+
+		// Reference: the canonical full-snapshot encoding straight from casbin.
+		// Rerouting the empty-filter path through the per-role filter (which
+		// reorders/regroups rows) would diverge from this byte-for-byte.
+		p, err := m.casbin.GetPolicy()
+		require.NoError(t, err)
+		g, err := m.casbin.GetGroupingPolicy()
+		require.NoError(t, err)
+		var buf bytes.Buffer
+		require.NoError(t, json.NewEncoder(&buf).Encode(snapshot{Policy: p, GroupingPolicy: g, Version: SnapshotVersionLatest}))
+		assert.Equal(t, buf.Bytes(), got)
+	})
+
+	t.Run("single role selects only its own p-rows and g-rows", func(t *testing.T) {
+		m := seed(t)
+		blob, err := m.Snapshot("customAdmin")
+		require.NoError(t, err)
+
+		var snap snapshot
+		require.NoError(t, json.Unmarshal(blob, &snap))
+		assert.ElementsMatch(t, roleP(t, m, "customAdmin"), snap.Policy)
+		assert.ElementsMatch(t, roleG(t, m, "customAdmin"), snap.GroupingPolicy)
+		for _, p := range snap.Policy {
+			assert.NotEqual(t, conv.PrefixRoleName("editor"), p[0])
+		}
+	})
+
+	t.Run("empty role is selected via its placeholder g-row", func(t *testing.T) {
+		m := seed(t)
+		blob, err := m.Snapshot("emptyRole")
+		require.NoError(t, err)
+
+		var snap snapshot
+		require.NoError(t, json.Unmarshal(blob, &snap))
+		assert.Empty(t, snap.Policy)
+		require.Len(t, snap.GroupingPolicy, 1)
+		assert.Equal(t, conv.PrefixRoleName("emptyRole"), snap.GroupingPolicy[0][1])
+	})
+
+	t.Run("multiple roles accumulate both p-rows and g-rows", func(t *testing.T) {
+		m := seed(t)
+		blob, err := m.Snapshot("customAdmin", "editor")
+		require.NoError(t, err)
+
+		var snap snapshot
+		require.NoError(t, json.Unmarshal(blob, &snap))
+		want := append(append([][]string{}, roleP(t, m, "customAdmin")...), roleP(t, m, "editor")...)
+		assert.ElementsMatch(t, want, snap.Policy)
+	})
+
+	t.Run("unknown role fails rather than shipping a partial blob", func(t *testing.T) {
+		m := seed(t)
+		_, err := m.Snapshot("ghost")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found in snapshot source")
+	})
+
+	t.Run("subset blob restores exactly the selected roles", func(t *testing.T) {
+		src := seed(t)
+		blob, err := src.Snapshot("customAdmin", "emptyRole")
+		require.NoError(t, err)
+
+		dst, err := setupTestManager(t, logger)
+		require.NoError(t, err)
+		require.NoError(t, dst.Restore(blob))
+
+		assert.NotEmpty(t, roleP(t, dst, "customAdmin"))
+		assert.NotEmpty(t, roleG(t, dst, "customAdmin"))
+		assert.NotEmpty(t, roleG(t, dst, "emptyRole")) // placeholder survived
+		// The unselected role must be absent after restoring a subset.
+		assert.Empty(t, roleP(t, dst, "editor"))
+		assert.Empty(t, roleG(t, dst, "editor"))
+	})
+
+	t.Run("full snapshot restore is unregressed", func(t *testing.T) {
+		src := seed(t)
+		blob, err := src.Snapshot()
+		require.NoError(t, err)
+
+		dst, err := setupTestManager(t, logger)
+		require.NoError(t, err)
+		require.NoError(t, dst.Restore(blob))
+
+		assert.NotEmpty(t, roleP(t, dst, "customAdmin"))
+		assert.NotEmpty(t, roleP(t, dst, "editor"))
+		assert.NotEmpty(t, roleG(t, dst, "emptyRole"))
+	})
 }
 
 // getPolicyDelta returns the policies that are in b but not in a

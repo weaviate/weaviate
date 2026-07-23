@@ -1232,6 +1232,7 @@ func TestSchedulerList(t *testing.T) {
 type fakeScheduler struct {
 	selector     fakeSelector
 	userLister   fakeUserLister
+	roleLister   fakeRoleLister
 	client       fakeClient
 	schema       fakeSchemaManger
 	backend      *fakeBackend
@@ -1247,6 +1248,14 @@ type fakeUserLister struct {
 }
 
 func (f *fakeUserLister) ListAllUsers() []string { return f.users }
+
+// fakeRoleLister is a static RoleLister for scheduler tests.
+type fakeRoleLister struct {
+	roles []string
+	err   error
+}
+
+func (f *fakeRoleLister) ListAllRoles() ([]string, error) { return f.roles, f.err }
 
 func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 	fc := fakeScheduler{}
@@ -1265,7 +1274,7 @@ func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 
 func (f *fakeScheduler) scheduler() *Scheduler {
 	provider := &fakeBackupBackendProvider{f.backend, f.backendErr}
-	c := NewScheduler(f.auth, &f.client, &f.selector, &f.userLister, provider,
+	c := NewScheduler(f.auth, &f.client, &f.selector, &f.userLister, &f.roleLister, provider,
 		f.nodeResolver, &f.schema, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
@@ -1717,6 +1726,126 @@ func TestResolveUsers(t *testing.T) {
 	})
 }
 
+func TestResolveRoleSelectors(t *testing.T) {
+	t.Parallel()
+
+	// allRoles is what ListAllRoles returns: custom roles plus every built-in.
+	// The built-ins must never surface, whether selected explicitly or by a
+	// wildcard (restore re-applies them from env/code).
+	allRoles := []string{
+		"ns1:reader", "ns1:writer", "ns2:auditor", "dave",
+		authorization.Viewer, authorization.Admin, authorization.Root, authorization.ReadOnly,
+	}
+
+	tests := []struct {
+		name        string
+		include     []string
+		want        []string
+		wantErrPart string
+	}{
+		{
+			name:    "exact match",
+			include: []string{"ns1:reader"},
+			want:    []string{"ns1:reader"},
+		},
+		{
+			name:    "namespace wildcard",
+			include: []string{"ns1:*"},
+			want:    []string{"ns1:reader", "ns1:writer"},
+		},
+		{
+			name:    "question-mark wildcard",
+			include: []string{"dav?"},
+			want:    []string{"dave"},
+		},
+		{
+			name:    "bare star matches every custom role but no built-in",
+			include: []string{"*"},
+			want:    []string{"ns1:reader", "ns1:writer", "ns2:auditor", "dave"},
+		},
+		{
+			name:    "exact selector plus wildcard, deduplicated",
+			include: []string{"ns2:auditor", "ns2:*"},
+			want:    []string{"ns2:auditor"},
+		},
+		{
+			name:        "duplicate selector",
+			include:     []string{"ns1:*", "ns1:*"},
+			wantErrPart: "duplicate",
+		},
+		{
+			name:        "exact selector for a missing role",
+			include:     []string{"ns1:ghost"},
+			wantErrPart: `role "ns1:ghost" in 'includeRoles' does not exist`,
+		},
+		{
+			name:        "wildcard matches nothing",
+			include:     []string{"ns9:*"},
+			wantErrPart: "no roles match",
+		},
+		{
+			name:        "explicit built-in role rejected",
+			include:     []string{authorization.Admin},
+			wantErrPart: "built-in role",
+		},
+		{
+			name:        "explicit env-var built-in rejected",
+			include:     []string{authorization.ReadOnly},
+			wantErrPart: "built-in role",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveRoleSelectors(tt.include, allRoles)
+			if tt.wantErrPart != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrPart)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.want, got)
+		})
+	}
+}
+
+// resolveRoles wraps resolveRoleSelectors with the empty-input and RBAC-disabled
+// handling, plus surfacing a lister failure rather than shipping a partial set.
+func TestResolveRoles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("absent includeRoles yields no roles", func(t *testing.T) {
+		s := &Scheduler{} // no roleLister: must not be consulted at all
+		roles, err := s.resolveRoles(nil)
+		require.NoError(t, err)
+		assert.Empty(t, roles)
+	})
+
+	t.Run("includeRoles without a role lister is rejected", func(t *testing.T) {
+		s := &Scheduler{} // roleLister nil => RBAC disabled
+		roles, err := s.resolveRoles([]string{"ns1:*"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "RBAC is not enabled")
+		assert.Nil(t, roles)
+	})
+
+	t.Run("resolves against the role lister", func(t *testing.T) {
+		s := &Scheduler{roleLister: &fakeRoleLister{roles: []string{"ns1:reader", "ns2:writer"}}}
+		roles, err := s.resolveRoles([]string{"ns1:*"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"ns1:reader"}, roles)
+	})
+
+	t.Run("a lister failure fails the resolve", func(t *testing.T) {
+		s := &Scheduler{roleLister: &fakeRoleLister{err: errors.New("boom")}}
+		roles, err := s.resolveRoles([]string{"ns1:reader"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "boom")
+		assert.Nil(t, roles)
+	})
+}
+
 // Scheduler.Backup must resolve includeUsers and surface them in the
 // create-backup response.
 func TestSchedulerCreateBackupIncludeUsers(t *testing.T) {
@@ -1847,6 +1976,75 @@ func TestSchedulerCreateBackupRecordsUsers(t *testing.T) {
 		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
 		require.Nil(t, err)
 		assert.Nil(t, fs.backend.glMeta.Users)
+	})
+}
+
+// Scheduler.Backup must resolve includeRoles and stamp them on the global
+// descriptor so participants filter the RBAC blob to that set. Ordinary backups
+// (no includeRoles) must record no roles, keeping the whole-cluster snapshot
+// default. This is the guard that resolveRoles is actually wired into the create
+// path (a broken plumbing hop would leave the filter silently ineffective).
+func TestSchedulerCreateBackupRecordsRoles(t *testing.T) {
+	t.Parallel()
+
+	var (
+		cls         = "Class-A"
+		node        = "Node-A"
+		backendName = "gcs"
+		backupID    = "1"
+		any         = mock.Anything
+		ctx         = context.Background()
+		path        = "dst/path"
+		cresp       = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		sReq        = &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
+	)
+
+	setup := func(fs *fakeScheduler, req *BackupRequest) {
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
+		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
+		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		fs.client.On("CanCommit", any, node, any).Return(cresp, nil)
+		fs.client.On("Commit", any, node, sReq).Return(nil)
+		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
+		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+		fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(marshalMeta(backup.BackupDescriptor{Status: backup.Success}), nil)
+	}
+
+	t.Run("includeRoles are resolved and recorded on the global descriptor", func(t *testing.T) {
+		req := BackupRequest{
+			ID:           backupID,
+			Include:      []string{cls},
+			Backend:      backendName,
+			IncludeRoles: []string{"ns1:*"},
+		}
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.roleLister.roles = []string{"ns1:reader", "ns1:writer", "ns2:auditor", authorization.Admin}
+		setup(fs, &req)
+
+		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+		require.Nil(t, err)
+		assert.ElementsMatch(t, []string{"ns1:reader", "ns1:writer"}, fs.backend.glMeta.Roles)
+	})
+
+	t.Run("ordinary backup records no roles", func(t *testing.T) {
+		req := BackupRequest{
+			ID:      backupID,
+			Include: []string{cls},
+			Backend: backendName,
+		}
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.roleLister.roles = []string{"ns1:reader"}
+		setup(fs, &req)
+
+		_, err := fs.scheduler().Backup(ctx, &models.Principal{}, &req)
+		require.Nil(t, err)
+		assert.Nil(t, fs.backend.glMeta.Roles)
 	})
 }
 
