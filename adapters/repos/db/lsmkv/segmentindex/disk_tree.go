@@ -202,8 +202,8 @@ func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, er
 // segment where we need access to all keys, e.g. to build a bloom filter. This
 // should not run at query time.
 //
-// The binary tree is traversed in Level-Order so keys have no meaningful
-// order. Do not use this method if an In-Order traversal is required, but only
+// Keys are returned in the tree's on-disk (serialized) order, which is not
+// sorted. Do not use this method if an In-Order traversal is required, but only
 // for use cases who don't require a specific order, such as building a
 // bloom filter.
 func (t *DiskTree) AllKeys() ([][]byte, error) {

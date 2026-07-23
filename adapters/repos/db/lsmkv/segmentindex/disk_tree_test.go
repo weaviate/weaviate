@@ -12,7 +12,11 @@
 package segmentindex
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
+	"math/rand"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -95,4 +99,82 @@ func TestDiskTreeCorruptDataNeverPanics(t *testing.T) {
 			_, _ = dTree.Seek([]byte("aaa"))
 		})
 	})
+}
+
+// BenchmarkDiskTreeGet compares warm lookup latency between the two on-disk node
+// orders the writers can produce: level order (Tree.MarshalBinaryInto) and van
+// Emde Boas (MarshalSortedKeysFromKeys, the production layout). Both blobs are
+// read through the same DiskTree, so the only difference is node placement. The
+// whole index is resident in RAM, so this isolates the CPU-cache/TLB locality
+// effect; the larger page-fault win under partial residency needs real I/O and
+// is not modelled here.
+//
+// Keys are 8-byte little-endian docIDs, matching the ever-increasing primary
+// keys of the object/vector stores, and the win grows with n as the index
+// outgrows the CPU caches.
+//
+// Run with: go test -run x -bench BenchmarkDiskTreeGet ./adapters/repos/db/lsmkv/segmentindex/
+func BenchmarkDiskTreeGet(b *testing.B) {
+	for _, n := range []int{100_000, 1_000_000, 10_000_000} {
+		keys := docIDKeys(n)
+		nodes := make(Nodes, n)
+		for i := range keys {
+			nodes[i] = Node{Key: keys[i].Key, Start: uint64(keys[i].ValueStart), End: uint64(keys[i].ValueEnd)}
+		}
+
+		levelOrder := NewBalanced(nodes)
+		var levelBuf bytes.Buffer
+		_, err := levelOrder.MarshalBinaryInto(&levelBuf)
+		require.NoError(b, err)
+
+		var vebBuf bytes.Buffer
+		_, err = MarshalSortedKeysFromKeys(&vebBuf, keys)
+		require.NoError(b, err)
+
+		// Fixed random lookup order, shared across layouts for a fair comparison.
+		// A wide probe set spreads lookups across the index so its layout, rather
+		// than a few permanently-hot pages, drives the result. Length is a power of
+		// two for the cheap index mask below.
+		rng := rand.New(rand.NewSource(int64(n)))
+		probes := make([][]byte, 65536)
+		for i := range probes {
+			probes[i] = keys[rng.Intn(n)].Key
+		}
+
+		layouts := []struct {
+			name string
+			data []byte
+		}{
+			{"level-order", levelBuf.Bytes()},
+			{"van-Emde-Boas", vebBuf.Bytes()},
+		}
+		for _, l := range layouts {
+			tree := NewDiskTree(l.data)
+			b.Run(fmt.Sprintf("n=%d/%s", n, l.name), func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					if _, err := tree.Get(probes[i&(len(probes)-1)]); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
+	}
+}
+
+// docIDKeys returns n keys shaped like the object/vector store's primary keys:
+// the little-endian uint64 of an ever-increasing docID, sorted by byte order.
+func docIDKeys(n int) []Key {
+	keys := make([]Key, n)
+	for i := 0; i < n; i++ {
+		k := make([]byte, 8)
+		binary.LittleEndian.PutUint64(k, uint64(i))
+		keys[i] = Key{Key: k}
+	}
+	slices.SortFunc(keys, func(a, b Key) int { return bytes.Compare(a.Key, b.Key) })
+	for i := range keys {
+		keys[i].ValueStart = i
+		keys[i].ValueEnd = i + 1
+	}
+	return keys
 }

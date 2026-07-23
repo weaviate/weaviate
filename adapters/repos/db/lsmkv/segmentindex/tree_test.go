@@ -13,12 +13,31 @@ package segmentindex
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
+
+// requireSameTree asserts two serialized index blobs describe the same tree:
+// identical total size and identical resolution of every key through DiskTree.
+// The van Emde Boas writer reorders nodes relative to the level-order Tree
+// serializer, so the guarantee is semantic, not byte-for-byte.
+func requireSameTree(t *testing.T, want, got []byte, keys [][]byte) {
+	t.Helper()
+	require.Equal(t, len(want), len(got), "serialized size must match")
+	wantTree := NewDiskTree(want)
+	gotTree := NewDiskTree(got)
+	for _, k := range keys {
+		wantNode, wantErr := wantTree.Get(k)
+		gotNode, gotErr := gotTree.Get(k)
+		require.NoError(t, wantErr, "key=%q", k)
+		require.NoError(t, gotErr, "key=%q", k)
+		require.Equal(t, wantNode, gotNode, "key=%q", k)
+	}
+}
 
 func TestTree(t *testing.T) {
 	type elem struct {
@@ -230,12 +249,14 @@ func TestMarshalSortedKeysFromKeys(t *testing.T) {
 		assert.Equal(t, 0, buf.Len())
 	})
 
-	t.Run("output matches tree MarshalBinary", func(t *testing.T) {
+	t.Run("equivalent to tree MarshalBinary", func(t *testing.T) {
 		// Build the same balanced tree via NewBalanced and marshal it.
-		// NewBalanced (not Insert) produces a balanced BST matching MarshalSortedKeysFromKeys.
+		// NewBalanced (not Insert) produces a balanced BST over the same keys.
 		nodes := make(Nodes, len(sortedKeys))
+		keyBytes := make([][]byte, len(sortedKeys))
 		for i, k := range sortedKeys {
 			nodes[i] = Node{Key: k.Key, Start: uint64(k.ValueStart), End: uint64(k.ValueEnd)}
+			keyBytes[i] = k.Key
 		}
 		tree := NewBalanced(nodes)
 		want, err := tree.MarshalBinary()
@@ -245,10 +266,9 @@ func TestMarshalSortedKeysFromKeys(t *testing.T) {
 		var buf bytes.Buffer
 		n, err := MarshalSortedKeysFromKeys(&buf, sortedKeys)
 		require.NoError(t, err)
-		got := buf.Bytes()
 
-		assert.Equal(t, int64(len(want)), n)
-		assert.Equal(t, want, got)
+		assert.Equal(t, int64(buf.Len()), n)
+		requireSameTree(t, want, buf.Bytes(), keyBytes)
 	})
 
 	t.Run("DiskTree can Get every key", func(t *testing.T) {
@@ -300,6 +320,39 @@ func TestMarshalSortedKeysFromKeys(t *testing.T) {
 		}
 		assert.ElementsMatch(t, expected, keys)
 	})
+}
+
+// TestMarshalSortedKeysVanEmdeBoasOrder pins the on-disk node order to the van
+// Emde Boas layout. For a full tree of height 4 (15 keys) it differs from level
+// order, so this fails if the writer regresses to level order. The expected
+// permutation is the sorted-key indices in write order, hand-derived from the
+// vEB recursion (top block {0,1,2}, then bottom subtrees under 3,4,5,6).
+func TestMarshalSortedKeysVanEmdeBoasOrder(t *testing.T) {
+	const n = 15
+	keys := make([]Key, n)
+	for i := 0; i < n; i++ {
+		keys[i] = Key{Key: []byte(fmt.Sprintf("key-%05d", i)), ValueStart: i, ValueEnd: i + 1}
+	}
+
+	var buf bytes.Buffer
+	_, err := MarshalSortedKeysFromKeys(&buf, keys)
+	require.NoError(t, err)
+
+	// AllKeys walks the blob sequentially, so it returns keys in write order.
+	got, err := NewDiskTree(buf.Bytes()).AllKeys()
+	require.NoError(t, err)
+
+	vebSortedIndices := []int{7, 3, 11, 1, 0, 2, 5, 4, 6, 9, 8, 10, 13, 12, 14}
+	want := make([][]byte, n)
+	for i, idx := range vebSortedIndices {
+		want[i] = []byte(fmt.Sprintf("key-%05d", idx))
+	}
+	assert.Equal(t, want, got)
+
+	// The root must sit at offset 0 so pointer-chasing readers start there.
+	root, err := NewDiskTree(buf.Bytes()).Get([]byte("key-00007"))
+	require.NoError(t, err)
+	assert.Equal(t, want[0], root.Key)
 }
 
 // MarshalSortedKeys must place the first key's data at the caller-provided

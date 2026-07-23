@@ -66,7 +66,7 @@ func BenchmarkIndexesWriteTo(b *testing.B) {
 }
 
 // TestMarshalSortedSecondaryFromKeys verifies that marshalSortedSecondaryFromKeys
-// produces byte-identical output to the old NewBalanced + MarshalBinaryInto path.
+// builds the same tree as the NewBalanced + MarshalBinaryInto path.
 func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 	keys := []Key{
 		{Key: []byte("aaa"), ValueStart: 0, ValueEnd: 10, SecondaryKeys: [][]byte{[]byte("zz"), []byte("mm")}},
@@ -76,9 +76,10 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 	}
 
 	for pos := 0; pos < 2; pos++ {
-		t.Run(fmt.Sprintf("pos=%d matches NewBalanced+MarshalBinaryInto", pos), func(t *testing.T) {
-			// Old path: build secondary nodes, sort, build tree, marshal.
+		t.Run(fmt.Sprintf("pos=%d equivalent to NewBalanced+MarshalBinaryInto", pos), func(t *testing.T) {
+			// Reference path: build secondary nodes, sort, build tree, marshal.
 			var secNodes Nodes
+			var secKeys [][]byte
 			for _, key := range keys {
 				if pos < len(key.SecondaryKeys) {
 					secNodes = append(secNodes, Node{
@@ -86,6 +87,7 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 						Start: uint64(key.ValueStart),
 						End:   uint64(key.ValueEnd),
 					})
+					secKeys = append(secKeys, key.SecondaryKeys[pos])
 				}
 			}
 			sort.Sort(secNodes)
@@ -100,8 +102,7 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, int64(wantBuf.Len()), n)
-			assert.Equal(t, wantBuf.Bytes(), gotBuf.Bytes(),
-				"secondary index at pos=%d must be byte-identical to tree-based serialization", pos)
+			requireSameTree(t, wantBuf.Bytes(), gotBuf.Bytes(), secKeys)
 		})
 	}
 
@@ -122,6 +123,7 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 		}
 
 		var secNodes Nodes
+		var secKeys [][]byte
 		for _, key := range partialKeys {
 			if 1 < len(key.SecondaryKeys) {
 				secNodes = append(secNodes, Node{
@@ -129,6 +131,7 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 					Start: uint64(key.ValueStart),
 					End:   uint64(key.ValueEnd),
 				})
+				secKeys = append(secKeys, key.SecondaryKeys[1])
 			}
 		}
 		sort.Sort(secNodes)
@@ -142,7 +145,7 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, int64(wantBuf.Len()), n)
-		assert.Equal(t, wantBuf.Bytes(), gotBuf.Bytes())
+		requireSameTree(t, wantBuf.Bytes(), gotBuf.Bytes(), secKeys)
 	})
 
 	t.Run("DiskTree can look up secondary keys", func(t *testing.T) {
@@ -169,15 +172,17 @@ func TestMarshalSortedKeysFromKeys_LargeN(t *testing.T) {
 		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
 			keys := make([]Key, n)
 			nodes := make(Nodes, n)
+			keyBytes := make([][]byte, n)
 			offset := 0
 			for i := 0; i < n; i++ {
 				k := []byte(fmt.Sprintf("key-%05d", i))
 				keys[i] = Key{Key: k, ValueStart: offset, ValueEnd: offset + 10}
 				nodes[i] = Node{Key: k, Start: uint64(offset), End: uint64(offset + 10)}
+				keyBytes[i] = k
 				offset += 10
 			}
 
-			// Old path.
+			// Reference path.
 			sort.Sort(nodes)
 			tree := NewBalanced(nodes)
 			var wantBuf bytes.Buffer
@@ -190,8 +195,7 @@ func TestMarshalSortedKeysFromKeys_LargeN(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, int64(wantBuf.Len()), gotN)
-			assert.Equal(t, wantBuf.Bytes(), gotBuf.Bytes(),
-				"n=%d: output must be byte-identical", n)
+			requireSameTree(t, wantBuf.Bytes(), gotBuf.Bytes(), keyBytes)
 
 			// Verify round-trip through DiskTree.
 			dTree := NewDiskTree(gotBuf.Bytes())
