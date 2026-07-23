@@ -217,6 +217,34 @@ func TestStorage_InitialStateRoundTrip(t *testing.T) {
 	assert.Equal(t, csWant.Learners, cs.Learners)
 }
 
+// TestStorage_InitialStateConfStateFromSnapshot pins the restart-after-
+// compaction membership source: with no explicitly-persisted ConfState
+// record (the Store never writes one), InitialState must fall back to the
+// last snapshot's ConfState — etcd MemoryStorage semantics. Without the
+// fallback, a group restarting from a compacted log (its bootstrap
+// conf-change entries truncated away) has no voters and can never elect a
+// leader again.
+func TestStorage_InitialStateConfStateFromSnapshot(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	require.NoError(t, s.Append(ctx, GroupWrite{
+		GroupID:   1,
+		HardState: &raftpb.HardState{Term: 5, Commit: 20},
+		Snapshot: &raftpb.Snapshot{
+			Metadata: raftpb.SnapshotMetadata{
+				Index:     20,
+				Term:      5,
+				ConfState: raftpb.ConfState{Voters: []uint64{1, 2, 3}},
+			},
+		},
+	}))
+
+	_, cs, err := s.Storage(1).InitialState()
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{1, 2, 3}, cs.Voters)
+}
+
 func TestStorage_SnapshotRoundTrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

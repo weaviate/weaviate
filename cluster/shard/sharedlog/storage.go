@@ -35,6 +35,7 @@ type groupStorage struct {
 func (g *groupStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
 	var hs raftpb.HardState
 	var cs raftpb.ConfState
+	var haveCS bool
 	err := g.store.db.View(func(tx *bbolt.Tx) error {
 		key := encodeGroupKey(g.groupID)
 		if v := tx.Bucket([]byte(bucketState)).Get(key); v != nil {
@@ -46,11 +47,25 @@ func (g *groupStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error
 			if e := cs.Unmarshal(v); e != nil {
 				return fmt.Errorf("unmarshal confstate: %w", e)
 			}
+			haveCS = true
 		}
 		return nil
 	})
 	if err != nil {
 		return raftpb.HardState{}, raftpb.ConfState{}, fmt.Errorf("sharedlog: InitialState: %w", err)
+	}
+	if !haveCS {
+		// Mirror etcd MemoryStorage semantics: with no explicitly-persisted
+		// ConfState record (the Store never writes one), the membership as of
+		// the last persisted snapshot is authoritative. Without this fallback
+		// a group restarting from a compacted log — the bootstrap conf-change
+		// entries truncated away — comes back with zero voters and can never
+		// elect a leader again.
+		snap, err := g.Snapshot()
+		if err != nil {
+			return raftpb.HardState{}, raftpb.ConfState{}, err
+		}
+		cs = snap.Metadata.ConfState
 	}
 	return hs, cs, nil
 }

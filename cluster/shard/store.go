@@ -53,6 +53,24 @@ const (
 	defaultMaxSizePerMsg   = 2 * 1024 * 1024
 	defaultMaxInflightMsgs = 256
 
+	// defaultMaxUncommittedEntriesSize bounds the leader-side uncommitted raft
+	// log. Beyond it Propose returns raft.ErrProposalDropped, surfaced to
+	// Apply as the retryable ErrProposalBackpressure. Without a bound, an
+	// import against a slow quorum grows the in-memory uncommitted tail
+	// without limit.
+	defaultMaxUncommittedEntriesSize = 32 * 1024 * 1024
+
+	// applyQueueDepth bounds the Ready-loop→apply-worker handoff. Each queued
+	// item holds at most one Ready's committed batch, itself capped by
+	// MaxCommittedSizePerReady (defaulted by etcd/raft to MaxSizePerMsg, 2MB
+	// here), so a saturated queue pins at most applyQueueDepth × 2MB ≈ 8MB
+	// per busy group. When the queue is full the loop blocks in enqueueApply
+	// — still ticking, stepping inbound messages, and serving worker
+	// round-trips — which transitively throttles upstream (MsgApp acks and
+	// proposal drains stall) instead of buffering unboundedly or dropping
+	// committed entries.
+	applyQueueDepth = 4
+
 	// proposeChanSize / incomingMsgChanSize buffer the Ready loop's inbound
 	// channels. raft tolerates message loss, so overflow simply drops.
 	proposeChanSize     = 64
@@ -82,6 +100,13 @@ var (
 	// ErrLeaderElectionTimeout is returned when the store cannot observe a
 	// leader before the caller's context deadline expires.
 	ErrLeaderElectionTimeout = errors.New("timed out waiting for shard raft leader election")
+
+	// ErrProposalBackpressure is returned to Apply when raft drops a proposal
+	// on a node that IS the leader (uncommitted log over
+	// MaxUncommittedEntriesSize, or a leadership transfer in progress).
+	// Retryable at this same node — unlike ErrNotLeader it must NOT reroute
+	// the caller to another node.
+	ErrProposalBackpressure = errors.New("shard raft: proposal dropped due to backpressure")
 )
 
 // ShardRaftState is this node's role in a shard's RAFT cluster. It replaces the
@@ -173,6 +198,24 @@ type proposal struct {
 	data  []byte
 }
 
+// applyItem is one unit of ordered work handed from the Ready loop to the
+// apply worker: either a committed-entry batch or a snapshot to install.
+// Exactly one field is set.
+type applyItem struct {
+	entries []raftpb.Entry
+	snap    *raftpb.Snapshot
+}
+
+// workerReq is a worker→loop round-trip for state only the Ready loop may
+// touch (the RawNode, and the confState / lastSnapshotIndex / compaction
+// bookkeeping). Exactly one of cc / snap is set. The loop closes done once
+// the request has been served.
+type workerReq struct {
+	cc   raftpb.ConfChangeI
+	snap *raftpb.Snapshot
+	done chan struct{}
+}
+
 // Store manages a RAFT cluster for a single physical shard. Each shard has its
 // own etcd/raft group; membership equals the shard's replica nodes
 // (Physical.BelongsToNodes). The public API is library-agnostic.
@@ -202,6 +245,20 @@ type Store struct {
 	loopCtx       context.Context
 	loopCancel    context.CancelFunc
 	loopDone      chan struct{}
+
+	// applyCh hands committed work from the Ready loop to the apply worker in
+	// strict log order; workerReqCh carries worker→loop round-trips
+	// (ApplyConfChange, snapshot bookkeeping); workerDone closes when the
+	// worker has exited. See applyWorker.
+	applyCh     chan applyItem
+	workerReqCh chan workerReq
+	workerDone  chan struct{}
+
+	// ticker / lastTick drive wall-clock tick replay and are Ready-loop-local;
+	// electionTicks (the replay cap) is set once by raftConfig during Start.
+	ticker        *time.Ticker
+	lastTick      time.Time
+	electionTicks int
 
 	// confState / lastSnapshotIndex / snapshotPending are Ready-loop-local.
 	confState         raftpb.ConfState
@@ -368,23 +425,30 @@ func (s *Store) Start(ctx context.Context) error {
 	s.incomingMsgCh = make(chan raftpb.Message, incomingMsgChanSize)
 	s.readIndexCh = make(chan []byte, readIndexChanSize)
 	s.snapResultCh = make(chan SnapshotResult, 1)
+	s.applyCh = make(chan applyItem, applyQueueDepth)
+	s.workerReqCh = make(chan workerReq)
+	s.workerDone = make(chan struct{})
 	s.loopCtx, s.loopCancel = context.WithCancel(context.Background())
 	s.loopDone = make(chan struct{})
 
 	enterrors.GoWrapper(s.run, s.log)
+	enterrors.GoWrapper(s.applyWorker, s.log)
 
 	s.started = true
 	s.log.Info("shard RAFT store started")
 	return nil
 }
 
-// raftConfig builds the etcd/raft configuration for this group.
+// raftConfig builds the etcd/raft configuration for this group. As a side
+// effect it records electionTicks, the cap replayTicks uses so a long loop
+// stall replays at most one election timeout's worth of ticks.
 func (s *Store) raftConfig(localID uint64) *raft.Config {
 	hb := ticksFromDuration(s.config.HeartbeatTimeout, s.tickInterval, defaultHeartbeatTicks)
 	el := ticksFromDuration(s.config.ElectionTimeout, s.tickInterval, defaultElectionTicks)
 	if el <= hb {
 		el = hb + 1
 	}
+	s.electionTicks = el
 
 	var applied uint64
 	if snap, err := s.raftStorage.Snapshot(); err == nil {
@@ -399,8 +463,14 @@ func (s *Store) raftConfig(localID uint64) *raft.Config {
 		Applied:         applied,
 		MaxSizePerMsg:   defaultMaxSizePerMsg,
 		MaxInflightMsgs: defaultMaxInflightMsgs,
-		CheckQuorum:     true,
-		PreVote:         true,
+		// Bounds the leader's in-memory uncommitted tail; overflow surfaces
+		// as ErrProposalBackpressure from Apply. MaxCommittedSizePerReady is
+		// left at its default (= MaxSizePerMsg): with the apply worker
+		// Advancing early, committed-batch pacing is enforced by the bounded
+		// applyCh handoff, not by the library.
+		MaxUncommittedEntriesSize: defaultMaxUncommittedEntriesSize,
+		CheckQuorum:               true,
+		PreVote:                   true,
 		// ReadOnlySafe (etcd's zero-value default) confirms each ReadIndex via
 		// a quorum heartbeat round — what VerifyLeader relies on for active
 		// linearizable-read leadership confirmation.
@@ -433,23 +503,29 @@ func ticksFromDuration(d, tick time.Duration, def int) int {
 	return n
 }
 
-// run is the Ready loop: the single goroutine that owns the RawNode. It ticks,
-// drains Ready(), persists, transmits, applies committed entries, and Advances.
+// run is the Ready loop: the single goroutine that owns the RawNode. It
+// ticks, steps inbound messages, drains Ready(), persists, transmits, and
+// Advances. Committed entries and snapshot installs are handed to the apply
+// worker (applyWorker) in strict log order rather than applied inline, so FSM
+// latency can never starve tick generation or inbound message stepping —
+// heartbeats, elections, and CheckQuorum stay wall-clock accurate under
+// apply load.
 func (s *Store) run() {
 	defer close(s.loopDone)
 
-	ticker := time.NewTicker(s.tickInterval)
-	defer ticker.Stop()
+	s.ticker = time.NewTicker(s.tickInterval)
+	defer s.ticker.Stop()
+	s.lastTick = time.Now()
 
 	for {
 		select {
 		case <-s.loopCtx.Done():
 			return
-		case <-ticker.C:
-			s.rawNode.Tick()
+		case <-s.ticker.C:
+			s.replayTicks()
 		case m := <-s.incomingMsgCh:
 			if err := s.rawNode.Step(m); err != nil {
-				s.log.WithError(err).Debug("raft step")
+				s.log.Debugf("raft step: %v", err)
 			}
 		case p := <-s.proposeCh:
 			s.handlePropose(p)
@@ -457,6 +533,8 @@ func (s *Store) run() {
 			s.handleReadIndex(rctx)
 		case r := <-s.snapResultCh:
 			s.onSnapshotResult(r)
+		case req := <-s.workerReqCh:
+			s.serveWorkerReq(req)
 		}
 
 		for s.rawNode.HasReady() {
@@ -465,9 +543,52 @@ func (s *Store) run() {
 	}
 }
 
-// processReady drains one Ready: persist durably, install snapshots, send
-// messages, apply committed entries, track leadership, Advance, then maybe
-// trigger a new snapshot.
+// missedTicks converts the wall time elapsed since last into whole tick
+// intervals, capping the backlog at maxTicks so a very long stall replays at
+// most one election timeout's worth of ticks — enough to trigger the correct
+// timer transitions without a step-down storm. It returns the tick count and
+// the new last-tick watermark; when capped, the watermark jumps to now,
+// deliberately dropping the excess backlog.
+func missedTicks(last, now time.Time, interval time.Duration, maxTicks int) (int, time.Time) {
+	if interval <= 0 {
+		return 0, now
+	}
+	n := int(now.Sub(last) / interval)
+	if n <= 0 {
+		return 0, last
+	}
+	if n > maxTicks {
+		return maxTicks, now
+	}
+	return n, last.Add(time.Duration(n) * interval)
+}
+
+// replayTicks advances the raft logical clock by every tick interval that has
+// elapsed on the wall clock. The ticker channel has capacity 1, so a slow
+// loop iteration (bbolt fsync, TCP sends, a full apply queue) silently drops
+// tick events; without replay, heartbeat generation and the CheckQuorum /
+// election timers dilate with load — the ~10x collapse seen in production.
+// Replaying against the wall clock means an overloaded leader that has truly
+// lost quorum steps down at the CORRECT time, and a stalled follower
+// campaigns on time, instead of both acting late.
+func (s *Store) replayTicks() {
+	n, last := missedTicks(s.lastTick, time.Now(), s.tickInterval, s.electionTicks)
+	s.lastTick = last
+	for i := 0; i < n; i++ {
+		s.rawNode.Tick()
+	}
+}
+
+// processReady drains one Ready: persist durably, transmit, hand committed
+// work to the apply worker, track leadership, Advance, then maybe trigger a
+// new snapshot.
+//
+// Advance is deliberately called before the worker has applied the handed-off
+// work — the etcd/raft-sanctioned optimization for asynchronous state-machine
+// application (Node.Advance docs). Restart safety does not depend on raft's
+// internal applied index: Config.Applied is re-seeded from the last persisted
+// snapshot, and everything after it is re-delivered and re-applied
+// idempotently.
 func (s *Store) processReady() {
 	rd := s.rawNode.Ready()
 
@@ -488,9 +609,12 @@ func (s *Store) processReady() {
 		}
 	}
 
-	// 2. Install a received snapshot into the FSM.
+	// 2. Hand a received snapshot (persisted above) to the apply worker. The
+	// queue keeps raft's mandated order: the install lands after every entry
+	// batch that preceded it and before any that follow.
 	if !raft.IsEmptySnap(rd.Snapshot) {
-		s.applySnapshot(rd.Snapshot)
+		snap := rd.Snapshot
+		s.enqueueApply(applyItem{snap: &snap})
 	}
 
 	// 3. Transmit outbound messages.
@@ -498,12 +622,19 @@ func (s *Store) processReady() {
 		s.transport.Send(s.groupID, rd.Messages)
 	}
 
-	// 4. Apply committed entries to the FSM, wake pending Applies.
-	s.applyEntries(rd.CommittedEntries)
+	// 4. Hand committed entries to the apply worker; it dispatches them to
+	// the FSM and wakes pending Applies in log order.
+	if len(rd.CommittedEntries) > 0 {
+		s.enqueueApply(applyItem{entries: rd.CommittedEntries})
+	}
 
 	// 4b. Resolve linearizable-read barriers confirmed by quorum this round.
 	// ReadStates are volatile (etcd clears them on Ready accept) — consume
-	// before Advance.
+	// before Advance. NOTE: rs.Index is deliberately unused — the read
+	// protocol never serves reads at ReadState.Index; it bounds reads to the
+	// leader's FSM applied watermark (GetLastAppliedIndex), which is safe
+	// because Apply acks only after local apply. Any future consumer of
+	// rs.Index must first wait for applied >= rs.Index.
 	for _, rs := range rd.ReadStates {
 		s.wakePendingRead(rs.RequestCtx, nil)
 	}
@@ -518,26 +649,141 @@ func (s *Store) processReady() {
 	s.maybeSnapshot()
 }
 
-// applySnapshot installs a snapshot received from the leader: restore the FSM
-// from its metadata and discard the now-stale log prefix.
-func (s *Store) applySnapshot(snap raftpb.Snapshot) {
+// enqueueApply hands one item to the apply worker, preserving Ready order.
+// When the queue is full it blocks — the backpressure that bounds the apply
+// backlog without ever dropping committed entries — but keeps ticking,
+// stepping inbound messages, and serving worker round-trips, so raft liveness
+// never depends on apply speed. Stepping and ticking while a Ready is
+// accepted but not yet Advanced is legal: etcd's own Node run loop services
+// proposals, messages, conf changes, and ticks in exactly that window.
+func (s *Store) enqueueApply(item applyItem) {
+	for {
+		select {
+		case s.applyCh <- item:
+			return
+		case <-s.loopCtx.Done():
+			return
+		case <-s.ticker.C:
+			s.replayTicks()
+		case m := <-s.incomingMsgCh:
+			if err := s.rawNode.Step(m); err != nil {
+				s.log.Debugf("raft step: %v", err)
+			}
+		case req := <-s.workerReqCh:
+			s.serveWorkerReq(req)
+		}
+	}
+}
+
+// serveWorkerReq performs, on the Ready loop, the slice of an apply-worker
+// item that must touch loop-owned state: the RawNode for conf changes, and
+// confState / lastSnapshotIndex / log compaction for snapshot installs.
+// Sequencing these through the worker keeps every mutation in log order, so
+// outbound snapshot metadata can never pair a newer ConfState with an older
+// applied index.
+func (s *Store) serveWorkerReq(req workerReq) {
+	switch {
+	case req.cc != nil:
+		// NOTE: raft's internal applied index advances at Advance — before
+		// the worker reaches this entry — which weakens the library's "one
+		// unapplied conf change at a time" proposal gate and can defer an
+		// AutoLeave joint-config transition to the next applied batch.
+		// Neither matters today (conf changes only originate from Bootstrap),
+		// but a future joint-consensus membership implementation must revisit
+		// this ordering.
+		if cs := s.rawNode.ApplyConfChange(req.cc); cs != nil {
+			s.confState = *cs
+		}
+	case req.snap != nil:
+		s.confState = req.snap.Metadata.ConfState
+		if err := s.sharedLog.Compact(s.groupID, req.snap.Metadata.Index+1); err != nil {
+			s.log.Warnf("compact log after snapshot install: %v", err)
+		}
+		s.lastSnapshotIndex = req.snap.Metadata.Index
+	}
+	close(req.done)
+}
+
+// applyWorker is the per-Store goroutine that applies committed work handed
+// off by the Ready loop. It preserves the FSM's single-threaded, log-order
+// dispatch contract: items arrive in Ready order and are processed one at a
+// time. RawNode state is never touched here — conf changes and snapshot
+// bookkeeping round-trip to the loop via workerReqCh.
+//
+// On Stop the worker abandons whatever is still queued — committed-but-
+// unapplied entries are re-delivered from the last persisted snapshot on
+// restart and re-applied idempotently (the LSM write path is WAL-backed and
+// last-write-wins) — and finishes only the item already in flight, keeping
+// Stop bounded.
+func (s *Store) applyWorker() {
+	defer close(s.workerDone)
+	for {
+		// Deterministic abandon: once shutdown begins, exit before taking
+		// another item even if the queue is non-empty.
+		if s.loopCtx.Err() != nil {
+			return
+		}
+		select {
+		case <-s.loopCtx.Done():
+			return
+		case item, ok := <-s.applyCh:
+			if !ok {
+				return
+			}
+			if item.snap != nil {
+				if !s.installSnapshot(*item.snap) {
+					return
+				}
+				continue
+			}
+			if !s.applyEntries(item.entries) {
+				return
+			}
+		}
+	}
+}
+
+// roundTrip sends one request to the Ready loop and waits for it to be
+// served. It returns false when the store is shutting down (the loop may
+// already be gone); the caller abandons the current item — it is re-delivered
+// on restart.
+func (s *Store) roundTrip(req workerReq) bool {
+	select {
+	case s.workerReqCh <- req:
+	case <-s.loopCtx.Done():
+		return false
+	}
+	select {
+	case <-req.done:
+		return true
+	case <-s.loopCtx.Done():
+		return false
+	}
+}
+
+// installSnapshot installs a snapshot received from the leader: restore the
+// FSM from its metadata — which may trigger a slow out-of-band state
+// transfer, safe here on the apply worker where it cannot stall the Ready
+// loop — then round-trip to the loop to record ConfState / lastSnapshotIndex
+// and discard the now-stale log prefix. Returns false when the store shuts
+// down mid-install.
+func (s *Store) installSnapshot(snap raftpb.Snapshot) bool {
 	if len(snap.Data) > 0 {
 		var meta shardSnapshotData
 		if err := json.Unmarshal(snap.Data, &meta); err != nil {
-			s.log.WithError(err).Error("decode snapshot data")
+			s.log.Errorf("decode snapshot data: %v", err)
 		} else if err := s.fsm.RestoreFromSnapshot(meta); err != nil {
-			s.log.WithError(err).Error("restore from snapshot")
+			s.log.Errorf("restore from snapshot: %v", err)
 		}
 	}
-	s.confState = snap.Metadata.ConfState
-	if err := s.sharedLog.Compact(s.groupID, snap.Metadata.Index+1); err != nil {
-		s.log.WithError(err).Warn("compact log after snapshot install")
-	}
-	s.lastSnapshotIndex = snap.Metadata.Index
+	return s.roundTrip(workerReq{snap: &snap, done: make(chan struct{})})
 }
 
-// applyEntries dispatches committed entries to the FSM and wakes pending Applies.
-func (s *Store) applyEntries(entries []raftpb.Entry) {
+// applyEntries dispatches committed entries to the FSM and wakes pending
+// Applies. It runs on the apply worker; conf-change entries round-trip to the
+// Ready loop, which owns the RawNode. Returns false when the store shuts down
+// mid-batch.
+func (s *Store) applyEntries(entries []raftpb.Entry) bool {
 	for i := range entries {
 		ent := entries[i]
 		switch ent.Type {
@@ -558,23 +804,24 @@ func (s *Store) applyEntries(entries []raftpb.Entry) {
 		case raftpb.EntryConfChange:
 			var cc raftpb.ConfChange
 			if err := cc.Unmarshal(ent.Data); err != nil {
-				s.log.WithError(err).Error("unmarshal conf change")
-			} else if cs := s.rawNode.ApplyConfChange(cc); cs != nil {
-				s.confState = *cs
+				s.log.Errorf("unmarshal conf change: %v", err)
+			} else if !s.roundTrip(workerReq{cc: cc, done: make(chan struct{})}) {
+				return false
 			}
 			s.fsm.setApplied(ent.Index)
 		case raftpb.EntryConfChangeV2:
 			var cc raftpb.ConfChangeV2
 			if err := cc.Unmarshal(ent.Data); err != nil {
-				s.log.WithError(err).Error("unmarshal conf change v2")
-			} else if cs := s.rawNode.ApplyConfChange(cc); cs != nil {
-				s.confState = *cs
+				s.log.Errorf("unmarshal conf change v2: %v", err)
+			} else if !s.roundTrip(workerReq{cc: cc, done: make(chan struct{})}) {
+				return false
 			}
 			s.fsm.setApplied(ent.Index)
 		default:
 			s.fsm.setApplied(ent.Index)
 		}
 	}
+	return true
 }
 
 // handleSoftState records a leadership change and wakes waiters; on losing
@@ -608,6 +855,14 @@ func (s *Store) handlePropose(p proposal) {
 		return
 	}
 	if err := s.rawNode.Propose(p.data); err != nil {
+		// On a node that IS the leader, a dropped proposal is backpressure
+		// (uncommitted log over MaxUncommittedEntriesSize, or a leadership
+		// transfer in progress) — retryable here, not a cue to reroute the
+		// caller to another node.
+		if errors.Is(err, raft.ErrProposalDropped) {
+			s.wakePending(p.reqID, applyResult{err: ErrProposalBackpressure})
+			return
+		}
 		s.wakePending(p.reqID, applyResult{err: ErrNotLeader})
 	}
 }
@@ -797,6 +1052,8 @@ func (s *Store) Stop() error {
 	s.closed = true
 	loopCancel := s.loopCancel
 	loopDone := s.loopDone
+	applyCh := s.applyCh
+	workerDone := s.workerDone
 	s.mu.Unlock()
 
 	s.log.Info("stopping shard RAFT store")
@@ -804,8 +1061,16 @@ func (s *Store) Stop() error {
 	loopCancel()
 	<-loopDone
 
+	// The loop has exited (it is the sole applyCh sender), so closing the
+	// queue is safe. The worker abandons anything still queued — committed
+	// entries re-deliver on restart — finishes only its in-flight item, and
+	// exits. Waiting for workerDone before returning upholds the teardown
+	// contract: after Stop, nothing touches the shard or the shared log.
+	close(applyCh)
+	<-workerDone
+
 	// Fail any Apply / VerifyLeader still waiting on a result the (now
-	// stopped) loop will never deliver.
+	// stopped) loop and worker will never deliver.
 	s.drainPending(ErrAlreadyClosed)
 	s.drainPendingReads(ErrAlreadyClosed)
 
@@ -818,7 +1083,13 @@ func (s *Store) Stop() error {
 }
 
 // Apply applies a command to the RAFT cluster. It blocks until the command is
-// committed and applied locally, or the context is cancelled.
+// committed and applied to the LOCAL FSM, or the context is cancelled.
+//
+// The block-until-applied contract is load-bearing for linearizable reads:
+// the read path bounds reads to the leader's applied watermark
+// (GetLastAppliedIndex), which covers every acknowledged write only because
+// no Apply acks before its entry is locally applied. Do not relax this to
+// return at commit.
 func (s *Store) Apply(ctx context.Context, req *shardproto.ApplyRequest) (uint64, error) {
 	s.mu.RLock()
 	started, closed := s.started, s.closed

@@ -102,10 +102,11 @@ type StateTransferer interface {
 	TransferState(ctx context.Context, className, shardName string) error
 }
 
-// FSM is the per-shard command dispatcher. The Store's Ready loop hands it
-// committed RAFT log entries via Dispatch; the FSM applies each command to the
+// FSM is the per-shard command dispatcher. The Store's apply worker — one
+// goroutine per Store, fed committed RAFT log entries in log order by the
+// Ready loop — hands them to Dispatch; the FSM applies each command to the
 // underlying shard. With etcd/raft the FSM is no longer a library interface —
-// it is a plain dispatcher invoked single-threaded from the Ready loop.
+// it is a plain dispatcher invoked single-threaded from the apply worker.
 type FSM struct {
 	className string
 	shardName string
@@ -171,17 +172,27 @@ func (f *FSM) SetStateTransferer(st StateTransferer) {
 }
 
 // setApplied records the last applied RAFT log index and wakes WaitForIndex
-// waiters. The Store calls it directly for entries that carry no command
-// (empty leader entries, conf changes); Dispatch calls it for command entries.
+// waiters. The Store's apply worker calls it directly for entries that carry
+// no command (empty leader entries, conf changes); Dispatch calls it for
+// command entries.
+//
+// The store and broadcast happen under indexMu: sync.Cond.Broadcast does not
+// acquire the mutex itself, so a bare broadcast could land between a waiter's
+// condition check and its wait registration (both under the lock) and be
+// lost — if it was the final broadcast, the waiter would strand until its
+// context deadline.
 func (f *FSM) setApplied(index uint64) {
+	f.indexMu.Lock()
 	f.lastAppliedIndex.Store(index)
 	f.indexCond.Broadcast()
+	f.indexMu.Unlock()
 }
 
 // Dispatch applies one committed command entry to the shard. payload is the
 // marshalled shardproto.ApplyRequest (the Store has already stripped the
 // request-ID prefix); index is the entry's RAFT log index. It must be
-// deterministic and is invoked single-threaded from the Store's Ready loop.
+// deterministic and is invoked single-threaded, in log order, from the
+// Store's apply worker.
 func (f *FSM) Dispatch(payload []byte, index uint64) Response {
 	defer f.setApplied(index)
 
@@ -521,7 +532,12 @@ func (f *FSM) WaitForIndex(ctx context.Context, targetIndex uint64) error {
 	enterrors.GoWrapper(func() {
 		select {
 		case <-ctx.Done():
+			// Broadcast under indexMu so the wakeup cannot land between the
+			// waiter's ctx check and its wait registration and be lost (the
+			// same lost-wakeup shape setApplied guards against).
+			f.indexMu.Lock()
 			f.indexCond.Broadcast()
+			f.indexMu.Unlock()
 		case <-stopWaker:
 		}
 	}, f.log)

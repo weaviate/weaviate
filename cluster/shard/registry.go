@@ -484,8 +484,10 @@ func (reg *Registry) Execute(ctx context.Context, req *shardproto.ApplyRequest) 
 		// We are the leader, let's apply
 		if store.IsLeader() {
 			schemaVersion, err = store.Apply(ctx, req)
-			// We might fail due to leader not found as we are losing or transferring leadership, retry
-			if errors.Is(err, ErrNotLeader) || errors.Is(err, ErrLeadershipLost) {
+			// Retry on leadership churn (losing/transferring leadership) and
+			// on leader-side proposal backpressure (uncommitted raft log over
+			// its bound) — both are transient at this node.
+			if errors.Is(err, ErrNotLeader) || errors.Is(err, ErrLeadershipLost) || errors.Is(err, ErrProposalBackpressure) {
 				return err
 			}
 			return backoff.Permanent(err)
