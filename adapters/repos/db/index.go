@@ -1302,11 +1302,13 @@ func (i *Index) getShardForRead(
 	return shard, release, nil
 }
 
-// withShardOrRemote runs local against shardName and releases the shard reference
-// once local returns, on every path. It runs remote instead when this node is not a
-// replica for shardName, when the replica lookup failed, or when the local shard is
-// not initialized. A forward can resolve back to this node, which is what initializes
-// a not-yet-loaded shard, so it must never be skipped based on replica membership.
+// withShardOrRemote runs local against shardName, or remote when this node has no
+// shard to use: it is not among the shard's replicas, or the shard is not loaded here
+// and this node does not load it on demand — remote can resolve back to this node,
+// which is what loads it. A failed replica lookup does not by itself select remote:
+// an inactive tenant goes remote only with AutoTenantActivation on, otherwise a shard
+// loaded here is used as is. On error neither arm runs; the reference is released on
+// every path.
 func (i *Index) withShardOrRemote(ctx context.Context, tenantName, shardName string,
 	operation localShardOperation, schemaVersion uint64,
 	local func(shard ShardLike) error, remote func() error,
