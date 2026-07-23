@@ -166,10 +166,13 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 ) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
+		if errors.As(err, &ErrInvalidUserInput{}) {
+			return nil, err
+		}
 		return nil, NewErrInternal("list objects: %v", err)
 	}
 	if after != nil {
-		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
+		return nil, NewErrInvalidUserInput("after parameter not allowed, cursor must be specific to one class, set class query param")
 	}
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
 		nil, m.getSort(sort, order), additional, tenant)
@@ -242,13 +245,25 @@ func (m *Manager) localLimitOrGlobalLimit(offset int64, paramMaxResults *int64) 
 }
 
 func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, int, error) {
+	if paramOffset != nil && *paramOffset < 0 {
+		return 0, 0, NewErrInvalidUserInput(
+			"offset must be non-negative, got %d", *paramOffset,
+		)
+	}
+	if paramLimit != nil && *paramLimit < 0 {
+		return 0, 0, NewErrInvalidUserInput(
+			"limit must be non-negative, got %d", *paramLimit,
+		)
+	}
+
 	offset := m.localOffsetOrZero(paramOffset)
 	limit := m.localLimitOrGlobalLimit(int64(offset), paramLimit)
 
 	if int64(offset+limit) > m.config.Config.QueryMaximumResults {
-		return 0, 0, fmt.Errorf(
-			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QUERY_MAXIMUM_RESULTS '%d'. If you've supplied a negative offset or limit, this may be an underflow error",
-			offset, limit, m.config.Config.QueryMaximumResults)
+		return 0, 0, NewErrInvalidUserInput(
+			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QUERY_MAXIMUM_RESULTS '%d'",
+			offset, limit, m.config.Config.QueryMaximumResults,
+		)
 	}
 
 	return offset, limit, nil
