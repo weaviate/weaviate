@@ -209,7 +209,8 @@ func (s *Shard) refCountAdd() {
 }
 
 // shardTeardownTimeout bounds the teardown that runs when the last reference is
-// released. Deliberately generous: a backstop against a stuck cycle, not a budget.
+// released. Deliberately far above any normal teardown: it only exists to stop
+// a stuck cycle from running forever.
 const shardTeardownTimeout = 2 * time.Minute
 
 func (s *Shard) refCountSub() {
