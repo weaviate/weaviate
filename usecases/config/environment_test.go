@@ -193,7 +193,7 @@ func TestEnvironmentDropVectorReconcileInterval(t *testing.T) {
 			err := FromEnv(&conf)
 
 			if tt.expectedErr {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.expected, conf.DistributedTasks.DropVectorReconcileInterval)
