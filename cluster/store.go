@@ -158,6 +158,9 @@ type Config struct {
 	// capture traces
 	SentryEnabled bool
 
+	// TelemetryEnabled reports whether telemetry is enabled on this node.
+	TelemetryEnabled bool
+
 	// EnableOneNodeRecovery enables the actually one node recovery logic to avoid it running all the time when
 	// unnecessary
 	EnableOneNodeRecovery bool
@@ -1024,7 +1027,15 @@ func (st *Store) ClusterID() string {
 
 // maybeCommitClusterID commits a fresh UUID cluster identity via raft if one
 // isn't set yet. Caller must be the raft leader.
+//
+// No-op when telemetry is disabled. This is a leader-local decision: a cluster
+// with mixed settings still gets an identity if any leader has telemetry on,
+// and an already committed id is never removed by opting out later.
 func (st *Store) maybeCommitClusterID() {
+	if !st.cfg.TelemetryEnabled {
+		return
+	}
+
 	if st.ClusterID() != "" {
 		return
 	}

@@ -1466,6 +1466,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			NodeSelector:           mocks.NewMockNodeSelector("localhost"),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
+			TelemetryEnabled:       true,
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}
