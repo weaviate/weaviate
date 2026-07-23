@@ -276,7 +276,46 @@ func Test_GetAction(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
+	t.Run("negative pagination values", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			offset   *int64
+			limit    *int64
+			expected string
+		}{
+			{
+				name:     "negative limit",
+				offset:   ptInt64(10),
+				limit:    ptInt64(-1),
+				expected: "limit must be >= 0",
+			},
+			{
+				name:     "negative offset",
+				offset:   ptInt64(-1),
+				limit:    ptInt64(10),
+				expected: "offset must be >= 0",
+			},
+		}
 
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				reset()
+
+				_, err := manager.GetObjects(
+					context.Background(),
+					&models.Principal{},
+					tc.offset,
+					tc.limit,
+					nil, nil, nil,
+					additional.Properties{},
+					"",
+				)
+
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expected)
+			})
+		}
+	})
 	t.Run("additional props", func(t *testing.T) {
 		t.Run("on get single requests", func(t *testing.T) {
 			t.Run("feature projection", func(t *testing.T) {

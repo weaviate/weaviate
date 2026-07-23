@@ -164,9 +164,10 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	offset, limit *int64, sort, order *string, after *string,
 	additional additional.Properties, tenant string,
 ) ([]*models.Object, error) {
+
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
-		return nil, NewErrInternal("list objects: %v", err)
+		return nil, NewErrInvalidUserInput("list objects: %v", err)
 	}
 	if after != nil {
 		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
@@ -231,7 +232,7 @@ func (m *Manager) localOffsetOrZero(paramOffset *int64) int {
 	return int(offset)
 }
 
-func (m *Manager) localLimitOrGlobalLimit(offset int64, paramMaxResults *int64) int {
+func (m *Manager) localLimitOrGlobalLimit(paramMaxResults *int64) int {
 	limit := int64(m.config.Config.QueryDefaults.Limit)
 	// Get the max results from params, if exists
 	if paramMaxResults != nil {
@@ -242,8 +243,17 @@ func (m *Manager) localLimitOrGlobalLimit(offset int64, paramMaxResults *int64) 
 }
 
 func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, int, error) {
+
 	offset := m.localOffsetOrZero(paramOffset)
-	limit := m.localLimitOrGlobalLimit(int64(offset), paramLimit)
+	limit := m.localLimitOrGlobalLimit(paramLimit)
+
+	if offset < 0 {
+		return 0, 0, fmt.Errorf("offset must be >= 0")
+	}
+
+	if limit < 0 {
+		return 0, 0, fmt.Errorf("limit must be >= 0")
+	}
 
 	if int64(offset+limit) > m.config.Config.QueryMaximumResults {
 		return 0, 0, fmt.Errorf(

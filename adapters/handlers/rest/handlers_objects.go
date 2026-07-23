@@ -257,6 +257,9 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		case errors.As(err, &uco.ErrEndpointGone{}):
 			return objects.NewObjectsListGone().
 				WithPayload(errPayloadFromSingleErr(principal, err))
+		case errors.As(err, &uco.ErrInvalidUserInput{}):
+			return objects.NewObjectsClassGetUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
