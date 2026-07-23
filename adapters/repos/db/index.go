@@ -3153,7 +3153,9 @@ func (i *Index) dropShards(names []string) error {
 		})
 	}
 
-	eg.Wait()
+	// the error group only carries a recovered worker panic, which would
+	// otherwise leave the shard un-dropped without failing the call
+	ec.Add(eg.Wait())
 	return ec.ToError()
 }
 
@@ -3185,7 +3187,9 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 		})
 	}
 
-	eg.Wait()
+	// the error group only carries a recovered worker panic, which would
+	// otherwise leave the shard un-dropped without failing the call
+	ec.Add(eg.Wait())
 	return ec.ToError()
 }
 

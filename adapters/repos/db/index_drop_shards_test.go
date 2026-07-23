@@ -69,14 +69,7 @@ func TestIndexDropShards(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, hook := test.NewNullLogger()
-			idx := &Index{
-				logger:           logger,
-				shards:           shardMap{},
-				backupLock:       esync.NewKeyRWLocker(),
-				shardCreateLocks: esync.NewKeyRWLocker(),
-				Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("Abc")},
-			}
+			idx, hook := newDropTestIndex(t)
 
 			shardDir := shardPath(idx.path(), shardName)
 			require.NoError(t, os.MkdirAll(shardDir, 0o755))
@@ -149,14 +142,7 @@ func TestIndexDropShardsCollectsConcurrentFailures(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
-			idx := &Index{
-				logger:           logger,
-				shards:           shardMap{},
-				backupLock:       esync.NewKeyRWLocker(),
-				shardCreateLocks: esync.NewKeyRWLocker(),
-				Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("Abc")},
-			}
+			idx, _ := newDropTestIndex(t)
 
 			names := make([]string, shardCount)
 			for i := range names {
@@ -197,14 +183,7 @@ func TestIndexDropCloudShards(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
-			idx := &Index{
-				logger:           logger,
-				shards:           shardMap{},
-				backupLock:       esync.NewKeyRWLocker(),
-				shardCreateLocks: esync.NewKeyRWLocker(),
-				Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("Abc")},
-			}
+			idx, _ := newDropTestIndex(t)
 
 			cloud := fakeOffloadCloud{deleteErrs: tt.deleteErrs}
 			err := idx.dropCloudShards(context.Background(), cloud, tt.names, "node1")
@@ -220,6 +199,101 @@ func TestIndexDropCloudShards(t *testing.T) {
 	}
 }
 
+// TestIndexDropShardsReportsWorkerPanic pins that a panicking drop worker makes
+// the call fail. The error group only logs the recovered panic, so a caller that
+// trusts the return value would otherwise treat the shard as dropped.
+func TestIndexDropShardsReportsWorkerPanic(t *testing.T) {
+	const (
+		shardName    = "shard1"
+		failingShard = "shard2"
+	)
+
+	panickingShard := func(t *testing.T) *MockShardLike {
+		shard := NewMockShardLike(t)
+		shard.EXPECT().drop(false).Run(func(bool) { panic("drop panicked") }).Return(nil).Once()
+		return shard
+	}
+	failingShardMock := func(t *testing.T) *MockShardLike {
+		shard := NewMockShardLike(t)
+		shard.EXPECT().ID().Return(failingShard).Maybe()
+		shard.EXPECT().drop(false).Return(errors.New("shard drop failed")).Once()
+		return shard
+	}
+
+	tests := []struct {
+		name            string
+		drop            func(t *testing.T, idx *Index) error
+		wantErrContains []string
+	}{
+		{
+			name: "dropShards",
+			drop: func(t *testing.T, idx *Index) error {
+				idx.shards.Store(shardName, panickingShard(t))
+				return idx.dropShards([]string{shardName})
+			},
+			wantErrContains: []string{"drop panicked"},
+		},
+		{
+			name: "dropCloudShards",
+			drop: func(t *testing.T, idx *Index) error {
+				cloud := fakeOffloadCloud{panicShard: shardName}
+				return idx.dropCloudShards(context.Background(), cloud, []string{shardName}, "node1")
+			},
+			wantErrContains: []string{"drop panicked"},
+		},
+		{
+			name: "dropShards reports the panic alongside a shard failure",
+			drop: func(t *testing.T, idx *Index) error {
+				idx.shards.Store(shardName, panickingShard(t))
+				idx.shards.Store(failingShard, failingShardMock(t))
+				return idx.dropShards([]string{shardName, failingShard})
+			},
+			wantErrContains: []string{"drop panicked", "shard drop failed"},
+		},
+		{
+			name: "dropCloudShards reports the panic alongside a delete failure",
+			drop: func(t *testing.T, idx *Index) error {
+				cloud := fakeOffloadCloud{
+					panicShard: shardName,
+					deleteErrs: map[string]error{failingShard: errors.New("cloud delete failed")},
+				}
+				return idx.dropCloudShards(context.Background(), cloud, []string{shardName, failingShard}, "node1")
+			},
+			wantErrContains: []string{"drop panicked", "cloud delete failed"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// the integration suite exports this, which would let the panic kill the test
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+			idx, _ := newDropTestIndex(t)
+			err := tt.drop(t, idx)
+
+			require.Error(t, err)
+			for _, want := range tt.wantErrContains {
+				require.Contains(t, err.Error(), want)
+			}
+		})
+	}
+}
+
+// newDropTestIndex returns an index with an empty shard map under a temp root,
+// plus the hook capturing its log output.
+func newDropTestIndex(t *testing.T) (*Index, *test.Hook) {
+	t.Helper()
+	logger, hook := test.NewNullLogger()
+	return &Index{
+		logger:           logger,
+		shards:           shardMap{},
+		closingCtx:       context.Background(),
+		backupLock:       esync.NewKeyRWLocker(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("Abc")},
+	}, hook
+}
+
 // blockRemovalIn makes dir read-only so os.RemoveAll fails for its contents.
 func blockRemovalIn(t *testing.T, dir string) {
 	t.Helper()
@@ -230,10 +304,11 @@ func blockRemovalIn(t *testing.T, dir string) {
 	t.Cleanup(func() { os.Chmod(dir, 0o755) })
 }
 
-// fakeOffloadCloud fails Delete for the shards named in deleteErrs and succeeds
-// for the rest.
+// fakeOffloadCloud fails Delete for the shards named in deleteErrs, panics for
+// panicShard, and succeeds for the rest.
 type fakeOffloadCloud struct {
 	deleteErrs map[string]error
+	panicShard string
 }
 
 func (c fakeOffloadCloud) VerifyBucket(ctx context.Context) error { return nil }
@@ -247,6 +322,9 @@ func (c fakeOffloadCloud) Download(ctx context.Context, className, shardName, no
 }
 
 func (c fakeOffloadCloud) Delete(ctx context.Context, className, shardName, nodeName string) error {
+	if shardName == c.panicShard {
+		panic("drop panicked")
+	}
 	return c.deleteErrs[shardName]
 }
 
