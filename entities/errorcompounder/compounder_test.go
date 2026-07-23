@@ -59,6 +59,44 @@ func TestErrorCompounder(t *testing.T) {
 		run(t, NewSafe())
 	})
 
+	t.Run("causes stay matchable", func(t *testing.T) {
+		run := func(t *testing.T, ec ErrorCompounder) {
+			t.Helper()
+
+			ec.Add(err1)
+			ec.AddWrapf(err2, "format%d", 2)
+			ec.AddGroups(err3, "lvl1")
+
+			err := ec.ToError()
+			assert.ErrorIs(t, err, err1)
+			assert.ErrorIs(t, err, err2)
+			assert.ErrorIs(t, err, err3)
+			assert.NotErrorIs(t, err, err4)
+		}
+
+		run(t, New())
+		run(t, NewSafe())
+	})
+
+	t.Run("a limited error only exposes the errors it reports", func(t *testing.T) {
+		run := func(t *testing.T, ec ErrorCompounder) {
+			t.Helper()
+
+			ec.Add(err1)
+			ec.Add(err2)
+			ec.Add(err3)
+
+			err := ec.ToErrorLimited(2)
+			assert.EqualError(t, err, "111, 222")
+			assert.ErrorIs(t, err, err1)
+			assert.ErrorIs(t, err, err2)
+			assert.NotErrorIs(t, err, err3)
+		}
+
+		run(t, New())
+		run(t, NewSafe())
+	})
+
 	t.Run("compound formats", func(t *testing.T) {
 		run := func(t *testing.T, ec ErrorCompounder) {
 			t.Helper()
