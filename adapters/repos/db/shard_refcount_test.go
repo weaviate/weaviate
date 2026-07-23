@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,9 +28,11 @@ import (
 
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/storobj"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -375,6 +378,159 @@ func TestShardShutdownRefusedWhileInUse(t *testing.T) {
 
 			require.Error(t, shard.performShutdown(t.Context()),
 				"shutdown must be refused while a reference is held")
+		})
+	}
+}
+
+// hnswVectorIndex returns a real hnsw index, which is what DebugResetVectorIndex
+// requires before it starts its background work.
+func hnswVectorIndex(t *testing.T) VectorIndex {
+	t.Helper()
+
+	shard, _ := testShardWithSettings(t, t.Context(), &models.Class{Class: "RefCountDebugHNSW"},
+		enthnsw.NewDefaultUserConfig(), false, false, false)
+	vidx, ok := underlyingShard(t, shard).GetVectorIndex("")
+	require.True(t, ok, "the test shard must carry a vector index")
+	return vidx
+}
+
+const debugShardName = "debug-shard"
+
+// debugBackgroundEndpoint is a debug endpoint that hands work to a background
+// goroutine.
+type debugBackgroundEndpoint struct {
+	name string
+	// expectBeforeWork registers the shard calls the endpoint makes before it
+	// takes the reference for its background work.
+	expectBeforeWork func(t *testing.T, shard *MockShardLike)
+	// expectWork registers the background work and everything the endpoint does
+	// once it holds that reference. The work closes started, blocks until finish
+	// is closed and then returns workErr.
+	expectWork func(shard *MockShardLike, started, finish chan struct{}, workErr error)
+	run        func(idx *Index) error
+}
+
+func debugBackgroundEndpoints() []debugBackgroundEndpoint {
+	return []debugBackgroundEndpoint{
+		{
+			name: "DebugResetVectorIndex",
+			expectBeforeWork: func(t *testing.T, shard *MockShardLike) {
+				shard.EXPECT().GetVectorIndex("").Return(hnswVectorIndex(t), true)
+			},
+			expectWork: func(shard *MockShardLike, started, finish chan struct{}, workErr error) {
+				shard.EXPECT().DebugResetVectorIndex(mock.Anything, "").Return(nil)
+				shard.EXPECT().FillQueue("", uint64(0)).RunAndReturn(func(string, uint64) error {
+					close(started)
+					<-finish
+					return workErr
+				})
+			},
+			run: func(idx *Index) error {
+				return idx.DebugResetVectorIndex(context.Background(), debugShardName, "")
+			},
+		},
+		{
+			name:             "DebugRepairIndex",
+			expectBeforeWork: func(t *testing.T, shard *MockShardLike) {},
+			expectWork: func(shard *MockShardLike, started, finish chan struct{}, workErr error) {
+				shard.EXPECT().RepairIndex(mock.Anything, "").RunAndReturn(func(context.Context, string) error {
+					close(started)
+					<-finish
+					return workErr
+				})
+			},
+			run: func(idx *Index) error {
+				return idx.DebugRepairIndex(context.Background(), debugShardName, "")
+			},
+		},
+		{
+			name:             "DebugRequantizeIndex",
+			expectBeforeWork: func(t *testing.T, shard *MockShardLike) {},
+			expectWork: func(shard *MockShardLike, started, finish chan struct{}, workErr error) {
+				shard.EXPECT().RequantizeIndex(mock.Anything, "").RunAndReturn(func(context.Context, string) error {
+					close(started)
+					<-finish
+					return workErr
+				})
+			},
+			run: func(idx *Index) error {
+				return idx.DebugRequantizeIndex(context.Background(), debugShardName, "")
+			},
+		},
+	}
+}
+
+// TestDebugEndpointsHoldShardWhileBackgroundWorkRuns asserts that the debug
+// endpoints handing work to a background goroutine keep the shard referenced
+// until that work returns, whether it succeeds or fails. Releasing on return
+// lets the shard shut down while the work is still using it.
+func TestDebugEndpointsHoldShardWhileBackgroundWorkRuns(t *testing.T) {
+	workResults := []struct {
+		name    string
+		workErr error
+	}{
+		{name: "work succeeds"},
+		{name: "work fails", workErr: errors.New("background work failed")},
+	}
+
+	for _, endpoint := range debugBackgroundEndpoints() {
+		for _, result := range workResults {
+			t.Run(endpoint.name+"/"+result.name, func(t *testing.T) {
+				idx := newDescriptorTestIndex(t, t.TempDir(), "RefCountDebug", singleShardState())
+
+				var inUse atomic.Int64
+				shard := NewMockShardLike(t)
+				shard.EXPECT().Name().Return(debugShardName).Maybe()
+				shard.EXPECT().preventShutdown().RunAndReturn(func() (func(), error) {
+					inUse.Add(1)
+					return func() { inUse.Add(-1) }, nil
+				})
+				idx.shards.Store(debugShardName, shard)
+
+				started, finish := make(chan struct{}), make(chan struct{})
+				endpoint.expectBeforeWork(t, shard)
+				endpoint.expectWork(shard, started, finish, result.workErr)
+
+				require.NoError(t, endpoint.run(idx))
+
+				select {
+				case <-started:
+				case <-time.After(5 * time.Second):
+					t.Fatal("the background work never started")
+				}
+				require.Equal(t, int64(1), inUse.Load(),
+					"the running background work must be the only reference left")
+
+				close(finish)
+				require.Eventually(t, func() bool { return inUse.Load() == 0 }, 5*time.Second, 10*time.Millisecond,
+					"the background work must release its reference when it returns")
+			})
+		}
+	}
+}
+
+// TestDebugEndpointsFailWhileShardShutsDown asserts that an endpoint reports the
+// failure and does nothing once the shard can no longer be referenced. Starting
+// the work anyway runs it on a shard that is being torn down, and resetting a
+// vector index without a reindex to follow leaves it empty.
+func TestDebugEndpointsFailWhileShardShutsDown(t *testing.T) {
+	for _, endpoint := range debugBackgroundEndpoints() {
+		t.Run(endpoint.name, func(t *testing.T) {
+			idx := newDescriptorTestIndex(t, t.TempDir(), "RefCountDebugShutdown", singleShardState())
+
+			var released atomic.Bool
+			shard := NewMockShardLike(t)
+			// the lookup still gets a reference, the background work no longer does
+			shard.EXPECT().preventShutdown().Return(func() { released.Store(true) }, nil).Once()
+			shard.EXPECT().preventShutdown().Return(func() {}, errShutdownInProgress).Once()
+			idx.shards.Store(debugShardName, shard)
+
+			// expectWork is left unregistered, so the mock fails the test if the
+			// endpoint calls any of it
+			endpoint.expectBeforeWork(t, shard)
+
+			require.ErrorIs(t, endpoint.run(idx), errShutdownInProgress)
+			require.True(t, released.Load(), "the lookup's reference must be released")
 		})
 	}
 }
