@@ -21,6 +21,8 @@ func init() {
 		l2SquaredByteImpl = asm.L2ByteARM64
 		dotByteImpl = asm.DotByteARM64
 		hammingBitwiseImpl = asm.HammingBitwise
+		rq4QuantCorrImpl = rq4QuantCorrNEON
+		rq4MinMaxSumImpl = rq4MinMaxSumNEON
 		if cpu.ARM64.HasASIMDDP {
 			l2SquaredByteImpl = l2ByteUDOT
 			dotByteImpl = dotByteUDOT

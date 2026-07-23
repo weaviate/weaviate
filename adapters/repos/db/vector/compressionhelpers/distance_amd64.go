@@ -23,5 +23,7 @@ func init() {
 		hammingBitwiseImpl = asm.HammingBitwiseAVX256
 		dotByteNibbleImpl = dotByteNibbleAVX2
 		dotNibbleNibbleImpl = dotNibbleNibbleAVX2
+		rq4QuantCorrImpl = rq4QuantCorrAVX2
+		rq4MinMaxSumImpl = rq4MinMaxSumAVX2
 	}
 }

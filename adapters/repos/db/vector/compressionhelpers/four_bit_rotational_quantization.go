@@ -198,7 +198,7 @@ var rq4ClipFactors = []float32{0.6, 0.7, 0.8, 0.9}
 // search so a single allocation serves all candidate evaluations.
 type rq4Scratch struct {
 	ci []int32   // integer codes of the most recent quantization
-	cf []float32 // float view of ci for the SIMD reductions
+	cf []float32 // residual-stage scratch (rq4r); plain rq4 no longer uses it
 	rx []float32 // rotated input, output buffer for RotateInto
 }
 
@@ -220,20 +220,21 @@ func newRQ4Scratch(d int) *rq4Scratch {
 // RaBitQ. This is equivalent to minimizing the residual after the
 // reconstruction is rescaled by its least-squares factor t = s1/s2.
 //
-// All passes run on SIMD kernels (NEON/AVX with pure Go fallbacks) from the
-// tphakala/simd library. The quantization is dst = int32(clamp(v*invStep +
-// (0.5 - lower*invStep), 0, 15)) with truncation, which the library
-// guarantees to be identical on every architecture, keeping encoded data
-// deterministic across platforms.
+// The whole pass runs on a single fused SIMD kernel (rq4QuantCorrImpl:
+// NEON/AVX2 with a pure Go fallback) that quantizes and accumulates the
+// three reductions in registers. The quantization is dst =
+// int32(clamp(v*invStep + (0.5 - lower*invStep), 0, 15)) with truncation and
+// two separate float32 roundings (never FMA), identical on every
+// architecture, keeping the integer codes deterministic across platforms.
+// sumC and sumC2 are exact integer sums, so only the <xs, codes> dot product
+// carries architecture-specific float accumulation order.
 func rq4Correlation(xs []float32, sumX, lower, step float32, scratch *rq4Scratch) (s1, s2, sumC float32) {
 	n := len(xs)
 	invStep := 1 / step
-	ci, cf := scratch.ci[:n], scratch.cf[:n]
-	f32.Float32ToInt32ScaleClamp(ci, xs, invStep, 0.5-lower*invStep, 0, rq4MaxCode)
-	f32.Int32ToFloat32Scale(cf, ci, 1)
-	sumC = f32.Sum(cf)
-	sumC2 := f32.SumOfSquares(cf)
-	sumXC := f32.DotProduct(xs, cf)
+	ci := scratch.ci[:n]
+	sumXC, sumCi, sumC2i := rq4QuantCorrImpl(ci, xs, invStep, 0.5-lower*invStep)
+	sumC = float32(sumCi)
+	sumC2 := float32(sumC2i)
 	s1 = lower*sumX + step*sumXC
 	s2 = float32(n)*lower*lower + 2*lower*step*sumC + step*step*sumC2
 	return s1, s2, sumC
@@ -258,18 +259,20 @@ var rq4ClipSearchSample = 512
 // winning interval, ready for packing. A zero step signals a degenerate
 // (zero) vector.
 func rq4Interval(rx []float32, scratch *rq4Scratch) (float32, float32, float32, float32) {
-	minV, maxV := f32.Min(rx), f32.Max(rx)
+	// One fused sweep for min, max and the full-vector sum (the sum feeds the
+	// exact rescaling pass at the end).
+	minV, maxV, sumX := rq4MinMaxSumImpl(rx)
 	bestLower := minV
 	bestStep := (maxV - minV) / rq4MaxCode
 	if bestStep <= 0 {
 		return bestLower, 0, 1, 0
 	}
 
-	sample := rx
+	sample, sumSample := rx, sumX
 	if len(sample) > rq4ClipSearchSample {
 		sample = sample[:rq4ClipSearchSample]
+		sumSample = f32.Sum(sample)
 	}
-	sumSample := f32.Sum(sample)
 	s1, s2, _ := rq4Correlation(sample, sumSample, bestLower, bestStep, scratch)
 	var bestScore float32
 	if s2 > 0 {
@@ -293,7 +296,6 @@ func rq4Interval(rx []float32, scratch *rq4Scratch) (float32, float32, float32, 
 	// Exact rescaling factor for the winning interval over the full vector.
 	// This pass also leaves the final codes in scratch.ci.
 	bestT := float32(1)
-	sumX := f32.Sum(rx)
 	s1, s2, sumC := rq4Correlation(rx, sumX, bestLower, bestStep, scratch)
 	if s2 > 0 {
 		bestT = s1 / s2

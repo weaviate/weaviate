@@ -168,10 +168,11 @@ func (rq *FourBitResidualQuantizer) Encode(x []float32) []byte {
 	base.setNorm2(f32.SumOfSquares(x))
 
 	// Residual stage: r = rx - x̂ with x̂_i = t*(lower + step*ci_i). The
-	// float view of the codes is still in scratch.cf from the winning
-	// evaluation of rq4Interval.
+	// integer codes of the winning interval are in scratch.ci (the fused
+	// correlation kernel no longer materializes a float view, so build it
+	// here with the scale folded in).
 	res := scratch.cf
-	f32.Scale(res, res, t*step)
+	f32.Int32ToFloat32Scale(res, scratch.ci, t*step)
 	f32.AddScalar(res, res, t*lower)
 	f32.Sub(res, rx, res)
 
