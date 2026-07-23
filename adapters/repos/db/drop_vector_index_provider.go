@@ -391,6 +391,19 @@ func (p *DropVectorIndexProvider) OnGroupCompleted(
 	if err != nil {
 		return err
 	}
+	// Restart-replay guard: this callback re-fires for up to the task TTL, and
+	// the target may have been finalized and RE-CREATED since — removing files
+	// then would delete the live index. Same verify processUnits runs before
+	// arming.
+	stillDropped, err := p.targetsStillDropped(payload)
+	if err != nil {
+		return fmt.Errorf("verify targets still dropped: %w", err)
+	}
+	if !stillDropped {
+		p.logger.WithField("task", task.ID).WithField("collection", payload.Collection).
+			Info("drop-vector: group completion: target no longer marked dropped (finalized or re-created); skipping file removal")
+		return nil
+	}
 	// Accumulate instead of aborting so one failing shard can't block the file
 	// cleanup of every other tenant in the group. The joined error still fails the
 	// group's completion ack (there is no in-process retry; a restart replays the
@@ -493,8 +506,18 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 		return nil
 	}
 
+	// Only the live completion (SWAPPING) finalizes; the FSM gate enforces the
+	// same rule. A replayed FINISHED completion may belong to a drop that
+	// already finalized and whose name was re-created — reconciliation heals a
+	// genuinely missed finalize with a fresh-epoch re-clean instead.
+	if task.Status != distributedtask.TaskStatusSwapping {
+		logger.WithField("status", task.Status).
+			Info("drop-vector: task-completion replay: not SWAPPING; leaving the marker to reconciliation")
+		return nil
+	}
+
 	if err := p.schema.RemoveDroppedVectorConfig(p.serverCtx, payload.Collection, payload.Targets); err != nil {
-		// Leave the marker in place; startup reconciliation retries the removal.
+		// Leave the marker in place; reconciliation re-cleans and re-finalizes.
 		logger.Errorf("drop-vector: task-completion: removing VectorConfig entries failed: %v", err)
 		return nil
 	}

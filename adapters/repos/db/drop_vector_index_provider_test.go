@@ -718,6 +718,33 @@ func TestOnGroupCompleted_OneFailingShardDoesNotBlockOthers(t *testing.T) {
 	require.Equal(t, "shard2", shards.removed[0].shard)
 }
 
+// TestOnGroupCompleted_ReplayAfterRecreate_SkipsFileRemoval pins the restart
+// replay guard: once the target is no longer marked dropped (finalized, or
+// finalized and re-created), a replayed group completion must not delete the
+// live index's files.
+func TestOnGroupCompleted_ReplayAfterRecreate_SkipsFileRemoval(t *testing.T) {
+	shards := &fakeShards{}
+	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
+	p.sharding = &fakeShardingReader{
+		shards:    []string{"shard1"},
+		vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}}, // re-created: live again
+	}
+
+	require.NoError(t, p.OnGroupCompleted(dropTask(distributedtask.TaskStatusFinished, nil), "g", []string{"u1"}))
+	require.Empty(t, shards.removed, "a live index's files must not be touched")
+}
+
+// TestOnGroupCompleted_VerifyError_SurfacesForRetry: an unverifiable marker
+// state must not proceed to file removal.
+func TestOnGroupCompleted_VerifyError_SurfacesForRetry(t *testing.T) {
+	shards := &fakeShards{}
+	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
+	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("no leader")}
+
+	require.Error(t, p.OnGroupCompleted(dropTask(distributedtask.TaskStatusFinished, nil), "g", []string{"u1"}))
+	require.Empty(t, shards.removed)
+}
+
 // --- OnTaskCompleted ---
 
 // TestOnTaskCompleted_TerminalTasks_DeleteOpButKeepSchema: FAILED/CANCELLED leave
@@ -742,28 +769,37 @@ func TestOnTaskCompleted_TerminalTasks_DeleteOpButKeepSchema(t *testing.T) {
 }
 
 // TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig: success is
-// delivered as SWAPPING (a non-barrier task never reaches OnTaskCompleted as
-// FINISHED on its own node — the scheduler finalizes only after this callback) or
-// as FINISHED (a node first observing the task after a peer finalized). Both must
-// run the cleanup; gating on FINISHED alone would make Phase 2 a permanent no-op.
+// delivered as SWAPPING (the scheduler finalizes the task only after this
+// callback) — that live completion deletes the local op AND removes the schema
+// entry. A node observing the task as FINISHED (peer finalized first, or a
+// restart replay) still deletes its local op but leaves the schema entry: the
+// peer's finalize removed it, and if that finalize was missed, a FINISHED
+// record must not remove a marker that may belong to a re-created name —
+// reconciliation heals with a fresh-epoch re-clean instead.
 func TestOnTaskCompleted_Success_DeletesEditOpThenRemovesVectorConfig(t *testing.T) {
-	for _, status := range []distributedtask.TaskStatus{
-		distributedtask.TaskStatusSwapping,
-		distributedtask.TaskStatusFinished,
-	} {
-		t.Run(string(status), func(t *testing.T) {
-			bucket := &fakeEditOpBucket{}
-			fin := &fakeFinalizer{}
-			p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+	t.Run("SWAPPING finalizes", func(t *testing.T) {
+		bucket := &fakeEditOpBucket{}
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
 
-			p.OnTaskCompleted(dropTask(status, nil))
+		p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
 
-			require.Equal(t, []string{"op1"}, bucket.deleted, "must delete the completed op on the local shard")
-			require.True(t, fin.called)
-			require.Equal(t, "Collection", fin.collection)
-			require.Equal(t, []string{"v1"}, fin.targets)
-		})
-	}
+		require.Equal(t, []string{"op1"}, bucket.deleted, "must delete the completed op on the local shard")
+		require.True(t, fin.called)
+		require.Equal(t, "Collection", fin.collection)
+		require.Equal(t, []string{"v1"}, fin.targets)
+	})
+
+	t.Run("FINISHED deletes the op but leaves finalize to the peer or reconciliation", func(t *testing.T) {
+		bucket := &fakeEditOpBucket{}
+		fin := &fakeFinalizer{}
+		p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+
+		p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
+
+		require.Equal(t, []string{"op1"}, bucket.deleted, "the local op is still deleted")
+		require.False(t, fin.called)
+	})
 }
 
 func TestOnTaskCompleted_DeleteOpFailure_DefersSchemaRemoval(t *testing.T) {
@@ -897,6 +933,20 @@ func TestOnTaskCompleted_CleanedShardsVouchForColdTenant(t *testing.T) {
 	require.True(t, fin.called, "cleaned-but-cold shards are covered by the inherited set")
 }
 
+// TestOnTaskCompleted_FinishedReplay_DoesNotFinalize pins the replay rule:
+// only the live SWAPPING completion finalizes. A replayed FINISHED completion
+// may belong to an epoch that already finalized and whose name was re-created;
+// a missed finalize heals via reconciliation's fresh-epoch re-clean instead.
+func TestOnTaskCompleted_FinishedReplay_DoesNotFinalize(t *testing.T) {
+	bucket := &fakeEditOpBucket{}
+	fin := &fakeFinalizer{}
+	p := newTestDropProvider(&fakeShards{bucket: bucket}, fin, newFakeRecorder())
+
+	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFinished, nil))
+
+	require.False(t, fin.called, "a replayed FINISHED completion must not remove the marker")
+}
+
 // TestOnTaskCompleted_CoverageCheckError_DefersFinalize: an unreadable sharding
 // state must defer the schema removal, not proceed on unknown coverage.
 func TestOnTaskCompleted_CoverageCheckError_DefersFinalize(t *testing.T) {
@@ -971,6 +1021,13 @@ func corruptDropTask(id string, status distributedtask.TaskStatus) *distributedt
 	}
 }
 
+// swappingDropTaskCovering is swappingDropTask with units covering the given shards.
+func swappingDropTaskCovering(id, collection string, shards []string, targets ...string) *distributedtask.Task {
+	task := finishedDropTaskCovering(id, collection, shards, targets...)
+	task.Status = distributedtask.TaskStatusSwapping
+	return task
+}
+
 // finishedDropTaskCovering is finishedDropTask with units covering the given shards.
 func finishedDropTaskCovering(id, collection string, shards []string, targets ...string) *distributedtask.Task {
 	payload := &DropVectorIndexTaskPayload{
@@ -992,19 +1049,22 @@ func finishedDropTaskCovering(id, collection string, shards []string, targets ..
 func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
 
-	t.Run("finished task covering the vector allows removal", func(t *testing.T) {
+	t.Run("finished task never vouches (stale-record replay safety)", func(t *testing.T) {
+		// A FINISHED record outlives finalize by the task TTL; after a
+		// re-create + re-drop it would remove the new drop's marker.
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1", "v2")})
-		require.NoError(t, err)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "only the completing cleanup task")
 	})
 
 	t.Run("collection matches case-insensitively, target exact-case only", func(t *testing.T) {
 		require.NoError(t, p.CheckVectorConfigRemoval("c", []string{"v1"}, nil,
-			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")}),
+			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")}),
 			"collection names are case-insensitive")
 		require.Error(t, p.CheckVectorConfigRemoval("C", []string{"V1"}, nil,
-			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")}),
-			"a case-differing sibling is a DIFFERENT vector; a finished task for v1 must not vouch for V1")
+			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")}),
+			"a case-differing sibling is a DIFFERENT vector; a voucher for v1 must not vouch for V1")
 	})
 
 	t.Run("swapping task covering the vector allows removal", func(t *testing.T) {
@@ -1014,18 +1074,18 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("corrupt finished task does not vouch", func(t *testing.T) {
+	t.Run("corrupt swapping task does not vouch", func(t *testing.T) {
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
-			[]*distributedtask.Task{corruptDropTask("t1", distributedtask.TaskStatusFinished)})
+			[]*distributedtask.Task{corruptDropTask("t1", distributedtask.TaskStatusSwapping)})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "no completed cleanup task")
+		require.Contains(t, err.Error(), "only the completing cleanup task")
 	})
 
 	t.Run("corrupt active task does not block a valid voucher", func(t *testing.T) {
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
 			[]*distributedtask.Task{
 				corruptDropTask("t1", distributedtask.TaskStatusStarted),
-				finishedDropTask("t2", "C", "v1"),
+				swappingDropTask("t2", "C", "v1"),
 			})
 		require.NoError(t, err)
 	})
@@ -1076,25 +1136,34 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	// Coverage half of the gate: a completed task vouches only if its units
 	// covered every current shard — a FINISHED task that deferred finalize over
 	// a cold tenant must not double as a removal voucher.
-	t.Run("finished task covering all shards vouches", func(t *testing.T) {
+	t.Run("swapping task covering all shards vouches", func(t *testing.T) {
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
-			[]*distributedtask.Task{finishedDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
+			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
 		require.NoError(t, err)
 	})
 
-	t.Run("finished task with an uncovered shard does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"},
+	t.Run("finished task covering all shards still does not vouch", func(t *testing.T) {
+		// The re-drop repro's manual-removal half: a closed epoch's FINISHED
+		// record covers everything yet must not remove a newer drop's marker.
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
 			[]*distributedtask.Task{finishedDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "only the completing cleanup task")
+	})
+
+	t.Run("swapping task with an uncovered shard does not vouch", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"},
+			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not covered")
 		require.Contains(t, err.Error(), "s3")
 	})
 
-	t.Run("any single completed task covering everything vouches", func(t *testing.T) {
+	t.Run("any single swapping task covering everything vouches", func(t *testing.T) {
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
 			[]*distributedtask.Task{
 				finishedDropTaskCovering("t1", "C", []string{"s1"}, "v1"),
-				finishedDropTaskCovering("t2", "C", []string{"s1", "s2"}, "v1"),
+				swappingDropTaskCovering("t2", "C", []string{"s1", "s2"}, "v1"),
 			})
 		require.NoError(t, err)
 	})
@@ -1105,15 +1174,15 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 		// unioning arbitrary records here.
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
 			[]*distributedtask.Task{
-				finishedDropTaskCovering("t1", "C", []string{"s1"}, "v1"),
-				finishedDropTaskCovering("t2", "C", []string{"s2"}, "v1"),
+				swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1"),
+				swappingDropTaskCovering("t2", "C", []string{"s2"}, "v1"),
 			})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not covered")
 	})
 
 	t.Run("a task's inherited CleanedShards count as coverage", func(t *testing.T) {
-		task := finishedDropTaskCovering("t1", "C", []string{"s1"}, "v1")
+		task := swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")
 		payload := &DropVectorIndexTaskPayload{
 			Collection: "C", Targets: []string{"v1"}, OpID: "op-t1",
 			UnitToShard:   map[string]string{"s1__u0": "s1"},

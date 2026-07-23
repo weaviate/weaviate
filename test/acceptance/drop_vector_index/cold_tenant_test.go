@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -91,15 +90,7 @@ func testColdTenantDeferredFinalize() func(t *testing.T) {
 
 		t.Run("hot tenants are cleaned while the marker stays for the cold one", func(t *testing.T) {
 			for _, tenant := range tenants[:2] {
-				require.EventuallyWithT(t, func(collect *assert.CollectT) {
-					objs := listTenantObjectsWithVectors(t, className, tenant)
-					if !assert.Len(collect, objs, perTenant) {
-						return
-					}
-					for _, obj := range objs {
-						assert.NotContains(collect, obj.Vectors, dropped)
-					}
-				}, finalizeTimeout, time.Second, "tenant %s cleaned", tenant)
+				requireTenantStripped(t, className, tenant, dropped, perTenant)
 			}
 
 			// Hold across several reconcile cycles: deferral must be stable,
@@ -129,14 +120,7 @@ func testColdTenantDeferredFinalize() func(t *testing.T) {
 		})
 
 		t.Run("activate the cold tenant", func(t *testing.T) {
-			// Retry: the mutation guard rejects tenant changes while a
-			// re-enqueued cleanup task is momentarily active.
-			require.EventuallyWithT(t, func(collect *assert.CollectT) {
-				err := helper.UpdateTenantsReturnError(t, className, []*models.Tenant{
-					{Name: coldTenant, ActivityStatus: models.TenantActivityStatusHOT},
-				})
-				assert.NoError(collect, err)
-			}, 3*time.Minute, 500*time.Millisecond)
+			setTenantStatusEventually(t, className, coldTenant, models.TenantActivityStatusHOT)
 		})
 
 		t.Run("reconciliation cleans the reactivated tenant and the drop finalizes", func(t *testing.T) {

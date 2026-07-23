@@ -184,3 +184,30 @@ func listTenantObjectsWithVectors(t *testing.T, className, tenant string) []*mod
 	t.Helper()
 	return listObjectsWithVectors(t, className, tenant, 100)
 }
+
+// setTenantStatusEventually retries a tenant status change: the tenant-mutation
+// guard rejects changes while a cleanup task is momentarily active.
+func setTenantStatusEventually(t *testing.T, className, tenant, status string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		err := helper.UpdateTenantsReturnError(t, className, []*models.Tenant{
+			{Name: tenant, ActivityStatus: status},
+		})
+		assert.NoError(collect, err)
+	}, 3*time.Minute, 500*time.Millisecond, "set %s to %s", tenant, status)
+}
+
+// requireTenantStripped waits until every one of the tenant's count objects no
+// longer carries targetVector.
+func requireTenantStripped(t *testing.T, className, tenant, targetVector string, count int) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		objs := listTenantObjectsWithVectors(t, className, tenant)
+		if !assert.Len(collect, objs, count) {
+			return
+		}
+		for _, obj := range objs {
+			assert.NotContains(collect, obj.Vectors, targetVector)
+		}
+	}, finalizeTimeout, time.Second, "tenant %s stripped of %s", tenant, targetVector)
+}

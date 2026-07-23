@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -40,29 +39,6 @@ func testPartiallyColdTenants() func(t *testing.T) {
 		)
 		tenants := []string{"tenant-1", "tenant-2", "tenant-3", "tenant-4"}
 
-		// setTenantStatus retries: the tenant-mutation guard rejects changes while
-		// a (re-enqueued) cleanup task is momentarily active.
-		setTenantStatus := func(t *testing.T, tenant, status string) {
-			t.Helper()
-			require.EventuallyWithT(t, func(collect *assert.CollectT) {
-				err := helper.UpdateTenantsReturnError(t, className, []*models.Tenant{
-					{Name: tenant, ActivityStatus: status},
-				})
-				assert.NoError(collect, err)
-			}, 3*time.Minute, 500*time.Millisecond, "set %s to %s", tenant, status)
-		}
-		requireTenantCleaned := func(t *testing.T, tenant string) {
-			t.Helper()
-			require.EventuallyWithT(t, func(collect *assert.CollectT) {
-				objs := listTenantObjectsWithVectors(t, className, tenant)
-				if !assert.Len(collect, objs, perTenant) {
-					return
-				}
-				for _, obj := range objs {
-					assert.NotContains(collect, obj.Vectors, dropped)
-				}
-			}, finalizeTimeout, time.Second, "tenant %s cleaned", tenant)
-		}
 		requireMarkerStays := func(t *testing.T) {
 			t.Helper()
 			// Hold across several reconcile cycles: deferral must be stable.
@@ -115,30 +91,30 @@ func testPartiallyColdTenants() func(t *testing.T) {
 			}
 			time.Sleep(3 * time.Second) // past the 1s dirty-flush
 
-			setTenantStatus(t, tenants[2], models.TenantActivityStatusCOLD)
-			setTenantStatus(t, tenants[3], models.TenantActivityStatusCOLD)
+			setTenantStatusEventually(t, className, tenants[2], models.TenantActivityStatusCOLD)
+			setTenantStatusEventually(t, className, tenants[3], models.TenantActivityStatusCOLD)
 		})
 
 		t.Run("2 drop cleans the hot tenants, cold ones block completion", func(t *testing.T) {
 			dropTargetVector(t, className, dropped)
-			requireTenantCleaned(t, tenants[0])
-			requireTenantCleaned(t, tenants[1])
+			requireTenantStripped(t, className, tenants[0], dropped, perTenant)
+			requireTenantStripped(t, className, tenants[1], dropped, perTenant)
 			requireMarkerStays(t)
 		})
 
 		t.Run("3 activating one cold tenant cleans it but does not complete the drop", func(t *testing.T) {
-			setTenantStatus(t, tenants[2], models.TenantActivityStatusHOT)
-			requireTenantCleaned(t, tenants[2])
+			setTenantStatusEventually(t, className, tenants[2], models.TenantActivityStatusHOT)
+			requireTenantStripped(t, className, tenants[2], dropped, perTenant)
 			requireMarkerStays(t)
 		})
 
 		t.Run("4 deactivate the cleaned tenant again", func(t *testing.T) {
-			setTenantStatus(t, tenants[2], models.TenantActivityStatusCOLD)
+			setTenantStatusEventually(t, className, tenants[2], models.TenantActivityStatusCOLD)
 		})
 
 		t.Run("5 activate the last cold tenant and wait for its cleanup", func(t *testing.T) {
-			setTenantStatus(t, tenants[3], models.TenantActivityStatusHOT)
-			requireTenantCleaned(t, tenants[3])
+			setTenantStatusEventually(t, className, tenants[3], models.TenantActivityStatusHOT)
+			requireTenantStripped(t, className, tenants[3], dropped, perTenant)
 		})
 
 		t.Run("6 with all 4 tenants cleaned (1 cold again) the drop completes", func(t *testing.T) {
@@ -150,7 +126,7 @@ func testPartiallyColdTenants() func(t *testing.T) {
 			if _, present := got.VectorConfig[dropped]; !present {
 				t.Skip("already finalized in step 6")
 			}
-			setTenantStatus(t, tenants[2], models.TenantActivityStatusHOT)
+			setTenantStatusEventually(t, className, tenants[2], models.TenantActivityStatusHOT)
 			eventuallyTargetVectorRemoved(t, className, dropped)
 		})
 	}
