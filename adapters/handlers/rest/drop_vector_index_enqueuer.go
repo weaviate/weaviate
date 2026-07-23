@@ -14,9 +14,7 @@ package rest
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +62,13 @@ func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaStat
 	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState, logger: logger}
 }
 
+// logInfo logs an enqueue-path decision (nil-safe like every logger use here).
+func (e *dropVectorIndexEnqueuer) logInfo(collection, msg string) {
+	if e.logger != nil {
+		e.logger.WithField("collection", collection).Info(msg)
+	}
+}
+
 // warnSkippedPayload surfaces an undecodable active-task payload instead of
 // silently skipping it (the skip itself is deliberate fail-open behavior).
 func (e *dropVectorIndexEnqueuer) warnSkippedPayload(where, taskID string, err error) {
@@ -73,6 +78,12 @@ func (e *dropVectorIndexEnqueuer) warnSkippedPayload(where, taskID string, err e
 	}
 }
 
+// ListDistributedTasks exposes the cluster task list for the reconcile loop
+// (one fetch per round) and its startup readiness probe.
+func (e *dropVectorIndexEnqueuer) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return e.clusterService.ListDistributedTasks(ctx)
+}
+
 // HasActiveDrop reports whether a non-terminal drop task already covers
 // targetVector on collection.
 func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error) {
@@ -80,13 +91,25 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 	if err != nil {
 		return false, err
 	}
+	return activeDropCovers(tasks, collection, targetVector, e.logger), nil
+}
+
+// activeDropCovers reports whether a non-terminal drop task in tasks covers
+// targetVector on collection. Shared by HasActiveDrop and the reconcile loop
+// (which fetches the task list once per round instead of once per marker).
+func activeDropCovers(tasks map[string][]*distributedtask.Task, collection, targetVector string,
+	logger logrus.FieldLogger,
+) bool {
 	for _, task := range tasks[db.DropVectorIndexNamespace] {
 		if !task.Status.IsActive() {
 			continue
 		}
 		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
 		if err != nil {
-			e.warnSkippedPayload("has-active-drop", task.ID, err)
+			if logger != nil {
+				logger.WithField("task", task.ID).
+					Warnf("drop-vector has-active-drop: skipping active task with unparseable payload: %v", err)
+			}
 			continue
 		}
 		if !strings.EqualFold(p.Collection, collection) {
@@ -95,11 +118,11 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 		for _, t := range p.Targets {
 			// Exact match: target vector names are case-sensitive identifiers.
 			if t == targetVector {
-				return true, nil
+				return true
 			}
 		}
 	}
-	return false, nil
+	return false
 }
 
 // EnqueueDropVectorIndex submits a fresh cleanup task with one unit per
@@ -133,10 +156,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		// once tenants are active. A non-MT collection always has shards, so an empty
 		// map there is a real problem.
 		if state.PartitioningEnabled {
-			if e.logger != nil {
-				e.logger.WithField("collection", collection).
-					Info("drop-vector enqueue: no active tenant to clean; the marker stays until a tenant is activated")
-			}
+			e.logInfo(collection, "drop-vector enqueue: no active tenant to clean; the marker stays until a tenant is activated")
 			return nil
 		}
 		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
@@ -151,10 +171,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		// Inherited coverage is always incomplete (a complete chain mints a
 		// fresh epoch with no inheritance), so an emptied ownership map means
 		// every ACTIVE shard is cleaned and the remainder is inactive.
-		if e.logger != nil {
-			e.logger.WithField("collection", collection).
-				Info("drop-vector enqueue: all active shards already cleaned; the marker stays until the remaining shards' tenants are activated")
-		}
+		e.logInfo(collection, "drop-vector enqueue: all active shards already cleaned; the marker stays until the remaining shards' tenants are activated")
 		return nil
 	}
 
@@ -228,16 +245,20 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 	}
 	covered := map[string]struct{}{}
 	for task, p := range matching {
-		if p.DropEpochID != newest.DropEpochID || !completedTaskStatus(task.Status) {
+		if p.DropEpochID != newest.DropEpochID || !task.Status.IsCompleted() {
 			continue
 		}
 		for shard := range p.CoveredShards() {
 			covered[shard] = struct{}{}
 		}
 	}
+	// Prune to current shards: deleted tenants would otherwise accumulate in
+	// every subsequent payload forever.
 	cleaned := make([]string, 0, len(covered))
 	for shard := range covered {
-		cleaned = append(cleaned, shard)
+		if _, ok := state.Physical[shard]; ok {
+			cleaned = append(cleaned, shard)
+		}
 	}
 	sort.Strings(cleaned)
 	if len(shardsNotIn(state, cleaned)) == 0 {
@@ -247,24 +268,20 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 	return newest.DropEpochID, cleaned, nil
 }
 
-// completedTaskStatus matches tasks whose every unit succeeded (mirrors the
-// provider gate's completedStatus).
-func completedTaskStatus(s distributedtask.TaskStatus) bool {
-	return s == distributedtask.TaskStatusSwapping || s == distributedtask.TaskStatusFinished
-}
-
-// sameTargetSet reports whether two target lists contain the same names
-// (exact case — target vector names are case-sensitive identifiers).
+// sameTargetSet reports whether two target lists contain the same names with
+// the same multiplicities (exact case — target vector names are case-sensitive
+// identifiers).
 func sameTargetSet(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	set := make(map[string]struct{}, len(a))
+	counts := make(map[string]int, len(a))
 	for _, t := range a {
-		set[t] = struct{}{}
+		counts[t]++
 	}
 	for _, t := range b {
-		if _, ok := set[t]; !ok {
+		counts[t]--
+		if counts[t] < 0 {
 			return false
 		}
 	}
@@ -298,18 +315,15 @@ func withoutCleanedShards(ownership map[string][]string, cleaned []string) map[s
 
 // shardsNotIn returns the state's shards absent from the given set, sorted.
 func shardsNotIn(state *sharding.State, set []string) []string {
-	in := make(map[string]struct{}, len(set))
+	covered := make(map[string]struct{}, len(set))
 	for _, shard := range set {
-		in[shard] = struct{}{}
+		covered[shard] = struct{}{}
 	}
-	var out []string
+	shardNames := make([]string, 0, len(state.Physical))
 	for shard := range state.Physical {
-		if _, ok := in[shard]; !ok {
-			out = append(out, shard)
-		}
+		shardNames = append(shardNames, shard)
 	}
-	sort.Strings(out)
-	return out
+	return db.ShardsNotCovered(shardNames, covered)
 }
 
 // stillDroppedTargets filters targets to those still present and marked dropped
@@ -387,13 +401,25 @@ func (e *dropVectorIndexEnqueuer) LiveOpIDs(ctx context.Context) (map[string]str
 
 var _ schema.DropVectorIndexEnqueuer = (*dropVectorIndexEnqueuer)(nil)
 
+// dropVectorReconcileClient is the enqueuer slice reconciliation uses. The
+// task list is fetched once per round and shared across every marker check.
+type dropVectorReconcileClient interface {
+	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error
+}
+
 // reconcileDroppedVectorIndexes enqueues cleanup for every "none" marker with no
 // in-flight task — recovery for a crash between marker apply and enqueue, an
-// upgrade with pre-existing markers, or a restore. Idempotent: HasActiveDrop +
-// the ConflictDetector dedupe across nodes running it at startup.
+// upgrade with pre-existing markers, or a restore. Idempotent: the active-task
+// check + the ConflictDetector dedupe across nodes running it at startup.
 func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
-	enq schema.DropVectorIndexEnqueuer, logger logrus.FieldLogger,
+	enq dropVectorReconcileClient, logger logrus.FieldLogger,
 ) {
+	tasks, err := enq.ListDistributedTasks(ctx)
+	if err != nil {
+		logger.Warnf("drop-vector reconcile: listing tasks failed (round skipped): %v", err)
+		return
+	}
 	for _, class := range classes {
 		if class == nil {
 			continue
@@ -402,13 +428,7 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 			if !modelsext.IsVectorIndexDropped(cfg) {
 				continue
 			}
-			active, err := enq.HasActiveDrop(ctx, class.Class, name)
-			if err != nil {
-				logger.WithField("collection", class.Class).WithField("vector", name).
-					Warnf("drop-vector reconcile: HasActiveDrop failed: %v", err)
-				continue
-			}
-			if active {
+			if activeDropCovers(tasks, class.Class, name, logger) {
 				continue
 			}
 			if err := enq.EnqueueDropVectorIndex(ctx, class.Class, []string{name}); err != nil {
@@ -425,36 +445,12 @@ type schemaLister interface {
 	GetSchemaSkipAuth() entschema.Schema
 }
 
-// dropVectorReconcileInterval is how often reconciliation re-checks for "none"
-// markers without a live task after the startup pass — the pickup path for
-// tenants that were inactive when a task finalized deferred, for markers left by
-// a FAILED task, and for backup restores; without it those wait for a restart.
-const dropVectorReconcileInterval = 15 * time.Minute
-
-// dropVectorReconcileIntervalFromEnv returns the reconcile interval, overridable
-// via DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS (faster marker convergence
-// after restores or tenant activations; each round costs leader reads). Invalid
-// or non-positive values fall back to the default with a warning.
-func dropVectorReconcileIntervalFromEnv(logger logrus.FieldLogger) time.Duration {
-	raw := os.Getenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS")
-	if raw == "" {
-		return dropVectorReconcileInterval
-	}
-	seconds, err := strconv.Atoi(raw)
-	if err != nil || seconds <= 0 {
-		logger.Warnf("drop-vector reconcile: invalid DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS %q, using default %s",
-			raw, dropVectorReconcileInterval)
-		return dropVectorReconcileInterval
-	}
-	return time.Duration(seconds) * time.Second
-}
-
 // runDropVectorIndexReconciliation waits (bounded) for the cluster task store to
 // be readable — so submits don't hit an unelected leader — then runs
 // reconcileDroppedVectorIndexes periodically until ctx is cancelled. Launch in a
 // goroutine.
 func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
-	enq schema.DropVectorIndexEnqueuer, logger logrus.FieldLogger, interval time.Duration,
+	enq dropVectorReconcileClient, logger logrus.FieldLogger, interval time.Duration,
 ) {
 	const attempts = 30
 	for i := 0; i < attempts; i++ {
@@ -462,7 +458,7 @@ func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 			return
 		}
 		// Probe the DTM read path; success means the leader is reachable.
-		if _, err := enq.HasActiveDrop(ctx, "", ""); err == nil {
+		if _, err := enq.ListDistributedTasks(ctx); err == nil {
 			break
 		}
 		select {

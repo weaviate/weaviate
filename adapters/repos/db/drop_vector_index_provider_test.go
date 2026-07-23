@@ -909,7 +909,7 @@ func TestOnTaskCompleted_UncoveredTenant_DefersFinalize(t *testing.T) {
 
 // TestOnTaskCompleted_CleanedShardsVouchForColdTenant pins the cross-task
 // coverage memory: a shard with no unit in THIS task but recorded as cleaned by
-// an ancestor task of the same epoch (CleanedShards) counts as covered, so the
+// an earlier task of the same epoch (CleanedShards) counts as covered, so the
 // drop finalizes even though that tenant is cold again at completion.
 func TestOnTaskCompleted_CleanedShardsVouchForColdTenant(t *testing.T) {
 	bucket := &fakeEditOpBucket{}
@@ -1181,6 +1181,23 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 		require.Contains(t, err.Error(), "not covered")
 	})
 
+	t.Run("the closest task's missing shards are reported", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"},
+			[]*distributedtask.Task{
+				swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1"),       // misses s2, s3
+				swappingDropTaskCovering("t2", "C", []string{"s1", "s2"}, "v1"), // misses only s3
+			})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "s3")
+		require.NotContains(t, err.Error(), "s2", "the closest task misses only s3")
+	})
+
+	t.Run("a multi-target voucher covers each removed vector", func(t *testing.T) {
+		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"}, []string{"s1"},
+			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1", "v2")})
+		require.NoError(t, err)
+	})
+
 	t.Run("a task's inherited CleanedShards count as coverage", func(t *testing.T) {
 		task := swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")
 		payload := &DropVectorIndexTaskPayload{
@@ -1191,7 +1208,7 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 		task.Payload, _ = payload.encode()
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2"},
 			[]*distributedtask.Task{task})
-		require.NoError(t, err, "units ∪ inherited cleaned set spans all shards")
+		require.NoError(t, err, "units plus the inherited cleaned set span all shards")
 	})
 }
 

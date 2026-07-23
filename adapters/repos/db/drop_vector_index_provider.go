@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -489,7 +488,10 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 		return nil
 	}
 	if len(uncovered) > 0 {
-		logger.WithField("shards", uncovered).
+		// Count + sample only: on a large MT collection the full list is a
+		// multi-MB log line of tenant names.
+		logger.WithField("uncoveredCount", len(uncovered)).
+			WithField("sample", uncovered[:min(len(uncovered), 10)]).
 			Info("drop-vector: task-completion: shards not covered by this task (inactive at enqueue or created since); " +
 				"leaving schema marker — reconciliation re-enqueues once they are active")
 		return nil
@@ -573,7 +575,7 @@ func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTa
 
 // uncoveredShards returns the collection's current shards (leader-consistent)
 // with no unit in this task and no entry in its inherited cleaned-shard set
-// (shards cleaned by ancestor tasks of the same drop epoch).
+// (shards cleaned by the same epoch's earlier tasks).
 func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPayload) ([]string, error) {
 	state, _, err := p.sharding.QueryShardingState(payload.Collection)
 	if err != nil {
@@ -582,15 +584,11 @@ func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPa
 	if state == nil {
 		return nil, fmt.Errorf("no sharding state for collection %q", payload.Collection)
 	}
-	covered := payload.CoveredShards()
-	var uncovered []string
+	shardNames := make([]string, 0, len(state.Physical))
 	for shardName := range state.Physical {
-		if _, ok := covered[shardName]; !ok {
-			uncovered = append(uncovered, shardName)
-		}
+		shardNames = append(shardNames, shardName)
 	}
-	sort.Strings(uncovered)
-	return uncovered, nil
+	return ShardsNotCovered(shardNames, payload.CoveredShards()), nil
 }
 
 // deleteLocalEditOps removes the finished op from each local shard's sidecar,

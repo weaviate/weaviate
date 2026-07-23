@@ -834,7 +834,7 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 			VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
 		}
 		ss := &sharding.State{Physical: map[string]sharding.Physical{
-			"shardB": {Name: "shardB"}, "shardA": {Name: "shardA"},
+			"shardB": {Name: "shardB"}, "shardA": {Name: "shardA"}, "shardC": {Name: "shardC"},
 		}}
 		require.NoError(t, sm.schema.addClass(initial, ss, 1))
 		return sm
@@ -850,7 +850,7 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.Contains(t, err.Error(), "cleanup task not FINISHED")
 		require.Equal(t, 1, guard.called, "gate must be consulted once")
 		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
-		require.Equal(t, []string{"shardA", "shardB"}, guard.lastShards,
+		require.Equal(t, []string{"shardA", "shardB", "shardC"}, guard.lastShards,
 			"gate must receive the FSM's shard set, sorted")
 	})
 
@@ -863,7 +863,26 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, guard.called)
 		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
-		require.Equal(t, []string{"shardA", "shardB"}, guard.lastShards)
+		require.Equal(t, []string{"shardA", "shardB", "shardC"}, guard.lastShards)
+	})
+
+	t.Run("empty shard set is passed as an empty slice", func(t *testing.T) {
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw}}
+		guard := &recordingMutationGuard{}
+		parser := fakes.NewMockParser()
+		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm.SetMutationGuard(guard)
+		initial := &models.Class{
+			Class:        "C",
+			VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
+		}
+		require.NoError(t, sm.schema.addClass(initial,
+			&sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		require.Equal(t, 1, guard.called)
+		require.Empty(t, guard.lastShards)
 	})
 
 	t.Run("update that removes no dropped entry does not consult the gate", func(t *testing.T) {

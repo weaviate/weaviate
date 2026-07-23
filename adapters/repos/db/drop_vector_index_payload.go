@@ -14,6 +14,7 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -39,15 +40,27 @@ type DropVectorIndexTaskPayload struct {
 	// then re-dropped vector must not inherit the previous drop's coverage.
 	// Empty on payloads from older nodes (treated as chain-less).
 	DropEpochID string `json:"dropEpochId,omitempty"`
-	// CleanedShards are shards cleaned by ancestor tasks of this epoch; the
+	// CleanedShards are shards cleaned by the epoch's earlier tasks; the
 	// task's own UnitToShard is not included (readers use CoveredShards).
 	//
 	// Single-task coverage invariant: the enqueuer writes the FULL union of the
-	// epoch's completed predecessors into every new task (RAFT serializes
+	// epoch's completed earlier tasks into every new task (RAFT serializes
 	// same-target tasks), so one completed task's CoveredShards is the epoch's
 	// total coverage as of its enqueue. Finalize and the removal gate rely on
 	// this and read a single task — they never union across records.
 	CleanedShards []string `json:"cleanedShards,omitempty"`
+}
+
+// ShardsNotCovered returns the shards absent from covered, sorted.
+func ShardsNotCovered(shards []string, covered map[string]struct{}) []string {
+	var missing []string
+	for _, shard := range shards {
+		if _, ok := covered[shard]; !ok {
+			missing = append(missing, shard)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 // CoveredShards returns the shards this task accounts for: its own units plus

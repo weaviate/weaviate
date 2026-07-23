@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,10 +33,33 @@ import (
 type fakeReconcileEnqueuer struct {
 	active   map[string]bool // "collection/target" -> in-flight
 	enqueued []string        // "collection/target"
+	listed   int             // ListDistributedTasks calls (one per round)
 }
 
-func (f *fakeReconcileEnqueuer) HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error) {
-	return f.active[collection+"/"+targetVector], nil
+func (f *fakeReconcileEnqueuer) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	f.listed++
+	var tasks []*distributedtask.Task
+	i := 0
+	for key, inFlight := range f.active {
+		if !inFlight {
+			continue
+		}
+		collection, target, _ := strings.Cut(key, "/")
+		b, err := json.Marshal(db.DropVectorIndexTaskPayload{
+			Collection: collection, Targets: []string{target}, OpID: fmt.Sprintf("op-%d", i),
+		})
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, &distributedtask.Task{
+			Namespace:      db.DropVectorIndexNamespace,
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: fmt.Sprintf("t-%d", i), Version: uint64(i + 1)},
+			Payload:        b,
+			Status:         distributedtask.TaskStatusStarted,
+		})
+		i++
+	}
+	return map[string][]*distributedtask.Task{db.DropVectorIndexNamespace: tasks}, nil
 }
 
 func (f *fakeReconcileEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
@@ -83,9 +107,9 @@ type probeRecordingEnqueuer struct {
 	probed *bool
 }
 
-func (p *probeRecordingEnqueuer) HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error) {
+func (p *probeRecordingEnqueuer) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	*p.probed = true
-	return p.fakeReconcileEnqueuer.HasActiveDrop(ctx, collection, targetVector)
+	return p.fakeReconcileEnqueuer.ListDistributedTasks(ctx)
 }
 
 // orderLister records whether the schema was read before or after the probe.
@@ -128,6 +152,7 @@ func TestReconciliationAtStartup_ReadsSchemaAfterProbe(t *testing.T) {
 
 type fakeClusterDropClient struct {
 	tasks        map[string][]*distributedtask.Task
+	listErr      error
 	gotNamespace string
 	gotTaskID    string
 	gotPayload   any
@@ -135,6 +160,9 @@ type fakeClusterDropClient struct {
 }
 
 func (f *fakeClusterDropClient) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	return f.tasks, nil
 }
 
@@ -371,6 +399,39 @@ func decodeEnqueuedPayload(t *testing.T, cluster *fakeClusterDropClient) db.Drop
 	return p
 }
 
+func TestSameTargetSet(t *testing.T) {
+	tests := []struct {
+		a, b []string
+		want bool
+	}{
+		{[]string{"v1"}, []string{"v1"}, true},
+		{[]string{"v1", "v2"}, []string{"v2", "v1"}, true},
+		{[]string{"v1"}, []string{"v2"}, false},
+		{[]string{"v1"}, []string{"v1", "v2"}, false},
+		{[]string{"v1", "v2"}, []string{"v1", "v1"}, false}, // multiplicities matter
+		{[]string{"v1"}, []string{"V1"}, false},             // case-sensitive identifiers
+		{nil, nil, true},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.want, sameTargetSet(tt.a, tt.b), "%v vs %v", tt.a, tt.b)
+	}
+}
+
+// TestEnqueueDropVectorIndex_TaskListError_Surfaces: coverage inheritance
+// cannot be computed without the task list; enqueueing blind could re-clean or
+// mint a wrong epoch, so the error surfaces for the caller to retry.
+func TestEnqueueDropVectorIndex_TaskListError_Surfaces(t *testing.T) {
+	cluster := &fakeClusterDropClient{listErr: fmt.Errorf("no leader")}
+	state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
+		"s1": {BelongsToNodes: []string{"n1"}},
+	})}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+	err := enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"})
+	require.Error(t, err)
+	require.Empty(t, cluster.gotTaskID)
+}
+
 // TestEnqueueDropVectorIndex_CoverageInheritance pins the chain rules: inherit
 // cleaned-shard coverage only from completed same-epoch tasks of an INCOMPLETE
 // chain — a complete chain next to a marker is a closed epoch's residue
@@ -390,6 +451,7 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 		name        string
 		tasks       []*distributedtask.Task
 		shards      map[string]sharding.Physical
+		nonMT       bool
 		wantEpoch   string // "" = fresh (must differ from every recorded epoch)
 		wantCleaned []string
 		wantUnits   map[string]string
@@ -414,7 +476,7 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
 		},
 		{
-			name: "active same-epoch ancestor contributes nothing",
+			name: "active same-epoch task contributes nothing",
 			tasks: []*distributedtask.Task{
 				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
 				epochTask(t, "C", "t2", "E1", 2, distributedtask.TaskStatusStarted, []string{"s2"}, nil),
@@ -425,7 +487,7 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
 		},
 		{
-			name: "FAILED ancestor contributes nothing",
+			name: "FAILED task contributes nothing",
 			tasks: []*distributedtask.Task{
 				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
 				epochTask(t, "C", "t2", "E1", 2, distributedtask.TaskStatusFailed, []string{"s2"}, nil),
@@ -472,6 +534,16 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
 		},
 		{
+			// Non-MT shards carry no tenant status; the chain rules apply the same.
+			name:        "non-MT collection: incomplete chain inherits and skips cleaned",
+			tasks:       []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
+			shards:      map[string]sharding.Physical{"s1": {BelongsToNodes: []string{"n1"}}, "s2": {BelongsToNodes: []string{"n1"}}},
+			nonMT:       true,
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2"},
+		},
+		{
 			name:       "all active shards cleaned, remainder cold: defer without a task",
 			tasks:      []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
 			shards:     map[string]sharding.Physical{"s1": hot("n1"), "s2": cold("n1")},
@@ -484,7 +556,7 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
 				db.DropVectorIndexNamespace: tt.tasks,
 			}}
-			state := &fakeShardingState{state: shardingState(true, tt.shards)}
+			state := &fakeShardingState{state: shardingState(!tt.nonMT, tt.shards)}
 			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
 
 			require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
@@ -508,25 +580,4 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			require.Equal(t, tt.wantUnits, p.UnitToShard)
 		})
 	}
-}
-
-func TestDropVectorReconcileIntervalFromEnv(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
-	t.Run("default when unset", func(t *testing.T) {
-		t.Setenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", "")
-		require.Equal(t, dropVectorReconcileInterval, dropVectorReconcileIntervalFromEnv(logger))
-	})
-
-	t.Run("override", func(t *testing.T) {
-		t.Setenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", "5")
-		require.Equal(t, 5*time.Second, dropVectorReconcileIntervalFromEnv(logger))
-	})
-
-	t.Run("invalid values fall back to the default", func(t *testing.T) {
-		for _, raw := range []string{"garbage", "0", "-30"} {
-			t.Setenv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", raw)
-			require.Equal(t, dropVectorReconcileInterval, dropVectorReconcileIntervalFromEnv(logger), raw)
-		}
-	})
 }

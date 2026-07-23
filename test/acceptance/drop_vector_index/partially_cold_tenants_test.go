@@ -120,14 +120,5 @@ func testPartiallyColdTenants() func(t *testing.T) {
 		t.Run("6 with all 4 tenants cleaned (1 cold again) the drop completes", func(t *testing.T) {
 			eventuallyTargetVectorRemoved(t, className, dropped)
 		})
-
-		t.Run("7 diagnostic: re-activating the cleaned cold tenant heals", func(t *testing.T) {
-			got := helper.GetClass(t, className)
-			if _, present := got.VectorConfig[dropped]; !present {
-				t.Skip("already finalized in step 6")
-			}
-			setTenantStatusEventually(t, className, tenants[2], models.TenantActivityStatusHOT)
-			eventuallyTargetVectorRemoved(t, className, dropped)
-		})
 	}
 }

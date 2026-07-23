@@ -13,7 +13,6 @@ package db
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -139,8 +138,50 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 func (p *DropVectorIndexProvider) completedDropVoucher(className, vec string, shards []string,
 	existingTasks []*distributedtask.Task,
 ) (vouched, coversVec bool, uncovered []string) {
+	swappingOnly := func(s distributedtask.TaskStatus) bool { return s == distributedtask.TaskStatusSwapping }
+	p.eachDropCovering(className, vec, existingTasks, swappingOnly,
+		func(task *distributedtask.Task, existP *DropVectorIndexTaskPayload) bool {
+			coversVec = true
+			missing := ShardsNotCovered(shards, existP.CoveredShards())
+			if len(missing) == 0 {
+				vouched, uncovered = true, nil
+				return false // done
+			}
+			if uncovered == nil || len(missing) < len(uncovered) {
+				uncovered = missing
+			}
+			return true
+		})
+	return vouched, coversVec, uncovered
+}
+
+// stillStrippingStatus matches pre-SWAPPING tasks; they block removal.
+func stillStrippingStatus(s distributedtask.TaskStatus) bool {
+	return s.IsActive() && s != distributedtask.TaskStatusSwapping
+}
+
+// dropCovers reports whether a drop-vector task matching statusMatch covers vec
+// on className. Unparseable payloads warn and are skipped (fail-open).
+func (p *DropVectorIndexProvider) dropCovers(className, vec string, existingTasks []*distributedtask.Task,
+	statusMatch func(distributedtask.TaskStatus) bool,
+) (id string, found bool) {
+	p.eachDropCovering(className, vec, existingTasks, statusMatch,
+		func(task *distributedtask.Task, _ *DropVectorIndexTaskPayload) bool {
+			id, found = task.ID, true
+			return false // done
+		})
+	return id, found
+}
+
+// eachDropCovering invokes fn for every task matching statusMatch whose payload
+// covers vec on className, until fn returns false. Unparseable payloads warn
+// and are skipped (fail-open).
+func (p *DropVectorIndexProvider) eachDropCovering(className, vec string,
+	existingTasks []*distributedtask.Task, statusMatch func(distributedtask.TaskStatus) bool,
+	fn func(*distributedtask.Task, *DropVectorIndexTaskPayload) bool,
+) {
 	for _, task := range existingTasks {
-		if task.Status != distributedtask.TaskStatusSwapping {
+		if !statusMatch(task.Status) {
 			continue
 		}
 		existP, err := decodeDropVectorIndexPayload(task.Payload)
@@ -155,53 +196,10 @@ func (p *DropVectorIndexProvider) completedDropVoucher(className, vec string, sh
 		if len(intersectTargets(existP.Targets, []string{vec})) == 0 {
 			continue
 		}
-		coversVec = true
-		covered := existP.CoveredShards()
-		var missing []string
-		for _, shard := range shards {
-			if _, ok := covered[shard]; !ok {
-				missing = append(missing, shard)
-			}
-		}
-		if len(missing) == 0 {
-			return true, true, nil
-		}
-		if uncovered == nil || len(missing) < len(uncovered) {
-			sort.Strings(missing)
-			uncovered = missing
+		if !fn(task, existP) {
+			return
 		}
 	}
-	return false, coversVec, uncovered
-}
-
-// stillStrippingStatus matches pre-SWAPPING tasks; they block removal.
-func stillStrippingStatus(s distributedtask.TaskStatus) bool {
-	return s.IsActive() && s != distributedtask.TaskStatusSwapping
-}
-
-// dropCovers reports whether a drop-vector task matching statusMatch covers vec
-// on className. Unparseable payloads warn and are skipped (fail-open).
-func (p *DropVectorIndexProvider) dropCovers(className, vec string, existingTasks []*distributedtask.Task,
-	statusMatch func(distributedtask.TaskStatus) bool,
-) (string, bool) {
-	for _, task := range existingTasks {
-		if !statusMatch(task.Status) {
-			continue
-		}
-		existP, err := decodeDropVectorIndexPayload(task.Payload)
-		if err != nil {
-			p.logger.WithField("task", task.ID).
-				Warnf("drop-vector: skipping task with unparseable payload in removal gate: %v", err)
-			continue
-		}
-		if !strings.EqualFold(existP.Collection, className) {
-			continue
-		}
-		if len(intersectTargets(existP.Targets, []string{vec})) > 0 {
-			return task.ID, true
-		}
-	}
-	return "", false
 }
 
 // LocalCallbacksDone implements distributedtask.RecoveryAwareProvider. It returns
