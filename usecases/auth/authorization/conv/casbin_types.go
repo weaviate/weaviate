@@ -233,7 +233,7 @@ func CasbinAliases(collection, alias string) string {
 	return fmt.Sprintf("%s/collections/%s/aliases/%s", authorization.AliasesDomain, collection, alias)
 }
 
-func CasbinData(collection, shard, object string) string {
+func CasbinData(collection, shard string) string {
 	collection = schema.UppercaseClassesNames(collection)[0]
 	if collection == "" {
 		collection = "*"
@@ -241,13 +241,9 @@ func CasbinData(collection, shard, object string) string {
 	if shard == "" {
 		shard = "*"
 	}
-	if object == "" {
-		object = "*"
-	}
 	collection = casbinSegment(collection)
 	shard = casbinSegment(shard)
-	object = casbinSegment(object)
-	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/.*", authorization.DataDomain, collection, shard)
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
@@ -350,17 +346,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
-		object := "*"
 		if permission.Data != nil && permission.Data.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Data.Collection)
 		}
 		if permission.Data != nil && permission.Data.Tenant != nil {
 			tenant = *permission.Data.Tenant
 		}
-		if permission.Data != nil && permission.Data.Object != nil {
-			object = *permission.Data.Object
-		}
-		resource = CasbinData(collection, tenant, object)
+		resource = CasbinData(collection, tenant)
 	case authorization.BackupsDomain:
 		collection := "*"
 		if permission.Backups != nil {
@@ -476,11 +468,10 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 	case authorization.DataDomain:
 		collection := unwrapCasbinSegment(splits[2])
 		tenant := unwrapCasbinSegment(splits[4])
-		object := unwrapCasbinSegment(splits[6])
 		permission.Data = &models.PermissionData{
 			Collection: &collection,
 			Tenant:     &tenant,
-			Object:     &object,
+			Object:     authorization.All,
 		}
 	case authorization.RolesDomain:
 		role := unwrapCasbinSegment(splits[1])

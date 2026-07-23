@@ -37,7 +37,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class = schema.UppercaseClassName(class)
 	class, _ = m.resolveAlias(class)
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant))
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", tenant, ""))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", tenant))
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 		objects,
 		authorization.READ,
 		func(obj *models.Object) string {
-			return authorization.Objects(obj.Class, tenant, obj.ID)
+			return authorization.Objects(obj.Class, tenant)
 		},
 	)
 
@@ -95,7 +95,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", "", id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", ""))
 	if err != nil {
 		return nil, err
 	}

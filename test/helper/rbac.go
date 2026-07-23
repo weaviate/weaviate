@@ -422,14 +422,6 @@ func (p *DataPermission) WithTenant(tenant string) *DataPermission {
 	return p
 }
 
-func (p *DataPermission) WithObject(object string) *DataPermission {
-	if p.Data == nil {
-		p.Data = &models.PermissionData{}
-	}
-	p.Data.Object = authorization.String(object)
-	return p
-}
-
 func (p *DataPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm

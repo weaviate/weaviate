@@ -17,8 +17,6 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
-	"github.com/go-openapi/strfmt"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
@@ -401,12 +399,12 @@ func CollectionsData(classes ...string) []string {
 	classes = schema.UppercaseClassesNames(classes...)
 
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{Objects("*", "*", "*")}
+		return []string{Objects("*", "*")}
 	}
 
 	var paths []string
 	for _, class := range classes {
-		paths = append(paths, Objects(class, "*", "*"))
+		paths = append(paths, Objects(class, "*"))
 	}
 	return paths
 }
@@ -454,27 +452,21 @@ func ShardsData(class string, shards ...string) []string {
 	class = schema.UppercaseClassesNames(class)[0]
 	var paths []string
 	for _, shard := range shards {
-		paths = append(paths, Objects(class, shard, "*"))
+		paths = append(paths, Objects(class, shard))
 	}
 	return paths
 }
 
 // Objects generates a string representing a path to objects within a collection and shard.
-// The path format varies based on the provided class, shard, and id parameters.
+// Object-level RBAC is not supported — the objects segment is always wildcarded.
 //
 // Parameters:
 // - class: the class of the collection (string)
 // - shard: the shard identifier (string)
-// - id: the unique identifier of the object (strfmt.UUID)
 //
 // Returns:
 // - A string representing the path to the objects, with wildcards (*) used for any empty parameters.
-//
-// Example outputs:
-// - "collections/*/shards/*/objects/*" if all parameters are empty
-// - "collections/*/shards/*/objects/{id}" if only id is provided
-// - "collections/{class}/shards/{shard}/objects/{id}" if all parameters are provided
-func Objects(class, shard string, id strfmt.UUID) string {
+func Objects(class, shard string) string {
 	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
@@ -482,10 +474,7 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	if shard == "" {
 		shard = "*"
 	}
-	if id == "" {
-		id = "*"
-	}
-	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", DataDomain, class, shard, id)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/*", DataDomain, class, shard)
 }
 
 // Backups generates a resource string for the given classes.

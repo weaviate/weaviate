@@ -531,7 +531,7 @@ func TestAuthorizeResourceAggregation(t *testing.T) {
 
 	resource, ok := perm["resource"].(string)
 	require.True(t, ok, "resource should be a string")
-	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]", resource)
+	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *]", resource)
 
 	// Verify aggregation by checking that we have fewer log entries than resources
 	// This proves that 1000 identical resources were aggregated into 1 log entry
@@ -602,7 +602,7 @@ func TestFilterAuthorizedResourcesAggregation(t *testing.T) {
 
 	resource, ok := perm["resource"].(string)
 	require.True(t, ok, "resource should be a string")
-	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *, Object: *]", resource)
+	assert.Equal(t, "[Domain: data, Collection: ContactRecommendations, Tenant: *]", resource)
 
 	results, ok := perm["results"].(string)
 	require.True(t, ok, "results should be a string")
