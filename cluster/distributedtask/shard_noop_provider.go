@@ -306,6 +306,15 @@ func (p *ShardNoopProvider) syntheticMarkerDir() string {
 	return filepath.Join(p.dataRoot, ".dtm")
 }
 
+// resolveProcessingDelay maps the payload's per-unit processing delay to a
+// duration, defaulting to 100ms when unset.
+func (p *ShardNoopProvider) resolveProcessingDelay(payload ShardNoopProviderPayload) time.Duration {
+	if payload.ProcessingDelayMs == 0 {
+		return 100 * time.Millisecond
+	}
+	return time.Duration(payload.ProcessingDelayMs) * time.Millisecond
+}
+
 func (p *ShardNoopProvider) processUnits(task *Task, handle *shardNoopTaskHandle) {
 	var payload ShardNoopProviderPayload
 	if len(task.Payload) > 0 {
@@ -341,11 +350,7 @@ func (p *ShardNoopProvider) processUnits(task *Task, handle *shardNoopTaskHandle
 		}
 	}
 
-	// Determine processing delay (default 100ms).
-	processingDelay := time.Duration(payload.ProcessingDelayMs) * time.Millisecond
-	if processingDelay == 0 {
-		processingDelay = 100 * time.Millisecond
-	}
+	processingDelay := p.resolveProcessingDelay(payload)
 
 	p.logger.WithField("nodeID", p.nodeID).WithField("taskID", task.ID).
 		WithField("unitCount", len(task.Units)).WithField("localShardSet", localShardSet).

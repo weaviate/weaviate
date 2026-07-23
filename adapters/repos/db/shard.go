@@ -102,17 +102,17 @@ type ShardLike interface {
 	CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error)
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
-	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
+	HaltForTransfer(ctx context.Context, owner string, offloading bool, inactivityTimeout time.Duration) error
 	// MayResetTransferInactivityTimer counts external transfer activity
 	// against the halt watchdog. No-op on unhalted shards.
 	MayResetTransferInactivityTimer()
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property)
-	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
-	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
+	CreateBackupSnapshot(ctx context.Context, owner string, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
+	CreateReplicaSnapshot(ctx context.Context, owner string, stagingRoot string) ([]string, error)
 	ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
-	resumeMaintenanceCycles(ctx context.Context) error
+	resumeMaintenanceCycles(ctx context.Context, owner string) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
@@ -353,8 +353,17 @@ type Shard struct {
 	haltForTransferMux                sync.Mutex
 	haltForTransferInactivityTimeout  time.Duration
 	haltForTransferInactivityDeadline time.Time
-	haltForTransferCount              int
-	haltForTransferCtxCancel          context.CancelFunc
+	// haltForTransferOwners maps an owner key to the number of live halts that
+	// owner holds on this shard. The summed value (haltTotalLocked) is the total
+	// live halt count; total==0 means the shard is not paused for transfer.
+	// Owner-scoping a resume is what stops one operation's release from lifting a
+	// halt a different in-flight operation still holds.
+	haltForTransferOwners map[string]int
+	// haltForTransferInactivityOwners is the set of owners that armed the inactivity
+	// watchdog (halted with inactivityTimeout>0). On a watchdog fire every owner in
+	// this set is force-resumed; owners that never armed (backups, offload) survive.
+	haltForTransferInactivityOwners map[string]struct{}
+	haltForTransferCtxCancel        context.CancelFunc
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

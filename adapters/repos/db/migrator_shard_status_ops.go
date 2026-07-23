@@ -121,8 +121,10 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
+			owner := offloadHaltOwner(name)
+
 			if shard != nil {
-				if err := shard.HaltForTransfer(ctx, true, 0); err != nil {
+				if err := shard.HaltForTransfer(ctx, owner, true, 0); err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"action": "halt_for_transfer",
 						"error":  err,
@@ -156,6 +158,21 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 						Status: originalStatus,
 					},
 					Op: command.TenantsProcess_OP_ABORT,
+				}
+				// The abort reverts the tenant to HOT without dropping the shard,
+				// so its halt has no teardown to release it. Lift the offload's own
+				// halt here or a live, writable tenant stays paused for compaction
+				// forever (unbounded LSM/WAL growth). Resume on context.Background()
+				// (like the sibling abort paths): the operation ctx may already be
+				// cancellation-driven, and the halt must still be lifted.
+				if shard != nil {
+					if rerr := shard.resumeMaintenanceCycles(context.Background(), owner); rerr != nil {
+						m.logger.WithFields(logrus.Fields{
+							"action": "resume_maintenance_after_offload_abort",
+							"name":   class,
+							"tenant": name,
+						}).Errorf("resume maintenance after offload abort: %v", rerr)
+					}
 				}
 			} else {
 				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{

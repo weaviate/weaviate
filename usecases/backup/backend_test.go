@@ -36,6 +36,25 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
+// Pins the operation identity the owner-scoped halt relies on: the uploader
+// mints its op ONCE (so BackupDescriptors and every ReleaseBackup carry the same
+// Op), and a same-ID cancel->retry — which builds a NEW uploader — mints a
+// DISTINCT fence, so a prior release cannot resume the retry's halts even though
+// the ID matches.
+func TestNewUploaderMintsDistinctOp(t *testing.T) {
+	mk := func() *uploader {
+		return newUploader(config.Backup{}, nil, nil, nil, nil, nodeStore{}, "same-id",
+			func(backup.Status) {}, logrus.New())
+	}
+
+	u1, u2 := mk(), mk()
+	require.Equal(t, "same-id", u1.op.ID)
+	require.NotEmpty(t, u1.op.Fence, "each backup operation must mint a fence")
+	require.Equal(t, u1.op.ID, u2.op.ID, "same-ID retries share the ID")
+	require.NotEqual(t, u1.op, u2.op,
+		"a same-ID retry (new uploader) must be a distinct Op — the fence differs")
+}
+
 func TestCalculateShardPreCompressionSize(t *testing.T) {
 	// Create a temporary directory for test files
 	tempDir := t.TempDir()

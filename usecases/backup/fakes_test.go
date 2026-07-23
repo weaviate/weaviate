@@ -56,8 +56,8 @@ type fakeSourcer struct {
 	mock.Mock
 }
 
-func (s *fakeSourcer) ReleaseBackup(ctx context.Context, id, class string) error {
-	args := s.Called(ctx, id, class)
+func (s *fakeSourcer) ReleaseBackup(ctx context.Context, op backup.Op, class string) error {
+	args := s.Called(ctx, op, class)
 	return args.Error(0)
 }
 
@@ -66,9 +66,9 @@ func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
 	return args.Error(0)
 }
 
-func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
+func (s *fakeSourcer) BackupDescriptors(ctx context.Context, op backup.Op, classes []string, baseDescr []*backup.BackupDescriptor,
 ) <-chan backup.ClassDescriptor {
-	args := s.Called(ctx, bakid, classes, baseDescr)
+	args := s.Called(ctx, op, classes, baseDescr)
 	return args.Get(0).(<-chan backup.ClassDescriptor)
 }
 

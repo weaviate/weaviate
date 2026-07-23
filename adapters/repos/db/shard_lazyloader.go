@@ -590,11 +590,11 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 	return nil
 }
 
-func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
+func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, owner string, offloading bool, inactivityTimeout time.Duration) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
+	return l.shard.HaltForTransfer(ctx, owner, offloading, inactivityTimeout)
 }
 
 // Skips Load: a never-loaded shard can't be halted, so there's no timer.
@@ -614,18 +614,18 @@ func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDe
 	return l.shard.ListBackupFiles(ctx, ret)
 }
 
-func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, owner string, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
+	return l.shard.CreateBackupSnapshot(ctx, owner, sd, stagingRoot)
 }
 
-func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {
+func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, owner string, stagingRoot string) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.CreateReplicaSnapshot(ctx, stagingRoot)
+	return l.shard.CreateReplicaSnapshot(ctx, owner, stagingRoot)
 }
 
 func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
@@ -635,11 +635,11 @@ func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoo
 	return l.shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
 }
 
-func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
+func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context, owner string) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.resumeMaintenanceCycles(ctx)
+	return l.shard.resumeMaintenanceCycles(ctx, owner)
 }
 
 func (l *LazyLoadShard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {

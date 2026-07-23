@@ -41,7 +41,7 @@ import (
 )
 
 // Pins the shared-halt lost-write bug: when a second transfer consumer halts a
-// shard that is already halted (haltForTransferCount>1), HaltForTransfer used to
+// shard that is already halted (haltTotalLocked>1), HaltForTransfer used to
 // early-return without re-sealing. A write that landed after the first
 // consumer's flush lived only in the active memtable/WAL — excluded from
 // ListBackupFiles — so the second consumer's snapshot silently dropped it.
@@ -80,8 +80,8 @@ func TestReplicaSnapshotSharedHaltSealsLateWrites(t *testing.T) {
 			putSharedHaltObject(t, index, obj1, 0)
 
 			// op A: first halt, never resumed — count stays 1, holds the shard.
-			require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
-			defer func() { _ = shard.resumeMaintenanceCycles(ctx) }()
+			require.NoError(t, shard.HaltForTransfer(ctx, "test:opA", false, 0))
+			defer func() { _ = shard.resumeMaintenanceCycles(ctx, "test:opA") }()
 
 			var openOps []string
 			defer func() {
@@ -130,24 +130,26 @@ func TestHaltForTransferSharedHaltPrepErrorKeepsShardHalted(t *testing.T) {
 	ctx := context.Background()
 
 	// op A holds the shard.
-	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, "test:opA", false, 0))
 
-	// op B's second halt seals with an already-cancelled context; at count>1 the
-	// pause steps are gated out, so only the seal steps run and FlushMemtables
-	// (cyclemanager Deactivate) returns ctx.Err() deterministically.
+	// op B's second halt (distinct owner) seals with an already-cancelled context;
+	// at total>1 the pause steps are gated out, so only the seal steps run and
+	// FlushMemtables (cyclemanager Deactivate) returns ctx.Err() deterministically.
 	cancelledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	require.Error(t, shard.HaltForTransfer(cancelledCtx, false, 0))
+	require.Error(t, shard.HaltForTransfer(cancelledCtx, "test:opB", false, 0))
 
 	shard.haltForTransferMux.Lock()
-	require.Equal(t, 1, shard.haltForTransferCount,
-		"failed count>1 halt must roll back 2->1, leaving op A's hold intact")
+	require.Equal(t, 1, shard.haltTotalLocked(),
+		"failed total>1 halt must roll back its own owner, leaving op A's hold intact")
+	require.Equal(t, 1, shard.haltForTransferOwners["test:opA"],
+		"op A's halt must survive op B's failed halt")
 	shard.haltForTransferMux.Unlock()
 
 	// op A's halt is intact and resumes cleanly to fully unhalted.
-	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx, "test:opA"))
 	shard.haltForTransferMux.Lock()
-	require.Equal(t, 0, shard.haltForTransferCount)
+	require.Equal(t, 0, shard.haltTotalLocked())
 	shard.haltForTransferMux.Unlock()
 }
 

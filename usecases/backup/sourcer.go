@@ -21,8 +21,9 @@ import (
 type Sourcer interface { // implemented by the index
 	// ReleaseBackup signals to the underlying index that the files have been
 	// copied (or the operation aborted), and that it is safe for the index to
-	// change the files, such as start compactions.
-	ReleaseBackup(_ context.Context, id, class string) error
+	// change the files, such as start compactions. op fences the release to the
+	// halts its own operation instance placed, so it only resumes its own.
+	ReleaseBackup(_ context.Context, op backup.Op, class string) error
 
 	// Backupable returns whether all given class can be backed up.
 	Backupable(_ context.Context, classes []string) error
@@ -32,6 +33,7 @@ type Sourcer interface { // implemented by the index
 	// If an error happens a descriptor with an error will be written to the channel just before closing it.
 	//
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
-	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
+	// op tags every shard halt this operation places so its release can scope the resume to exactly them.
+	BackupDescriptors(_ context.Context, op backup.Op, classes []string, baseDescr []*backup.BackupDescriptor,
 	) <-chan backup.ClassDescriptor
 }

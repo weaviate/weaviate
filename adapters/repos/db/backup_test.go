@@ -402,9 +402,10 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 			idx.backupProtectedShards.Store(name, struct{}{})
 		}
 		// Set backup state so ReleaseBackup has something to reset.
-		idx.lastBackup.Store(&BackupState{BackupID: "test-backup", InProgress: true})
+		op := backup.NewOp("test-backup")
+		idx.lastBackup.Store(&BackupState{Op: op, InProgress: true})
 
-		err := idx.ReleaseBackup(ctx, "test-backup")
+		err := idx.ReleaseBackup(ctx, op)
 		require.NoError(t, err)
 
 		// Verify all protection flags are cleared.
@@ -532,7 +533,7 @@ func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	// FROZEN tenant: no directory at all.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, backup.NewOp("test-backup"), &desc, nil)
 	require.NoError(t, err)
 
 	// Only COLD should be in desc.Shards — FROZEN is omitted.
@@ -579,7 +580,7 @@ func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, backup.NewOp("test-backup"), &desc, nil)
 	require.NoError(t, err)
 	require.Len(t, desc.Shards, 1)
 
@@ -631,7 +632,7 @@ func TestDescriptorAllFrozenTenants(t *testing.T) {
 	// No directories, no shards in map.
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, backup.NewOp("test-backup"), &desc, nil)
 	require.NoError(t, err)
 	assert.Empty(t, desc.Shards, "all-FROZEN collection should have no shard descriptors")
 
@@ -653,11 +654,11 @@ func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
 	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
 
 	// First backup: set state.
-	require.NoError(t, idx.initBackup("backup-1"))
+	require.NoError(t, idx.initBackup(backup.NewOp("backup-1")))
 
 	// Second backup: should fail.
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(context.Background(), "backup-2", &desc, nil)
+	err := idx.descriptor(context.Background(), backup.NewOp("backup-2"), &desc, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet released")
 }
@@ -676,15 +677,15 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 	createColdShardFiles(t, rootDir, className, "cold-tenant")
 
 	var desc backup.ClassDescriptor
-	backupID := "test-backup"
-	err := idx.descriptor(ctx, backupID, &desc, nil)
+	op := backup.NewOp("test-backup")
+	err := idx.descriptor(ctx, op, &desc, nil)
 	require.NoError(t, err)
 
 	stagingDir := desc.StagingDir
 	require.DirExists(t, stagingDir)
 
 	// Release should clean up.
-	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+	require.NoError(t, idx.ReleaseBackup(ctx, op))
 	assert.NoDirExists(t, stagingDir, "staging dir should be removed after ReleaseBackup")
 	assert.Nil(t, idx.lastBackup.Load(), "backup state should be reset")
 }
@@ -726,8 +727,8 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		// path before releasing shardCreateLocks. See weaviate/0-weaviate-issues#234.
 		mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
 		mockShard.EXPECT().
-			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, _ string, sd *backup.ShardDescriptor, _ string) ([]string, error) {
 				sd.Name = name
 				sd.Node = "node1"
 				return files, nil
@@ -741,7 +742,7 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	}
 
 	var desc backup.ClassDescriptor
-	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	err := idx.descriptor(ctx, backup.NewOp("test-backup"), &desc, nil)
 	require.NoError(t, err)
 
 	require.Len(t, desc.Shards, len(hotTenants)+len(coldTenants),
@@ -806,8 +807,8 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 		close(releaseCalled)
 	}, nil)
 	mockShard.EXPECT().
-		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, sd *backup.ShardDescriptor, _ string) ([]string, error) {
 			sd.Name = shardName
 			sd.Node = "node1"
 			close(snapshotStarted)
@@ -822,7 +823,7 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	}
 	backupDone := make(chan backupResult, 1)
 	go func() {
-		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, backup.NewOp("test-backup"), nil, t.TempDir())
 		backupDone <- backupResult{sd: sd, err: err}
 	}()
 
@@ -879,7 +880,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	mockShard.EXPECT().preventShutdown().Return(nil, errors.New("shard is shutting down"))
 	idx.shards.Store(shardName, mockShard)
 
-	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, backup.NewOp("test-backup"), nil, t.TempDir())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prevent shutdown")
 
