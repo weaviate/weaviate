@@ -114,6 +114,8 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK = 307;
     TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK = 308;
     TYPE_DISTRIBUTED_TASK_MARK_FAILED = 309;
+
+    TYPE_CLUSTER_ID_SET = 400;
   }
   Type type = 1;
   string class = 2;
@@ -360,4 +362,10 @@ message RecordDistributedTaskPreparationCompleteAckRequest {
   bool success = 5;
   string error = 6;
   int64 acked_at_unix_millis = 7;
+}
+
+// SetClusterIDRequest carries the stable cluster identity committed once per
+// cluster lifetime via TYPE_CLUSTER_ID_SET.
+message SetClusterIDRequest {
+  string cluster_id = 1;
 }

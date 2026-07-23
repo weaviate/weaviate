@@ -130,7 +130,7 @@ func TestCycleManager_beforeTimeoutWithWait(t *testing.T) {
 
 		err := cm.StopAndWait(timeoutCtx)
 
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.False(t, cm.Running())
 		assert.Equal(t, "something wonderful...", <-p.results)
 	})
@@ -244,7 +244,7 @@ func TestCycleManager_doesNotStartMultipleTimesWithWait(t *testing.T) {
 
 		err := cm.StopAndWait(context.Background())
 
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.False(t, cm.Running())
 		// just one result produced
 		assert.Equal(t, 1, len(p.results))
@@ -365,7 +365,7 @@ func TestCycleManager_cycleCallbackStoppedDueToFrequentStopChecks(t *testing.T) 
 
 		err := cm.StopAndWait(timeoutCtx)
 
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.False(t, cm.Running())
 		assert.Equal(t, 0, len(p.results))
 	})
