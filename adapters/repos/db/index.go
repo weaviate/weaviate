@@ -50,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -3227,27 +3228,59 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	return ec.ToError()
 }
 
+// stopCycleManagers asks every cycle to stop before waiting for any of them, so
+// one slow cycle cannot use up ctx before the others were asked. The index is
+// being closed or deleted, so the cycles are stopped even when ctx already
+// expired; ctx only bounds how long we wait. Joining keeps each failure matchable.
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
-	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop objects compaction cycle: %w", usecase, err)
+	// which data each compaction cycle covers depends on SeparateObjectsCompactions
+	compaction, compactionAux := "compaction", "auxiliary compaction"
+	if i.Config.SeparateObjectsCompactions {
+		compaction, compactionAux = "non objects compaction", "objects compaction"
 	}
-	if err := i.cycleCallbacks.compactionAuxCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop non objects compaction cycle: %w", usecase, err)
+
+	cycles := []struct {
+		name  string
+		cycle cyclemanager.CycleManager
+	}{
+		{compaction, i.cycleCallbacks.compactionCycle},
+		{compactionAux, i.cycleCallbacks.compactionAuxCycle},
+		{"flush", i.cycleCallbacks.flushCycle},
+		{"vector commit logger", i.cycleCallbacks.vectorCommitLoggerCycle},
+		{"vector tombstone cleanup", i.cycleCallbacks.vectorTombstoneCleanupCycle},
+		{"geo props commit logger", i.cycleCallbacks.geoPropsCommitLoggerCycle},
+		{"geo props tombstone cleanup", i.cycleCallbacks.geoPropsTombstoneCleanupCycle},
 	}
-	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop flush cycle: %w", usecase, err)
+
+	stopResults := make([]chan bool, len(cycles))
+	for j, c := range cycles {
+		stopResults[j] = c.cycle.Stop(context.Background())
 	}
-	if err := i.cycleCallbacks.vectorCommitLoggerCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop vector commit logger cycle: %w", usecase, err)
+
+	var errs []error
+	for j, c := range cycles {
+		if err := waitForCycleStop(ctx, stopResults[j]); err != nil {
+			errs = append(errs, fmt.Errorf("%s: stop %s cycle: %w", usecase, c.name, err))
+		}
 	}
-	if err := i.cycleCallbacks.vectorTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop vector tombstone cleanup cycle: %w", usecase, err)
+	return stderrors.Join(errs...)
+}
+
+// waitForCycleStop waits for a stop result, preferring it over an expired ctx when
+// both are ready, so a cycle that did stop is not reported as a failure.
+func waitForCycleStop(ctx context.Context, stopResult chan bool) error {
+	var stopped bool
+	select {
+	case stopped = <-stopResult:
+	default:
+		select {
+		case stopped = <-stopResult:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	if err := i.cycleCallbacks.geoPropsCommitLoggerCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop geo props commit logger cycle: %w", usecase, err)
-	}
-	if err := i.cycleCallbacks.geoPropsTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop geo props tombstone cleanup cycle: %w", usecase, err)
+	if !stopped {
+		return stderrors.New("cycle kept running")
 	}
 	return nil
 }
