@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
@@ -68,9 +69,11 @@ type reindexSubmitLockProvider interface {
 
 type schemaHandlers struct {
 	manager             *schemaUC.Manager
+	authorizer          authorization.Authorizer
 	metricRequestsTotal restApiRequestsTotal
 	reindexTaskLister   reindexInFlightChecker
 	reindexSubmitLocks  reindexSubmitLockProvider
+	logger              logrus.FieldLogger
 	namespacesEnabled   bool
 }
 
@@ -219,6 +222,25 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}
 
+	// Authorize BEFORE the conflict pre-flight below: the pre-flight can
+	// leak the ID of a foreign in-flight task to an unprivileged caller,
+	// and manager.DeleteClassPropertyIndex only authorizes deep inside its
+	// own body — after the pre-flight has already run. Same action+resource
+	// the manager enforces. nil-safe for tests constructing schemaHandlers
+	// directly.
+	if s.authorizer != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.UPDATE,
+			authorization.CollectionsMetadata(qualifiedClass)...); err != nil {
+			s.metricRequestsTotal.logError(params.ClassName, err)
+			if errors.As(err, &authzerrors.Forbidden{}) {
+				return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+					WithPayload(errPayloadFromSingleErr(principal, err))
+			}
+			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		}
+	}
+
 	// Serialize with the reindex-submit REST handler on the same
 	// (collection, property) tuple. Without this lock, a parallel
 	// PUT /v1/schema/{class}/indexes/{prop} (which submits a reindex
@@ -311,10 +333,19 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 			// Unparseable payload in flight is a hard reject reason on
 			// the apply side; mirror that here so the REST caller
 			// doesn't get a spurious "ok-then-FAILED" two-step.
+			//
+			// This fires BEFORE the collection filter below, so task.ID may
+			// name a namespace the caller can't see (StripErrorMessage strips
+			// only the caller's own). Log it server-side; return a generic
+			// message so a foreign task ID can't leak to the caller.
+			if s.logger != nil {
+				s.logger.WithField("task_id", task.ID).
+					Errorf("refusing property mutation on %s.%s: in-flight reindex task has an unparseable payload: %v", className, propertyName, err)
+			}
 			return fmt.Sprintf(
-				"in-flight reindex task %q has unparseable payload; "+
-					"refusing property mutation on %s.%s until the task "+
-					"is inspected", task.ID, className, propertyName)
+				"an in-flight reindex task has an unparseable payload; "+
+					"refusing property mutation on %s.%s until an operator "+
+					"inspects the task store", className, propertyName)
 		}
 		if !strings.EqualFold(payload.Collection, className) {
 			continue
@@ -607,12 +638,14 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
 	h := &schemaHandlers{
 		manager:             manager,
+		authorizer:          authorizer,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
+		logger:              logger,
 		namespacesEnabled:   namespacesEnabled,
 	}
 
