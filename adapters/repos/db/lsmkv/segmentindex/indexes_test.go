@@ -166,45 +166,55 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 	})
 }
 
-// TestMarshalSortedKeysFromKeys_LargeN exercises key counts that produce
-// incomplete tree levels (non-power-of-two sizes) to catch off-by-one errors
-// in BFS position mapping.
-func TestMarshalSortedKeysFromKeys_LargeN(t *testing.T) {
-	for _, n := range []int{1, 2, 3, 7, 8, 15, 16, 31, 33, 100, 255, 1000} {
-		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
-			keys := make([]Key, n)
-			nodes := make(Nodes, n)
-			keyBytes := make([][]byte, n)
-			offset := 0
-			for i := 0; i < n; i++ {
-				k := []byte(fmt.Sprintf("key-%05d", i))
-				keys[i] = Key{Key: k, ValueStart: offset, ValueEnd: offset + 10}
-				nodes[i] = Node{Key: k, Start: uint64(offset), End: uint64(offset + 10)}
-				keyBytes[i] = k
-				offset += 10
-			}
+// TestSortedKeyWritersLargeN exercises key counts that produce incomplete tree
+// levels (non-power-of-two sizes) to catch off-by-one errors in BFS position
+// mapping, and counts from 9 up, where van Emde Boas order stops coinciding with
+// level order and every node's offset depends on the reordering.
+func TestSortedKeyWritersLargeN(t *testing.T) {
+	for _, writer := range sortedKeyWriters() {
+		for _, n := range []int{1, 2, 3, 7, 8, 9, 15, 16, 31, 33, 100, 255, 1000} {
+			t.Run(fmt.Sprintf("%s/n=%d", writer.name, n), func(t *testing.T) {
+				keys := make([]Key, n)
+				offset := 0
+				for i := 0; i < n; i++ {
+					keys[i] = Key{Key: varWidthKey(i), ValueStart: offset, ValueEnd: offset + 10}
+					// Secondary keys run in the opposite order and are absent on
+					// every third key, so the secondary writer has to sort and
+					// filter rather than mirror the primary index.
+					if i%3 != 0 {
+						keys[i].SecondaryKeys = [][]byte{varWidthKey(n - 1 - i)}
+					}
+					offset += 10
+				}
 
-			// Reference path.
-			sort.Sort(nodes)
-			tree := NewBalanced(nodes)
-			var wantBuf bytes.Buffer
-			_, err := tree.MarshalBinaryInto(&wantBuf)
-			require.NoError(t, err)
+				nodes := writer.indexedNodes(keys)
+				keyBytes := make([][]byte, len(nodes))
+				for i, node := range nodes {
+					keyBytes[i] = node.Key
+				}
 
-			// New path.
-			var gotBuf bytes.Buffer
-			gotN, err := MarshalSortedKeysFromKeys(&gotBuf, keys)
-			require.NoError(t, err)
+				// Reference path.
+				sort.Sort(nodes)
+				tree := NewBalanced(nodes)
+				var wantBuf bytes.Buffer
+				_, err := tree.MarshalBinaryInto(&wantBuf)
+				require.NoError(t, err)
 
-			assert.Equal(t, int64(wantBuf.Len()), gotN)
-			requireSameTree(t, wantBuf.Bytes(), gotBuf.Bytes(), keyBytes)
+				// New path.
+				var gotBuf bytes.Buffer
+				gotN, err := writer.write(&gotBuf, keys)
+				require.NoError(t, err)
 
-			// Verify round-trip through DiskTree.
-			dTree := NewDiskTree(gotBuf.Bytes())
-			allKeys, err := dTree.AllKeys()
-			require.NoError(t, err)
-			assert.Len(t, allKeys, n)
-		})
+				assert.Equal(t, int64(wantBuf.Len()), gotN)
+				requireSameTree(t, wantBuf.Bytes(), gotBuf.Bytes(), keyBytes)
+
+				// Verify round-trip through DiskTree.
+				dTree := NewDiskTree(gotBuf.Bytes())
+				allKeys, err := dTree.AllKeys()
+				require.NoError(t, err)
+				assert.Len(t, allKeys, len(keyBytes))
+			})
+		}
 	}
 }
 

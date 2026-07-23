@@ -14,6 +14,8 @@ package segmentindex
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,6 +38,76 @@ func requireSameTree(t *testing.T, want, got []byte, keys [][]byte) {
 		require.NoError(t, wantErr, "key=%q", k)
 		require.NoError(t, gotErr, "key=%q", k)
 		require.Equal(t, wantNode, gotNode, "key=%q", k)
+	}
+}
+
+// varWidthKey returns key i of an ascending sequence whose keys differ in
+// length. Equal-length keys give every node the same size, so a wrong node-size
+// computation still yields correct offsets and the test stays green.
+func varWidthKey(i int) []byte {
+	return []byte(fmt.Sprintf("key-%05d%s", i, strings.Repeat("x", i%7)))
+}
+
+// sortedKeyWriter adapts one of the writers that serialize a sorted key slice
+// into a segment index, so one test covers all of them. Each ValueStart must
+// equal the previous ValueEnd, the first being 0, which is what
+// MarshalSortedKeys derives rather than reads.
+type sortedKeyWriter struct {
+	name string
+	// indexedNodes returns the entries this writer puts in the index: the key it
+	// indexes by, and the start and end that key must resolve to. It feeds the
+	// reference NewBalanced path the writer's output is compared against.
+	indexedNodes func(keys []Key) Nodes
+	write        func(w io.Writer, keys []Key) (int64, error)
+}
+
+func primaryNodes(keys []Key) Nodes {
+	nodes := make(Nodes, len(keys))
+	for i, key := range keys {
+		nodes[i] = Node{Key: key.Key, Start: uint64(key.ValueStart), End: uint64(key.ValueEnd)}
+	}
+	return nodes
+}
+
+func sortedKeyWriters() []sortedKeyWriter {
+	return []sortedKeyWriter{
+		{
+			name:         "MarshalSortedKeysFromKeys",
+			indexedNodes: primaryNodes,
+			write: func(w io.Writer, keys []Key) (int64, error) {
+				return MarshalSortedKeysFromKeys(w, keys)
+			},
+		},
+		{
+			name:         "MarshalSortedKeys",
+			indexedNodes: primaryNodes,
+			write: func(w io.Writer, keys []Key) (int64, error) {
+				redux := make([]KeyRedux, len(keys))
+				for i, key := range keys {
+					redux[i] = KeyRedux{Key: key.Key, ValueEnd: key.ValueEnd}
+				}
+				return MarshalSortedKeys(w, redux, 0)
+			},
+		},
+		{
+			name: "marshalSortedSecondaryFromKeys",
+			indexedNodes: func(keys []Key) Nodes {
+				var nodes Nodes
+				for _, key := range keys {
+					if len(key.SecondaryKeys) > 0 {
+						nodes = append(nodes, Node{
+							Key:   key.SecondaryKeys[0],
+							Start: uint64(key.ValueStart),
+							End:   uint64(key.ValueEnd),
+						})
+					}
+				}
+				return nodes
+			},
+			write: func(w io.Writer, keys []Key) (int64, error) {
+				return marshalSortedSecondaryFromKeys(w, keys, 0)
+			},
+		},
 	}
 }
 
@@ -324,35 +396,38 @@ func TestMarshalSortedKeysFromKeys(t *testing.T) {
 
 // TestMarshalSortedKeysVanEmdeBoasOrder pins the on-disk node order to the van
 // Emde Boas layout. For a full tree of height 4 (15 keys) it differs from level
-// order, so this fails if the writer regresses to level order. The expected
+// order, so this fails if a writer regresses to level order. The expected
 // permutation is the sorted-key indices in write order, hand-derived from the
-// vEB recursion (top block {0,1,2}, then bottom subtrees under 3,4,5,6).
+// vEB recursion (top block {0,1,2}, then bottom subtrees under 3,4,5,6). The
+// root comes first, so it sits at offset 0 where pointer-chasing readers start.
 func TestMarshalSortedKeysVanEmdeBoasOrder(t *testing.T) {
 	const n = 15
 	keys := make([]Key, n)
 	for i := 0; i < n; i++ {
-		keys[i] = Key{Key: []byte(fmt.Sprintf("key-%05d", i)), ValueStart: i, ValueEnd: i + 1}
+		// Each secondary key repeats its primary key, so all three writers index
+		// the same 15 keys in the same order and share one expected permutation.
+		k := varWidthKey(i)
+		keys[i] = Key{Key: k, ValueStart: i * 10, ValueEnd: (i + 1) * 10, SecondaryKeys: [][]byte{k}}
 	}
-
-	var buf bytes.Buffer
-	_, err := MarshalSortedKeysFromKeys(&buf, keys)
-	require.NoError(t, err)
-
-	// AllKeys walks the blob sequentially, so it returns keys in write order.
-	got, err := NewDiskTree(buf.Bytes()).AllKeys()
-	require.NoError(t, err)
 
 	vebSortedIndices := []int{7, 3, 11, 1, 0, 2, 5, 4, 6, 9, 8, 10, 13, 12, 14}
 	want := make([][]byte, n)
 	for i, idx := range vebSortedIndices {
-		want[i] = []byte(fmt.Sprintf("key-%05d", idx))
+		want[i] = varWidthKey(idx)
 	}
-	assert.Equal(t, want, got)
 
-	// The root must sit at offset 0 so pointer-chasing readers start there.
-	root, err := NewDiskTree(buf.Bytes()).Get([]byte("key-00007"))
-	require.NoError(t, err)
-	assert.Equal(t, want[0], root.Key)
+	for _, writer := range sortedKeyWriters() {
+		t.Run(writer.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			_, err := writer.write(&buf, keys)
+			require.NoError(t, err)
+
+			// AllKeys walks the blob sequentially, so it returns keys in write order.
+			got, err := NewDiskTree(buf.Bytes()).AllKeys()
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
+	}
 }
 
 // MarshalSortedKeys must place the first key's data at the caller-provided
@@ -389,6 +464,14 @@ func TestMarshalSortedKeysDataStartOffset(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(55), n.Start)
 	assert.Equal(t, uint64(70), n.End)
+}
+
+func TestMarshalSortedKeysEmptyInput(t *testing.T) {
+	var buf bytes.Buffer
+	n, err := MarshalSortedKeys(&buf, nil, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n)
+	assert.Equal(t, 0, buf.Len())
 }
 
 // A dataStartOffset past the first key's ValueEnd would serialize start > end;

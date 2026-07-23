@@ -114,51 +114,60 @@ func TestDiskTreeCorruptDataNeverPanics(t *testing.T) {
 // outgrows the CPU caches.
 //
 // Run with: go test -run x -bench BenchmarkDiskTreeGet ./adapters/repos/db/lsmkv/segmentindex/
+//
+// For a single size anchor the sub-benchmark name — an unanchored n=100000 also
+// matches n=1000000 and n=10000000:
+//
+//	go test -run x -bench 'BenchmarkDiskTreeGet/^n=100000$' ./adapters/repos/db/lsmkv/segmentindex/
 func BenchmarkDiskTreeGet(b *testing.B) {
 	for _, n := range []int{100_000, 1_000_000, 10_000_000} {
-		keys := docIDKeys(n)
-		nodes := make(Nodes, n)
-		for i := range keys {
-			nodes[i] = Node{Key: keys[i].Key, Start: uint64(keys[i].ValueStart), End: uint64(keys[i].ValueEnd)}
-		}
+		// Setup lives inside the sub-benchmark so selecting one n does not build
+		// the blobs for the others (the 10M case costs GBs and minutes).
+		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
+			keys := docIDKeys(n)
+			nodes := make(Nodes, n)
+			for i := range keys {
+				nodes[i] = Node{Key: keys[i].Key, Start: uint64(keys[i].ValueStart), End: uint64(keys[i].ValueEnd)}
+			}
 
-		levelOrder := NewBalanced(nodes)
-		var levelBuf bytes.Buffer
-		_, err := levelOrder.MarshalBinaryInto(&levelBuf)
-		require.NoError(b, err)
+			levelOrder := NewBalanced(nodes)
+			var levelBuf bytes.Buffer
+			_, err := levelOrder.MarshalBinaryInto(&levelBuf)
+			require.NoError(b, err)
 
-		var vebBuf bytes.Buffer
-		_, err = MarshalSortedKeysFromKeys(&vebBuf, keys)
-		require.NoError(b, err)
+			var vebBuf bytes.Buffer
+			_, err = MarshalSortedKeysFromKeys(&vebBuf, keys)
+			require.NoError(b, err)
 
-		// Fixed random lookup order, shared across layouts for a fair comparison.
-		// A wide probe set spreads lookups across the index so its layout, rather
-		// than a few permanently-hot pages, drives the result. Length is a power of
-		// two for the cheap index mask below.
-		rng := rand.New(rand.NewSource(int64(n)))
-		probes := make([][]byte, 65536)
-		for i := range probes {
-			probes[i] = keys[rng.Intn(n)].Key
-		}
+			// Fixed random lookup order, shared across layouts for a fair comparison.
+			// A wide probe set spreads lookups across the index so its layout, rather
+			// than a few permanently-hot pages, drives the result. Length is a power of
+			// two for the cheap index mask below.
+			rng := rand.New(rand.NewSource(int64(n)))
+			probes := make([][]byte, 65536)
+			for i := range probes {
+				probes[i] = keys[rng.Intn(n)].Key
+			}
 
-		layouts := []struct {
-			name string
-			data []byte
-		}{
-			{"level-order", levelBuf.Bytes()},
-			{"van-Emde-Boas", vebBuf.Bytes()},
-		}
-		for _, l := range layouts {
-			tree := NewDiskTree(l.data)
-			b.Run(fmt.Sprintf("n=%d/%s", n, l.name), func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					if _, err := tree.Get(probes[i&(len(probes)-1)]); err != nil {
-						b.Fatal(err)
+			layouts := []struct {
+				name string
+				data []byte
+			}{
+				{"level-order", levelBuf.Bytes()},
+				{"van-Emde-Boas", vebBuf.Bytes()},
+			}
+			for _, l := range layouts {
+				tree := NewDiskTree(l.data)
+				b.Run(l.name, func(b *testing.B) {
+					b.ReportAllocs()
+					for i := 0; i < b.N; i++ {
+						if _, err := tree.Get(probes[i&(len(probes)-1)]); err != nil {
+							b.Fatal(err)
+						}
 					}
-				}
-			})
-		}
+				})
+			}
+		})
 	}
 }
 
