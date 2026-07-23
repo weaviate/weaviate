@@ -68,11 +68,13 @@ func BenchmarkIndexesWriteTo(b *testing.B) {
 // TestMarshalSortedSecondaryFromKeys verifies that marshalSortedSecondaryFromKeys
 // builds the same tree as the NewBalanced + MarshalBinaryInto path.
 func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
+	// Secondary keys deliberately differ in length: equal-length keys give every
+	// node the same size, so a wrong node-size lookup still yields correct offsets.
 	keys := []Key{
-		{Key: []byte("aaa"), ValueStart: 0, ValueEnd: 10, SecondaryKeys: [][]byte{[]byte("zz"), []byte("mm")}},
-		{Key: []byte("bbb"), ValueStart: 10, ValueEnd: 20, SecondaryKeys: [][]byte{[]byte("aa"), []byte("zz")}},
-		{Key: []byte("ccc"), ValueStart: 20, ValueEnd: 30, SecondaryKeys: [][]byte{[]byte("mm"), []byte("aa")}},
-		{Key: []byte("ddd"), ValueStart: 30, ValueEnd: 40, SecondaryKeys: [][]byte{[]byte("ff"), []byte("ff")}},
+		{Key: []byte("aaa"), ValueStart: 0, ValueEnd: 10, SecondaryKeys: [][]byte{[]byte("zzzzzz"), []byte("m")}},
+		{Key: []byte("bbb"), ValueStart: 10, ValueEnd: 20, SecondaryKeys: [][]byte{[]byte("aa"), []byte("zzzz")}},
+		{Key: []byte("ccc"), ValueStart: 20, ValueEnd: 30, SecondaryKeys: [][]byte{[]byte("m"), []byte("aaaaaaa")}},
+		{Key: []byte("ddd"), ValueStart: 30, ValueEnd: 40, SecondaryKeys: [][]byte{[]byte("ffff"), []byte("ff")}},
 	}
 
 	for pos := 0; pos < 2; pos++ {
@@ -118,8 +120,8 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 		// Only some keys have a secondary key at pos=1.
 		partialKeys := []Key{
 			{Key: []byte("aaa"), ValueStart: 0, ValueEnd: 10, SecondaryKeys: [][]byte{[]byte("xx")}},
-			{Key: []byte("bbb"), ValueStart: 10, ValueEnd: 20, SecondaryKeys: [][]byte{[]byte("yy"), []byte("bb")}},
-			{Key: []byte("ccc"), ValueStart: 20, ValueEnd: 30, SecondaryKeys: [][]byte{[]byte("zz"), []byte("aa")}},
+			{Key: []byte("bbb"), ValueStart: 10, ValueEnd: 20, SecondaryKeys: [][]byte{[]byte("yy"), []byte("bbbbb")}},
+			{Key: []byte("ccc"), ValueStart: 20, ValueEnd: 30, SecondaryKeys: [][]byte{[]byte("zz"), []byte("a")}},
 		}
 
 		var secNodes Nodes
