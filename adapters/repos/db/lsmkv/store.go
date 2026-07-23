@@ -730,12 +730,13 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 	// CleanStalePartialReindexState at submit time).
 	//
 	// Safety vs the source bucket's eventual Shutdown: Bucket.Shutdown calls
-	// GlobalBucketRegistry.Remove(b.GetDir()) which is idempotent — removing
-	// a path that is not in the registry is a no-op, and the bucket that did
-	// claim the path between the swap and the Shutdown is not affected
+	// GlobalBucketRegistry.Remove(b.registeredPath) which is idempotent —
+	// removing a path that is not in the registry is a no-op, and the bucket
+	// that did claim the path between the swap and the Shutdown is not affected
 	// because every swap in a chain runs this same Remove, so the path is
-	// released BEFORE the next bucket claims it.
-	GlobalBucketRegistry.Remove(sourceBucket.GetDir())
+	// released BEFORE the next bucket claims it. registeredPath equals the
+	// source bucket's current dir here (no rename has run yet).
+	GlobalBucketRegistry.Remove(sourceBucket.registeredPath)
 
 	return oldBucket, nil
 }

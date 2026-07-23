@@ -54,6 +54,9 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 	)
 
 	err := filepath.WalkDir(logRoot, func(pth string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
 		if d.IsDir() {
 			return nil
 		}
