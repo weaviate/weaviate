@@ -579,43 +579,24 @@ func fillBFS(bfsToSorted []int32, targetPos, leftBound, rightBound int) {
 }
 
 // vebPositions returns the heap positions of all present nodes in disk-write
-// order, using the van Emde Boas layout. The nodes are ordered to keep each node
-// near its children in the file, so a root-to-leaf lookup stays within a few
-// pages.
+// order, using the van Emde Boas layout: cut the tree in half by height, write
+// the top subtree, then each bottom subtree, ordering every one of them the same
+// way recursively. For a full height-4 tree (positions 0..14, children of p at
+// 2p+1/2p+2) that is 0,1,2, 3,7,8, 4,9,10, 5,11,12, 6,13,14 — top subtree
+// {0,1,2}, then the four bottom subtrees {3,7,8}, {4,9,10}, {5,11,12}, {6,13,14}
+// — instead of level order's 0..14.
 //
-// Level order (write all of depth 0, then all of depth 1, ...) does the opposite:
-// a parent and its children fall in levels that grow exponentially, so they drift
-// far apart, and a deep lookup hits a new page at almost every step.
-//
-// Van Emde Boas order keeps subtrees together instead. Cut the tree in half by
-// height into one top subtree and many bottom subtrees, write the top subtree,
-// then each bottom subtree, and order each of them the same way recursively. For
-// a full height-4 tree (positions 0..14, children of p at 2p+1/2p+2) that is
-// 0,1,2, 3,7,8, 4,9,10, 5,11,12, 6,13,14 — top subtree {0,1,2}, then the four
-// bottom subtrees {3,7,8}, {4,9,10}, {5,11,12}, {6,13,14} — instead of level
-// order's 0..14. A subtree of any size then occupies one contiguous run of bytes,
-// so loading a page pulls in a whole subtree of the path rather than scattered
-// nodes.
-//
-// The cut is by height, not by page size, on purpose: each cut makes subtrees
-// about the square root in size of the level above, so their sizes fan out across
-// scales. Whatever the page size is, some level of the recursion has subtrees
-// about that big — the same layout is right for the 4 KiB page and the 64 B cache
-// line at once, with no constant to tune. A root-to-leaf lookup then crosses into
-// a new page only a handful of times.
-//
-// Page-sized blocking is the obvious alternative and was measured: it touches
-// slightly fewer pages (4.1 vs 4.9 per lookup at 10M keys) but runs ~10% slower
-// warm, because filling pages to the brim gives up cache-line locality. It also
-// needs a page size baked into the writer, which is wrong on 16 KiB-page
-// platforms, and any padding breaks AllKeys/KeyCount/ForEachKey, which assume
-// nodes are contiguous.
+// Every subtree the recursion cuts out is written as one contiguous run. Cutting
+// by height rather than by a page size means some level of the recursion always
+// has subtrees about the size of a page, whatever that page size is, so a
+// root-to-leaf lookup reads only a few pages. In level order a node and its
+// children sit exponentially far apart, so almost every step reads a new page.
 //
 // mapping[p] is >= 0 for a present node and -1 for an empty position; its length
 // is the tree capacity and must be a power of two. nodeCount is how many present
 // nodes mapping holds; it sizes the result exactly, where the capacity would
 // over-allocate it by up to 2x. The root (position 0) is always emitted first, so
-// it lands at offset 0.
+// it sits at offset 0, where readers start.
 func vebPositions(mapping []int32, nodeCount int) []int32 {
 	out := make([]int32, 0, nodeCount)
 	height := bits.Len(uint(len(mapping))) - 1 // capacity == 1<<height
@@ -640,15 +621,18 @@ func vebPositions(mapping []int32, nodeCount int) []int32 {
 }
 
 // vebOffsets assigns each present node its byte offset in the serialized output
-// by walking heap positions in write order. In van Emde Boas order write order
-// and offset order differ, so offsets need this separate pass before children can
-// be pointed at. The result is indexed by sorted index (mapping[heapPos]), so it
-// holds nodeCount entries instead of the tree capacity, which is up to 2x larger.
+// by walking heap positions in write order. Children are always written after
+// their parent, so a parent's child offsets are not known yet when it is
+// written and this pass has to run first. The result is indexed by sorted index
+// (mapping[heapPos]), so it holds nodeCount entries instead of the tree
+// capacity, which is up to 2x larger.
 //
-// It fails unless order lists every node exactly once. vebPositions prunes on an
-// empty heap position: a node it dropped would be missing from the index while its
-// parent still points at offset 0, the root, and a node listed twice would be
-// written twice.
+// Offsets run back to back with no padding, which AllKeys, KeyCount and
+// ForEachKey rely on to walk the blob sequentially.
+//
+// It fails unless order lists every node exactly once: a node missing from order
+// would keep offset -1, so its parent would read as having no child and its
+// whole subtree would be unreachable; a node listed twice would be written twice.
 func vebOffsets(order, mapping []int32, nodeCount int, nodeSize func(sortedIdx int32) int64) (offsetOf []int64, total int64, err error) {
 	offsetOf = make([]int64, nodeCount)
 	for i := range offsetOf {

@@ -135,22 +135,9 @@ func TestQuantileKeysDistribution(t *testing.T) {
 }
 
 func buildSampleDiskTree(t *testing.T, n int) *DiskTree {
-	nodes := make([]Node, 0, n)
-	for i := 0; i < n; i++ {
-		key := make([]byte, 8)
-		binary.BigEndian.PutUint64(key, uint64(i))
-		// the index positions do not matter for this test
-		start, end := uint64(0), uint64(0)
-		nodes = append(nodes, Node{Key: key, Start: start, End: end})
-	}
-
-	sort.Slice(nodes, func(a, b int) bool {
-		return bytes.Compare(nodes[a].Key, nodes[b].Key) < 0
-	})
-
-	balanced := NewBalanced(nodes)
+	balanced := NewBalanced(primaryNodes(docIDKeys(n)))
 	dt, err := balanced.MarshalBinary()
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	return NewDiskTree(dt)
 }
@@ -159,15 +146,8 @@ func buildSampleDiskTree(t *testing.T, n int) *DiskTree {
 // the production van Emde Boas writer, so readers are exercised against the
 // on-disk layout.
 func buildSampleDiskTreeVEB(t *testing.T, n int) *DiskTree {
-	keys := make([]Key, 0, n)
-	for i := 0; i < n; i++ {
-		key := make([]byte, 8)
-		binary.BigEndian.PutUint64(key, uint64(i)) // ascending, so already sorted
-		keys = append(keys, Key{Key: key})
-	}
-
 	var buf bytes.Buffer
-	_, err := MarshalSortedKeysFromKeys(&buf, keys)
+	_, err := MarshalSortedKeysFromKeys(&buf, docIDKeys(n))
 	require.NoError(t, err)
 
 	return NewDiskTree(buf.Bytes())

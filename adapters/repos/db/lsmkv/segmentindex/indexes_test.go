@@ -80,18 +80,8 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 	for pos := 0; pos < 2; pos++ {
 		t.Run(fmt.Sprintf("pos=%d equivalent to NewBalanced+MarshalBinaryInto", pos), func(t *testing.T) {
 			// Reference path: build secondary nodes, sort, build tree, marshal.
-			var secNodes Nodes
-			var secKeys [][]byte
-			for _, key := range keys {
-				if pos < len(key.SecondaryKeys) {
-					secNodes = append(secNodes, Node{
-						Key:   key.SecondaryKeys[pos],
-						Start: uint64(key.ValueStart),
-						End:   uint64(key.ValueEnd),
-					})
-					secKeys = append(secKeys, key.SecondaryKeys[pos])
-				}
-			}
+			secNodes := secondaryNodes(keys, pos)
+			secKeys := nodeKeys(secNodes)
 			sort.Sort(secNodes)
 			tree := NewBalanced(secNodes)
 			var wantBuf bytes.Buffer
@@ -124,18 +114,8 @@ func TestMarshalSortedSecondaryFromKeys(t *testing.T) {
 			{Key: []byte("ccc"), ValueStart: 20, ValueEnd: 30, SecondaryKeys: [][]byte{[]byte("zz"), []byte("a")}},
 		}
 
-		var secNodes Nodes
-		var secKeys [][]byte
-		for _, key := range partialKeys {
-			if 1 < len(key.SecondaryKeys) {
-				secNodes = append(secNodes, Node{
-					Key:   key.SecondaryKeys[1],
-					Start: uint64(key.ValueStart),
-					End:   uint64(key.ValueEnd),
-				})
-				secKeys = append(secKeys, key.SecondaryKeys[1])
-			}
-		}
+		secNodes := secondaryNodes(partialKeys, 1)
+		secKeys := nodeKeys(secNodes)
 		sort.Sort(secNodes)
 		tree := NewBalanced(secNodes)
 		var wantBuf bytes.Buffer
@@ -188,10 +168,7 @@ func TestSortedKeyWritersLargeN(t *testing.T) {
 				}
 
 				nodes := writer.indexedNodes(keys)
-				keyBytes := make([][]byte, len(nodes))
-				for i, node := range nodes {
-					keyBytes[i] = node.Key
-				}
+				keyBytes := nodeKeys(nodes)
 
 				// Reference path.
 				sort.Sort(nodes)

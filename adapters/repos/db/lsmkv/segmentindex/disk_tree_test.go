@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
-	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,23 +25,28 @@ import (
 // path (Get, Seek/Next, AllKeys) has to return NotFound or an error instead of
 // panicking on an out-of-range slice.
 func TestDiskTreeCorruptDataNeverPanics(t *testing.T) {
-	tree := NewTree(4)
-	elements := []struct {
-		key        []byte
-		start, end uint64
-	}{
-		{[]byte("foobar"), 17, 18}, // inserted first -> BST root at offset 0
-		{[]byte("abc"), 4, 5},
-		{[]byte("zzz"), 34, 35},
-		{[]byte("aaa"), 1, 2},
-		{[]byte("zzzz"), 100, 102},
+	// Sorted keys; the median ("foobar") becomes the BST root, which the van Emde
+	// Boas writer emits first and therefore places at offset 0.
+	keys := []Key{
+		{Key: []byte("aaa"), ValueStart: 1, ValueEnd: 2},
+		{Key: []byte("abc"), ValueStart: 4, ValueEnd: 5},
+		{Key: []byte("foobar"), ValueStart: 17, ValueEnd: 18},
+		{Key: []byte("zzz"), ValueStart: 34, ValueEnd: 35},
+		{Key: []byte("zzzz"), ValueStart: 100, ValueEnd: 102},
 	}
-	for _, e := range elements {
-		tree.Insert(e.key, e.start, e.end)
-	}
-	valid, err := tree.MarshalBinary()
+	var buf bytes.Buffer
+	_, err := MarshalSortedKeysFromKeys(&buf, keys)
 	require.NoError(t, err)
+	valid := buf.Bytes()
 	require.Greater(t, len(valid), TREE_KEY_STORE_OVERHEAD)
+
+	// The corruption cases below only mean something if the intact blob resolves.
+	for _, k := range keys {
+		node, err := NewDiskTree(valid).Get(k.Key)
+		require.NoError(t, err)
+		require.Equal(t, uint64(k.ValueStart), node.Start)
+		require.Equal(t, uint64(k.ValueEnd), node.End)
+	}
 
 	// queries span match, descend-left and descend-right branches plus misses.
 	queries := [][]byte{
@@ -109,9 +113,8 @@ func TestDiskTreeCorruptDataNeverPanics(t *testing.T) {
 // effect; the larger page-fault win under partial residency needs real I/O and
 // is not modelled here.
 //
-// Keys are 8-byte little-endian docIDs, matching the ever-increasing primary
-// keys of the object/vector stores, and the win grows with n as the index
-// outgrows the CPU caches.
+// Keys are 8-byte big-endian docIDs, as the binary-quantized vector store
+// writes them, and the win grows with n as the index outgrows the CPU caches.
 //
 // Run with: go test -run x -bench BenchmarkDiskTreeGet ./adapters/repos/db/lsmkv/segmentindex/
 //
@@ -125,12 +128,7 @@ func BenchmarkDiskTreeGet(b *testing.B) {
 		// the blobs for the others (the 10M case costs GBs and minutes).
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
 			keys := docIDKeys(n)
-			nodes := make(Nodes, n)
-			for i := range keys {
-				nodes[i] = Node{Key: keys[i].Key, Start: uint64(keys[i].ValueStart), End: uint64(keys[i].ValueEnd)}
-			}
-
-			levelOrder := NewBalanced(nodes)
+			levelOrder := NewBalanced(primaryNodes(keys))
 			var levelBuf bytes.Buffer
 			_, err := levelOrder.MarshalBinaryInto(&levelBuf)
 			require.NoError(b, err)
@@ -169,21 +167,4 @@ func BenchmarkDiskTreeGet(b *testing.B) {
 			}
 		})
 	}
-}
-
-// docIDKeys returns n keys shaped like the object/vector store's primary keys:
-// the little-endian uint64 of an ever-increasing docID, sorted by byte order.
-func docIDKeys(n int) []Key {
-	keys := make([]Key, n)
-	for i := 0; i < n; i++ {
-		k := make([]byte, 8)
-		binary.LittleEndian.PutUint64(k, uint64(i))
-		keys[i] = Key{Key: k}
-	}
-	slices.SortFunc(keys, func(a, b Key) int { return bytes.Compare(a.Key, b.Key) })
-	for i := range keys {
-		keys[i].ValueStart = i
-		keys[i].ValueEnd = i + 1
-	}
-	return keys
 }
