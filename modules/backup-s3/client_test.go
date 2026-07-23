@@ -167,7 +167,7 @@ func TestResolveCredentials_AuthBrokerEndpointTakesPrecedence(t *testing.T) {
 
 	setEnvVars(t, map[string]string{
 		"BACKUP_S3_AUTH_PROXY_ENDPOINT": srv.URL,
-		"AWS_WEB_IDENTITY_TOKEN_FILE":   tokenPath,
+		"AUTH_PROXY_IDENTITY_FILE":      tokenPath,
 		"AWS_ACCESS_KEY_ID":             "static-key",
 		"AWS_SECRET_ACCESS_KEY":         "static-secret",
 	})
