@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -788,24 +789,19 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
 
-	if err := h.commitLog.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
+	ec := errorcompounder.New()
+	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
+	ec.AddWrapf(h.tombstoneCleanupCallbackCtrl.Unregister(ctx), "unregister tombstone cleanup cycle")
 
-	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
-
+	// release the vectors even if the steps above failed, otherwise a failed
+	// teardown keeps the whole cache in memory
 	if h.compressed.Load() {
-		err := h.compressor.Drop()
-		if err != nil {
-			return errors.Wrap(err, "hnsw shutdown")
-		}
+		ec.AddWrapf(h.compressor.Drop(), "drop compressed store")
 	} else {
 		h.cache.Drop()
 	}
 
-	return nil
+	return ec.ToError()
 }
 
 func (h *hnsw) Flush() error {
