@@ -3329,6 +3329,12 @@ func (i *Index) drop() error {
 		return err
 	}
 
+	if i.Config.RaftReplicationEnabled && i.Config.ShardRegistry != nil {
+		if err := i.Config.ShardRegistry.DeleteRaft(i.Config.ClassName.String()); err != nil {
+			i.logger.WithFields(fields).Errorf("delete raft manager: %v", err)
+		}
+	}
+
 	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
 	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -3400,6 +3406,17 @@ func (i *Index) dropShards(names []string) error {
 
 			shard, ok := i.shards.LoadAndDelete(name)
 			if !ok {
+				// Not loaded, so no Store to stop — but the group's persisted
+				// raft state must still be purged or it resurrects on the next
+				// same-name creation. OnShardDropped handles the storeless
+				// case by group ID.
+				if i.Config.RaftReplicationEnabled && i.raft != nil {
+					if err := i.raft.OnShardDropped(name); err != nil {
+						ec.Add(err)
+						i.logger.WithField("action", "drop_shard").WithField("shard", name).
+							Errorf("raft teardown for unloaded shard %q: %v", name, err)
+					}
+				}
 				// Ensure that if the shard is not loaded we delete any reference on disk for any data.
 				// This ensures that we also delete inactive shards/tenants
 				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {

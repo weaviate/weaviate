@@ -145,6 +145,11 @@ func (s *Snapshotter) Close() error {
 	return nil
 }
 
+// Purge removes every snapshot file for a class/shard group.
+func (s *Snapshotter) Purge(className, shardName string) error {
+	return os.RemoveAll(filepath.Join(s.root, "raft-snapshots", className, shardName))
+}
+
 func (s *Snapshotter) worker() {
 	defer s.wg.Done()
 	for {

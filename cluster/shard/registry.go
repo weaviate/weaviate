@@ -280,10 +280,18 @@ func (reg *Registry) GetRaft(className string) *Raft {
 	return nil
 }
 
-// DeleteRaft removes a Raft instance when an index is dropped.
+// DeleteRaft removes a Raft instance when an index is dropped: every shard
+// Store is stopped, unregistered from message routing, and its persisted
+// group state purged (shared log + snapshot directory), so a later same-name
+// re-creation or catch-up replay cannot resurrect dead groups. Idempotent;
+// nil if no Raft exists for the class.
+//
+// Concurrent GetOrCreateRaft for the same class is serialized upstream by
+// the schema apply pipeline (a class delete fully applies before a same-name
+// create), so DeleteRaft does not guard against it.
 func (reg *Registry) DeleteRaft(className string) error {
 	if raft, ok := reg.indices.LoadAndDelete(className); ok {
-		return raft.(*Raft).Shutdown()
+		return raft.(*Raft).Drop()
 	}
 	return nil
 }

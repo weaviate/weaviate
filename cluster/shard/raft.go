@@ -13,6 +13,7 @@ package shard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -55,6 +56,8 @@ type Raft struct {
 	log    logrus.FieldLogger
 
 	stores sync.Map // key: shardName -> *Store
+
+	knownShards sync.Map // key: shardName -> struct{}
 
 	started bool
 	startMu sync.Mutex
@@ -124,6 +127,8 @@ func (r *Raft) GetOrCreateStore(
 		return nil, fmt.Errorf("per-index RAFT manager not started")
 	}
 	r.startMu.Unlock()
+
+	r.knownShards.Store(shardName, struct{}{})
 
 	// Check if store already exists
 	if existing, ok := r.stores.Load(shardName); ok {
@@ -212,10 +217,84 @@ func (r *Raft) OnShardCreated(
 	return nil
 }
 
-// OnShardDeleted handles the deletion of a shard.
-// This should be called when a shard is deleted from this node.
-func (r *Raft) OnShardDeleted(shardName string) error {
+// OnShardUnloaded handles a shard being unloaded (node shutdown, tenant
+// offload): the Store is stopped and unregistered from routing, but the
+// group's persisted state is kept — a restarting node must be able to
+// recover its groups.
+func (r *Raft) OnShardUnloaded(shardName string) error {
 	return r.StopStore(shardName)
+}
+
+// OnShardDropped tears down a shard's Store on shard drop. Unlike
+// OnShardUnloaded this is terminal: the Store is removed from routing, its
+// Ready loop stopped, and every trace of the group purged from the shared
+// log and the snapshot directory. Without the purge a same-name re-creation
+// or a schema catch-up replay resurrects the group as a ghost.
+//
+// The purge must follow the loop stop: processReady persists on the loop
+// goroutine, and Stop waits for the loop to exit, so nothing can re-append
+// the group's state after it is deleted.
+//
+// Idempotent, and the purge runs even when no Store is loaded (e.g. dropping
+// an unloaded shard), keyed by the deterministic group ID.
+func (r *Raft) OnShardDropped(shardName string) error {
+	var errs []error
+
+	r.knownShards.Delete(shardName)
+	if v, ok := r.stores.LoadAndDelete(shardName); ok {
+		store := v.(*Store)
+		if r.config.GroupRouter != nil {
+			r.config.GroupRouter.unregisterGroup(store.GroupID())
+		}
+		if err := store.Stop(); err != nil {
+			errs = append(errs, fmt.Errorf("stop store: %w", err))
+		}
+	}
+
+	gid := hashGroupID(r.config.ClassName, shardName)
+	if err := r.config.SharedLog.DeleteGroup(gid); err != nil {
+		errs = append(errs, fmt.Errorf("purge shared log group %d: %w", gid, err))
+	}
+	if err := r.config.Snapshotter.Purge(r.config.ClassName, shardName); err != nil {
+		errs = append(errs, fmt.Errorf("purge snapshot dir: %w", err))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("drop shard %s/%s: %w", r.config.ClassName, shardName, errors.Join(errs...))
+	}
+
+	r.log.WithField("shard", shardName).Info("dropped shard RAFT store and purged group state")
+	return nil
+}
+
+// Drop tears down every known shard via OnShardDropped and marks the manager
+// stopped. Unlike Shutdown, which must leave persisted state recoverable for
+// a node restart, Drop is terminal — it is the class-delete path. It sweeps
+// knownShards, not just loaded stores, so groups of shards unloaded earlier
+// in the process (e.g. COLD tenants) are purged too.
+func (r *Raft) Drop() error {
+	var errs []error
+	r.knownShards.Range(func(key, _ interface{}) bool {
+		if err := r.OnShardDropped(key.(string)); err != nil {
+			errs = append(errs, err)
+		}
+		return true
+	})
+	// Defensive: purge any store missing from knownShards. By construction
+	// stores is a subset of knownShards, so this is normally a no-op.
+	r.stores.Range(func(key, _ interface{}) bool {
+		if err := r.OnShardDropped(key.(string)); err != nil {
+			errs = append(errs, err)
+		}
+		return true
+	})
+
+	r.startMu.Lock()
+	r.started = false
+	r.startMu.Unlock()
+
+	r.log.Info("per-index RAFT manager dropped")
+	return errors.Join(errs...)
 }
 
 // OnMembershipChanged handles changes to a shard's replica membership.

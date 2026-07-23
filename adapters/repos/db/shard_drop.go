@@ -44,6 +44,16 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		"shard":  s.name,
 	}).Debug("dropping shard")
 
+	if s.index.Config.RaftReplicationEnabled && s.index.raft != nil {
+		if err := s.index.raft.OnShardDropped(s.name); err != nil {
+			s.index.logger.WithFields(logrus.Fields{
+				"action": "drop_shard",
+				"class":  s.class.Class,
+				"shard":  s.name,
+			}).Errorf("raft teardown for shard %q: %v", s.name, err)
+		}
+	}
+
 	s.clearDimensionMetrics() // not deleted in s.metrics.DeleteShardLabels
 
 	s.mayStopAsyncReplication()

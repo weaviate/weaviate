@@ -242,7 +242,20 @@ func (s *Store) Compact(groupID, idx uint64) error {
 }
 
 // DeleteGroup removes every record for the group. Idempotent.
+//
+// The caller must have stopped the group's Ready loop first: DeleteGroup
+// bypasses the batcher, so a still-running loop could re-Append state after
+// the purge and resurrect the group.
 func (s *Store) DeleteGroup(groupID uint64) error {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return ErrStoreClosed
+	}
+	s.inflight.Add(1)
+	s.closeMu.Unlock()
+	defer s.inflight.Add(-1)
+
 	key := encodeGroupKey(groupID)
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		eb := tx.Bucket([]byte(bucketEntries))
