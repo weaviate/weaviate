@@ -99,6 +99,40 @@ func TestClusterID_ApplySemantics(t *testing.T) {
 	}
 }
 
+// TestClusterID_TelemetryDisabledSkipsCommit covers the telemetry gate on
+// maybeCommitClusterID. The store has no raft/schema manager, so without the
+// gate these cases panic in Execute instead of returning.
+func TestClusterID_TelemetryDisabledSkipsCommit(t *testing.T) {
+	tests := []struct {
+		name   string
+		preset string // simulate a snapshot restore before the leader callback ("" skips)
+		wantID string
+	}{
+		{
+			name:   "no id is committed",
+			wantID: "",
+		},
+		{
+			name:   "an already restored id is left untouched",
+			preset: "restored-id",
+			wantID: "restored-id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := newStoreForClusterIDTests(t)
+			st.cfg.TelemetryEnabled = false
+			if tt.preset != "" {
+				st.setClusterID(tt.preset)
+			}
+
+			require.NotPanics(t, st.maybeCommitClusterID)
+			assert.Equal(t, tt.wantID, st.ClusterID())
+		})
+	}
+}
+
 // TestClusterID_SnapshotJSONCompat covers decoding a snapshot into the current
 // fsm.Snapshot struct and restoring the id into the store. The "present" case is
 // produced via json.Marshal so it also exercises the cluster_id encode tag.
