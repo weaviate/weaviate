@@ -75,6 +75,9 @@ type Segment interface {
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
+	// underlyingSegment loads the segment if necessary and returns it, for read
+	// paths that need direct access (e.g. targeted scans slicing mmapped contents).
+	underlyingSegment() *segment
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() roaringsetrange.InnerReader

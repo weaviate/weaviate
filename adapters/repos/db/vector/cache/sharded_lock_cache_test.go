@@ -444,3 +444,28 @@ func countMultiCached(c *shardedMultipleLockCache[float32]) int {
 	}
 	return count
 }
+
+// TestPreloadCountsOccupiedSlotsOnly: count feeds replaceIfFull's full-cache wipe,
+// so overwrites and if-absent no-ops must not inflate it past true occupancy — and
+// PreloadIfAbsent must never replace a present vector.
+func TestPreloadCountsOccupiedSlotsOnly(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	c := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	c.Grow(10)
+
+	c.Preload(5, []float32{9, 9})
+	c.Preload(5, []float32{1, 2}) // overwrite: no recount
+	assert.Equal(t, int64(1), c.CountVectors())
+
+	assert.False(t, c.PreloadIfAbsent(5, []float32{9, 9}))
+	assert.True(t, c.PreloadIfAbsent(6, []float32{3, 4}))
+	assert.Equal(t, int64(2), c.CountVectors())
+
+	got, err := c.Get(context.Background(), 5)
+	assert.NoError(t, err)
+	assert.Equal(t, []float32{1, 2}, got, "PreloadIfAbsent must not overwrite")
+
+	got, err = c.Get(context.Background(), 6)
+	assert.NoError(t, err)
+	assert.Equal(t, []float32{3, 4}, got)
+}

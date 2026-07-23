@@ -190,10 +190,11 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 		return nil, err
 	}
 
-	atomic.AddInt64(&s.count, 1)
-
 	if vec != nil {
 		s.shardedLocks.Lock(id)
+		if s.cache[id] == nil {
+			atomic.AddInt64(&s.count, 1)
+		}
 		s.cache[id] = vec
 		s.shardedLocks.Unlock(id)
 	}
@@ -291,8 +292,27 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
+	// count tracks occupied slots, not calls; replaceIfFull wipes the cache when
+	// count reaches maxSize, so overwrites must not inflate it.
+	if s.cache[id] == nil {
+		atomic.AddInt64(&s.count, 1)
+	}
+	s.cache[id] = vec
+}
+
+// PreloadIfAbsent writes vec only when the slot is empty, so it cannot clobber a
+// newer vector written concurrently. Reports whether it stored the vector.
+func (s *shardedLockCache[T]) PreloadIfAbsent(id uint64, vec []T) bool {
+	s.shardedLocks.Lock(id)
+	defer s.shardedLocks.Unlock(id)
+
+	if s.cache[id] != nil {
+		return false
+	}
+
 	atomic.AddInt64(&s.count, 1)
 	s.cache[id] = vec
+	return true
 }
 
 func (s *shardedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
@@ -732,6 +752,10 @@ func (s *shardedMultipleLockCache[T]) PreloadPassage(id uint64, docID uint64, re
 }
 
 func (s *shardedMultipleLockCache[T]) Preload(docID uint64, vec []T) {
+	panic("not implemented")
+}
+
+func (s *shardedMultipleLockCache[T]) PreloadIfAbsent(docID uint64, vec []T) bool {
 	panic("not implemented")
 }
 

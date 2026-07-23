@@ -118,6 +118,9 @@ type hnsw struct {
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
+	prefillWG           sync.WaitGroup
+	prefillCancel       atomic.Pointer[context.CancelFunc]
+	hfreshMode          bool
 
 	commitLog CommitLogger
 
@@ -365,8 +368,9 @@ func New(cfg Config, uc ent.UserConfig,
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
 
-		metrics:   newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
-		shardName: cfg.ShardName,
+		metrics:    newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
+		hfreshMode: cfg.HFreshMode,
+		shardName:  cfg.ShardName,
 
 		randFunc:                          rand.Float64,
 		compressActionLock:                &sync.RWMutex{},
@@ -756,7 +760,20 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// stopPrefill cancels an in-flight cache prefill and waits for it to exit. Must run
+// before the cache is dropped or the store shut down: the shard-drop path never
+// cancels the PostStartup context before closing lsmkv segments, and a scan cursor
+// opened after segment close would read unmapped memory.
+func (h *hnsw) stopPrefill() {
+	if cancel := h.prefillCancel.Load(); cancel != nil {
+		(*cancel)()
+	}
+	h.prefillWG.Wait()
+}
+
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
+	h.stopPrefill()
+
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
@@ -784,6 +801,7 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
+	h.stopPrefill()
 
 	if err := h.commitLog.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
