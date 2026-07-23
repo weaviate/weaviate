@@ -222,12 +222,13 @@ func (r *fakeRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, na
 // `shards` (the coverage guard compares it against the task's units) and a class
 // whose VectorConfig is `vectorCfg` (the arm-time still-dropped guard reads it).
 type fakeShardingReader struct {
-	shards        []string
-	vectorCfg     map[string]models.VectorConfig
-	activeTasks   []*distributedtask.Task // returned by ListDistributedTasks
-	err           error
-	readClassErrs int // QueryReadOnlyClasses fails this many times, then succeeds
-	listTasksErr  error
+	shards         []string
+	vectorCfg      map[string]models.VectorConfig
+	activeTasks    []*distributedtask.Task // returned by ListDistributedTasks
+	err            error
+	readClassErrs  int // QueryReadOnlyClasses fails this many times, then succeeds
+	readClassCalls int
+	listTasksErr   error
 }
 
 func (f *fakeShardingReader) QueryShardingState(class string) (*sharding.State, uint64, error) {
@@ -249,6 +250,7 @@ func (f *fakeShardingReader) ListDistributedTasks(ctx context.Context) (map[stri
 }
 
 func (f *fakeShardingReader) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	f.readClassCalls++
 	if f.readClassErrs > 0 {
 		f.readClassErrs--
 		return nil, errors.New("transient leader read failure")
@@ -749,6 +751,48 @@ func TestOnGroupCompleted_VerifyError_SurfacesForRetry(t *testing.T) {
 	require.Empty(t, shards.removed)
 }
 
+// TestOnGroupCompleted_VerifyTolerantOfLeaderBlips: the verify gets the same
+// bounded retry as the arm-time one — a momentary leader read failure must not
+// fail the group's ack (which would fail the whole task).
+func TestOnGroupCompleted_VerifyTolerantOfLeaderBlips(t *testing.T) {
+	shards := &fakeShards{}
+	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
+	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, readClassErrs: 1}
+
+	require.NoError(t, p.OnGroupCompleted(dropTask(distributedtask.TaskStatusFinished, nil), "g", []string{"u1"}))
+	require.Len(t, shards.removed, 1)
+}
+
+// TestOnGroupCompleted_VerifyMemoizedPerTaskVersion: a restart replays one
+// group completion per tenant against the same task version; the verify is
+// per-task-invariant and must cost one leader read, not one per tenant. A
+// version bump (any task mutation, e.g. the finalize that could remove the
+// marker) invalidates the memo.
+func TestOnGroupCompleted_VerifyMemoizedPerTaskVersion(t *testing.T) {
+	shards := &fakeShards{}
+	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
+	reader := &fakeShardingReader{shards: []string{"shard1"}}
+	p.sharding = reader
+
+	task := dropTask(distributedtask.TaskStatusFinished, nil)
+	require.NoError(t, p.OnGroupCompleted(task, "tenant1", []string{"u1"}))
+	require.NoError(t, p.OnGroupCompleted(task, "tenant2", []string{"u1"}))
+	require.Equal(t, 1, reader.readClassCalls, "same version: replayed completions share one verify")
+
+	// Finalized + re-created after a version bump: the memo must not serve the
+	// stale "still dropped" verdict, or a replay would delete the live index.
+	reader.vectorCfg = map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}}
+	shards.removed = nil
+	task.Version++
+	require.NoError(t, p.OnGroupCompleted(task, "tenant3", []string{"u1"}))
+	require.Equal(t, 2, reader.readClassCalls, "a version bump forces a fresh verify")
+	require.Empty(t, shards.removed, "the fresh verify sees the re-created index")
+
+	// CleanupTask evicts the memo entry.
+	require.NoError(t, p.CleanupTask(task.TaskDescriptor))
+	require.NotContains(t, p.verifiedStillDropped, task.ID)
+}
+
 // --- OnTaskCompleted ---
 
 // TestOnTaskCompleted_TerminalTasks_DeleteOpButKeepSchema: FAILED/CANCELLED leave
@@ -937,26 +981,27 @@ func TestOnTaskCompleted_CleanedShardsVouchForColdTenant(t *testing.T) {
 	require.True(t, fin.called, "cleaned-but-cold shards are covered by the inherited set")
 }
 
-// TestOnTaskCompleted_OverlapCheckError_DefersFinalize: if the epoch-blindness
-// guard cannot list tasks, finalize is deferred, not attempted blind.
-func TestOnTaskCompleted_OverlapCheckError_DefersFinalize(t *testing.T) {
-	fin := &fakeFinalizer{}
-	p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
-	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, listTasksErr: errors.New("no leader")}
+// TestOnTaskCompleted_CheckError_DefersFinalize: an unreadable leader state —
+// task list (epoch-blindness guard) or sharding state (coverage) — must defer
+// the schema removal, not proceed blind.
+func TestOnTaskCompleted_CheckError_DefersFinalize(t *testing.T) {
+	tests := []struct {
+		name     string
+		sharding *fakeShardingReader
+	}{
+		{"overlap check cannot list tasks", &fakeShardingReader{shards: []string{"shard1"}, listTasksErr: errors.New("no leader")}},
+		{"coverage check cannot read sharding state", &fakeShardingReader{err: errors.New("no leader")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fin := &fakeFinalizer{}
+			p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
+			p.sharding = tt.sharding
 
-	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
-	require.False(t, fin.called)
-}
-
-// TestOnTaskCompleted_CoverageCheckError_DefersFinalize: an unreadable sharding
-// state must defer the schema removal, not proceed on unknown coverage.
-func TestOnTaskCompleted_CoverageCheckError_DefersFinalize(t *testing.T) {
-	fin := &fakeFinalizer{}
-	p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, fin, newFakeRecorder())
-	p.sharding = &fakeShardingReader{err: errors.New("no leader")}
-
-	p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
-	require.False(t, fin.called)
+			p.OnTaskCompleted(dropTask(distributedtask.TaskStatusSwapping, nil))
+			require.False(t, fin.called)
+		})
+	}
 }
 
 // --- detectors ---
@@ -1125,9 +1170,12 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 
 	t.Run("every removed vector must be covered", func(t *testing.T) {
+		// v1 has a valid voucher and passes; the rejection must come from v2,
+		// which no task covers.
 		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"}, nil,
-			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")})
-		require.Error(t, err, "v2 has no finished task")
+			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `"v2"`)
 	})
 
 	t.Run("empty removal list is a no-op", func(t *testing.T) {
@@ -1158,6 +1206,22 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not covered")
 		require.Contains(t, err.Error(), "s3")
+	})
+
+	t.Run("uncovered-shard error is capped at a 10-name sample", func(t *testing.T) {
+		// The error reaches the HTTP body of a caller with only
+		// collection-update rights; on MT collections shard names are tenant
+		// names, so the full roster must not leak through it.
+		shards := make([]string, 0, 15)
+		for i := 1; i <= 15; i++ {
+			shards = append(shards, fmt.Sprintf("s%02d", i))
+		}
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, shards,
+			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", nil, "v1")})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "15 shards")
+		require.Contains(t, err.Error(), "s10")
+		require.NotContains(t, err.Error(), "s11")
 	})
 
 	t.Run("any single swapping task covering everything vouches", func(t *testing.T) {
@@ -1286,4 +1350,15 @@ func TestExtractDropVectorIndexTaskCollection(t *testing.T) {
 
 	_, ok = ExtractDropVectorIndexTaskCollection([]byte("not json"))
 	require.False(t, ok)
+}
+
+func TestExtractDropVectorIndexTaskTargets(t *testing.T) {
+	enc, _ := (&DropVectorIndexTaskPayload{Collection: "C", Targets: []string{"v1", "v2"}, OpID: "op"}).encode()
+	collection, targets, ok := ExtractDropVectorIndexTaskTargets(enc)
+	require.True(t, ok)
+	require.Equal(t, "C", collection)
+	require.Equal(t, []string{"v1", "v2"}, targets)
+
+	_, _, ok = ExtractDropVectorIndexTaskTargets([]byte("not json"))
+	require.False(t, ok, "an unparseable payload must not match any purge")
 }

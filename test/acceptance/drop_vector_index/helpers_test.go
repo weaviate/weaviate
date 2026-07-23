@@ -67,12 +67,28 @@ func dropTargetVector(t *testing.T, className, targetVector string) {
 	require.NoError(t, err)
 }
 
+// getClassErr fetches the class without touching the outer *testing.T, so it
+// is safe inside EventuallyWithT conditions (a require on the outer t there
+// runs Goexit in the condition goroutine: the parent test is marked failed
+// but the poll reports success and the test keeps running on broken state).
+func getClassErr(className string) (*models.Class, error) {
+	resp, err := helper.Client(nil).Schema.SchemaObjectsGet(
+		clschema.NewSchemaObjectsGetParams().WithClassName(className), nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 // eventuallyTargetVectorRemoved waits for the full drop lifecycle: the entry
 // must disappear from the schema entirely.
 func eventuallyTargetVectorRemoved(t *testing.T, className, targetVector string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		got := helper.GetClass(t, className)
+		got, err := getClassErr(className)
+		if !assert.NoError(collect, err) {
+			return
+		}
 		_, present := got.VectorConfig[targetVector]
 		assert.False(collect, present, "vector entry should be removed from the schema after cleanup")
 	}, finalizeTimeout, time.Second)
@@ -85,14 +101,24 @@ func listAllObjectsWithVectors(t *testing.T, className string) []*models.Object 
 
 func listObjectsWithVectors(t *testing.T, className, tenant string, limit int64) []*models.Object {
 	t.Helper()
+	objs, err := listObjectsWithVectorsErr(className, tenant, limit)
+	require.NoError(t, err)
+	return objs
+}
+
+// listObjectsWithVectorsErr is the outer-t-free variant for EventuallyWithT
+// conditions (see getClassErr).
+func listObjectsWithVectorsErr(className, tenant string, limit int64) ([]*models.Object, error) {
 	include := "vector"
 	params := clobjects.NewObjectsListParams().WithClass(&className).WithLimit(&limit).WithInclude(&include)
 	if tenant != "" {
 		params.WithTenant(&tenant)
 	}
-	resp, err := helper.Client(t).Objects.ObjectsList(params, nil)
-	require.NoError(t, err)
-	return resp.Payload.Objects
+	resp, err := helper.Client(nil).Objects.ObjectsList(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload.Objects, nil
 }
 
 func nearVectorResults(t *testing.T, className, targetVector string, vector []float32, limit int) int {
@@ -202,7 +228,10 @@ func setTenantStatusEventually(t *testing.T, className, tenant, status string) {
 func requireTenantStripped(t *testing.T, className, tenant, targetVector string, count int) {
 	t.Helper()
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		objs := listTenantObjectsWithVectors(t, className, tenant)
+		objs, err := listObjectsWithVectorsErr(className, tenant, 100)
+		if !assert.NoError(collect, err) {
+			return
+		}
 		if !assert.Len(collect, objs, count) {
 			return
 		}

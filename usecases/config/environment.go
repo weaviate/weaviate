@@ -50,11 +50,16 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
+	// The interval caps keep the overrides well below the point where
+	// seconds*time.Second (or hours*time.Hour) would overflow into a negative
+	// duration — a negative tick interval panics time.NewTicker after boot,
+	// and a negative TTL silently expires every completed task record.
+	maxDistributedTasksSchedulerTickIntervalSeconds = 7 * 24 * 60 * 60 // 7 days
+	maxDistributedTasksCompletedTaskTTLHours        = 10 * 365 * 24    // 10 years
 	// DefaultDropVectorReconcileInterval paces the drop-vector marker
 	// reconciliation loop; a safety net, so infrequent by default.
 	DefaultDropVectorReconcileInterval = 15 * time.Minute
-	// maxDropVectorReconcileIntervalSeconds caps the override (7 days) well
-	// below the point where seconds*time.Second would overflow.
+	// maxDropVectorReconcileIntervalSeconds caps the override at 7 days.
 	maxDropVectorReconcileIntervalSeconds = 7 * 24 * 60 * 60
 	DefaultReindexConcurrency             = 2
 
@@ -1368,10 +1373,16 @@ func FromEnv(config *Config) error {
 		config.RuntimeOverrides.LoadInterval = interval
 	}
 
-	if err = parsePositiveInt(
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
-		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
 		int(DefaultDistributedTasksSchedulerTickInterval.Seconds()),
+		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
+		func(val int, envName string) error {
+			if val < 1 || val > maxDistributedTasksSchedulerTickIntervalSeconds {
+				return fmt.Errorf("%s must be between 1 and %d, got %d", envName, maxDistributedTasksSchedulerTickIntervalSeconds, val)
+			}
+			return nil
+		},
 	); err != nil {
 		return err
 	}
@@ -1379,10 +1390,16 @@ func FromEnv(config *Config) error {
 	// 0 = clean completed tasks on the next tick. Unsafe until the cluster is
 	// fully on the stamp version: a pre-stamp node still derives blockmax truth
 	// from the FINISHED task list, which GCing strands on a cold/unloaded shard.
-	if err = parseNonNegativeInt(
+	if err = parseIntVerify(
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
-		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
+		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
+		func(val int, envName string) error {
+			if val < 0 || val > maxDistributedTasksCompletedTaskTTLHours {
+				return fmt.Errorf("%s must be between 0 and %d, got %d", envName, maxDistributedTasksCompletedTaskTTLHours, val)
+			}
+			return nil
+		},
 	); err != nil {
 		return err
 	}

@@ -117,10 +117,14 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 			continue
 		}
 		if coversVec {
+			// Count + sample only: this error reaches the HTTP body of a caller
+			// holding just collection-update rights, and on an MT collection the
+			// shard names are tenant names — the full roster is not theirs to read
+			// (and can be multi-MB).
 			return fmt.Errorf(
-				"cannot remove dropped vector %q on %s: shards %v are not covered by the completing cleanup task; "+
+				"cannot remove dropped vector %q on %s: %d shards (sample: %v) are not covered by the completing cleanup task; "+
 					"cleanup re-runs automatically and the entry is removed once every shard is covered",
-				vec, className, uncovered)
+				vec, className, len(uncovered), uncovered[:min(len(uncovered), 10)])
 		}
 		return fmt.Errorf(
 			"cannot remove dropped vector %q on %s: only the completing cleanup task may remove the entry; "+

@@ -86,6 +86,8 @@ func TestReconcile_EnqueuesMissingTasks(t *testing.T) {
 
 	require.ElementsMatch(t, []string{"A/v1", "B/v2"}, enq.enqueued,
 		"every dropped marker without a live task is enqueued; non-dropped vectors are skipped")
+	require.Equal(t, 1, enq.listed,
+		"the round fetches the task list once, not once per marker")
 }
 
 // listErrEnqueuer fails the round's task-list fetch; nothing may be enqueued
