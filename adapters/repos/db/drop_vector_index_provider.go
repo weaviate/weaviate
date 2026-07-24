@@ -99,19 +99,20 @@ type DropVectorIndexProvider struct {
 	// overridable in tests.
 	verifyRetryBackoff time.Duration
 
-	// verifiedStillDropped memoizes targetsStillDropped per task version for
-	// OnGroupCompleted: a restart replays one group completion per tenant
-	// (GroupID == shardName), which would otherwise cost one leader-consistent
-	// schema read each. Every event that can change the answer — this task's
-	// finalize, or a re-drop after the task settled — bumps the task's version
-	// or deletes the task, so a memo hit can never serve a stale verdict.
+	// verifiedStillDropped memoizes targetsStillDropped for OnGroupCompleted:
+	// one callback fires per tenant (GroupID == shardName), each costing a
+	// leader-consistent schema read without the memo. Keyed by task ID alone —
+	// task.Version is written once at AddTask and never changes, so it cannot
+	// key invalidation. A hit can still never be stale while the entry lives:
+	// group callbacks are one-shot per process and a restart starts with an
+	// empty memo, the marker cannot be removed while the task is active (only
+	// the task's own SWAPPING finalize passes the removal gate, and SWAPPING
+	// postdates every group callback), and a re-drop introduction is refused
+	// while the task is active. OnTaskCompleted evicts the entry — CleanupTask
+	// also evicts but is a dead path for this provider, whose GetLocalTasks
+	// returns nil.
 	verifiedMu           sync.Mutex
-	verifiedStillDropped map[string]stillDroppedMemo // key: task ID
-}
-
-type stillDroppedMemo struct {
-	version      uint64
-	stillDropped bool
+	verifiedStillDropped map[string]bool // task ID -> every target still marked dropped
 }
 
 // NewDropVectorIndexProvider builds the provider. localNode filters units to the
@@ -133,7 +134,7 @@ func NewDropVectorIndexProvider(
 		serverCtx:            serverCtx,
 		pollInterval:         defaultDropVectorPollInterval,
 		verifyRetryBackoff:   2 * time.Second,
-		verifiedStillDropped: map[string]stillDroppedMemo{},
+		verifiedStillDropped: map[string]bool{},
 	}
 }
 
@@ -151,11 +152,19 @@ func (p *DropVectorIndexProvider) GetLocalTasks() []distributedtask.TaskDescript
 
 // CleanupTask drops the task's verify memo; all other per-task state is owned
 // elsewhere (the scheduler owns the task handle, the bucket the edit-ops).
+// NOTE: the scheduler only calls CleanupTask for descriptors reported by
+// GetLocalTasks, which this provider returns nil from — so in production the
+// memo is evicted by OnTaskCompleted instead; this stays as a belt should
+// GetLocalTasks ever report tasks.
 func (p *DropVectorIndexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error {
+	p.evictStillDroppedMemo(desc.ID)
+	return nil
+}
+
+func (p *DropVectorIndexProvider) evictStillDroppedMemo(taskID string) {
 	p.verifiedMu.Lock()
 	defer p.verifiedMu.Unlock()
-	delete(p.verifiedStillDropped, desc.ID)
-	return nil
+	delete(p.verifiedStillDropped, taskID)
 }
 
 func (p *DropVectorIndexProvider) StartTask(task *distributedtask.Task) (distributedtask.TaskHandle, error) {
@@ -455,6 +464,11 @@ func (p *DropVectorIndexProvider) OnSwapRequested(
 // retries and drive the drop to FAILED — worse than finalizing and letting
 // reconciliation converge. See [distributedtask.UnitAwareProvider.OnTaskCompleted].
 func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) error {
+	// The group-callback phase is over on every path that reaches this
+	// callback, so its verify memo can go (see verifiedStillDropped for why
+	// CleanupTask cannot be the eviction site).
+	p.evictStillDroppedMemo(task.ID)
+
 	payload, err := decodeDropVectorIndexPayload(task.Payload)
 	if err != nil {
 		p.logger.WithField("task", task.ID).Errorf("drop-vector: task-completion: decode payload: %v", err)
@@ -621,19 +635,19 @@ func (p *DropVectorIndexProvider) targetsStillDroppedWithRetry(
 }
 
 // memoizedTargetsStillDropped serves OnGroupCompleted's verify from the
-// per-task-version memo (see verifiedStillDropped for why a hit can never be
-// stale). Errors are not memoized.
+// per-task memo (see verifiedStillDropped for why a hit can never be stale).
+// Errors are not memoized.
 func (p *DropVectorIndexProvider) memoizedTargetsStillDropped(
 	task *distributedtask.Task, payload *DropVectorIndexTaskPayload,
 ) (bool, error) {
-	memo, ok := func() (stillDroppedMemo, bool) {
+	memo, ok := func() (bool, bool) {
 		p.verifiedMu.Lock()
 		defer p.verifiedMu.Unlock()
 		m, ok := p.verifiedStillDropped[task.ID]
 		return m, ok
 	}()
-	if ok && memo.version == task.Version {
-		return memo.stillDropped, nil
+	if ok {
+		return memo, nil
 	}
 	stillDropped, err := p.targetsStillDroppedWithRetry(p.serverCtx, payload)
 	if err != nil {
@@ -642,7 +656,7 @@ func (p *DropVectorIndexProvider) memoizedTargetsStillDropped(
 	func() {
 		p.verifiedMu.Lock()
 		defer p.verifiedMu.Unlock()
-		p.verifiedStillDropped[task.ID] = stillDroppedMemo{version: task.Version, stillDropped: stillDropped}
+		p.verifiedStillDropped[task.ID] = stillDropped
 	}()
 	return stillDropped, nil
 }

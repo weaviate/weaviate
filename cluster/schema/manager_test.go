@@ -806,6 +806,7 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 type fakeCascadeDeleter struct {
 	collectionCalls []string
 	activeMatch     bool
+	purgeErr        error // non-sentinel purge failure
 	targetCalls     []struct {
 		collection string
 		targets    []string
@@ -820,6 +821,9 @@ func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distr
 func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargets(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
 	if f.activeMatch {
 		return nil, distributedtask.ErrTaskStillActiveForTargets
+	}
+	if f.purgeErr != nil {
+		return nil, f.purgeErr
 	}
 	f.targetCalls = append(f.targetCalls, struct {
 		collection string
@@ -873,7 +877,10 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 		// The SWAPPING race: the previous drop's task finalized (marker gone)
 		// but has not flipped FINISHED yet. Purging skips active tasks and
 		// never re-runs, so letting the marker in would leave a stale
-		// inheritance seed — the birth must be refused (retryable, ms window).
+		// inheritance seed — the birth must be refused. Normally a ms-scale
+		// retry window; a node that died holding its post-completion ack
+		// keeps the task SWAPPING (and the refusal standing) until
+		// DeleteClass.
 		deleter := &fakeCascadeDeleter{activeMatch: true}
 		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
 		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
@@ -882,7 +889,26 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "still completing")
+		require.ErrorIs(t, err, ErrBadRequest, "the refusal is retryable and must reach clients as a 4xx")
 		require.Empty(t, deleter.targetCalls, "no purge may run when the introduction is refused")
+		// The update closure edits the live metaClass with no rollback, so
+		// every reject path must fire before any mutation: the refusal must
+		// leave the marker un-introduced.
+		got, _ := sm.schema.ReadOnlyClass("C")
+		require.NotNil(t, got)
+		require.Equal(t, hnsw, got.VectorConfig["vec1"], "a refused introduction must not mutate the schema")
+	})
+
+	t.Run("a non-refusal purge failure is internal, not a retryable 400", func(t *testing.T) {
+		deleter := &fakeCascadeDeleter{purgeErr: fmt.Errorf("extractor registry corrupted")}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrBadRequest,
+			"only ErrTaskStillActiveForTargets is the client's fault; anything else must not be classified retryable-4xx")
 	})
 
 	t.Run("an already-dropped entry does not re-purge", func(t *testing.T) {

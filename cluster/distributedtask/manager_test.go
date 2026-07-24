@@ -1886,6 +1886,10 @@ func TestManager_PurgeTasksForCollectionTargets(t *testing.T) {
 	fooV1 := map[string]any{"collection": "Foo", "targets": []string{"v1"}}
 	mkTask("drop", "match-1", fooV1, TaskStatusFinished)
 	mkTask("drop", "match-2", map[string]any{"collection": "Foo", "targets": []string{"v1", "v2"}}, TaskStatusFailed)
+	// Collection names are case-insensitive identifiers; a case-twin record
+	// must be purged too — a byte-exact purge would be strictly weaker than
+	// the EqualFold inheritance match that relies on it.
+	mkTask("drop", "match-case", map[string]any{"collection": "fOO", "targets": []string{"v1"}}, TaskStatusFinished)
 	mkTask("drop", "other-target", map[string]any{"collection": "Foo", "targets": []string{"v9"}}, TaskStatusFinished)
 	mkTask("drop", "other-coll", map[string]any{"collection": "Bar", "targets": []string{"v1"}}, TaskStatusFinished)
 	// ok=false payload: no collection field — the extractor must skip it.
@@ -1918,8 +1922,8 @@ func TestManager_PurgeTasksForCollectionTargets(t *testing.T) {
 		removedIDs = append(removedIDs, d.ID)
 	}
 	sort.Strings(removedIDs)
-	require.Equal(t, []string{"match-1", "match-2", "still-active"}, removedIDs,
-		"non-active records overlapping the target are purged; other targets and collections survive")
+	require.Equal(t, []string{"match-1", "match-2", "match-case", "still-active"}, removedIDs,
+		"non-active records overlapping the target are purged (incl. case twins); other targets and collections survive")
 	require.Contains(t, h.manager.tasks["drop"], "other-target")
 	require.Contains(t, h.manager.tasks["drop"], "other-coll")
 	require.Contains(t, h.manager.tasks["drop"], "corrupt")

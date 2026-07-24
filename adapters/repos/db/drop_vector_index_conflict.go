@@ -151,6 +151,15 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 				"cannot remove dropped vector %q on %s: cleanup task %q is still active for it",
 				vec, className, id)
 		}
+		// An empty shard set holds no data to strand: an MT collection whose
+		// every tenant was deleted after the marker landed can never be cleaned
+		// (enqueue no-ops with no active shard) and no SWAPPING voucher will
+		// ever exist — without this, the marker would be permanently stuck.
+		// Only tenant-less MT reaches here: a non-MT collection always has
+		// shards, and the FSM passes its own Physical set.
+		if len(shards) == 0 {
+			continue
+		}
 		vouched, coversVec, uncovered := p.completedDropVoucher(className, vec, shards, existingTasks)
 		if vouched {
 			continue

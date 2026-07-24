@@ -247,13 +247,16 @@ type SchemaMutationDetector interface {
 }
 
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
-// implements to gate removal of a dropped ("none") VectorConfig entry: removal
-// is permitted only once a completed cleanup task covers it AND that task's
-// units plus its inherited cleaned-shard set span every current shard — a shard in
-// neither has not been stripped, so removing the marker would strand its data.
-// Dispatched by type assertion from the SchemaMutationDetector registry. Same
-// FSM-determinism contract as [SchemaMutationDetector]: a pure function of its
-// arguments.
+// implements to gate removal of a dropped ("none") VectorConfig entry: only the
+// completing cleanup task's own in-flight finalize may remove it — a SWAPPING
+// task covering the entry whose units plus inherited cleaned-shard set span
+// every current shard. A shard in neither has not been stripped, so removing
+// the marker would strand its data; and FINISHED records never vouch — they
+// outlive finalize by the task TTL, and after a re-create + re-drop of the
+// name a stale record would remove the new drop's marker over unstripped
+// vectors. Dispatched by type assertion from the SchemaMutationDetector
+// registry. Same FSM-determinism contract as [SchemaMutationDetector]: a pure
+// function of its arguments.
 type VectorConfigRemovalGate interface {
 	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
 	// UpdateClass apply; non-nil rejects. shards is the collection's shard set
