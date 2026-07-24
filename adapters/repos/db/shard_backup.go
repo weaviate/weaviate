@@ -103,6 +103,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		s.index.logger.WithField("shard", s.name).
 			Debugf("shard already halted for transfer (count=%d); re-sealing state on shared halt", s.haltForTransferCount)
 	}
+	// lock for flush to disk
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
 
 	// Seal steps run on EVERY halt: a second consumer's snapshot deliberately
 	// excludes the active memtable/WAL and the active HNSW commit-log, so any
