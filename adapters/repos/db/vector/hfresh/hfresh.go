@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"encoding/binary"
 	stderrors "errors"
 	"fmt"
 	"sync"
@@ -25,7 +26,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 )
@@ -35,8 +38,13 @@ const (
 )
 
 var (
-	ErrPostingNotFound = errors.New("posting not found")
-	ErrVectorNotFound  = errors.New("vector not found")
+	ErrPostingNotFound  = errors.New("posting not found")
+	ErrVectorNotFound   = errors.New("vector not found")
+	ErrMuveraNotEnabled = errors.New("hfresh only supports muvera for multi-vector operations")
+	// ErrMuveraNotInitialized is returned for multi-vector searches on a
+	// collection that has not indexed any multi-vector data yet: the muvera
+	// encoder is only initialized on the first insert.
+	ErrMuveraNotInitialized = errors.New("multi-vector search on an empty collection: the muvera encoder is not initialized until the first multi-vector is indexed")
 )
 
 var _ common.VectorIndex = (*HFresh)(nil)
@@ -60,6 +68,12 @@ type HFresh struct {
 	rescoreLimit     uint32
 	store            *lsmkv.Store
 
+	// needsNormalization is precomputed at construction from the configured
+	// distance: cosine-dot only equals the cosine distance on unit vectors,
+	// so inputs must be normalized on insert, query, and rescore. L2 (and
+	// dot) must NOT normalize.
+	needsNormalization bool
+
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
 	// received
@@ -68,6 +82,11 @@ type HFresh struct {
 	dims      uint32 // Number of dimensions of expected vectors
 	distancer *Distancer
 	quantizer *compressionhelpers.BinaryRotationalQuantizer
+
+	// muvera is used for multi-vector encoding
+	muvera          atomic.Bool
+	muveraEncoder   *multivector.MuveraEncoder
+	trackMuveraOnce sync.Once
 
 	// Internal components
 	Centroids     *HNSWIndex          // Provides access to the centroids.
@@ -89,7 +108,8 @@ type HFresh struct {
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
 
-	vectorForId common.VectorForID[float32]
+	vectorForID      common.VectorForID[float32]
+	multiVectorForID common.VectorForID[[]float32]
 
 	rootPath string
 }
@@ -116,28 +136,51 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	logger := cfg.Logger.WithField("component", "HFresh")
 
 	h := HFresh{
-		id:            cfg.ID,
-		logger:        logger,
-		config:        cfg,
-		scheduler:     cfg.Scheduler,
-		store:         store,
-		metrics:       metrics,
-		PostingStore:  postingStore,
-		vectorForId:   cfg.VectorForIDThunk,
-		VersionMap:    NewVersionMap(bucket),
-		PostingMap:    NewPostingMap(bucket),
-		PostingSizes:  NewPostingSizes(bucket, metrics),
-		IndexMetadata: NewIndexMetadataStore(bucket),
-		postingLocks:  common.NewDefaultShardedRWLocks(),
+		id:               cfg.ID,
+		logger:           logger,
+		config:           cfg,
+		scheduler:        cfg.Scheduler,
+		store:            store,
+		metrics:          metrics,
+		PostingStore:     postingStore,
+		vectorForID:      cfg.VectorForIDThunk,
+		multiVectorForID: cfg.MultiVectorForIDThunk,
+		VersionMap:       NewVersionMap(bucket),
+		PostingMap:       NewPostingMap(bucket),
+		PostingSizes:     NewPostingSizes(bucket, metrics),
+		IndexMetadata:    NewIndexMetadataStore(bucket),
+		postingLocks:     common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool:      visited.NewPool(512),
-		maxPostingSizeKB: uc.MaxPostingSizeKB,
-		replicas:         uc.Replicas,
-		rngFactor:        DefaultRNGFactor,
-		searchProbe:      uc.SearchProbe,
-		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
-		rootPath:         cfg.RootPath,
+		visitedPool:        visited.NewPool(512),
+		maxPostingSizeKB:   uc.MaxPostingSizeKB,
+		replicas:           uc.Replicas,
+		rngFactor:          DefaultRNGFactor,
+		searchProbe:        uc.SearchProbe,
+		rescoreLimit:       uint32(uc.RQ.RescoreLimit),
+		rootPath:           cfg.RootPath,
+		needsNormalization: cfg.DistanceProvider.Type() == "cosine-dot",
+	}
+
+	h.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
+	if uc.Multivector.MuveraConfig.Enabled {
+		// The schema handler enforces these bounds on create/update, but a
+		// class persisted before the bounds existed may exceed them. Loading
+		// must not fail (the node has to start), so only warn.
+		if err := ent.ValidateMuveraUpperBounds(uc); err != nil {
+			logger.WithFields(logrus.Fields{
+				"action": "hfresh_load_config",
+				"id":     cfg.ID,
+			}).Warnf("muvera config exceeds the allowed bounds; the index will load, but encoding may exhaust memory: %v", err)
+		}
+		h.muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
+		if err = store.CreateOrLoadBucket(
+			context.Background(),
+			cfg.ID+"_muvera_vectors",
+			cfg.Store.MakeBucketOptions(lsmkv.StrategyReplace)...,
+		); err != nil {
+			return nil, errors.Wrap(err, "create or load muvera bucket")
+		}
 	}
 
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
@@ -189,6 +232,24 @@ func (h *HFresh) Delete(ids ...uint64) error {
 	}
 
 	return nil
+}
+
+func (h *HFresh) DeleteMulti(ids ...uint64) error {
+	if !h.muvera.Load() {
+		return ErrMuveraNotEnabled
+	}
+	var idBytes [8]byte
+	bucket := h.store.Bucket(h.id + "_muvera_vectors")
+	for _, id := range ids {
+		binary.BigEndian.PutUint64(idBytes[:], id)
+		if err := bucket.Delete(idBytes[:]); err != nil {
+			h.logger.WithFields(logrus.Fields{
+				"action": "muvera_delete",
+				"id":     id,
+			}).Warnf("cannot delete vector from muvera bucket")
+		}
+	}
+	return h.Delete(ids...)
 }
 
 func (h *HFresh) Type() common.IndexType {
@@ -355,7 +416,7 @@ func (h *HFresh) Compressed() bool {
 }
 
 func (h *HFresh) Multivector() bool {
-	return false
+	return h.muvera.Load()
 }
 
 func (h *HFresh) ContainsDoc(id uint64) bool {
@@ -372,10 +433,25 @@ func (h *HFresh) Iterate(fn func(id uint64) bool) {
 	h.logger.Warn("Iterate is not implemented for HFresh index")
 }
 
+// normalizeMultiVec normalizes each token of a multi-vector when the
+// configured distance requires normalized vectors (cosine-dot). The distance
+// provider computes 1-dot, which only equals the cosine distance on unit
+// vectors, so every token must be normalized before encoding or scoring.
+func (h *HFresh) normalizeMultiVec(vecs [][]float32) [][]float32 {
+	if !h.needsNormalization {
+		return vecs
+	}
+	normalized := make([][]float32, len(vecs))
+	for i, vec := range vecs {
+		normalized[i] = distancer.Normalize(vec)
+	}
+	return normalized
+}
+
 func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	queryVector = h.normalizeVec(queryVector)
 	distFunc := func(id uint64) (float32, error) {
-		vector, err := h.vectorForId(h.ctx, id)
+		vector, err := h.vectorForID(h.ctx, id)
 		if err != nil {
 			return 0, err
 		}

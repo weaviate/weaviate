@@ -12,8 +12,10 @@
 package hfresh
 
 import (
+	"context"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -26,18 +28,61 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-type TestHFresh struct {
-	Index *HFresh
-	Logs  *test.Hook
+type muveraTestStore struct {
+	multiVectors map[uint64][][]float32
 }
 
-func createHFreshIndex(t *testing.T) TestHFresh {
+func newMuveraTestStore() *muveraTestStore {
+	return &muveraTestStore{
+		multiVectors: make(map[uint64][][]float32),
+	}
+}
+
+func (s *muveraTestStore) storeMultiVector(id uint64, vecs [][]float32) {
+	s.multiVectors[id] = vecs
+}
+
+func (s *muveraTestStore) getMultiVector(id uint64) ([][]float32, error) {
+	vecs, ok := s.multiVectors[id]
+	if !ok {
+		return nil, errors.Errorf("multi-vector not found for id %d", id)
+	}
+	return vecs, nil
+}
+
+type TestHFresh struct {
+	Index   *HFresh
+	Logs    *test.Hook
+	mvStore *muveraTestStore
+}
+
+// testIndexOption mutates the index config before the index is created.
+// The default distance provider is L2; cosine-sensitive behavior (token
+// normalization, cosine-dot semantics) is only exercised when tests opt in
+// via withDistanceProvider, so prefer testing both where distance matters.
+type testIndexOption func(*Config)
+
+// withDistanceProvider sets the distance provider for both the index itself
+// and its centroid HNSW, keeping the two consistent like production wiring
+// does (shard_init_vector.go uses the same provider for both).
+func withDistanceProvider(provider distancer.Provider) testIndexOption {
+	return func(cfg *Config) {
+		cfg.DistanceProvider = provider
+		cfg.Centroids.HNSWConfig.DistanceProvider = provider
+	}
+}
+
+// newTestIndex is the single index constructor behind every test fixture in
+// this package: it wires an HFresh index on top of a dummy LSM store and a
+// noop-bucket centroid HNSW. Pass a non-nil mvStore to wire the
+// multi-vector-for-id thunk (muvera indexes need it for the MaxSim rescore).
+func newTestIndex(t *testing.T, uc ent.UserConfig, mvStore *muveraTestStore, opts ...testIndexOption) TestHFresh {
 	t.Helper()
 
-	// Create logger + hook
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -63,22 +108,51 @@ func createHFreshIndex(t *testing.T) TestHFresh {
 
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	cfg.Logger = logger
+	if mvStore != nil {
+		cfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
+			return mvStore.getMultiVector(id)
+		}
+	}
+
+	for _, opt := range opts {
+		opt(cfg)
+	}
 
 	scheduler.Start()
 	t.Cleanup(func() {
 		scheduler.Close(t.Context())
 	})
 
-	uc := ent.NewDefaultUserConfig()
 	store := testinghelpers.NewDummyStore(t)
 
 	index, err := New(cfg, uc, store)
 	require.NoError(t, err)
+	if mvStore != nil {
+		index.multiVectorForID = cfg.MultiVectorForIDThunk
+	}
 
 	return TestHFresh{
-		Index: index,
-		Logs:  hook,
+		Index:   index,
+		Logs:    hook,
+		mvStore: mvStore,
 	}
+}
+
+// muveraUserConfig returns a user config with muvera enabled using the
+// default multivector parameters.
+func muveraUserConfig() ent.UserConfig {
+	uc := ent.NewDefaultUserConfig()
+	uc.Multivector.Enabled = true
+	uc.Multivector.MuveraConfig.Enabled = true
+	uc.Multivector.MuveraConfig.KSim = enthnsw.DefaultMultivectorKSim
+	uc.Multivector.MuveraConfig.DProjections = enthnsw.DefaultMultivectorDProjections
+	uc.Multivector.MuveraConfig.Repetitions = enthnsw.DefaultMultivectorRepetitions
+	return uc
+}
+
+func createHFreshIndex(t *testing.T, opts ...testIndexOption) TestHFresh {
+	t.Helper()
+	return newTestIndex(t, ent.NewDefaultUserConfig(), nil, opts...)
 }
 
 // createTestVectors creates a set of test vectors with the specified dimensions
@@ -151,4 +225,45 @@ func createPostingWithVectors(t *testing.T, tf *TestHFresh, vectors [][]float32,
 	}
 
 	return postingID, posting
+}
+
+func createMuveraHFreshIndex(t *testing.T, opts ...testIndexOption) TestHFresh {
+	t.Helper()
+	return newTestIndex(t, muveraUserConfig(), newMuveraTestStore(), opts...)
+}
+
+// createMuveraHFreshIndexWithConfig creates a muvera index with explicit
+// search budgets, using L2 for both the index and its centroid HNSW.
+func createMuveraHFreshIndexWithConfig(t *testing.T, searchProbe, rescoreLimit int) TestHFresh {
+	t.Helper()
+	uc := muveraUserConfig()
+	uc.SearchProbe = uint32(searchProbe)
+	uc.RQ.RescoreLimit = rescoreLimit
+	return newTestIndex(t, uc, newMuveraTestStore(),
+		withDistanceProvider(distancer.NewL2SquaredProvider()))
+}
+
+// createHFreshIndexWithVectorStore creates a non-muvera index whose
+// VectorForIDThunk serves the provided vectors, as the shard does in
+// production.
+func createHFreshIndexWithVectorStore(t *testing.T, vectors [][]float32) TestHFresh {
+	t.Helper()
+	return createHFreshIndex(t, func(cfg *Config) {
+		cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+			func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+				if int(indexID) < len(vectors) {
+					return vectors[indexID], nil
+				}
+				return nil, nil
+			})
+	})
+}
+
+func addMultiVectorToIndex(t *testing.T, tf *TestHFresh, docID uint64, vectors [][]float32) {
+	t.Helper()
+	if tf.mvStore != nil {
+		tf.mvStore.storeMultiVector(docID, vectors)
+	}
+	err := tf.Index.AddMulti(t.Context(), docID, vectors)
+	require.NoError(t, err)
 }

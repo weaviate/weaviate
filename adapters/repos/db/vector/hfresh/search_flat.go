@@ -107,7 +107,7 @@ func (h *HFresh) flatSearch(ctx context.Context, queryVector []float32, k int,
 func (h *HFresh) distToNode(ctx context.Context, node uint64, vecB []float32) (float32, error) {
 	var vecA []float32
 	var err error
-	vecA, err = h.vectorForId(ctx, node)
+	vecA, err = h.vectorForID(ctx, node)
 	if err != nil {
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err,

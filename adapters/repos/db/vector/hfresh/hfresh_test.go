@@ -144,8 +144,13 @@ func TestHFreshRecall(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, ucfg := makeHFreshConfig(t)
 
-	vectors_size := 10_000
-	queries_size := 100
+	// Reduced from 10,000 for faster CI execution — but kept well above the
+	// split threshold: at 64 dims maxPostingSize is 1,490, so anything at or
+	// below ~1,500 vectors exercises at most one split and recall is measured
+	// against an effectively single-posting index. 5,000 forces several
+	// splits so recall runs on a real multi-posting layout.
+	vectors_size := 5_000
+	queries_size := 50
 	dimensions := 64
 	k := 10
 
