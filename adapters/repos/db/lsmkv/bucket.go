@@ -469,7 +469,11 @@ func (b *Bucket) DeleteEditOp(opID string) error {
 	if !b.HasEditOps() {
 		return fmt.Errorf("edit ops not enabled for this bucket")
 	}
-	return b.disk.editOps.DeleteOp(opID)
+	if err := b.disk.editOps.DeleteOp(opID); err != nil {
+		return err
+	}
+	b.disk.refreshEditOpsMetrics()
+	return nil
 }
 
 // EditOpQuarantined returns the segment IDs the cleanup driver quarantined

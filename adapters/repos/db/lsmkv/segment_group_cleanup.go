@@ -631,6 +631,10 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 	sweepCtx, sweepCancel := context.WithTimeout(context.Background(), editOpsSweepTimeout)
 	c.sg.editOps.SweepOrphans(sweepCtx)
 	sweepCancel()
+	// Both the sweep and this pass mutate op state (delete, mark-done, bump, or
+	// quarantine); resync the gauges from ground truth on the way out, whichever
+	// branch we return on.
+	defer c.sg.refreshEditOpsMetrics()
 
 	pending, err := c.sg.editOps.AllPending()
 	if err != nil {
@@ -640,7 +644,7 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 		return false, false, nil
 	}
 
-	transformer, _, err := c.sg.editOps.BuildCurrentTransformer()
+	transformer, builtOps, err := c.sg.editOps.BuildCurrentTransformer()
 	if err != nil {
 		return false, true, err
 	}
@@ -670,7 +674,8 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 		}
 	}
 
-	idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
+	rewriteStart := time.Now()
+	idx, tmpPath, oldSize, newSize, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
 	if cerr != nil {
 		if errors.Is(cerr, errCleanupPaused) || errors.Is(cerr, errCleanupAborted) {
 			// Memory pressure (pause) or a cycle-manager abort (e.g. shutdown):
@@ -711,6 +716,16 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 	if e := c.markRowsDone(rows); e != nil {
 		return true, true, e
 	}
+
+	// One pass applies every active op's transformer at once, so attribute the
+	// rewrite cost to each op type present. Bytes reclaimed is the 1:1 rewrite's
+	// shrinkage (input minus output); AddEditOpsBytesReclaimed drops it when the
+	// transformer did not shrink the segment.
+	elapsed := time.Since(rewriteStart).Seconds()
+	for _, opType := range distinctOpTypes(builtOps) {
+		c.sg.metrics.ObserveEditOpsTransformerDuration(opType, elapsed)
+		c.sg.metrics.AddEditOpsBytesReclaimed(opType, oldSize-newSize)
+	}
 	return true, true, nil
 }
 
@@ -721,7 +736,7 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 // errCleanupPaused if memory pressure should pause the pass before the rewrite.
 func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 	transformer valueTransformer, shouldAbort cyclemanager.ShouldAbortCallback,
-) (idx int, tmpPath string, found bool, err error) {
+) (idx int, tmpPath string, oldSize, newSize int64, found bool, err error) {
 	segments, release := c.sg.getConsistentViewOfSegments()
 	defer release()
 
@@ -733,7 +748,7 @@ func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 		}
 	}
 	if idx == emptyIdx {
-		return emptyIdx, "", false, nil
+		return emptyIdx, "", 0, 0, false, nil
 	}
 
 	// Mirror the heuristic path's OOM guard: a rewrite produces a full copy of the
@@ -741,16 +756,17 @@ func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 	// than push the system further. A pause must not count as a failed attempt.
 	if c.sg.allocChecker != nil {
 		if err := c.sg.allocChecker.CheckAlloc(cleanupAllocCheckBytes); err != nil {
-			return emptyIdx, "", false, errCleanupPaused
+			return emptyIdx, "", 0, 0, false, errCleanupPaused
 		}
 	}
 
 	oldSegment := segments[idx]
+	oldSize = oldSegment.Size()
 	tmpPath = c.sg.tmpSegmentPath(oldSegment, segID)
 
 	file, err := os.Create(tmpPath)
 	if err != nil {
-		return emptyIdx, "", false, err
+		return emptyIdx, "", 0, 0, false, err
 	}
 
 	// The last segment has no newer segments to shadow it; it is rewritten
@@ -767,17 +783,21 @@ func (c *segmentCleanerCommon) cleanPendingSegmentToTmp(segID string,
 		c.sg.enableChecksumValidation, transformer)
 	if err := cleaner.do(shouldAbort); err != nil {
 		file.Close()
-		return emptyIdx, "", false, err
+		return emptyIdx, "", 0, 0, false, err
 	}
 	if err := file.Sync(); err != nil {
 		file.Close()
-		return emptyIdx, "", false, fmt.Errorf("fsync cleaned segment file: %w", err)
+		return emptyIdx, "", 0, 0, false, fmt.Errorf("fsync cleaned segment file: %w", err)
 	}
 	if err := file.Close(); err != nil {
-		return emptyIdx, "", false, fmt.Errorf("close cleaned segment file: %w", err)
+		return emptyIdx, "", 0, 0, false, fmt.Errorf("close cleaned segment file: %w", err)
 	}
 
-	return idx, tmpPath, true, nil
+	if fi, statErr := os.Stat(tmpPath); statErr == nil {
+		newSize = fi.Size()
+	}
+
+	return idx, tmpPath, oldSize, newSize, true, nil
 }
 
 // tmpSegmentPath returns the .tmp path a cleaned/rewritten segment with the given

@@ -407,12 +407,23 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			c.c2.releaseReader()
 		}()
 
+		compactStart := time.Now()
 		aborted, err := runCompactor(c.do)
 		if err != nil {
 			return false, err
 		}
 		if aborted {
 			return false, abortAndClose()
+		}
+		if transformer != nil {
+			// A transformer ran as part of this merge; record its pass duration.
+			// Bytes reclaimed is left to the 1:1 cleaner rewrite, where shrinkage is
+			// purely the transformer's; a merge's savings also come from dedup, so
+			// they can't be cleanly attributed to the edit op here.
+			elapsed := time.Since(compactStart).Seconds()
+			for _, opType := range distinctOpTypes(builtOps) {
+				sg.metrics.ObserveEditOpsTransformerDuration(opType, elapsed)
+			}
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
