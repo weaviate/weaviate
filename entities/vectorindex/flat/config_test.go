@@ -341,6 +341,18 @@ func Test_FlatUserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "cannot enable multiple quantization methods at the same time",
 		},
+		{
+			// https://github.com/weaviate/weaviate/issues/12035
+			name: "bq enabled with hamming distance is rejected",
+			input: map[string]interface{}{
+				"distance": common.DistanceHamming,
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "binary quantization (bq) is not compatible with the \"hamming\" distance metric",
+		},
 	}
 
 	for _, test := range tests {
@@ -362,6 +374,7 @@ func Test_ParseDefaultQuantization(t *testing.T) {
 	tests := []struct {
 		name        string
 		compression string
+		distance    string
 		expectErr   bool
 		expectBQ    bool
 		expectRQ    bool
@@ -372,14 +385,22 @@ func Test_ParseDefaultQuantization(t *testing.T) {
 		{name: "rq-1 enables RQ", compression: "rq-1", expectRQ: true},
 		{name: "rq-8 enables RQ", compression: "rq-8", expectRQ: true},
 		{name: "invalid compression", compression: "invalid", expectErr: true},
+		// https://github.com/weaviate/weaviate/issues/12035
+		// default bq quantization must not be applied to a hamming index
+		{name: "bq is rejected with hamming distance", compression: "bq", distance: common.DistanceHamming, expectErr: true, expectBQ: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			uc := NewDefaultUserConfig()
+			if tt.distance != "" {
+				uc.Distance = tt.distance
+			}
 			result, err := ParseDefaultQuantization(uc, tt.compression)
 			if tt.expectErr {
 				require.Error(t, err)
+				cfg := result.(UserConfig)
+				assert.Equal(t, tt.expectBQ, cfg.BQ.Enabled, "BQ.Enabled on error")
 				return
 			}
 			require.NoError(t, err)

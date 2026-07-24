@@ -306,6 +306,10 @@ func (u *UserConfig) validate() error {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
 	}
 
+	if err := vectorIndexCommon.ValidateBQCompatibility(u.Distance, u.BQ.Enabled); err != nil {
+		return err
+	}
+
 	if err := ValidatePQConfig(u.PQ); err != nil {
 		return err
 	}
@@ -362,6 +366,9 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 		hnswConfig.RQ.Bits = 8
 		hnswConfig.RQ.RescoreLimit = DefaultRQRescoreLimit
 	case "bq":
+		if err := vectorIndexCommon.ValidateBQCompatibility(hnswConfig.Distance, true); err != nil {
+			return hnswConfig, err
+		}
 		hnswConfig.BQ.Enabled = true
 	default:
 		return hnswConfig, errors.New("invalid default quantization for hnsw index: " + compression)
