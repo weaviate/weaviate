@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/distributed_tasks"
 	clobjects "github.com/weaviate/weaviate/client/objects"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -211,8 +212,34 @@ func listTenantObjectsWithVectors(t *testing.T, className, tenant string) []*mod
 	return listObjectsWithVectors(t, className, tenant, 100)
 }
 
-// setTenantStatusEventually retries a tenant status change: the tenant-mutation
-// guard rejects changes while a cleanup task is momentarily active.
+// waitForNoActiveDropTask waits until no drop-vector cleanup task is active.
+// A tenant's coverage is recorded only when its cleaning ROUND completes:
+// deactivating it while the round still runs — possible even after its
+// objects already read as stripped, since unit completion lags by up to a
+// poll tick — aborts the round and loses the coverage until the tenant's
+// next activation. Tests that re-cool a tenant and expect its coverage to
+// survive must pass this barrier first.
+func waitForNoActiveDropTask(t *testing.T) {
+	t.Helper()
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		resp, err := helper.Client(nil).DistributedTasks.DistributedTasksGet(
+			distributed_tasks.NewDistributedTasksGetParams(), nil)
+		if !assert.NoError(collect, err) {
+			return
+		}
+		for _, task := range resp.Payload["drop-vector-index"] {
+			switch task.Status {
+			case "FINISHED", "FAILED", "CANCELLED":
+			default:
+				assert.Failf(collect, "drop task still active", "task %s status %s", task.ID, task.Status)
+			}
+		}
+	}, time.Minute, 500*time.Millisecond)
+}
+
+// setTenantStatusEventually retries a tenant status change through transient
+// rejections (leadership changes, other guards). Drop-vector cleanups no
+// longer block tenant mutations, so for them a plain update works too.
 func setTenantStatusEventually(t *testing.T, className, tenant, status string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {

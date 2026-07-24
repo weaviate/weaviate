@@ -94,6 +94,22 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 
 	recovered := false
 
+	// Data in these WALs predates any strip progress the edit-ops sidecar has
+	// recorded: keeping the last WAL's memtable as the live one would hold
+	// pre-strip bytes OUTSIDE the pending-segment bookkeeping, and a drop that
+	// already recorded those bytes as stripped would see them resurrect — with
+	// nothing left to re-clean them once its op is gone. With ops present,
+	// flush EVERY recovered WAL into a segment; the sidecar recovery that runs
+	// after this (see newSegmentGroup) then re-pends them all.
+	sidecarHasOps := false
+	if sg.editOps != nil {
+		ops, opsErr := sg.editOps.LoadOps()
+		if opsErr != nil {
+			return errors.Wrap(opsErr, "probe edit-ops sidecar before WAL recovery")
+		}
+		sidecarHasOps = len(ops) > 0
+	}
+
 	// recover from each log
 	for i, fname := range walFileNames {
 		if err := func() error {
@@ -145,7 +161,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 
 			// immediately flush the .wal file if there have been any damages during recovery. This means that the file is
 			// damaged and cannot be used for new writes.
-			if walForActiveMemtable && errRecovery == nil {
+			if walForActiveMemtable && errRecovery == nil && !sidecarHasOps {
 				_, err = cl.file.Seek(0, io.SeekEnd)
 				if err != nil {
 					return err
