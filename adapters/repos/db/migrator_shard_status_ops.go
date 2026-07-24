@@ -121,6 +121,21 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
+			// restoreAfterAbort reverses an already-run offloading HaltForTransfer.
+			restoreAfterAbort := func() {
+				if shard == nil {
+					return // COLD/inactive: no local shard was halted
+				}
+				if err := idx.resumeAfterAbortedOffload(ctx, name); err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"action": "resume_after_aborted_offload",
+						"name":   class,
+						"tenant": name,
+					}).Errorf("resume after aborted offload: %v", err)
+					ec.Add(fmt.Errorf("resume after aborted offload: %w", err))
+				}
+			}
+
 			if shard != nil {
 				if err := shard.HaltForTransfer(ctx, true, 0); err != nil {
 					m.logger.WithFields(logrus.Fields{
@@ -137,6 +152,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 						Op: command.TenantsProcess_OP_ABORT,
 					}
 					ec.Add(err)
+					restoreAfterAbort()
 					return fmt.Errorf("attempt to mark begin offloading: %w", err)
 				}
 			}
@@ -157,6 +173,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 					},
 					Op: command.TenantsProcess_OP_ABORT,
 				}
+				restoreAfterAbort()
 			} else {
 				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
 					Tenant: &command.Tenant{
