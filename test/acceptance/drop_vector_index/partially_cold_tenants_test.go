@@ -109,6 +109,13 @@ func testPartiallyColdTenants() func(t *testing.T) {
 		})
 
 		t.Run("4 deactivate the cleaned tenant again", func(t *testing.T) {
+			// Coverage exists only once the cleaning round COMPLETED. Tenant
+			// lifecycle no longer waits for cleanups, so re-cooling during the
+			// round (stripped objects notwithstanding) would abort it and lose
+			// this tenant's coverage until its next activation — a different
+			// journey; this one pins "re-cooling a COVERED tenant does not
+			// block finalize".
+			waitForNoActiveDropTask(t)
 			setTenantStatusEventually(t, className, tenants[2], models.TenantActivityStatusCOLD)
 		})
 

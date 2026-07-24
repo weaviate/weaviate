@@ -108,30 +108,17 @@ func (p *DropVectorIndexProvider) CheckClassMutation(className string, existingT
 	return nil
 }
 
-// CheckTenantMutation blocks tenant mutations that would make a tenant's shards
-// locally unavailable while a drop-vector task on the class is in flight.
-// Conservative: any in-flight drop on the class blocks every tenant mutation on
-// it (the payload is class-scoped, not per-tenant).
+// CheckTenantMutation is deliberately permissive: tenant lifecycle is not
+// coupled to in-flight drop-vector cleanups. Deactivating (or deleting) a
+// tenant mid-strip makes its unit unfinishable — the drain loop loses the
+// shard, fails the unit after its bounded poll retries, and the round ends
+// FAILED — and reconciliation then re-enqueues for the remaining active
+// shards: already-stripped shards re-drain instantly (their pending sets are
+// empty), and the deactivated tenant is picked up by the cold-tenant deferral
+// once it activates again. The schema marker stays the source of truth
+// throughout, so no path here can lose data; blocking would only trade tenant
+// availability for one round's bookkeeping. Always returns nil.
 func (p *DropVectorIndexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
-	for _, task := range existingTasks {
-		if !task.Status.IsActive() {
-			continue
-		}
-		existP, err := decodeDropVectorIndexPayload(task.Payload)
-		if err != nil {
-			// Skip a corrupt payload rather than block every tenant mutation
-			// cluster-wide on one bad task. Deterministic across nodes.
-			p.logger.WithField("task", task.ID).
-				Warnf("drop-vector: skipping active task with unparseable payload in tenant-mutation check: %v", err)
-			continue
-		}
-		if !strings.EqualFold(existP.Collection, className) {
-			continue
-		}
-		return fmt.Errorf(
-			"drop-vector task %q is in flight on %s (status=%s); wait for it to complete before mutating tenants %v",
-			task.ID, existP.Collection, task.Status, tenants)
-	}
 	return nil
 }
 

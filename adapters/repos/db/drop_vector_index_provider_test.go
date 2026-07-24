@@ -1414,11 +1414,15 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 }
 
-func TestCheckTenantMutation_BlocksDuringDrop(t *testing.T) {
+// TestCheckTenantMutation_NeverBlocks pins the decoupling contract: tenant
+// lifecycle is independent of in-flight drop cleanups. A mid-strip
+// deactivation fails that unit and the next reconcile round re-covers the
+// surviving shards; the marker (not the task) is the source of truth.
+func TestCheckTenantMutation_NeverBlocks(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
-	require.Error(t, p.CheckTenantMutation("C", []string{"tenant1"}, []*distributedtask.Task{activeDropTask("t1", "C", "v1")}))
-	require.NoError(t, p.CheckTenantMutation("Other", []string{"tenant1"}, []*distributedtask.Task{activeDropTask("t1", "C", "v1")}),
-		"a drop on another collection must not block this one's tenant mutations")
+	require.NoError(t, p.CheckTenantMutation("C", []string{"tenant1"},
+		[]*distributedtask.Task{activeDropTask("t1", "C", "v1")}),
+		"deactivating a tenant must succeed even while its collection's drop is stripping")
 }
 
 func TestCheckPropertyUpdate_NeverConflicts(t *testing.T) {
@@ -1465,18 +1469,6 @@ func TestCheckConflict_SkipsCorruptActiveTask(t *testing.T) {
 		Status:    distributedtask.TaskStatusStarted,
 	}
 	require.NoError(t, p.CheckConflict(newPayload, []*distributedtask.Task{corrupt}))
-}
-
-// TestCheckTenantMutation_SkipsCorruptActiveTask: likewise a corrupt task must not
-// block every tenant mutation cluster-wide.
-func TestCheckTenantMutation_SkipsCorruptActiveTask(t *testing.T) {
-	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
-	corrupt := &distributedtask.Task{
-		Namespace: DropVectorIndexNamespace,
-		Payload:   []byte("not json"),
-		Status:    distributedtask.TaskStatusStarted,
-	}
-	require.NoError(t, p.CheckTenantMutation("C", []string{"t1"}, []*distributedtask.Task{corrupt}))
 }
 
 func TestExtractDropVectorIndexTaskCollection(t *testing.T) {
