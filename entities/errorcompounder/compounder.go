@@ -30,8 +30,6 @@ type ErrorCompounder interface {
 
 	First() error
 	ToError() error
-	// ToErrorLimited reports at most limit errors, but never fewer than one, and
-	// how many it left out.
 	ToErrorLimited(limit int) error
 }
 
