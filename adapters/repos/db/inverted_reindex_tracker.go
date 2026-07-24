@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // -----------------------------------------------------------------------------
@@ -125,7 +126,11 @@ type fileReindexTrackerConfig struct {
 
 func (t *fileReindexTracker) init() error {
 	mkdir := func() error {
-		return os.MkdirAll(t.config.migrationPath, 0o777)
+		if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
+			return err
+		}
+		// Persist the new dir entry so it can't be lost before a sentinel is written into it.
+		return diskio.Fsync(filepath.Dir(t.config.migrationPath))
 	}
 
 	if t.mkdirGuard != nil {
@@ -216,7 +221,14 @@ func (t *fileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 		return nil, nil, err
 	}
 
+	// A torn (truncated) checkpoint must not be parsed into a stale resume
+	// key, which would silently skip objects — treat it as no progress.
 	split := strings.Split(string(content), "\n")
+	if len(split) < 4 {
+		t.progressCheckpoint = checkpoint + 1
+		return t.keyParser.FromBytes(nil), nil, nil
+	}
+
 	key, err := t.keyParser.FromString(split[1])
 	if err != nil {
 		return nil, nil, err
@@ -255,6 +267,14 @@ func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKe
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
 
+	// A torn write can end after "all N\n" or mid-"idx", leaving the trailing
+	// count field unsplittable — treat as no progress instead of panicking on [1].
+	allField := strings.Split(progressFileFields[2], " ")
+	idxField := strings.Split(progressFileFields[3], " ")
+	if len(allField) < 2 || len(idxField) < 2 {
+		return t.keyParser.FromBytes(nil), time.Time{}, 0, 0, nil
+	}
+
 	tm, err = t.decodeTime(strings.TrimSpace(progressFileFields[0]))
 	if err != nil {
 		err = fmt.Errorf("failed to parse timestamp from %s: %w", progressFilePath, err)
@@ -267,13 +287,13 @@ func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKe
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
 
-	allCount, err = strconv.Atoi(strings.Split(progressFileFields[2], " ")[1])
+	allCount, err = strconv.Atoi(allField[1])
 	if err != nil {
 		err = fmt.Errorf("failed to parse objects migrated count from %s: %w", progressFilePath, err)
 		return lastProcessedKey, tm, allCount, idxCount, err
 	}
 
-	idxCount, err = strconv.Atoi(strings.Split(progressFileFields[3], " ")[1])
+	idxCount, err = strconv.Atoi(idxField[1])
 	if err != nil {
 		err = fmt.Errorf("failed to parse index count from %s: %w", progressFilePath, err)
 		return lastProcessedKey, tm, allCount, idxCount, err
@@ -444,28 +464,22 @@ func (t *fileReindexTracker) fileExists(filename string) bool {
 	return err == nil
 }
 
+// createFile durably writes a sentinel (fsync file, then parent dir) so a
+// crash can't lose it before the state machine advances.
 func (t *fileReindexTracker) createFile(filename string, content []byte) error {
-	path := t.filepath(filename)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	if len(content) > 0 {
-		_, err = file.Write(content)
-		return err
-	}
-	return nil
+	return diskio.WriteFileSync(t.filepath(filename), content,
+		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
 }
 
+// removeFile fsyncs the parent dir after unlink so the removal survives a crash.
 func (t *fileReindexTracker) removeFile(filename string) error {
 	if err := os.Remove(t.filepath(filename)); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return err
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
 		}
+		return err
 	}
-	return nil
+	return diskio.Fsync(t.config.migrationPath)
 }
 
 func (t *fileReindexTracker) encodeTimeNow() string {
