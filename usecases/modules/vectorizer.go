@@ -182,6 +182,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 		return nil, fmt.Errorf("no vectorizer found for class %q", class.Class)
 	}
 	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector, &p.cfg)
+	targetProperties := p.sourcePropertiesFromModuleConfig(modConfig, found.Name())
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
 		// each target vector can have its own associated properties, and we need to determine for each one if we should
@@ -195,7 +196,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				continue
 			}
 			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj,
-				class, nil, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
+				class, targetProperties, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
 			}
@@ -235,7 +236,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				continue
 			}
 			reVectorize, addProps, multiVector, err := reVectorizeMulti(ctx, cfg,
-				vectorizer, obj, class, nil, targetVector, findObjectFn,
+				vectorizer, obj, class, targetProperties, targetVector, findObjectFn,
 				p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
@@ -369,15 +370,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer[[]float32]); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var targetProperties []string
-			vecConfig, ok := modConfig[found.Name()]
-			if ok {
-				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
-					if propSlice, ok := properties.([]string); ok {
-						targetProperties = propSlice
-					}
-				}
-			}
+			targetProperties := p.sourcePropertiesFromModuleConfig(modConfig, found.Name())
 			needsRevectorization, additionalProperties, vector, err := reVectorize(ctx,
 				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
 				p.cfg.RevectorizeCheckDisabled.Get())
@@ -399,15 +392,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 		}
 	} else if vectorizer, ok := found.(modulecapabilities.Vectorizer[[][]float32]); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var targetProperties []string
-			vecConfig, ok := modConfig[found.Name()]
-			if ok {
-				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
-					if propSlice, ok := properties.([]string); ok {
-						targetProperties = propSlice
-					}
-				}
-			}
+			targetProperties := p.sourcePropertiesFromModuleConfig(modConfig, found.Name())
 			needsRevectorization, additionalProperties, multiVector, err := reVectorizeMulti(ctx,
 				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
 				p.cfg.RevectorizeCheckDisabled.Get())
@@ -545,6 +530,32 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	}
 
 	return modConfigs, nil
+}
+
+// sourcePropertiesFromModuleConfig reads a named vector's source properties,
+// handling both []any (JSON/RAFT) and []string forms; nil means none.
+func (p *Provider) sourcePropertiesFromModuleConfig(modConfig map[string]any, moduleName string) []string {
+	vecConfig, ok := modConfig[moduleName].(map[string]any)
+	if !ok {
+		return nil
+	}
+	switch props := vecConfig["properties"].(type) {
+	case []string:
+		return props
+	case []any:
+		out := make([]string, 0, len(props))
+		for _, prop := range props {
+			s, ok := prop.(string)
+			if !ok {
+				// On a non-string entry, treat the config as absent (no partial list).
+				return nil
+			}
+			out = append(out, s)
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func (p *Provider) getModule(modConfig map[string]interface{}) (found modulecapabilities.Module) {
