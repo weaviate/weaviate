@@ -15,14 +15,13 @@ package lsmkv
 
 import (
 	"context"
-	"io"
 	"math"
 	"math/rand"
 	"sort"
 	"strconv"
 	"testing"
 
-	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -44,8 +43,7 @@ import (
 // termination watchdog (the only other test in this regime) cannot see.
 func TestBlockMaxWandMatchesBruteForce(t *testing.T) {
 	ctx := context.Background()
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
+	logger, _ := test.NewNullLogger()
 	dir := t.TempDir()
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),

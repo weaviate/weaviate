@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -718,6 +719,123 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	require.Equal(t, 0, count)
 }
 
+func TestCountApproximate(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	newBucket := func(t *testing.T) *Bucket {
+		b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, b.Shutdown(ctx))
+		})
+		return b
+	}
+
+	requireApprox := func(t *testing.T, b *Bucket, want int) {
+		t.Helper()
+		count, err := b.CountApproximate()
+		require.NoError(t, err)
+		require.Equal(t, want, count)
+	}
+
+	requireExact := func(t *testing.T, b *Bucket, want int) {
+		t.Helper()
+		count, err := b.Count(ctx)
+		require.NoError(t, err)
+		require.Equal(t, want, count)
+	}
+
+	putKeys := func(t *testing.T, b *Bucket, n int) {
+		t.Helper()
+		for i := 0; i < n; i++ {
+			require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%02d", i)), []byte("value")))
+		}
+	}
+
+	t.Run("memtable-resident inserts and deletes", func(t *testing.T) {
+		b := newBucket(t)
+		putKeys(t, b, 3)
+		require.NoError(t, b.Delete([]byte("key-00")))
+		requireApprox(t, b, 2)
+		requireExact(t, b, 2)
+	})
+
+	t.Run("over-counts an unflushed update of a flushed key until the next flush", func(t *testing.T) {
+		b := newBucket(t)
+		require.NoError(t, b.Put([]byte("key-a"), []byte("value")))
+		require.NoError(t, b.FlushMemtable())
+
+		require.NoError(t, b.Put([]byte("key-a"), []byte("value-2")))
+		requireApprox(t, b, 2)
+		requireExact(t, b, 1)
+
+		require.NoError(t, b.FlushMemtable())
+		requireApprox(t, b, 1)
+	})
+
+	t.Run("never negative", func(t *testing.T) {
+		b := newBucket(t)
+		require.NoError(t, b.Delete([]byte("never-existed")))
+		requireApprox(t, b, 0)
+	})
+
+	t.Run("includes the flushing memtable while a flush is in flight", func(t *testing.T) {
+		b := newBucket(t)
+		putKeys(t, b, 5)
+
+		switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+		require.NoError(t, err)
+		require.True(t, switched)
+
+		require.NoError(t, b.Put([]byte("key-new"), []byte("value")))
+		require.NoError(t, b.Put([]byte("key-new-2"), []byte("value")))
+		require.NoError(t, b.Delete([]byte("key-00")))
+		requireApprox(t, b, 6)
+		requireExact(t, b, 6)
+
+		// complete the flush the way FlushAndSwitch does
+		b.waitForZeroWriters(b.flushing)
+		segmentPath, err := b.flushing.flush()
+		require.NoError(t, err)
+		segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
+		require.NoError(t, err)
+		require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(segment))
+		requireApprox(t, b, 6)
+	})
+
+	t.Run("counter is rebuilt from the WAL on reopen", func(t *testing.T) {
+		dirName := t.TempDir()
+		newFromDir := func() *Bucket {
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
+			)
+			require.NoError(t, err)
+			return b
+		}
+
+		b := newFromDir()
+		putKeys(t, b, 3)
+		require.NoError(t, b.Delete([]byte("key-00")))
+		requireApprox(t, b, 2)
+		require.NoError(t, b.Shutdown(ctx))
+		require.Equal(t, 0, getFileTypeCount(t, dirName)[".db"], "data must survive as WAL, not a segment")
+
+		b = newFromDir()
+		defer func() { require.NoError(t, b.Shutdown(ctx)) }()
+		// WAL replay dedups key-00's put+delete into a bare tombstone: the
+		// documented delete-of-unseen-key under-count, corrected at flush
+		requireApprox(t, b, 1)
+		requireExact(t, b, 2)
+		require.NoError(t, b.FlushMemtable())
+		requireApprox(t, b, 2)
+	})
+}
+
 func getFileTypeCount(t *testing.T, path string) map[string]int {
 	t.Helper()
 	fileTypes := map[string]int{}
@@ -988,7 +1106,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	}
 
 	// validate initial data before making any changes
-	value, releaseBuffers, err := b.RoaringSetGet([]byte("key1"))
+	value, releaseBuffers, err := b.RoaringSetGet(context.Background(), []byte("key1"))
 	require.NoError(t, err)
 	require.Equal(t, bitmapFromSlice([]uint64{1, 2}).ToArray(), value.ToArray())
 	releaseBuffers()
@@ -1004,7 +1122,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k))
+			v, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte(k))
 			require.NoError(t, err)
 			require.Equal(t, expectedV.ToArray(), v.ToArray())
 			release()
@@ -1033,7 +1151,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 		}
 
 		for k, expectedV := range expected {
-			v, release, err := b.roaringSetGetFromConsistentView(view, []byte(k))
+			v, release, err := b.roaringSetGetFromConsistentView(context.Background(), view, []byte(k))
 			require.NoError(t, err)
 			require.Equal(t, expectedV.ToArray(), v.ToArray())
 			release()
@@ -1053,8 +1171,8 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 	defer view3.ReleaseView()
 
 	// the original memtable was flushed to disk
-	v, release, err := b.disk.roaringSetGet([]byte("key1"), view3.Disk)
-	assert.Equal(t, []uint64{1, 2}, v.Flatten(true).ToArray())
+	v, release, err := b.disk.roaringSetGet([]byte("key1"), view3.Disk, concurrency.SROAR_MERGE)
+	assert.Equal(t, []uint64{1, 2}, v.Flatten(true, concurrency.SROAR_MERGE).ToArray())
 	require.NoError(t, err)
 	release()
 }
@@ -1122,9 +1240,9 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk)
+	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
-	assert.Equal(t, []uint64{1, 2, 3}, bm.Flatten(true).ToArray())
+	assert.Equal(t, []uint64{1, 2, 3}, bm.Flatten(true, concurrency.SROAR_MERGE).ToArray())
 	release()
 }
 
@@ -2097,11 +2215,21 @@ type testMemtable struct {
 	*Memtable
 	totalWriteCountIncs int
 	totalWriteCountDecs int
+	// roaringSetGetErr, when set, makes roaringSetGet fail, simulating a
+	// memtable read error mid-way through a consistent-view lookup.
+	roaringSetGetErr error
 }
 
 func (t *testMemtable) incWriterCount() {
 	t.totalWriteCountIncs++
 	t.Memtable.incWriterCount()
+}
+
+func (t *testMemtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+	if t.roaringSetGetErr != nil {
+		return roaringset.BitmapLayer{}, t.roaringSetGetErr
+	}
+	return t.Memtable.roaringSetGet(key)
 }
 
 func (t *testMemtable) decWriterCount() {

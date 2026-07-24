@@ -467,7 +467,8 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		m := make(map[string]int, len(ids)/2) //
 
 		for j, x := range lastTimes {
-			if !x.Deleted && result[j] == nil {
+			deleted := x.Deleted && lastDeletionTimes[j] == x.T
+			if !deleted && result[j] == nil {
 				// latest object could not be fetched
 				continue
 			}
@@ -509,8 +510,6 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				var vector []float32
 				var vectors map[string][]float32
 				var multiVectors map[string][][]float32
-
-				deleted := x.Deleted && lastDeletionTimes[j] == x.T
 
 				if !deleted {
 					latestObject = &result[j].Object

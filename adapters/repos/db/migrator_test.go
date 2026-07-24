@@ -13,8 +13,10 @@ package db
 
 import (
 	"context"
+	"errors"
 	"hash/crc32"
 	"io"
+	"os"
 	"slices"
 	"testing"
 
@@ -29,6 +31,7 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -267,11 +270,26 @@ func TestUpdateIndexShards(t *testing.T) {
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, initialState)
 			}).Maybe()
+
+			rootPath := t.TempDir()
+
+			// Seed a non-zero on-disk index counter for each initial shard BEFORE
+			// NewIndex runs. NewIndex→initAndStoreShards defers loading of empty HOT
+			// multi-tenant shards, storing them as unloaded *LazyLoadShard wrappers.
+			// "Empty" is decided via indexcounter.ReadOnDisk (a counter of 0 / missing
+			// indexcount file). Writing a counter of 1 makes each initial shard read as
+			// non-empty so the deferral does not apply, keeping this test focused on
+			// updateIndexShards' add/remove/keep behavior and the eager⇒*Shard /
+			// lazy⇒*LazyLoadShard contract rather than the empty-tenant deferral.
+			for _, shardName := range tt.initialShards {
+				seedShardObjectCounter(t, rootPath, "TestClass", shardName)
+			}
+
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
 				ClassName:            schema.ClassName("TestClass"),
-				RootPath:             t.TempDir(),
+				RootPath:             rootPath,
 				ReplicationFactor:    1,
 				ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
@@ -355,6 +373,13 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 			name: "GetShardsStatus",
 			call: func() error {
 				_, err := migrator.GetShardsStatus(context.Background(), "DoesNotExist", "")
+				return err
+			},
+		},
+		{
+			name: "GetShardsQueueSize",
+			call: func() error {
+				_, err := migrator.GetShardsQueueSize(context.Background(), "DoesNotExist", "")
 				return err
 			},
 		},
@@ -474,4 +499,207 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 
 	err = index.IncomingResumeFileActivity(ctx, "shard1")
 	require.NoError(t, err)
+}
+
+func TestMigratorDeleteTenants(t *testing.T) {
+	const className = "Abc"
+
+	type tenant struct {
+		name   string
+		status string
+		// loaded stores a mock shard under name, so drop() runs instead of
+		// removing the shard directory
+		loaded   bool
+		dropErr  error
+		cloudErr error
+	}
+
+	tests := []struct {
+		name            string
+		tenants         []tenant
+		noCloud         bool
+		wantErrContains []string
+	}{
+		{
+			name: "no tenant to delete",
+		},
+		{
+			name: "loaded and unloaded tenants are dropped",
+			tenants: []tenant{
+				{name: "hot1", status: models.TenantActivityStatusHOT, loaded: true},
+				{name: "frozen1", status: models.TenantActivityStatusFROZEN},
+			},
+		},
+		{
+			name: "frozen tenant is deleted from the cloud even when another tenant's drop fails",
+			tenants: []tenant{
+				{
+					name:    "hot1",
+					status:  models.TenantActivityStatusHOT,
+					loaded:  true,
+					dropErr: errors.New("shard drop failed"),
+				},
+				{
+					name:     "frozen1",
+					status:   models.TenantActivityStatusFROZEN,
+					cloudErr: errors.New("cloud delete failed"),
+				},
+			},
+			wantErrContains: []string{"shard drop failed", "cloud delete failed"},
+		},
+		{
+			name: "cloud delete failure is reported",
+			tenants: []tenant{{
+				name:     "freezing1",
+				status:   models.TenantActivityStatusFREEZING,
+				cloudErr: errors.New("cloud delete failed"),
+			}},
+			wantErrContains: []string{"cloud delete failed"},
+		},
+		{
+			// the cloud error must not fire: only frozen tenants are offloaded
+			name: "hot tenant is not deleted from the cloud",
+			tenants: []tenant{{
+				name:     "hot1",
+				status:   models.TenantActivityStatusHOT,
+				cloudErr: errors.New("unexpected cloud delete"),
+			}},
+		},
+		{
+			name:    "drop failure is reported without a cloud backend",
+			noCloud: true,
+			tenants: []tenant{{
+				name:    "frozen1",
+				status:  models.TenantActivityStatusFROZEN,
+				loaded:  true,
+				dropErr: errors.New("shard drop failed"),
+			}},
+			wantErrContains: []string{"shard drop failed"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, _ := newDropTestIndex(t)
+			cloud := fakeOffloadCloud{deleteErrs: map[string]error{}}
+			tenants := make([]*models.Tenant, 0, len(tt.tenants))
+
+			for _, tn := range tt.tenants {
+				tenants = append(tenants, &models.Tenant{Name: tn.name, ActivityStatus: tn.status})
+				require.NoError(t, os.MkdirAll(shardPath(idx.path(), tn.name), 0o755))
+
+				if tn.loaded {
+					storeDroppableShard(t, idx, tn.name, tn.dropErr)
+				}
+				if tn.cloudErr != nil {
+					cloud.deleteErrs[tn.name] = tn.cloudErr
+				}
+			}
+
+			var backend modulecapabilities.OffloadCloud
+			if !tt.noCloud {
+				backend = cloud
+			}
+
+			err := newDropTestMigrator(idx, className, backend).
+				DeleteTenants(context.Background(), className, tenants)
+
+			if len(tt.wantErrContains) == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				for _, want := range tt.wantErrContains {
+					require.Contains(t, err.Error(), want)
+				}
+			}
+
+			for _, tn := range tt.tenants {
+				require.Nil(t, idx.shards.Load(tn.name))
+			}
+		})
+	}
+}
+
+func TestUpdateIndexDeleteTenants(t *testing.T) {
+	const (
+		className = "Abc"
+		keptShard = "kept"
+	)
+
+	tests := []struct {
+		name string
+		// loaded shards missing from the incoming state, and the error each
+		// one's drop returns
+		dropErrs        map[string]error
+		cloudErrs       map[string]error
+		wantErrContains []string
+	}{
+		{
+			name: "no shard to remove",
+		},
+		{
+			name:     "removed shard is dropped locally and in the cloud",
+			dropErrs: map[string]error{"shard1": nil},
+		},
+		{
+			name: "cloud shards are dropped even when a local drop fails",
+			dropErrs: map[string]error{
+				"shard1": errors.New("shard drop failed"),
+				"shard2": nil,
+			},
+			cloudErrs:       map[string]error{"shard2": errors.New("cloud delete failed")},
+			wantErrContains: []string{"shard drop failed", "cloud delete failed"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, _ := newDropTestIndex(t)
+			idx.shards.Store(keptShard, NewMockShardLike(t))
+			for name, dropErr := range tt.dropErrs {
+				storeDroppableShard(t, idx, name, dropErr)
+			}
+
+			cloud := fakeOffloadCloud{deleteErrs: tt.cloudErrs}
+			m := newDropTestMigrator(idx, className, cloud)
+			incomingSS := &sharding.State{
+				Physical: map[string]sharding.Physical{keptShard: {Name: keptShard}},
+			}
+
+			err := m.updateIndexDeleteTenants(context.Background(), idx, incomingSS)
+
+			if len(tt.wantErrContains) == 0 {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				for _, want := range tt.wantErrContains {
+					require.Contains(t, err.Error(), want)
+				}
+			}
+
+			require.NotNil(t, idx.shards.Load(keptShard))
+			for name := range tt.dropErrs {
+				require.Nil(t, idx.shards.Load(name))
+			}
+		})
+	}
+}
+
+// storeDroppableShard stores a mock shard under name whose drop returns dropErr.
+func storeDroppableShard(t *testing.T, idx *Index, name string, dropErr error) {
+	t.Helper()
+	shard := NewMockShardLike(t)
+	shard.EXPECT().ID().Return(name).Maybe()
+	shard.EXPECT().drop(false).Return(dropErr).Once()
+	idx.shards.Store(name, shard)
+}
+
+// newDropTestMigrator returns a migrator serving idx under className, offloading
+// to cloud unless it is nil.
+func newDropTestMigrator(idx *Index, className string, cloud modulecapabilities.OffloadCloud) *Migrator {
+	db := &DB{indices: map[string]*Index{indexID(schema.ClassName(className)): idx}}
+	m := NewMigrator(db, idx.logger, "node1")
+	m.nodeId = "node1"
+	m.cloud = cloud
+	return m
 }

@@ -37,6 +37,7 @@ import (
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -460,6 +461,7 @@ type Config struct {
 	LazyLoadShardSizeThresholdGB        float64
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
+	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
@@ -482,6 +484,7 @@ type Config struct {
 	HNSWAcornFilterRatio                         float64
 	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
+	BM25FilterTombMergeGateRatio                 *configRuntime.DynamicValue[float64]
 
 	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
 	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]
@@ -570,6 +573,10 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 		return nil
 	}
 
+	// abort in-flight usage scans so the dropIndex write lock below is not
+	// blocked behind an hours-long reader while db.indexLock is held
+	index.signalDropRequested()
+
 	// drop index
 	db.indexLock.Lock()
 	defer db.indexLock.Unlock()
@@ -601,11 +608,11 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	// keep going on failure: a failing step must not skip the cleanup below
+	ec := errorcompounder.New()
+
 	// shut down the async workers
-	err := db.scheduler.Close(ctx)
-	if err != nil {
-		return errors.Wrap(err, "close scheduler")
-	}
+	ec.AddWrapf(db.scheduler.Close(ctx), "close scheduler")
 
 	if db.metricsObserver != nil {
 		db.metricsObserver.Shutdown()
@@ -615,8 +622,8 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	defer db.indexLock.Unlock()
 	defer db.asyncReplicationScheduler.Close()
 	for id, index := range db.indices {
-		if err := index.Shutdown(ctx); err != nil {
-			return errors.Wrapf(err, "shutdown index %q", id)
+		if err := index.Shutdown(ctx); err != nil && !errors.Is(err, errAlreadyShutdown) {
+			ec.AddWrapf(err, "shutdown index %q", id)
 		}
 	}
 
@@ -626,7 +633,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		db.indexCheckpoints.Close()
 	}
 
-	return nil
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 type job struct {

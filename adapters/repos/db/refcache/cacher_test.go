@@ -97,27 +97,22 @@ func TestCacher(t *testing.T) {
 	})
 
 	t.Run("with a single ref, and a matching select prop", func(t *testing.T) {
-		repo := newFakeRepo()
-		repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
-			ClassName: "SomeClass",
-			ID:        strfmt.UUID(id1),
+		refObj := search.Result{
+			ID:        "foo",
+			ClassName: "BestClass",
 			Schema: map[string]interface{}{
-				"bar": "some string",
-			},
-		}
-		logger, _ := test.NewNullLogger()
-		cr := NewCacher(repo, logger, "")
-		input := []search.Result{
-			{
-				ID:        "foo",
-				ClassName: "BestClass",
-				Schema: map[string]interface{}{
-					"refProp": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
-						},
+				"refProp": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
 					},
 				},
+			},
+		}
+		expected := search.Result{
+			ID:        strfmt.UUID(id1),
+			ClassName: "SomeClass",
+			Schema: map[string]interface{}{
+				"bar": "some string",
 			},
 		}
 		selectProps := search.SelectProperties{
@@ -137,20 +132,38 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		expected := search.Result{
-			ID:        strfmt.UUID(id1),
-			ClassName: "SomeClass",
-			Schema: map[string]interface{}{
-				"bar": "some string",
+		tests := []struct {
+			name  string
+			input []search.Result
+		}{
+			{
+				name:  "ref object alone",
+				input: []search.Result{refObj},
+			},
+			{
+				// nil-schema object must not abort ref discovery for
+				// sibling objects
+				name: "nil-schema object precedes the ref object",
+				input: []search.Result{
+					{ID: "nilSchema", ClassName: "BestClass"},
+					refObj,
+				},
 			},
 		}
-
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
-		require.Nil(t, err)
-		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
-		require.True(t, ok)
-		assert.Equal(t, expected, res)
-		assert.Equal(t, 1, repo.counter, "required the expected amount of lookups")
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				repo := newFakeRepo()
+				repo.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = expected
+				logger, _ := test.NewNullLogger()
+				cr := NewCacher(repo, logger, "")
+				err := cr.Build(context.Background(), tt.input, selectProps, additional.Properties{}, nil)
+				require.Nil(t, err)
+				res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
+				require.True(t, ok, "the ref object's ref must be resolved")
+				assert.Equal(t, expected, res)
+				assert.Equal(t, 1, repo.counter, "required the expected amount of lookups")
+			})
+		}
 	})
 
 	t.Run("with a nested lookup, partially resolved", func(t *testing.T) {
@@ -697,7 +710,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps)
+		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps.Indexed())
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -828,7 +841,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps)
+		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps.Indexed())
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -1016,7 +1029,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, groupByProps)
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, groupByProps.Indexed())
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)

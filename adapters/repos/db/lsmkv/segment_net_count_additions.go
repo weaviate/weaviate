@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -27,6 +28,13 @@ import (
 // any pre-computed data this is a recoverable issue, as the data can simply be
 // re-computed at read-time.
 var ErrInvalidChecksum = errors.New("invalid checksum")
+
+// canRecomputeSidecar reports whether a failed load of a bloom filter, count net
+// additions or metadata file can be resolved by computing it again: the file is
+// corrupt, or it is gone even though the file list said it exists.
+func canRecomputeSidecar(err error) bool {
+	return errors.Is(err, ErrInvalidChecksum) || errors.Is(err, fs.ErrNotExist)
+}
 
 const CountNetAdditionsFileSuffix = ".cna"
 
@@ -65,8 +73,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 				return nil
 			}
 
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
+			if !canRecomputeSidecar(err) {
 				return err
 			}
 

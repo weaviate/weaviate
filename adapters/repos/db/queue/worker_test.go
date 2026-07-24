@@ -278,6 +278,115 @@ func TestWorker_ExponentialBackoff(t *testing.T) {
 	}
 }
 
+// context.DeadlineExceeded is deliberately excluded from both the permanent
+// and the transient classification. It must still take the backoff path:
+// falling through both used to re-execute the failed tasks immediately, in a
+// tight loop with no sleep and no exit, pegging the worker at 100% CPU.
+func TestWorker_DeadlineExceededBacksOff(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	w := &Worker{
+		logger: logger,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// task that always fails with a deadline error, e.g. from an internal
+	// timeout
+	execCount := int32(0)
+	task := &mockWorkerTask{
+		executeFunc: func(ctx context.Context) error {
+			atomic.AddInt32(&execCount, 1)
+			return fmt.Errorf("internal timeout: %w", context.DeadlineExceeded)
+		},
+	}
+
+	batch := &Batch{
+		Ctx:   ctx,
+		Tasks: []Task{task},
+	}
+
+	// cancel the batch context after 500ms: the retry loop must exit
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cancel()
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- w.do(batch)
+	}()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "should return context error")
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker is stuck retrying deadline errors in a tight loop")
+	}
+
+	// with a backoff after the first attempt, the task must not have been
+	// re-executed before the context was canceled
+	require.LessOrEqual(t, atomic.LoadInt32(&execCount), int32(2), "deadline errors must be retried with backoff, not in a tight loop")
+}
+
+// A panicking task must not kill the worker goroutine: it is never restarted,
+// and the batch would never be marked done or canceled, leaving the queue's
+// active tasks gauge stuck so the queue is never scheduled again.
+func TestWorker_RecoversFromPanickingTask(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	worker, ch := NewWorker(logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	enterrors.GoWrapper(func() { worker.Run(ctx) }, logger)
+
+	canceled := make(chan struct{})
+	panicking := &Batch{
+		Ctx: ctx,
+		Tasks: []Task{&mockWorkerTask{
+			executeFunc: func(ctx context.Context) error {
+				panic("simulated task panic")
+			},
+		}},
+		OnCanceled: func() { close(canceled) },
+	}
+
+	select {
+	case ch <- panicking:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not accept the batch")
+	}
+
+	// the batch must be marked canceled so the scheduler's gauges are released
+	select {
+	case <-canceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("panicking batch was not marked canceled")
+	}
+
+	// the worker must survive and process subsequent batches
+	done := make(chan struct{})
+	healthy := &Batch{
+		Ctx:    ctx,
+		Tasks:  []Task{&mockWorkerTask{}},
+		OnDone: func() { close(done) },
+	}
+
+	select {
+	case ch <- healthy:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker died after a panicking task")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not process the batch after a panic")
+	}
+}
+
 func TestWorker_ContextCancellationDuringRetry(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	w := &Worker{

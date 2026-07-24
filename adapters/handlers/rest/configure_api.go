@@ -461,6 +461,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
 		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
 		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
@@ -502,6 +503,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		HNSWWaitForCachePrefill:                      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:                    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
 		HNSWAcornFilterRatio:                         appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		BM25FilterTombMergeGateRatio:                 appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
 		HNSWGeoIndexEF:                               appState.ServerConfig.Config.HNSWGeoIndexEF,
 		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		TenantActivityReadLogLevel:                   appState.ServerConfig.Config.TenantActivityReadLogLevel,
@@ -630,6 +632,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		IsLocalHost:                     appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:                schemaRepo.LoadLegacySchema,
 		SentryEnabled:                   appState.ServerConfig.Config.Sentry.Enabled,
+		TelemetryEnabled:                telemetryEnabled(appState),
 		AuthzController:                 appState.AuthzController,
 		RBAC:                            appState.RBAC,
 		DynamicUserController:           appState.APIKey.Dynamic,
@@ -1036,9 +1039,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.DB,
 		appState.SchemaManager,
 		appState.Logger,
-		getTelemetryURL(appState),
-		appState.ServerConfig.Config.TelemetryPushInterval,
-		telemetryEnabled(appState),
+		telemetry.Config{
+			ConsumerURL:          getTelemetryURL(appState),
+			PushInterval:         appState.ServerConfig.Config.TelemetryPushInterval,
+			Enabled:              telemetryEnabled(appState),
+			NodeID:               appState.ServerConfig.Config.Cluster.Hostname,
+			AsyncIndexingEnabled: appState.ServerConfig.Config.AsyncIndexingEnabled,
+			ClusterID:            appState.ClusterService.ClusterID,
+		},
 	)
 
 	var grpcInstrument []grpc.ServerOption
@@ -1129,8 +1137,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
-		// gracefully stop gRPC server
-		grpcServer.GracefulStop()
+		// stop the gRPC server gracefully, but cap the wait so a stuck
+		// request can't block shutdown.
+		grpcStopped := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			grpcServer.GracefulStop()
+			close(grpcStopped)
+		}, appState.Logger)
+		select {
+		case <-grpcStopped:
+		case <-time.After(20 * time.Second):
+			appState.Logger.Warn("grpc graceful stop timed out, forcing stop")
+			grpcServer.Stop()
+		}
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
@@ -1284,6 +1303,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	}
 
 	serverConfig.Config.Cluster.RaftBootstrapExpect = serverConfig.Config.Raft.BootstrapExpect
+	serverConfig.Config.Cluster.RaftBootstrapTimeout = serverConfig.Config.Raft.BootstrapTimeout
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
@@ -2233,6 +2253,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.LazyPropertyLengthsEnabled = appState.ServerConfig.Config.LazyPropertyLengthsEnabled
+		registered.BM25FilterTombMergeGateRatio = appState.ServerConfig.Config.BM25FilterTombMergeGateRatio
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
@@ -2251,6 +2272,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
 		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
+		registered.BackupMaxIndividualFiles = appState.ServerConfig.Config.Backup.MaxIndividualFiles
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
@@ -2295,7 +2317,7 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 				registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 				// common config
 				registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-				registered.UsageShardJitterInterval = appState.ServerConfig.Config.Usage.ShardJitterInterval
+				registered.UsageShardConcurrency = appState.ServerConfig.Config.Usage.ShardConcurrency
 				registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 				registered.UsageVerifyPermissions = appState.ServerConfig.Config.Usage.VerifyPermissions
 			})

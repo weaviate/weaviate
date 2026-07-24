@@ -62,14 +62,14 @@ func (b *BM25Searcher) wandBlock(
 		return []*storobj.Object{}, []float32{}, false, nil
 	}
 
-	allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(ctx, class, params)
+	stats, err := b.generateQueryTermsAndStats(ctx, class, params)
 	if err != nil {
 		return nil, nil, false, err
 	}
 
 	// fallback to the old search process if not all buckets are inverted
-	if !allBucketsAreInverted {
-		objects, scores, err := b.wand(ctx, filterDocIds, class, params, limit, additional)
+	if !stats.allBucketsAreInverted {
+		objects, scores, err := b.wandFromStats(ctx, filterDocIds, params, limit, additional, stats, start)
 		return objects, scores, true, err
 	}
 
@@ -87,12 +87,12 @@ func (b *BM25Searcher) wandBlock(
 	}
 
 	jobs := make([]blockTermJob, 0, len(params.Properties))
-	groups := make([]tokenizationGroup, 0, len(propNamesByTokenization))
-	for tokenization, propNames := range propNamesByTokenization {
+	groups := make([]tokenizationGroup, 0, len(stats.propNamesByTokenization))
+	for tokenization, propNames := range stats.propNamesByTokenization {
 		if len(propNames) == 0 {
 			continue
 		}
-		queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
+		queryTerms, duplicateBoosts := stats.queryTermsByTokenization[tokenization], stats.duplicateBoostsByTokenization[tokenization]
 		group := tokenizationGroup{queryTerms: queryTerms, duplicateBoosts: duplicateBoosts, start: len(jobs)}
 		for _, propName := range propNames {
 			jobs = append(jobs, blockTermJob{propName: propName, queryTerms: queryTerms, duplicateBoosts: duplicateBoosts})
@@ -139,7 +139,7 @@ func (b *BM25Searcher) wandBlock(
 		}
 
 		eg.Go(func() error {
-			results, idfCounts, release, err := b.createBlockTerm(N, filterDocIds, job.queryTerms, job.propName, propertyBoosts[job.propName], job.duplicateBoosts, b.config, egCtx)
+			results, idfCounts, release, err := b.createBlockTerm(stats.N, filterDocIds, job.queryTerms, job.propName, stats.propertyBoosts[job.propName], job.duplicateBoosts, b.config, egCtx)
 			if err != nil {
 				return err
 			}
@@ -175,7 +175,7 @@ func (b *BM25Searcher) wandBlock(
 			}
 			n := globalIdfCounts[term] / nonZeroTerms[term]
 
-			globalIdfs[term] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateBoostsByTerm[term])
+			globalIdfs[term] = terms.Idf(float64(n), stats.N) * float64(duplicateBoostsByTerm[term])
 		}
 		for _, result := range allResults[group.start:group.end] {
 			if len(result) == 0 {
@@ -262,9 +262,9 @@ func (b *BM25Searcher) wandBlock(
 			eg.Go(func() (err error) {
 				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
 				if params.SearchOperator == common_filters.SearchOperatorAnd {
-					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
+					topKHeap = lsmkv.DoBlockMaxAnd(ctx, internalLimit, allResults[i][j], stats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				} else {
-					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
+					topKHeap, _ = lsmkv.DoBlockMaxWand(ctx, internalLimit, allResults[i][j], stats.averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumOrTokensMatchByProperty[i], b.logger)
 				}
 				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {

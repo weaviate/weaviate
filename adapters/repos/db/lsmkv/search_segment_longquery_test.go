@@ -15,13 +15,12 @@ package lsmkv
 
 import (
 	"context"
-	"io"
 	"math/rand"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -32,8 +31,7 @@ import (
 // timeout. (Repro authored by QA Claude.)
 func TestBlockMaxWandLongQueryTerminates(t *testing.T) {
 	ctx := context.Background()
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
+	logger, _ := test.NewNullLogger()
 	dir := t.TempDir()
 	bucket, err := NewBucketCreator().NewBucket(ctx, dir, dir, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),

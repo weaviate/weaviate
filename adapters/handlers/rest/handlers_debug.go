@@ -545,6 +545,14 @@ func setupDebugHandlers(appState *state.State) {
 
 	http.HandleFunc("/debug/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Logger)
+		if param := r.URL.Query().Get("shardConcurrency"); param != "" {
+			shardConcurrency, err := strconv.Atoi(param)
+			if err != nil || shardConcurrency < 1 {
+				http.Error(w, "shardConcurrency must be a positive integer", http.StatusBadRequest)
+				return
+			}
+			service.SetShardConcurrency(shardConcurrency)
+		}
 
 		exactCountParam := r.URL.Query().Get("exactObjectCount")
 		exactObjectCount := exactCountParam == "true" // false by default

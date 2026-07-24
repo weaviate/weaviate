@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -49,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -91,6 +93,10 @@ import (
 // least there is a chance that it was set correctly. If not, it defaults to
 // NumCPU anyway, so we're not any worse off.
 var _NUMCPU = runtime.GOMAXPROCS(0)
+
+// maxReportedErrors bounds how many failures a shard-wide or index-wide operation
+// reports, so a node with many tenants cannot produce a multi-megabyte message.
+const maxReportedErrors = 10
 
 // shardMap is a sync.Map which specialized in storing shards
 type shardMap sync.Map
@@ -265,6 +271,13 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
+	// dropRequestedCtx is cancelled as soon as a drop of this index is requested,
+	// before the drop starts waiting for dropIndex. Long-running readers holding
+	// dropIndex.RLock (e.g. usage scans) watch it to abort promptly and unblock
+	// the drop.
+	dropRequestedCtx    context.Context
+	signalDropRequested context.CancelFunc
+
 	// The other locks in the index should always be called in the given order to prevent deadlocks:
 	// 1. closeLock
 	// 2. backupLock (for a specific shard)
@@ -418,6 +431,7 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
+	index.dropRequestedCtx, index.signalDropRequested = context.WithCancel(context.Background())
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
 	getDeletionStrategy := func() string {
@@ -505,6 +519,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	}
 
 	hotShardNames := make([]string, 0, len(localShards))
+
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
@@ -522,6 +537,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.shards.Store(shardName, lazyShard)
 				return nil
 			default:
+				// avoid footprint of empty shards
+				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
+						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
+						i.shardReindexer, false, i.bitmapBufPool))
+					return nil
+				}
 				// default behavior is to load all shards immediately
 				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
 					return fmt.Errorf("acquiring permit to load shard: %w", err)
@@ -540,7 +562,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				return nil
 			}
 		}, shardName)
-
 	}
 
 	if err := eg.Wait(); err != nil {
@@ -601,6 +622,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	return nil
 }
 
+// unloadedShardIsEmpty reports whether a not-yet-loaded tenant shard has never
+// held any objects, read from the persisted index counter without materializing
+// the shard. The counter is incremented on every write, so it also accounts for
+// data still in an unflushed/reused WAL (unlike segment metadata). On any error it
+// returns false so the shard is loaded normally.
+func (i *Index) unloadedShardIsEmpty(shardName string) bool {
+	count, err := indexcounter.Read(shardPath(i.path(), shardName))
+	return err == nil && count == 0
+}
+
 func (i *Index) loadLocalShardIfActive(shardName string) error {
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
@@ -613,6 +644,10 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 
 	lazyShard, ok := shard.(*LazyLoadShard)
 	if ok {
+		// avoid footprint of empty shards
+		if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
+			return nil
+		}
 		return lazyShard.Load(context.Background())
 	}
 
@@ -726,7 +761,9 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	i.ForEachShard(func(key string, shard ShardLike) error {
+	// Skip cold shards: they'd only be force-loaded to create empty buckets,
+	// which they build from the refreshed class at their next load anyway.
+	i.ForEachLoadedShard(func(key string, shard ShardLike) error {
 		shard.initPropertyBuckets(ctx, eg, false, props...)
 		return nil
 	})
@@ -876,46 +913,56 @@ func (i *Index) asyncReplicationGloballyDisabled() bool {
 }
 
 func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
-	i.replicationConfigLock.Lock()
-	defer i.replicationConfigLock.Unlock()
+	// The lock must not span the shard fan-out below: it takes each
+	// LazyLoadShard's mutex, and a mid-load shard holds that mutex while
+	// RLocking this config — ABBA deadlock. Post-unlock loads read the new
+	// config, so no shard misses the update.
+	config, asyncEnabled, err := func() (AsyncReplicationConfig, bool, error) {
+		i.replicationConfigLock.Lock()
+		defer i.replicationConfigLock.Unlock()
 
-	i.Config.ReplicationFactor = cfg.Factor
-	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
+		i.Config.ReplicationFactor = cfg.Factor
+		i.Config.DeletionStrategy = cfg.DeletionStrategy
+		i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
 
-	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
+		config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
+		if err != nil {
+			return AsyncReplicationConfig{}, false, err
+		}
+		i.Config.AsyncReplicationConfig = config
+		return config, i.asyncReplicationEnabled(), nil
+	}()
 	if err != nil {
 		return err
 	}
-	i.Config.AsyncReplicationConfig = config
 
-	// unloaded shards will fetch the latest config when they are loaded
-	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	// unloaded shards fetch the latest config when loaded; iterate concurrently so one shard's fault can't skip the rest (errors are accumulated, not first-error abort).
+	return i.ForEachLoadedShardConcurrently(func(name string, shard ShardLike) error {
 		ctrl, ok := shard.(asyncReplicationController)
 		if !ok {
 			return fmt.Errorf("shard %q does not implement asyncReplicationController", name)
 		}
 
-		if i.asyncReplicationEnabled() {
+		if asyncEnabled {
 			// enableAsyncReplication handles the already-running case by updating
 			// the stored config in-place. The scheduler's runEntry detects height
 			// changes and triggers a rebuild via asyncRepNeedsRebuild, so a
 			// stop/start cycle is only needed for height changes (handled there).
-			if err := ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig); err != nil {
+			if err := ctrl.enableAsyncReplication(ctx, config); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
 		} else {
+			// An active target-node override (e.g. in-progress movement) forces async
+			// replication on; don't tear it down (removeTargetNodeOverride handles it).
+			if ctrl.hasActiveAsyncReplicationTargetOverrides() {
+				return nil
+			}
 			if err := ctrl.disableAsyncReplication(ctx); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (i *Index) ReplicationFactor() int64 {
@@ -963,6 +1010,7 @@ type IndexConfig struct {
 	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
+	HaltForTransferTimeout              time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
@@ -984,6 +1032,7 @@ type IndexConfig struct {
 	HNSWAcornFilterRatio                         float64
 	HNSWGeoIndexEF                               int
 	VisitedListPoolMaxSize                       int
+	BM25FilterTombMergeGateRatio                 *configRuntime.DynamicValue[float64]
 
 	QuerySlowLogEnabled        *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold      *configRuntime.DynamicValue[time.Duration]
@@ -1759,6 +1808,9 @@ func (i *Index) multiObjectByID(ctx context.Context,
 					err = errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
 				}
 			}()
+			if err != nil {
+				return nil, err
+			}
 		} else {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if err != nil {
@@ -3014,9 +3066,9 @@ func (i *Index) drop() error {
 	lastBackup := i.lastBackup.Load()
 	keepFiles := lastBackup != nil
 
+	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
-	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
 	dropShard := func(shardName string, _ ShardLike) error {
 		eg.Go(func() error {
 			i.backupLock.RLock(shardName)
@@ -3030,7 +3082,9 @@ func (i *Index) drop() error {
 				return nil // shard already does not exist
 			}
 			if err := shard.drop(keepFiles); err != nil {
-				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
+				ec.Add(err)
+				i.logger.WithField("action", "drop_shard").
+					WithField("shard", shard.ID()).Error(err)
 			}
 
 			return nil
@@ -3039,34 +3093,52 @@ func (i *Index) drop() error {
 	}
 
 	i.shards.Range(dropShard)
-	if err := eg.Wait(); err != nil {
-		return err
-	}
+
+	// the error group only carries a recovered worker panic, which would
+	// otherwise leave the shard un-dropped without failing the call
+	ec.Add(eg.Wait())
 
 	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
 	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	if err := i.stopCycleManagers(ctx, "drop"); err != nil &&
-		!stderrors.Is(err, context.Canceled) && !stderrors.Is(err, context.DeadlineExceeded) {
-		return err
+	// the index is torn down regardless, so the cycles must stop and the
+	// directory must be renamed even when a shard or a cycle failed; a cycle that
+	// ran out of time must not hide one that failed for another reason
+	for _, cause := range causesOf(i.stopCycleManagers(ctx, "drop")) {
+		if !stderrors.Is(cause, context.Canceled) && !stderrors.Is(cause, context.DeadlineExceeded) {
+			ec.Add(cause)
+		}
 	}
 
 	if keepFiles {
 		// backup framework expects the DeleteMarkerAdd-prefixed rename
-		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
+		if err := os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID()))); err != nil {
+			ec.Add(fmt.Errorf("rename index for delete marker: %w", err))
+		}
+	} else {
+		// rename sync (must complete even if ctx is expired); RemoveAll async
+		deleted, err := renameForAsyncDelete(i.path(), i.logger)
+		if err != nil {
+			ec.Add(fmt.Errorf("rename index for async delete: %w", err))
+		} else if deleted != "" {
+			spawnAsyncDelete(deleted, i.logger)
+		}
 	}
+	return ec.ToErrorLimited(maxReportedErrors)
+}
 
-	// rename sync (must complete even if ctx is expired); RemoveAll async
-	deleted, err := renameForAsyncDelete(i.path(), i.logger)
-	if err != nil {
-		return fmt.Errorf("rename index for async delete: %w", err)
+// causesOf splits a joined error into the errors it was built from, so a caller
+// can judge each one on its own. A nil error has no causes.
+func causesOf(err error) []error {
+	if err == nil {
+		return nil
 	}
-	if deleted != "" {
-		spawnAsyncDelete(deleted, i.logger)
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		return joined.Unwrap()
 	}
-	return nil
+	return []error{err}
 }
 
 func (i *Index) dropShards(names []string) error {
@@ -3077,7 +3149,7 @@ func (i *Index) dropShards(names []string) error {
 		return errAlreadyShutdown
 	}
 
-	ec := errorcompounder.New()
+	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 
@@ -3095,7 +3167,7 @@ func (i *Index) dropShards(names []string) error {
 				// This ensures that we also delete inactive shards/tenants
 				if err := os.RemoveAll(shardPath(i.path(), name)); err != nil {
 					ec.Add(err)
-					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
+					i.logger.WithField("action", "drop_shard").WithField("shard", name).Error(err)
 				}
 			} else {
 				// If shard is loaded use the native primitive to drop it
@@ -3109,8 +3181,10 @@ func (i *Index) dropShards(names []string) error {
 		})
 	}
 
-	eg.Wait()
-	return ec.ToError()
+	// the error group only carries a recovered worker panic, which would
+	// otherwise leave the shard un-dropped without failing the call
+	ec.Add(eg.Wait())
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
@@ -3121,7 +3195,7 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 		return errAlreadyShutdown
 	}
 
-	ec := errorcompounder.New()
+	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 
@@ -3141,8 +3215,10 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 		})
 	}
 
-	eg.Wait()
-	return ec.ToError()
+	// the error group only carries a recovered worker panic, which would
+	// otherwise leave the shard un-dropped without failing the call
+	ec.Add(eg.Wait())
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
@@ -3157,49 +3233,82 @@ func (i *Index) Shutdown(ctx context.Context) error {
 
 	i.closingCancel()
 
-	// TODO allow every resource cleanup to run, before returning early with error
-	if err := i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
+	ec := errorcompounder.NewSafe()
+
+	ec.Add(i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
 		i.backupLock.RLock(name)
 		defer i.backupLock.RUnlock(name)
 
 		if err := shard.Shutdown(ctx); err != nil {
 			if !errors.Is(err, errAlreadyShutdown) {
-				return errors.Wrapf(err, "shutdown shard %q", name)
+				ec.AddWrapf(err, "shutdown shard %q", name)
+				return nil
 			}
 			i.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
 		}
 		return nil
-	}); err != nil {
-		return err
-	}
-	if err := i.stopCycleManagers(ctx, "shutdown"); err != nil {
-		return err
-	}
+	}))
 
-	return nil
+	// the cycle managers must stop even when a shard failed to shut down
+	ec.Add(i.stopCycleManagers(ctx, "shutdown"))
+
+	return ec.ToErrorLimited(maxReportedErrors)
 }
 
+// stopCycleManagers asks every cycle to stop before waiting for any of them, so
+// one slow cycle cannot use up ctx before the others were asked. The index is
+// being closed or deleted, so the cycles are stopped even when ctx already
+// expired; ctx only bounds how long we wait. Joining keeps each failure matchable.
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
-	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop objects compaction cycle: %w", usecase, err)
+	// which data each compaction cycle covers depends on SeparateObjectsCompactions
+	compaction, compactionAux := "compaction", "auxiliary compaction"
+	if i.Config.SeparateObjectsCompactions {
+		compaction, compactionAux = "non objects compaction", "objects compaction"
 	}
-	if err := i.cycleCallbacks.compactionAuxCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop non objects compaction cycle: %w", usecase, err)
+
+	cycles := []struct {
+		name  string
+		cycle cyclemanager.CycleManager
+	}{
+		{compaction, i.cycleCallbacks.compactionCycle},
+		{compactionAux, i.cycleCallbacks.compactionAuxCycle},
+		{"flush", i.cycleCallbacks.flushCycle},
+		{"vector commit logger", i.cycleCallbacks.vectorCommitLoggerCycle},
+		{"vector tombstone cleanup", i.cycleCallbacks.vectorTombstoneCleanupCycle},
+		{"geo props commit logger", i.cycleCallbacks.geoPropsCommitLoggerCycle},
+		{"geo props tombstone cleanup", i.cycleCallbacks.geoPropsTombstoneCleanupCycle},
 	}
-	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop flush cycle: %w", usecase, err)
+
+	stopResults := make([]chan bool, len(cycles))
+	for j, c := range cycles {
+		stopResults[j] = c.cycle.Stop(context.Background())
 	}
-	if err := i.cycleCallbacks.vectorCommitLoggerCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop vector commit logger cycle: %w", usecase, err)
+
+	var errs []error
+	for j, c := range cycles {
+		if err := waitForCycleStop(ctx, stopResults[j]); err != nil {
+			errs = append(errs, fmt.Errorf("%s: stop %s cycle: %w", usecase, c.name, err))
+		}
 	}
-	if err := i.cycleCallbacks.vectorTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop vector tombstone cleanup cycle: %w", usecase, err)
+	return stderrors.Join(errs...)
+}
+
+// waitForCycleStop waits for a stop result, preferring it over an expired ctx when
+// both are ready, so a cycle that did stop is not reported as a failure.
+func waitForCycleStop(ctx context.Context, stopResult chan bool) error {
+	var stopped bool
+	select {
+	case stopped = <-stopResult:
+	case <-ctx.Done():
+		// select picks randomly when both are ready, so the result is checked again
+		select {
+		case stopped = <-stopResult:
+		default:
+			return ctx.Err()
+		}
 	}
-	if err := i.cycleCallbacks.geoPropsCommitLoggerCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop geo props commit logger cycle: %w", usecase, err)
-	}
-	if err := i.cycleCallbacks.geoPropsTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop geo props tombstone cleanup cycle: %w", usecase, err)
+	if !stopped {
+		return stderrors.New("cycle kept running")
 	}
 	return nil
 }
