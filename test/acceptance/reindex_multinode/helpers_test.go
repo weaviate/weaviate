@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +28,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
@@ -695,6 +699,147 @@ func dumpStartupLogs(ctx context.Context, t *testing.T, compose *docker.DockerCo
 		}
 		t.Logf("=== Node %d logs (%d migration/reindex lines) ===\n%s", i, len(filtered), strings.Join(filtered, "\n"))
 	}
+}
+
+// forensicCaptureByteBudget is runaway protection: capture must never fill
+// the CI runner's disk or hang the job on an endless copy.
+const forensicCaptureByteBudget = 512 << 20 // 512 MiB
+
+// forensicFilesPerNodeCap: same runaway-protection rationale as forensicCaptureByteBudget.
+const forensicFilesPerNodeCap = 4000
+
+// captureRangeableDataDirsOnFailure is a best-effort dump of the rangeable
+// bucket's on-disk state (weaviate/0-weaviate-issues#335), for offline
+// post-mortem on a range-count failure. Capture errors are logged, never fatal.
+func captureRangeableDataDirsOnFailure(t *testing.T, compose *docker.DockerCompose, className, propName, phase string) {
+	t.Helper()
+	// Independent of the test's ctx (which may be cancelling) and bounded, so
+	// capture can never hang CI.
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	root := forensicArtifactRoot(t, className, phase)
+	t.Logf("range-count forensic capture [%s]: artifact root = %s", phase, root)
+
+	classDirLower := strings.ToLower(className)
+	// Prefix shared by the canonical bucket dir and all its sidecar generations.
+	bucketMatch := fmt.Sprintf("property_%s_rangeable", propName)
+
+	var copiedBytes int64
+	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+		node := compose.GetWeaviateNode(nodeIdx)
+		if node == nil {
+			t.Logf("range-count forensic capture [%s]: node %d container unavailable", phase, nodeIdx)
+			continue
+		}
+		container := node.Container()
+
+		// Manifest into the test log so it survives even without the artifact
+		// download; fall back to a full listing if nothing matches.
+		manifestScript := fmt.Sprintf(
+			`for lsm in /data/%s/*/lsm; do [ -d "$lsm" ] || continue; echo "### $lsm"; `+
+				`m=$(find "$lsm" -path "*%s*" 2>/dev/null); `+
+				`if [ -n "$m" ]; then echo "$m" | while IFS= read -r p; do ls -ld "$p"; done; `+
+				`else echo "(no %s* bucket dirs found; full lsm listing:)"; ls -la "$lsm"; fi; done`,
+			classDirLower, bucketMatch, bucketMatch)
+		manifest := execCollect(ctx, container, []string{"sh", "-c", manifestScript})
+		t.Logf("range-count forensic capture [%s]: node %d rangeable bucket manifest:\n%s",
+			phase, nodeIdx, strings.TrimSpace(manifest))
+
+		fileList := execCollect(ctx, container, []string{"sh", "-c", fmt.Sprintf(
+			`find /data/%s -path "*%s*" -type f 2>/dev/null`, classDirLower, bucketMatch)})
+		copiedBytes += copyContainerFiles(ctx, t, container, root, nodeIdx, fileList, copiedBytes, phase)
+	}
+	t.Logf("range-count forensic capture [%s]: copied ~%d bytes into %s", phase, copiedBytes, root)
+}
+
+// forensicArtifactRoot returns a unique host dir for one capture: under
+// REINDEX_FORENSICS_DIR in CI, an OS temp dir locally. Unique per
+// test+phase+timestamp so repeated captures in the same run don't collide.
+func forensicArtifactRoot(t *testing.T, className, phase string) string {
+	t.Helper()
+	base := os.Getenv("REINDEX_FORENSICS_DIR")
+	if base == "" {
+		base = filepath.Join(os.TempDir(), "reindex-forensics")
+	}
+	name := strings.ReplaceAll(t.Name(), "/", "_")
+	root := filepath.Join(base, fmt.Sprintf("%s_%s_%s_%d", name, className, phase, time.Now().UnixNano()))
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Logf("range-count forensic capture [%s]: mkdir %s failed: %v", phase, root, err)
+	}
+	return root
+}
+
+// execCollect runs cmd in the container and returns combined stdout+stderr.
+// tcexec.Multiplexed strips Docker's stream-framing headers so the output is
+// plain text. Best effort: exec errors are returned as a note, not an error.
+func execCollect(ctx context.Context, container testcontainers.Container, cmd []string) string {
+	_, reader, err := container.Exec(ctx, cmd, tcexec.Multiplexed())
+	if err != nil {
+		return fmt.Sprintf("(exec error: %v)", err)
+	}
+	buf := new(strings.Builder)
+	if reader != nil {
+		_, _ = io.Copy(buf, reader)
+	}
+	return buf.String()
+}
+
+// copyContainerFiles copies each container path to disk. alreadyCopied is the
+// running cross-node total, so the shared byte budget applies across nodes.
+func copyContainerFiles(
+	ctx context.Context, t *testing.T, container testcontainers.Container,
+	root string, nodeIdx int, newlineSeparatedPaths string, alreadyCopied int64, phase string,
+) int64 {
+	t.Helper()
+	var nodeCopied int64
+	files := 0
+	for _, p := range strings.Split(strings.TrimSpace(newlineSeparatedPaths), "\n") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		files++
+		if files > forensicFilesPerNodeCap {
+			t.Logf("range-count forensic capture [%s]: node %d file cap (%d) hit; remaining files skipped",
+				phase, nodeIdx, forensicFilesPerNodeCap)
+			break
+		}
+		if alreadyCopied+nodeCopied >= forensicCaptureByteBudget {
+			t.Logf("range-count forensic capture [%s]: byte budget (%d) hit; remaining files skipped",
+				phase, forensicCaptureByteBudget)
+			break
+		}
+		n, err := copyOneContainerFile(ctx, container, root, nodeIdx, p)
+		if err != nil {
+			t.Logf("range-count forensic capture [%s]: node %d copy %s failed: %v", phase, nodeIdx, p, err)
+			continue
+		}
+		nodeCopied += n
+	}
+	return nodeCopied
+}
+
+// copyOneContainerFile mirrors containerPath's /data-relative path under <root>/node<nodeIdx>/.
+func copyOneContainerFile(
+	ctx context.Context, container testcontainers.Container, root string, nodeIdx int, containerPath string,
+) (int64, error) {
+	rc, err := container.CopyFileFromContainer(ctx, containerPath)
+	if err != nil {
+		return 0, err
+	}
+	defer rc.Close()
+	rel := strings.TrimPrefix(containerPath, "/data/")
+	dest := filepath.Join(root, fmt.Sprintf("node%d", nodeIdx), filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return 0, err
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	return io.Copy(f, rc)
 }
 
 // probeSample is one observation of a probe function against a node.

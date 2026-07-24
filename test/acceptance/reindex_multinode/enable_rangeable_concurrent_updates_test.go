@@ -374,6 +374,9 @@ func assertRangeCountAllNodes(t *testing.T, compose *docker.DockerCompose, class
 		"%s: every replica must serve all %d updated objects over the sentinel band", phase, want)
 	if !ok {
 		t.Errorf("%s rangeable counts per node = %v, want %d on every node (silent rangeable write-loss)", phase, last, want)
+		// weaviate/0-weaviate-issues#335: capture on-disk state before a
+		// possible restart mutates it.
+		captureRangeableDataDirsOnFailure(t, compose, className, propName, phase)
 	}
 }
 
