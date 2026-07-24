@@ -433,7 +433,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 
 	if uc.Multivector.Enabled {
-		index.multiDistancerProvider = distancer.NewDotProductProvider()
+		index.multiDistancerProvider = cfg.DistanceProvider
 		if !uc.Multivector.MuveraConfig.Enabled {
 			err := index.store.CreateOrLoadBucket(
 				context.Background(),
