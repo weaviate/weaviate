@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -1418,10 +1419,98 @@ func Test_Validation_PropertyNames(t *testing.T) {
 func Test_UpdateClass(t *testing.T) {
 	t.Run("class not found", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
+		fakeSchemaManager.On("ReadOnlyClass", "WrongClass").Return(nil)
+		// Production returns a nil map (not an empty one) when the leader
+		// confirms the class is absent; mirror that to exercise the real
+		// nil-map lookup path in UpdateClass.
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"WrongClass"}).
+			Return(nil, nil)
 
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}})
 		require.ErrorIs(t, err, ErrNotFound)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("stale local view falls back to leader and proceeds", func(t *testing.T) {
+		// Regression: a lagging follower must defer to the leader, not 404.
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		existing := &models.Class{
+			Class:             "Article",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+		fakeSchemaManager.On("ReadOnlyClass", "Article").Return(nil)
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"Article"}).
+			Return(map[string]versioned.Class{"Article": {Class: existing}}, nil)
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+
+		err := handler.UpdateClass(context.Background(), nil, "Article", &models.Class{
+			Class:             "Article",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		})
+		require.NoError(t, err)
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("stale follower validates against the leader-confirmed initial", func(t *testing.T) {
+		// Regression: the update-vs-add validations in UpdateClassInternal must
+		// run against the leader-confirmed initial, not a stale local read. The
+		// real class has multi-tenancy enabled, so disabling it must be rejected
+		// even though the local view is empty on a lagging follower. Without the
+		// fix the second local read returns nil, the `initial != nil` validations
+		// are skipped, and the invalid update slips through to RAFT.
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		existing := &models.Class{
+			Class:              "Article",
+			Vectorizer:         "none",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		}
+		fakeSchemaManager.On("ReadOnlyClass", "Article").Return(nil)
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"Article"}).
+			Return(map[string]versioned.Class{"Article": {Class: existing}}, nil)
+		// Allow but don't require: with the fix the update is rejected before
+		// RAFT, so the pre-fix path fails on the assertion below rather than on
+		// an unexpected mock call.
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		err := handler.UpdateClass(context.Background(), nil, "Article", &models.Class{
+			Class:              "Article",
+			Vectorizer:         "none",
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "disabling multi-tenancy for an existing class")
+	})
+
+	t.Run("body class name must match path", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		err := handler.UpdateClass(context.Background(), nil, "Article", &models.Class{
+			Class:             "OtherClass",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		})
+		require.ErrorIs(t, err, ErrValidation)
+		require.Contains(t, err.Error(), "does not match path")
+	})
+
+	t.Run("omitted body class is pinned to the path", func(t *testing.T) {
+		// Regression: an optional/omitted body class must be taken from the path,
+		// not forwarded to RAFT as an empty class name (which it rejects).
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		existing := &models.Class{
+			Class:             "Article",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+		fakeSchemaManager.On("ReadOnlyClass", "Article").Return(existing)
+		fakeSchemaManager.On("UpdateClass",
+			mock.MatchedBy(func(c *models.Class) bool { return c.Class == "Article" }),
+			mock.Anything).Return(nil)
+
+		err := handler.UpdateClass(context.Background(), nil, "Article", &models.Class{
+			// Class deliberately omitted; it must be inferred from the path.
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		})
+		require.NoError(t, err)
 		fakeSchemaManager.AssertExpectations(t)
 	})
 
@@ -1556,12 +1645,12 @@ func Test_UpdateClass(t *testing.T) {
 			expectedError error
 		}{
 			{
+				// Rejected by the path-vs-body guard, which fires before the immutable-fields check.
 				name:    "ChangeName",
 				initial: &models.Class{Class: "InitialName", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 				update:  &models.Class{Class: "UpdatedName", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 				expectedError: fmt.Errorf(
-					"class name is immutable: " +
-						"attempted change from \"InitialName\" to \"UpdatedName\""),
+					"class name in body \"UpdatedName\" does not match path \"InitialName\""),
 			},
 			{
 				name:    "ModifyVectorizer",
