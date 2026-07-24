@@ -34,16 +34,17 @@ import (
 
 const metricClassPrefix = "MetricsClassPrefix"
 
-func metricsCount(t *testing.T) {
+// metricsEndpoint is the host:port of the instance under test's Prometheus listener.
+func metricsCount(t *testing.T, metricsEndpoint string) {
 	defer cleanupMetricsClasses(t, 0, 20)
 	createImportQueryMetricsClasses(t, 0, 10)
 	backupID := startBackup(t, 0, 10)
 	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
-	metricsLinesBefore, linesBefore := countMetricsLines(t)
+	metricsLinesBefore, linesBefore := countMetricsLines(t, metricsEndpoint)
 	createImportQueryMetricsClasses(t, 10, 20)
 	backupID = startBackup(t, 0, 20)
 	helper.ExpectBackupEventuallyCreated(t, backupID, "filesystem", nil, helper.WithPollInterval(time.Second), helper.WithDeadline(helper.MaxDeadline))
-	metricsLinesAfter, linesAfter := countMetricsLines(t)
+	metricsLinesAfter, linesAfter := countMetricsLines(t, metricsEndpoint)
 	if metricsLinesAfter != metricsLinesBefore {
 		t.Logf("metric lines before:\n%s\n", strings.Join(linesBefore, "\n"))
 		t.Logf("metric lines after:\n%s\n", strings.Join(linesAfter, "\n"))
@@ -174,12 +175,39 @@ func randomVector(dims int) []float32 {
 	return out
 }
 
-func countMetricsLines(t *testing.T) (int, []string) {
+// lazilyMaterializedSeries only appear after first use, so their count depends on
+// background LSM activity rather than class count; includes summary _sum/_count series.
+var lazilyMaterializedSeries = map[string]bool{
+	"file_io_writes_total_bytes":       true,
+	"file_io_writes_total_bytes_sum":   true,
+	"file_io_writes_total_bytes_count": true,
+	"file_io_reads_total_bytes":        true,
+	"file_io_reads_total_bytes_sum":    true,
+	"file_io_reads_total_bytes_count":  true,
+	"mmap_operations_total":            true,
+}
+
+// metricName returns the metric/series name from a Prometheus exposition line.
+func metricName(line string) string {
+	if strings.HasPrefix(line, "# HELP ") || strings.HasPrefix(line, "# TYPE ") {
+		if fields := strings.Fields(line); len(fields) >= 3 {
+			return fields[2]
+		}
+		return ""
+	}
+	if i := strings.IndexAny(line, "{ "); i != -1 {
+		return line[:i]
+	}
+	return line
+}
+
+func countMetricsLines(t *testing.T, metricsEndpoint string) (int, []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
+	require.NotEmpty(t, metricsEndpoint, "no metrics endpoint configured for the instance under test")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"http://localhost:2112/metrics", nil)
+		fmt.Sprintf("http://%s/metrics", metricsEndpoint), nil)
 	require.Nil(t, err)
 
 	c := &http.Client{}
@@ -194,6 +222,12 @@ func countMetricsLines(t *testing.T) (int, []string) {
 	var lines []string
 	for scanner.Scan() {
 		line := scanner.Text()
+		// no line may leak a class name, including ones excluded below
+		require.NotContains(
+			t,
+			strings.ToLower(line),
+			strings.ToLower(metricClassPrefix),
+		)
 		if strings.Contains(line, "shards_loaded") || strings.Contains(line, "shards_loading") || strings.Contains(line, "shards_unloading") || strings.Contains(line, "shards_unloaded") {
 			continue
 		}
@@ -203,11 +237,9 @@ func countMetricsLines(t *testing.T) (int, []string) {
 		if strings.Contains(line, "weaviate_lsm_bucket_read_operation") {
 			continue
 		}
-		require.NotContains(
-			t,
-			strings.ToLower(line),
-			strings.ToLower(metricClassPrefix),
-		)
+		if lazilyMaterializedSeries[metricName(line)] {
+			continue
+		}
 		lineCount++
 		lines = append(lines, line)
 	}

@@ -23,6 +23,7 @@ var (
 	GRPC    EndpointName = "grpc"
 	DEBUG   EndpointName = "debug"
 	CLUSTER EndpointName = "cluster"
+	METRICS EndpointName = "metrics"
 )
 
 type endpoint struct {
@@ -55,6 +56,11 @@ func (d *DockerContainer) DebugURI() string {
 
 func (d *DockerContainer) ClusterURI() string {
 	return d.GetEndpoint(CLUSTER)
+}
+
+// MetricsURI returns "" unless started with PROMETHEUS_MONITORING_ENABLED.
+func (d *DockerContainer) MetricsURI() string {
+	return d.GetEndpoint(METRICS)
 }
 
 func (d *DockerContainer) GetEndpoint(name EndpointName) string {
