@@ -174,7 +174,7 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
-				require.Nil(t, err)
+				require.Nil(at, err)
 				for _, tn := range resp.Payload {
 					for i := range tenantNames {
 						if tn.Name == tenantNames[i] {
@@ -201,7 +201,7 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		t.Run("verify tenant status HOT", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
-				require.Nil(t, err)
+				require.Nil(at, err)
 				for _, tn := range resp.Payload {
 					for i := range tenantNames {
 						if tn.Name == tenantNames[i] {
@@ -390,7 +390,7 @@ func Test_AutoTenantActivation(t *testing.T) {
 	t.Run("verify tenant status", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(at *assert.CollectT) {
 			resp, err := helper.GetTenants(t, className)
-			require.Nil(t, err)
+			require.Nil(at, err)
 			for _, tn := range resp.Payload {
 				for i := range tenantNames {
 					if tn.Name == tenantNames[i] {
@@ -580,7 +580,7 @@ func Test_ConcurrentFreezeUnfreeze(t *testing.T) {
 	t.Run("verify tenant status", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(at *assert.CollectT) {
 			resp, err := helper.GetTenants(t, className)
-			require.Nil(t, err)
+			require.Nil(at, err)
 			for _, tn := range resp.Payload {
 				for i := range tenantNames {
 					if tn.Name == tenantNames[i] {
@@ -616,7 +616,7 @@ func Test_ConcurrentFreezeUnfreeze(t *testing.T) {
 	t.Run("verify tenant status HOT", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(at *assert.CollectT) {
 			resp, err := helper.GetTenants(t, className)
-			require.Nil(t, err)
+			require.Nil(at, err)
 			for _, tn := range resp.Payload {
 				for i := range tenantNames {
 					if tn.Name == tenantNames[i] {

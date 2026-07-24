@@ -96,13 +96,13 @@ func TestGRPC_Batching(t *testing.T) {
 		// Validate the number of articles created
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			listA, err := helper.ListObjects(t, clsA.Class)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
 			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
 
 			listP, err := helper.ListObjects(t, clsP.Class)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 		}, 10*time.Second, 1*time.Second, "Objects not created within time")
 	})
@@ -263,14 +263,14 @@ func TestGRPC_Batching(t *testing.T) {
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(numArticles), *resA.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
 
 			resA, err = grpcClient.Aggregate(ctx, &pb.AggregateRequest{
 				Collection:   clsP.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(numArticles*numParasPerArticle), *resA.GetSingleResult().ObjectsCount, "Number of paragraphs created should match the number sent")
 
 			resS, err := grpcClient.Search(ctx, &pb.SearchRequest{
@@ -283,11 +283,11 @@ func TestGRPC_Batching(t *testing.T) {
 					}},
 				},
 			})
-			require.NoError(t, err, "Search should not return an error")
+			require.NoError(ct, err, "Search should not return an error")
 			require.Equal(ct, numArticles, len(resS.GetResults()), "Number of articles returned by search should match the number sent")
 			for _, res := range resS.GetResults() {
-				require.Len(t, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
-				require.Len(t, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
+				require.Len(ct, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
+				require.Len(ct, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
 			}
 		}, 240*time.Second, 5*time.Second, "Objects not created within time")
 	})
@@ -362,7 +362,7 @@ func TestGRPC_Batching(t *testing.T) {
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
 		}, 120*time.Second, 5*time.Second, "Objects not created within time")
 	})
@@ -496,7 +496,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		// Validate the number of articles created
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			listA, err := helper.ListObjects(t, clsA.Class)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
 			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
@@ -625,7 +625,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.GreaterOrEqual(ct, *res.GetSingleResult().ObjectsCount, int64(numObjs), "Number of articles created should match the number sent")
 		}, 300*time.Second, 5*time.Second, "Objects not replicated within time")
 	})
@@ -736,13 +736,13 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 		// Validate the number of articles created
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			listA, err := helper.ListObjectsAuth(t, clsA.Class, adminKey)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
 			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
 
 			listP, err := helper.ListObjectsAuth(t, clsP.Class, adminKey)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 		}, 10*time.Second, 1*time.Second, "Objects not created within time")
 	})

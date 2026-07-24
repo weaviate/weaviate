@@ -96,8 +96,8 @@ func testCompressedDynamicVectorIndex(host string) func(t *testing.T) {
 					})
 				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					resp, err := get.Do(context.Background())
-					require.NoError(t, err)
-					require.NotNil(t, resp)
+					require.NoError(ct, err)
+					require.NotNil(ct, resp)
 					if len(resp.Data) == 0 {
 						return
 					}
