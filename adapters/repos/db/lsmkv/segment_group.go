@@ -40,6 +40,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+// baseLayerHeadroomFactor sizes the first (base) layer's pooled buffer with
+// 25% headroom, so the in-place merges of the following segments' layers can
+// usually grow the bitmap without leaving the pooled buffer. Too little
+// headroom forces off-pool reallocation, defeating the pooling; more wastes
+// pooled memory.
+const baseLayerHeadroomFactor = 1.25
+
 type SegmentGroup struct {
 	segments []Segment
 
@@ -98,11 +105,11 @@ type SegmentGroup struct {
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
-	// bitmapBufPoolFactored wraps bitmapBufPool with a size factor so the first
-	// layer of a multi-segment roaringSetGet gets a buffer with headroom for the
-	// in-place merges of the following layers. Built once at construction rather
-	// than per read (the wrapper is otherwise allocated on every roaringSetGet).
-	bitmapBufPoolFactored        roaringset.BitmapBufPool
+	// bitmapBufPoolWithHeadroom wraps bitmapBufPool with
+	// baseLayerHeadroomFactor so the first layer of a multi-segment
+	// roaringSetGet gets a buffer with headroom for the in-place merges of
+	// the following layers. Built once at construction.
+	bitmapBufPoolWithHeadroom    roaringset.BitmapBufPool
 	bm25config                   *schema.BM25Config
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 	writeSegmentInfoIntoFileName bool
@@ -180,7 +187,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		sequentialAccess:             cfg.sequentialAccess,
 		lazyPropertyLengths:          cfg.lazyPropertyLengths,
 		bitmapBufPool:                b.bitmapBufPool,
-		bitmapBufPoolFactored:        roaringset.NewBitmapBufPoolFactorWrapper(b.bitmapBufPool, 1.25),
+		bitmapBufPoolWithHeadroom:    roaringset.NewBitmapBufPoolFactorWrapper(b.bitmapBufPool, baseLayerHeadroomFactor),
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
@@ -950,6 +957,10 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 // If no segment has the key, a zero BitmapLayer (nil bitmaps) and a noop release
 // are returned. Callers fold this base together with the memtable layers using
 // roaringset.LayerMerger.
+//
+// Only Additions is fully folded; Deletions is the first found segment's
+// deletions, retained solely so its buffer gets released, and must not be
+// read as the flattened deletions.
 func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayer, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
@@ -963,9 +974,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 
 	i := 0
 	for ; i < ln; i++ {
-		// bitmapBufPoolFactored gives the first layer a buffer with headroom for
-		// the in-place merges of the following layers (see field decl).
-		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolFactored)
+		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
 		if getErr == nil {
 			out = layer
 			acquired = layerRelease

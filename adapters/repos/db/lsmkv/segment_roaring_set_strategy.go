@@ -21,10 +21,8 @@ import (
 
 // combineReleases folds the additions and deletions release funcs into the
 // single release the caller expects. Either may be nil (empty region, nothing
-// pooled). A wrapper closure — which escapes and thus heap-allocates — is only
-// built when both are non-nil; in the common no-tombstone case (deletions
-// empty) the additions release is returned directly, and if neither pooled
-// anything the shared noop is reused.
+// pooled). A wrapper closure — which escapes and thus heap-allocates — is
+// only built when both are non-nil.
 func combineReleases(releaseAdd, releaseDel func()) func() {
 	switch {
 	case releaseAdd == nil && releaseDel == nil:

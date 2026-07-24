@@ -241,10 +241,9 @@ type BufPoolFixedSync struct {
 	pool *sync.Pool
 }
 
-// pooledBuf holds a reusable buffer together with a release closure bound to it
-// once, at creation. Get can then return that pre-bound closure instead of
-// allocating a fresh one per call — the closure is amortized across the
-// buffer's whole pool lifetime rather than paid on every Get.
+// pooledBuf holds a reusable buffer together with a release closure bound to
+// it once, at creation, so Get returns the pre-bound closure instead of
+// allocating a fresh one per call.
 type pooledBuf struct {
 	buf []byte
 	put func()

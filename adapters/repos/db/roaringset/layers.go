@@ -113,6 +113,9 @@ func (bml BitmapLayers) Flatten(clone bool, maxConc int) *sroar.Bitmap {
 // As in Flatten, the base layer's own deletions are irrelevant — only its
 // additions survive as the initial state. Feeding layers in the same order
 // Flatten would iterate them yields a byte-identical result.
+//
+// Result returns the accumulator itself, and copies of a LayerMerger share
+// it: do not Add after reading Result, and do not copy a merger.
 type LayerMerger struct {
 	merged  *sroar.Bitmap
 	maxConc int

@@ -54,9 +54,9 @@ func (c *segmentCursor) Next() ([]byte, BitmapLayer, error) {
 
 	sn := NewSegmentNodeFromBuffer(c.data[c.nextOffset:])
 	c.nextOffset += sn.Len()
-	// Additions/Deletions return nil for empty regions. Cursor consumers
-	// (compaction, sorting, aggregation, ...) expect non-nil layers, so
-	// materialize an empty bitmap here — matching the pre-nil behavior.
+	// Additions/Deletions return nil for empty regions, but cursor consumers
+	// (compaction, sorting, aggregation, ...) require non-nil layers, so
+	// substitute an empty bitmap here.
 	additions := sn.Additions()
 	if additions == nil {
 		additions = sroar.NewBitmap()
