@@ -16,6 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -40,20 +41,17 @@ func (i Indices) ByProp(propName string) (Index, bool) {
 }
 
 func (i Indices) ShutdownGeoIndices(ctx context.Context) error {
+	// one failing property must not skip the teardown of the remaining ones
+	ec := errorcompounder.New()
 	for propName, index := range i {
 		if index.Type != schema.DataTypeGeoCoordinates {
 			continue
 		}
 
-		if err := index.GeoIndex.Flush(); err != nil {
-			return errors.Wrapf(err, "flush property %s", propName)
-		}
-
-		if err := index.GeoIndex.Shutdown(ctx); err != nil {
-			return errors.Wrapf(err, "shutdown property %s", propName)
-		}
+		ec.AddWrapf(index.GeoIndex.Flush(), "flush property %s", propName)
+		ec.AddWrapf(index.GeoIndex.Shutdown(ctx), "shutdown property %s", propName)
 	}
-	return nil
+	return ec.ToError()
 }
 
 func (i Indices) DropAll(ctx context.Context, keepFiles bool) error {

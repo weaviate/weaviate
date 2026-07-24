@@ -13,12 +13,180 @@ package segmentindex
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"math/bits"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
+
+// requireSameTree asserts two serialized index blobs describe the same tree:
+// identical total size, node count and depth, and identical resolution of every
+// key through DiskTree. The van Emde Boas writer reorders nodes relative to the
+// level-order Tree serializer, so the guarantee is semantic, not byte-for-byte.
+func requireSameTree(t *testing.T, want, got []byte, keys [][]byte) {
+	t.Helper()
+	require.Equal(t, len(want), len(got), "serialized size must match")
+	wantTree := NewDiskTree(want)
+	gotTree := NewDiskTree(got)
+
+	nodeCount := gotTree.KeyCount()
+	require.Equal(t, wantTree.KeyCount(), nodeCount, "node count must match")
+
+	wantDepth, err := treeDepth(wantTree)
+	require.NoError(t, err)
+	gotDepth, err := treeDepth(gotTree)
+	require.NoError(t, err)
+	// Size and per-key lookups are also satisfied by a degenerate spine over the
+	// same keys, so compare depth too. A balanced tree over n nodes is exactly
+	// bits.Len(n) levels deep.
+	require.Equal(t, wantDepth, gotDepth, "tree depth must match")
+	require.Equal(t, bits.Len(uint(nodeCount)), gotDepth, "tree must be balanced")
+
+	for _, k := range keys {
+		wantNode, wantErr := wantTree.Get(k)
+		gotNode, gotErr := gotTree.Get(k)
+		require.NoError(t, wantErr, "key=%q", k)
+		require.NoError(t, gotErr, "key=%q", k)
+		require.Equal(t, wantNode, gotNode, "key=%q", k)
+	}
+}
+
+// treeDepth returns the number of nodes on the longest root-to-leaf path.
+func treeDepth(tree *DiskTree) (int, error) {
+	if tree.Size() == 0 {
+		return 0, nil
+	}
+	return depthAt(tree, 0, tree.KeyCount())
+}
+
+// depthAt follows the child pointers below offset. budget is how many more
+// nodes the descent may visit, so a child pointer that loops back fails instead
+// of recursing forever.
+func depthAt(tree *DiskTree, offset int64, budget int) (int, error) {
+	if offset < 0 {
+		return 0, nil
+	}
+	if budget <= 0 {
+		return 0, errors.New("child pointers descend past the node count")
+	}
+	node, err := tree.readNodeAt(offset)
+	if err != nil {
+		return 0, err
+	}
+	left, err := depthAt(tree, node.leftChild, budget-1)
+	if err != nil {
+		return 0, err
+	}
+	right, err := depthAt(tree, node.rightChild, budget-1)
+	if err != nil {
+		return 0, err
+	}
+	return 1 + max(left, right), nil
+}
+
+// varWidthKey returns key i of an ascending sequence whose keys differ in
+// length. Equal-length keys give every node the same size, so a wrong node-size
+// computation still yields correct offsets and the test stays green.
+func varWidthKey(i int) []byte {
+	return []byte(fmt.Sprintf("key-%05d%s", i, strings.Repeat("x", i%7)))
+}
+
+// docIDKeys returns n keys shaped like those the binary-quantized vector store
+// writes: 8-byte big-endian docIDs, fixed width and ascending in byte order.
+// Values chain one byte per key.
+func docIDKeys(n int) []Key {
+	keys := make([]Key, n)
+	for i := 0; i < n; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		keys[i] = Key{Key: key, ValueStart: i, ValueEnd: i + 1}
+	}
+	return keys
+}
+
+// sortedKeyWriter adapts one of the writers that serialize a sorted key slice
+// into a segment index, so one test covers all of them. Each ValueStart must
+// equal the previous ValueEnd, the first being 0, which is what
+// MarshalSortedKeys derives rather than reads.
+type sortedKeyWriter struct {
+	name string
+	// indexedNodes returns the entries this writer puts in the index: the key it
+	// indexes by, and the start and end that key must resolve to. It feeds the
+	// reference NewBalanced path the writer's output is compared against.
+	indexedNodes func(keys []Key) Nodes
+	write        func(w io.Writer, keys []Key) (int64, error)
+}
+
+func primaryNodes(keys []Key) Nodes {
+	nodes := make(Nodes, len(keys))
+	for i, key := range keys {
+		nodes[i] = Node{Key: key.Key, Start: uint64(key.ValueStart), End: uint64(key.ValueEnd)}
+	}
+	return nodes
+}
+
+// secondaryNodes returns the nodes the secondary index at pos holds. Keys
+// without a secondary key at pos are left out.
+func secondaryNodes(keys []Key, pos int) Nodes {
+	var nodes Nodes
+	for _, key := range keys {
+		if pos < len(key.SecondaryKeys) {
+			nodes = append(nodes, Node{
+				Key:   key.SecondaryKeys[pos],
+				Start: uint64(key.ValueStart),
+				End:   uint64(key.ValueEnd),
+			})
+		}
+	}
+	return nodes
+}
+
+func nodeKeys(nodes Nodes) [][]byte {
+	keys := make([][]byte, len(nodes))
+	for i, node := range nodes {
+		keys[i] = node.Key
+	}
+	return keys
+}
+
+func sortedKeyWriters() []sortedKeyWriter {
+	return []sortedKeyWriter{
+		{
+			name:         "MarshalSortedKeysFromKeys",
+			indexedNodes: primaryNodes,
+			write: func(w io.Writer, keys []Key) (int64, error) {
+				return MarshalSortedKeysFromKeys(w, keys)
+			},
+		},
+		{
+			name:         "MarshalSortedKeys",
+			indexedNodes: primaryNodes,
+			write: func(w io.Writer, keys []Key) (int64, error) {
+				redux := make([]KeyRedux, len(keys))
+				for i, key := range keys {
+					redux[i] = KeyRedux{Key: key.Key, ValueEnd: key.ValueEnd}
+				}
+				return MarshalSortedKeys(w, redux, 0)
+			},
+		},
+		{
+			name: "marshalSortedSecondaryFromKeys",
+			indexedNodes: func(keys []Key) Nodes {
+				return secondaryNodes(keys, 0)
+			},
+			write: func(w io.Writer, keys []Key) (int64, error) {
+				return marshalSortedSecondaryFromKeys(w, keys, 0)
+			},
+		},
+	}
+}
 
 func TestTree(t *testing.T) {
 	type elem struct {
@@ -230,13 +398,11 @@ func TestMarshalSortedKeysFromKeys(t *testing.T) {
 		assert.Equal(t, 0, buf.Len())
 	})
 
-	t.Run("output matches tree MarshalBinary", func(t *testing.T) {
+	t.Run("equivalent to tree MarshalBinary", func(t *testing.T) {
 		// Build the same balanced tree via NewBalanced and marshal it.
-		// NewBalanced (not Insert) produces a balanced BST matching MarshalSortedKeysFromKeys.
-		nodes := make(Nodes, len(sortedKeys))
-		for i, k := range sortedKeys {
-			nodes[i] = Node{Key: k.Key, Start: uint64(k.ValueStart), End: uint64(k.ValueEnd)}
-		}
+		// NewBalanced (not Insert) produces a balanced BST over the same keys.
+		nodes := primaryNodes(sortedKeys)
+		keyBytes := nodeKeys(nodes)
 		tree := NewBalanced(nodes)
 		want, err := tree.MarshalBinary()
 		require.NoError(t, err)
@@ -245,10 +411,9 @@ func TestMarshalSortedKeysFromKeys(t *testing.T) {
 		var buf bytes.Buffer
 		n, err := MarshalSortedKeysFromKeys(&buf, sortedKeys)
 		require.NoError(t, err)
-		got := buf.Bytes()
 
-		assert.Equal(t, int64(len(want)), n)
-		assert.Equal(t, want, got)
+		assert.Equal(t, int64(buf.Len()), n)
+		requireSameTree(t, want, buf.Bytes(), keyBytes)
 	})
 
 	t.Run("DiskTree can Get every key", func(t *testing.T) {
@@ -294,12 +459,102 @@ func TestMarshalSortedKeysFromKeys(t *testing.T) {
 		keys, err := dTree.AllKeys()
 		require.NoError(t, err)
 
-		expected := make([][]byte, len(sortedKeys))
-		for i, k := range sortedKeys {
-			expected[i] = k.Key
-		}
-		assert.ElementsMatch(t, expected, keys)
+		assert.ElementsMatch(t, nodeKeys(primaryNodes(sortedKeys)), keys)
 	})
+}
+
+// TestMarshalSortedKeysVanEmdeBoasOrder pins the on-disk node order to the van
+// Emde Boas layout. For a full tree of height 4 (15 keys) it differs from level
+// order, so this fails if a writer regresses to level order. The expected
+// permutation is the sorted-key indices in write order, hand-derived from the
+// vEB recursion (top block {0,1,2}, then bottom subtrees under 3,4,5,6). The
+// root comes first, so it sits at offset 0 where pointer-chasing readers start.
+func TestMarshalSortedKeysVanEmdeBoasOrder(t *testing.T) {
+	const n = 15
+	keys := make([]Key, n)
+	for i := 0; i < n; i++ {
+		// Each secondary key repeats its primary key, so all three writers index
+		// the same 15 keys in the same order and share one expected permutation.
+		k := varWidthKey(i)
+		keys[i] = Key{Key: k, ValueStart: i * 10, ValueEnd: (i + 1) * 10, SecondaryKeys: [][]byte{k}}
+	}
+
+	vebSortedIndices := []int{7, 3, 11, 1, 0, 2, 5, 4, 6, 9, 8, 10, 13, 12, 14}
+	want := make([][]byte, n)
+	for i, idx := range vebSortedIndices {
+		want[i] = varWidthKey(idx)
+	}
+
+	for _, writer := range sortedKeyWriters() {
+		t.Run(writer.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			_, err := writer.write(&buf, keys)
+			require.NoError(t, err)
+
+			// AllKeys walks the blob sequentially, so it returns keys in write order.
+			got, err := NewDiskTree(buf.Bytes()).AllKeys()
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
+// A balanced tree and a right spine over the same keys serialize to the same
+// number of bytes and resolve every key, so depth is the only thing that tells
+// the two shapes apart. requireSameTree relies on that.
+func TestTreeDepth(t *testing.T) {
+	const n = 15
+	nodes := make(Nodes, n)
+	for i := 0; i < n; i++ {
+		nodes[i] = Node{Key: varWidthKey(i), Start: uint64(i), End: uint64(i + 1)}
+	}
+
+	balancedTree := NewBalanced(nodes)
+	balanced, err := balancedTree.MarshalBinary()
+	require.NoError(t, err)
+
+	// Keys arrive in ascending order, so plain BST inserts give a right spine.
+	spineTree := NewTree(n)
+	for _, node := range nodes {
+		spineTree.Insert(node.Key, node.Start, node.End)
+	}
+	spine, err := spineTree.MarshalBinary()
+	require.NoError(t, err)
+	require.Equal(t, len(balanced), len(spine), "both shapes must serialize to the same size")
+
+	// Root node layout: [keyLen:4][key][start:8][end:8][left:8][right:8].
+	rootLeftChild := 4 + int(binary.LittleEndian.Uint32(balanced[0:4])) + 16
+
+	cyclic := bytes.Clone(balanced)
+	binary.LittleEndian.PutUint64(cyclic[rootLeftChild:], 0) // points at itself
+
+	pastBuffer := bytes.Clone(balanced)
+	binary.LittleEndian.PutUint64(pastBuffer[rootLeftChild:], uint64(len(balanced))+1)
+
+	tests := []struct {
+		name      string
+		data      []byte
+		wantDepth int
+		wantErr   bool
+	}{
+		{name: "empty", data: nil, wantDepth: 0},
+		{name: "balanced", data: balanced, wantDepth: bits.Len(uint(n))},
+		{name: "right spine", data: spine, wantDepth: n},
+		{name: "child pointer loops back", data: cyclic, wantErr: true},
+		{name: "child pointer past the buffer", data: pastBuffer, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			depth, err := treeDepth(NewDiskTree(test.data))
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantDepth, depth)
+		})
+	}
 }
 
 // MarshalSortedKeys must place the first key's data at the caller-provided
@@ -336,6 +591,69 @@ func TestMarshalSortedKeysDataStartOffset(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(55), n.Start)
 	assert.Equal(t, uint64(70), n.End)
+}
+
+func TestMarshalSortedKeysEmptyInput(t *testing.T) {
+	var buf bytes.Buffer
+	n, err := MarshalSortedKeys(&buf, nil, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n)
+	assert.Equal(t, 0, buf.Len())
+}
+
+// Comparing only len(order) against the node count misses an order that has the
+// right length yet lists one node twice and another not at all, so vebOffsets
+// checks per node instead.
+func TestVEBOffsets(t *testing.T) {
+	// 3 keys in a height-2 tree: heap positions 0, 1, 2 hold sorted indices 1, 0, 2.
+	const nodeCount = 3
+	mapping := []int32{1, 0, 2, -1}
+	nodeSize := func(int32) int64 { return 10 }
+
+	tests := []struct {
+		name      string
+		order     []int32
+		wantErr   bool
+		wantOff   []int64
+		wantTotal int64
+	}{
+		{
+			name:      "every node emitted",
+			order:     []int32{0, 1, 2},
+			wantOff:   []int64{10, 0, 20},
+			wantTotal: 30,
+		},
+		{
+			name:    "node dropped",
+			order:   []int32{0, 1},
+			wantErr: true,
+		},
+		{
+			name:    "node listed twice in place of another",
+			order:   []int32{0, 1, 1},
+			wantErr: true,
+		},
+		{
+			name:    "node listed twice on top of a complete order",
+			order:   []int32{0, 1, 2, 1},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			offsets, total, err := vebOffsets(test.order, mapping, nodeCount, nodeSize)
+			if test.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, offsets)
+				assert.Zero(t, total)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantOff, offsets)
+			assert.Equal(t, test.wantTotal, total)
+		})
+	}
 }
 
 // A dataStartOffset past the first key's ValueEnd would serialize start > end;

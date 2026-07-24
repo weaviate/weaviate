@@ -348,9 +348,9 @@ func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMoveme
 	}
 }
 
-// newDropTestIndex builds a bare Index that is just wired enough to exercise
+// newDropLocalShardTestIndex builds a bare Index that is just wired enough to exercise
 // dropShards' unloaded-shard branch (os.RemoveAll fallback) without a full DB.
-func newDropTestIndex(t *testing.T, logger logrus.FieldLogger) *Index {
+func newDropLocalShardTestIndex(t *testing.T, logger logrus.FieldLogger) *Index {
 	t.Helper()
 	idx := &Index{
 		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("DropTestClass")},
@@ -368,14 +368,14 @@ func newDropTestIndex(t *testing.T, logger logrus.FieldLogger) *Index {
 func TestIndexDropLocalShard(t *testing.T) {
 	t.Run("absent shard is an idempotent no-op", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
-		idx := newDropTestIndex(t, logger)
+		idx := newDropLocalShardTestIndex(t, logger)
 
 		require.NoError(t, idx.DropLocalShard("never-existed"))
 	})
 
 	t.Run("unloaded shard files are actually removed", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
-		idx := newDropTestIndex(t, logger)
+		idx := newDropLocalShardTestIndex(t, logger)
 
 		shardDir := shardPath(idx.path(), "shard1")
 		require.NoError(t, os.MkdirAll(shardDir, 0o755))
@@ -392,7 +392,7 @@ func TestIndexDropLocalShard(t *testing.T) {
 			t.Skip("chmod-based permission denial is a no-op for root")
 		}
 		logger, hook := test.NewNullLogger()
-		idx := newDropTestIndex(t, logger)
+		idx := newDropLocalShardTestIndex(t, logger)
 
 		shardDir := shardPath(idx.path(), "shard1")
 		require.NoError(t, os.MkdirAll(shardDir, 0o755))
