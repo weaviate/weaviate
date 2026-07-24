@@ -1,18 +1,10 @@
 """Namespace-scoped /v1/nodes through the weaviate-python client.
 
-Mirrors test/acceptance/namespace/nodes_test.go, but exercises the
-python-client `cluster.nodes()` deserialization under namespace RBAC scoping —
-the client surface the Go acceptance test doesn't reach:
-
-  - no built-in role grants nodes access: even a namespaced admin sees no shards,
-  - the node-wide minimal view stays denied (403),
-  - a custom role with verbose read_nodes grants access scoped to the caller's
-    namespace,
-  - the global root sees every namespace's shards.
-
-Control-plane setup (namespaces, namespaced users, role grants) goes through the
-client's namespaces/users/roles APIs wrapped with the RAFT-lag retries in
-namespace_helpers; the nodes reads under test go through the client too.
+Mirrors test/acceptance/namespace/nodes_test.go on the client surface the Go
+test doesn't reach (`cluster.nodes()` deserialization under namespace RBAC):
+no built-in role grants nodes access, a custom role with verbose read_nodes
+grants access scoped to the caller's namespace, the node-wide minimal view
+stays denied, and the global root sees every namespace.
 
 CI: runs in the "python-namespaces" matrix entry (see test_namespace_refs.py).
 Manual run:
@@ -138,9 +130,9 @@ def _shard_namespaces(nodes_list) -> Tuple[Set[str], int]:
 
 
 def _assert_scoped_to(nodes_list, want_ns: str) -> None:
-    """Every shard belongs to want_ns, at least one is present, and each node's
-    aggregate matches the returned (scoped) shards over the wire — the leak-fix
-    invariant: a node-wide Stats spanning other namespaces would break it."""
+    """Every shard belongs to want_ns (at least one present) and each node's
+    Stats aggregate matches the returned shards — a node-wide aggregate spanning
+    other namespaces would break the equality."""
     prefixes, total = _shard_namespaces(nodes_list)
     assert total > 0, "scoped caller must see at least one of its own shards"
     assert prefixes == {want_ns}, f"verbose nodes leaked outside {want_ns!r}: saw {prefixes}"
@@ -183,8 +175,7 @@ def test_custom_verbose_nodes_role_grants_scoped_access(keys, probe_collections,
     assert total == 0, "a bare namespace user must see no shards before the role is granted"
     _assert_minimal_forbidden(client)
 
-    # No built-in nodes role for non-admin namespace users; an operator grants a
-    # custom role with verbose read_nodes over all collections — the matcher
+    # A custom role with verbose read_nodes over all collections; the matcher
     # scopes it to the caller's namespace.
     admin = nsh.open_client(ADMIN_KEY, *NODES[0], skip_init_checks=False)
     try:

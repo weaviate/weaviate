@@ -663,8 +663,7 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	minimal := "minimal"
 
 	t.Run("namespaced admin denied verbose node status by short class name", func(t *testing.T) {
-		// No built-in role grants read_nodes, so even the namespace admin is
-		// denied until an operator grants a custom nodes role.
+		// No built-in role grants read_nodes, so even the namespace admin is denied.
 		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
 		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
 		require.Error(t, err)
@@ -681,9 +680,8 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 				Permission())
 		helper.WaitForOwnRole(t, user1Key, "nodes-viewer-"+ns1)
 
-		// The server qualifies "Movies" to the caller's namespace and the matcher
-		// scopes the role's verbose read_nodes to it. Class-scoped node status
-		// stays 404 until the slowest follower has replicated the class create.
+		// The short name resolves to the caller's namespace; class-scoped node
+		// status stays 404 until the slowest follower has replicated the create.
 		var resp *nodes.NodesGetClassOK
 		retryOnAliasLag(t, func() error {
 			params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
@@ -695,8 +693,6 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	})
 
 	t.Run("namespaced viewer denied verbose node status by short class name", func(t *testing.T) {
-		// A regular namespace user (built-in viewer) has no read_nodes grant at
-		// all, so even verbose by-class is denied — unlike the namespace admin.
 		viewerKey := createNamespacedViewerUser(t, "v1", ns1, adminKey)
 		t.Cleanup(func() { helper.DeleteUser(t, ns1+":v1", adminKey) })
 

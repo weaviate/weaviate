@@ -175,11 +175,9 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 }
 
-// TestNodesAPI_ByClassScopesStats pins by-class Stats scoping: with two classes
-// present, a by-class GetNodeStatus must count only the queried class. The
-// namespace /nodes endpoint's leak prevention depends on it — its by-class branch
-// drops node-wide BatchStats but trusts the DB to scope Stats, so a regression to
-// node-wide aggregation here would leak other classes' counts to a scoped caller.
+// TestNodesAPI_ByClassScopesStats pins by-class Stats scoping: a by-class
+// GetNodeStatus must count only the queried class. A regression to node-wide
+// aggregation would leak other classes' counts to a scoped /nodes caller.
 func TestNodesAPI_ByClassScopesStats(t *testing.T) {
 	dirName := t.TempDir()
 

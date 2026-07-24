@@ -94,11 +94,9 @@ func shardClassPrefixes(nodeStatuses []*models.NodeStatus) (prefixes map[string]
 	return prefixes, total
 }
 
-// assertScopedTo asserts every returned shard belongs to wantNS, at least one
-// shard is present, and each node's aggregate matches the returned (scoped)
-// shards over the wire — ShardCount == number of shards and ObjectCount == the
-// sum of their counts. The aggregate equality is what pins the leak fix: a
-// node-wide Stats spanning other namespaces would break it.
+// assertScopedTo asserts every returned shard belongs to wantNS (at least one
+// present) and each node's Stats aggregate matches the returned shards — a
+// node-wide aggregate spanning other namespaces would break the equality.
 func assertScopedTo(t *testing.T, nodeStatuses []*models.NodeStatus, wantNS string) {
 	t.Helper()
 	prefixes, total := shardClassPrefixes(nodeStatuses)
@@ -121,9 +119,8 @@ func assertScopedTo(t *testing.T, nodeStatuses []*models.NodeStatus, wantNS stri
 	}
 }
 
-// assertNoStatsLeak: a caller that sees no shards must see zeroed Stats on
-// every node that holds hidden shards. BatchStats is node-wide queue/throughput
-// telemetry with no per-class data, so it is preserved.
+// assertNoStatsLeak: a caller that sees no shards must see zeroed Stats.
+// BatchStats carries no per-class data and is preserved.
 func assertNoStatsLeak(t *testing.T, nodeStatuses []*models.NodeStatus) {
 	t.Helper()
 	for _, n := range nodeStatuses {
@@ -156,9 +153,8 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("namespaced admin has no built-in nodes access", func(t *testing.T) {
-		// No built-in role grants read_nodes: all-collections verbose returns 200
-		// with every shard filtered out, by-class verbose and the node-wide
-		// minimal view are denied outright.
+		// All-collections verbose returns 200 with every shard filtered out;
+		// by-class verbose and the node-wide minimal view are denied outright.
 		adminNodes := nodesGetVerbose(t, user1Key).Nodes
 		_, total := shardClassPrefixes(adminNodes)
 		assert.Zero(t, total, "ns admin without a nodes grant must see no shards")
@@ -190,8 +186,7 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 		requireMinimalForbidden(t, key)
 
 		// A custom role with verbose read_nodes over all collections; the matcher
-		// scopes it to the caller's namespace. There is no built-in nodes role for
-		// non-admin namespace users — this is how an operator would grant one.
+		// scopes it to the caller's namespace.
 		helper.CreateRoleAndAssign(t, adminKey, ns1+":vn", "ns-nodes-viewer",
 			helper.NewNodesPermission().
 				WithAction(authorization.ReadNodes).
@@ -206,9 +201,8 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 		}, 20*time.Second, 200*time.Millisecond, "verbose-nodes role never populated")
 		assertScopedTo(t, nodesGetVerbose(t, key).Nodes, ns1+":")
 
-		// By-class verbose resolves the short name to the caller's namespace and
-		// passes the upfront authorize against the role's scoped grant. It 404s
-		// until the slowest follower has the index, so poll before asserting.
+		// By-class verbose resolves the short name to the caller's namespace; it
+		// 404s until the slowest follower has the index, so poll.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			resp, err := helper.Client(t).Nodes.NodesGetClass(
 				nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(strPtr(verbosity.OutputVerbose)),

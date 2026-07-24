@@ -342,10 +342,9 @@ func rewritePolicy(policy, prefix string, fixedNs bool) (string, bool) {
 // is denied these regardless of any role granting them. Groups are global:
 // their ids are not namespace-bearing, so a namespaced caller must never reach
 // them. roles is excluded: role resources are namespace-bearing via qualified
-// names, so a blanket prefix-deny would be wrong for them. Within nodes, the
-// verbose per-collection resource is namespace-bearing (the matcher scopes it
-// to the caller's namespace), so it is carved out; the node-wide minimal view
-// stays operator-only.
+// names, so a blanket prefix-deny would be wrong for them. The verbose
+// per-collection nodes resource is likewise namespace-bearing and is carved
+// out; the node-wide minimal view stays operator-only.
 func operatorOnlyResource(path string) bool {
 	if strings.HasPrefix(path, namespacing.NodesVerboseCollectionsPrefix) {
 		return false

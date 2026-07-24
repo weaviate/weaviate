@@ -1,17 +1,10 @@
-"""Client-based control-plane helpers for the namespace acceptance tests.
+"""Control-plane helpers for the namespace acceptance tests.
 
-These wrap the weaviate-python-client namespaces/users/roles APIs (added in
+Wrap the weaviate-python-client namespaces/users/roles APIs (added in
 weaviate-python-client#2033) with the RAFT-apply-lag retries the 3-node
-namespaces cluster needs:
-
-  - a freshly created namespace must become visible before users can reference it,
-  - a namespaced user create can transiently 422 ("namespace does not exist")
-    until the create-namespace FSM entry applies locally,
-  - a freshly created apikey can 401 on a follower still replicating.
-
-Used by test_namespace_refs.py and test_namespace_nodes.py. Control-plane setup
-goes through these (the qualified-id namespace surface + the retries); the data
-operations under test go through the client directly.
+namespaces cluster needs: namespace visibility before use, the transient 422
+("namespace does not exist") on user create, and the transient 401 on a
+freshly created apikey.
 """
 
 import time

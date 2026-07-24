@@ -150,10 +150,8 @@ func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) s
 		}
 		apikey = *resp.Payload.Apikey
 	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created in namespace %q", userId, namespace)
-	// CreateUser returns once the leader applies the FSM entry, but the follower
-	// this client talks to may still be replicating, so the next authenticated
-	// request with the new key can transiently 401. Poll a cheap self-info
-	// endpoint until the key is accepted locally before handing it back.
+	// The follower this client talks to may still be replicating the create,
+	// so the new key can transiently 401. Poll until it is accepted locally.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		_, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(apikey))
 		assert.NoError(c, err)
