@@ -57,6 +57,18 @@ type reindexTracker interface {
 	IsTidied() bool
 	markTidied() error
 
+	// Staged-commit sentinels (weaviate/0-weaviate-issues#220). staged.mig
+	// marks "swap staged locally (pointer flipped, OLD preserved as
+	// backup), awaiting the cluster-wide task verdict" — written after
+	// markSwapped, retired by the task-level COMMIT (markTidied + trim)
+	// or ROLLBACK. unswapped.mig marks "in-memory rollback ran; on-disk
+	// backup→canonical restore deferred to next startup".
+	IsStaged() bool
+	markStaged() error
+	unmarkStaged() error
+	IsUnswapped() bool
+	markUnswapped() error
+
 	HasProps() bool
 	GetProps() ([]string, error)
 	saveProps([]string) error
@@ -85,6 +97,8 @@ func NewFileReindexTracker(lsmPath, migrationDirName string, keyParser indexKeyP
 			filenameMerged:     "merged.mig",
 			filenameSwapped:    "swapped.mig",
 			filenameTidied:     "tidied.mig",
+			filenameStaged:     "staged.mig",
+			filenameUnswapped:  "unswapped.mig",
 			filenameProperties: "properties.mig",
 			filenameRollback:   "rollback.mig",
 			filenameReset:      "reset.mig",
@@ -115,6 +129,8 @@ type fileReindexTrackerConfig struct {
 	filenameMerged     string
 	filenameSwapped    string
 	filenameTidied     string
+	filenameStaged     string
+	filenameUnswapped  string
 	filenameProperties string
 	filenameRollback   string
 	filenameReset      string
@@ -435,6 +451,37 @@ func (t *fileReindexTracker) markTidied() error {
 	return t.createFile(t.config.filenameTidied, []byte(t.encodeTimeNow()))
 }
 
+func (t *fileReindexTracker) IsStaged() bool {
+	return t.fileExists(t.config.filenameStaged)
+}
+
+// markStaged writes the staged.mig sentinel durably (fsync'd file +
+// parent dir): it's the load-bearing crash-recovery record for the
+// pre-commit window — losing it across a power cut would let the next
+// startup promote a swap whose task verdict never arrived. Mirrors the
+// write→fsync→close→fsync-dir semantics of the pending
+// diskio.WriteFileSync migration (weaviate/weaviate#12208) so
+// consolidating onto it later is a drop-in change.
+func (t *fileReindexTracker) markStaged() error {
+	return t.createFileDurable(t.config.filenameStaged, []byte(t.encodeTimeNow()))
+}
+
+func (t *fileReindexTracker) unmarkStaged() error {
+	return t.removeFile(t.config.filenameStaged)
+}
+
+func (t *fileReindexTracker) IsUnswapped() bool {
+	return t.fileExists(t.config.filenameUnswapped)
+}
+
+// markUnswapped durably records that the in-memory rollback ran on this
+// shard; the on-disk backup→canonical restore is deferred to the next
+// startup's [FinalizeCompletedMigrations] pass. Same durability
+// reasoning as [markStaged].
+func (t *fileReindexTracker) markUnswapped() error {
+	return t.createFileDurable(t.config.filenameUnswapped, []byte(t.encodeTimeNow()))
+}
+
 func (t *fileReindexTracker) filepath(filename string) string {
 	return filepath.Join(t.config.migrationPath, filename)
 }
@@ -457,6 +504,39 @@ func (t *fileReindexTracker) createFile(filename string, content []byte) error {
 		return err
 	}
 	return nil
+}
+
+// createFileDurable is createFile plus crash-durability: the file's
+// content is fsync'd before close and the parent directory is fsync'd
+// after, so the sentinel survives a power cut once this returns nil.
+// Used by the staged-commit sentinels; see [markStaged] for why they
+// need stronger guarantees than the ordinary sentinels (until
+// weaviate/weaviate#12208's WriteFileSync migration is backported).
+func (t *fileReindexTracker) createFileDurable(filename string, content []byte) error {
+	path := t.filepath(filename)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
+	if err != nil {
+		return err
+	}
+	if len(content) > 0 {
+		if _, err := file.Write(content); err != nil {
+			file.Close()
+			return err
+		}
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	dir, err := os.Open(t.config.migrationPath)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func (t *fileReindexTracker) removeFile(filename string) error {
@@ -570,6 +650,18 @@ func (t *fileReindexTracker) GetStatusStrings() (status string, message string, 
 	if t.IsSwapped() {
 		status = "swapped"
 		message = "reindexing done, buckets swapped"
+		action = "restart"
+	}
+
+	if t.IsStaged() && !t.IsTidied() {
+		status = "staged"
+		message = "buckets swapped and staged, awaiting cluster-wide task verdict (commit or rollback)"
+		action = "wait"
+	}
+
+	if t.IsUnswapped() {
+		status = "rolled back"
+		message = "swap rolled back after task failure; on-disk restore completes on next restart"
 		action = "restart"
 	}
 

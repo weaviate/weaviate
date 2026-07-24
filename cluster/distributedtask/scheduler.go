@@ -1094,7 +1094,27 @@ func (s *Scheduler) runCompletedCallbackPhase(
 
 	// Fire OnTaskCompleted without the lock. See the "Idempotency contract"
 	// note at the matching rollback site in runFinalizePhase.
-	cbErr := suProvider.OnTaskCompleted(task)
+	//
+	// Hand the provider the per-tick VERDICT (effectiveStatus), not the
+	// clone's stale Status. The scheduler advances effectiveStatus (e.g.
+	// SWAPPING→FAILED the instant this node's own swap-ack fails — see
+	// runSwapPhase) but deliberately never overwrites the clone's Status
+	// field, because the finalize + TTL-cleanup phases below reuse the same
+	// clone and must keep observing the pre-tick Status (a clone flipped to
+	// FAILED while its FinishedAt is still zero would be mis-swept as
+	// TTL-expired). OnTaskCompleted makes the IRREVERSIBLE flip-vs-rollback
+	// decision off Status, so it MUST see the verdict: without this a node
+	// whose own swap failed reads Status==SWAPPING and commits the
+	// cluster-wide schema flip over its own failed unit — the
+	// 0-weaviate-issues#220 inversion (schema=NEW over data=OLD). Note the
+	// barrier gate above only guards effectiveStatus==SWAPPING, so the
+	// failing node (effectiveStatus==FAILED) reaches this call directly.
+	// task is a per-tick clone (Task has no lock; see Task.Clone), so a
+	// shallow copy with a corrected Status is safe and does not perturb the
+	// original clone used by the later phases.
+	taskForCallback := *task
+	taskForCallback.Status = effectiveStatus
+	cbErr := suProvider.OnTaskCompleted(&taskForCallback)
 	if cbErr == nil {
 		return
 	}

@@ -154,6 +154,19 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 		}
 		return nil
 	})
+
+	// Pre-commit staging (weaviate/0-weaviate-issues#220, QA finding 2): this
+	// is the RAFT schema-apply path where a semantic migration's flip lands
+	// on a node. If this node staged + acked its swap but restarted before
+	// the flip applied, its staged gen was reverted to merged at boot against
+	// the then-pre-flip schema and nothing re-drives it. Now that the flip is
+	// applied (schema is the durable verdict), converge the swap without a
+	// restart. Best-effort and idempotent; never fails the schema apply. See
+	// [Shard.reResolveStagedSwapsOnSchemaFlip].
+	eg.Go(func() error {
+		s.reResolveStagedSwapsOnSchemaFlip(ctx)
+		return nil
+	})
 }
 
 // cleanStaleMigrationDirs removes the per-property runtime-reindex
