@@ -64,17 +64,32 @@ var Tokenizations []string = []string{
 }
 
 func init() {
-	numParallel := runtime.GOMAXPROCS(0)
-	numParallelStr := os.Getenv("TOKENIZER_CONCURRENCY_COUNT")
-	if numParallelStr != "" {
-		x, err := strconv.Atoi(numParallelStr)
-		if err == nil {
-			numParallel = x
-		}
-	}
-	ApacTokenizerThrottle = make(chan struct{}, numParallel)
+	ApacTokenizerThrottle = make(chan struct{}, throttleCapacity(os.Getenv("TOKENIZER_CONCURRENCY_COUNT")))
 	InitOptionalTokenizers()
 	customTokenizers = sync.Map{}
+}
+
+// throttleCapacity computes the ApacTokenizerThrottle capacity from the
+// TOKENIZER_CONCURRENCY_COUNT env value. Non-numeric values and values below
+// 1 are rejected with a warning and fall back to runtime.GOMAXPROCS(0), like
+// an unset variable: a capacity-0 channel would deadlock the first
+// tokenization (an acquire with no holder to ever release it), and make
+// panics on a negative capacity.
+func throttleCapacity(envValue string) int {
+	fallback := runtime.GOMAXPROCS(0)
+	if envValue == "" {
+		return fallback
+	}
+	x, err := strconv.Atoi(envValue)
+	if err != nil {
+		logrus.StandardLogger().Warnf("invalid TOKENIZER_CONCURRENCY_COUNT %q, using default %d: %v", envValue, fallback, err)
+		return fallback
+	}
+	if x < 1 {
+		logrus.StandardLogger().Warnf("invalid TOKENIZER_CONCURRENCY_COUNT %d, must be at least 1, using default %d", x, fallback)
+		return fallback
+	}
+	return x
 }
 
 func InitOptionalTokenizers() {
@@ -155,18 +170,24 @@ func init_gse_ch() error {
 	return nil
 }
 
+// TokenizeForClass tokenizes like [Tokenize], except that the kagome
+// tokenizations consult the class's custom user-dictionary tokenizer first.
 func TokenizeForClass(tokenization string, in string, class string) []string {
-	tokenizer, ok := customTokenizers.Load(class)
-	if tokenization == models.PropertyTokenizationKagomeKr && ok && tokenizer.(*KagomeTokenizers).Korean != nil {
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
-	} else if tokenization == models.PropertyTokenizationKagomeJa && ok && tokenizer.(*KagomeTokenizers).Japanese != nil {
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
-	} else {
-		return Tokenize(tokenization, in)
+	switch tokenization {
+	case models.PropertyTokenizationKagomeKr:
+		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Korean != nil {
+			ApacTokenizerThrottle <- struct{}{}
+			defer func() { <-ApacTokenizerThrottle }()
+			return tokenizeKagome(custom.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
+		}
+	case models.PropertyTokenizationKagomeJa:
+		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Japanese != nil {
+			ApacTokenizerThrottle <- struct{}{}
+			defer func() { <-ApacTokenizerThrottle }()
+			return tokenizeKagome(custom.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
+		}
 	}
+	return Tokenize(tokenization, in)
 }
 
 func Tokenize(tokenization string, in string) []string {
