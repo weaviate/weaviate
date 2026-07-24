@@ -112,99 +112,89 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 	s := f.searcher
 	ctx := context.Background()
 
-	t.Run("uuid", func(t *testing.T) {
-		values := []string{
-			"11111111-1111-1111-1111-111111111111",
-			"22222222-2222-2222-2222-222222222222",
-			"33333333-3333-3333-3333-333333333333",
-		}
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-uuid"),
-			schema.DataTypeText, values, filters.ContainsAny, f.class)
+	uuidValues := []string{
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+		"33333333-3333-3333-3333-333333333333",
+	}
+	uuidKey := func(t *testing.T, i int) []byte {
+		want, err := s.extractUUIDValue(uuidValues[i])
 		require.NoError(t, err)
-		require.True(t, eligible)
-		require.NotNil(t, pv)
-		require.Equal(t, filters.ContainsAny, pv.operator)
-		require.Equal(t, "prop-uuid", pv.prop)
-		require.True(t, pv.hasFilterableIndex)
-		require.Len(t, pv.containsValues, len(values))
-		for i, v := range values {
-			want, err := s.extractUUIDValue(v)
-			require.NoError(t, err)
-			require.Equal(t, want, pv.containsValues[i])
-		}
-	})
-
-	t.Run("text FIELD", func(t *testing.T) {
-		values := []string{"alpha", "beta", "gamma"}
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-text-field"),
-			schema.DataTypeText, values, filters.ContainsAll, f.class)
-		require.NoError(t, err)
-		require.True(t, eligible)
-		require.NotNil(t, pv)
-		require.Equal(t, filters.ContainsAll, pv.operator)
-		require.Len(t, pv.containsValues, len(values))
+		return want
+	}
+	textValues := []string{"alpha", "beta", "gamma"}
+	textKey := func(t *testing.T, i int) []byte {
 		prepared := tokenizer.NewPreparedAnalyzer(nil)
-		for i, v := range values {
-			result := tokenizer.Analyze(v, models.PropertyTokenizationField, f.class.Class, prepared, nil)
-			require.Equal(t, []byte(result.Query[0]), pv.containsValues[i])
-		}
-	})
-
-	t.Run("int", func(t *testing.T) {
-		values := []int{1, 2, 3}
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-int"),
-			schema.DataTypeInt, values, filters.ContainsAny, f.class)
+		result := tokenizer.Analyze(textValues[i], models.PropertyTokenizationField, f.class.Class, prepared, nil)
+		return []byte(result.Query[0])
+	}
+	intValues := []int{1, 2, 3}
+	intKey := func(t *testing.T, i int) []byte {
+		want, err := s.extractIntValue(intValues[i])
 		require.NoError(t, err)
-		require.True(t, eligible)
-		require.Len(t, pv.containsValues, len(values))
-		for i, v := range values {
-			want, err := s.extractIntValue(v)
-			require.NoError(t, err)
-			require.Equal(t, want, pv.containsValues[i])
-		}
-	})
-
-	t.Run("number", func(t *testing.T) {
-		values := []float64{1.5, 2.5, 3.5}
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-number"),
-			schema.DataTypeNumber, values, filters.ContainsAny, f.class)
+		return want
+	}
+	numberValues := []float64{1.5, 2.5, 3.5}
+	numberKey := func(t *testing.T, i int) []byte {
+		want, err := s.extractNumberValue(numberValues[i])
 		require.NoError(t, err)
-		require.True(t, eligible)
-		require.Len(t, pv.containsValues, len(values))
-		for i, v := range values {
-			want, err := s.extractNumberValue(v)
-			require.NoError(t, err)
-			require.Equal(t, want, pv.containsValues[i])
-		}
-	})
-
-	t.Run("bool", func(t *testing.T) {
-		values := []bool{true, false}
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-bool"),
-			schema.DataTypeBoolean, values, filters.ContainsAny, f.class)
+		return want
+	}
+	boolValues := []bool{true, false}
+	boolKey := func(t *testing.T, i int) []byte {
+		want, err := s.extractBoolValue(boolValues[i])
 		require.NoError(t, err)
-		require.True(t, eligible)
-		require.Len(t, pv.containsValues, len(values))
-		for i, v := range values {
-			want, err := s.extractBoolValue(v)
-			require.NoError(t, err)
-			require.Equal(t, want, pv.containsValues[i])
-		}
-	})
-
-	t.Run("date", func(t *testing.T) {
-		values := []string{"2021-01-01T00:00:00Z", "2022-02-02T00:00:00Z", "2023-03-03T00:00:00Z"}
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-date"),
-			schema.DataTypeDate, values, filters.ContainsAny, f.class)
+		return want
+	}
+	dateValues := []string{"2021-01-01T00:00:00Z", "2022-02-02T00:00:00Z", "2023-03-03T00:00:00Z"}
+	dateKey := func(t *testing.T, i int) []byte {
+		want, err := s.extractDateValue(dateValues[i])
 		require.NoError(t, err)
-		require.True(t, eligible)
-		require.Len(t, pv.containsValues, len(values))
-		for i, v := range values {
-			want, err := s.extractDateValue(v)
+		return want
+	}
+
+	tests := []struct {
+		name     string
+		prop     string
+		propType schema.DataType
+		operator filters.Operator
+		// value is what the filter layer hands over: typed slices from
+		// internal callers, []interface{} from the GraphQL/gRPC layer
+		value   interface{}
+		numVals int
+		wantKey func(t *testing.T, i int) []byte
+	}{
+		{"uuid", "prop-uuid", schema.DataTypeText, filters.ContainsAny, uuidValues, 3, uuidKey},
+		{"uuid []interface{}", "prop-uuid", schema.DataTypeText, filters.ContainsAny, []interface{}{uuidValues[0], uuidValues[1], uuidValues[2]}, 3, uuidKey},
+		{"text FIELD", "prop-text-field", schema.DataTypeText, filters.ContainsAll, textValues, 3, textKey},
+		{"text FIELD []interface{}", "prop-text-field", schema.DataTypeText, filters.ContainsAll, []interface{}{"alpha", "beta", "gamma"}, 3, textKey},
+		{"int", "prop-int", schema.DataTypeInt, filters.ContainsAny, intValues, 3, intKey},
+		// the API layers unmarshal numeric values as float64
+		{"int []interface{}", "prop-int", schema.DataTypeInt, filters.ContainsAny, []interface{}{float64(1), float64(2), float64(3)}, 3, intKey},
+		{"number", "prop-number", schema.DataTypeNumber, filters.ContainsAny, numberValues, 3, numberKey},
+		{"number []interface{}", "prop-number", schema.DataTypeNumber, filters.ContainsAny, []interface{}{1.5, 2.5, 3.5}, 3, numberKey},
+		{"bool", "prop-bool", schema.DataTypeBoolean, filters.ContainsAny, boolValues, 2, boolKey},
+		{"bool []interface{}", "prop-bool", schema.DataTypeBoolean, filters.ContainsAny, []interface{}{true, false}, 2, boolKey},
+		{"date", "prop-date", schema.DataTypeDate, filters.ContainsAny, dateValues, 3, dateKey},
+		{"date []interface{}", "prop-date", schema.DataTypeDate, filters.ContainsAny, []interface{}{dateValues[0], dateValues[1], dateValues[2]}, 3, dateKey},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pv, eligible, err := s.extractContainsBatch(ctx, containsPath(tt.prop),
+				tt.propType, tt.value, tt.operator, f.class)
 			require.NoError(t, err)
-			require.Equal(t, want, pv.containsValues[i])
-		}
-	})
+			require.True(t, eligible)
+			require.NotNil(t, pv)
+			require.Equal(t, tt.operator, pv.operator)
+			require.Equal(t, tt.prop, pv.prop)
+			require.True(t, pv.hasFilterableIndex)
+			require.Len(t, pv.containsValues, tt.numVals)
+			for i := 0; i < tt.numVals; i++ {
+				require.Equal(t, tt.wantKey(t, i), pv.containsValues[i], "key %d", i)
+			}
+		})
+	}
 }
 
 func TestExtractContainsBatch_Ineligible(t *testing.T) {
@@ -212,111 +202,125 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 	s := f.searcher
 	ctx := context.Background()
 
-	assertFallThrough := func(t *testing.T, pv *propValuePair, eligible bool, err error) {
-		t.Helper()
-		require.False(t, eligible)
-		require.NoError(t, err)
-		require.Nil(t, pv)
+	tests := []struct {
+		name     string
+		path     *filters.Path
+		propType schema.DataType
+		value    interface{}
+		operator filters.Operator
+		setup    func(t *testing.T)
+	}{
+		{
+			name: "ContainsNone is out of scope",
+			path: containsPath("prop-int"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsNone,
+		},
+		{
+			name:     "nested path",
+			path:     &filters.Path{Property: "addresses", Child: &filters.Path{Property: "city"}},
+			propType: schema.DataTypeText, value: []string{"a", "b"}, operator: filters.ContainsAny,
+		},
+		{
+			name: "internal prop",
+			path: containsPath(filters.InternalPropID), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+		},
+		{
+			name: "property length meta-filter",
+			path: containsPath("prop-int" + filters.InternalPropertyLength), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+		},
+		{
+			name: "property not found",
+			path: containsPath("prop-does-not-exist"), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+		},
+		{
+			name: "nested object property",
+			path: containsPath("prop-nested"), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+		},
+		{
+			name: "ref prop",
+			path: containsPath("prop-ref"), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+		},
+		{
+			name: "geo prop",
+			path: containsPath("prop-geo"), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+		},
+		{
+			name: "non-FIELD tokenization WORD",
+			path: containsPath("prop-text-word"), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+		},
+		{
+			name: "non-FIELD tokenization WHITESPACE",
+			path: containsPath("prop-text-whitespace"), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+		},
+		{
+			name: "fallback to searchable",
+			path: containsPath("prop-fallback"), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			setup: func(t *testing.T) {
+				f.fallback = true
+				t.Cleanup(func() { f.fallback = false })
+			},
+		},
+		{
+			name: "IndexFilterable false",
+			path: containsPath("prop-not-filterable"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+		},
+		{
+			name: "bucket strategy not roaringset",
+			path: containsPath("prop-nonroaringset"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+		},
+		{
+			name: "bucket not created",
+			path: containsPath("prop-no-bucket"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+		},
+		{
+			name: "N=0 values",
+			path: containsPath("prop-int"), propType: schema.DataTypeInt,
+			value: []int{}, operator: filters.ContainsAny,
+		},
+		{
+			name: "N=1 value",
+			path: containsPath("prop-int"), propType: schema.DataTypeInt,
+			value: []int{1}, operator: filters.ContainsAny,
+		},
+		// array value types must decline: the desugared per-value leaf
+		// extractors error on them, so accepting them here would succeed
+		// where the fallback path errors
+		{
+			name: "array value type text",
+			path: containsPath("prop-text-field"), propType: schema.DataTypeTextArray,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+		},
+		{
+			name: "array value type int",
+			path: containsPath("prop-int"), propType: schema.DataTypeIntArray,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+		},
 	}
 
-	t.Run("ContainsNone is out of scope", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-int"),
-			schema.DataTypeInt, []int{1, 2}, filters.ContainsNone, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("nested path", func(t *testing.T) {
-		path := &filters.Path{Property: "addresses", Child: &filters.Path{Property: "city"}}
-		pv, eligible, err := s.extractContainsBatch(ctx, path,
-			schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("internal prop", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath(filters.InternalPropID),
-			schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("property length meta-filter", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-int"+filters.InternalPropertyLength),
-			schema.DataTypeInt, []int{1, 2}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("property not found", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-does-not-exist"),
-			schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("nested object property", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-nested"),
-			schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("ref prop", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-ref"),
-			schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("geo prop", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-geo"),
-			schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("non-FIELD tokenization WORD", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-text-word"),
-			schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("non-FIELD tokenization WHITESPACE", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-text-whitespace"),
-			schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("fallback to searchable", func(t *testing.T) {
-		f.fallback = true
-		t.Cleanup(func() { f.fallback = false })
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-fallback"),
-			schema.DataTypeText, []string{"a", "b"}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("IndexFilterable false", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-not-filterable"),
-			schema.DataTypeInt, []int{1, 2}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("bucket strategy not roaringset", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-nonroaringset"),
-			schema.DataTypeInt, []int{1, 2}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("bucket not created", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-no-bucket"),
-			schema.DataTypeInt, []int{1, 2}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("N=0 values", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-int"),
-			schema.DataTypeInt, []int{}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
-
-	t.Run("N=1 value", func(t *testing.T) {
-		pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-int"),
-			schema.DataTypeInt, []int{1}, filters.ContainsAny, f.class)
-		assertFallThrough(t, pv, eligible, err)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setup != nil {
+				tt.setup(t)
+			}
+			pv, eligible, err := s.extractContainsBatch(ctx, tt.path, tt.propType,
+				tt.value, tt.operator, f.class)
+			require.False(t, eligible)
+			require.NoError(t, err)
+			require.Nil(t, pv)
+		})
+	}
 }
 
 func TestExtractContainsBatch_EncodingErrorIsEligibleButFails(t *testing.T) {
