@@ -819,15 +819,8 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.UPDATE))
 	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.DELETE))
-	// Narrowed admin gets verbose nodes (scoped to its namespace by the matcher)
-	// but NOT the node-wide minimal view.
-	assert.True(t, roleHasResourceVerb(adminRows, "nodes/verbosity/verbose/", authorization.READ),
-		"admin (NS-enabled) must have verbose read_nodes")
-	for _, row := range adminRows {
-		assert.NotContains(t, row[1], "nodes/verbosity/minimal", "admin (NS-enabled) must not have minimal read_nodes")
-	}
 	for _, prohibited := range []string{
-		"backups/", "cluster/", "groups/", "namespaces/", "replicate/",
+		"backups/", "cluster/", "nodes/", "groups/", "namespaces/", "replicate/",
 	} {
 		for _, row := range adminRows {
 			assert.NotContains(t, row[1], prohibited, "admin (NS-enabled) must not have policy on %s domain", prohibited)

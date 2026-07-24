@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func addPropertyAuth(t *testing.T, className string, prop *models.Property, key string) error {
@@ -633,11 +634,11 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 }
 
 // TestNamespaces_NodesGetClass exercises GET /v1/nodes/<class> on a namespaced
-// class. The narrowed built-in admin now holds verbose read_nodes scoped to its
-// namespace, so a by-class verbose request resolves the short/alias name to the
-// caller's namespace and succeeds (scoped); the node-wide minimal view stays
-// operator-only (403). The env-var root reaches it by qualified name. The
-// qualified-name path also covers the cluster-API URL routing through
+// class. No built-in role grants read_nodes; a custom role with verbose
+// read_nodes lets a by-class verbose request resolve the short name to the
+// caller's namespace and succeed (scoped), while the node-wide minimal view
+// stays operator-only (403). The env-var root reaches it by qualified name.
+// The qualified-name path also covers the cluster-API URL routing through
 // `regxNodesClass`, which only accepts namespace-qualified names once it is
 // built from IndexNameRegexCore.
 func TestNamespaces_NodesGetClass(t *testing.T) {
@@ -661,12 +662,35 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	verbose := "verbose"
 	minimal := "minimal"
 
-	t.Run("namespaced admin gets scoped verbose node status by short class name", func(t *testing.T) {
-		// The server qualifies "Movies" to the caller's namespace and the matcher
-		// scopes the admin's verbose read_nodes to it, so this is allowed.
+	t.Run("namespaced admin denied verbose node status by short class name", func(t *testing.T) {
+		// No built-in role grants read_nodes, so even the namespace admin is
+		// denied until an operator grants a custom nodes role.
 		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
-		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
-		require.NoError(t, err)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("custom verbose-nodes role grants scoped node status by short class name", func(t *testing.T) {
+		helper.CreateRoleAndAssign(t, adminKey, ns1+":u1", "nodes-viewer-"+ns1,
+			helper.NewNodesPermission().
+				WithAction(authorization.ReadNodes).
+				WithVerbosity(verbose).
+				WithCollection("*").
+				Permission())
+		helper.WaitForOwnRole(t, user1Key, "nodes-viewer-"+ns1)
+
+		// The server qualifies "Movies" to the caller's namespace and the matcher
+		// scopes the role's verbose read_nodes to it. Class-scoped node status
+		// stays 404 until the slowest follower has replicated the class create.
+		var resp *nodes.NodesGetClassOK
+		retryOnAliasLag(t, func() error {
+			params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
+			var err error
+			resp, err = helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+			return err
+		})
 		require.NotNil(t, resp.Payload)
 	})
 
@@ -684,8 +708,8 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	})
 
 	t.Run("namespaced admin denied minimal node status by short class name", func(t *testing.T) {
-		// Minimal is the node-wide operator view (never namespaceable), so an admin
-		// holding only verbose read_nodes is denied even for its own class.
+		// Minimal is the node-wide operator view (never namespaceable), so a
+		// caller holding only verbose read_nodes is denied even for its own class.
 		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&minimal)
 		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
 		require.Error(t, err)

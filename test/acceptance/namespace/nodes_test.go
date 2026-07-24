@@ -66,6 +66,19 @@ func requireMinimalForbidden(t *testing.T, key string) {
 	require.True(t, errors.As(err, &forbidden), "expected NodesGetForbidden, got %T: %v", err, err)
 }
 
+// requireByClassForbidden asserts a verbose by-class query is denied; unlike
+// the all-collections verbose path it runs the upfront authorize.
+func requireByClassForbidden(t *testing.T, key, class string) {
+	t.Helper()
+	_, err := helper.Client(t).Nodes.NodesGetClass(
+		nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(strPtr(verbosity.OutputVerbose)),
+		helper.CreateAuth(key),
+	)
+	require.Error(t, err)
+	var forbidden *nodes.NodesGetClassForbidden
+	require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
+}
+
 // shardClassPrefixes returns the set of namespace prefixes ("<ns>:") seen across
 // every node's shards, plus the total shard count.
 func shardClassPrefixes(nodeStatuses []*models.NodeStatus) (prefixes map[string]struct{}, total int) {
@@ -122,10 +135,9 @@ func assertNoStatsLeak(t *testing.T, nodeStatuses []*models.NodeStatus) {
 }
 
 // TestNamespaces_NodesEndpoint pins the namespace-aware contract of /v1/nodes:
-// a namespaced admin (and any role with verbose read_nodes) sees verbose
-// node/shard info for its own collections only, regular namespace viewers see
-// none, the node-wide minimal view stays operator-only, and the global root
-// sees all.
+// no built-in role grants nodes access, a custom role with verbose read_nodes
+// exposes node/shard info scoped to the caller's namespace, the node-wide
+// minimal view stays operator-only, and the global root sees all.
 func TestNamespaces_NodesEndpoint(t *testing.T) {
 	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
@@ -143,25 +155,16 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 	}, user2Key)
 	require.NoError(t, err)
 
-	t.Run("namespaced admin sees verbose nodes for its own collections only", func(t *testing.T) {
-		// EventuallyWithT absorbs RAFT-apply lag on the multi-node cluster.
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			_, total := shardClassPrefixes(nodesGetVerbose(t, user1Key).Nodes)
-			assert.Positive(c, total, "ns admin should eventually see its own shards")
-		}, 20*time.Second, 200*time.Millisecond, "ns admin verbose nodes never populated")
-		assertScopedTo(t, nodesGetVerbose(t, user1Key).Nodes, ns1+":")
-	})
-
-	t.Run("namespaced admin denied node-wide minimal view", func(t *testing.T) {
+	t.Run("namespaced admin has no built-in nodes access", func(t *testing.T) {
+		// No built-in role grants read_nodes: all-collections verbose returns 200
+		// with every shard filtered out, by-class verbose and the node-wide
+		// minimal view are denied outright.
+		adminNodes := nodesGetVerbose(t, user1Key).Nodes
+		_, total := shardClassPrefixes(adminNodes)
+		assert.Zero(t, total, "ns admin without a nodes grant must see no shards")
+		assertNoStatsLeak(t, adminNodes)
+		requireByClassForbidden(t, user1Key, class)
 		requireMinimalForbidden(t, user1Key)
-	})
-
-	t.Run("namespaced admin by-class verbose is scoped to its namespace", func(t *testing.T) {
-		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			_, total := shardClassPrefixes(nodesGetClassVerbose(t, user1Key, class).Nodes)
-			assert.Positive(c, total, "ns admin should eventually see its own class shards")
-		}, 20*time.Second, 200*time.Millisecond, "ns admin by-class verbose nodes never populated")
-		assertScopedTo(t, nodesGetClassVerbose(t, user1Key, class).Nodes, ns1+":")
 	})
 
 	t.Run("regular namespace viewer sees no shards and is denied minimal", func(t *testing.T) {
@@ -202,6 +205,22 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 			assert.Positive(c, total, "the verbose-nodes role should eventually expose the namespace's shards")
 		}, 20*time.Second, 200*time.Millisecond, "verbose-nodes role never populated")
 		assertScopedTo(t, nodesGetVerbose(t, key).Nodes, ns1+":")
+
+		// By-class verbose resolves the short name to the caller's namespace and
+		// passes the upfront authorize against the role's scoped grant. It 404s
+		// until the slowest follower has the index, so poll before asserting.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			resp, err := helper.Client(t).Nodes.NodesGetClass(
+				nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(strPtr(verbosity.OutputVerbose)),
+				helper.CreateAuth(key),
+			)
+			if !assert.NoError(c, err) {
+				return
+			}
+			_, total := shardClassPrefixes(resp.Payload.Nodes)
+			assert.Positive(c, total)
+		}, 20*time.Second, 200*time.Millisecond, "by-class verbose never returned the namespace's shards")
+		assertScopedTo(t, nodesGetClassVerbose(t, key, class).Nodes, ns1+":")
 
 		// verbose-only role: the node-wide minimal view stays denied.
 		requireMinimalForbidden(t, key)

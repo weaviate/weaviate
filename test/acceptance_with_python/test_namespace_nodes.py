@@ -4,11 +4,10 @@ Mirrors test/acceptance/namespace/nodes_test.go, but exercises the
 python-client `cluster.nodes()` deserialization under namespace RBAC scoping —
 the client surface the Go acceptance test doesn't reach:
 
-  - a namespaced admin sees verbose node/shard info for its own collections only,
+  - no built-in role grants nodes access: even a namespaced admin sees no shards,
   - the node-wide minimal view stays denied (403),
-  - a regular namespace viewer sees no shards,
-  - a custom role with verbose read_nodes grants scoped access to a
-    non-admin namespace user,
+  - a custom role with verbose read_nodes grants access scoped to the caller's
+    namespace,
   - the global root sees every namespace's shards.
 
 Control-plane setup (namespaces, namespaced users, role grants) goes through the
@@ -159,9 +158,10 @@ def _assert_minimal_forbidden(client: WeaviateClient) -> None:
     assert getattr(ei.value, "status_code", None) == 403 or "403" in str(ei.value)
 
 
-def test_namespaced_admin_sees_only_its_collections(keys, probe_collections, open_client):
+def test_namespaced_admin_has_no_builtin_nodes_access(keys, probe_collections, open_client):
     client = open_client(keys["admin1"])
-    _assert_scoped_to(client.cluster.nodes(output="verbose"), f"{NS1}:")
+    _, total = _shard_namespaces(client.cluster.nodes(output="verbose"))
+    assert total == 0, "a namespace admin without a nodes grant must see no shards"
 
 
 def test_namespaced_admin_denied_minimal(keys, probe_collections, open_client):

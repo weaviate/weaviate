@@ -256,10 +256,9 @@ func IsOperatorReservedRoleName(shortName string) bool {
 }
 
 // BuiltInPermissionsFor returns the canonical permission shape of the four
-// built-in roles. On namespace-enabled clusters admin/viewer are narrowed to
-// collections/schema, data, multi-tenancy, aliases, and MCP; of those two only
-// admin additionally gets scoped verbose read_nodes (viewer gets no nodes
-// access). root/read-only keep wildcard CRUD/READ across all domains.
+// built-in roles. On namespace-enabled clusters admin/viewer are narrowed
+// to collections/schema, data, multi-tenancy, aliases, and MCP; root/read-only
+// keep wildcard CRUD/READ across all domains.
 func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
 	if !namespacesEnabled {
 		return map[string][]*models.Permission{
@@ -707,11 +706,11 @@ var tenantSafeRoleActions = []string{
 
 // tenantSafeAdminPermissions returns the narrowed admin shape for
 // namespace-enabled clusters: CRUD over the namespace-bearing domains plus
-// MCP, user CRUD, role management at MATCH scope, role assignment, and
-// scoped verbose read_nodes. Cluster-only domains (backups, replicate,
-// cluster, groups, namespaces) and group assignment are excluded.
+// MCP, user CRUD, role management at MATCH scope, and role assignment.
+// Cluster-only domains (backups, replicate, nodes, cluster, groups,
+// namespaces) and group assignment are excluded.
 func tenantSafeAdminPermissions() []*models.Permission {
-	perms := make([]*models.Permission, 0, len(tenantSafeActions)+len(tenantSafeMcpActions)+len(tenantSafeUserActions)+len(tenantSafeRoleActions)+2)
+	perms := make([]*models.Permission, 0, len(tenantSafeActions)+len(tenantSafeMcpActions)+len(tenantSafeUserActions)+len(tenantSafeRoleActions)+1)
 	for _, action := range tenantSafeActions {
 		perms = append(perms, &models.Permission{
 			Action:      &action,
@@ -741,13 +740,6 @@ func tenantSafeAdminPermissions() []*models.Permission {
 	// the user-target match only confines which user, not which role.
 	assign := AssignAndRevokeUsers
 	perms = append(perms, &models.Permission{Action: &assign, Users: AllUsers})
-	// Verbose read_nodes is namespace-safe: the matcher scopes it to the admin's
-	// own collections. Minimal stays operator-only; viewer gets no nodes access.
-	nodesAction := ReadNodes
-	perms = append(perms, &models.Permission{
-		Action: &nodesAction,
-		Nodes:  AllNodes,
-	})
 	return perms
 }
 
