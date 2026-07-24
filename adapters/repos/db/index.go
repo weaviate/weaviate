@@ -3296,10 +3296,11 @@ func waitForCycleStop(ctx context.Context, stopResult chan bool) error {
 	var stopped bool
 	select {
 	case stopped = <-stopResult:
-	default:
+	case <-ctx.Done():
+		// select picks randomly when both are ready, so the result is checked again
 		select {
 		case stopped = <-stopResult:
-		case <-ctx.Done():
+		default:
 			return ctx.Err()
 		}
 	}

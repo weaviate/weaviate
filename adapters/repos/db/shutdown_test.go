@@ -106,6 +106,96 @@ func TestIndexStopCycleManagers(t *testing.T) {
 	}
 }
 
+func TestWaitForCycleStop(t *testing.T) {
+	expired := func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
+	}
+	stopResult := func(results ...bool) chan bool {
+		ch := make(chan bool, 1)
+		for _, result := range results {
+			ch <- result
+		}
+		return ch
+	}
+
+	tests := []struct {
+		name string
+		// newCase builds the context and stop result of a single run
+		newCase func() (context.Context, chan bool)
+		// runs repeats the case, as select picks randomly between ready channels
+		runs            int
+		wantErrIs       error
+		wantErrContains string
+	}{
+		{
+			name: "a cycle that stopped",
+			newCase: func() (context.Context, chan bool) {
+				return context.Background(), stopResult(true)
+			},
+		},
+		{
+			name: "a cycle that kept running",
+			newCase: func() (context.Context, chan bool) {
+				return context.Background(), stopResult(false)
+			},
+			wantErrContains: "cycle kept running",
+		},
+		{
+			name: "a cycle that did not stop before ctx expired",
+			newCase: func() (context.Context, chan bool) {
+				return expired(), stopResult()
+			},
+			wantErrIs: context.Canceled,
+		},
+		{
+			name: "a stop landing together with the ctx expiry is not a failure",
+			newCase: func() (context.Context, chan bool) {
+				ch := stopResult()
+				return raceCtx{Context: expired(), stopResult: ch}, ch
+			},
+			runs: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for range max(tt.runs, 1) {
+				ctx, stopResult := tt.newCase()
+				err := waitForCycleStop(ctx, stopResult)
+
+				if tt.wantErrIs == nil && tt.wantErrContains == "" {
+					require.NoError(t, err)
+					continue
+				}
+				require.Error(t, err)
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs)
+				}
+				if tt.wantErrContains != "" {
+					require.Contains(t, err.Error(), tt.wantErrContains)
+				}
+			}
+		})
+	}
+}
+
+// raceCtx reports a stop while Done is evaluated, so the stop and the expiry
+// reach the same select.
+type raceCtx struct {
+	context.Context
+	stopResult chan bool
+}
+
+func (c raceCtx) Done() <-chan struct{} {
+	select {
+	case c.stopResult <- true:
+	default:
+	}
+	return c.Context.Done()
+}
+
 // stubCycle takes over the stop result of the cycle it wraps. The wrapped cycle
 // is never asked to stop, so it keeps running until the test cleanup stops it.
 type stubCycle struct {
