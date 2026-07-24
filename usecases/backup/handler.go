@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -36,6 +38,27 @@ const (
 	// version1 store plain files without compression
 	version1 = "1.0"
 )
+
+// serverVersionOlderThan reports whether serverVersion, formatted "major.minor[.patch]",
+// is older than major.minor. An unparseable version is not treated as older.
+func serverVersionOlderThan(serverVersion string, major, minor int) bool {
+	parts := strings.Split(serverVersion, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	gotMajor, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	gotMinor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	if gotMajor != major {
+		return gotMajor < major
+	}
+	return gotMinor < minor
+}
 
 // TODO error handling need to be implemented properly.
 // Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.

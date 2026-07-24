@@ -233,7 +233,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		WithPoolPercentage(cpuPercentage)
 
 	// Pre-v1.23 versions store files in a flat format
-	if serverVersion < "1.23" {
+	if serverVersionOlderThan(serverVersion, 1, 23) {
 		f, err := hfsMigrator(desc, r.node, serverVersion)
 		if err != nil {
 			return fmt.Errorf("migrate to pre 1.23: %w", err)
@@ -327,7 +327,7 @@ func (s oneClassSchema) ReadOnlySchema() models.Schema {
 
 // hfsMigrator builds and return a class migrator ready for use
 func hfsMigrator(desc *backup.ClassDescriptor, nodeName string, serverVersion string) (func(classDir string) error, error) {
-	if serverVersion >= "1.23" {
+	if !serverVersionOlderThan(serverVersion, 1, 23) {
 		return func(string) error { return nil }, nil
 	}
 	var ss sharding.State

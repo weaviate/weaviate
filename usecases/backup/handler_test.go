@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -53,6 +54,32 @@ func TestFilterClasses(t *testing.T) {
 	for _, tc := range tests {
 		got := filterClasses(tc.in, tc.xs)
 		assert.ElementsMatch(t, tc.out, got)
+	}
+}
+
+func TestServerVersionOlderThan(t *testing.T) {
+	tests := []struct {
+		serverVersion string
+		want          bool
+	}{
+		{serverVersion: "1.9", want: true},
+		{serverVersion: "1.100", want: false},
+		{serverVersion: "1.22.3", want: true},
+		{serverVersion: "1.23", want: false},
+		{serverVersion: "1.23.0", want: false},
+		{serverVersion: "1.16", want: true},
+		{serverVersion: "2.0", want: false},
+		{serverVersion: "0.9", want: true},
+		{serverVersion: "", want: false},
+		{serverVersion: "garbage", want: false},
+		{serverVersion: "1", want: false},
+		{serverVersion: "1.x", want: false},
+		{serverVersion: "v1.22", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("%q", tc.serverVersion), func(t *testing.T) {
+			assert.Equal(t, tc.want, serverVersionOlderThan(tc.serverVersion, 1, 23))
+		})
 	}
 }
 

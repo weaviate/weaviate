@@ -125,7 +125,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		ID:            backupID,
 		StartedAt:     timept,
 		Version:       "1",
-		ServerVersion: "1",
+		ServerVersion: "1.22",
 		Status:        backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
