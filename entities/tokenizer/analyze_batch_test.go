@@ -103,6 +103,32 @@ func TestAnalyzeBatchEquivalenceCustomKagome(t *testing.T) {
 	}
 }
 
+// TestAnalyzeBatchEquivalenceThrottledGseCh covers the throttled batch path:
+// the batch acquires the ApacTokenizerThrottle in throttledBatchChunk-sized
+// chunks, so the test spans several chunks and pins per-value equivalence
+// with Analyze plus a balanced throttle afterwards.
+func TestAnalyzeBatchEquivalenceThrottledGseCh(t *testing.T) {
+	t.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
+	InitOptionalTokenizers()
+
+	phrases := []string{"你好世界", "微维数据库", "向量搜索引擎", ""}
+	values := make([]string, 3*throttledBatchChunk+1)
+	for i := range values {
+		values[i] = phrases[i%len(phrases)]
+	}
+
+	require.Zero(t, len(ApacTokenizerThrottle), "throttle must be empty before the batch")
+
+	got := AnalyzeBatch(values, models.PropertyTokenizationGseCh, "C", nil, nil)
+	require.Equal(t, len(values), got.Len())
+	for i, v := range values {
+		want := Analyze(v, models.PropertyTokenizationGseCh, "C", nil, nil).Query
+		assert.Equal(t, want, append([]string{}, got.Tokens(i)...), "value %d (%q)", i, v)
+	}
+
+	require.Zero(t, len(ApacTokenizerThrottle), "batch must release its throttle slot")
+}
+
 // TestAnalyzeBatchMetricsOncePerBatch pins the batch metric contract: one
 // batch of N values adds exactly the summed token count under the
 // tokenization's label — not one observation per value, and nothing under

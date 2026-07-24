@@ -184,23 +184,42 @@ func AnalyzeBatch(
 		return batch
 	}
 
-	if throttled {
-		// held across the batch: one acquire instead of one per value, and
-		// panic-safe via defer (a per-value acquire would need a
-		// non-deferred release inside the loop)
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-	}
-
-	start := time.Now()
 	totalTokens := 0
 	flat := make([]string, 0, len(values))
 	var scratch []string // one value's raw tokens, reused across the batch
-	for i, v := range values {
-		scratch = fn(prepared.foldText(v), scratch[:0])
-		totalTokens += len(scratch)
-		flat = filterStopwords(flat, scratch, stopwords)
-		batch.ends[i] = uint32(len(flat))
+	// busy is the in-slot analysis time, excluding waits on re-acquiring the
+	// throttle between chunks — the same semantics as the per-value path,
+	// which acquires before its duration window starts.
+	var busy time.Duration
+
+	// processChunk analyzes values[from:to] under one throttle acquisition
+	// (when the tokenization is throttled at all), released panic-safe via
+	// defer.
+	processChunk := func(from, to int) {
+		if throttled {
+			ApacTokenizerThrottle <- struct{}{}
+			defer func() { <-ApacTokenizerThrottle }()
+		}
+		chunkStart := time.Now()
+		defer func() { busy += time.Since(chunkStart) }()
+		for i := from; i < to; i++ {
+			scratch = fn(prepared.foldText(values[i]), scratch[:0])
+			totalTokens += len(scratch)
+			flat = filterStopwords(flat, scratch, stopwords)
+			batch.ends[i] = uint32(len(flat))
+		}
+	}
+
+	// An unthrottled batch runs as a single chunk. A throttled one yields its
+	// slot every throttledBatchChunk values, so concurrent large batches
+	// cannot hold every throttle slot for their whole duration and starve
+	// single-value tokenizations — waiters get in between chunks.
+	chunk := len(values)
+	if throttled {
+		chunk = throttledBatchChunk
+	}
+	for from := 0; from < len(values); from += chunk {
+		processChunk(from, min(from+chunk, len(values)))
 	}
 	batch.flat = flat
 
@@ -208,11 +227,18 @@ func AnalyzeBatch(
 	// uses. As in Analyze, the token count is the indexed (pre-stopword)
 	// count; the duration covers the batch's full analysis loop.
 	m := metricsFor(tokenization)
-	m.duration.Observe(time.Since(start).Seconds())
+	m.duration.Observe(busy.Seconds())
 	m.tokenCount.Add(float64(totalTokens))
 	m.tokensPerRequest.Observe(float64(totalTokens))
 	return batch
 }
+
+// throttledBatchChunk bounds how many values a batch analyzes per
+// ApacTokenizerThrottle acquisition. Throttled kernels cost roughly 0.1-1ms
+// per value, so 16 keeps the worst-case slot hold in the low milliseconds
+// for waiting single-value tokenizations, while the ~µs acquire/release cost
+// per chunk stays negligible.
+const throttledBatchChunk = 16
 
 // AnalyzeAndCountDuplicates is like Analyze but also deduplicates tokens and
 // returns per-token counts (boost factors). Used by BM25 scoring.
