@@ -650,6 +650,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		IsLocalHost:                 appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:            schemaRepo.LoadLegacySchema,
 		SentryEnabled:               appState.ServerConfig.Config.Sentry.Enabled,
+		TelemetryEnabled:            telemetryEnabled(appState),
 		AuthzController:             appState.AuthzController,
 		RBAC:                        appState.RBAC,
 		DynamicUserController:       appState.APIKey.Dynamic,

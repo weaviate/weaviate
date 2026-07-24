@@ -1469,6 +1469,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 			NamespacesController:   usecasesNamespaces.NewController(logger),
+			TelemetryEnabled:       true,
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}

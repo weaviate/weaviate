@@ -17,7 +17,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,6 +220,158 @@ func TestSegmentGroupInit_RemovesStrayTempFiles(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCompactionRecoveryDropsRightSegmentDerivedFiles covers an aborted
+// compaction where only the right source segment is left: it is deleted
+// together with its derived files, and the compacted segment takes over its
+// name, so those derived files must not be looked up when it is loaded.
+func TestCompactionRecoveryDropsRightSegmentDerivedFiles(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	tests := []struct {
+		name             string
+		useBloomFilter   bool
+		calcCNA          bool
+		writeMetadata    bool
+		secondaryIndices uint16
+		infoInFileName   bool
+		// enable the metadata file only for the recovering bucket, so the segments
+		// on disk still have separate derived files
+		metadataOnRecovery bool
+		// number of derived files per extension expected after the recovery
+		wantDerivedFiles map[string]int
+	}{
+		{
+			name: "cna", calcCNA: true, infoInFileName: true,
+			wantDerivedFiles: map[string]int{".cna": 1},
+		},
+		{
+			name: "bloom filter", useBloomFilter: true, infoInFileName: true,
+			wantDerivedFiles: map[string]int{".bloom": 1},
+		},
+		{
+			name: "bloom filter and cna", useBloomFilter: true, calcCNA: true, infoInFileName: true,
+			wantDerivedFiles: map[string]int{".bloom": 1, ".cna": 1},
+		},
+		{
+			name: "secondary bloom filters", useBloomFilter: true, calcCNA: true, secondaryIndices: 2, infoInFileName: true,
+			wantDerivedFiles: map[string]int{".bloom": 3, ".cna": 1},
+		},
+		{
+			name: "metadata", useBloomFilter: true, calcCNA: true, writeMetadata: true, infoInFileName: true,
+			wantDerivedFiles: map[string]int{".metadata": 1},
+		},
+		{
+			name: "metadata enabled on recovery", useBloomFilter: true, calcCNA: true, metadataOnRecovery: true, infoInFileName: true,
+			wantDerivedFiles: map[string]int{".metadata": 1},
+		},
+		{
+			name: "without segment info in file name", useBloomFilter: true, calcCNA: true, infoInFileName: false,
+			wantDerivedFiles: map[string]int{".bloom": 1, ".cna": 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithUseBloomFilter(tt.useBloomFilter),
+				WithCalcCountNetAdditions(tt.calcCNA),
+				WithWriteMetadata(tt.writeMetadata),
+				WithSecondaryIndices(tt.secondaryIndices),
+				WithWriteSegmentInfoIntoFileName(tt.infoInFileName),
+			}
+
+			srcDir := t.TempDir()
+			b, err := NewBucketCreator().NewBucket(ctx, srcDir, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			require.NoError(t, err)
+
+			for i := range 20 {
+				var secondaryKeys []SecondaryKeyOption
+				for pos := range int(tt.secondaryIndices) {
+					secondaryKeys = append(secondaryKeys, WithSecondaryKey(pos, fmt.Appendf(nil, "sec%d-%d", pos, i)))
+				}
+				require.NoError(t, b.Put(fmt.Appendf(nil, "hello%d", i), fmt.Appendf(nil, "world%d", i), secondaryKeys...))
+				if i == 9 {
+					require.NoError(t, b.FlushMemtable())
+				}
+			}
+			require.NoError(t, b.FlushMemtable())
+			require.Len(t, b.disk.segments, 2)
+
+			leftID := segmentID(filepath.Base(b.disk.segments[0].getPath()))
+			rightID := segmentID(filepath.Base(b.disk.segments[1].getPath()))
+
+			// keep the right segment and its derived files as they were before the
+			// compaction started
+			backupDir := t.TempDir()
+			copyFilesWithPrefix(t, srcDir, backupDir, "segment-"+rightID+".")
+
+			once, err := b.disk.compactOnce(ctx)
+			require.NoError(t, err)
+			require.True(t, once)
+			require.NoError(t, b.Shutdown(ctx))
+
+			// the compacted segment is still a tmp file, the left source segment is
+			// already gone
+			extraInfo := ""
+			if tt.infoInFileName {
+				extraInfo = ".l1.s0"
+			}
+			testDir := t.TempDir()
+			copyFile(t, filepath.Join(srcDir, singleDbFile(t, srcDir)),
+				filepath.Join(testDir, fmt.Sprintf("segment-%s_%s%s.db.tmp", leftID, rightID, extraInfo)))
+			copyFilesWithPrefix(t, backupDir, testDir, "segment-")
+
+			recoveryOpts := opts
+			if tt.metadataOnRecovery {
+				recoveryOpts = append(slices.Clone(opts), WithWriteMetadata(true))
+			}
+			b2, err := NewBucketCreator().NewBucket(ctx, testDir, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), recoveryOpts...)
+			require.NoError(t, err)
+			defer b2.Shutdown(ctx)
+
+			for i := range 20 {
+				value, err := b2.Get(fmt.Appendf(nil, "hello%d", i))
+				require.NoError(t, err)
+				require.Equal(t, fmt.Sprintf("world%d", i), string(value))
+			}
+
+			fileTypes := countFileTypes(t, testDir)
+			for _, ext := range []string{".bloom", ".cna", ".metadata"} {
+				require.Equal(t, tt.wantDerivedFiles[ext], fileTypes[ext], "number of %s files", ext)
+			}
+		})
+	}
+}
+
+func copyFilesWithPrefix(t *testing.T, srcDir, destDir, prefix string) {
+	t.Helper()
+	entries, err := os.ReadDir(srcDir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), prefix) {
+			copyFile(t, filepath.Join(srcDir, entry.Name()), filepath.Join(destDir, entry.Name()))
+		}
+	}
+}
+
+func singleDbFile(t *testing.T, dir string) string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var found []string
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".db" {
+			found = append(found, entry.Name())
+		}
+	}
+	require.Len(t, found, 1)
+	return found[0]
 }
 
 func copyFile(t *testing.T, src, dest string) {

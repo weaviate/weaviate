@@ -318,6 +318,11 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 			delete(files, rightSegmentFilename)
+			// the compacted segment is renamed to the same name below and would
+			// otherwise try to load the derived files that were just deleted
+			for _, path := range rightSegment.sidecarPaths() {
+				delete(files, filepath.Base(path))
+			}
 
 			err = diskio.Fsync(sg.dir)
 			if err != nil {
