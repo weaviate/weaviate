@@ -92,16 +92,18 @@ def open_client() -> Iterator[Callable[..., WeaviateClient]]:
 
 @pytest.fixture(scope="module")
 def probe_collections(keys: Dict[str, str]) -> Iterator[None]:
-    """Create the short class PROBE in both namespaces (stored qualified) so each
-    namespace has at least one shard for the nodes endpoint to report."""
+    """Create the short class PROBE in both namespaces (stored qualified) and seed
+    one object each, so every namespace has a shard with a non-zero count — the
+    scoped-Stats equality would otherwise compare zeros."""
     for key in (keys["admin1"], keys["admin2"]):
         c = nsh.open_client(key, *NODES[0])
         try:
             c.collections.delete(PROBE)
-            c.collections.create(
+            col = c.collections.create(
                 PROBE,
                 properties=[wvcc.Property(name="title", data_type=wvcc.DataType.TEXT)],
             )
+            col.data.insert({"title": "probe"})
         finally:
             c.close()
     yield
@@ -201,6 +203,12 @@ def test_custom_verbose_nodes_role_grants_scoped_access(keys, probe_collections,
 
 def test_global_root_sees_every_namespace(keys, probe_collections, open_client):
     client = open_client(ADMIN_KEY, skip_init_checks=False)
-    prefixes, total = _shard_namespaces(client.cluster.nodes(output="verbose"))
-    assert total > 0
-    assert {f"{NS1}:", f"{NS2}:"} <= prefixes, f"root must see both namespaces; saw {prefixes}"
+    # Poll: the ns2 shard may live on a node still replicating the create.
+    deadline = time.time() + 20.0
+    prefixes: Set[str] = set()
+    while time.time() < deadline:
+        prefixes, _ = _shard_namespaces(client.cluster.nodes(output="verbose"))
+        if {f"{NS1}:", f"{NS2}:"} <= prefixes:
+            return
+        time.sleep(0.2)
+    raise AssertionError(f"root must see both namespaces; saw {prefixes}")

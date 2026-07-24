@@ -690,6 +690,19 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 			return err
 		})
 		require.NotNil(t, resp.Payload)
+		require.NotEmpty(t, resp.Payload.Nodes)
+		for _, n := range resp.Payload.Nodes {
+			for _, sh := range n.Shards {
+				assert.Equal(t, ns1+":Movies", sh.Class, "by-class response must only carry the caller's qualified class")
+			}
+		}
+
+		// The live verbose grant must not unlock the node-wide minimal view.
+		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&minimal)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
 	})
 
 	t.Run("namespaced viewer denied verbose node status by short class name", func(t *testing.T) {
@@ -704,8 +717,8 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	})
 
 	t.Run("namespaced admin denied minimal node status by short class name", func(t *testing.T) {
-		// Minimal is the node-wide operator view (never namespaceable), so a
-		// caller holding only verbose read_nodes is denied even for its own class.
+		// The custom role was cleaned up with the previous subtest, so this pins
+		// the grantless caller: minimal stays denied even for its own class.
 		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&minimal)
 		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
 		require.Error(t, err)

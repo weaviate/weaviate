@@ -384,6 +384,14 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	if ns != "" && operatorOnlyResource(reqObj) {
 		return false
 	}
+	// The verbose-nodes carve-out must not widen unshaped policies: a
+	// namespaced caller reaches verbose nodes only via a policy naming that
+	// shape itself. Broader patterns (root's "*", "nodes/.*") were covered by
+	// the blanket deny above and must stay denied.
+	if ns != "" && strings.HasPrefix(reqObj, namespacing.NodesVerboseCollectionsPrefix) &&
+		!strings.HasPrefix(polObj, namespacing.NodesVerboseCollectionsPrefix) {
+		return false
+	}
 
 	// Trivial passthrough: a global caller that needs no widening matches the
 	// policy literally. Only collection/data/aliases/roles segments treat ':'

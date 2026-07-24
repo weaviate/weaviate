@@ -65,6 +65,17 @@ func TestFindNamespaceSegments(t *testing.T) {
 			wantEnd:   len("roles/customer1:editor"),
 			wantSeg:   "customer1:editor",
 		},
+		{
+			name:      "verbose nodes collection terminal",
+			path:      "nodes/verbosity/verbose/collections/customer1:Movies",
+			wantStart: len(NodesVerboseCollectionsPrefix),
+			wantEnd:   len("nodes/verbosity/verbose/collections/customer1:Movies"),
+			wantSeg:   "customer1:Movies",
+		},
+		{
+			name: "minimal nodes not namespaceable",
+			path: "nodes/verbosity/minimal",
+		},
 		// These three exercise the defensive missing-delimiter branch for each
 		// collection prefix: the path constructors always emit /shards/ or
 		// /aliases/, so a truncated path means the parser must return the safe
@@ -188,6 +199,8 @@ func TestGlobalCallerWidens(t *testing.T) {
 		// downstream shape check still matches groups literally. Registering groups/
 		// without carving it out would make this widening take effect.
 		{"colon-bearing group widens at this layer", "groups/oidc/team:eng", true},
+		{"bare verbose nodes collection does not widen", "nodes/verbosity/verbose/collections/Movies", false},
+		{"qualified verbose nodes collection widens", "nodes/verbosity/verbose/collections/customer1:Movies", true},
 		{"non-namespaceable colon-free path does not widen", "backups/mybackup", false},
 	}
 	for _, tt := range tests {

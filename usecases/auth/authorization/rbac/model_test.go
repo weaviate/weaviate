@@ -406,6 +406,29 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 			"customer1",
 			false,
 		},
+		// Unshaped policies must not reach verbose nodes for a namespaced
+		// caller — the carve-out admits only verbose-collections-shaped grants.
+		{
+			"ns=customer1, in-ns verbose nodes, raw * policy → mismatch (unshaped)",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			"*",
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, cross-ns verbose nodes, raw * policy → mismatch (unshaped)",
+			"nodes/verbosity/verbose/collections/customer2:Films",
+			"*",
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, verbose nodes, nodes/.* policy → mismatch (unshaped)",
+			"nodes/verbosity/verbose/collections/customer1:Movies",
+			"nodes/.*",
+			"customer1",
+			false,
+		},
 		// roles/<id> — terminal namespace-bearing shape (mirrors users/<id>).
 		{
 			"ns=customer1, in-ns role, roles/.* policy → match (specialize)",

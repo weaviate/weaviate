@@ -159,6 +159,19 @@ func TestRoleResolverQualifyPoliciesForCreate(t *testing.T) {
 			want:      []string{"aliases/collections/customer1:Movies/aliases/customer1:Films"},
 		},
 		{
+			name:      "namespaced prefixes verbose nodes collection; minimal untouched",
+			principal: namespaced("customer1"),
+			nsEnabled: true,
+			in: []authorization.Policy{
+				{Resource: "nodes/verbosity/verbose/collections/.*"},
+				{Resource: "nodes/verbosity/minimal"}, // not namespaceable
+			},
+			want: []string{
+				"nodes/verbosity/verbose/collections/customer1:.*",
+				"nodes/verbosity/minimal",
+			},
+		},
+		{
 			name:      "namespaced prefixes wildcard segments",
 			principal: namespaced("customer1"),
 			nsEnabled: true,

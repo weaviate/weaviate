@@ -111,7 +111,7 @@ def namespaces() -> Iterator[Tuple[str, str]]:
     with RAFT-apply-lag retries (namespace_helpers). Cleanup is best-effort; a
     reused cluster picks up the existing namespaces via the create idempotency.
     """
-    admin = nsh.open_client("admin-key", *NODES[0], skip_init_checks=False)
+    admin = nsh.open_client(ADMIN_KEY, *NODES[0], skip_init_checks=False)
     try:
         nsh.create_namespace(admin, NS1)
         nsh.create_namespace(admin, NS2)
