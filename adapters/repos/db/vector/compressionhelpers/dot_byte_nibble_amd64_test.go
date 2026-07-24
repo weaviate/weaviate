@@ -24,6 +24,9 @@ func dotByteNibbleVariantsUnderTest() map[string]func(q, packed []byte) uint32 {
 	if cpu.X86.HasAVX2 {
 		variants["avx2"] = dotByteNibbleAVX2
 	}
+	if cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW {
+		variants["vnni512"] = dotByteNibbleVNNI512
+	}
 	return variants
 }
 
@@ -31,6 +34,9 @@ func dotNibbleNibbleVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 	variants := map[string]func(a, b []byte) uint32{}
 	if cpu.X86.HasAVX2 {
 		variants["avx2"] = dotNibbleNibbleAVX2
+	}
+	if cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW {
+		variants["vnni512"] = dotNibbleNibbleVNNI512
 	}
 	return variants
 }

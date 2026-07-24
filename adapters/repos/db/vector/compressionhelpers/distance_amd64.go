@@ -36,5 +36,9 @@ func init() {
 	if cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW {
 		l2SquaredByteImpl = asm.L2ByteVNNI512
 		dotByteImpl = asm.DotByteVNNI512
+		// Nibbles are non-negative as int8, so the packed 4-bit kernels use
+		// VPDPBUSD without any unsigned correction: load, unpack, dot.
+		dotByteNibbleImpl = dotByteNibbleVNNI512
+		dotNibbleNibbleImpl = dotNibbleNibbleVNNI512
 	}
 }

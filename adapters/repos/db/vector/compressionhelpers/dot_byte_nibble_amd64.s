@@ -159,3 +159,195 @@ nn_reduce:
     VZEROUPPER
     MOVL AX, ret+24(FP)
     RET
+
+// AVX-512 VNNI variants (gate: HasAVX512VNNI && HasAVX512BW). Nibbles are
+// 0..15, which are non-negative as int8, so VPDPBUSD applies with NO
+// correction term: the query bytes (or the other code's nibbles) ride in
+// the unsigned operand and the nibbles in the signed one. The whole
+// multiply+widen+accumulate is one instruction per 64 unpacked values -
+// the same load/unpack/dot shape as the arm64 UDOT nibble kernels.
+// Accumulation wraps mod 2^32 like the pure Go fallbacks (VPDPBUSD does
+// not saturate), so results are bit-identical for every input.
+//
+// Tails have no scalar loop: the final 1..63 packed bytes use a BZHI-built
+// K-mask with zeroing loads. Masked-off packed bytes unpack to nibble 0, so
+// they contribute 0 regardless of the other operand (the query planes are
+// masked with the same K register only to stay within the slice bounds).
+
+// func dotByteNibbleVNNI512Asm(q, packed *byte, half int) uint32
+TEXT ·dotByteNibbleVNNI512Asm(SB), NOSPLIT, $0-28
+    MOVQ q+0(FP), SI
+    MOVQ packed+8(FP), DI
+    MOVQ half+16(FP), DX
+    MOVQ SI, R8
+    ADDQ DX, R8                // R8 = high-nibble query plane
+    VPBROADCASTB nibbleByteMask<>(SB), Z13
+    VPXORD Z0, Z0, Z0          // lo-plane accumulator (even block)
+    VPXORD Z1, Z1, Z1          // hi-plane accumulator (even block)
+    VPXORD Z20, Z20, Z20       // lo-plane accumulator (odd block)
+    VPXORD Z21, Z21, Z21       // hi-plane accumulator (odd block)
+    MOVQ DX, CX
+    SHRQ $7, CX
+    JZ bnv_tail64
+
+bnv_loop128:
+    VMOVDQU64 (DI), Z2         // packed[0:64]
+    VPANDD Z13, Z2, Z3         // lo nibbles
+    VPSRLW $4, Z2, Z4
+    VPANDD Z13, Z4, Z4         // hi nibbles
+    VMOVDQU64 (SI), Z5         // q lo plane
+    VMOVDQU64 (R8), Z6         // q hi plane
+    VPDPBUSD Z3, Z5, Z0        // q (unsigned) * lo nibbles (signed)
+    VPDPBUSD Z4, Z6, Z1
+    VMOVDQU64 64(DI), Z7       // packed[64:128]
+    VPANDD Z13, Z7, Z8
+    VPSRLW $4, Z7, Z9
+    VPANDD Z13, Z9, Z9
+    VMOVDQU64 64(SI), Z10
+    VMOVDQU64 64(R8), Z11
+    VPDPBUSD Z8, Z10, Z20
+    VPDPBUSD Z9, Z11, Z21
+    ADDQ $128, DI
+    ADDQ $128, SI
+    ADDQ $128, R8
+    DECQ CX
+    JNZ bnv_loop128
+
+bnv_tail64:
+    TESTQ $64, DX
+    JZ bnv_tail_mask
+    VMOVDQU64 (DI), Z2
+    VPANDD Z13, Z2, Z3
+    VPSRLW $4, Z2, Z4
+    VPANDD Z13, Z4, Z4
+    VMOVDQU64 (SI), Z5
+    VMOVDQU64 (R8), Z6
+    VPDPBUSD Z3, Z5, Z0
+    VPDPBUSD Z4, Z6, Z1
+    ADDQ $64, DI
+    ADDQ $64, SI
+    ADDQ $64, R8
+
+bnv_tail_mask:
+    MOVQ DX, CX
+    ANDQ $63, CX
+    JZ bnv_reduce
+    MOVQ $-1, AX
+    BZHIQ CX, AX, AX           // low CX bits set
+    KMOVQ AX, K1
+    VMOVDQU8.Z (DI), K1, Z2    // masked-off bytes unpack to nibble 0
+    VPANDD Z13, Z2, Z3
+    VPSRLW $4, Z2, Z4
+    VPANDD Z13, Z4, Z4
+    VMOVDQU8.Z (SI), K1, Z5
+    VMOVDQU8.Z (R8), K1, Z6
+    VPDPBUSD Z3, Z5, Z20
+    VPDPBUSD Z4, Z6, Z21
+
+bnv_reduce:
+    VPADDD Z1, Z0, Z0
+    VPADDD Z21, Z20, Z20
+    VPADDD Z20, Z0, Z0
+    VEXTRACTI64X4 $1, Z0, Y1
+    VPADDD Y1, Y0, Y0
+    VEXTRACTI128 $1, Y0, X1
+    VPADDD X1, X0, X0
+    VPSHUFD $0x4E, X0, X1
+    VPADDD X1, X0, X0
+    VPSHUFD $0xB1, X0, X1
+    VPADDD X1, X0, X0
+    VMOVD X0, AX
+    VZEROUPPER
+    MOVL AX, ret+24(FP)
+    RET
+
+// func dotNibbleNibbleVNNI512Asm(a, b *byte, n int) uint32
+TEXT ·dotNibbleNibbleVNNI512Asm(SB), NOSPLIT, $0-28
+    MOVQ a+0(FP), SI
+    MOVQ b+8(FP), DI
+    MOVQ n+16(FP), DX
+    VPBROADCASTB nibbleByteMask<>(SB), Z13
+    VPXORD Z0, Z0, Z0          // lo-plane accumulator (even block)
+    VPXORD Z1, Z1, Z1          // hi-plane accumulator (even block)
+    VPXORD Z20, Z20, Z20       // lo-plane accumulator (odd block)
+    VPXORD Z21, Z21, Z21       // hi-plane accumulator (odd block)
+    MOVQ DX, CX
+    SHRQ $7, CX
+    JZ nnv_tail64
+
+nnv_loop128:
+    VMOVDQU64 (SI), Z2         // a[0:64]
+    VMOVDQU64 (DI), Z5         // b[0:64]
+    VPANDD Z13, Z2, Z3         // lo(a)
+    VPSRLW $4, Z2, Z4
+    VPANDD Z13, Z4, Z4         // hi(a)
+    VPANDD Z13, Z5, Z6         // lo(b)
+    VPSRLW $4, Z5, Z7
+    VPANDD Z13, Z7, Z7         // hi(b)
+    VPDPBUSD Z6, Z3, Z0        // lo(a) unsigned * lo(b) signed, both <= 15
+    VPDPBUSD Z7, Z4, Z1
+    VMOVDQU64 64(SI), Z8       // a[64:128]
+    VMOVDQU64 64(DI), Z11      // b[64:128]
+    VPANDD Z13, Z8, Z9
+    VPSRLW $4, Z8, Z10
+    VPANDD Z13, Z10, Z10
+    VPANDD Z13, Z11, Z12
+    VPSRLW $4, Z11, Z14
+    VPANDD Z13, Z14, Z14
+    VPDPBUSD Z12, Z9, Z20
+    VPDPBUSD Z14, Z10, Z21
+    ADDQ $128, SI
+    ADDQ $128, DI
+    DECQ CX
+    JNZ nnv_loop128
+
+nnv_tail64:
+    TESTQ $64, DX
+    JZ nnv_tail_mask
+    VMOVDQU64 (SI), Z2
+    VMOVDQU64 (DI), Z5
+    VPANDD Z13, Z2, Z3
+    VPSRLW $4, Z2, Z4
+    VPANDD Z13, Z4, Z4
+    VPANDD Z13, Z5, Z6
+    VPSRLW $4, Z5, Z7
+    VPANDD Z13, Z7, Z7
+    VPDPBUSD Z6, Z3, Z0
+    VPDPBUSD Z7, Z4, Z1
+    ADDQ $64, SI
+    ADDQ $64, DI
+
+nnv_tail_mask:
+    MOVQ DX, CX
+    ANDQ $63, CX
+    JZ nnv_reduce
+    MOVQ $-1, AX
+    BZHIQ CX, AX, AX
+    KMOVQ AX, K1
+    VMOVDQU8.Z (SI), K1, Z2    // masked-off bytes unpack to nibble 0
+    VMOVDQU8.Z (DI), K1, Z5
+    VPANDD Z13, Z2, Z3
+    VPSRLW $4, Z2, Z4
+    VPANDD Z13, Z4, Z4
+    VPANDD Z13, Z5, Z6
+    VPSRLW $4, Z5, Z7
+    VPANDD Z13, Z7, Z7
+    VPDPBUSD Z6, Z3, Z20
+    VPDPBUSD Z7, Z4, Z21
+
+nnv_reduce:
+    VPADDD Z1, Z0, Z0
+    VPADDD Z21, Z20, Z20
+    VPADDD Z20, Z0, Z0
+    VEXTRACTI64X4 $1, Z0, Y1
+    VPADDD Y1, Y0, Y0
+    VEXTRACTI128 $1, Y0, X1
+    VPADDD X1, X0, X0
+    VPSHUFD $0x4E, X0, X1
+    VPADDD X1, X0, X0
+    VPSHUFD $0xB1, X0, X1
+    VPADDD X1, X0, X0
+    VMOVD X0, AX
+    VZEROUPPER
+    MOVL AX, ret+24(FP)
+    RET

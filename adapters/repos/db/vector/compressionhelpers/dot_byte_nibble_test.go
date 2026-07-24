@@ -108,6 +108,13 @@ func BenchmarkDotByteNibble(b *testing.B) {
 	rng := rand.New(rand.NewPCG(5, 6))
 	for _, half := range []int{512, 768} {
 		q, packed := randomNibbleKernelInput(half, rng)
+		for name, impl := range dotByteNibbleVariantsUnderTest() {
+			b.Run(fmt.Sprintf("%s-d%d", name, 2*half), func(b *testing.B) {
+				for b.Loop() {
+					impl(q, packed)
+				}
+			})
+		}
 		b.Run(fmt.Sprintf("dispatched-d%d", 2*half), func(b *testing.B) {
 			for b.Loop() {
 				dotByteNibbleImpl(q, packed)
@@ -126,6 +133,13 @@ func BenchmarkDotNibbleNibble(b *testing.B) {
 	for _, half := range []int{512, 768} {
 		_, x := randomNibbleKernelInput(half, rng)
 		_, y := randomNibbleKernelInput(half, rng)
+		for name, impl := range dotNibbleNibbleVariantsUnderTest() {
+			b.Run(fmt.Sprintf("%s-d%d", name, 2*half), func(b *testing.B) {
+				for b.Loop() {
+					impl(x, y)
+				}
+			})
+		}
 		b.Run(fmt.Sprintf("dispatched-d%d", 2*half), func(b *testing.B) {
 			for b.Loop() {
 				dotNibbleNibbleImpl(x, y)
