@@ -873,17 +873,28 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		require.ErrorContains(t, err, errLegacySingleNode.Error())
 	})
 
-	t.Run("RejectUncompressedBackup", func(t *testing.T) {
-		for _, version := range []string{"1.0", "1"} {
-			t.Run(version, func(t *testing.T) {
+	t.Run("RejectLegacyBackup", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			version       string
+			serverVersion string
+			wantErr       error
+		}{
+			{name: "uncompressed 1.0", version: "1.0", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
+			{name: "uncompressed 1", version: "1", serverVersion: meta.ServerVersion, wantErr: errLegacyUncompressed},
+			{name: "flat file structure", version: meta.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
 				legacy := meta
-				legacy.Version = version
+				legacy.Version = tc.version
+				legacy.ServerVersion = tc.serverVersion
 				fs := newFakeScheduler(nil)
 				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(legacy), nil)
 				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 
 				_, err := fs.scheduler().Restore(ctx, nil, req, false)
-				require.ErrorContains(t, err, errLegacyUncompressed.Error())
+				require.ErrorContains(t, err, tc.wantErr.Error())
 			})
 		}
 	})

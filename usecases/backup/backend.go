@@ -726,7 +726,6 @@ type fileWriter struct {
 	destDir    string
 	movedFiles []string // files successfully moved to destination folder
 	GoPoolSize int
-	migrator   func(classPath string) error
 	logger     logrus.FieldLogger
 }
 
@@ -750,8 +749,6 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 	return fw
 }
 
-func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
-
 // Write downloads files and put them in the destination directory
 func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
@@ -761,12 +758,6 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, o
 
 	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
-	}
-
-	if fw.migrator != nil {
-		if err := fw.migrator(classTempDir); err != nil {
-			return fmt.Errorf("migrate from pre 1.23: %w", err)
-		}
 	}
 
 	return nil

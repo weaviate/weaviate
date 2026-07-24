@@ -85,28 +85,41 @@ func TestServerVersionOlderThan(t *testing.T) {
 }
 
 func TestCheckRestorableVersion(t *testing.T) {
+	const current = "1.23"
 	tests := []struct {
-		version string
-		wantErr error
-		wantMsg string
+		version       string
+		serverVersion string
+		wantErr       error
+		wantMsg       string
 	}{
-		{version: "1.0", wantErr: errLegacyUncompressed},
-		{version: "1", wantErr: errLegacyUncompressed},
-		{version: "0.9", wantErr: errLegacyUncompressed},
-		{version: "2.0"},
-		{version: "2.1"},
-		{version: "2.9"},
-		{version: "3.0", wantMsg: errMsgHigherVersion},
+		{version: "1.0", serverVersion: current, wantErr: errLegacyUncompressed},
+		{version: "1", serverVersion: current, wantErr: errLegacyUncompressed},
+		{version: "0.9", serverVersion: current, wantErr: errLegacyUncompressed},
+		{version: "2.0", serverVersion: current},
+		{version: "2.1", serverVersion: current},
+		{version: "2.9", serverVersion: current},
+		{version: "3.0", serverVersion: current, wantMsg: errMsgHigherVersion},
 		// A byte compare read this as older than "2.1" and wrongly accepted it.
-		{version: "10.0", wantMsg: errMsgHigherVersion},
+		{version: "10.0", serverVersion: current, wantMsg: errMsgHigherVersion},
 		// A corrupt descriptor is reported by Validate, not refused as an old format.
-		{version: ""},
+		{version: "", serverVersion: current},
 		// The version this build writes must stay restorable by it.
-		{version: Version},
+		{version: Version, serverVersion: current},
+
+		{version: Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+		{version: Version, serverVersion: "1.16", wantErr: errLegacyFlatFS},
+		// A lexical compare read "1.100" as older than "1.23" and would have refused it.
+		{version: Version, serverVersion: "1.100"},
+		{version: Version, serverVersion: "2.0"},
+		// An unreadable server version is never classified as an old format.
+		{version: Version, serverVersion: ""},
+		{version: Version, serverVersion: "garbage"},
+		// Both clauses match; the format the version names is reported first.
+		{version: "1.0", serverVersion: "1.16", wantErr: errLegacyUncompressed},
 	}
 	for _, tc := range tests {
-		t.Run(fmt.Sprintf("%q", tc.version), func(t *testing.T) {
-			err := checkRestorableVersion(tc.version, "1.23")
+		t.Run(fmt.Sprintf("%q/%q", tc.version, tc.serverVersion), func(t *testing.T) {
+			err := checkRestorableVersion(tc.version, tc.serverVersion)
 			switch {
 			case tc.wantErr != nil:
 				require.ErrorIs(t, err, tc.wantErr)

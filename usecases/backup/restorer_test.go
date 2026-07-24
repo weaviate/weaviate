@@ -126,7 +126,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		ID:            backupID,
 		StartedAt:     timept,
 		Version:       Version,
-		ServerVersion: "1.22",
+		ServerVersion: "1.23",
 		Status:        backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
@@ -170,17 +170,28 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Equal(t, time.Duration(0), resp.Timeout)
 	})
 
-	t.Run("RejectUncompressedBackup", func(t *testing.T) {
-		for _, version := range []string{"1.0", "1"} {
-			t.Run(version, func(t *testing.T) {
+	t.Run("RejectLegacyBackup", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			version       string
+			serverVersion string
+			wantErr       error
+		}{
+			{name: "uncompressed 1.0", version: "1.0", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
+			{name: "uncompressed 1", version: "1", serverVersion: metadata.ServerVersion, wantErr: errLegacyUncompressed},
+			{name: "flat file structure", version: metadata.Version, serverVersion: "1.22", wantErr: errLegacyFlatFS},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
 				legacy := metadata
-				legacy.Version = version
+				legacy.Version = tc.version
+				legacy.ServerVersion = tc.serverVersion
 				backend := newFakeBackend()
 				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(legacy), nil)
 				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 				bm := createManager(nil, nil, backend, nil)
 				resp := bm.OnCanCommit(ctx, &req)
-				assert.Contains(t, resp.Err, errLegacyUncompressed.Error())
+				assert.Contains(t, resp.Err, tc.wantErr.Error())
 				assert.Equal(t, time.Duration(0), resp.Timeout)
 			})
 		}
@@ -321,7 +332,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 
 		desc := &backup.BackupDescriptor{
 			ID:            backupID,
-			ServerVersion: "1.23", // Use version >= 1.23 to skip migration
+			ServerVersion: "1.23",
 			Version:       "1",
 			StartedAt:     time.Now().UTC(),
 			Classes: []backup.ClassDescriptor{

@@ -42,6 +42,8 @@ var (
 	errLegacySingleNode = legacyRestoreErr("by Weaviate older than v1.17, which stored a single " +
 		"top-level backup.json instead of per-node metadata")
 	errLegacyUncompressed = legacyRestoreErr("by Weaviate older than v1.21, which stored files uncompressed")
+	errLegacyFlatFS       = legacyRestoreErr("by Weaviate older than v1.23, which stored shard files " +
+		"in a flat directory instead of one directory per shard")
 )
 
 // legacyRestoreErr builds the refusal for a backup format this build no longer restores.
@@ -60,6 +62,9 @@ func checkRestorableVersion(version, serverVersion string) error {
 	// An empty version means a corrupt descriptor rather than an old one; Validate reports it.
 	if version != "" && version <= version1 {
 		return errLegacyUncompressed
+	}
+	if serverVersionOlderThan(serverVersion, 1, 23) {
+		return errLegacyFlatFS
 	}
 	if major, _, ok := parseVersion(version); ok && major > maxMajorVersion {
 		return fmt.Errorf("%s: %s > %s", errMsgHigherVersion, version, Version)
