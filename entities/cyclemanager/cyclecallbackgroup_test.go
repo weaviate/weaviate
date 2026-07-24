@@ -1561,11 +1561,17 @@ func TestCycleCallback_DeactivatePriorityClaimedButNotStarted(t *testing.T) {
 	assert.Equal(t, int64(0), atomic.LoadInt64(&bodyEntered))
 }
 
-// TestCycleCallback_ControlErrorBranches covers the early-return error paths of
-// the control operations: acting on an absent callback id, and acting with an
-// already-cancelled context.
+// TestCycleCallback_ControlErrorBranches covers the early-return paths of the
+// control operations: acting on an absent callback id, and acting with an
+// already-cancelled context on a callback that is not running.
 func TestCycleCallback_ControlErrorBranches(t *testing.T) {
 	logger, _ := test.NewNullLogger()
+
+	cancelled := func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
+	}
 
 	t.Run("absent id", func(t *testing.T) {
 		g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
@@ -1579,20 +1585,59 @@ func TestCycleCallback_ControlErrorBranches(t *testing.T) {
 		}
 
 		assert.ErrorIs(t, ghost.Activate(), ErrorCallbackNotFound)
-		assert.ErrorIs(t, ghost.Deactivate(context.Background()), ErrorCallbackNotFound)
-		// Unregister of an absent id is a no-op success, not an error.
-		assert.NoError(t, ghost.Unregister(context.Background()))
+
+		tests := []struct {
+			name string
+			ctx  context.Context
+		}{
+			{name: "live context", ctx: context.Background()},
+			{name: "cancelled context", ctx: cancelled()},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				// A cancelled context must not mask the not-found result.
+				assert.ErrorIs(t, ghost.Deactivate(tt.ctx), ErrorCallbackNotFound)
+				// Unregister of an absent id is a no-op success, not an error.
+				assert.NoError(t, ghost.Unregister(tt.ctx))
+			})
+		}
 	})
 
-	t.Run("pre-cancelled context", func(t *testing.T) {
-		g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
-		ctrl := g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true })
+	// A callback that is not running commits without waiting, so a cancelled
+	// context must not turn it into a failure that leaves the callback behind.
+	t.Run("cancelled context, callback not running", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			op     func(ctrl CycleCallbackCtrl, ctx context.Context) error
+			verify func(t *testing.T, g *cycleCallbackGroup, ctrl CycleCallbackCtrl)
+		}{
+			{
+				name: "deactivate",
+				op:   func(ctrl CycleCallbackCtrl, ctx context.Context) error { return ctrl.Deactivate(ctx) },
+				verify: func(t *testing.T, _ *cycleCallbackGroup, ctrl CycleCallbackCtrl) {
+					assert.False(t, ctrl.IsActive(), "deactivate must have committed active=false")
+				},
+			},
+			{
+				name: "unregister",
+				op:   func(ctrl CycleCallbackCtrl, ctx context.Context) error { return ctrl.Unregister(ctx) },
+				verify: func(t *testing.T, g *cycleCallbackGroup, _ CycleCallbackCtrl) {
+					g.Lock()
+					defer g.Unlock()
+					assert.Empty(t, g.metas, "unregister must have removed the callback")
+				},
+			},
+		}
 
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				g := NewCallbackGroup("id", logger, 1).(*cycleCallbackGroup)
+				ctrl := g.Register("c", func(shouldAbort ShouldAbortCallback) bool { return true })
 
-		assert.ErrorIs(t, ctrl.Deactivate(ctx), context.Canceled)
-		assert.ErrorIs(t, ctrl.Unregister(ctx), context.Canceled)
+				require.NoError(t, tt.op(ctrl, cancelled()))
+				tt.verify(t, g, ctrl)
+			})
+		}
 	})
 }
 

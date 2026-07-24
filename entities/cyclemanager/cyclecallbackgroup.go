@@ -456,17 +456,14 @@ func (g *cycleCallbackGroup) tryCommitIdle(callbackId uint32, commit func(*cycle
 // unregister. One run's done channel is not enough: endRun reschedules a
 // still-active callback, so a fresh tick can start another run while we wait. It
 // retries tryCommitIdle after each finished run; commit is applied only once
-// tryCommitIdle observes the callback not running. A ctx deadline hit while
+// tryCommitIdle observes the callback not running. ctx bounds only the wait: a
+// callback that is not running commits even once ctx is done. A deadline hit while
 // waiting returns ctx.Err(), but an already-finished run takes priority so a
 // completed operation is never reported as a timeout. Every result passes through
 // wrap (which maps nil to nil).
 func (g *cycleCallbackGroup) commitIdle(ctx context.Context, callbackId uint32,
 	commit func(*cycleCallbackMeta), notFound error, wrap func(error) error,
 ) error {
-	if ctx.Err() != nil {
-		return wrap(ctx.Err())
-	}
-
 	for {
 		done, needWait, err := g.tryCommitIdle(callbackId, commit, notFound)
 		if !needWait {

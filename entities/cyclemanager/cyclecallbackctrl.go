@@ -202,10 +202,11 @@ func (c *cycleCallbackCtrlNoop) Activate() error {
 	return nil
 }
 
+// There is no callback to wait for, so ctx never applies.
 func (c *cycleCallbackCtrlNoop) Deactivate(ctx context.Context) error {
-	return ctx.Err()
+	return nil
 }
 
 func (c *cycleCallbackCtrlNoop) Unregister(ctx context.Context) error {
-	return ctx.Err()
+	return nil
 }

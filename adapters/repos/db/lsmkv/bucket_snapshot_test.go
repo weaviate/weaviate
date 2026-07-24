@@ -510,3 +510,55 @@ func cursorCount(t *testing.T, b *Bucket) int {
 	}
 	return n
 }
+
+// TestSnapshotExpiredContext pins that CreateSnapshot refuses an expired context.
+// The flush and hard-link steps take no context, so without the guard they run to
+// completion after the caller has given up.
+func TestSnapshotExpiredContext(t *testing.T) {
+	ctx := context.Background()
+	noopCB := cyclemanager.NewCallbackGroupNoop()
+
+	tests := []struct {
+		name    string
+		expired func() context.Context
+		wantErr error
+	}{
+		{
+			name: "cancelled",
+			expired: func() context.Context {
+				expired, cancel := context.WithCancel(ctx)
+				cancel()
+				return expired
+			},
+			wantErr: context.Canceled,
+		},
+		{
+			name: "deadline exceeded",
+			expired: func() context.Context {
+				expired, cancel := context.WithDeadline(ctx, time.Now())
+				t.Cleanup(cancel)
+				return expired
+			},
+			wantErr: context.DeadlineExceeded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
+				WithStrategy(StrategyReplace))
+			require.NoError(t, err)
+			defer bucket.Shutdown(ctx)
+
+			require.NoError(t, bucket.Put([]byte("k"), []byte("v")))
+
+			snapshotsRoot := t.TempDir()
+			_, err = bucket.CreateSnapshot(tt.expired(), snapshotsRoot, "snap")
+			require.ErrorIs(t, err, tt.wantErr)
+
+			entries, err := os.ReadDir(snapshotsRoot)
+			require.NoError(t, err)
+			assert.Empty(t, entries, "no snapshot may be produced for an expired context")
+		})
+	}
+}

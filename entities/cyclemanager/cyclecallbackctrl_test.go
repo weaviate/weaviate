@@ -21,6 +21,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// startRunningCallbacks registers two callbacks and drives them with a cycle
+// manager, returning once both are executing and blocked. release lets them
+// finish and stops the manager.
+func startRunningCallbacks() (ctrl1, ctrl2 CycleCallbackCtrl, release func()) {
+	logger, _ := test.NewNullLogger()
+	started := make(chan struct{}, 2)
+	blocking := make(chan struct{})
+
+	// Both callbacks are rescheduled and run again once released, so the signal is
+	// dropped when nobody is reading it — a blocking send would deadlock release.
+	callback := func(shouldAbort ShouldAbortCallback) bool {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-blocking
+		return true
+	}
+
+	callbacks := NewCallbackGroup("id", logger, 2)
+	ctrl1 = callbacks.Register("c1", callback)
+	ctrl2 = callbacks.Register("c2", callback)
+
+	cycle := NewManager("test", NewFixedTicker(10*time.Millisecond), callbacks.CycleCallback, logger)
+	cycle.Start()
+
+	<-started
+	<-started
+
+	return ctrl1, ctrl2, func() {
+		close(blocking)
+		cycle.StopAndWait(context.Background())
+	}
+}
+
 func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ctx := context.Background()
@@ -52,36 +87,35 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		assert.False(t, ctrl2.IsActive())
 	})
 
-	t.Run("does not unregister on expired context", func(t *testing.T) {
+	t.Run("does not unregister running callbacks on expired context", func(t *testing.T) {
+		ctrl1, ctrl2, release := startRunningCallbacks()
+		defer release()
+
 		expiredCtx, cancel := context.WithDeadline(ctx, time.Now())
 		defer cancel()
 
-		callback1 := func(shouldAbort ShouldAbortCallback) bool {
-			time.Sleep(100 * time.Millisecond)
-			return true
-		}
-		callback2 := func(shouldAbort ShouldAbortCallback) bool {
-			time.Sleep(100 * time.Millisecond)
-			return true
-		}
-
-		callbacks := NewCallbackGroup("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", callback1)
-		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrl1, ctrl2)
 
-		cycle := NewManager("test", NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback, logger)
-		cycle.Start()
-		defer cycle.StopAndWait(ctx)
-
 		err := combinedCtrl.Unregister(expiredCtx)
-		require.NotNil(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unregistering callback 'c1' of 'id' failed: context deadline exceeded")
 		assert.Contains(t, err.Error(), "unregistering callback 'c2' of 'id' failed: context deadline exceeded")
 
 		assert.True(t, combinedCtrl.IsActive())
 		assert.True(t, ctrl1.IsActive())
 		assert.True(t, ctrl2.IsActive())
+	})
+
+	t.Run("unregisters idle callbacks on expired context", func(t *testing.T) {
+		expiredCtx, cancel := context.WithDeadline(ctx, time.Now())
+		defer cancel()
+
+		callbacks := NewCallbackGroup("id", logger, 2)
+		ctrl1 := callbacks.Register("c1", func(shouldAbort ShouldAbortCallback) bool { return true })
+		ctrl2 := callbacks.Register("c2", func(shouldAbort ShouldAbortCallback) bool { return true })
+		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrl1, ctrl2)
+
+		require.NoError(t, combinedCtrl.Unregister(expiredCtx))
 	})
 
 	t.Run("fails unregistering one", func(t *testing.T) {
@@ -150,36 +184,37 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		assert.False(t, ctrl2.IsActive())
 	})
 
-	t.Run("does not deactivate on expired context", func(t *testing.T) {
+	t.Run("does not deactivate running callbacks on expired context", func(t *testing.T) {
+		ctrl1, ctrl2, release := startRunningCallbacks()
+		defer release()
+
 		expiredCtx, cancel := context.WithDeadline(ctx, time.Now())
 		defer cancel()
 
-		callback1 := func(shouldAbort ShouldAbortCallback) bool {
-			time.Sleep(100 * time.Millisecond)
-			return true
-		}
-		callback2 := func(shouldAbort ShouldAbortCallback) bool {
-			time.Sleep(100 * time.Millisecond)
-			return true
-		}
-
-		callbacks := NewCallbackGroup("id", logger, 2)
-		ctrl1 := callbacks.Register("c1", callback1)
-		ctrl2 := callbacks.Register("c2", callback2)
 		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrl1, ctrl2)
 
-		cycle := NewManager("test", NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback, logger)
-		cycle.Start()
-		defer cycle.StopAndWait(ctx)
-
 		err := combinedCtrl.Deactivate(expiredCtx)
-		require.NotNil(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "deactivating callback 'c1' of 'id' failed: context deadline exceeded")
-		assert.Contains(t, err.Error(), "deactivating callback 'c1' of 'id' failed: context deadline exceeded")
+		assert.Contains(t, err.Error(), "deactivating callback 'c2' of 'id' failed: context deadline exceeded")
 
 		assert.True(t, combinedCtrl.IsActive())
 		assert.True(t, ctrl1.IsActive())
 		assert.True(t, ctrl2.IsActive())
+	})
+
+	t.Run("deactivates idle callbacks on expired context", func(t *testing.T) {
+		expiredCtx, cancel := context.WithDeadline(ctx, time.Now())
+		defer cancel()
+
+		callbacks := NewCallbackGroup("id", logger, 2)
+		ctrl1 := callbacks.Register("c1", func(shouldAbort ShouldAbortCallback) bool { return true })
+		ctrl2 := callbacks.Register("c2", func(shouldAbort ShouldAbortCallback) bool { return true })
+		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrl1, ctrl2)
+
+		require.NoError(t, combinedCtrl.Deactivate(expiredCtx))
+		assert.False(t, ctrl1.IsActive())
+		assert.False(t, ctrl2.IsActive())
 	})
 
 	t.Run("fails deactivating one, activates other again", func(t *testing.T) {
@@ -251,4 +286,29 @@ func TestCycleCombineCallbackCtrl_Activate(t *testing.T) {
 		assert.True(t, ctrl1.IsActive())
 		assert.True(t, ctrl2.IsActive())
 	})
+}
+
+// TestCycleCallbackCtrlNoop_IgnoresContext pins that the noop controller has no
+// callback to wait for, so a cancelled context must not make it report a failure
+// to callers that compound its error.
+func TestCycleCallbackCtrlNoop_IgnoresContext(t *testing.T) {
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{name: "live context", ctx: context.Background()},
+		{name: "cancelled context", ctx: cancelledCtx},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := NewCallbackCtrlNoop()
+
+			require.NoError(t, ctrl.Deactivate(tt.ctx))
+			require.NoError(t, ctrl.Unregister(tt.ctx))
+		})
+	}
 }

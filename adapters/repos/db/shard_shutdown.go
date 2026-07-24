@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
@@ -57,6 +58,11 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 // idempotent Shutdown methods. In other parts, it explicitly checks if a
 // component was initialized. If not, it turns it into a noop to prevent
 // blocking.
+//
+// The checks before s.shut is set can refuse and be retried; everything after
+// it is the teardown, which releases resources and cannot be undone. Since
+// s.shut is set first, a teardown that fails leaves the shard marked shut while
+// it still holds some of them.
 func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutdownLock.Lock()
 	defer s.shutdownLock.Unlock()
@@ -202,11 +208,28 @@ func (s *Shard) refCountAdd() {
 	s.inUseCounter.Add(1)
 }
 
+// shardTeardownTimeout bounds the teardown that runs when the last reference is
+// released. Deliberately far above any normal teardown: it only exists to stop
+// a stuck cycle from running forever.
+const shardTeardownTimeout = 2 * time.Minute
+
 func (s *Shard) refCountSub() {
 	s.inUseCounter.Add(-1)
 	// if the counter is 0, we can shutdown
 	if s.inUseCounter.Load() == 0 && s.shutdownRequested.Load() {
-		s.performShutdown(context.TODO())
+		// off the releasing goroutine: the last release can come from a request, a
+		// backup or a reindex task, none of which should block on a full store flush
+		enterrors.GoWrapper(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), shardTeardownTimeout)
+			defer cancel()
+
+			if err := s.performShutdown(ctx); err != nil {
+				s.index.logger.
+					WithField("action", "shard_deferred_teardown").
+					WithField("shard", s.name).
+					Error(err)
+			}
+		}, s.index.logger)
 	}
 }
 
