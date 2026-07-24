@@ -201,178 +201,203 @@ func metricsFor(label string) *boundTokenizerMetrics {
 	return m.(*boundTokenizerMetrics)
 }
 
-// timed runs tokenize on in and records duration and token counts under
-// label. All tokenization metrics are recorded here, at the dispatch level —
-// the tokenizeXxx functions contain pure logic. Callers that bypass a
-// tokenizer's dispatch guard (disabled tokenizer, nil kagome instance) must
-// return before timed so early-outs stay unrecorded, as they always were.
-func timed(label string, in string, tokenize func(string) []string) []string {
+// timed runs tokenize on in (appending to dst) and records duration and
+// token counts under label. All tokenization metrics are recorded here or at
+// a batch's per-batch equivalent — the tokenizeXxx kernels contain pure
+// logic. The recorded count is the appended delta, so it stays correct for
+// any dst. Callers that bypass a tokenizer's dispatch guard (disabled
+// tokenizer, nil kagome instance) must return before timed so early-outs
+// stay unrecorded, as they always were.
+func timed(label string, in string, dst []string, tokenize func(string, []string) []string) []string {
 	start := time.Now()
-	ret := tokenize(in)
+	ret := tokenize(in, dst)
+	n := len(ret) - len(dst)
 	m := metricsFor(label)
 	m.duration.Observe(time.Since(start).Seconds())
-	m.tokenCount.Add(float64(len(ret)))
-	m.tokensPerRequest.Observe(float64(len(ret)))
+	m.tokenCount.Add(float64(n))
+	m.tokensPerRequest.Observe(float64(n))
 	return ret
+}
+
+// resolveTokenizer performs tokenization dispatch once: it maps a
+// tokenization (and, for the kagome tokenizations, the class's custom
+// user-dictionary tokenizer) to its append-style kernel, so batch callers
+// pay the switch, guard checks, and custom-tokenizer lookup once instead of
+// per value.
+//
+// fn == nil means the tokenization is unknown or its tokenizer is
+// unavailable (disabled gse, uninitialized kagome); callers emit empty
+// results, exactly as the per-value dispatch always did. throttled reports
+// that ApacTokenizerThrottle must be held around kernel invocations.
+func resolveTokenizer(tokenization string, class string) (fn func(string, []string) []string, throttled bool) {
+	switch tokenization {
+	case models.PropertyTokenizationWord:
+		return tokenizeWord, false
+	case models.PropertyTokenizationLowercase:
+		return tokenizeLowercase, false
+	case models.PropertyTokenizationWhitespace:
+		return tokenizeWhitespace, false
+	case models.PropertyTokenizationField:
+		return tokenizeField, false
+	case models.PropertyTokenizationTrigram:
+		return tokenizetrigram, false
+	case models.PropertyTokenizationGse:
+		if !UseGse {
+			return nil, false
+		}
+		return tokenizeGSE, true
+	case models.PropertyTokenizationGseCh:
+		if !UseGseCh {
+			return nil, false
+		}
+		return tokenizeGseCh, true
+	case models.PropertyTokenizationKagomeKr:
+		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Korean != nil {
+			return func(in string, dst []string) []string {
+				return tokenizeKagome(custom.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, in, dst)
+			}, true
+		}
+		if tokenizers.Korean == nil {
+			return nil, false
+		}
+		return func(in string, dst []string) []string {
+			return tokenizeKagome(tokenizers.Korean, kagomeTokenizer.Normal, in, dst)
+		}, true
+	case models.PropertyTokenizationKagomeJa:
+		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Japanese != nil {
+			return func(in string, dst []string) []string {
+				return tokenizeKagome(custom.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, in, dst)
+			}, true
+		}
+		if tokenizers.Japanese == nil {
+			return nil, false
+		}
+		return func(in string, dst []string) []string {
+			return tokenizeKagome(tokenizers.Japanese, kagomeTokenizer.Search, in, dst)
+		}, true
+	default:
+		return nil, false
+	}
 }
 
 // TokenizeForClass tokenizes like [Tokenize], except that the kagome
 // tokenizations consult the class's custom user-dictionary tokenizer first.
 func TokenizeForClass(tokenization string, in string, class string) []string {
-	switch tokenization {
-	case models.PropertyTokenizationKagomeKr:
-		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Korean != nil {
-			ApacTokenizerThrottle <- struct{}{}
-			defer func() { <-ApacTokenizerThrottle }()
-			return timed(tokenization, in, func(in string) []string {
-				return tokenizeKagome(custom.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, in)
-			})
-		}
-	case models.PropertyTokenizationKagomeJa:
-		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Japanese != nil {
-			ApacTokenizerThrottle <- struct{}{}
-			defer func() { <-ApacTokenizerThrottle }()
-			return timed(tokenization, in, func(in string) []string {
-				return tokenizeKagome(custom.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, in)
-			})
-		}
-	}
-	return Tokenize(tokenization, in)
+	return tokenizeWithClass(tokenization, in, class)
 }
 
 func Tokenize(tokenization string, in string) []string {
-	switch tokenization {
-	case models.PropertyTokenizationWord:
-		return timed(tokenization, in, tokenizeWord)
-	case models.PropertyTokenizationLowercase:
-		return timed(tokenization, in, tokenizeLowercase)
-	case models.PropertyTokenizationWhitespace:
-		return timed(tokenization, in, tokenizeWhitespace)
-	case models.PropertyTokenizationField:
-		return timed(tokenization, in, tokenizeField)
-	case models.PropertyTokenizationTrigram:
-		return timed(tokenization, in, tokenizetrigram)
-	case models.PropertyTokenizationGse:
-		if !UseGse {
-			return []string{}
-		}
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return timed(tokenization, in, tokenizeGSE)
-	case models.PropertyTokenizationGseCh:
-		if !UseGseCh {
-			return []string{}
-		}
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return timed(tokenization, in, tokenizeGseCh)
-	case models.PropertyTokenizationKagomeKr:
-		if tokenizers.Korean == nil {
-			return []string{}
-		}
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return timed(tokenization, in, func(in string) []string {
-			return tokenizeKagome(tokenizers.Korean, kagomeTokenizer.Normal, in)
-		})
-	case models.PropertyTokenizationKagomeJa:
-		if tokenizers.Japanese == nil {
-			return []string{}
-		}
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return timed(tokenization, in, func(in string) []string {
-			return tokenizeKagome(tokenizers.Japanese, kagomeTokenizer.Search, in)
-		})
-	default:
+	// no class: kagome resolves to the globally initialized tokenizers
+	return tokenizeWithClass(tokenization, in, "")
+}
+
+func tokenizeWithClass(tokenization string, in string, class string) []string {
+	fn, throttled := resolveTokenizer(tokenization, class)
+	if fn == nil {
 		return []string{}
 	}
+	if throttled {
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
+	}
+	// seeding dst with an empty (zero-byte, non-nil) slice keeps the public
+	// contract of a non-nil result even when no tokens are appended
+	return timed(tokenization, in, []string{}, fn)
 }
 
 func TokenizeWithWildcardsForClass(tokenization string, in string, class string) []string {
 	switch tokenization {
 	case models.PropertyTokenizationWord:
-		return timed("word_with_wildcards", in, tokenizeWordWithWildcards)
+		return timed("word_with_wildcards", in, []string{}, tokenizeWordWithWildcards)
 	case models.PropertyTokenizationTrigram:
-		return timed("trigram_with_wildcards", in, tokenizetrigramWithWildcards)
+		return timed("trigram_with_wildcards", in, []string{}, tokenizetrigramWithWildcards)
 	default:
 		return TokenizeForClass(tokenization, in, class)
 	}
 }
 
-func removeEmptyStrings(terms []string) []string {
-	for i := 0; i < len(terms); i++ {
-		if terms[i] == "" || terms[i] == " " {
-			terms = append(terms[:i], terms[i+1:]...)
-			i--
+// appendNonEmpty appends terms to dst, dropping empty and single-space
+// entries — the append-style form of the historical removeEmptyStrings
+// filter the gse and kagome tokenizers apply to their library output.
+func appendNonEmpty(dst []string, terms []string) []string {
+	for _, term := range terms {
+		if term == "" || term == " " {
+			continue
 		}
+		dst = append(dst, term)
 	}
-	return terms
+	return dst
 }
 
-// tokenizeField trims white spaces
-// (former DataTypeString/Field)
-func tokenizeField(in string) []string {
-	return []string{strings.TrimFunc(in, unicode.IsSpace)}
+// Tokenizer kernels share one append-style signature,
+// func(in string, dst []string) []string: tokens are appended to dst and the
+// grown slice returned. Batch callers reuse one buffer across many values so
+// per-value token materialization costs nothing; single-value callers seed
+// dst with an empty slice (a zero-byte allocation) and get the historical
+// freshly-allocated, never-nil result.
+
+// tokenizeField trims white spaces; the whole trimmed input is the one and
+// only token (former DataTypeString/Field)
+func tokenizeField(in string, dst []string) []string {
+	return append(dst, strings.TrimFunc(in, unicode.IsSpace))
 }
 
 // tokenizeWhitespace splits on white spaces, does not alter casing
 // (former DataTypeString/Word)
-func tokenizeWhitespace(in string) []string {
-	return strings.FieldsFunc(in, unicode.IsSpace)
+func tokenizeWhitespace(in string, dst []string) []string {
+	return append(dst, strings.FieldsFunc(in, unicode.IsSpace)...)
 }
 
 // tokenizeLowercase splits on white spaces and lowercases the words
-func tokenizeLowercase(in string) []string {
-	return lowercase(tokenizeWhitespace(in))
+func tokenizeLowercase(in string, dst []string) []string {
+	prev := len(dst)
+	dst = tokenizeWhitespace(in, dst)
+	lowercase(dst[prev:])
+	return dst
 }
 
 // tokenizeWord splits on any non-alphanumerical and lowercases the words
 // (former DataTypeText/Word)
-func tokenizeWord(in string) []string {
-	terms := strings.FieldsFunc(in, func(r rune) bool {
+func tokenizeWord(in string, dst []string) []string {
+	prev := len(dst)
+	dst = append(dst, strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
-	})
-	return lowercase(terms)
+	})...)
+	lowercase(dst[prev:])
+	return dst
 }
 
 // tokenizetrigram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
-func tokenizetrigram(in string) []string {
+func tokenizetrigram(in string, dst []string) []string {
 	// Strip whitespace and punctuation from the input string
 	inputString := strings.ToLower(strings.Join(strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	}), ""))
 	runes := []rune(inputString)
-	var trirunes [][]rune
 	for i := 0; i < len(runes)-2; i++ {
-		trirunes = append(trirunes, runes[i:i+3])
+		dst = append(dst, string(runes[i:i+3]))
 	}
-
-	var trigrams []string
-	for _, trirune := range trirunes {
-		trigrams = append(trigrams, string(trirune))
-	}
-	return trigrams
+	return dst
 }
 
 // tokenizeGSE uses the gse tokenizer to tokenize Japanese
-func tokenizeGSE(in string) []string {
+func tokenizeGSE(in string, dst []string) []string {
 	if !UseGse {
-		return []string{}
+		return dst
 	}
 	gseLock.Lock()
 	defer gseLock.Unlock()
-	return removeEmptyStrings(gseTokenizer.CutAll(in))
+	return appendNonEmpty(dst, gseTokenizer.CutAll(in))
 }
 
 // tokenizeGseCh uses the gse tokenizer to tokenize Chinese
-func tokenizeGseCh(in string) []string {
+func tokenizeGseCh(in string, dst []string) []string {
 	if !UseGseCh {
-		return []string{}
+		return dst
 	}
 	gseLock.Lock()
 	defer gseLock.Unlock()
-	return removeEmptyStrings(gseTokenizerCh.CutAll(in))
+	return appendNonEmpty(dst, gseTokenizerCh.CutAll(in))
 }
 
 func initializeKagomeTokenizerKr(userDict *models.TokenizerUserDictConfig) (*kagomeTokenizer.Tokenizer, error) {
@@ -420,42 +445,40 @@ func initializeKagomeTokenizer(dictInstance *dict.Dict, userDict *models.Tokeniz
 	return tokenizer, nil
 }
 
-func tokenizeKagome(tokenizer *kagomeTokenizer.Tokenizer, mode kagomeTokenizer.TokenizeMode, in string) []string {
+func tokenizeKagome(tokenizer *kagomeTokenizer.Tokenizer, mode kagomeTokenizer.TokenizeMode, in string, dst []string) []string {
 	if tokenizer == nil {
-		return []string{}
+		return dst
 	}
 	kagomeTokens := tokenizer.Analyze(in, mode)
-	var terms []string
 	for _, token := range kagomeTokens {
 		if extra := token.UserExtra(); extra != nil {
-			terms = append(terms, extra.Tokens...)
-		} else {
-			terms = append(terms, token.Surface)
+			dst = appendNonEmpty(dst, extra.Tokens)
+		} else if token.Surface != "" && token.Surface != " " {
+			dst = append(dst, token.Surface)
 		}
 	}
-
-	return removeEmptyStrings(terms)
+	return dst
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
-func tokenizeWordWithWildcards(in string) []string {
-	terms := strings.FieldsFunc(in, func(r rune) bool {
+func tokenizeWordWithWildcards(in string, dst []string) []string {
+	prev := len(dst)
+	dst = append(dst, strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '?' && r != '*'
-	})
-	return lowercase(terms)
+	})...)
+	lowercase(dst[prev:])
+	return dst
 }
 
 // tokenizetrigramWithWildcards splits on any non-alphanumerical and lowercases the words, applies any wildcards, then joins them together, then groups them into trigrams
 // this is unlikely to be useful, but is included for completeness
-func tokenizetrigramWithWildcards(in string) []string {
-	terms := tokenizeWordWithWildcards(in)
-	inputString := strings.Join(terms, "")
-	var trigrams []string
+func tokenizetrigramWithWildcards(in string, dst []string) []string {
+	inputString := strings.Join(tokenizeWordWithWildcards(in, nil), "")
 	for i := 0; i < len(inputString)-2; i++ {
-		trigrams = append(trigrams, inputString[i:i+3])
+		dst = append(dst, inputString[i:i+3])
 	}
-	return trigrams
+	return dst
 }
 
 func lowercase(terms []string) []string {
