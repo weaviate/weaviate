@@ -29,6 +29,19 @@ func (f fakeStopwords) IsStopword(word string) bool {
 	return ok
 }
 
+// assertBatchMatchesPerValue asserts that every value's tokens in the batch
+// equal the Query result of a per-value Analyze call with the same inputs.
+func assertBatchMatchesPerValue(t *testing.T, got *AnalyzedBatch, values []string,
+	tokenization, className string, prepared *PreparedAnalyzer, stopwords StopwordDetector,
+) {
+	t.Helper()
+	require.Equal(t, len(values), got.Len())
+	for i, v := range values {
+		want := Analyze(v, tokenization, className, prepared, stopwords).Query
+		assert.Equal(t, want, append([]string{}, got.Tokens(i)...), "value %d (%q)", i, v)
+	}
+}
+
 // TestAnalyzeBatchEquivalence is the drift guard for AnalyzeBatch: for every
 // tokenization × stopword × folding combination, the batch result must equal
 // Analyze called per value. A pipeline change applied to one entry point but
@@ -71,35 +84,46 @@ func TestAnalyzeBatchEquivalence(t *testing.T) {
 			for prepName, prepared := range analyzerVariants {
 				t.Run(fmt.Sprintf("%s/%s/%s", tok, swName, prepName), func(t *testing.T) {
 					got := AnalyzeBatch(values, tok, className, prepared, sw)
-					require.Equal(t, len(values), got.Len())
-					for i, v := range values {
-						want := Analyze(v, tok, className, prepared, sw).Query
-						assert.Equal(t, want, append([]string{}, got.Tokens(i)...),
-							"value %d (%q)", i, v)
-					}
+					assertBatchMatchesPerValue(t, got, values, tok, className, prepared, sw)
 				})
 			}
 		}
 	}
 }
 
-// TestAnalyzeBatchEquivalenceCustomKagome covers the TokenizeForClass custom
-// user-dictionary branch, which AnalyzeBatch reaches through the same
-// unrecorded dispatch.
+// TestAnalyzeBatchEquivalenceCustomKagome covers both kagome custom
+// user-dictionary branches, which AnalyzeBatch reaches through the same
+// unrecorded dispatch, and pins that the batch's own throttle acquire is
+// balanced.
+//
+// Named coverage gap: of the throttled global tokenizers, only gse_ch is
+// exercised through the batch path (TestAnalyzeBatchEquivalenceThrottledGseCh
+// below); gse and the env-enabled global kagome tokenizers are not.
 func TestAnalyzeBatchEquivalenceCustomKagome(t *testing.T) {
-	className := "EquivClassKagome"
-	err := AddCustomDict(className, []*models.TokenizerUserDictConfig{generateReplacementModel()})
-	require.Nil(t, err)
-	defer func() {
-		require.Nil(t, AddCustomDict(className, nil))
-	}()
+	tests := []struct {
+		name         string
+		tokenization string
+		dict         *models.TokenizerUserDictConfig
+	}{
+		{"custom KR dict", models.PropertyTokenizationKagomeKr, generateReplacementModel()},
+		{"custom JA dict", models.PropertyTokenizationKagomeJa, jaCustomDict()},
+	}
 
-	values := []string{"Weaviate Semi Technologies", "We Aviate", ""}
-	got := AnalyzeBatch(values, models.PropertyTokenizationKagomeKr, className, nil, nil)
-	require.Equal(t, len(values), got.Len())
-	for i, v := range values {
-		want := Analyze(v, models.PropertyTokenizationKagomeKr, className, nil, nil).Query
-		assert.Equal(t, want, append([]string{}, got.Tokens(i)...), "value %d (%q)", i, v)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			className := "EquivClassKagome"
+			require.NoError(t, AddCustomDict(className, []*models.TokenizerUserDictConfig{tt.dict}))
+			defer func() {
+				require.NoError(t, AddCustomDict(className, nil))
+			}()
+
+			values := []string{"Weaviate Semi Technologies", "We Aviate", ""}
+			got := AnalyzeBatch(values, tt.tokenization, className, nil, nil)
+			assertBatchMatchesPerValue(t, got, values, tt.tokenization, className, nil, nil)
+
+			require.Zero(t, len(ApacTokenizerThrottle),
+				"batch must release its throttle slot")
+		})
 	}
 }
 
@@ -107,6 +131,11 @@ func TestAnalyzeBatchEquivalenceCustomKagome(t *testing.T) {
 // the batch acquires the ApacTokenizerThrottle in throttledBatchChunk-sized
 // chunks, so the test spans several chunks and pins per-value equivalence
 // with Analyze plus a balanced throttle afterwards.
+//
+// The inter-chunk slot yielding itself — a competing acquire getting in
+// while the batch is mid-flight — is deliberately untested: asserting it
+// races the batch's final release, so such a test could pass with a
+// whole-batch hold.
 func TestAnalyzeBatchEquivalenceThrottledGseCh(t *testing.T) {
 	t.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
 	InitOptionalTokenizers()
@@ -120,11 +149,7 @@ func TestAnalyzeBatchEquivalenceThrottledGseCh(t *testing.T) {
 	require.Zero(t, len(ApacTokenizerThrottle), "throttle must be empty before the batch")
 
 	got := AnalyzeBatch(values, models.PropertyTokenizationGseCh, "C", nil, nil)
-	require.Equal(t, len(values), got.Len())
-	for i, v := range values {
-		want := Analyze(v, models.PropertyTokenizationGseCh, "C", nil, nil).Query
-		assert.Equal(t, want, append([]string{}, got.Tokens(i)...), "value %d (%q)", i, v)
-	}
+	assertBatchMatchesPerValue(t, got, values, models.PropertyTokenizationGseCh, "C", nil, nil)
 
 	require.Zero(t, len(ApacTokenizerThrottle), "batch must release its throttle slot")
 }

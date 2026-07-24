@@ -85,19 +85,7 @@ func Analyze(
 	prepared *PreparedAnalyzer,
 	stopwords StopwordDetector,
 ) AnalyzeResult {
-	fn, throttled := resolveTokenizer(tokenization, className)
-	if fn == nil {
-		return AnalyzeResult{Indexed: []string{}, Query: []string{}}
-	}
-	if throttled {
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-	}
-
-	text = prepared.foldText(text)
-	// the empty (zero-byte, non-nil) seed keeps Indexed non-nil even when no
-	// tokens are appended
-	indexed := timed(tokenization, text, []string{}, fn)
+	indexed := TokenizeForClass(tokenization, prepared.foldText(text), className)
 	query := filterStopwords(make([]string, 0, len(indexed)), indexed, stopwords)
 	return AnalyzeResult{
 		Indexed: indexed,
@@ -107,9 +95,9 @@ func Analyze(
 
 // AnalyzedBatch holds the per-value query tokens produced by AnalyzeBatch.
 // It is backed by two flat arrays — every token in value order plus one end
-// offset per value — so the batch costs a constant number of allocations
-// regardless of how many values it holds; per-value views are computed on
-// access, never stored.
+// offset per value — so a large batch avoids the per-value result allocation
+// of calling Analyze in a loop (the shared backing buffers grow amortized);
+// per-value views are computed on access, never stored.
 //
 // All views returned by Tokens and All alias the shared backing array and
 // must be treated as read-only.
@@ -158,7 +146,13 @@ func (b *AnalyzedBatch) All() iter.Seq2[int, []string] {
 // tokenizer metrics once for the whole batch (one duration observation, the
 // summed pre-stopword token count) and reuses buffers across values, so the
 // per-value cost is the tokenization itself rather than metric and
-// allocation scaffolding.
+// allocation scaffolding. The whole batch counts as a single
+// TokenCountPerRequest observation with the summed token count, where the
+// per-value path observes once per value.
+//
+// Offsets are uint32: a single batch must stay under 4B tokens, which any
+// request-bounded caller does by orders of magnitude; exceeding it silently
+// corrupts per-value views.
 //
 // Per-value Indexed is intentionally not exposed: materializing it would
 // force a per-value allocation, defeating the batch — callers needing
@@ -225,11 +219,8 @@ func AnalyzeBatch(
 
 	// One record for the whole batch, under the same label the per-value path
 	// uses. As in Analyze, the token count is the indexed (pre-stopword)
-	// count; the duration covers the batch's full analysis loop.
-	m := metricsFor(tokenization)
-	m.duration.Observe(busy.Seconds())
-	m.tokenCount.Add(float64(totalTokens))
-	m.tokensPerRequest.Observe(float64(totalTokens))
+	// count; the duration is the summed in-slot analysis time.
+	metricsFor(tokenization).record(busy, totalTokens)
 	return batch
 }
 

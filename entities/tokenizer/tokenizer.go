@@ -181,6 +181,15 @@ type boundTokenizerMetrics struct {
 	tokensPerRequest prometheus.Observer
 }
 
+// record writes one tokenization's worth of metrics: n tokens produced over
+// dur. The single home for the metric triplet, shared by the per-value and
+// batch recorders.
+func (m *boundTokenizerMetrics) record(dur time.Duration, n int) {
+	m.duration.Observe(dur.Seconds())
+	m.tokenCount.Add(float64(n))
+	m.tokensPerRequest.Observe(float64(n))
+}
+
 var boundMetricsByLabel sync.Map // tokenization label → *boundTokenizerMetrics
 
 func metricsFor(label string) *boundTokenizerMetrics {
@@ -207,15 +216,11 @@ func metricsFor(label string) *boundTokenizerMetrics {
 // logic. The recorded count is the appended delta, so it stays correct for
 // any dst. Callers that bypass a tokenizer's dispatch guard (disabled
 // tokenizer, nil kagome instance) must return before timed so early-outs
-// stay unrecorded, as they always were.
+// stay unrecorded.
 func timed(label string, in string, dst []string, tokenize func(string, []string) []string) []string {
 	start := time.Now()
 	ret := tokenize(in, dst)
-	n := len(ret) - len(dst)
-	m := metricsFor(label)
-	m.duration.Observe(time.Since(start).Seconds())
-	m.tokenCount.Add(float64(n))
-	m.tokensPerRequest.Observe(float64(n))
+	metricsFor(label).record(time.Since(start), len(ret)-len(dst))
 	return ret
 }
 
@@ -227,8 +232,8 @@ func timed(label string, in string, dst []string, tokenize func(string, []string
 //
 // fn == nil means the tokenization is unknown or its tokenizer is
 // unavailable (disabled gse, uninitialized kagome); callers emit empty
-// results, exactly as the per-value dispatch always did. throttled reports
-// that ApacTokenizerThrottle must be held around kernel invocations.
+// results. throttled reports that ApacTokenizerThrottle must be held around
+// kernel invocations.
 func resolveTokenizer(tokenization string, class string) (fn func(string, []string) []string, throttled bool) {
 	switch tokenization {
 	case models.PropertyTokenizationWord:
@@ -316,9 +321,8 @@ func TokenizeWithWildcardsForClass(tokenization string, in string, class string)
 	}
 }
 
-// appendNonEmpty appends terms to dst, dropping empty and single-space
-// entries — the append-style form of the historical removeEmptyStrings
-// filter the gse and kagome tokenizers apply to their library output.
+// appendNonEmpty appends terms to dst, dropping the empty and single-space
+// entries the gse and kagome tokenizers produce in their library output.
 func appendNonEmpty(dst []string, terms []string) []string {
 	for _, term := range terms {
 		if term == "" || term == " " {
@@ -333,8 +337,10 @@ func appendNonEmpty(dst []string, terms []string) []string {
 // func(in string, dst []string) []string: tokens are appended to dst and the
 // grown slice returned. Batch callers reuse one buffer across many values so
 // per-value token materialization costs nothing; single-value callers seed
-// dst with an empty slice (a zero-byte allocation) and get the historical
-// freshly-allocated, never-nil result.
+// dst with an empty slice (a zero-byte allocation) and get a freshly
+// allocated, never-nil result. Kernels whose splitter already
+// produces a ready-made slice return it directly when dst has no capacity,
+// sparing single-value callers the extra append copy.
 
 // tokenizeField trims white spaces; the whole trimmed input is the one and
 // only token (former DataTypeString/Field)
@@ -345,7 +351,11 @@ func tokenizeField(in string, dst []string) []string {
 // tokenizeWhitespace splits on white spaces, does not alter casing
 // (former DataTypeString/Word)
 func tokenizeWhitespace(in string, dst []string) []string {
-	return append(dst, strings.FieldsFunc(in, unicode.IsSpace)...)
+	fields := strings.FieldsFunc(in, unicode.IsSpace)
+	if cap(dst) == 0 {
+		return fields
+	}
+	return append(dst, fields...)
 }
 
 // tokenizeLowercase splits on white spaces and lowercases the words
@@ -359,10 +369,15 @@ func tokenizeLowercase(in string, dst []string) []string {
 // tokenizeWord splits on any non-alphanumerical and lowercases the words
 // (former DataTypeText/Word)
 func tokenizeWord(in string, dst []string) []string {
-	prev := len(dst)
-	dst = append(dst, strings.FieldsFunc(in, func(r rune) bool {
+	fields := strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
-	})...)
+	})
+	if cap(dst) == 0 {
+		lowercase(fields)
+		return fields
+	}
+	prev := len(dst)
+	dst = append(dst, fields...)
 	lowercase(dst[prev:])
 	return dst
 }
@@ -463,10 +478,15 @@ func tokenizeKagome(tokenizer *kagomeTokenizer.Tokenizer, mode kagomeTokenizer.T
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
 func tokenizeWordWithWildcards(in string, dst []string) []string {
-	prev := len(dst)
-	dst = append(dst, strings.FieldsFunc(in, func(r rune) bool {
+	fields := strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '?' && r != '*'
-	})...)
+	})
+	if cap(dst) == 0 {
+		lowercase(fields)
+		return fields
+	}
+	prev := len(dst)
+	dst = append(dst, fields...)
 	lowercase(dst[prev:])
 	return dst
 }
