@@ -60,3 +60,48 @@ func TestTokenizeMetricsRecordedAtDispatch(t *testing.T) {
 	require.Equal(t, lowercaseBefore, countFor(models.PropertyTokenizationLowercase),
 		"word tokenization must not count its lowercasing under the lowercase label")
 }
+
+// TestTrigramWithWildcardsMetricsAndOutput pins that a trigram-with-wildcards
+// call records only under trigram_with_wildcards: its internal
+// word-with-wildcards split must not count under word_with_wildcards (the
+// historical double record). Doubles as the only output assertion for the
+// trigram-wildcards path.
+func TestTrigramWithWildcardsMetricsAndOutput(t *testing.T) {
+	countFor := func(label string) float64 {
+		return testutil.ToFloat64(monitoring.GetMetrics().TokenCount.WithLabelValues(label))
+	}
+
+	wordBefore := countFor("word_with_wildcards")
+	trigramBefore := countFor("trigram_with_wildcards")
+
+	tokens := TokenizeWithWildcardsForClass(models.PropertyTokenizationTrigram, "Hello W?rld*", "")
+	require.Equal(t, []string{"hel", "ell", "llo", "low", "ow?", "w?r", "?rl", "rld", "ld*"}, tokens)
+
+	require.Equal(t, trigramBefore+float64(len(tokens)), countFor("trigram_with_wildcards"),
+		"trigram wildcards must record its token count under its own label")
+	require.Equal(t, wordBefore, countFor("word_with_wildcards"),
+		"trigram wildcards must not count its internal word split under word_with_wildcards")
+}
+
+// TestGseChRecordsUnderOwnLabel pins the gse_ch relabel: Chinese tokenization
+// records under its own "gse_ch" label, not under "gse" (the historical
+// copy-paste), so operators can tell the two tokenizers' volume apart.
+func TestGseChRecordsUnderOwnLabel(t *testing.T) {
+	t.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
+	InitOptionalTokenizers()
+
+	countFor := func(label string) float64 {
+		return testutil.ToFloat64(monitoring.GetMetrics().TokenCount.WithLabelValues(label))
+	}
+
+	gseBefore := countFor(models.PropertyTokenizationGse)
+	gseChBefore := countFor(models.PropertyTokenizationGseCh)
+
+	tokens := Tokenize(models.PropertyTokenizationGseCh, "你好世界")
+	require.NotEmpty(t, tokens)
+
+	require.Equal(t, gseChBefore+float64(len(tokens)), countFor(models.PropertyTokenizationGseCh),
+		"gse_ch tokenization must record under gse_ch")
+	require.Equal(t, gseBefore, countFor(models.PropertyTokenizationGse),
+		"gse_ch tokenization must not record under gse")
+}
