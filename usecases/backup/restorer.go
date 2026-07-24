@@ -154,7 +154,6 @@ func (r *restorer) restoreAll(ctx context.Context,
 	store nodeStore, overrideBucket, overridePath, rbacRestoreOption, usersRestoreOption string,
 ) error {
 	compressionType := desc.GetCompressionType()
-	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 
 	// Check for cancellation before starting restore operations
@@ -191,7 +190,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 			r.lastOp.set(backup.Cancelled)
 			return fmt.Errorf("restore cancelled: %w", err)
 		}
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressionType, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			if errors.Is(err, context.Canceled) {
 				r.lastOp.set(backup.Cancelled)
 				return fmt.Errorf("restore cancelled: %w", err)
@@ -216,7 +215,7 @@ func getType(myvar interface{}) string {
 
 func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string, compressionType backup.CompressionType,
-	compressed bool, cpuPercentage int, store nodeStore,
+	cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 ) (err error) {
 	classLabel := desc.Name
@@ -229,7 +228,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		defer timer.ObserveDuration()
 	}
 
-	fw := newFileWriter(r.sourcer, store, compressed, r.logger).
+	fw := newFileWriter(r.sourcer, store, r.logger).
 		WithPoolPercentage(cpuPercentage)
 
 	// Pre-v1.23 versions store files in a flat format
@@ -282,11 +281,11 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
 		return nil, nil, err
 	}
-	if err := meta.Validate(meta.Version > version1); err != nil {
-		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
+	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
+		return nil, nil, err
 	}
-	if v := meta.Version; v[0] > Version[0] {
-		return nil, nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
+	if err := meta.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
 	cs := meta.List()
 	if len(req.Classes) > 0 {

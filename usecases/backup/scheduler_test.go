@@ -542,8 +542,8 @@ func TestSchedulerRestoration(t *testing.T) {
 	meta := backup.DistributedBackupDescriptor{
 		ID:            backupID,
 		StartedAt:     timePt,
-		Version:       "1",
-		ServerVersion: "1",
+		Version:       Version,
+		ServerVersion: "1.23",
 		Status:        backup.Success,
 		Nodes: map[string]*backup.NodeDescriptor{
 			nodeA: {Classes: []string{cls}},
@@ -698,8 +698,8 @@ func TestSchedulerRestoration(t *testing.T) {
 		metaWithOldNodes := backup.DistributedBackupDescriptor{
 			ID:            backupID,
 			StartedAt:     timePt,
-			Version:       "1",
-			ServerVersion: "1",
+			Version:       Version,
+			ServerVersion: "1.23",
 			Status:        backup.Success,
 			Nodes: map[string]*backup.NodeDescriptor{
 				oldNodeA: {Classes: []string{cls}},
@@ -796,8 +796,8 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	meta := backup.DistributedBackupDescriptor{
 		ID:            id,
 		StartedAt:     timePt,
-		Version:       "1",
-		ServerVersion: "1",
+		Version:       Version,
+		ServerVersion: "1.23",
 		Status:        backup.Success,
 		Nodes: map[string]*backup.NodeDescriptor{
 			nodeName: {Classes: []string{cls}},
@@ -871,6 +871,21 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		// backup.ErrUnprocessable has no Unwrap, so match on the surfaced message.
 		_, err := fs.scheduler().Restore(ctx, nil, req, false)
 		require.ErrorContains(t, err, errLegacySingleNode.Error())
+	})
+
+	t.Run("RejectUncompressedBackup", func(t *testing.T) {
+		for _, version := range []string{"1.0", "1"} {
+			t.Run(version, func(t *testing.T) {
+				legacy := meta
+				legacy.Version = version
+				fs := newFakeScheduler(nil)
+				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(legacy), nil)
+				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+
+				_, err := fs.scheduler().Restore(ctx, nil, req, false)
+				require.ErrorContains(t, err, errLegacyUncompressed.Error())
+			})
+		}
 	})
 
 	t.Run("FailedBackup", func(t *testing.T) {

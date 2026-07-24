@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -79,6 +80,41 @@ func TestServerVersionOlderThan(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%q", tc.serverVersion), func(t *testing.T) {
 			assert.Equal(t, tc.want, serverVersionOlderThan(tc.serverVersion, 1, 23))
+		})
+	}
+}
+
+func TestCheckRestorableVersion(t *testing.T) {
+	tests := []struct {
+		version string
+		wantErr error
+		wantMsg string
+	}{
+		{version: "1.0", wantErr: errLegacyUncompressed},
+		{version: "1", wantErr: errLegacyUncompressed},
+		{version: "0.9", wantErr: errLegacyUncompressed},
+		{version: "2.0"},
+		{version: "2.1"},
+		{version: "2.9"},
+		{version: "3.0", wantMsg: errMsgHigherVersion},
+		// A byte compare read this as older than "2.1" and wrongly accepted it.
+		{version: "10.0", wantMsg: errMsgHigherVersion},
+		// A corrupt descriptor is reported by Validate, not refused as an old format.
+		{version: ""},
+		// The version this build writes must stay restorable by it.
+		{version: Version},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("%q", tc.version), func(t *testing.T) {
+			err := checkRestorableVersion(tc.version, "1.23")
+			switch {
+			case tc.wantErr != nil:
+				require.ErrorIs(t, err, tc.wantErr)
+			case tc.wantMsg != "":
+				require.ErrorContains(t, err, tc.wantMsg)
+			default:
+				require.NoError(t, err)
+			}
 		})
 	}
 }

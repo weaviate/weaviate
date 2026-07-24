@@ -725,14 +725,13 @@ type fileWriter struct {
 	tempDir    string
 	destDir    string
 	movedFiles []string // files successfully moved to destination folder
-	compressed bool
 	GoPoolSize int
 	migrator   func(classPath string) error
 	logger     logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	compressed bool, logger logrus.FieldLogger,
+	logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -741,7 +740,6 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		destDir:    destDir,
 		tempDir:    path.Join(destDir, TempDirectory),
 		movedFiles: make([]string, 0, 64),
-		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
 		logger:     logger,
 	}
@@ -787,22 +785,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// no compression processed as before
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
-	if !fw.compressed {
-		eg.SetLimit(2 * numCPU())
-		for _, shard := range desc.Shards {
-			// Check for cancellation before processing each shard
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, overrideBucket, overridePath) }, shard.Name)
-		}
-		return eg.Wait()
-	}
-
-	// source files are compressed
 	eg.SetLimit(fw.GoPoolSize)
 	for k := range desc.Chunks {
 		// Check for cancellation before processing each chunk
@@ -836,36 +819,6 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 		}
 	}
 	return eg.Wait()
-}
-
-func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, overrideBucket, overridePath string) error {
-	for _, key := range sd.Files {
-		// Check for cancellation before processing each file
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		destPath := path.Join(classTempDir, key)
-		destDir := path.Dir(destPath)
-		if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
-			return fmt.Errorf("create folder %s: %w", destDir, err)
-		}
-		if err := fw.backend.WriteToFile(ctx, key, destPath, overrideBucket, overridePath); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
-		}
-	}
-	destPath := path.Join(classTempDir, sd.DocIDCounterPath)
-	if err := os.WriteFile(destPath, sd.DocIDCounter, os.ModePerm); err != nil {
-		return fmt.Errorf("write counter file %s: %w", destPath, err)
-	}
-	destPath = path.Join(classTempDir, sd.PropLengthTrackerPath)
-	if err := os.WriteFile(destPath, sd.PropLengthTracker, os.ModePerm); err != nil {
-		return fmt.Errorf("write prop file %s: %w", destPath, err)
-	}
-	destPath = path.Join(classTempDir, sd.ShardVersionPath)
-	if err := os.WriteFile(destPath, sd.Version, os.ModePerm); err != nil {
-		return fmt.Errorf("write version file %s: %w", destPath, err)
-	}
-	return nil
 }
 
 // readAndUnzipChunk downloads a chunk via readFn and unzips it into classTempDir.

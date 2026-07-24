@@ -97,12 +97,13 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backendName = "gcs"
 		rawbytes    = []byte("hello")
 		timept      = time.Now().UTC()
-		cls         = "Class-A"
-		backupID    = "2"
-		ctx         = context.Background()
-		nodeHome    = backupID + "/" + nodeName
-		path        = "bucket/backups/" + nodeHome
-		req         = Request{
+		// Article matches the chunk fixture registered in fakes_test.go.
+		cls      = "Article"
+		backupID = "2"
+		ctx      = context.Background()
+		nodeHome = backupID + "/" + nodeName
+		path     = "bucket/backups/" + nodeHome
+		req      = Request{
 			Method:   OpRestore,
 			ID:       backupID,
 			Classes:  []string{cls},
@@ -124,13 +125,14 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 	metadata := backup.BackupDescriptor{
 		ID:            backupID,
 		StartedAt:     timept,
-		Version:       "1",
+		Version:       Version,
 		ServerVersion: "1.22",
 		Status:        backup.Success,
 		Classes: []backup.ClassDescriptor{{
 			Name:          cls,
 			Schema:        rawClassBytes,
 			ShardingState: rawShardingStateBytes,
+			Chunks:        map[int32][]string{1: {"dir1/file1", "dir2/file2"}},
 			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "Shard1", Node: "Node-1",
@@ -168,6 +170,22 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Equal(t, time.Duration(0), resp.Timeout)
 	})
 
+	t.Run("RejectUncompressedBackup", func(t *testing.T) {
+		for _, version := range []string{"1.0", "1"} {
+			t.Run(version, func(t *testing.T) {
+				legacy := metadata
+				legacy.Version = version
+				backend := newFakeBackend()
+				backend.On("GetObject", ctx, nodeHome, BackupFile).Return(marshalMeta(legacy), nil)
+				backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				bm := createManager(nil, nil, backend, nil)
+				resp := bm.OnCanCommit(ctx, &req)
+				assert.Contains(t, resp.Err, errLegacyUncompressed.Error())
+				assert.Equal(t, time.Duration(0), resp.Timeout)
+			})
+		}
+	})
+
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
 		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
@@ -193,7 +211,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		backend.On("Read", any, nodeHome, chunkKey(cls, 1), mock.Anything).Return(int64(0), nil)
 		m := createManager(sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
@@ -218,7 +236,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", any, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		backend.On("Read", any, nodeHome, chunkKey(cls, 1), mock.Anything).Return(int64(0), nil)
 		m := createManager(sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{

@@ -961,7 +961,6 @@ func (e *incrementalTestEnv) restore(backupID string, desc *backup.ClassDescript
 		},
 		destDir:    restoreDir,
 		tempDir:    filepath.Join(restoreDir, TempDirectory),
-		compressed: true,
 		GoPoolSize: 4,
 		logger:     logrus.New(),
 	}
