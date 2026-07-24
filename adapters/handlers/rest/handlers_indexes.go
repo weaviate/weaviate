@@ -39,13 +39,21 @@ import (
 )
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
-	h := &indexesHandlers{appState: appState}
+	h := &indexesHandlers{appState: appState, clusterTasks: appState.ClusterService.Raft}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
 	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
 }
 
+// reindexTaskCanceler abstracts the cluster service so cancelReindexTask's
+// list→apply race handling is testable without a live RAFT cluster.
+type reindexTaskCanceler interface {
+	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	CancelDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+}
+
 type indexesHandlers struct {
-	appState *state.State
+	appState     *state.State
+	clusterTasks reindexTaskCanceler
 }
 
 // submitLock returns the per-(collection, property) mutex for the
@@ -691,12 +699,12 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 // ctx via runningHandles) is then cancelled, and the worker goroutine
 // returns.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
-	if h.appState.ClusterService == nil {
+	if h.clusterTasks == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
 			"cluster service unavailable; cannot cancel reindex task"))
 	}
 
-	tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
+	tasks, err := h.clusterTasks.ListDistributedTasks(ctx)
 	if err != nil {
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
 			fmt.Sprintf("listing tasks: %v", err)))
@@ -745,11 +753,10 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		})
 	}
 
-	if err := h.appState.ClusterService.CancelDistributedTask(
+	if err := h.clusterTasks.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
-			fmt.Sprintf("cancelling task: %v", err)))
+		return h.cancelApplyErrorResponse(err, principal, collection, propertyName, indexType)
 	}
 
 	// Drain the local reindex goroutine BEFORE cleaning partial on-disk
@@ -846,6 +853,29 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		TaskID: namespacing.StripOwnNamespace(principal, target.ID),
 		Status: "CANCELLED",
 	})
+}
+
+// cancelApplyErrorResponse: ErrTaskNotRunning/ErrTaskDoesNotExist mean the
+// task already finished or was removed before this apply (list→apply race),
+// so that's a no-op (202), not a 500.
+func (h *indexesHandlers) cancelApplyErrorResponse(
+	err error, principal *models.Principal, collection, propertyName, indexType string,
+) middleware.Responder {
+	if errors.Is(err, distributedtask.ErrTaskNotRunning) ||
+		errors.Is(err, distributedtask.ErrTaskDoesNotExist) {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"audit_event": "reindex_task_cancel_noop",
+			"collection":  collection,
+			"property":    propertyName,
+			"index_type":  indexType,
+			"principal":   principalUsername(principal),
+		}).Infof("cancel: task no longer running when applying cancel (%v); returning NO_OP", err)
+		return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
+			Status: reindexCancelStatusNoOp,
+		})
+	}
+	return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
+		fmt.Sprintf("cancelling task: %v", err)))
 }
 
 // reindexCancelStatusNoOp is the IndexUpdateResponse.Status value the
