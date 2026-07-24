@@ -1523,9 +1523,19 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	// avoid a "100% — still working" UX glitch when drift makes processed
 	// briefly exceed total.
 	var totalObjects int64
+	// baselineProcessed carries prior-checkpoint progress so a resumed scan's
+	// reported fraction doesn't restart near 0 and appear frozen.
+	var baselineProcessed int
 	if t.progressCallback != nil {
 		if n, countErr := shard.ObjectCountAsync(ctx); countErr == nil && n > 0 {
 			totalObjects = n
+		}
+		if migrated, migErr := rt.getProcessedObjectCount(); migErr == nil {
+			baselineProcessed = migrated
+		} else {
+			logger.WithField("last_stored_key", lastStoredKey).
+				Debugf("could not read baseline processed count for progress reporting, "+
+					"resumed progress may under-report until it re-crosses the checkpoint: %v", migErr)
 		}
 	}
 
@@ -1611,14 +1621,16 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			lastProcessedKey = md.key
 
 			// Emit live progress every checkProcessingEveryNoObjects iterations.
-			// The denominator is the ObjectCountAsync estimate from above; the
-			// throttled recorder above this layer caps wire frequency. Clamp at
-			// 0.99 so we never appear "complete" until the loop actually ends —
-			// the final 1.0 is emitted by RecordDistributedTaskUnitCompletion on
-			// success or carried by the FAILED status on error.
+			// Numerator includes baselineProcessed so resumed scans don't
+			// restart near 0; the denominator is the ObjectCountAsync estimate
+			// from above; the throttled recorder above this layer caps wire
+			// frequency. Clamp at 0.99 so we never appear "complete" until the
+			// loop actually ends — the final 1.0 is emitted by
+			// RecordDistributedTaskUnitCompletion on success or carried by the
+			// FAILED status on error.
 			if processedCount%t.config.checkProcessingEveryNoObjects == 0 {
 				if t.progressCallback != nil && totalObjects > 0 {
-					p := float32(processedCount) / float32(totalObjects)
+					p := float32(baselineProcessed+processedCount) / float32(totalObjects)
 					if p > 0.99 {
 						p = 0.99
 					}
