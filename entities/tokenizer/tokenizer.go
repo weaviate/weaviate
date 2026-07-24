@@ -64,17 +64,32 @@ var Tokenizations []string = []string{
 }
 
 func init() {
-	numParallel := runtime.GOMAXPROCS(0)
-	numParallelStr := os.Getenv("TOKENIZER_CONCURRENCY_COUNT")
-	if numParallelStr != "" {
-		x, err := strconv.Atoi(numParallelStr)
-		if err == nil {
-			numParallel = x
-		}
-	}
-	ApacTokenizerThrottle = make(chan struct{}, numParallel)
+	ApacTokenizerThrottle = make(chan struct{}, throttleCapacity(os.Getenv("TOKENIZER_CONCURRENCY_COUNT")))
 	InitOptionalTokenizers()
 	customTokenizers = sync.Map{}
+}
+
+// throttleCapacity computes the ApacTokenizerThrottle capacity from the
+// TOKENIZER_CONCURRENCY_COUNT env value. Non-numeric values and values below
+// 1 are rejected with a warning and fall back to runtime.GOMAXPROCS(0), like
+// an unset variable: a capacity-0 channel would deadlock the first
+// tokenization (an acquire with no holder to ever release it), and make
+// panics on a negative capacity.
+func throttleCapacity(envValue string) int {
+	fallback := runtime.GOMAXPROCS(0)
+	if envValue == "" {
+		return fallback
+	}
+	x, err := strconv.Atoi(envValue)
+	if err != nil {
+		logrus.StandardLogger().Warnf("invalid TOKENIZER_CONCURRENCY_COUNT %q, using default %d: %v", envValue, fallback, err)
+		return fallback
+	}
+	if x < 1 {
+		logrus.StandardLogger().Warnf("invalid TOKENIZER_CONCURRENCY_COUNT %d, must be at least 1, using default %d", x, fallback)
+		return fallback
+	}
+	return x
 }
 
 func InitOptionalTokenizers() {
@@ -157,8 +172,6 @@ func init_gse_ch() error {
 
 // TokenizeForClass tokenizes like [Tokenize], except that the kagome
 // tokenizations consult the class's custom user-dictionary tokenizer first.
-// Only those two tokenizations pay the customTokenizers lookup; every other
-// tokenization dispatches straight to Tokenize.
 func TokenizeForClass(tokenization string, in string, class string) []string {
 	switch tokenization {
 	case models.PropertyTokenizationKagomeKr:
