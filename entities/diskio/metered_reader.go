@@ -31,17 +31,15 @@ type MeteredReader struct {
 // it will trigger the attached callback and provide it with metrics. If no
 // callback is set, it will ignore it.
 func (m *MeteredReader) Read(p []byte) (n int, err error) {
+	if m.cb == nil {
+		return m.file.Read(p)
+	}
 	start := time.Now()
 	n, err = m.file.Read(p)
-	took := time.Since(start).Nanoseconds()
 	if err != nil {
 		return n, err
 	}
-
-	if m.cb != nil {
-		m.cb(int64(n), took)
-	}
-
+	m.cb(int64(n), time.Since(start).Nanoseconds())
 	return n, err
 }
 
@@ -49,17 +47,15 @@ func (m *MeteredReader) Read(p []byte) (n int, err error) {
 // it will trigger the attached callback and provide it with metrics. If no
 // callback is set, it will ignore it.
 func (m *MeteredReader) ReadAt(p []byte, off int64) (n int, err error) {
+	if m.cb == nil {
+		return m.file.ReadAt(p, off)
+	}
 	start := time.Now()
 	n, err = m.file.ReadAt(p, off)
-	took := time.Since(start).Nanoseconds()
 	if err != nil {
 		return n, err
 	}
-
-	if m.cb != nil {
-		m.cb(int64(n), took)
-	}
-
+	m.cb(int64(n), time.Since(start).Nanoseconds())
 	return n, err
 }
 
