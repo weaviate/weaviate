@@ -88,6 +88,11 @@ type SegmentGroup struct {
 	MinMMapSize              int64
 	keepLevelCompaction      bool // see bucket for more details
 
+	// see segmentConfig.segmentIndexPinThreshold / pinBucketLabel
+	segmentIndexPinThreshold  int64
+	segmentIndexPinTotalLimit int64
+	pinBucketLabel            string
+
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
 
@@ -135,6 +140,9 @@ type sgConfig struct {
 	enableChecksumValidation     bool
 	keepSegmentsInMemory         bool
 	MinMMapSize                  int64
+	segmentIndexPinThreshold     int64
+	segmentIndexPinTotalLimit    int64
+	pinBucketLabel               string
 	bm25config                   *models.BM25Config
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
 	writeSegmentInfoIntoFileName bool
@@ -170,6 +178,9 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		lastCompactionCall:           now,
 		lastCleanupCall:              now,
 		MinMMapSize:                  cfg.MinMMapSize,
+		segmentIndexPinThreshold:     cfg.segmentIndexPinThreshold,
+		segmentIndexPinTotalLimit:    cfg.segmentIndexPinTotalLimit,
+		pinBucketLabel:               cfg.pinBucketLabel,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
 		sequentialAccess:             cfg.sequentialAccess,
@@ -268,18 +279,21 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			rightSegment, err := newSegment(rightSegmentPath, logger,
 				metrics, sg.makeExistsOn(nil),
 				segmentConfig{
-					mmapContents:             sg.mmapContents,
-					useBloomFilter:           sg.useBloomFilter,
-					calcCountNetAdditions:    sg.calcCountNetAdditions,
-					overwriteDerived:         false,
-					enableChecksumValidation: sg.enableChecksumValidation,
-					sequentialAccess:         sg.sequentialAccess,
-					MinMMapSize:              sg.MinMMapSize,
-					allocChecker:             sg.allocChecker,
-					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
-					writeMetadata:            sg.writeMetadata,
-					deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
-					lazyPropertyLengths:      sg.lazyPropertyLengths,
+					mmapContents:              sg.mmapContents,
+					useBloomFilter:            sg.useBloomFilter,
+					calcCountNetAdditions:     sg.calcCountNetAdditions,
+					overwriteDerived:          false,
+					enableChecksumValidation:  sg.enableChecksumValidation,
+					sequentialAccess:          sg.sequentialAccess,
+					MinMMapSize:               sg.MinMMapSize,
+					segmentIndexPinThreshold:  sg.segmentIndexPinThreshold,
+					segmentIndexPinTotalLimit: sg.segmentIndexPinTotalLimit,
+					pinBucketLabel:            sg.pinBucketLabel,
+					allocChecker:              sg.allocChecker,
+					fileList:                  make(map[string]int64), // empty to not check if bloom/cna files already exist
+					writeMetadata:             sg.writeMetadata,
+					deleteMarkerCounter:       sg.deleteMarkerCounter.Add(1),
+					lazyPropertyLengths:       sg.lazyPropertyLengths,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -398,18 +412,21 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		var segment Segment
 		segConf := segmentConfig{
-			mmapContents:             sg.mmapContents,
-			useBloomFilter:           sg.useBloomFilter,
-			calcCountNetAdditions:    sg.calcCountNetAdditions,
-			overwriteDerived:         false,
-			enableChecksumValidation: sg.enableChecksumValidation,
-			sequentialAccess:         sg.sequentialAccess,
-			MinMMapSize:              sg.MinMMapSize,
-			allocChecker:             sg.allocChecker,
-			fileList:                 files,
-			writeMetadata:            sg.writeMetadata,
-			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
-			lazyPropertyLengths:      sg.lazyPropertyLengths,
+			mmapContents:              sg.mmapContents,
+			useBloomFilter:            sg.useBloomFilter,
+			calcCountNetAdditions:     sg.calcCountNetAdditions,
+			overwriteDerived:          false,
+			enableChecksumValidation:  sg.enableChecksumValidation,
+			sequentialAccess:          sg.sequentialAccess,
+			MinMMapSize:               sg.MinMMapSize,
+			segmentIndexPinThreshold:  sg.segmentIndexPinThreshold,
+			segmentIndexPinTotalLimit: sg.segmentIndexPinTotalLimit,
+			pinBucketLabel:            sg.pinBucketLabel,
+			allocChecker:              sg.allocChecker,
+			fileList:                  files,
+			writeMetadata:             sg.writeMetadata,
+			deleteMarkerCounter:       sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:       sg.lazyPropertyLengths,
 		}
 		var err error
 		if b.lazySegmentLoading {
@@ -592,17 +609,20 @@ func (sg *SegmentGroup) add(path string) error {
 	segment, err := newSegment(path, sg.logger,
 		sg.metrics, sg.makeExistsOn(sg.segments),
 		segmentConfig{
-			mmapContents:             sg.mmapContents,
-			useBloomFilter:           sg.useBloomFilter,
-			calcCountNetAdditions:    sg.calcCountNetAdditions,
-			overwriteDerived:         true,
-			enableChecksumValidation: sg.enableChecksumValidation,
-			sequentialAccess:         sg.sequentialAccess,
-			MinMMapSize:              sg.MinMMapSize,
-			allocChecker:             sg.allocChecker,
-			writeMetadata:            sg.writeMetadata,
-			deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
-			lazyPropertyLengths:      sg.lazyPropertyLengths,
+			mmapContents:              sg.mmapContents,
+			useBloomFilter:            sg.useBloomFilter,
+			calcCountNetAdditions:     sg.calcCountNetAdditions,
+			overwriteDerived:          true,
+			enableChecksumValidation:  sg.enableChecksumValidation,
+			sequentialAccess:          sg.sequentialAccess,
+			MinMMapSize:               sg.MinMMapSize,
+			segmentIndexPinThreshold:  sg.segmentIndexPinThreshold,
+			segmentIndexPinTotalLimit: sg.segmentIndexPinTotalLimit,
+			pinBucketLabel:            sg.pinBucketLabel,
+			allocChecker:              sg.allocChecker,
+			writeMetadata:             sg.writeMetadata,
+			deleteMarkerCounter:       sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:       sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)

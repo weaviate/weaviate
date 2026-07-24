@@ -444,6 +444,9 @@ type Config struct {
 	MemtablesMinActiveSeconds      int
 	MemtablesMaxActiveSeconds      int
 	MinMMapSize                    int64
+	SegmentIndexPinThreshold       int64
+	SegmentIndexPinTotalLimit      int64
+	SegmentIndexPinScope           string
 	MaxReuseWalSize                int64
 	SegmentsCleanupIntervalSeconds int
 	SeparateObjectsCompactions     bool

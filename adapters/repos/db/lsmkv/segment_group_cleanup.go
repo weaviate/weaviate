@@ -585,6 +585,12 @@ func (sg *SegmentGroup) replaceSegment(segmentPos int, tmpSegmentPath string,
 	replacer := newSegmentReplacer(sg, segmentPos, segmentPos, newSegment)
 	_, oldSegment, err := replacer.switchOnDisk()
 	if err != nil {
+		// the fully initialized new segment was never published: close it to
+		// release its fd/mmap and its pin accounting (budget + gauges)
+		if cerr := newSegment.close(); cerr != nil {
+			sg.logger.WithField("path", newSegment.path).
+				Errorf("close unpublished cleaned segment: %v", cerr)
+		}
 		return nil, fmt.Errorf("replace cleaned segment on disk: %w", err)
 	}
 

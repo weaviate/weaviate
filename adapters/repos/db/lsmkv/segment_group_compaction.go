@@ -498,6 +498,12 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	replacer := newSegmentReplacer(sg, pair[0], pair[1], newSegment)
 	oldLeft, oldRight, err := replacer.switchOnDisk()
 	if err != nil {
+		// the fully initialized new segment was never published: close it to
+		// release its fd/mmap and its pin accounting (budget + gauges)
+		if cerr := newSegment.close(); cerr != nil {
+			sg.logger.WithField("path", newSegment.path).
+				Errorf("close unpublished compacted segment: %v", cerr)
+		}
 		return false, fmt.Errorf("replace compacted segments on disk: %w", err)
 	}
 
@@ -548,6 +554,9 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 			enableChecksumValidation:     sg.enableChecksumValidation,
 			sequentialAccess:             sg.sequentialAccess,
 			MinMMapSize:                  sg.MinMMapSize,
+			segmentIndexPinThreshold:     sg.segmentIndexPinThreshold,
+			segmentIndexPinTotalLimit:    sg.segmentIndexPinTotalLimit,
+			pinBucketLabel:               sg.pinBucketLabel,
 			allocChecker:                 sg.allocChecker,
 			precomputedCountNetAdditions: &updatedCountNetAdditions,
 			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist
