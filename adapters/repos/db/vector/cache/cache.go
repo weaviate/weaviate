@@ -39,6 +39,7 @@ type Cache[T any] interface {
 	PreloadNoLock(id uint64, vec []T)
 	SetSizeAndGrowNoLock(id uint64)
 	Prefetch(id uint64)
+	PrefetchGet(id uint64) []T
 	Grow(size uint64)
 	Drop()
 	UpdateMaxSize(size int64)

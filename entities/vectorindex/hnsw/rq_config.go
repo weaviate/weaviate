@@ -35,8 +35,8 @@ func ValidateRQConfig(cfg RQConfig) error {
 	if !cfg.Enabled {
 		return nil
 	}
-	if cfg.Bits != 8 && cfg.Bits != 1 {
-		return errors.New("RQ bits must be 8 or 1")
+	if cfg.Bits != 8 && cfg.Bits != 4 && cfg.Bits != 1 {
+		return errors.New("RQ bits must be 8, 4 or 1")
 	}
 
 	return nil
