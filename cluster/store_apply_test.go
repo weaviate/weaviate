@@ -671,6 +671,94 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 	}
 }
 
+// TestStore_Apply_UpdateClass_MarkerIntroductionPurge pins the full FSM path
+// of the drop-vector marker-introduction purge: while the previous drop's
+// task is still ACTIVE the introducing UPDATE_CLASS apply is refused and no
+// record is deleted; once the task settles, the same apply purges the
+// records and commits.
+func TestStore_Apply_UpdateClass_MarkerIntroductionPurge(t *testing.T) {
+	ms, addLog, _ := setupCascadeTestStore(t, "Foo")
+
+	ms.store.distributedTasksManager.RegisterTargetExtractor(
+		"test-namespace",
+		func(payload []byte) (string, []string, bool) {
+			var p struct {
+				Collection string   `json:"collection"`
+				Targets    []string `json:"targets"`
+			}
+			if err := json.Unmarshal(payload, &p); err != nil || p.Collection == "" {
+				return "", nil, false
+			}
+			return p.Collection, p.Targets, true
+		},
+	)
+
+	applyOrFail(t, ms, addLog, "add-class")
+
+	payloadBytes, err := json.Marshal(map[string]any{"collection": "Foo", "targets": []string{"v1"}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	applyOrFail(t, ms, &raft.Log{
+		Index: 2,
+		Type:  raft.LogCommand,
+		Data: cmdAsBytes("", api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+			&api.AddDistributedTaskRequest{
+				Namespace:             "test-namespace",
+				Id:                    "prev-drop",
+				Payload:               payloadBytes,
+				SubmittedAtUnixMillis: 1,
+				UnitIds:               []string{"u-1"},
+			}, nil),
+	}, "add-task")
+
+	updated := &models.Class{Class: "Foo", VectorConfig: map[string]models.VectorConfig{
+		"v1": {VectorIndexType: "none"},
+	}}
+	ms.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(updated, nil)
+	ms.indexer.On("UpdateClass", mock.Anything).Return(nil)
+	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	ms.replicationFSM.On("HasActiveReplicationForCollection", mock.Anything).Return(false).Maybe()
+	updateLog := func(idx uint64) *raft.Log {
+		return &raft.Log{
+			Index: idx,
+			Type:  raft.LogCommand,
+			Data: cmdAsBytes("Foo", api.ApplyRequest_TYPE_UPDATE_CLASS,
+				api.UpdateClassRequest{Class: updated, State: nil}, nil),
+		}
+	}
+
+	resp, ok := ms.store.Apply(updateLog(3)).(Response)
+	if !ok || resp.Error == nil {
+		t.Fatalf("introducing a marker next to an ACTIVE task must fail the apply, got ok=%v err=%v", ok, resp.Error)
+	}
+	assert.Contains(t, resp.Error.Error(), "still completing")
+	tasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	assert.Len(t, tasks["test-namespace"], 1, "a refused apply must not delete records")
+
+	applyOrFail(t, ms, &raft.Log{
+		Index: 4,
+		Type:  raft.LogCommand,
+		Data: cmdAsBytes("", api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL,
+			&api.CancelDistributedTaskRequest{
+				Namespace:             "test-namespace",
+				Id:                    "prev-drop",
+				Version:               2,
+				CancelledAtUnixMillis: 2,
+			}, nil),
+	}, "cancel-task")
+
+	applyOrFail(t, ms, updateLog(5), "update-class after the task settled")
+	tasks, err = ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	assert.Empty(t, tasks["test-namespace"], "the committed introduction purges the settled records")
+}
+
 // Pins the schemaOnly=true catchup-replay path: a node restarting and
 // replaying its RAFT log past lastAppliedIndexToDB hits updateSchema
 // only, with updateStore skipped (cluster/store_apply.go:108). If the

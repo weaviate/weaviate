@@ -26,6 +26,8 @@ func TestDropVectorIndex_Cluster(t *testing.T) {
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
+		// The cold-tenant test needs the reconcile heal within seconds.
+		WithWeaviateEnv("DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS", "5").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -78,5 +80,8 @@ func runSuite(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("delete class mid-drop", testDeleteClassMidDrop())
 	t.Run("drop rejections", testDropRejections())
 	t.Run("tenant mutation during drop", testTenantMutationDuringDrop())
+	t.Run("cold tenant deferred finalize", testColdTenantDeferredFinalize())
+	t.Run("partially cold tenants", testPartiallyColdTenants())
+	t.Run("re-drop after re-create", testRedropAfterRecreate())
 	t.Run("multi vector", testMultiVector())
 }

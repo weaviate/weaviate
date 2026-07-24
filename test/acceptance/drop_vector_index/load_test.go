@@ -115,7 +115,10 @@ func testSustainedLoad(compose *docker.DockerCompose) func(t *testing.T) {
 			for _, uri := range weaviateNodeURIs(compose) {
 				helper.SetupClient(uri)
 				require.EventuallyWithT(t, func(collect *assert.CollectT) {
-					got := helper.GetClass(t, className)
+					got, err := getClassErr(className)
+					if !assert.NoError(collect, err) {
+						return
+					}
 					cfg, ok := got.VectorConfig[dropped]
 					if assert.True(collect, ok) {
 						assert.Equal(collect, "none", cfg.VectorIndexType)

@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -602,6 +603,7 @@ type recordingMutationGuard struct {
 	lastClass   string
 	lastProp    string
 	lastRemoved []string
+	lastShards  []string
 	rejectWith  error
 }
 
@@ -624,10 +626,11 @@ func (g *recordingMutationGuard) CheckTenantMutation(class string, tenants []str
 	return g.rejectWith
 }
 
-func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedVectors []string) error {
+func (g *recordingMutationGuard) CheckVectorConfigRemoval(class string, removedVectors, shards []string) error {
 	g.called++
 	g.lastClass = class
 	g.lastRemoved = removedVectors
+	g.lastShards = shards
 	return g.rejectWith
 }
 
@@ -798,6 +801,151 @@ func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
 	})
 }
 
+// fakeCascadeDeleter records the target-scoped purge calls the schema FSM
+// issues on drop-vector marker introduction.
+type fakeCascadeDeleter struct {
+	collectionCalls []string
+	activeMatch     bool
+	purgeErr        error // non-sentinel purge failure
+	targetCalls     []struct {
+		collection string
+		targets    []string
+	}
+}
+
+func (f *fakeCascadeDeleter) DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor {
+	f.collectionCalls = append(f.collectionCalls, collection)
+	return nil
+}
+
+func (f *fakeCascadeDeleter) PurgeTasksForCollectionTargets(collection string, targets []string) ([]distributedtask.TaskDescriptor, error) {
+	if f.activeMatch {
+		return nil, distributedtask.ErrTaskStillActiveForTargets
+	}
+	if f.purgeErr != nil {
+		return nil, f.purgeErr
+	}
+	f.targetCalls = append(f.targetCalls, struct {
+		collection string
+		targets    []string
+	}{collection, targets})
+	return []distributedtask.TaskDescriptor{{ID: "purged", Version: 1}}, nil
+}
+
+// TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords pins the stale
+// record purge: introducing a drop marker deletes the previous drop's task
+// records for that (collection, target) in the SAME apply — a re-created then
+// re-dropped name must start with a clean slate, or coverage inheritance and
+// removal vouching could adopt the closed drop's records.
+func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T) {
+	const none = "none"
+	hnsw := models.VectorConfig{VectorIndexType: "hnsw"}
+
+	mkRequest := func(updated *models.Class) *cmd.ApplyRequest {
+		sub, err := json.Marshal(&cmd.UpdateClassRequest{Class: updated, State: nil})
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			Class:      "C",
+			Version:    2,
+			SubCommand: sub,
+		}
+	}
+	newSM := func(deleter *fakeCascadeDeleter, initial, parsed *models.Class) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm.SetDistributedTaskManager(deleter)
+		require.NoError(t, sm.schema.addClass(initial,
+			&sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+		return sm
+	}
+
+	t.Run("live to none purges the target's records", func(t *testing.T) {
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		require.Len(t, deleter.targetCalls, 1)
+		require.Equal(t, "C", deleter.targetCalls[0].collection)
+		require.Equal(t, []string{"vec1"}, deleter.targetCalls[0].targets)
+	})
+
+	t.Run("introduction is rejected while a matching task is still active", func(t *testing.T) {
+		// The SWAPPING race: the previous drop's task finalized (marker gone)
+		// but has not flipped FINISHED yet. Purging skips active tasks and
+		// never re-runs, so letting the marker in would leave a stale
+		// inheritance seed — the birth must be refused. Normally a ms-scale
+		// retry window; a node that died holding its post-completion ack
+		// keeps the task SWAPPING (and the refusal standing) until
+		// DeleteClass.
+		deleter := &fakeCascadeDeleter{activeMatch: true}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "still completing")
+		require.ErrorIs(t, err, ErrBadRequest, "the refusal is retryable and must reach clients as a 4xx")
+		require.Empty(t, deleter.targetCalls, "no purge may run when the introduction is refused")
+		// The update closure edits the live metaClass with no rollback, so
+		// every reject path must fire before any mutation: the refusal must
+		// leave the marker un-introduced.
+		got, _ := sm.schema.ReadOnlyClass("C")
+		require.NotNil(t, got)
+		require.Equal(t, hnsw, got.VectorConfig["vec1"], "a refused introduction must not mutate the schema")
+	})
+
+	t.Run("a non-refusal purge failure is internal, not a retryable 400", func(t *testing.T) {
+		deleter := &fakeCascadeDeleter{purgeErr: fmt.Errorf("extractor registry corrupted")}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrBadRequest,
+			"only ErrTaskStillActiveForTargets is the client's fault; anything else must not be classified retryable-4xx")
+	})
+
+	t.Run("an already-dropped entry does not re-purge", func(t *testing.T) {
+		deleter := &fakeCascadeDeleter{}
+		cfg := map[string]models.VectorConfig{"vec1": {VectorIndexType: none}, "keep": hnsw}
+		initial := &models.Class{Class: "C", VectorConfig: cfg}
+		parsed := &models.Class{Class: "C", VectorConfig: cfg}
+		sm := newSM(deleter, initial, parsed)
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		require.Empty(t, deleter.targetCalls,
+			"retriggers and unrelated updates must not purge the ACTIVE drop's records")
+	})
+
+	t.Run("a rejected apply must not purge (gate runs first)", func(t *testing.T) {
+		// One PUT that both introduces a marker on vecA and illegally removes
+		// the dropped vecB: the removal gate rejects the apply, and vecA's
+		// records must still exist — a purge before the reject would erase
+		// them from an update that never applied, with nothing to roll back.
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"vecA": hnsw, "vecB": {VectorIndexType: none},
+		}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
+			"vecA": {VectorIndexType: none},
+		}}
+		sm := newSM(deleter, initial, parsed)
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("vecB cleanup not complete")}
+		sm.SetMutationGuard(guard)
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", true, false)
+		require.Error(t, err)
+		require.Equal(t, []string{"vecB"}, guard.lastRemoved)
+		require.Empty(t, deleter.targetCalls, "no purge may run on a rejected apply")
+	})
+}
+
 // TestSchemaManager_UpdateClass_VectorConfigRemovalGate pins the gate wiring
 // on the UpdateClass apply path: when an update removes a dropped ("none")
 // VectorConfig entry, the MutationGuard MUST be consulted with the removed names
@@ -831,7 +979,9 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 			Class:        "C",
 			VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
 		}
-		ss := &sharding.State{Physical: map[string]sharding.Physical{}}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{
+			"shardB": {Name: "shardB"}, "shardA": {Name: "shardA"}, "shardC": {Name: "shardC"},
+		}}
 		require.NoError(t, sm.schema.addClass(initial, ss, 1))
 		return sm
 	}
@@ -846,6 +996,8 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.Contains(t, err.Error(), "cleanup task not FINISHED")
 		require.Equal(t, 1, guard.called, "gate must be consulted once")
 		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+		require.Equal(t, []string{"shardA", "shardB", "shardC"}, guard.lastShards,
+			"gate must receive the FSM's shard set, sorted")
 	})
 
 	t.Run("removing a dropped entry succeeds when the gate allows", func(t *testing.T) {
@@ -857,6 +1009,26 @@ func TestSchemaManager_UpdateClass_VectorConfigRemovalGate(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, guard.called)
 		require.Equal(t, []string{"vec1"}, guard.lastRemoved)
+		require.Equal(t, []string{"shardA", "shardB", "shardC"}, guard.lastShards)
+	})
+
+	t.Run("empty shard set is passed as an empty slice", func(t *testing.T) {
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"keep": hnsw}}
+		guard := &recordingMutationGuard{}
+		parser := fakes.NewMockParser()
+		parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(parsed, nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm.SetMutationGuard(guard)
+		initial := &models.Class{
+			Class:        "C",
+			VectorConfig: map[string]models.VectorConfig{"keep": hnsw, "vec1": none},
+		}
+		require.NoError(t, sm.schema.addClass(initial,
+			&sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+
+		require.NoError(t, sm.UpdateClass(mkRequest(parsed), "test-node", true, false))
+		require.Equal(t, 1, guard.called)
+		require.Empty(t, guard.lastShards)
 	})
 
 	t.Run("update that removes no dropped entry does not consult the gate", func(t *testing.T) {

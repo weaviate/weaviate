@@ -115,7 +115,10 @@ func runRollingRestartSuite(t *testing.T, compose *docker.DockerCompose) {
 		// schema before its shards finish loading, and cross-node lists return
 		// partial results in that window.
 		require.EventuallyWithT(t, func(collect *assert.CollectT) {
-			objs := listAllObjectsWithVectors(t, className)
+			objs, err := listObjectsWithVectorsErr(className, "", 100)
+			if !assert.NoError(collect, err) {
+				return
+			}
 			if !assert.Len(collect, objs, count) {
 				return
 			}

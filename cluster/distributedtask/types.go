@@ -41,6 +41,11 @@ type SchedulerNotifier interface {
 // weaviate/0-weaviate-issues#231.
 type CollectionExtractor func(payload []byte) (collection string, ok bool)
 
+// TargetExtractor reads a task payload's (collection, target vectors) binding
+// for [Manager.PurgeTasksForCollectionTargets]; ok=false skips the record.
+// Same determinism contract as [CollectionExtractor].
+type TargetExtractor func(payload []byte) (collection string, targets []string, ok bool)
+
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
@@ -242,16 +247,22 @@ type SchemaMutationDetector interface {
 }
 
 // VectorConfigRemovalGate is an optional interface a SchemaMutationDetector also
-// implements to gate removal of a dropped ("none") VectorConfig entry: removal
-// is permitted only once a completed cleanup task covers it, so the marker can't
-// vanish before the on-disk vectors are stripped. Dispatched by type assertion
-// from the SchemaMutationDetector registry. Same FSM-determinism contract as
-// [SchemaMutationDetector]: a pure function of its arguments.
+// implements to gate removal of a dropped ("none") VectorConfig entry: only the
+// completing cleanup task's own in-flight finalize may remove it — a SWAPPING
+// task covering the entry whose units plus inherited cleaned-shard set span
+// every current shard. A shard in neither has not been stripped, so removing
+// the marker would strand its data; and FINISHED records never vouch — they
+// outlive finalize by the task TTL, and after a re-create + re-drop of the
+// name a stale record would remove the new drop's marker over unstripped
+// vectors. Dispatched by type assertion from the SchemaMutationDetector
+// registry. Same FSM-determinism contract as [SchemaMutationDetector]: a pure
+// function of its arguments.
 type VectorConfigRemovalGate interface {
 	// CheckVectorConfigRemoval is called under [Manager.mu] from the schema FSM's
-	// UpdateClass apply; non-nil rejects. existingTasks is the namespace-scoped
+	// UpdateClass apply; non-nil rejects. shards is the collection's shard set
+	// from the FSM state being applied; existingTasks is the namespace-scoped
 	// list at apply time.
-	CheckVectorConfigRemoval(className string, removedVectors []string, existingTasks []*Task) error
+	CheckVectorConfigRemoval(className string, removedVectors, shards []string, existingTasks []*Task) error
 }
 
 // RecoveryAwareProvider is an optional interface providers implement to
@@ -442,6 +453,13 @@ func (t TaskStatus) IsActive() bool {
 	default:
 		return false
 	}
+}
+
+// IsCompleted is true once every unit of the task succeeded: SWAPPING
+// (completion callbacks in flight) or FINISHED. FAILED/CANCELLED tasks are
+// terminal but NOT completed — their units' work cannot be assumed done.
+func (t TaskStatus) IsCompleted() bool {
+	return t == TaskStatusSwapping || t == TaskStatusFinished
 }
 
 // IsCoordinationPhase is true for the post-units, pre-terminal phases

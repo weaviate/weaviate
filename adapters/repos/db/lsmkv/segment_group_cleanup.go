@@ -660,58 +660,72 @@ func (c *segmentCleanerCommon) cleanupOnceEditOps(shouldAbort cyclemanager.Shoul
 		return false, true, nil
 	}
 
-	// Take the first pending segment; group its rows so it is rewritten once even
-	// when several ops have it pending (the transformer already covers all ops).
-	segID := pending[0].SegmentID
-	var rows []PendingSegment
+	// Group rows per segment (preserving AllPending order) so each segment is
+	// rewritten once even when several ops have it pending — the transformer
+	// already covers all ops. Only ONE segment is processed per pass (see the
+	// starvation note above); groups whose segment is absent from the live set
+	// are skipped on the way, never completed.
+	bySegment := map[string][]PendingSegment{}
+	var segmentOrder []string
 	for _, p := range pending {
-		if p.SegmentID == segID {
-			rows = append(rows, p)
+		if _, ok := bySegment[p.SegmentID]; !ok {
+			segmentOrder = append(segmentOrder, p.SegmentID)
 		}
+		bySegment[p.SegmentID] = append(bySegment[p.SegmentID], p)
 	}
 
-	idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
-	if cerr != nil {
-		if errors.Is(cerr, errCleanupPaused) || errors.Is(cerr, errCleanupAborted) {
-			// Memory pressure (pause) or a cycle-manager abort (e.g. shutdown):
-			// stop without bumping attempts so a transient pause/abort can't push a
-			// healthy segment toward quarantine. The heuristic path keeps no attempt
-			// counter, so this matches its free-retry behaviour.
-			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
-				Warnf("edit-ops cleanup interrupted before completing segment %q (not counted as a failed attempt): %v", segID, cerr)
+	for _, segID := range segmentOrder {
+		rows := bySegment[segID]
+		idx, tmpPath, found, cerr := c.cleanPendingSegmentToTmp(segID, transformer, shouldAbort)
+		if cerr != nil {
+			if errors.Is(cerr, errCleanupPaused) || errors.Is(cerr, errCleanupAborted) {
+				// Memory pressure (pause) or a cycle-manager abort (e.g. shutdown):
+				// stop without bumping attempts so a transient pause/abort can't push a
+				// healthy segment toward quarantine. The heuristic path keeps no attempt
+				// counter, so this matches its free-retry behaviour.
+				c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+					Warnf("edit-ops cleanup interrupted before completing segment %q (not counted as a failed attempt): %v", segID, cerr)
+				return false, true, nil
+			}
+			if e := c.bumpOrQuarantine(rows, cerr); e != nil {
+				return false, true, e
+			}
 			return false, true, nil
 		}
-		if e := c.bumpOrQuarantine(rows, cerr); e != nil {
-			return false, true, e
+		if !found {
+			// A pending row for a segment absent from the live set. NEVER mark it
+			// done: compaction and cleanup are serialized on this group's single
+			// goroutine and RecordCompaction migrates rows transactionally, so this
+			// is not a concurrent merge's leftover — it means the live set is being
+			// dismantled under us (shard shutdown mid-pass, reachable since tenant
+			// deactivation stopped waiting for cleanups) or the row is stale after
+			// a crash. Marking it done would drain the op's pending set and let the
+			// drop finalize without stripping this segment's data. Skip it; the
+			// load-time Recover prunes rows for segments truly gone from disk.
+			c.sg.logger.WithField("action", "lsm_cleanup_editops").WithField("path", c.sg.dir).
+				Warnf("edit-ops cleanup: pending segment %q is not in the live set; skipping it, NOT marking it done", segID)
+			continue
 		}
-		return false, true, nil
-	}
-	if !found {
-		// No longer in the live segment set (merged away by a concurrent
-		// compaction); drop the stale rows.
+
+		// idx still points at segID. Safe today only because compaction and cleanup
+		// are serialized on this segment group's single goroutine and flush is
+		// append-only, so no index-shifting op interleaves between the consistent view
+		// in cleanPendingSegmentToTmp and this swap. Re-validate by ID so a future
+		// scheduling change (e.g. moving cleanup to its own cycle) fails loudly here
+		// instead of swapping the wrong segment.
+		if !c.sg.segmentAtPositionHasID(idx, segID) {
+			return false, true, fmt.Errorf(
+				"edit-ops cleanup: segment at position %d is no longer %q; aborting swap", idx, segID)
+		}
+		if _, e := c.sg.replaceSegment(idx, tmpPath); e != nil {
+			return false, true, fmt.Errorf("replace cleaned segment: %w", e)
+		}
 		if e := c.markRowsDone(rows); e != nil {
-			return false, true, e
+			return true, true, e
 		}
 		return true, true, nil
 	}
-
-	// idx still points at segID. Safe today only because compaction and cleanup
-	// are serialized on this segment group's single goroutine and flush is
-	// append-only, so no index-shifting op interleaves between the consistent view
-	// in cleanPendingSegmentToTmp and this swap. Re-validate by ID so a future
-	// scheduling change (e.g. moving cleanup to its own cycle) fails loudly here
-	// instead of swapping the wrong segment.
-	if !c.sg.segmentAtPositionHasID(idx, segID) {
-		return false, true, fmt.Errorf(
-			"edit-ops cleanup: segment at position %d is no longer %q; aborting swap", idx, segID)
-	}
-	if _, e := c.sg.replaceSegment(idx, tmpPath); e != nil {
-		return false, true, fmt.Errorf("replace cleaned segment: %w", e)
-	}
-	if e := c.markRowsDone(rows); e != nil {
-		return true, true, e
-	}
-	return true, true, nil
+	return false, true, nil
 }
 
 // cleanPendingSegmentToTmp locates the segment by id and rewrites it (minus keys

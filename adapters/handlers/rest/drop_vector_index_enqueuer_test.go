@@ -14,6 +14,8 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,10 +33,33 @@ import (
 type fakeReconcileEnqueuer struct {
 	active   map[string]bool // "collection/target" -> in-flight
 	enqueued []string        // "collection/target"
+	listed   int             // ListDistributedTasks calls (one per round)
 }
 
-func (f *fakeReconcileEnqueuer) HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error) {
-	return f.active[collection+"/"+targetVector], nil
+func (f *fakeReconcileEnqueuer) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	f.listed++
+	var tasks []*distributedtask.Task
+	i := 0
+	for key, inFlight := range f.active {
+		if !inFlight {
+			continue
+		}
+		collection, target, _ := strings.Cut(key, "/")
+		b, err := json.Marshal(db.DropVectorIndexTaskPayload{
+			Collection: collection, Targets: []string{target}, OpID: fmt.Sprintf("op-%d", i),
+		})
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, &distributedtask.Task{
+			Namespace:      db.DropVectorIndexNamespace,
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: fmt.Sprintf("t-%d", i), Version: uint64(i + 1)},
+			Payload:        b,
+			Status:         distributedtask.TaskStatusStarted,
+		})
+		i++
+	}
+	return map[string][]*distributedtask.Task{db.DropVectorIndexNamespace: tasks}, nil
 }
 
 func (f *fakeReconcileEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
@@ -61,6 +86,30 @@ func TestReconcile_EnqueuesMissingTasks(t *testing.T) {
 
 	require.ElementsMatch(t, []string{"A/v1", "B/v2"}, enq.enqueued,
 		"every dropped marker without a live task is enqueued; non-dropped vectors are skipped")
+	require.Equal(t, 1, enq.listed,
+		"the round fetches the task list once, not once per marker")
+}
+
+// listErrEnqueuer fails the round's task-list fetch; nothing may be enqueued
+// on unknown in-flight state.
+type listErrEnqueuer struct {
+	*fakeReconcileEnqueuer
+}
+
+func (f *listErrEnqueuer) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	return nil, fmt.Errorf("no leader")
+}
+
+func TestReconcile_ListError_SkipsRound(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	classes := []*models.Class{
+		{Class: "A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+	}
+	enq := &listErrEnqueuer{fakeReconcileEnqueuer: &fakeReconcileEnqueuer{active: map[string]bool{}}}
+
+	reconcileDroppedVectorIndexes(context.Background(), classes, enq, logger)
+
+	require.Empty(t, enq.enqueued, "an unreadable task list must skip the round, not enqueue blind")
 }
 
 func TestReconcile_SkipsClassesWithLiveTasks(t *testing.T) {
@@ -82,9 +131,9 @@ type probeRecordingEnqueuer struct {
 	probed *bool
 }
 
-func (p *probeRecordingEnqueuer) HasActiveDrop(ctx context.Context, collection, targetVector string) (bool, error) {
+func (p *probeRecordingEnqueuer) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
 	*p.probed = true
-	return p.fakeReconcileEnqueuer.HasActiveDrop(ctx, collection, targetVector)
+	return p.fakeReconcileEnqueuer.ListDistributedTasks(ctx)
 }
 
 // orderLister records whether the schema was read before or after the probe.
@@ -127,6 +176,7 @@ func TestReconciliationAtStartup_ReadsSchemaAfterProbe(t *testing.T) {
 
 type fakeClusterDropClient struct {
 	tasks        map[string][]*distributedtask.Task
+	listErr      error
 	gotNamespace string
 	gotTaskID    string
 	gotPayload   any
@@ -134,6 +184,9 @@ type fakeClusterDropClient struct {
 }
 
 func (f *fakeClusterDropClient) ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	return f.tasks, nil
 }
 
@@ -336,4 +389,281 @@ func TestEnqueueDropVectorIndex_PayloadSurvivesClusterMarshal(t *testing.T) {
 	require.NotEmpty(t, p.OpID)
 	require.Equal(t, "node1", p.UnitToNode["shard1__node1"])
 	require.Equal(t, "shard1", p.UnitToShard["shard1__node1"])
+}
+
+// epochTask builds a drop task record for target "v1" with the given epoch,
+// raft version, status, own units, and inherited cleaned set.
+func epochTask(t *testing.T, collection, id, epoch string, version uint64,
+	status distributedtask.TaskStatus, unitShards, cleaned []string,
+) *distributedtask.Task {
+	t.Helper()
+	unitToShard := map[string]string{}
+	for i, shard := range unitShards {
+		unitToShard[fmt.Sprintf("%s__u%d", shard, i)] = shard
+	}
+	b, err := json.Marshal(db.DropVectorIndexTaskPayload{
+		Collection: collection, Targets: []string{"v1"}, OpID: "op-" + id,
+		UnitToShard: unitToShard, DropEpochID: epoch, CleanedShards: cleaned,
+	})
+	require.NoError(t, err)
+	return &distributedtask.Task{
+		Namespace:      db.DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: version},
+		Payload:        b,
+		Status:         status,
+	}
+}
+
+func corruptRecordTask(id string) *distributedtask.Task {
+	return &distributedtask.Task{
+		Namespace:      db.DropVectorIndexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 99},
+		Payload:        []byte("not json"),
+		Status:         distributedtask.TaskStatusFinished,
+	}
+}
+
+func decodeEnqueuedPayload(t *testing.T, cluster *fakeClusterDropClient) db.DropVectorIndexTaskPayload {
+	t.Helper()
+	raw, err := json.Marshal(cluster.gotPayload)
+	require.NoError(t, err)
+	var p db.DropVectorIndexTaskPayload
+	require.NoError(t, json.Unmarshal(raw, &p))
+	return p
+}
+
+func TestSameTargetSet(t *testing.T) {
+	tests := []struct {
+		a, b []string
+		want bool
+	}{
+		{[]string{"v1"}, []string{"v1"}, true},
+		{[]string{"v1", "v2"}, []string{"v2", "v1"}, true},
+		{[]string{"v1"}, []string{"v2"}, false},
+		{[]string{"v1"}, []string{"v1", "v2"}, false},
+		{[]string{"v1", "v2"}, []string{"v1", "v1"}, false}, // multiplicities matter
+		{[]string{"v1"}, []string{"V1"}, false},             // case-sensitive identifiers
+		{nil, nil, true},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.want, db.SameTargetSet(tt.a, tt.b), "%v vs %v", tt.a, tt.b)
+	}
+}
+
+// TestEnqueueDropVectorIndex_TaskListError_Surfaces: coverage inheritance
+// cannot be computed without the task list; enqueueing blind could re-clean or
+// mint a wrong epoch, so the error surfaces for the caller to retry.
+func TestEnqueueDropVectorIndex_TaskListError_Surfaces(t *testing.T) {
+	cluster := &fakeClusterDropClient{listErr: fmt.Errorf("no leader")}
+	state := &fakeShardingState{state: shardingState(false, map[string]sharding.Physical{
+		"s1": {BelongsToNodes: []string{"n1"}},
+	})}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+	err := enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"})
+	require.Error(t, err)
+	require.Empty(t, cluster.gotTaskID)
+}
+
+// NOTE on the grown-shard-set re-drop hazard: given a STALE record (a
+// finalized previous drop of a re-created name) plus a shard created since,
+// this enqueuer's fence alone would mis-inherit — the state is locally
+// indistinguishable from an in-progress chain. Soundness comes from upstream:
+// the schema FSM purges the previous drop's records in the same raft apply
+// that introduces a new marker (see
+// TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords and the
+// re-drop e2e), so stale records cannot exist next to a marker they don't
+// belong to.
+
+// TestEnqueueDropVectorIndex_CoverageInheritance pins the chain rules: inherit
+// cleaned-shard coverage only from completed same-epoch tasks of an INCOMPLETE
+// chain — a complete chain next to a marker is a closed epoch's residue
+// (re-created then re-dropped name, or a missed finalize) and must start a
+// fresh epoch with a full re-clean. Cleaned shards get no unit; when every
+// active shard is cleaned and the remainder is inactive, nothing is enqueued.
+func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	cold := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusCOLD, BelongsToNodes: nodes}
+	}
+	fin := distributedtask.TaskStatusFinished
+
+	tests := []struct {
+		name        string
+		tasks       []*distributedtask.Task
+		shards      map[string]sharding.Physical
+		nonMT       bool
+		wantEpoch   string // "" = fresh (must differ from every recorded epoch)
+		wantCleaned []string
+		wantUnits   map[string]string
+		wantNoTask  bool
+	}{
+		{
+			name:        "incomplete chain: inherit coverage, skip cleaned shards",
+			tasks:       []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1")},
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2"},
+		},
+		{
+			// The P0 re-create pin: a chain that covers every current shard can
+			// only be a finalized (closed) epoch's residue — trusting it would
+			// finalize a re-dropped name with nothing stripped.
+			name:      "complete chain is closed-epoch residue: fresh epoch, full re-clean",
+			tasks:     []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil)},
+			shards:    map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch: "",
+			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
+		},
+		{
+			name: "active same-epoch task contributes nothing",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
+				epochTask(t, "C", "t2", "E1", 2, distributedtask.TaskStatusStarted, []string{"s2"}, nil),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1")},
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
+		},
+		{
+			name: "FAILED task contributes nothing",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
+				epochTask(t, "C", "t2", "E1", 2, distributedtask.TaskStatusFailed, []string{"s2"}, nil),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1")},
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
+		},
+		{
+			name: "coverage does not cross epochs",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil),
+				epochTask(t, "C", "t2", "E2", 2, fin, []string{"s2"}, nil),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch:   "E2",
+			wantCleaned: []string{"s2"},
+			wantUnits:   map[string]string{"s1__n1": "s1"},
+		},
+		{
+			name: "current epoch picked by raft version, not record order",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t2", "E2", 7, fin, []string{"s2"}, nil),
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch:   "E2",
+			wantCleaned: []string{"s2"},
+			wantUnits:   map[string]string{"s1__n1": "s1"},
+		},
+		{
+			name:      "chain-less records (older nodes or aged out) start a fresh epoch",
+			tasks:     []*distributedtask.Task{epochTask(t, "C", "t1", "", 1, fin, []string{"s1"}, nil)},
+			shards:    map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch: "",
+			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
+		},
+		{
+			name:      "foreign collection records are ignored",
+			tasks:     []*distributedtask.Task{epochTask(t, "Other", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil)},
+			shards:    map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+			wantEpoch: "",
+			wantUnits: map[string]string{"s1__n1": "s1", "s2__n1": "s2"},
+		},
+		{
+			// Rule-9 pin for TaskStatus.IsCompleted's SWAPPING half at this level.
+			name: "SWAPPING earlier task's coverage is inherited",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, distributedtask.TaskStatusSwapping, []string{"s1"}, nil),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1")},
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2"},
+		},
+		{
+			name: "corrupt records are skipped, not fatal",
+			tasks: []*distributedtask.Task{
+				corruptRecordTask("bad"),
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1")},
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2"},
+		},
+		{
+			name: "inherited coverage is pruned to current shards",
+			tasks: []*distributedtask.Task{
+				// sDeleted's tenant is gone; it must not ride along in payloads forever.
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, []string{"sDeleted"}),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": cold("n1")},
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2"},
+		},
+		{
+			name: "a node whose every shard is cleaned gets no units",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1", "s2"}, nil),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n2"), "s4": cold("n2")},
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1", "s2"},
+			wantUnits:   map[string]string{"s3__n2": "s3"},
+		},
+		{
+			// Non-MT shards carry no tenant status; the chain rules apply the same.
+			name:        "non-MT collection: incomplete chain inherits and skips cleaned",
+			tasks:       []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
+			shards:      map[string]sharding.Physical{"s1": {BelongsToNodes: []string{"n1"}}, "s2": {BelongsToNodes: []string{"n1"}}},
+			nonMT:       true,
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2"},
+		},
+		{
+			name:       "all active shards cleaned, remainder cold: defer without a task",
+			tasks:      []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
+			shards:     map[string]sharding.Physical{"s1": hot("n1"), "s2": cold("n1")},
+			wantNoTask: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+				db.DropVectorIndexNamespace: tt.tasks,
+			}}
+			state := &fakeShardingState{state: shardingState(!tt.nonMT, tt.shards)}
+			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+			require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+			if tt.wantNoTask {
+				require.Empty(t, cluster.gotTaskID, "nothing may be enqueued")
+				return
+			}
+			p := decodeEnqueuedPayload(t, cluster)
+			if tt.wantEpoch == "" {
+				require.NotEmpty(t, p.DropEpochID)
+				for _, task := range tt.tasks {
+					prev, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
+					require.NoError(t, err)
+					require.NotEqual(t, prev.DropEpochID, p.DropEpochID,
+						"a fresh epoch must not continue any recorded epoch")
+				}
+			} else {
+				require.Equal(t, tt.wantEpoch, p.DropEpochID)
+			}
+			require.Equal(t, tt.wantCleaned, p.CleanedShards)
+			require.Equal(t, tt.wantUnits, p.UnitToShard)
+		})
+	}
 }

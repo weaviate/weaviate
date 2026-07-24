@@ -24,58 +24,23 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// Persist should dump all necessary state to the WriteCloser 'sink',
-// and call sink.Close() when finished or call sink.Cancel() on error.
-func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
+// fsmSnapshot is the raft.FSMSnapshot the Store hands to raft: every sub-FSM's
+// state, already serialized, captured inside Store.Snapshot.
+type fsmSnapshot struct {
+	snap fsm.Snapshot
+}
+
+// Persist encodes the frozen state captured at Snapshot time to 'sink'. It
+// runs concurrently with later applies and therefore must not read the live
+// managers: doing so would produce a snapshot NEWER than its raft index and
+// torn across sub-FSMs (each manager read at a different instant). Replaying
+// log entries over a restored torn snapshot flips the apply verdicts that
+// read DTM state (the drop-vector marker purge-refusal and removal gate) on
+// the restoring node only — silent per-node schema divergence.
+func (s *fsmSnapshot) Persist(sink raft.SnapshotSink) (err error) {
 	defer sink.Close()
-	schemaSnapshot, err := s.schemaManager.SchemaSnapshot()
-	if err != nil {
-		return fmt.Errorf("schema snapshot: %w", err)
-	}
-
-	aliasSnapshot, err := s.schemaManager.AliasSnapshot()
-	if err != nil {
-		return fmt.Errorf("alias snapshot: %w", err)
-	}
-
-	rbacSnapshot, err := s.authZManager.Snapshot()
-	if err != nil {
-		return fmt.Errorf("rbac snapshot: %w", err)
-	}
-
-	dbUserSnapshot, err := s.dynUserManager.Snapshot()
-	if err != nil {
-		return fmt.Errorf("db user snapshot: %w", err)
-	}
-
-	namespacesSnapshot, err := s.namespaceManager.Snapshot()
-	if err != nil {
-		return fmt.Errorf("namespaces snapshot: %w", err)
-	}
-
-	tasksSnapshot, err := s.distributedTasksManager.Snapshot()
-	if err != nil {
-		return fmt.Errorf("tasks snapshot: %w", err)
-	}
-
-	replicationSnapshot, err := s.replicationManager.Snapshot()
-	if err != nil {
-		return fmt.Errorf("replication snapshot: %w", err)
-	}
-
-	snap := fsm.Snapshot{
-		NodeID:           s.cfg.NodeID,
-		SnapshotID:       sink.ID(),
-		Schema:           schemaSnapshot,
-		Aliases:          aliasSnapshot,
-		RBAC:             rbacSnapshot,
-		DbUsers:          dbUserSnapshot,
-		Namespaces:       namespacesSnapshot,
-		DistributedTasks: tasksSnapshot,
-		ReplicationOps:   replicationSnapshot,
-		ClusterID:        s.ClusterID(),
-	}
-	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
+	s.snap.SnapshotID = sink.ID()
+	if err := json.NewEncoder(sink).Encode(&s.snap); err != nil {
 		return fmt.Errorf("encode: %w", err)
 	}
 
@@ -84,24 +49,67 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 
 // Release is invoked when we are finished with the snapshot.
 // Satisfy the interface for raft.FSMSnapshot
-func (s *Store) Release() {
+func (s *fsmSnapshot) Release() {
 }
 
 // Snapshot returns an FSMSnapshot used to: support log compaction, to
 // restore the FSM to a previous state, or to bring out-of-date followers up
 // to a recent log index.
 //
-// The Snapshot implementation should return quickly, because Apply can not
-// be called while Snapshot is running. Generally this means Snapshot should
-// only capture a pointer to the state, and any expensive IO should happen
-// as part of FSMSnapshot.Persist.
-//
-// Apply and Snapshot are always called from the same thread, but Apply will
-// be called concurrently with FSMSnapshot.Persist. This means the FSM should
-// be implemented to allow for concurrent updates while a snapshot is happening.
+// Apply and Snapshot run on the same thread, so capturing every sub-FSM here
+// yields a consistent cut at the snapshot's raft index (see fsmSnapshot.Persist
+// for why deferring the capture to Persist is unsafe). Each sub-snapshot
+// serializes in-memory state under its manager's lock — quick enough for the
+// apply thread; the actual sink IO stays in Persist.
 func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
-	st.log.Info("persisting snapshot")
-	return st, nil
+	st.log.Info("capturing snapshot")
+
+	schemaSnapshot, err := st.schemaManager.SchemaSnapshot()
+	if err != nil {
+		return nil, fmt.Errorf("schema snapshot: %w", err)
+	}
+
+	aliasSnapshot, err := st.schemaManager.AliasSnapshot()
+	if err != nil {
+		return nil, fmt.Errorf("alias snapshot: %w", err)
+	}
+
+	rbacSnapshot, err := st.authZManager.Snapshot()
+	if err != nil {
+		return nil, fmt.Errorf("rbac snapshot: %w", err)
+	}
+
+	dbUserSnapshot, err := st.dynUserManager.Snapshot()
+	if err != nil {
+		return nil, fmt.Errorf("db user snapshot: %w", err)
+	}
+
+	namespacesSnapshot, err := st.namespaceManager.Snapshot()
+	if err != nil {
+		return nil, fmt.Errorf("namespaces snapshot: %w", err)
+	}
+
+	tasksSnapshot, err := st.distributedTasksManager.Snapshot()
+	if err != nil {
+		return nil, fmt.Errorf("tasks snapshot: %w", err)
+	}
+
+	replicationSnapshot, err := st.replicationManager.Snapshot()
+	if err != nil {
+		return nil, fmt.Errorf("replication snapshot: %w", err)
+	}
+
+	return &fsmSnapshot{snap: fsm.Snapshot{
+		NodeID:           st.cfg.NodeID,
+		Schema:           schemaSnapshot,
+		Aliases:          aliasSnapshot,
+		RBAC:             rbacSnapshot,
+		DbUsers:          dbUserSnapshot,
+		Namespaces:       namespacesSnapshot,
+		DistributedTasks: tasksSnapshot,
+		ReplicationOps:   replicationSnapshot,
+		ClusterID:        st.ClusterID(),
+	}}, nil
 }
 
 // Restore is used to restore an FSM from a snapshot. It is not called

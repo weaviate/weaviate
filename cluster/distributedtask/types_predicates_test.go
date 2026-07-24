@@ -67,6 +67,32 @@ func TestTaskStatus_IsActive(t *testing.T) {
 	}
 }
 
+// TestTaskStatus_IsCompleted pins the every-unit-succeeded classification:
+// SWAPPING (completion callbacks in flight) and FINISHED are completed;
+// FAILED/CANCELLED are terminal but NOT completed — their units' work cannot
+// be assumed done, so e.g. drop-vector coverage inheritance must ignore them.
+func TestTaskStatus_IsCompleted(t *testing.T) {
+	cases := []struct {
+		status    TaskStatus
+		completed bool
+	}{
+		{TaskStatusStarted, false},
+		{TaskStatusPreparing, false},
+		{TaskStatusSwapping, true},
+		{TaskStatusFinished, true},
+		{TaskStatusFailed, false},
+		{TaskStatusCancelled, false},
+		{TaskStatus("UNKNOWN_FUTURE_STATE"), false},
+		{TaskStatus(""), false},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.status), func(t *testing.T) {
+			assert.Equal(t, tc.completed, tc.status.IsCompleted(),
+				"%q.IsCompleted() should be %v", tc.status, tc.completed)
+		})
+	}
+}
+
 // TestTaskStatus_IsCoordinationPhase pins the PREPARING/SWAPPING
 // classification used by the scheduler's bootstrap pre-mark logic
 // (`preMarkTerminalCallbacksLocked`) — every task in a coordination

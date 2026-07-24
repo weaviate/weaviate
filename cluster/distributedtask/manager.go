@@ -14,8 +14,10 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,6 +65,7 @@ type Manager struct {
 	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
 	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors map[string]CollectionExtractor
+	targetExtractors     map[string]TargetExtractor
 
 	completedTaskTTL time.Duration
 
@@ -157,7 +160,7 @@ func (m *Manager) CheckTenantMutation(className string, tenants []string) error 
 // that also implements [VectorConfigRemovalGate]. Called from the schema FSM's
 // UpdateClass apply; a non-nil error rejects the update. Same RAFT-determinism
 // contract as [Manager.CheckClassMutation].
-func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors []string) error {
+func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors, shards []string) error {
 	if len(removedVectors) == 0 {
 		return nil
 	}
@@ -172,7 +175,7 @@ func (m *Manager) CheckVectorConfigRemoval(className string, removedVectors []st
 		for _, t := range m.tasks[namespace] {
 			existing = append(existing, t)
 		}
-		if err := gate.CheckVectorConfigRemoval(className, removedVectors, existing); err != nil {
+		if err := gate.CheckVectorConfigRemoval(className, removedVectors, shards, existing); err != nil {
 			return err
 		}
 	}
@@ -245,6 +248,7 @@ func NewManager(params ManagerParameters) *Manager {
 	return &Manager{
 		tasks:                make(map[string]map[string]*Task),
 		collectionExtractors: make(map[string]CollectionExtractor),
+		targetExtractors:     make(map[string]TargetExtractor),
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
@@ -263,6 +267,93 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
+}
+
+// RegisterTargetExtractor opts a task namespace into
+// PurgeTasksForCollectionTargets. Same contract as RegisterCollectionExtractor.
+func (m *Manager) RegisterTargetExtractor(namespace string, extractor TargetExtractor) {
+	if namespace == "" || extractor == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetExtractors[namespace] = extractor
+}
+
+// ErrTaskStillActiveForTargets means PurgeTasksForCollectionTargets found an
+// ACTIVE task bound to the given (collection, targets) and deleted nothing.
+var ErrTaskStillActiveForTargets = errors.New("a task bound to these targets is still active")
+
+// PurgeTasksForCollectionTargets drops NON-ACTIVE tasks whose payload binds to
+// `collection` (case-insensitively, like every other consumer of these
+// payloads) and overlaps `targets`, in namespaces with a registered target
+// extractor. Called deterministically from the schema FSM when a new
+// drop-vector marker is introduced, so the previous drop of a re-created name
+// leaves no records for coverage inheritance or removal vouching to
+// misattribute to the new drop. An ACTIVE match aborts with
+// [ErrTaskStillActiveForTargets] and deletes NOTHING: active tasks must keep
+// the scheduler's running handles consistent (the previous drop's task can
+// still be SWAPPING for a moment after its finalize removed the old marker),
+// and such a survivor next to a fresh marker would seed stale coverage
+// inheritance — the caller must refuse the marker introduction and let the
+// client retry once the task settles. NOTE: SWAPPING normally lasts
+// milliseconds, but a node that dies before delivering its post-completion
+// ack holds SWAPPING indefinitely (finalize waits for every node, CancelTask
+// accepts only STARTED, the TTL pruner skips active tasks) — until that is
+// operable, only DeleteClass clears such a wedge.
+func (m *Manager) PurgeTasksForCollectionTargets(collection string, targets []string) ([]TaskDescriptor, error) {
+	if collection == "" || len(targets) == 0 {
+		return nil, nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	targetSet := make(map[string]struct{}, len(targets))
+	for _, t := range targets {
+		targetSet[t] = struct{}{}
+	}
+	type match struct {
+		namespace, taskID string
+		desc              TaskDescriptor
+	}
+	var matches []match
+	for namespace, tasksByID := range m.tasks {
+		extractor, ok := m.targetExtractors[namespace]
+		if !ok || extractor == nil {
+			continue
+		}
+		for taskID, task := range tasksByID {
+			c, taskTargets, ok := extractor(task.Payload)
+			// EqualFold: collection names are case-insensitive identifiers, and a
+			// byte-exact purge would be strictly weaker than the EqualFold
+			// inheritance match whose soundness leans on it.
+			if !ok || !strings.EqualFold(c, collection) {
+				continue
+			}
+			overlaps := false
+			for _, t := range taskTargets {
+				if _, ok := targetSet[t]; ok {
+					overlaps = true
+					break
+				}
+			}
+			if !overlaps {
+				continue
+			}
+			if task.Status.IsActive() {
+				return nil, fmt.Errorf("%w: task %s/%s (status %s)",
+					ErrTaskStillActiveForTargets, namespace, taskID, task.Status)
+			}
+			matches = append(matches, match{namespace: namespace, taskID: taskID, desc: task.TaskDescriptor})
+		}
+	}
+	var removed []TaskDescriptor
+	for _, hit := range matches {
+		delete(m.tasks[hit.namespace], hit.taskID)
+		removed = append(removed, hit.desc)
+	}
+	return removed, nil
 }
 
 // DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
@@ -1030,6 +1121,11 @@ func (m *Manager) Restore(bytes []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// The FSM contract (see Store.Restore) requires discarding all previous
+	// state: merging would resurrect tasks the snapshot's producer deleted
+	// (e.g. records purged on a drop-vector marker introduction), and this
+	// node alone would then refuse applies its peers accept.
+	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {

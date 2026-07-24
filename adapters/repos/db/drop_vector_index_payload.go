@@ -14,6 +14,7 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -34,6 +35,67 @@ type DropVectorIndexTaskPayload struct {
 	// same unit ID to the shard it covers. One unit per (shard, node).
 	UnitToNode  map[string]string `json:"unitToNode"`
 	UnitToShard map[string]string `json:"unitToShard"`
+
+	// DropEpochID scopes CleanedShards to one drop of the name: a re-created
+	// then re-dropped vector must not inherit the previous drop's coverage.
+	// Empty on payloads from older nodes (treated as chain-less).
+	DropEpochID string `json:"dropEpochId,omitempty"`
+	// CleanedShards are shards cleaned by the epoch's earlier tasks; the
+	// task's own UnitToShard is not included (readers use CoveredShards).
+	//
+	// Single-task coverage invariant: the enqueuer writes the FULL union of the
+	// epoch's completed earlier tasks into every new task (RAFT serializes
+	// same-target tasks), so one completed task's CoveredShards is the epoch's
+	// total coverage as of its enqueue. Finalize and the removal gate rely on
+	// this and read a single task — they never union across records.
+	CleanedShards []string `json:"cleanedShards,omitempty"`
+}
+
+// SameTargetSet reports whether two target lists contain the same names with
+// the same multiplicities (exact case — target vector names are case-sensitive
+// identifiers). Shared by the enqueuer's coverage inheritance and the
+// conflict-time inheritance guard, which must agree on what "same drop" means.
+func SameTargetSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[string]int, len(a))
+	for _, t := range a {
+		counts[t]++
+	}
+	for _, t := range b {
+		counts[t]--
+		if counts[t] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// ShardsNotCovered returns the shards absent from covered, sorted.
+func ShardsNotCovered(shards []string, covered map[string]struct{}) []string {
+	var missing []string
+	for _, shard := range shards {
+		if _, ok := covered[shard]; !ok {
+			missing = append(missing, shard)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+// CoveredShards returns the shards this task accounts for: its own units plus
+// the inherited cleaned set. The single reader-side union (see the
+// CleanedShards invariant above).
+func (p *DropVectorIndexTaskPayload) CoveredShards() map[string]struct{} {
+	covered := make(map[string]struct{}, len(p.UnitToShard)+len(p.CleanedShards))
+	for _, shard := range p.UnitToShard {
+		covered[shard] = struct{}{}
+	}
+	for _, shard := range p.CleanedShards {
+		covered[shard] = struct{}{}
+	}
+	return covered
 }
 
 func (p *DropVectorIndexTaskPayload) encode() ([]byte, error) {
@@ -68,6 +130,19 @@ func decodeDropVectorIndexPayload(data []byte) (*DropVectorIndexTaskPayload, err
 		return nil, fmt.Errorf("drop-vector-index payload missing opId")
 	}
 	return &p, nil
+}
+
+// ExtractDropVectorIndexTaskTargets is the target extractor registered with
+// the DTM Manager so a NEW drop's marker introduction can purge the previous
+// drop's task records for the same (collection, target) — stale records must
+// not exist while a marker they don't belong to stands, or coverage
+// inheritance could adopt them. ok is false on an unparseable payload.
+func ExtractDropVectorIndexTaskTargets(payload []byte) (collection string, targets []string, ok bool) {
+	p, err := decodeDropVectorIndexPayload(payload)
+	if err != nil {
+		return "", nil, false
+	}
+	return p.Collection, p.Targets, true
 }
 
 // ExtractDropVectorIndexTaskCollection is the collection extractor registered
