@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -307,6 +308,13 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	}
 
 	if _, err = h.schemaManager.UpdateClass(ctx, class, nil); err != nil {
+		// The FSM's retryable refusals (e.g. the previous drop of this name is
+		// still completing) arrive wrapped in the cluster-layer bad-request
+		// sentinel; translate to the domain sentinel so the REST handler
+		// answers 422, not 500.
+		if errors.Is(err, clusterSchema.ErrBadRequest) {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
 		return err
 	}
 

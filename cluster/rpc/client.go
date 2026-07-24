@@ -23,6 +23,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -362,7 +363,11 @@ func fromRPCError(err error) error {
 		}
 	case codes.InvalidArgument:
 		if strings.Contains(msg, namespaces.ErrBadRequest.Error()) {
-			return errors.Join(err, namespaces.ErrBadRequest)
+			// namespaces.ErrBadRequest and clusterSchema.ErrBadRequest share the
+			// exact "bad request" message, so the wire cannot discriminate —
+			// rebuild both; every downstream errors.Is check classifies its own
+			// sentinel to a 4xx either way.
+			return errors.Join(err, namespaces.ErrBadRequest, clusterSchema.ErrBadRequest)
 		}
 	default:
 		// All other codes pass through unchanged.

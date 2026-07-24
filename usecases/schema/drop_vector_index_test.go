@@ -14,10 +14,12 @@ package schema
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -73,6 +75,24 @@ func TestDeleteClassVectorIndex_FreshDrop_SetsMarkerAndEnqueues(t *testing.T) {
 	sm.AssertCalled(t, "UpdateClass", mock.Anything, mock.Anything)
 	require.Equal(t, [][]string{{"foo"}}, enq.enqueued)
 	require.Equal(t, []string{"C"}, enq.enqueuedAt)
+}
+
+// TestDeleteClassVectorIndex_FSMRefusal_SurfacesAsValidation pins the error
+// translation: the FSM's retryable marker refusal ("previous drop still
+// completing", wrapped in clusterSchema.ErrBadRequest) must surface as
+// ErrValidation so the REST handler answers 422, not 500.
+func TestDeleteClassVectorIndex_FSMRefusal_SurfacesAsValidation(t *testing.T) {
+	cls := classWithVectors(map[string]models.VectorConfig{
+		"foo": {VectorIndexType: "hnsw"},
+	})
+	h, sm, enq := newDropVectorHandler(t, cls)
+	sm.On("UpdateClass", mock.Anything, mock.Anything).
+		Return(fmt.Errorf("%w: a previous drop of [foo] on \"C\" is still completing; retry", clusterSchema.ErrBadRequest))
+
+	err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrValidation)
+	require.Empty(t, enq.enqueued, "no cleanup may be enqueued for a refused marker")
 }
 
 func TestDeleteClassVectorIndex_ReTrigger_SameTarget_Active_NoOp(t *testing.T) {

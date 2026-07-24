@@ -763,13 +763,15 @@ func TestOnGroupCompleted_VerifyTolerantOfLeaderBlips(t *testing.T) {
 	require.Len(t, shards.removed, 1)
 }
 
-// TestOnGroupCompleted_VerifyMemoizedPerTaskVersion: a restart replays one
-// group completion per tenant against the same task version; the verify is
-// per-task-invariant and must cost one leader read, not one per tenant. A
-// version bump (any task mutation, e.g. the finalize that could remove the
-// marker) invalidates the memo.
-func TestOnGroupCompleted_VerifyMemoizedPerTaskVersion(t *testing.T) {
-	shards := &fakeShards{}
+// TestOnGroupCompleted_VerifyMemoizedPerTask: one group completion fires per
+// tenant; the verify is task-invariant while the task lives, so it must cost
+// one leader read, not one per tenant. OnTaskCompleted ends the
+// group-callback phase and evicts the memo (CleanupTask is a dead path here —
+// GetLocalTasks returns nil), so a post-restart replay of the completion
+// against a finalized + re-created name re-verifies instead of trusting a
+// stale "still dropped".
+func TestOnGroupCompleted_VerifyMemoizedPerTask(t *testing.T) {
+	shards := &fakeShards{bucket: &fakeEditOpBucket{}}
 	p := newTestDropProvider(shards, &fakeFinalizer{}, newFakeRecorder())
 	reader := &fakeShardingReader{shards: []string{"shard1"}}
 	p.sharding = reader
@@ -777,18 +779,23 @@ func TestOnGroupCompleted_VerifyMemoizedPerTaskVersion(t *testing.T) {
 	task := dropTask(distributedtask.TaskStatusFinished, nil)
 	require.NoError(t, p.OnGroupCompleted(task, "tenant1", []string{"u1"}))
 	require.NoError(t, p.OnGroupCompleted(task, "tenant2", []string{"u1"}))
-	require.Equal(t, 1, reader.readClassCalls, "same version: replayed completions share one verify")
+	require.Equal(t, 1, reader.readClassCalls, "per-tenant completions share one verify")
 
-	// Finalized + re-created after a version bump: the memo must not serve the
-	// stale "still dropped" verdict, or a replay would delete the live index.
+	require.NoError(t, p.OnTaskCompleted(task))
+	require.NotContains(t, p.verifiedStillDropped, task.ID,
+		"task completion ends the group-callback phase and must evict the memo")
+
+	// Replayed completion after the eviction, target re-created since: a fresh
+	// verify must run and see the live index, not a memoized verdict.
 	reader.vectorCfg = map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}}
+	before := reader.readClassCalls
 	shards.removed = nil
-	task.Version++
-	require.NoError(t, p.OnGroupCompleted(task, "tenant3", []string{"u1"}))
-	require.Equal(t, 2, reader.readClassCalls, "a version bump forces a fresh verify")
+	require.NoError(t, p.OnGroupCompleted(task, "tenant1", []string{"u1"}))
+	require.Greater(t, reader.readClassCalls, before, "the replay re-verifies")
 	require.Empty(t, shards.removed, "the fresh verify sees the re-created index")
 
-	// CleanupTask evicts the memo entry.
+	// CleanupTask stays as a belt eviction.
+	require.NoError(t, p.OnGroupCompleted(task, "tenant2", []string{"u1"}))
 	require.NoError(t, p.CleanupTask(task.TaskDescriptor))
 	require.NotContains(t, p.verifiedStillDropped, task.ID)
 }
@@ -1172,12 +1179,6 @@ func finishedDropTask(id, collection string, targets ...string) *distributedtask
 	return t
 }
 
-func swappingDropTask(id, collection string, targets ...string) *distributedtask.Task {
-	t := activeDropTask(id, collection, targets...)
-	t.Status = distributedtask.TaskStatusSwapping
-	return t
-}
-
 func corruptDropTask(id string, status distributedtask.TaskStatus) *distributedtask.Task {
 	return &distributedtask.Task{
 		Namespace:      DropVectorIndexNamespace,
@@ -1218,40 +1219,40 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	t.Run("finished task never vouches (stale-record replay safety)", func(t *testing.T) {
 		// A FINISHED record outlives finalize by the task TTL; after a
 		// re-create + re-drop it would remove the new drop's marker.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"},
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1", "v2")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "only the completing cleanup task")
 	})
 
 	t.Run("collection matches case-insensitively, target exact-case only", func(t *testing.T) {
-		require.NoError(t, p.CheckVectorConfigRemoval("c", []string{"v1"}, nil,
-			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")}),
+		require.NoError(t, p.CheckVectorConfigRemoval("c", []string{"v1"}, []string{"s1"},
+			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")}),
 			"collection names are case-insensitive")
-		require.Error(t, p.CheckVectorConfigRemoval("C", []string{"V1"}, nil,
-			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")}),
+		require.Error(t, p.CheckVectorConfigRemoval("C", []string{"V1"}, []string{"s1"},
+			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")}),
 			"a case-differing sibling is a DIFFERENT vector; a voucher for v1 must not vouch for V1")
 	})
 
 	t.Run("swapping task covering the vector allows removal", func(t *testing.T) {
 		// OnTaskCompleted fires at SWAPPING; rejecting it self-blocks the finalizer.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
-			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")})
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"},
+			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")})
 		require.NoError(t, err)
 	})
 
 	t.Run("corrupt swapping task does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"},
 			[]*distributedtask.Task{corruptDropTask("t1", distributedtask.TaskStatusSwapping)})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "only the completing cleanup task")
 	})
 
 	t.Run("corrupt active task does not block a valid voucher", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"},
 			[]*distributedtask.Task{
 				corruptDropTask("t1", distributedtask.TaskStatusStarted),
-				swappingDropTask("t2", "C", "v1"),
+				swappingDropTaskCovering("t2", "C", []string{"s1"}, "v1"),
 			})
 		require.NoError(t, err)
 	})
@@ -1273,18 +1274,18 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 
 	t.Run("no task at all rejects removal (manual PATCH to skip cleanup)", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil)
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"}, nil)
 		require.Error(t, err)
 	})
 
 	t.Run("finished task on a different collection does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"},
 			[]*distributedtask.Task{finishedDropTask("t1", "Other", "v1")})
 		require.Error(t, err)
 	})
 
 	t.Run("finished task not covering the vector does not vouch", func(t *testing.T) {
-		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1"},
 			[]*distributedtask.Task{finishedDropTask("t1", "C", "v9")})
 		require.Error(t, err)
 	})
@@ -1292,14 +1293,29 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	t.Run("every removed vector must be covered", func(t *testing.T) {
 		// v1 has a valid voucher and passes; the rejection must come from v2,
 		// which no task covers.
-		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"}, nil,
-			[]*distributedtask.Task{swappingDropTask("t1", "C", "v1")})
+		err := p.CheckVectorConfigRemoval("C", []string{"v1", "v2"}, []string{"s1"},
+			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `"v2"`)
 	})
 
 	t.Run("empty removal list is a no-op", func(t *testing.T) {
 		require.NoError(t, p.CheckVectorConfigRemoval("C", nil, nil, nil))
+	})
+
+	t.Run("empty shard set allows removal (MT with every tenant deleted)", func(t *testing.T) {
+		// With no shards there is no data to strand, no active shard to ever
+		// enqueue a cleanup for, and thus no SWAPPING voucher forthcoming —
+		// requiring one would wedge the marker until a dummy tenant or
+		// DeleteClass.
+		require.NoError(t, p.CheckVectorConfigRemoval("C", []string{"v1"}, nil, nil))
+		require.NoError(t, p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+			[]*distributedtask.Task{finishedDropTask("t1", "C", "v1")}),
+			"stale records do not block the tenant-less removal")
+		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, nil,
+			[]*distributedtask.Task{activeDropTask("t1", "C", "v1")})
+		require.Error(t, err, "a still-active cleanup blocks removal even with no shards")
+		require.Contains(t, err.Error(), "still active")
 	})
 
 	// Coverage half of the gate: a completed task vouches only if its units

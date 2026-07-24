@@ -73,8 +73,11 @@ type MutationGuard interface {
 	CheckTenantMutation(className string, tenants []string) error
 
 	// CheckVectorConfigRemoval gates removal of dropped ("none") VectorConfig
-	// entries on a completed cleanup task that covered every shard in shards.
-	// Returns non-nil to reject.
+	// entries: only the completing cleanup task's in-flight (SWAPPING)
+	// finalize vouches, and only when it covers every shard in shards —
+	// the collection's shard set from the FSM state being applied (the
+	// coverage baseline; FINISHED records never vouch). Returns non-nil to
+	// reject.
 	CheckVectorConfigRemoval(className string, removedVectors, shards []string) error
 }
 
@@ -490,16 +493,28 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// a marker they don't belong to, or coverage inheritance and removal
 		// vouching could misattribute them to the new drop. An introduction next
 		// to a still-ACTIVE previous task (SWAPPING for a moment after its
-		// finalize) is refused instead — deterministic and retryable, the window
-		// closes when the task flips FINISHED. This is the LAST reject path:
-		// purging is a mutation, so no later check may fail the apply or the
-		// records would be gone from a rejected update.
+		// finalize) is refused instead — deterministic and, normally, promptly
+		// retryable; but a node that dies before delivering its post-completion
+		// ack holds SWAPPING indefinitely, and then only DeleteClass clears the
+		// refusal (finalize waits for every node, CancelTask accepts only
+		// STARTED, the TTL pruner skips active tasks).
+		//
+		// LAST reject path — nothing between here and the meta assignments may
+		// fail the apply: purging is a mutation, and this closure edits the live
+		// metaClass with no rollback, so a later reject would strand a purge
+		// from an update that never applied. (Moving the purge below the
+		// assignments is no safer: the refusal above must not fire after the
+		// meta was already mutated.)
 		if s.distributedTaskManager != nil {
 			if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
 				removed, err := s.distributedTaskManager.PurgeTasksForCollectionTargets(meta.Class.Class, introduced)
-				if err != nil {
+				if errors.Is(err, distributedtask.ErrTaskStillActiveForTargets) {
 					return fmt.Errorf("%w: a previous drop of %v on %q is still completing; retry: %w",
 						ErrBadRequest, introduced, meta.Class.Class, err)
+				} else if err != nil {
+					// Not the retryable refusal — surface as internal, not 4xx.
+					return fmt.Errorf("purge previous drop's task records for %v on %q: %w",
+						introduced, meta.Class.Class, err)
 				}
 				if len(removed) > 0 {
 					s.log.WithField("class", meta.Class.Class).
@@ -547,6 +562,16 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 // introducedDroppedVectorConfigs returns the names of VectorConfig entries that
 // are dropped ("none") in next but were live or absent in prev — i.e. markers
 // this update introduces.
+// DropVectorMarkerPurgeMinVersion is the minimum cluster version at which a
+// drop-vector marker introduction is safe to accept: the record purge/refusal
+// in the UpdateClass apply is new behavior, so a mixed-version cluster
+// diverges on the same log entry (a pre-purge node neither purges nor
+// refuses). The S19 rolling-upgrade gate (#11901) MUST consume this constant
+// to fence marker introductions until every node runs at least this version —
+// it exists so the release dependency is code-visible, not PR-description
+// prose.
+const DropVectorMarkerPurgeMinVersion = "1.39.0"
+
 func introducedDroppedVectorConfigs(prev, next *models.Class) []string {
 	var introduced []string
 	for name, cfg := range next.VectorConfig {

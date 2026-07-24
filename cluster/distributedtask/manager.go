@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -284,7 +285,8 @@ func (m *Manager) RegisterTargetExtractor(namespace string, extractor TargetExtr
 var ErrTaskStillActiveForTargets = errors.New("a task bound to these targets is still active")
 
 // PurgeTasksForCollectionTargets drops NON-ACTIVE tasks whose payload binds to
-// `collection` and overlaps `targets`, in namespaces with a registered target
+// `collection` (case-insensitively, like every other consumer of these
+// payloads) and overlaps `targets`, in namespaces with a registered target
 // extractor. Called deterministically from the schema FSM when a new
 // drop-vector marker is introduced, so the previous drop of a re-created name
 // leaves no records for coverage inheritance or removal vouching to
@@ -294,7 +296,11 @@ var ErrTaskStillActiveForTargets = errors.New("a task bound to these targets is 
 // still be SWAPPING for a moment after its finalize removed the old marker),
 // and such a survivor next to a fresh marker would seed stale coverage
 // inheritance — the caller must refuse the marker introduction and let the
-// client retry once the task settles.
+// client retry once the task settles. NOTE: SWAPPING normally lasts
+// milliseconds, but a node that dies before delivering its post-completion
+// ack holds SWAPPING indefinitely (finalize waits for every node, CancelTask
+// accepts only STARTED, the TTL pruner skips active tasks) — until that is
+// operable, only DeleteClass clears such a wedge.
 func (m *Manager) PurgeTasksForCollectionTargets(collection string, targets []string) ([]TaskDescriptor, error) {
 	if collection == "" || len(targets) == 0 {
 		return nil, nil
@@ -319,7 +325,10 @@ func (m *Manager) PurgeTasksForCollectionTargets(collection string, targets []st
 		}
 		for taskID, task := range tasksByID {
 			c, taskTargets, ok := extractor(task.Payload)
-			if !ok || c != collection {
+			// EqualFold: collection names are case-insensitive identifiers, and a
+			// byte-exact purge would be strictly weaker than the EqualFold
+			// inheritance match whose soundness leans on it.
+			if !ok || !strings.EqualFold(c, collection) {
 				continue
 			}
 			overlaps := false
