@@ -415,22 +415,26 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 	// reallocates ports across stop+start.
 
 	// Post-restart baseline: every replica still serves the
-	// already-migrated buckets correctly.
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		uri := restURIOf(compose, nodeIdx)
-		gotPrice, err := rangeCount(uri, className, "price", priceLo, priceHi)
-		require.NoError(t, err)
-		require.Equalf(t, expectedPriceCount, gotPrice,
-			"post-restart node %d price = %d (expected %d) — restart corrupted the rangeable bucket", nodeIdx, gotPrice, expectedPriceCount)
-		gotCat, err := equalCount(uri, className, "category", categories[0])
-		require.NoError(t, err)
-		require.Equalf(t, expectedCatCount, gotCat,
-			"post-restart node %d category = %d (expected %d) — restart corrupted the filterable bucket", nodeIdx, gotCat, expectedCatCount)
-		gotPath, err := equalCount(uri, className, "path", paths[0])
-		require.NoError(t, err)
-		require.Equalf(t, expectedPathCount, gotPath,
-			"post-restart node %d path = %d (expected %d) — restart corrupted the searchable bucket", nodeIdx, gotPath, expectedPathCount)
-	}
+	// already-migrated buckets correctly. Poll (50ms) — a just-cycled node
+	// can transiently EOF a query before its graphql endpoint is serving;
+	// a genuine bucket corruption stays wrong past the timeout.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			uri := restURIOf(compose, nodeIdx)
+			gotPrice, err := rangeCount(uri, className, "price", priceLo, priceHi)
+			assert.NoError(c, err)
+			assert.Equalf(c, expectedPriceCount, gotPrice,
+				"post-restart node %d price = %d (expected %d) — restart corrupted the rangeable bucket", nodeIdx, gotPrice, expectedPriceCount)
+			gotCat, err := equalCount(uri, className, "category", categories[0])
+			assert.NoError(c, err)
+			assert.Equalf(c, expectedCatCount, gotCat,
+				"post-restart node %d category = %d (expected %d) — restart corrupted the filterable bucket", nodeIdx, gotCat, expectedCatCount)
+			gotPath, err := equalCount(uri, className, "path", paths[0])
+			assert.NoError(c, err)
+			assert.Equalf(c, expectedPathCount, gotPath,
+				"post-restart node %d path = %d (expected %d) — restart corrupted the searchable bucket", nodeIdx, gotPath, expectedPathCount)
+		}
+	}, 30*time.Second, 50*time.Millisecond)
 
 	// === Phase 8-final equivalent: re-apply migrations as a
 	// repeat-forward. Use three concurrent rebuild-style ops on the
@@ -502,9 +506,18 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		}
 	}, 30*time.Second, 50*time.Millisecond)
 
-	// LB-side 3-call stability spot check.
+	// LB-side 3-call stability spot check. Retry a transient post-restart
+	// read (graphql briefly unavailable on a just-cycled node) so only a
+	// real count mismatch — a flap — fails.
 	for i := 0; i < 3; i++ {
-		gotPath, err := equalCount(restURIOf(compose, 1), className, "path", paths[0])
+		var gotPath int
+		var err error
+		for a := 0; a < 5; a++ {
+			if gotPath, err = equalCount(restURIOf(compose, 1), className, "path", paths[0]); err == nil {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
 		require.NoError(t, err)
 		assert.Equalf(t, expectedPathCount, gotPath,
 			"GH #212 Issue G regression: post-restart LB-side path call #%d = %d (expected %d)",
