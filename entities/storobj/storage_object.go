@@ -506,7 +506,6 @@ func objectsByDocIDParallelInner(bucket bucket, lookup secondaryLookup, ids []ui
 	}
 
 	if includeEmpty {
-		// Positions are meaningful: nils indicate missing objects; do not compact.
 		return out, nil
 	}
 
