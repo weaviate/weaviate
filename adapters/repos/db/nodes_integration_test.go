@@ -43,9 +43,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func TestNodesAPI_Journey(t *testing.T) {
-	dirName := t.TempDir()
-
+// newNodesTestRepo builds a started single-node repo with the mock plumbing
+// the nodes API tests share; Shutdown is registered on t.Cleanup.
+func newNodesTestRepo(t *testing.T) (*DB, *fakeSchemaGetter, *Migrator) {
+	t.Helper()
 	logger := logrus.New()
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
@@ -71,7 +72,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
 		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
+		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
@@ -80,9 +81,12 @@ func TestNodesAPI_Journey(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
+	t.Cleanup(func() { repo.Shutdown(context.Background()) })
+	return repo, schemaGetter, NewMigrator(repo, logger, "node1")
+}
 
-	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger, "node1")
+func TestNodesAPI_Journey(t *testing.T) {
+	repo, schemaGetter, migrator := newNodesTestRepo(t)
 
 	// check nodes api response on empty DB
 	nodeStatues, err := repo.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
@@ -179,45 +183,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 // GetNodeStatus must count only the queried class. A regression to node-wide
 // aggregation would leak other classes' counts to a scoped /nodes caller.
 func TestNodesAPI_ByClassScopesStats(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
-		class := &models.Class{Class: className}
-		return readFunc(class, shardState)
-	}).Maybe()
-	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
-	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
-	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	repo, err := New(logger, "node1", Config{
-		ServerVersion:             "server-version",
-		GitHash:                   "git-hash",
-		MemtablesFlushDirtyAfter:  60,
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-
-	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger, "node1")
+	repo, schemaGetter, migrator := newNodesTestRepo(t)
 
 	newClass := func(name string) *models.Class {
 		return &models.Class{
