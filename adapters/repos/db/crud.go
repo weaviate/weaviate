@@ -225,6 +225,11 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	props search.SelectProperties, additional additional.Properties, tenant string,
 ) (*search.Result, error) {
+	if !props.HasRefs() {
+		// No ref select-properties: nothing for the resolver to do.
+		return obj, nil
+	}
+
 	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenant)).
 		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {
