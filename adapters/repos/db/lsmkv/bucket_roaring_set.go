@@ -16,6 +16,7 @@ import (
 	"errors"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -128,12 +129,29 @@ func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitma
 	return b.roaringSetGetFromConsistentView(ctx, view, key)
 }
 
+// RoaringSetGetFromView reads key using a caller-held BucketConsistentView,
+// skipping the per-call GetConsistentView()/ReleaseView() pair (RLock +
+// disk-segment pinning) that RoaringSetGet performs on every invocation.
+// Intended for callers that read many keys from the same bucket in one
+// logical operation: call GetConsistentView() once, pass the result to every
+// RoaringSetGetFromView call, then call view.ReleaseView() exactly once when
+// done.
+func (b *Bucket) RoaringSetGetFromView(
+	ctx context.Context, view BucketConsistentView, key []byte,
+) (bm *sroar.Bitmap, release func(), err error) {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return nil, noopRelease, err
+	}
+
+	return b.roaringSetGetFromConsistentView(ctx, view, key)
+}
+
 func (b *Bucket) roaringSetGetFromConsistentView(
 	ctx context.Context, view BucketConsistentView, key []byte,
 ) (bm *sroar.Bitmap, release func(), err error) {
 	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
-	layers, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
+	diskLayer, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
 	if err != nil {
 		return nil, noopRelease, err
 	}
@@ -146,6 +164,12 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 		}
 	}()
 
+	// Fold the disk-flattened layer with the flushing and active memtable layers
+	// one at a time, chronologically oldest first, instead of materializing a
+	// []BitmapLayer. diskLayer.Additions is the pooled base (with headroom), so
+	// the memtable layers merge into it in place.
+	merger := roaringset.NewLayerMerger(diskLayer.Additions, false, maxConc)
+
 	if view.Flushing != nil {
 		flushing, flushErr := view.Flushing.roaringSetGet(key)
 		if flushErr != nil {
@@ -154,7 +178,7 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 				return nil, noopRelease, err
 			}
 		} else {
-			layers = append(layers, flushing)
+			merger.Add(flushing)
 		}
 	}
 
@@ -165,8 +189,8 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 			return nil, noopRelease, err
 		}
 	} else {
-		layers = append(layers, activeBM)
+		merger.Add(activeBM)
 	}
 
-	return layers.Flatten(false, maxConc), diskRelease, nil
+	return merger.Result(), diskRelease, nil
 }

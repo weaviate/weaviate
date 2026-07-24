@@ -850,9 +850,9 @@ func TestValidateBufferRanges(t *testing.T) {
 	}
 }
 
-func TestBitmapBufPoolTracking_Get(t *testing.T) {
+func TestBitmapBufPoolTrackingForTests_Get(t *testing.T) {
 	t.Run("outstanding increments on Get and decrements on release", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 		assert.Equal(t, int64(0), pool.Outstanding())
 
 		_, rel1 := pool.Get(64)
@@ -869,7 +869,7 @@ func TestBitmapBufPoolTracking_Get(t *testing.T) {
 	})
 
 	t.Run("release zeroes backing buffer", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 		buf, release := pool.Get(64)
 		// Write into the backing array through the cap slice.
 		full := buf[:cap(buf)]
@@ -887,16 +887,16 @@ func TestBitmapBufPoolTracking_Get(t *testing.T) {
 	})
 
 	t.Run("double release panics", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 		_, release := pool.Get(64)
 		release()
 		assert.Panics(t, release)
 	})
 }
 
-func TestBitmapBufPoolTracking_CloneToBuf(t *testing.T) {
+func TestBitmapBufPoolTrackingForTests_CloneToBuf(t *testing.T) {
 	t.Run("outstanding increments on CloneToBuf and decrements on release", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 
 		bm := sroar.NewBitmap()
 		bm.SetMany([]uint64{1, 2, 3})
@@ -910,7 +910,7 @@ func TestBitmapBufPoolTracking_CloneToBuf(t *testing.T) {
 	})
 
 	t.Run("release zeroes cloned bitmap backing buffer", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 
 		bm := sroar.NewBitmap()
 		bm.SetMany([]uint64{10, 20, 30})
@@ -929,5 +929,82 @@ func TestBitmapBufPoolTracking_CloneToBuf(t *testing.T) {
 				t.Errorf("buf[%d] = %d after release, want 0", i, b)
 			}
 		}
+	})
+}
+
+// TestPooledBitmapStructReuse pins the pooled-entry Bitmap contract: the
+// clone paths hand out the entry's embedded struct (re-initialized per
+// checkout, not allocated), the struct cycles with its buffer, and a bitmap
+// that grew past its buffer cannot leak state into the next checkout.
+func TestPooledBitmapStructReuse(t *testing.T) {
+	// syncMaxBufSize 0 puts every range on the channel-backed in-memory
+	// pools, which reuse entries deterministically — sync.Pool guarantees no
+	// steady-state allocation but NOT entry identity across cycles (and the
+	// race detector deliberately randomizes it), so the pointer-identity
+	// assertions below need the channel pools.
+	newRanged := func() *bitmapBufPoolRanged {
+		return NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+	}
+
+	src := sroar.NewBitmap()
+	src.SetMany([]uint64{1, 2, 3, 100_000})
+	serialized := src.ToBufferWithCopy()
+
+	t.Run("same struct across checkout cycles", func(t *testing.T) {
+		pool := newRanged()
+		bm1, put1 := pool.CloneBytesToBuf(serialized)
+		require.Equal(t, src.ToArray(), bm1.ToArray())
+		put1()
+		bm2, put2 := pool.CloneBytesToBuf(serialized)
+		defer put2()
+		require.Equal(t, src.ToArray(), bm2.ToArray())
+		assert.Same(t, bm1, bm2, "the pooled entry's embedded Bitmap must be reused, not reallocated")
+	})
+
+	t.Run("CloneToBuf uses the embedded struct too", func(t *testing.T) {
+		pool := newRanged()
+		bm1, put1 := pool.CloneToBuf(src)
+		require.Equal(t, src.ToArray(), bm1.ToArray())
+		put1()
+		bm2, put2 := pool.CloneToBuf(src)
+		defer put2()
+		assert.Same(t, bm1, bm2)
+	})
+
+	t.Run("factor wrapper preserves entry reuse", func(t *testing.T) {
+		pool := NewBitmapBufPoolFactorWrapper(newRanged(), 1.5)
+		bm1, put1 := pool.CloneBytesToBuf(serialized)
+		put1()
+		bm2, put2 := pool.CloneBytesToBuf(serialized)
+		defer put2()
+		assert.Same(t, bm1, bm2)
+	})
+
+	t.Run("growth past the buffer cannot corrupt the next checkout", func(t *testing.T) {
+		pool := newRanged()
+		bm1, put1 := pool.CloneBytesToBuf(serialized)
+		// Force the bitmap to outgrow the pooled buffer: sroar migrates its
+		// data to the heap internally.
+		for i := uint64(0); i < 100_000; i += 7 {
+			bm1.Set(i)
+		}
+		put1()
+		bm2, put2 := pool.CloneBytesToBuf(serialized)
+		defer put2()
+		require.Equal(t, src.ToArray(), bm2.ToArray(),
+			"reused entry must reflect only the new clone, not the grown bitmap")
+	})
+
+	t.Run("clone allocates nothing steady-state", func(t *testing.T) {
+		pool := newRanged()
+		// warm the pool entry
+		_, put := pool.CloneBytesToBuf(serialized)
+		put()
+		allocs := testing.AllocsPerRun(100, func() {
+			bm, put := pool.CloneBytesToBuf(serialized)
+			_ = bm.GetCardinality()
+			put()
+		})
+		assert.Zero(t, allocs, "pooled clone must reuse both buffer and Bitmap struct")
 	})
 }

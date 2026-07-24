@@ -21,6 +21,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -64,17 +65,32 @@ var Tokenizations []string = []string{
 }
 
 func init() {
-	numParallel := runtime.GOMAXPROCS(0)
-	numParallelStr := os.Getenv("TOKENIZER_CONCURRENCY_COUNT")
-	if numParallelStr != "" {
-		x, err := strconv.Atoi(numParallelStr)
-		if err == nil {
-			numParallel = x
-		}
-	}
-	ApacTokenizerThrottle = make(chan struct{}, numParallel)
+	ApacTokenizerThrottle = make(chan struct{}, throttleCapacity(os.Getenv("TOKENIZER_CONCURRENCY_COUNT")))
 	InitOptionalTokenizers()
 	customTokenizers = sync.Map{}
+}
+
+// throttleCapacity computes the ApacTokenizerThrottle capacity from the
+// TOKENIZER_CONCURRENCY_COUNT env value. Non-numeric values and values below
+// 1 are rejected with a warning and fall back to runtime.GOMAXPROCS(0), like
+// an unset variable: a capacity-0 channel would deadlock the first
+// tokenization (an acquire with no holder to ever release it), and make
+// panics on a negative capacity.
+func throttleCapacity(envValue string) int {
+	fallback := runtime.GOMAXPROCS(0)
+	if envValue == "" {
+		return fallback
+	}
+	x, err := strconv.Atoi(envValue)
+	if err != nil {
+		logrus.StandardLogger().Warnf("invalid TOKENIZER_CONCURRENCY_COUNT %q, using default %d: %v", envValue, fallback, err)
+		return fallback
+	}
+	if x < 1 {
+		logrus.StandardLogger().Warnf("invalid TOKENIZER_CONCURRENCY_COUNT %d, must be at least 1, using default %d", x, fallback)
+		return fallback
+	}
+	return x
 }
 
 func InitOptionalTokenizers() {
@@ -155,175 +171,248 @@ func init_gse_ch() error {
 	return nil
 }
 
-func TokenizeForClass(tokenization string, in string, class string) []string {
-	tokenizer, ok := customTokenizers.Load(class)
-	if tokenization == models.PropertyTokenizationKagomeKr && ok && tokenizer.(*KagomeTokenizers).Korean != nil {
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
-	} else if tokenization == models.PropertyTokenizationKagomeJa && ok && tokenizer.(*KagomeTokenizers).Japanese != nil {
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizer.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
-	} else {
-		return Tokenize(tokenization, in)
+// boundTokenizerMetrics holds the prometheus handles for one tokenization
+// label, resolved once. WithLabelValues performs a registry lookup (label
+// hashing plus a locked map access) on every call; hot paths tokenize once
+// per value, so the handles are bound once per label and cached instead.
+type boundTokenizerMetrics struct {
+	duration         prometheus.Observer
+	tokenCount       prometheus.Counter
+	tokensPerRequest prometheus.Observer
+}
+
+// record writes one tokenization's worth of metrics: n tokens produced over
+// dur. The single home for the metric triplet, shared by the per-value and
+// batch recorders.
+func (m *boundTokenizerMetrics) record(dur time.Duration, n int) {
+	m.duration.Observe(dur.Seconds())
+	m.tokenCount.Add(float64(n))
+	m.tokensPerRequest.Observe(float64(n))
+}
+
+var boundMetricsByLabel sync.Map // tokenization label → *boundTokenizerMetrics
+
+func metricsFor(label string) *boundTokenizerMetrics {
+	if m, ok := boundMetricsByLabel.Load(label); ok {
+		return m.(*boundTokenizerMetrics)
+	}
+	// Cold path: first call for this label (or a concurrent first-call race).
+	// LoadOrStore evaluates its value argument eagerly, so a losing racer
+	// builds a second struct — harmless: WithLabelValues is idempotent (both
+	// structs wrap the identical prometheus children), the loser is garbage,
+	// and this runs at most a handful of times per process.
+	mon := monitoring.GetMetrics()
+	m, _ := boundMetricsByLabel.LoadOrStore(label, &boundTokenizerMetrics{
+		duration:         mon.TokenizerDuration.WithLabelValues(label),
+		tokenCount:       mon.TokenCount.WithLabelValues(label),
+		tokensPerRequest: mon.TokenCountPerRequest.WithLabelValues(label),
+	})
+	return m.(*boundTokenizerMetrics)
+}
+
+// timed runs tokenize on in (appending to dst) and records duration and
+// token counts under label. All tokenization metrics are recorded here or at
+// a batch's per-batch equivalent — the tokenizeXxx kernels contain pure
+// logic. The recorded count is the appended delta, so it stays correct for
+// any dst. Callers that bypass a tokenizer's dispatch guard (disabled
+// tokenizer, nil kagome instance) must return before timed so early-outs
+// stay unrecorded.
+func timed(label string, in string, dst []string, tokenize func(string, []string) []string) []string {
+	start := time.Now()
+	ret := tokenize(in, dst)
+	metricsFor(label).record(time.Since(start), len(ret)-len(dst))
+	return ret
+}
+
+// resolveTokenizer performs tokenization dispatch once: it maps a
+// tokenization (and, for the kagome tokenizations, the class's custom
+// user-dictionary tokenizer) to its append-style kernel, so batch callers
+// pay the switch, guard checks, and custom-tokenizer lookup once instead of
+// per value.
+//
+// fn == nil means the tokenization is unknown or its tokenizer is
+// unavailable (disabled gse, uninitialized kagome); callers emit empty
+// results. throttled reports that ApacTokenizerThrottle must be held around
+// kernel invocations.
+func resolveTokenizer(tokenization string, class string) (fn func(string, []string) []string, throttled bool) {
+	switch tokenization {
+	case models.PropertyTokenizationWord:
+		return tokenizeWord, false
+	case models.PropertyTokenizationLowercase:
+		return tokenizeLowercase, false
+	case models.PropertyTokenizationWhitespace:
+		return tokenizeWhitespace, false
+	case models.PropertyTokenizationField:
+		return tokenizeField, false
+	case models.PropertyTokenizationTrigram:
+		return tokenizetrigram, false
+	case models.PropertyTokenizationGse:
+		if !UseGse {
+			return nil, false
+		}
+		return tokenizeGSE, true
+	case models.PropertyTokenizationGseCh:
+		if !UseGseCh {
+			return nil, false
+		}
+		return tokenizeGseCh, true
+	case models.PropertyTokenizationKagomeKr:
+		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Korean != nil {
+			return func(in string, dst []string) []string {
+				return tokenizeKagome(custom.(*KagomeTokenizers).Korean, kagomeTokenizer.Normal, in, dst)
+			}, true
+		}
+		if tokenizers.Korean == nil {
+			return nil, false
+		}
+		return func(in string, dst []string) []string {
+			return tokenizeKagome(tokenizers.Korean, kagomeTokenizer.Normal, in, dst)
+		}, true
+	case models.PropertyTokenizationKagomeJa:
+		if custom, ok := customTokenizers.Load(class); ok && custom.(*KagomeTokenizers).Japanese != nil {
+			return func(in string, dst []string) []string {
+				return tokenizeKagome(custom.(*KagomeTokenizers).Japanese, kagomeTokenizer.Search, in, dst)
+			}, true
+		}
+		if tokenizers.Japanese == nil {
+			return nil, false
+		}
+		return func(in string, dst []string) []string {
+			return tokenizeKagome(tokenizers.Japanese, kagomeTokenizer.Search, in, dst)
+		}, true
+	default:
+		return nil, false
 	}
 }
 
+// TokenizeForClass tokenizes like [Tokenize], except that the kagome
+// tokenizations consult the class's custom user-dictionary tokenizer first.
+func TokenizeForClass(tokenization string, in string, class string) []string {
+	return tokenizeWithClass(tokenization, in, class)
+}
+
 func Tokenize(tokenization string, in string) []string {
-	switch tokenization {
-	case models.PropertyTokenizationWord:
-		return tokenizeWord(in)
-	case models.PropertyTokenizationLowercase:
-		return tokenizeLowercase(in)
-	case models.PropertyTokenizationWhitespace:
-		return tokenizeWhitespace(in)
-	case models.PropertyTokenizationField:
-		return tokenizeField(in)
-	case models.PropertyTokenizationTrigram:
-		return tokenizetrigram(in)
-	case models.PropertyTokenizationGse:
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeGSE(in)
-	case models.PropertyTokenizationGseCh:
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeGseCh(in)
-	case models.PropertyTokenizationKagomeKr:
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizers.Korean, kagomeTokenizer.Normal, models.PropertyTokenizationKagomeKr, in)
-	case models.PropertyTokenizationKagomeJa:
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
-		return tokenizeKagome(tokenizers.Japanese, kagomeTokenizer.Search, models.PropertyTokenizationKagomeJa, in)
-	default:
+	// no class: kagome resolves to the globally initialized tokenizers
+	return tokenizeWithClass(tokenization, in, "")
+}
+
+func tokenizeWithClass(tokenization string, in string, class string) []string {
+	fn, throttled := resolveTokenizer(tokenization, class)
+	if fn == nil {
 		return []string{}
 	}
+	if throttled {
+		ApacTokenizerThrottle <- struct{}{}
+		defer func() { <-ApacTokenizerThrottle }()
+	}
+	// seeding dst with an empty (zero-byte, non-nil) slice keeps the public
+	// contract of a non-nil result even when no tokens are appended
+	return timed(tokenization, in, []string{}, fn)
 }
 
 func TokenizeWithWildcardsForClass(tokenization string, in string, class string) []string {
 	switch tokenization {
 	case models.PropertyTokenizationWord:
-		return tokenizeWordWithWildcards(in)
+		return timed("word_with_wildcards", in, []string{}, tokenizeWordWithWildcards)
 	case models.PropertyTokenizationTrigram:
-		return tokenizetrigramWithWildcards(in)
+		return timed("trigram_with_wildcards", in, []string{}, tokenizetrigramWithWildcards)
 	default:
 		return TokenizeForClass(tokenization, in, class)
 	}
 }
 
-func removeEmptyStrings(terms []string) []string {
-	for i := 0; i < len(terms); i++ {
-		if terms[i] == "" || terms[i] == " " {
-			terms = append(terms[:i], terms[i+1:]...)
-			i--
+// appendNonEmpty appends terms to dst, dropping the empty and single-space
+// entries the gse and kagome tokenizers produce in their library output.
+func appendNonEmpty(dst []string, terms []string) []string {
+	for _, term := range terms {
+		if term == "" || term == " " {
+			continue
 		}
+		dst = append(dst, term)
 	}
-	return terms
+	return dst
 }
 
-// tokenizeField trims white spaces
-// (former DataTypeString/Field)
-func tokenizeField(in string) []string {
-	startTime := time.Now()
-	ret := []string{strings.TrimFunc(in, unicode.IsSpace)}
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("field").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("field").Add(float64(len(ret)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("field").Observe(float64(len(ret)))
-	return ret
+// Tokenizer kernels share one append-style signature,
+// func(in string, dst []string) []string: tokens are appended to dst and the
+// grown slice returned. Batch callers reuse one buffer across many values so
+// per-value token materialization costs nothing; single-value callers seed
+// dst with an empty slice (a zero-byte allocation) and get a freshly
+// allocated, never-nil result. Kernels whose splitter already
+// produces a ready-made slice return it directly when dst has no capacity,
+// sparing single-value callers the extra append copy.
+
+// tokenizeField trims white spaces; the whole trimmed input is the one and
+// only token (former DataTypeString/Field)
+func tokenizeField(in string, dst []string) []string {
+	return append(dst, strings.TrimFunc(in, unicode.IsSpace))
 }
 
 // tokenizeWhitespace splits on white spaces, does not alter casing
 // (former DataTypeString/Word)
-func tokenizeWhitespace(in string) []string {
-	startTime := time.Now()
-	ret := strings.FieldsFunc(in, unicode.IsSpace)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("whitespace").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("whitespace").Add(float64(len(ret)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("whitespace").Observe(float64(len(ret)))
-	return ret
+func tokenizeWhitespace(in string, dst []string) []string {
+	fields := strings.FieldsFunc(in, unicode.IsSpace)
+	if cap(dst) == 0 {
+		return fields
+	}
+	return append(dst, fields...)
 }
 
 // tokenizeLowercase splits on white spaces and lowercases the words
-func tokenizeLowercase(in string) []string {
-	startTime := time.Now()
-	terms := tokenizeWhitespace(in)
-	ret := lowercase(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("lowercase").Observe(float64(time.Since(startTime).Seconds()))
-	return ret
+func tokenizeLowercase(in string, dst []string) []string {
+	prev := len(dst)
+	dst = tokenizeWhitespace(in, dst)
+	lowercase(dst[prev:])
+	return dst
 }
 
 // tokenizeWord splits on any non-alphanumerical and lowercases the words
 // (former DataTypeText/Word)
-func tokenizeWord(in string) []string {
-	startTime := time.Now()
-	terms := strings.FieldsFunc(in, func(r rune) bool {
+func tokenizeWord(in string, dst []string) []string {
+	fields := strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	})
-	ret := lowercase(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("word").Add(float64(len(ret)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("word").Observe(float64(len(ret)))
-	return ret
+	if cap(dst) == 0 {
+		lowercase(fields)
+		return fields
+	}
+	prev := len(dst)
+	dst = append(dst, fields...)
+	lowercase(dst[prev:])
+	return dst
 }
 
 // tokenizetrigram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
-func tokenizetrigram(in string) []string {
-	startTime := time.Now()
+func tokenizetrigram(in string, dst []string) []string {
 	// Strip whitespace and punctuation from the input string
 	inputString := strings.ToLower(strings.Join(strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	}), ""))
 	runes := []rune(inputString)
-	var trirunes [][]rune
 	for i := 0; i < len(runes)-2; i++ {
-		trirunes = append(trirunes, runes[i:i+3])
+		dst = append(dst, string(runes[i:i+3]))
 	}
-
-	var trigrams []string
-	for _, trirune := range trirunes {
-		trigrams = append(trigrams, string(trirune))
-	}
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("trigram").Add(float64(len(trigrams)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("trigram").Observe(float64(len(trigrams)))
-	return trigrams
+	return dst
 }
 
 // tokenizeGSE uses the gse tokenizer to tokenize Japanese
-func tokenizeGSE(in string) []string {
+func tokenizeGSE(in string, dst []string) []string {
 	if !UseGse {
-		return []string{}
+		return dst
 	}
-	startTime := time.Now()
 	gseLock.Lock()
 	defer gseLock.Unlock()
-	terms := gseTokenizer.CutAll(in)
-
-	ret := removeEmptyStrings(terms)
-
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("gse").Add(float64(len(ret)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("gse").Observe(float64(len(ret)))
-	return ret
+	return appendNonEmpty(dst, gseTokenizer.CutAll(in))
 }
 
-// tokenizeGSE uses the gse tokenizer to tokenize Chinese
-func tokenizeGseCh(in string) []string {
+// tokenizeGseCh uses the gse tokenizer to tokenize Chinese
+func tokenizeGseCh(in string, dst []string) []string {
 	if !UseGseCh {
-		return []string{}
+		return dst
 	}
 	gseLock.Lock()
 	defer gseLock.Unlock()
-	startTime := time.Now()
-	terms := gseTokenizerCh.CutAll(in)
-	ret := removeEmptyStrings(terms)
-
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("gse").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("gse").Add(float64(len(ret)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("gse").Observe(float64(len(ret)))
-	return ret
+	return appendNonEmpty(dst, gseTokenizerCh.CutAll(in))
 }
 
 func initializeKagomeTokenizerKr(userDict *models.TokenizerUserDictConfig) (*kagomeTokenizer.Tokenizer, error) {
@@ -371,67 +460,51 @@ func initializeKagomeTokenizer(dictInstance *dict.Dict, userDict *models.Tokeniz
 	return tokenizer, nil
 }
 
-func tokenizeKagome(tokenizer *kagomeTokenizer.Tokenizer, mode kagomeTokenizer.TokenizeMode, label string, in string) []string {
-	if label == models.PropertyTokenizationKagomeJa && tokenizer == nil {
-		return []string{}
+func tokenizeKagome(tokenizer *kagomeTokenizer.Tokenizer, mode kagomeTokenizer.TokenizeMode, in string, dst []string) []string {
+	if tokenizer == nil {
+		return dst
 	}
-	if label == models.PropertyTokenizationKagomeKr && tokenizer == nil {
-		return []string{}
-	}
-	startTime := time.Now()
 	kagomeTokens := tokenizer.Analyze(in, mode)
-	var terms []string
 	for _, token := range kagomeTokens {
 		if extra := token.UserExtra(); extra != nil {
-			terms = append(terms, extra.Tokens...)
-		} else {
-			terms = append(terms, token.Surface)
+			dst = appendNonEmpty(dst, extra.Tokens)
+		} else if token.Surface != "" && token.Surface != " " {
+			dst = append(dst, token.Surface)
 		}
 	}
-
-	ret := removeEmptyStrings(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues(label).Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues(label).Add(float64(len(ret)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues(label).Observe(float64(len(ret)))
-	return ret
+	return dst
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
-func tokenizeWordWithWildcards(in string) []string {
-	startTime := time.Now()
-	terms := strings.FieldsFunc(in, func(r rune) bool {
+func tokenizeWordWithWildcards(in string, dst []string) []string {
+	fields := strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '?' && r != '*'
 	})
-	ret := lowercase(terms)
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("word_with_wildcards").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("word_with_wildcards").Add(float64(len(ret)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("word_with_wildcards").Observe(float64(len(ret)))
-	return ret
+	if cap(dst) == 0 {
+		lowercase(fields)
+		return fields
+	}
+	prev := len(dst)
+	dst = append(dst, fields...)
+	lowercase(dst[prev:])
+	return dst
 }
 
 // tokenizetrigramWithWildcards splits on any non-alphanumerical and lowercases the words, applies any wildcards, then joins them together, then groups them into trigrams
 // this is unlikely to be useful, but is included for completeness
-func tokenizetrigramWithWildcards(in string) []string {
-	startTime := time.Now()
-	terms := tokenizeWordWithWildcards(in)
-	inputString := strings.Join(terms, "")
-	var trigrams []string
+func tokenizetrigramWithWildcards(in string, dst []string) []string {
+	inputString := strings.Join(tokenizeWordWithWildcards(in, nil), "")
 	for i := 0; i < len(inputString)-2; i++ {
-		trigrams = append(trigrams, inputString[i:i+3])
+		dst = append(dst, inputString[i:i+3])
 	}
-	monitoring.GetMetrics().TokenizerDuration.WithLabelValues("trigram_with_wildcards").Observe(float64(time.Since(startTime).Seconds()))
-	monitoring.GetMetrics().TokenCount.WithLabelValues("trigram_with_wildcards").Add(float64(len(trigrams)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("trigram_with_wildcards").Observe(float64(len(trigrams)))
-	return trigrams
+	return dst
 }
 
 func lowercase(terms []string) []string {
 	for i := range terms {
 		terms[i] = strings.ToLower(terms[i])
 	}
-	monitoring.GetMetrics().TokenCount.WithLabelValues("lowercase").Add(float64(len(terms)))
-	monitoring.GetMetrics().TokenCountPerRequest.WithLabelValues("lowercase").Observe(float64(len(terms)))
 	return terms
 }
 

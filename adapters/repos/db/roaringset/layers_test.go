@@ -128,6 +128,75 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 	}
 }
 
+func Test_LayerMerger_MatchesFlatten(t *testing.T) {
+	// A left-fold via LayerMerger (base = first layer's additions, Add the rest
+	// in order) must produce the exact same set as BitmapLayers.Flatten over the
+	// same layers. Reuses Flatten's own cases as the oracle.
+	type inputSegment struct {
+		additions []uint64
+		deletions []uint64
+	}
+
+	tests := []struct {
+		name   string
+		inputs []inputSegment
+	}{
+		{name: "no inputs", inputs: nil},
+		{name: "single segment", inputs: []inputSegment{{additions: []uint64{4, 5}}}},
+		{name: "three segments, only additions", inputs: []inputSegment{
+			{additions: []uint64{4, 5}}, {additions: []uint64{5, 6}}, {additions: []uint64{6, 7, 8}},
+		}},
+		{name: "two segments, including a delete", inputs: []inputSegment{
+			{additions: []uint64{4, 5}}, {additions: []uint64{5, 6}, deletions: []uint64{4}},
+		}},
+		{name: "three segments, delete and re-add", inputs: []inputSegment{
+			{additions: []uint64{3, 4, 5}}, {additions: []uint64{6}, deletions: []uint64{4, 5}}, {additions: []uint64{5}},
+		}},
+	}
+
+	maxConcs := []int{1, 2, concurrency.SROAR_MERGE}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, maxConc := range maxConcs {
+				t.Run(fmt.Sprintf("maxConc=%d", maxConc), func(t *testing.T) {
+					layers := make(BitmapLayers, len(test.inputs))
+					for i, inp := range test.inputs {
+						layers[i].Additions = NewBitmap(inp.additions...)
+						layers[i].Deletions = NewBitmap(inp.deletions...)
+					}
+
+					// oracle: Flatten (clone so it doesn't mutate the layers we
+					// reuse for the merger below)
+					want := layers.Flatten(true, maxConc).ToArray()
+
+					// LayerMerger: seed with base additions, Add the rest
+					var got []uint64
+					if len(layers) == 0 {
+						got = NewLayerMerger(nil, false, maxConc).Result().ToArray()
+					} else {
+						m := NewLayerMerger(layers[0].Additions, true, maxConc)
+						for i := 1; i < len(layers); i++ {
+							m.Add(layers[i])
+						}
+						got = m.Result().ToArray()
+					}
+
+					assert.Equal(t, want, got)
+				})
+			}
+		})
+	}
+}
+
+func Test_LayerMerger_NilBase(t *testing.T) {
+	// nil base (disk miss) folds the memtable layers into a fresh empty bitmap.
+	m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+	m.Add(BitmapLayer{Additions: NewBitmap(1, 2), Deletions: NewBitmap()})
+	m.Add(BitmapLayer{Additions: NewBitmap(3), Deletions: NewBitmap(1)})
+	assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+}
+
 func Test_BitmapLayers_Merge(t *testing.T) {
 	type inputSegment struct {
 		additions []uint64

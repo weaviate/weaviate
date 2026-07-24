@@ -70,10 +70,37 @@ func (sn *SegmentNode) Len() uint64 {
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
+//
+// It returns nil when the node holds no additions (length indicator 0),
+// avoiding the allocation of an empty bitmap. Callers that need a non-nil
+// bitmap must substitute an empty one; sroar's bitmap operations already treat
+// a nil operand as empty.
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil
+	}
+	return sroar.FromBuffer(buf)
+}
+
+// AdditionsCloneToBuf clones the node's additions bitmap into a buffer taken
+// from pool, without materializing an intermediate bitmap over the node's
+// memory first (one bitmap allocation and one container-table parse instead
+// of two). The clone is safe to use and mutate beyond the node's lifetime, up
+// to the pooled buffer's capacity.
+//
+// It returns (nil, nil) when the node holds no additions (length indicator
+// 0) — the release is non-nil exactly when the bitmap is.
+func (sn *SegmentNode) AdditionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, func()) {
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil, nil
+	}
+	return pool.CloneBytesToBuf(buf)
 }
 
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
@@ -94,21 +121,52 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
 // CAUTION: bitmap uses entire capacity of underlying buffer. By expanding it may overwrite
 // node's data after additions bitmap
+//
+// It returns nil when the node holds no additions (length indicator 0), the
+// same contract as [*SegmentNode.Additions].
 func (sn *SegmentNode) AdditionsUnlimited() *sroar.Bitmap {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
-	return sroar.FromBufferUnlimited(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil
+	}
+	return sroar.FromBufferUnlimited(buf)
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.DeletionsWithCopy].
+//
+// It returns nil when the node holds no deletions (length indicator 0),
+// avoiding the allocation of an empty bitmap. Callers that need a non-nil
+// bitmap must substitute an empty one; sroar's bitmap operations already treat
+// a nil operand as empty.
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil
+	}
+	return sroar.FromBuffer(buf)
+}
+
+// DeletionsCloneToBuf clones the node's deletions bitmap into a buffer taken
+// from pool; the deletions counterpart of [*SegmentNode.AdditionsCloneToBuf],
+// with the identical contract: (nil, nil) when the node holds no deletions,
+// otherwise the clone and its release, never one without the other.
+func (sn *SegmentNode) DeletionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, func()) {
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil, nil
+	}
+	return pool.CloneBytesToBuf(buf)
 }
 
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It

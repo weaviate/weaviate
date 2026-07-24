@@ -67,3 +67,18 @@ func NestedFilteringEnabled() bool {
 func NestedFilteringDisabledError() error {
 	return fmt.Errorf("filtering on nested properties is a preview feature, disabled by default; set %s=true to enable", EnvNestedFilteringPreview)
 }
+
+// EnvDisableBatchedContains is the env var that disables the batched
+// ContainsAny/ContainsAll filter resolution, forcing every Contains filter
+// through the per-value desugared path. Operator escape hatch: the batched
+// path is behaviorally equivalent (pinned by a differential test), but this
+// switch restores the previous execution shape without a rollback.
+const EnvDisableBatchedContains = "WEAVIATE_DISABLE_BATCHED_CONTAINS"
+
+// BatchedContainsDisabled reports whether the batched Contains resolution is
+// switched off for this server. Reads the env var on each call (no cache) so
+// tests can override via t.Setenv; the call site runs once per Contains
+// filter extraction, not per value.
+func BatchedContainsDisabled() bool {
+	return Enabled(os.Getenv(EnvDisableBatchedContains))
+}
