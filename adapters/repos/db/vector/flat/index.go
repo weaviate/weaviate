@@ -459,6 +459,12 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 }
 
 func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	if index.compressionType == CompressionBQ &&
+		index.distancerProvider.Type() == "dot" &&
+		atomic.LoadInt64(&index.rescore) == 0 {
+		return index.searchByVector(ctx, vector, k, allow)
+	}
+
 	// Ensure quantizer is initialized
 	if index.quantizer == nil {
 		dims := atomic.LoadInt32(&index.dims)

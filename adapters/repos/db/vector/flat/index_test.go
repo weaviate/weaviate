@@ -629,7 +629,7 @@ func Test_NoRace_Flat_RQPersistence(t *testing.T) {
 		RQ: rq,
 	}, store)
 	require.Nil(t, err)
-	defer index.Shutdown(context.Background())
+	defer index.Shutdown(ctx)
 
 	// Add a vector to trigger RQ initialization
 	testVector := []float32{1.0, 2.0, 3.0, 4.0}
@@ -1237,6 +1237,118 @@ func Test_NoRace_QuantizedSearchFunctionality(t *testing.T) {
 			tc.validateResults(t, results, distances)
 		})
 	}
+}
+
+func Test_NoRace_FlatBQDotRescoreZeroPreservesConstantBias(t *testing.T) {
+	ctx := context.Background()
+	vectors := map[string][]float32{
+		"top_00": {20, 20},
+		"top_01": {19, 19},
+		"top_02": {18, 18},
+		"top_03": {17, 17},
+		"top_04": {16, 16},
+		"top_05": {15, 15},
+		"top_06": {14, 14},
+		"top_07": {13, 13},
+		"top_08": {12, 12},
+		"top_09": {11, 11},
+		"low_00": {1, 0},
+		"low_01": {0, 1},
+	}
+	expectedLabels := []string{
+		"top_00",
+		"top_01",
+		"top_02",
+		"top_03",
+		"top_04",
+		"top_05",
+		"top_06",
+		"top_07",
+		"top_08",
+		"top_09",
+	}
+
+	baseOrder := []string{
+		"top_00",
+		"top_01",
+		"top_02",
+		"top_03",
+		"top_04",
+		"top_05",
+		"top_06",
+		"top_07",
+		"top_08",
+		"top_09",
+		"low_00",
+		"low_01",
+	}
+	paddedOrder := []string{
+		"low_00",
+		"top_00",
+		"top_01",
+		"top_02",
+		"top_03",
+		"top_04",
+		"top_05",
+		"top_06",
+		"top_07",
+		"top_08",
+		"low_01",
+		"top_09",
+	}
+
+	baseLabels, baseDistances := searchFlatBQDotLabels(t, ctx, baseOrder, vectors, []float32{1, 1}, 0)
+	paddedLabels, paddedDistances := searchFlatBQDotLabels(t, ctx, paddedOrder, vectors, []float32{1, 1, 2}, 5)
+
+	require.Equal(t, expectedLabels, baseLabels)
+	require.Equal(t, baseLabels, paddedLabels)
+	for i := range baseDistances {
+		require.InDelta(t, baseDistances[i]-10, paddedDistances[i], 1e-5)
+	}
+}
+
+func searchFlatBQDotLabels(t *testing.T, ctx context.Context, order []string,
+	vectors map[string][]float32, query []float32, padding float32,
+) ([]string, []float32) {
+	t.Helper()
+
+	store, dirName := createTestStore(t)
+	index, err := New(Config{
+		ID:                "flat-bq-dot-zero",
+		RootPath:          dirName,
+		DistanceProvider:  distancer.NewDotProductProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, flatent.UserConfig{
+		BQ: flatent.CompressionUserConfig{
+			Enabled:      true,
+			Cache:        true,
+			RescoreLimit: 0,
+		},
+	}, store)
+	require.Nil(t, err)
+	defer index.Shutdown(context.Background())
+
+	labelsByID := make(map[uint64]string, len(order))
+	for id, label := range order {
+		vector := append([]float32(nil), vectors[label]...)
+		if padding != 0 {
+			vector = append(vector, padding)
+		}
+		err = index.Add(ctx, uint64(id), vector)
+		require.Nil(t, err)
+		labelsByID[uint64(id)] = label
+	}
+
+	ids, distances, err := index.SearchByVector(ctx, query, 10, nil)
+	require.Nil(t, err)
+	require.Len(t, ids, 10)
+	require.Len(t, distances, 10)
+
+	labels := make([]string, len(ids))
+	for i, id := range ids {
+		labels[i] = labelsByID[id]
+	}
+	return labels, distances
 }
 
 func Test_NoRace_EdgeCases(t *testing.T) {
