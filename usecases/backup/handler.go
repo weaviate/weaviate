@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -38,6 +39,10 @@ const (
 	// version1 store plain files without compression
 	version1 = "1.0"
 )
+
+var errLegacySingleNode = errors.New("backup was created by Weaviate older than v1.17, which stored " +
+	"a single top-level backup.json instead of per-node metadata, and can no longer be restored: " +
+	"restore it on a release that still supports it and create a new backup")
 
 // serverVersionOlderThan reports whether serverVersion, formatted "major.minor[.patch]",
 // is older than major.minor. An unparseable version is not treated as older.

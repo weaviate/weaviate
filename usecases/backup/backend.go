@@ -128,23 +128,25 @@ func (s *objectStore) meta(ctx context.Context, key, overrideBucket, overridePat
 	return nil
 }
 
+// hasMeta reports whether a parseable metadata file exists at key.
+func (s *objectStore) hasMeta(ctx context.Context, key, overrideBucket, overridePath string) bool {
+	var desc backup.BackupDescriptor
+	return s.meta(ctx, key, overrideBucket, overridePath, &desc) == nil
+}
+
 type nodeStore struct {
 	objectStore
 }
 
-// Meta gets meta data using standard path or deprecated old path
-//
-// adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
-func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
+// Meta gets the node's metadata. A backup carrying metadata only at the top-level base path
+// is refused as errLegacySingleNode.
+func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""} // for backward compatibility
-		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
-			if adjustBasePath {
-				s.objectStore.backupId = backupID
-			}
-			return &result, nil
+		base := &objectStore{s.backend, backupID, overrideBucket, overridePath, ""}
+		if base.hasMeta(ctx, BackupFile, overrideBucket, overridePath) {
+			return &result, errLegacySingleNode
 		}
 	}
 
@@ -178,15 +180,14 @@ func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.
 	return s.putMeta(ctx, filename, overrideBucket, overridePath, desc)
 }
 
-// Meta gets coordinator's global metadata from object store
+// Meta gets coordinator's global metadata from object store. A backup carrying only the
+// top-level per-node metadata is refused as errLegacySingleNode.
 func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overridePath string) (*backup.DistributedBackupDescriptor, error) {
 	var result backup.DistributedBackupDescriptor
 	err := s.meta(ctx, filename, overrideBucket, overridePath, &result)
-	if err != nil && filename == GlobalBackupFile {
-		var oldBackup backup.BackupDescriptor
-		if err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &oldBackup); err == nil {
-			return oldBackup.ToDistributed(), nil
-		}
+	if err != nil && filename == GlobalBackupFile &&
+		s.hasMeta(ctx, BackupFile, overrideBucket, overridePath) {
+		return &result, errLegacySingleNode
 	}
 	return &result, err
 }

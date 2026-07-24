@@ -157,6 +157,17 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Equal(t, resp.Timeout, time.Duration(0))
 	})
 
+	t.Run("RejectSingleNodeBackup", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(marshalMeta(metadata), nil)
+		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		bm := createManager(nil, nil, backend, nil)
+		resp := bm.OnCanCommit(ctx, &req)
+		assert.Contains(t, resp.Err, errLegacySingleNode.Error())
+		assert.Equal(t, time.Duration(0), resp.Timeout)
+	})
+
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
 		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}

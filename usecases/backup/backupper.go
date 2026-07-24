@@ -64,7 +64,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 		return reqState{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
 	}
 
-	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, false)
+	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
 		return reqState{}, fmt.Errorf("cannot get status while backing up: %w: %q: %w", errMetaNotFound, path, err)

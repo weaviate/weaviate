@@ -758,7 +758,7 @@ func (s *Scheduler) fetchSchema(
 		if err != nil {
 			return nil, err
 		}
-		meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, true)
+		meta, err := store.Meta(ctx, req.ID, store.bucket, store.path)
 		if err != nil {
 			return nil, err
 		}

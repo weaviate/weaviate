@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -276,28 +277,21 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		assert.Equal(t, want, got)
 	})
 
-	t.Run("ReadFromOldMetadata", func(t *testing.T) {
+	t.Run("RejectSingleNodeMetadata", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		completedAt := starTime.Add(time.Hour)
 		bytes := marshalMeta(
 			backup.BackupDescriptor{
 				StartedAt:   starTime,
-				CompletedAt: completedAt,
+				CompletedAt: starTime.Add(time.Hour),
 				Status:      backup.Success,
-				// 1.5Gb
-				PreCompressionSizeBytes: 1610612736,
 			},
 		)
-		want := want
-		want.CompletedAt = completedAt
-		want.Status = backup.Success
-		want.Size = 1.5
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
-		assert.Nil(t, err)
-		assert.Equal(t, want, got)
+		require.ErrorIs(t, err, errLegacySingleNode)
+		assert.Nil(t, got)
 	})
 }
 
@@ -867,6 +861,18 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("RejectSingleNodeBackup", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Success})
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+
+		// backup.ErrUnprocessable has no Unwrap, so match on the surfaced message.
+		_, err := fs.scheduler().Restore(ctx, nil, req, false)
+		require.ErrorContains(t, err, errLegacySingleNode.Error())
+	})
+
 	t.Run("FailedBackup", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: backup.Failed})
@@ -1209,8 +1215,8 @@ func TestCancellingBackup(t *testing.T) {
 		// classes instead of a wildcard DELETE that a scoped caller would fail.
 		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return([]byte("{"), nil).Once()
 		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(b, nil)
-		// The partial GlobalBackupFile read triggers the old-format fallback; deny it
-		// so the json.SyntaxError surfaces and the read is retried.
+		// The partial GlobalBackupFile read makes coordStore.Meta probe for single-node
+		// metadata; deny it so the json.SyntaxError surfaces and the read is retried.
 		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 
