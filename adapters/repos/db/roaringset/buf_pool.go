@@ -17,7 +17,6 @@ import (
 	"math/bits"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -31,11 +30,28 @@ import (
 type BitmapBufPool interface {
 	Get(minCap int) (buf []byte, put func())
 	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
+	// CloneBytesToBuf clones an already-serialized bitmap (e.g. a segment
+	// node's additions/deletions region) into a pooled buffer, without
+	// materializing an intermediate bitmap over src first. src must be a
+	// valid, non-empty sroar serialization. The returned bitmap owns the
+	// pooled buffer's full capacity, so it can grow in place (same contract
+	// as CloneToBuf).
+	CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func())
 }
 
 func cloneToBuf(pool BitmapBufPool, bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
 	buf, put := pool.Get(bm.LenInBytes())
 	return bm.CloneToBuf(buf), put
+}
+
+// src must be a valid, non-empty sroar serialization (even length, >= 8
+// bytes): shorter input yields a bitmap not backed by the pooled buffer, and
+// odd-length input panics inside sroar.
+func cloneBytesToBuf(pool BitmapBufPool, src []byte) (cloned *sroar.Bitmap, put func()) {
+	buf, put := pool.Get(len(src))
+	buf = buf[:len(src)]
+	copy(buf, src)
+	return sroar.FromBufferUnlimited(buf), put
 }
 
 func NewBitmapBufPoolDefault(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics,
@@ -84,43 +100,8 @@ func (p *bitmapBufPoolNoop) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, 
 	return cloneToBuf(p, bm)
 }
 
-// -----------------------------------------------------------------------------
-
-// BitmapBufPoolTracking is a pool for use in tests. It tracks outstanding
-// allocations and zeroes the backing buffer on release, so that any bitmap
-// read after its release returns zeros — making premature releases visible as
-// wrong values in test assertions. Double-release panics immediately.
-//
-// Call Outstanding() in a t.Cleanup to assert all buffers were released.
-type BitmapBufPoolTracking struct {
-	outstanding atomic.Int64
-}
-
-func NewBitmapBufPoolTracking() *BitmapBufPoolTracking {
-	return &BitmapBufPoolTracking{}
-}
-
-func (p *BitmapBufPoolTracking) Get(minCap int) (buf []byte, put func()) {
-	p.outstanding.Add(1)
-	buf = make([]byte, 0, max(minCap, 0))
-	var released atomic.Bool
-	return buf, func() {
-		if !released.CompareAndSwap(false, true) {
-			panic("bitmap buffer released twice")
-		}
-		clear(buf[:cap(buf)])
-		p.outstanding.Add(-1)
-	}
-}
-
-func (p *BitmapBufPoolTracking) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
-}
-
-// Outstanding returns the number of buffers that have been allocated but not
-// yet released. A non-zero value at the end of a test indicates a leak.
-func (p *BitmapBufPoolTracking) Outstanding() int64 {
-	return p.outstanding.Load()
+func (p *bitmapBufPoolNoop) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytesToBuf(p, src)
 }
 
 // -----------------------------------------------------------------------------
@@ -199,6 +180,10 @@ func (p *bitmapBufPoolRanged) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap
 	return cloneToBuf(p, bm)
 }
 
+func (p *bitmapBufPoolRanged) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytesToBuf(p, src)
+}
+
 func (p *bitmapBufPoolRanged) cleanup(n int) map[int]int {
 	cleaned := map[int]int{}
 	for i := p.firstInMemoRngIdx; i < len(p.ranges); i++ {
@@ -246,26 +231,39 @@ func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar
 	return cloneToBuf(p, bm)
 }
 
+func (p *bitmapBufPoolFactorWrapper) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func()) {
+	return cloneBytesToBuf(p, src)
+}
+
 // -----------------------------------------------------------------------------
 
 type BufPoolFixedSync struct {
 	pool *sync.Pool
 }
 
+// pooledBuf holds a reusable buffer together with a release closure bound to
+// it once, at creation, so Get returns the pre-bound closure instead of
+// allocating a fresh one per call.
+type pooledBuf struct {
+	buf []byte
+	put func()
+}
+
 func NewBufPoolFixedSync(cap int) *BufPoolFixedSync {
-	return &BufPoolFixedSync{
-		pool: &sync.Pool{
-			New: func() any {
-				buf := make([]byte, 0, cap)
-				return &buf
-			},
+	p := &BufPoolFixedSync{}
+	p.pool = &sync.Pool{
+		New: func() any {
+			pb := &pooledBuf{buf: make([]byte, 0, cap)}
+			pb.put = func() { p.pool.Put(pb) }
+			return pb
 		},
 	}
+	return p
 }
 
 func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
-	ptr := p.pool.Get().(*[]byte)
-	return *ptr, func() { p.pool.Put(ptr) }
+	pb := p.pool.Get().(*pooledBuf)
+	return pb.buf, pb.put
 }
 
 // -----------------------------------------------------------------------------
@@ -273,7 +271,7 @@ func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
 type BufPoolFixedInMemory struct {
 	cap     int
 	limit   int
-	bufsCh  chan *[]byte
+	bufsCh  chan *pooledBuf
 	metrics bufPoolInMemoMetrics
 }
 
@@ -281,28 +279,29 @@ func NewBufPoolFixedInMemory(metrics bufPoolInMemoMetrics, cap int, limit int) *
 	return &BufPoolFixedInMemory{
 		cap:     cap,
 		limit:   limit,
-		bufsCh:  make(chan *[]byte, limit),
+		bufsCh:  make(chan *pooledBuf, limit),
 		metrics: metrics,
 	}
 }
 
 func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
-	var ptr *[]byte
+	var pb *pooledBuf
 	select {
-	case ptr = <-p.bufsCh:
-		buf = *ptr
+	case pb = <-p.bufsCh:
 		p.metrics.bufGot()
 	default:
-		buf = make([]byte, 0, p.cap)
-		ptr = &buf
+		// New buffers bind their release closure once here; reused buffers keep
+		// it, so Get never allocates a fresh closure on the reuse path.
+		pb = &pooledBuf{buf: make([]byte, 0, p.cap)}
+		pb.put = func() { p.put(pb) }
 		p.metrics.bufCreated()
 	}
-	return buf, func() { p.put(ptr) }
+	return pb.buf, pb.put
 }
 
-func (p *BufPoolFixedInMemory) put(ptr *[]byte) bool {
+func (p *BufPoolFixedInMemory) put(pb *pooledBuf) bool {
 	select {
-	case p.bufsCh <- ptr:
+	case p.bufsCh <- pb:
 		p.metrics.bufPut()
 		// successfully returned
 		return true

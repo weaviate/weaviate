@@ -419,7 +419,7 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 
 	waitUntilMemtablesMerged(t, seg)
 
-	bufPool := newBitmapBufPoolWithCounter()
+	bufPool := roaringset.NewBitmapBufPoolTrackingForTests()
 	readers, release := seg.Readers(bufPool)
 	defer release()
 
@@ -509,9 +509,9 @@ func TestSegmentInMemoryReaderBufPool(t *testing.T) {
 				_, release, err := reader.Read(context.Background(), tc.value, tc.operator)
 				require.NoError(t, err)
 
-				assert.GreaterOrEqual(t, 1, bufPool.InUseCounter())
+				assert.GreaterOrEqual(t, int64(1), bufPool.Outstanding())
 				release()
-				assert.Equal(t, 0, bufPool.InUseCounter())
+				assert.Zero(t, bufPool.Outstanding())
 			})
 		}
 	})
@@ -590,27 +590,4 @@ func assertElemsByBit(t *testing.T, s *SegmentInMemory, expectedElemsByBit map[i
 func waitUntilMemtablesMerged(t *testing.T, s *SegmentInMemory) {
 	t.Helper()
 	require.Eventually(t, func() bool { return s.countPendingMemtables() == 0 }, time.Second, 10*time.Millisecond)
-}
-
-type bitmapBufPoolWithCounter struct {
-	inUseCounter int
-}
-
-func newBitmapBufPoolWithCounter() *bitmapBufPoolWithCounter {
-	return &bitmapBufPoolWithCounter{inUseCounter: 0}
-}
-
-func (p *bitmapBufPoolWithCounter) Get(minCap int) (buf []byte, put func()) {
-	p.inUseCounter++
-	return make([]byte, 0, minCap), func() { p.inUseCounter-- }
-}
-
-func (p *bitmapBufPoolWithCounter) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	buf, put := p.Get(bm.LenInBytes())
-	cloned = bm.CloneToBuf(buf)
-	return cloned, put
-}
-
-func (p *bitmapBufPoolWithCounter) InUseCounter() int {
-	return p.inUseCounter
 }

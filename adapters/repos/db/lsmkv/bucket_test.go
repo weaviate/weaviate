@@ -1178,7 +1178,7 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 
 	// the original memtable was flushed to disk
 	v, release, err := b.disk.roaringSetGet([]byte("key1"), view3.Disk, concurrency.SROAR_MERGE)
-	assert.Equal(t, []uint64{1, 2}, v.Flatten(true, concurrency.SROAR_MERGE).ToArray())
+	assert.Equal(t, []uint64{1, 2}, roaringset.BitmapLayers{v}.Flatten(true, concurrency.SROAR_MERGE).ToArray())
 	require.NoError(t, err)
 	release()
 }
@@ -1248,7 +1248,7 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 
 	bm, release, err := b.disk.roaringSetGet([]byte("key1"), view.Disk, concurrency.SROAR_MERGE)
 	require.NoError(t, err)
-	assert.Equal(t, []uint64{1, 2, 3}, bm.Flatten(true, concurrency.SROAR_MERGE).ToArray())
+	assert.Equal(t, []uint64{1, 2, 3}, roaringset.BitmapLayers{bm}.Flatten(true, concurrency.SROAR_MERGE).ToArray())
 	release()
 }
 

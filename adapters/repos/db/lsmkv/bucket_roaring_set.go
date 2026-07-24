@@ -16,6 +16,7 @@ import (
 	"errors"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -133,7 +134,7 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 ) (bm *sroar.Bitmap, release func(), err error) {
 	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
-	layers, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
+	diskLayer, diskRelease, err := b.disk.roaringSetGet(key, view.Disk, maxConc)
 	if err != nil {
 		return nil, noopRelease, err
 	}
@@ -146,6 +147,12 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 		}
 	}()
 
+	// Fold the disk-flattened layer with the flushing and active memtable layers
+	// one at a time, chronologically oldest first, instead of materializing a
+	// []BitmapLayer. diskLayer.Additions is the pooled base (with headroom), so
+	// the memtable layers merge into it in place.
+	merger := roaringset.NewLayerMerger(diskLayer.Additions, false, maxConc)
+
 	if view.Flushing != nil {
 		flushing, flushErr := view.Flushing.roaringSetGet(key)
 		if flushErr != nil {
@@ -154,7 +161,7 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 				return nil, noopRelease, err
 			}
 		} else {
-			layers = append(layers, flushing)
+			merger.Add(flushing)
 		}
 	}
 
@@ -165,8 +172,8 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 			return nil, noopRelease, err
 		}
 	} else {
-		layers = append(layers, activeBM)
+		merger.Add(activeBM)
 	}
 
-	return layers.Flatten(false, maxConc), diskRelease, nil
+	return merger.Result(), diskRelease, nil
 }
