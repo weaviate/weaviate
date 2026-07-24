@@ -210,6 +210,14 @@ func (it *SnapshotIterator) buildNodeCommits(nodeID uint64, node *ent.Vertex, ha
 		Level: uint16(node.Level),
 	})
 
+	// ReplacePrunedLinks commit for PathSeer extended area
+	if node.PrunedConnections != nil && node.PrunedConnections.Layers() > 0 {
+		data := node.PrunedConnections.Data()
+		d := make([]byte, len(data))
+		copy(d, data)
+		commits = append(commits, &ReplacePrunedLinksCommit{Source: nodeID, Data: d})
+	}
+
 	// ReplaceLinksAtLevel commits for each level
 	// Snapshots represent absolute state, so all links are "replace" operations
 	if node.Connections != nil {

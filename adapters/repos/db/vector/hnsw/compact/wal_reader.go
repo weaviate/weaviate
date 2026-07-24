@@ -164,6 +164,13 @@ type AddMuveraCommit struct {
 
 func (c *AddMuveraCommit) Type() HnswCommitType { return AddMuvera }
 
+type ReplacePrunedLinksCommit struct {
+	Source uint64
+	Data   []byte
+}
+
+func (c *ReplacePrunedLinksCommit) Type() HnswCommitType { return ReplacePrunedLinks }
+
 // ---------------------------------------------------------------------------
 // WALCommitReader
 // ---------------------------------------------------------------------------
@@ -285,6 +292,8 @@ func (w *WALCommitReader) decodeNextCommit() (Commit, error) {
 		return w.readAddRQ()
 	case AddBRQ:
 		return w.readAddBRQ()
+	case ReplacePrunedLinks:
+		return w.readReplacePrunedLinks()
 	default:
 		return nil, errors.Errorf("unrecognized commit type %d", ct)
 	}
@@ -530,6 +539,22 @@ func (w *WALCommitReader) readClearLinksAtLevel() (Commit, error) {
 		ID:    id,
 		Level: level,
 	}, nil
+}
+
+func (w *WALCommitReader) readReplacePrunedLinks() (Commit, error) {
+	w.resetBuf(10)
+	if _, err := io.ReadFull(w.r, w.reusableBuf); err != nil {
+		return nil, err
+	}
+	source := binary.LittleEndian.Uint64(w.reusableBuf[0:8])
+	length := binary.LittleEndian.Uint16(w.reusableBuf[8:10])
+	data := make([]byte, int(length))
+	if length > 0 {
+		if _, err := io.ReadFull(w.r, data); err != nil {
+			return nil, err
+		}
+	}
+	return &ReplacePrunedLinksCommit{Source: source, Data: data}, nil
 }
 
 func (w *WALCommitReader) readDeleteNode() (Commit, error) {

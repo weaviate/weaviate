@@ -75,6 +75,7 @@ type hnsw struct {
 	// Nodes in the lowest level have a separate (usually higher) max connection
 	// limit
 	maximumConnectionsLayerZero int
+	maximumConnectionsLayerZeroExpanded int
 
 	// the current maximum can be smaller than the configured maximum because of
 	// the exponentially decaying layer function. The initial entry is started at
@@ -174,6 +175,8 @@ type hnsw struct {
 	compressing      atomic.Bool
 	doNotRescore     bool
 	acornSearch      atomic.Bool
+	pathseerSearch   atomic.Bool
+	pathseerBuilt    atomic.Bool
 	acornFilterRatio float64
 
 	compressor compressionhelpers.VectorCompressor
@@ -243,6 +246,7 @@ type CommitLogger interface {
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
+	ReplacePrunedLinks(nodeid uint64, data []byte) error
 	AddTombstone(nodeid uint64) error
 	RemoveTombstone(nodeid uint64) error
 	DeleteNode(nodeid uint64) error
@@ -337,6 +341,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 		// inspired by original paper and other implementations
 		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
+		maximumConnectionsLayerZeroExpanded: 2 * uc.MaxConnections,
 
 		// inspired by c++ implementation
 		levelNormalizer:       1 / math.Log(float64(uc.MaxConnections)),
@@ -405,6 +410,8 @@ func New(cfg Config, uc ent.UserConfig,
 		"targetVector": index.getTargetVector(),
 	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+	index.pathseerSearch.Store(uc.FilterStrategy == ent.FilterStrategyPathseer)
+	index.pathseerBuilt.Store(uc.FilterStrategy == ent.FilterStrategyPathseer)
 
 	index.multivector.Store(uc.Multivector.Enabled)
 	index.muvera.Store(uc.Multivector.MuveraConfig.Enabled)

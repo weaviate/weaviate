@@ -264,6 +264,7 @@ const (
 	AddMuvera
 	AddRQ
 	AddBRQ
+	ReplacePrunedLinks
 )
 
 func (t HnswCommitType) String() string {
@@ -300,6 +301,8 @@ func (t HnswCommitType) String() string {
 		return "AddRotationalQuantizer"
 	case AddBRQ:
 		return "AddBRQCompression"
+	case ReplacePrunedLinks:
+		return "ReplacePrunedLinks"
 	}
 	return "unknown commit type"
 }
@@ -398,6 +401,12 @@ func (l *hnswCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) error 
 	defer l.Unlock()
 
 	return l.walWriter.WriteClearLinksAtLevel(nodeid, level)
+}
+
+func (l *hnswCommitLogger) ReplacePrunedLinks(nodeid uint64, data []byte) error {
+	l.Lock()
+	defer l.Unlock()
+	return l.walWriter.WriteReplacePrunedLinks(nodeid, data)
 }
 
 func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {

@@ -66,6 +66,10 @@ func (n *NoopCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 	return nil
 }
 
+func (n *NoopCommitLogger) ReplacePrunedLinks(nodeid uint64, data []byte) error {
+	return nil
+}
+
 func (n *NoopCommitLogger) AddTombstone(nodeid uint64) error {
 	return nil
 }

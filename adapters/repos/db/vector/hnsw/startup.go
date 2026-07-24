@@ -107,7 +107,23 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	// Apply loaded state to index
-	return h.applyLoadedState(loadResult.State)
+	if err := h.applyLoadedState(loadResult.State); err != nil {
+		return err
+	}
+
+	// If the on-disk data contains extended-area (pruned) connections, the
+	// index was built with the PathSeer strategy.  Update the immutable
+	// build-time flag so that search can use PATHSEER regardless of config
+	// changes across restarts.
+h.pathseerBuilt.Store(false)
+	for _, node := range loadResult.State.Nodes() {
+		if node != nil && node.PrunedConnections != nil && node.PrunedConnections.Layers() > 0 {
+			h.pathseerBuilt.Store(true)
+			break
+		}
+	}
+
+	return nil
 }
 
 // applyLoadedState applies the deserialization result to the HNSW index.

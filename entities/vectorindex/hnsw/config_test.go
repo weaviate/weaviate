@@ -797,7 +797,7 @@ func Test_UserConfig(t *testing.T) {
 				"filterStrategy": "chestnut",
 			},
 			expectErr:    true,
-			expectErrMsg: "invalid hnsw config: filterStrategy must be either 'sweeping' or 'acorn'",
+			expectErrMsg: "invalid hnsw config: filterStrategy must be either 'sweeping', 'acorn', or 'pathseer'",
 		},
 		{
 			name: "acorn enabled, all defaults",

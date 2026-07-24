@@ -730,6 +730,10 @@ func (c *Compactor) writeNodeCommits(w *WALWriter, nc *NodeCommits) error {
 			if err := w.WriteReplaceLinksAtLevel(ct.Source, ct.Level, ct.Targets); err != nil {
 				return err
 			}
+		case *ReplacePrunedLinksCommit:
+			if err := w.WriteReplacePrunedLinks(ct.Source, ct.Data); err != nil {
+				return err
+			}
 		case *ClearLinksCommit:
 			if err := w.WriteClearLinks(ct.ID); err != nil {
 				return err

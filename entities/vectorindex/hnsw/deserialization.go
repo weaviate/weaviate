@@ -23,6 +23,7 @@ type Vertex struct {
 	ID          uint64
 	Level       int
 	Connections *packedconn.Connections
+	PrunedConnections *packedconn.Connections
 }
 
 // DeserializationResult holds the complete in-memory state after deserializing

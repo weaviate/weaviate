@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *vertex,
@@ -274,8 +275,17 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		before = time.Now()
 	}
 
-	if err := n.graph.selectNeighborsHeuristic(results, maxConnections-total, n.denyList); err != nil {
-		return errors.Wrap(err, "heuristic")
+	var prunedExt []uint64
+	if level == 0 && n.graph.pathseerSearch.Load() {
+		pruned, err := n.graph.selectNeighborsHeuristicWithPruned(results, maxConnections-total, n.denyList)
+		if err != nil {
+			return errors.Wrap(err, "heuristic with pruned")
+		}
+		prunedExt = pruned
+	} else {
+		if err := n.graph.selectNeighborsHeuristic(results, maxConnections-total, n.denyList); err != nil {
+			return errors.Wrap(err, "heuristic")
+		}
 	}
 
 	n.graph.insertMetrics.findAndConnectHeuristic(before)
@@ -291,11 +301,43 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		neighbors = append(neighbors, id)
 	}
 
+	// PathSeer: store extended connections
+	if level == 0 && n.graph.pathseerSearch.Load() {
+		if n.tombstoneCleanupNodes {
+			// Tombstone cleanup: rebuild extended area by merging
+			// surviving existing entries, recursive replacements for
+			// deleted entries, and pruned-from-sparse candidates.
+			sparseSet := make(map[uint64]bool, len(neighbors))
+			for _, nid := range neighbors {
+				sparseSet[nid] = true
+			}
+			if err := n.graph.rebuildPrunedConnections(
+				n.ctx, n.node, n.nodeVec, n.distancer,
+				n.denyList, prunedExt, sparseSet,
+			); err != nil {
+				return errors.Wrap(err, "rebuild pruned connections")
+			}
+		} else {
+			// Normal insertion: store pruned candidates directly.
+			extCap := n.graph.maximumConnectionsLayerZeroExpanded
+			if len(prunedExt) > extCap {
+				prunedExt = prunedExt[:extCap]
+			}
+			n.node.Lock()
+			pc, _ := packedconn.NewWithMaxLayer(0)
+			pc.ReplaceLayer(0, prunedExt)
+			n.node.prunedConnections = pc
+			commitErr := n.graph.commitLog.ReplacePrunedLinks(n.node.id, pc.Data())
+			n.node.Unlock()
+			if commitErr != nil {
+				return errors.Wrap(commitErr, "replace pruned links")
+			}
+		}
+	}
+
 	n.graph.pools.pqResults.Put(results)
 
 	neighborsCpy := neighbors
-	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
-	// if so, we need to create a copy
 	n.node.setConnectionsAtLevel(level, neighbors)
 
 	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighborsCpy); err != nil {
@@ -306,6 +348,14 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		for _, neighborID := range neighborsCpy {
 			if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
 				return errors.Wrapf(err, "connect neighbor %d", neighborID)
+			}
+		}
+		 // PathSeer: bidirectional extended-area connections
+ 		if level == 0 && n.graph.pathseerSearch.Load() && len(prunedExt) > 0 {
+ 			for _, neighborID := range prunedExt {
+				if err := n.connectExtendedNeighborAtLevel(neighborID); err != nil {
+					return errors.Wrapf(err, "connect extended neighbor %d", neighborID)
+				}
 			}
 		}
 	}
@@ -406,6 +456,201 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	}
 
 	return nil
+}
+
+// connectExtendedNeighborAtLevel inserts n.node into neighbor's prunedConnections
+// (extended area), maintained sorted by distance, closest first. Uses binary search.
+func (n *neighborFinderConnector) connectExtendedNeighborAtLevel(neighborID uint64) error {
+	neighbor := n.graph.nodeByID(neighborID)
+	if skip := n.skipNeighbor(neighbor); skip {
+		return nil
+	}
+	distAB, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+	if err != nil {
+		return err
+	}
+	neighbor.Lock()
+	defer neighbor.Unlock()
+	maxExtended := n.graph.maximumConnectionsLayerZeroExpanded
+	if neighbor.prunedConnections == nil {
+		pc, _ := packedconn.NewWithMaxLayer(0)
+		neighbor.prunedConnections = pc
+	}
+	n.connectionsBuf = neighbor.prunedConnections.CopyLayer(n.connectionsBuf[:0], 0)
+	list := n.connectionsBuf
+	pos := len(list)
+	if len(list) > 0 {
+		lo, hi := 0, len(list)
+		for lo < hi {
+			mid := lo + (hi-lo)/2
+			d, err := n.graph.distBetweenNodes(list[mid], neighborID)
+			if err != nil {
+				lo = mid + 1
+				continue
+			}
+			if d <= distAB {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		pos = lo
+	}
+	if pos >= maxExtended {
+		return nil
+	}
+	if len(list) < maxExtended {
+		list = append(list, 0)
+	}
+	copy(list[pos+1:], list[pos:])
+	list[pos] = n.node.id
+	if len(list) > maxExtended {
+		list = list[:maxExtended]
+	}
+	neighbor.prunedConnections.ReplaceLayer(0, list)
+ 	if err := n.graph.commitLog.ReplacePrunedLinks(neighbor.id, neighbor.prunedConnections.Data()); err != nil {
+ 		return errors.Wrap(err, "replace reciprocal pruned links")
+	}
+	return nil
+}
+
+// rebuildPrunedConnections rebuilds the extended-area (pruned) connections
+// for a node during tombstone cleanup.  It reads the current pruned list,
+// keeps alive entries, recursively explores dead entries' extended areas for
+// replacements, merges in extraCandidates, deduplicates against
+// sparseNeighbors, and stores the closest 2*M entries sorted by distance.
+func (h *hnsw) rebuildPrunedConnections(
+	ctx context.Context,
+	node *vertex,
+	nodeVec []float32,
+	distancer compressionhelpers.CompressorDistancer,
+	denyList helpers.AllowList,
+	extraCandidates []uint64,
+	sparseNeighbors map[uint64]bool,
+) error {
+	maxExtended := h.maximumConnectionsLayerZeroExpanded
+
+	// Gather current pruned entries, separate alive from dead.
+	node.Lock()
+	var existing []uint64
+	if node.prunedConnections != nil && node.prunedConnections.Layers() > 0 {
+		existing = node.prunedConnections.CopyLayer(nil, 0)
+	}
+	node.Unlock()
+
+	dead := make([]uint64, 0)
+	type cand struct {
+		id   uint64
+		dist float32
+	}
+
+	// Phase 1: keep alive entries and collect dead ones.
+	var candidates []cand
+	for _, id := range existing {
+		if denyList.Contains(id) {
+			dead = append(dead, id)
+			continue
+		}
+		if sparseNeighbors[id] {
+			continue
+		}
+		d, err := h.distToNode(distancer, id, nodeVec)
+		if err != nil {
+			continue
+		}
+		candidates = append(candidates, cand{id, d})
+	}
+
+	// Phase 2: recursively explore dead entries' extended areas.
+	visited := make(map[uint64]bool)
+	visited[node.id] = true
+	var explorePruned func(from uint64)
+	explorePruned = func(from uint64) {
+		if visited[from] {
+			return
+		}
+		visited[from] = true
+
+		h.RLock()
+		h.shardedNodeLocks.RLock(from)
+		fromNode := h.nodes[from]
+		h.shardedNodeLocks.RUnlock(from)
+		h.RUnlock()
+		if fromNode == nil {
+			return
+		}
+
+		fromNode.Lock()
+		var pruned []uint64
+		if fromNode.prunedConnections != nil && fromNode.prunedConnections.Layers() > 0 {
+			pruned = fromNode.prunedConnections.CopyLayer(nil, 0)
+		}
+		fromNode.Unlock()
+
+		nextDead := make([]uint64, 0)
+		for _, pid := range pruned {
+			if visited[pid] {
+				continue
+			}
+			if denyList.Contains(pid) {
+				nextDead = append(nextDead, pid)
+				continue
+			}
+			if sparseNeighbors[pid] {
+				continue
+			}
+			d, err := h.distToNode(distancer, pid, nodeVec)
+			if err != nil {
+				continue
+			}
+			candidates = append(candidates, cand{pid, d})
+		}
+		for _, pid := range nextDead {
+			explorePruned(pid)
+		}
+	}
+	for _, id := range dead {
+		explorePruned(id)
+	}
+
+	// Phase 3: add extra candidates (pruned from sparse heuristic).
+	for _, id := range extraCandidates {
+		if visited[id] || sparseNeighbors[id] {
+			continue
+		}
+		d, err := h.distToNode(distancer, id, nodeVec)
+		if err != nil {
+			continue
+		}
+		candidates = append(candidates, cand{id, d})
+	}
+
+	// Sort by distance ascending.
+	for i := 0; i < len(candidates)-1; i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[i].dist > candidates[j].dist {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
+			}
+		}
+	}
+
+	// Keep closest maxExtended.
+	if len(candidates) > maxExtended {
+		candidates = candidates[:maxExtended]
+	}
+
+	// Store.
+	node.Lock()
+	pc, _ := packedconn.NewWithMaxLayer(0)
+	result := make([]uint64, len(candidates))
+	for i, c := range candidates {
+		result[i] = c.id
+	}
+	pc.ReplaceLayer(0, result)
+	node.prunedConnections = pc
+	node.Unlock()
+
+	return h.commitLog.ReplacePrunedLinks(node.id, pc.Data())
 }
 
 func (n *neighborFinderConnector) skipNeighbor(neighbor *vertex) bool {
