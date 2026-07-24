@@ -99,7 +99,7 @@ func TestSerialization_CloneToBuf(t *testing.T) {
 		require.Nil(t, err)
 		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
 
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 		addClone, addRelease := newSN.AdditionsCloneToBuf(pool)
 		delClone, delRelease := newSN.DeletionsCloneToBuf(pool)
 		require.NotNil(t, addClone)
@@ -128,7 +128,7 @@ func TestSerialization_CloneToBuf(t *testing.T) {
 
 		// factor wrapper hands out a buffer with headroom, mirroring the first
 		// disk layer's pool in SegmentGroup.roaringSetGet
-		pool := NewBitmapBufPoolFactorWrapper(NewBitmapBufPoolTracking(), 2)
+		pool := NewBitmapBufPoolFactorWrapper(NewBitmapBufPoolTrackingForTests(), 2)
 		addClone, addRelease := newSN.AdditionsCloneToBuf(pool)
 		require.NotNil(t, addClone)
 		defer addRelease()
@@ -144,7 +144,7 @@ func TestSerialization_CloneToBuf(t *testing.T) {
 		require.Nil(t, err)
 		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
 
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 		addClone, addRelease := newSN.AdditionsCloneToBuf(pool)
 		delClone, delRelease := newSN.DeletionsCloneToBuf(pool)
 		assert.Nil(t, addClone)
