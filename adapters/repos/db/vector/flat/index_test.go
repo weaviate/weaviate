@@ -1838,3 +1838,177 @@ func Test_NoRace_Flat_SearchAfterRestartWithUnflushedData(t *testing.T) {
 	assert.ElementsMatch(t, []uint64{0, 1, 2, 3}, ids,
 		"vectors recovered from the WAL must be visible to the cached search")
 }
+
+func bqCachedConfig() flatent.UserConfig {
+	return flatent.UserConfig{
+		BQ: flatent.CompressionUserConfig{
+			Enabled: true, Cache: true, RescoreLimit: 10,
+		},
+	}
+}
+
+func newBQCachedIndex(t *testing.T, dirName string, store *lsmkv.Store) *flat {
+	t.Helper()
+	index, err := New(Config{
+		ID:                "lazy-cache-test",
+		RootPath:          dirName,
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, bqCachedConfig(), store)
+	require.NoError(t, err)
+	return index
+}
+
+func Test_NoRace_Flat_EmptyTenantPostStartupAllocatesNothing(t *testing.T) {
+	dirName := t.TempDir()
+	store := loadTestStore(t, dirName)
+	defer store.Shutdown(context.Background())
+
+	index := newBQCachedIndex(t, dirName, store)
+	defer index.Shutdown(context.Background())
+
+	index.PostStartup(context.Background())
+
+	// an empty tenant must not pay for a cache it doesn't use
+	assert.EqualValues(t, 0, index.cache.Len(),
+		"PostStartup on an empty index must not allocate the vector cache")
+}
+
+func Test_NoRace_Flat_QueryVectorDistancerBeforePreload(t *testing.T) {
+	dirName := t.TempDir()
+	ctx := context.Background()
+
+	// populate an index, then shut it down so the data is only on disk
+	store := loadTestStore(t, dirName)
+	index := newBQCachedIndex(t, dirName, store)
+	vectors := [][]float32{{4, -1, 4}, {-2, 3, 1}, {0.5, 0.5, 0.5}}
+	for i, vec := range vectors {
+		require.NoError(t, index.Add(ctx, uint64(i), vec))
+	}
+	require.NoError(t, index.Shutdown(ctx))
+	require.NoError(t, store.Shutdown(ctx))
+
+	// reopen without running PostStartup: the cache exists but is empty,
+	// exactly the state a lazily loaded shard is in before (or while) the
+	// startup preload runs
+	store = loadTestStore(t, dirName)
+	defer store.Shutdown(ctx)
+	index = newBQCachedIndex(t, dirName, store)
+	defer index.Shutdown(ctx)
+	require.EqualValues(t, 0, index.cache.Len())
+
+	// a search on the cold cache must fall back to the store and return
+	// complete results, not iterate an empty (or partial) cache window
+	ids, _, err := index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uint64{0, 1, 2}, ids)
+
+	distancer := index.QueryVectorDistancer([]float32{1, 0, 0})
+	// query the highest id first: on an empty cache the first Get grows the
+	// cache, which would mask the guard against ids beyond the cache window
+	for i := len(vectors) - 1; i >= 0; i-- {
+		_, err := distancer.DistanceToNode(uint64(i))
+		assert.NoError(t, err, "query on a not-yet-preloaded cache must fall back to disk, not error")
+	}
+}
+
+func Test_NoRace_Flat_SearchAfterPartialCacheWarmup(t *testing.T) {
+	dirName := t.TempDir()
+	ctx := context.Background()
+
+	// populate an index, then shut it down so the data is only on disk; the
+	// gap between ids 2 and 100 matters: a partial cache warmup below creates
+	// a window covering the low ids only
+	store := loadTestStore(t, dirName)
+	index := newBQCachedIndex(t, dirName, store)
+	vectors := map[uint64][]float32{
+		0:   {4, -1, 4},
+		1:   {-2, 3, 1},
+		2:   {0.5, 0.5, 0.5},
+		100: {1, 0.5, 0},
+	}
+	for id, vec := range vectors {
+		require.NoError(t, index.Add(ctx, id, vec))
+	}
+	require.NoError(t, index.Shutdown(ctx))
+	require.NoError(t, store.Shutdown(ctx))
+
+	// reopen without running PostStartup, then warm a single cache entry via
+	// the distancer: the cache window is now non-empty but incomplete, and
+	// vector 100 lies beyond it
+	store = loadTestStore(t, dirName)
+	defer store.Shutdown(ctx)
+	index = newBQCachedIndex(t, dirName, store)
+	defer index.Shutdown(ctx)
+
+	qvd := index.QueryVectorDistancer([]float32{1, 0, 0})
+	_, err := qvd.DistanceToNode(2)
+	require.NoError(t, err)
+	window := index.cache.Len()
+	require.Greater(t, window, int32(0), "the distancer call must have warmed the cache")
+	require.Less(t, window, int32(100), "vector 100 must lie beyond the warmed window")
+
+	// a valid id beyond the partially warmed window must be fetched from
+	// disk, not rejected by the cache window guard
+	_, err = qvd.DistanceToNode(100)
+	require.NoError(t, err, "valid ids beyond an incomplete cache window must fall back to disk")
+
+	// a search must not trust the partially warmed cache window: it must
+	// return the complete result set from the store
+	ids, _, err := index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uint64{0, 1, 2, 100}, ids)
+
+	// searches stay complete after PostStartup as well. Note that in this
+	// test the data lives only in the memtable (never flushed to a segment),
+	// which the preload's parallel iterator cannot see: the index must keep
+	// serving searches from the store rather than trust the cache.
+	index.PostStartup(ctx)
+	ids, _, err = index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uint64{0, 1, 2, 100}, ids)
+}
+
+func Test_NoRace_Flat_RQ1DistancerOnPartialCacheWarmup(t *testing.T) {
+	// same scenario as the BQ variant above, for the RQ-1 distancer branch
+	// which has its own cache window guard
+	dirName := t.TempDir()
+	ctx := context.Background()
+
+	store := loadTestStore(t, dirName)
+	index, err := New(Config{
+		ID:                "lazy-cache-rq1-test",
+		RootPath:          dirName,
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, flatent.UserConfig{
+		RQ: flatent.RQUserConfig{Enabled: true, Cache: true, RescoreLimit: 10},
+	}, store)
+	require.NoError(t, err)
+	require.NoError(t, index.Add(ctx, 2, []float32{0.5, 0.5, 0.5}))
+	require.NoError(t, index.Add(ctx, 100, []float32{1, 0.5, 0}))
+	require.NoError(t, index.Shutdown(ctx))
+	require.NoError(t, store.Shutdown(ctx))
+
+	store = loadTestStore(t, dirName)
+	defer store.Shutdown(ctx)
+	index, err = New(Config{
+		ID:                "lazy-cache-rq1-test",
+		RootPath:          dirName,
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, flatent.UserConfig{
+		RQ: flatent.RQUserConfig{Enabled: true, Cache: true, RescoreLimit: 10},
+	}, store)
+	require.NoError(t, err)
+	defer index.Shutdown(ctx)
+	require.EqualValues(t, 0, index.cache.Len())
+
+	// warm a partial window, then request a valid id beyond it
+	qvd := index.QueryVectorDistancer([]float32{1, 0, 0})
+	_, err = qvd.DistanceToNode(2)
+	require.NoError(t, err)
+	require.Less(t, index.cache.Len(), int32(100), "vector 100 must lie beyond the warmed window")
+	_, err = qvd.DistanceToNode(100)
+	require.NoError(t, err, "valid ids beyond an incomplete cache window must fall back to disk")
+}

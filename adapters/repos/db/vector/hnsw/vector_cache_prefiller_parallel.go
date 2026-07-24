@@ -93,21 +93,14 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	}
 	targetVector := h.getTargetVector()
 
-	h.RLock()
-	preGrown := uint64(len(h.nodes))
-	h.RUnlock()
-
 	var loaded atomic.Int64
 	onVector := func(id uint64, vec []float32) {
 		// cosine-dot keeps normalized vectors in the cache; the serial path gets this
 		// from the cache's normalizeOnRead wrapper, which Preload bypasses. vec is a
 		// fresh per-vector allocation, so normalizing in place is safe.
 		h.normalizeVecInPlace(vec)
-		if id >= preGrown {
-			// Cache is pre-grown to len(h.nodes) at restore, so live ids are in-bounds;
-			// grow only for an id from a write that landed after we snapshotted the count.
-			h.cache.Grow(id)
-		}
+		// Preload grows the cache on demand, covering ids from writes that
+		// land while the prefill is running
 		h.cache.Preload(id, vec)
 		loaded.Add(1)
 	}
