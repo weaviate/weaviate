@@ -136,13 +136,13 @@ func (b *Bucket) RoaringSetGet(ctx context.Context, key []byte) (bm *sroar.Bitma
 // logical operation: call GetConsistentView() once, pass the result to every
 // RoaringSetGetFromView call, then call view.ReleaseView() exactly once when
 // done.
-//
-// The caller must have already confirmed b.Strategy() == StrategyRoaringSet
-// (e.g. once, before the read loop) — unlike RoaringSetGet, this method does
-// not re-validate the strategy on every call.
 func (b *Bucket) RoaringSetGetFromView(
 	ctx context.Context, view BucketConsistentView, key []byte,
 ) (bm *sroar.Bitmap, release func(), err error) {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return nil, noopRelease, err
+	}
+
 	return b.roaringSetGetFromConsistentView(ctx, view, key)
 }
 

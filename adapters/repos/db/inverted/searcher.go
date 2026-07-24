@@ -1053,9 +1053,13 @@ func (s *Searcher) extractContainsBatch(ctx context.Context, path *filters.Path,
 	// gate check (bucket, strategy) has passed.
 	var encode func() ([][]byte, error)
 
+	// Only base value types are eligible: the API layers normalize Contains
+	// value types to the base type before the searcher, and the desugared
+	// per-value leaf extractors error on array value types — accepting them
+	// here would succeed where the fallback path errors.
 	switch {
 	case s.onUUIDProp(property):
-		if propType != schema.DataTypeText && propType != schema.DataTypeTextArray {
+		if propType != schema.DataTypeText {
 			return nil, false, nil
 		}
 		values, err := s.extractStringArray(value)
@@ -1070,7 +1074,7 @@ func (s *Searcher) extractContainsBatch(ctx context.Context, path *filters.Path,
 		}
 
 	case s.onTokenizableProp(property):
-		if propType != schema.DataTypeText && propType != schema.DataTypeTextArray {
+		if propType != schema.DataTypeText {
 			return nil, false, nil
 		}
 		// tokenizeField always produces exactly one token (a TrimFunc of the
@@ -1105,7 +1109,7 @@ func (s *Searcher) extractContainsBatch(ctx context.Context, path *filters.Path,
 
 	default:
 		switch propType {
-		case schema.DataTypeInt, schema.DataTypeIntArray:
+		case schema.DataTypeInt:
 			values, err := s.extractIntArray(value)
 			if err != nil || len(values) < 2 || !HasFilterableIndex(property) {
 				return nil, false, nil
@@ -1113,7 +1117,7 @@ func (s *Searcher) extractContainsBatch(ctx context.Context, path *filters.Path,
 			encode = func() ([][]byte, error) {
 				return encodeContainsKeys(values, func(v int) ([]byte, error) { return s.extractIntValue(v) })
 			}
-		case schema.DataTypeNumber, schema.DataTypeNumberArray:
+		case schema.DataTypeNumber:
 			values, err := s.extractFloat64Array(value)
 			if err != nil || len(values) < 2 || !HasFilterableIndex(property) {
 				return nil, false, nil
@@ -1121,7 +1125,7 @@ func (s *Searcher) extractContainsBatch(ctx context.Context, path *filters.Path,
 			encode = func() ([][]byte, error) {
 				return encodeContainsKeys(values, func(v float64) ([]byte, error) { return s.extractNumberValue(v) })
 			}
-		case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
+		case schema.DataTypeBoolean:
 			values, err := s.extractBoolArray(value)
 			if err != nil || len(values) < 2 || !HasFilterableIndex(property) {
 				return nil, false, nil
@@ -1129,7 +1133,7 @@ func (s *Searcher) extractContainsBatch(ctx context.Context, path *filters.Path,
 			encode = func() ([][]byte, error) {
 				return encodeContainsKeys(values, func(v bool) ([]byte, error) { return s.extractBoolValue(v) })
 			}
-		case schema.DataTypeDate, schema.DataTypeDateArray:
+		case schema.DataTypeDate:
 			values, err := s.extractStringArray(value)
 			if err != nil || len(values) < 2 || !HasFilterableIndex(property) {
 				return nil, false, nil
@@ -1154,7 +1158,10 @@ func (s *Searcher) extractContainsBatch(ctx context.Context, path *filters.Path,
 
 	pv, err := newPropValuePair(class)
 	if err != nil {
-		return nil, false, nil
+		// the shape fully matched, so per the 3-state contract a failure
+		// here is an error, not a fall-through (unreachable today: a nil
+		// class is rejected by the property lookup above)
+		return nil, true, err
 	}
 	pv.prop = property.Name
 	pv.operator = operator

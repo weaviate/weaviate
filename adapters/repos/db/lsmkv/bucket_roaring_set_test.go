@@ -315,6 +315,29 @@ func TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet(t *testing.T) {
 	view.ReleaseView()
 }
 
+// TestBucket_RoaringSetGetFromView_WrongStrategy pins the strategy guard: a
+// view read on a non-roaringset bucket must error before touching the view
+// at all (a zero view makes that observable — reaching the memtable read
+// would nil-panic), and the returned release must be safe to call. The
+// deeper layers reject the wrong strategy too, so without the guard the
+// error would only surface after the disk descent.
+func TestBucket_RoaringSetGetFromView_WrongStrategy(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+
+	bm, release, err := b.RoaringSetGetFromView(ctx, BucketConsistentView{}, []byte("key"))
+	require.Error(t, err)
+	require.Nil(t, bm)
+	require.NotNil(t, release)
+	release()
+}
+
 // TestBucket_RoaringSet_DeleteThenReaddAcrossSegments is a read-path regression
 // test for roaringset reads with tombstones spread across multiple disk segments
 // plus the active memtable, including a doc deleted in one segment and re-added

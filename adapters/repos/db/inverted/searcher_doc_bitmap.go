@@ -213,11 +213,11 @@ type containsBatchBucket interface {
 
 // mergeAllowlistBitmaps folds b into a under op (ContainsAny -> union,
 // ContainsAll -> intersection) and returns the result bitmap plus its release,
-// releasing whichever operand does not become the result. Both operands must be
-// allowlists, so it needs none of mergeBitmapsAndOrWithDenyList's deny-list
-// algebra — but it mirrors that function's swap-for-efficiency: union the
-// smaller bitmap into the larger, intersect the larger into the smaller, to
-// minimize container operations. NumContainers is an O(1) header read.
+// releasing whichever operand does not become the result. Both operands must
+// be allowlists. It mirrors mergeBitmapsAndOrWithDenyList's
+// swap-for-efficiency: union the smaller bitmap into the larger, intersect
+// the larger into the smaller, to minimize container operations.
+// NumContainers is an O(1) header read.
 func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
 	a *sroar.Bitmap, aRelease func(), b *sroar.Bitmap, bRelease func(),
 ) (*sroar.Bitmap, func(), error) {
@@ -259,13 +259,9 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBu
 	defer view.ReleaseView()
 	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 
-	// Every value is an Equal leaf, so every fetched bitmap is an allowlist,
-	// never a deny list. Fold the raw bitmaps directly into one accumulator (Or
-	// for ContainsAny, And for ContainsAll), releasing each after folding. This
-	// skips both the per-value docBitmap wrapper and the deny-list algebra of
-	// mergeBitmapsAndOrWithDenyList (unnecessary here, as no operand is a deny
-	// list). The first fetched bitmap becomes the accumulator and is mutated in
-	// place by subsequent folds, exactly as the previous per-value merge did.
+	// The first fetched bitmap becomes the accumulator; subsequent bitmaps
+	// are folded into it in place (Or for ContainsAny, And for ContainsAll)
+	// and released.
 	var acc *sroar.Bitmap
 	accRelease := noopRelease
 	for _, key := range pv.containsValues {

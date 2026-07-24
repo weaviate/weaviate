@@ -104,6 +104,22 @@ func (c *expireAfterNDoneCtx) Err() error {
 	}
 }
 
+// TestMergeAllowlistBitmaps_UnsupportedOperator pins the defensive default
+// arm: an operator that is neither ContainsAny nor ContainsAll must error
+// and release both operands, so the backstop cannot rot into a silent
+// nil return or a buffer leak.
+func TestMergeAllowlistBitmaps_UnsupportedOperator(t *testing.T) {
+	var aReleased, bReleased bool
+	res, release, err := mergeAllowlistBitmaps(filters.OperatorEqual, 1,
+		sroar.NewBitmap(), func() { aReleased = true },
+		sroar.NewBitmap(), func() { bReleased = true })
+	require.Error(t, err)
+	require.Nil(t, res)
+	require.Nil(t, release)
+	require.True(t, aReleased, "unsupported operator must release the accumulator")
+	require.True(t, bReleased, "unsupported operator must release the fetched operand")
+}
+
 func TestDocBitmapContainsBatch_ContainsAnyFold(t *testing.T) {
 	ctx := context.Background()
 	spy := buildContainsBatchBucket(t, ctx, map[string][]uint64{
@@ -171,6 +187,27 @@ func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 		require.Empty(t, dbm.docIDs.ToArray())
 		require.Equal(t, []string{"a", "b"}, spy.reads,
 			"key c must not be read once the AND accumulator is provably empty")
+	})
+
+	t.Run("absent key empties the intersection and stops reading", func(t *testing.T) {
+		spy := buildContainsBatchBucket(t, ctx, map[string][]uint64{
+			"a": {1, 2, 3},
+			"c": {1, 2, 3}, // must never be read: the absent key already emptied the AND
+		})
+
+		pv := &propValuePair{
+			operator:       filters.ContainsAll,
+			containsValues: [][]byte{[]byte("a"), []byte("missing"), []byte("c")},
+		}
+
+		s := &Searcher{}
+		dbm, err := s.docBitmapContainsBatch(ctx, spy, pv)
+		require.NoError(t, err)
+		defer dbm.release()
+
+		require.Empty(t, dbm.docIDs.ToArray())
+		require.Equal(t, []string{"a", "missing"}, spy.reads,
+			"key c must not be read once the absent key emptied the accumulator")
 	})
 }
 
