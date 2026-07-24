@@ -80,11 +80,8 @@ func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {
 	}
 }
 
-// strategiesRoaringSet is spread into CheckExpectedStrategy with `...` so the
-// check does not heap-allocate a []Strategy on every call. The variadic literal
-// form (CheckExpectedStrategy(strategy, StrategyRoaringSet)) packs a fresh slice
-// per call, which is wasteful on hot read paths that check the strategy once per
-// operation. Read-only; never mutate.
+// Pre-built (and never mutated) so the RoaringSet check doesn't allocate a
+// []Strategy per call.
 var strategiesRoaringSet = []Strategy{StrategyRoaringSet}
 
 func CheckStrategyRoaringSet(strategy Strategy) error {

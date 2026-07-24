@@ -82,11 +82,8 @@ func MustBeExpectedStrategy(strategy string, expectedStrategies ...string) {
 	}
 }
 
-// Predefined single-strategy argument slices, spread into CheckExpectedStrategy
-// with `...` so the check does not heap-allocate a []string on every call. The
-// variadic literal form (CheckExpectedStrategy(strategy, StrategyRoaringSet))
-// packs a fresh slice per call, which is wasteful on hot read paths that check
-// the strategy once per operation. Read-only; never mutate.
+// Pre-built (and never mutated) so the strategy checks don't allocate a
+// []string per call.
 var (
 	strategiesRoaringSet      = []string{StrategyRoaringSet}
 	strategiesRoaringSetRange = []string{StrategyRoaringSetRange}
