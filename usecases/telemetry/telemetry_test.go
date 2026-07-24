@@ -1197,6 +1197,95 @@ func TestIdentifyIntegration(t *testing.T) {
 	}
 }
 
+// TestMapTracker_TrackThenDrainingRead_NoUndercount pins the drain-before-serve
+// race in mapTracker.run, where a random select pick could serve a draining read
+// before an already-buffered Track event (weaviate/weaviate#12201).
+func TestMapTracker_TrackThenDrainingRead_NoUndercount(t *testing.T) {
+	// GOMAXPROCS=1 never triggers the race; pin to 2 for a stable repro
+	// regardless of the host's core count.
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(2))
+
+	const iterations = 100000
+
+	trackers := []struct {
+		name  string
+		build func() (track func(), count func(getReset bool) int64, stop func())
+	}{
+		{
+			name: "IntegrationTracker",
+			build: func() (func(), func(bool) int64, func()) {
+				logger, _ := test.NewNullLogger()
+				tracker := NewIntegrationTracker(logger)
+				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+				req.Header.Set(integrationHeaderKey, testMyIntegration)
+				return func() { tracker.Track(req) },
+					func(getReset bool) int64 {
+						if getReset {
+							return tracker.GetAndReset()[testMyIntegration]["unknown"]
+						}
+						return tracker.Get()[testMyIntegration]["unknown"]
+					},
+					tracker.Stop
+			},
+		},
+		{
+			name: "ClientTracker",
+			build: func() (func(), func(bool) int64, func()) {
+				logger, _ := test.NewNullLogger()
+				tracker := NewClientTracker(logger)
+				req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+				req.Header.Set("X-Weaviate-Client", "weaviate-client-python/4.10.0")
+				return func() { tracker.Track(req) },
+					func(getReset bool) int64 {
+						if getReset {
+							return tracker.GetAndReset()[ClientTypePython]["4.10.0"]
+						}
+						return tracker.Get()[ClientTypePython]["4.10.0"]
+					},
+					tracker.Stop
+			},
+		},
+	}
+
+	reads := []struct {
+		name      string
+		getReset  bool
+		wantCount func(iteration int) int64
+	}{
+		{
+			// Get never resets: count accumulates across iterations.
+			name:      "Get",
+			getReset:  false,
+			wantCount: func(i int) int64 { return int64(i) },
+		},
+		{
+			// GetAndReset clears on read: count is always 1.
+			name:      "GetAndReset",
+			getReset:  true,
+			wantCount: func(int) int64 { return 1 },
+		},
+	}
+
+	for _, read := range reads {
+		t.Run(read.name, func(t *testing.T) {
+			for _, tc := range trackers {
+				t.Run(tc.name, func(t *testing.T) {
+					track, count, stop := tc.build()
+					defer stop()
+
+					for i := 1; i <= iterations; i++ {
+						track()
+						require.Equalf(t, read.wantCount(i), count(read.getReset),
+							"%s undercounted at iteration %d: a Track event queued "+
+								"before the draining read was still buffered when the "+
+								"counts were copied", read.name, i)
+					}
+				})
+			}
+		})
+	}
+}
+
 // testMapTrackerStopBehavior verifies that get and getAndReset return nil
 // after the tracker has been stopped. Uses the inner mapTracker directly
 // since this test file is in the same package.
