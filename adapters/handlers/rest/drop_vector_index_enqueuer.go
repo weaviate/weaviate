@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,14 +31,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// dropVectorMinClusterVersion is the minimum Weaviate version required across
+// all cluster nodes before Phase-2 cleanup tasks are enqueued.
+const dropVectorMinClusterVersion = "1.39.0"
+
 // dropVectorIndexEnqueuer implements schema.DropVectorIndexEnqueuer. It submits
 // the background cleanup distributed task and reports whether one is in flight,
 // using the cluster DTM client + sharding state. Lives in the REST wiring layer
 // so it can reuse buildUnitMaps/buildUnitSpecs.
 type dropVectorIndexEnqueuer struct {
-	clusterService clusterDropTaskClient
-	schemaState    schemaStateQuerier
-	logger         logrus.FieldLogger // nil-safe: only used for skip warnings
+	clusterService   clusterDropTaskClient
+	schemaState      schemaStateQuerier
+	clusterVersioner clusterVersionLister
+	logger           logrus.FieldLogger // nil-safe: only used for skip warnings
 }
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
@@ -58,8 +64,20 @@ type schemaStateQuerier interface {
 	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
 }
 
-func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState schemaStateQuerier, logger logrus.FieldLogger) *dropVectorIndexEnqueuer {
-	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState, logger: logger}
+// clusterVersionLister provides version information about all nodes in the cluster.
+// Used to gate operations until the entire cluster is upgraded to a minimum version.
+type clusterVersionLister interface {
+	GetNodeStatus(ctx context.Context, className, shardName, verbosity string) ([]*models.NodeStatus, error)
+}
+
+func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState schemaStateQuerier,
+	clusterVersioner clusterVersionLister, logger logrus.FieldLogger) *dropVectorIndexEnqueuer {
+	return &dropVectorIndexEnqueuer{
+		clusterService:   clusterService,
+		schemaState:      schemaState,
+		clusterVersioner: clusterVersioner,
+		logger:           logger,
+	}
 }
 
 // warnSkippedPayload surfaces an undecodable active-task payload instead of
@@ -69,6 +87,72 @@ func (e *dropVectorIndexEnqueuer) warnSkippedPayload(where, taskID string, err e
 		e.logger.WithField("task", taskID).
 			Warnf("drop-vector %s: skipping active task with unparseable payload: %v", where, err)
 	}
+}
+
+// parseSemverPrefix extracts the major.minor version from a semantic version string.
+// For "1.39.0" returns (1, 39, nil); for invalid input returns (0, 0, error).
+func parseSemverPrefix(version string) (int, int, error) {
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return 0, 0, fmt.Errorf("invalid semver: %q", version)
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid major version in %q: %w", version, err)
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid minor version in %q: %w", version, err)
+	}
+	return major, minor, nil
+}
+
+// versionAtLeast reports whether version >= minVersion.
+func versionAtLeast(version, minVersion string) (bool, error) {
+	major, minor, err := parseSemverPrefix(version)
+	if err != nil {
+		return false, err
+	}
+	minMajor, minMinor, err := parseSemverPrefix(minVersion)
+	if err != nil {
+		return false, err
+	}
+	if major > minMajor {
+		return true, nil
+	}
+	if major < minMajor {
+		return false, nil
+	}
+	return minor >= minMinor, nil
+}
+
+// clusterFullyUpgraded reports whether all nodes in the cluster are upgraded
+// to at least minVersion.
+func (e *dropVectorIndexEnqueuer) clusterFullyUpgraded(ctx context.Context, minVersion string) (bool, error) {
+	statuses, err := e.clusterVersioner.GetNodeStatus(ctx, "", "", "minimal")
+	if err != nil {
+		return false, fmt.Errorf("checking cluster versions: %w", err)
+	}
+	for _, status := range statuses {
+		if status == nil || status.Version == "" {
+			// Missing version = node not ready or incompatible
+			return false, nil
+		}
+		ok, err := versionAtLeast(status.Version, minVersion)
+		if err != nil {
+			// Parse error = incompatible version format, treat as not upgraded
+			if e.logger != nil {
+				e.logger.WithField("node", status.Name).
+					Debugf("drop-vector cluster version check: could not parse version %q: %v", status.Version, err)
+			}
+			return false, nil
+		}
+		if !ok {
+			// This node is below the minimum
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // HasActiveDrop reports whether a non-terminal drop task already covers
@@ -104,6 +188,28 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 // one unit per (shard, replica) grouped by shard, so each replica node strips
 // its own objects bucket.
 func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
+	// Gate on cluster upgrade: Phase-2 cleanup is only safe once all nodes are
+	// at the minimum version. If the cluster is mixed-version, defer the enqueue
+	// and let reconciliation retry later.
+	upgraded, err := e.clusterFullyUpgraded(ctx, dropVectorMinClusterVersion)
+	if err != nil {
+		// Errors checking cluster version are transient (network, unavailable nodes);
+		// treat as not-upgraded so we defer and retry on the next reconciliation pass.
+		if e.logger != nil {
+			e.logger.WithField("collection", collection).
+				Debugf("drop-vector enqueue: deferring due to cluster version check error: %v", err)
+		}
+		return nil
+	}
+	if !upgraded {
+		// Cluster not fully upgraded; defer the cleanup task.
+		if e.logger != nil {
+			e.logger.WithField("collection", collection).
+				Infof("drop-vector enqueue: deferring cleanup for %q until cluster is at version %s", collection, dropVectorMinClusterVersion)
+		}
+		return nil
+	}
+
 	// Re-validate against the leader-consistent class: the marker commit and this
 	// enqueue are not atomic, and reconciliation may run off a stale local schema
 	// snapshot. A target that is no longer marked dropped (class deleted and
