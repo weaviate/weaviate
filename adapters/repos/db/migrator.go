@@ -417,18 +417,21 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 		return nil
 	}
 
-	if err := idx.dropShards(toRemove); err != nil {
-		return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
-	}
+	// the cloud delete runs even when the local drop fails, otherwise the
+	// offloaded data is orphaned: the dropped shards are gone from the index,
+	// so a later update no longer lists them
+	ec := errorcompounder.New()
+	ec.Add(idx.dropShards(toRemove))
 
 	if m.cloud != nil {
 		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
 		// better to filter the passed shards and get the frozen only
-		if err := idx.dropCloudShards(ctx, m.cloud, toRemove, m.nodeId); err != nil {
-			return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
-		}
+		ec.Add(idx.dropCloudShards(ctx, m.cloud, toRemove, m.nodeId))
 	}
 
+	if err := ec.ToError(); err != nil {
+		return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
+	}
 	return nil
 }
 
@@ -745,17 +748,17 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*m
 		}
 	}
 
-	if err := idx.dropShards(allTenantNames); err != nil {
-		return err
-	}
+	// the cloud delete runs even when the local drop fails, otherwise the
+	// offloaded data is orphaned: nothing retries once the schema entry is gone
+	ec := errorcompounder.New()
+	ec.Add(idx.dropShards(allTenantNames))
 
 	if m.cloud != nil && len(frozenTenants) > 0 {
-		if err := idx.dropCloudShards(ctx, m.cloud, frozenTenants, m.nodeId); err != nil {
-			return fmt.Errorf("drop tenant shards %v during update index: %w", frozenTenants, err)
-		}
+		ec.AddWrapf(idx.dropCloudShards(ctx, m.cloud, frozenTenants, m.nodeId),
+			"drop tenant shards %v during update index", frozenTenants)
 	}
 
-	return nil
+	return ec.ToError()
 }
 
 func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,

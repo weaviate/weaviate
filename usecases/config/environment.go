@@ -783,6 +783,13 @@ func FromEnv(config *Config) error {
 		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
 	}
 
+	if err := parser.ParseDynamicIntWithValidation("BACKUP_MAX_INDIVIDUAL_FILES",
+		DefaultBackupMaxIndividualFiles,
+		parser.ValidateIntGreaterThan0,
+		func(val *configRuntime.DynamicValue[int]) { config.Backup.MaxIndividualFiles = val }); err != nil {
+		return err
+	}
+
 	if entcfg.Enabled(os.Getenv("BACKUP_SKIP_ACCESS_CHECK")) {
 		config.Backup.SkipAccessCheck = true
 	}

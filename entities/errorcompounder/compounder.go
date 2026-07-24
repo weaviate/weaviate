@@ -91,6 +91,7 @@ func (ec *errorCompounder) toError(limit int) error {
 	}
 
 	var b strings.Builder
+	var errs []error
 
 	var f func(*entry) bool
 	f = func(e *entry) bool {
@@ -100,6 +101,7 @@ func (ec *errorCompounder) toError(limit int) error {
 				b.WriteString(", ")
 			}
 			b.WriteString(err.Error())
+			errs = append(errs, err)
 			addComma = true
 
 			limit--
@@ -125,7 +127,11 @@ func (ec *errorCompounder) toError(limit int) error {
 		return true
 	}
 	f(ec.top)
-	return errors.New(b.String())
+	// without the count a truncated message reads like the complete list
+	if omitted := ec.Len() - len(errs); omitted > 0 {
+		fmt.Fprintf(&b, " (and %d more)", omitted)
+	}
+	return &compoundError{msg: b.String(), errs: errs}
 }
 
 func (ec *errorCompounder) add(err error) {
@@ -150,6 +156,24 @@ func (ec *errorCompounder) addGroups(err error, groups ...string) {
 		target = group
 	}
 	target.errors = append(target.errors, err)
+}
+
+// ----------------------------------------------------------------------------
+
+// compoundError renders every collected error into a single message while
+// keeping those errors reachable for errors.Is and errors.As. A limited error
+// only exposes the errors its message covers.
+type compoundError struct {
+	msg  string
+	errs []error
+}
+
+func (e *compoundError) Error() string {
+	return e.msg
+}
+
+func (e *compoundError) Unwrap() []error {
+	return e.errs
 }
 
 // ----------------------------------------------------------------------------

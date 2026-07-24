@@ -632,6 +632,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		IsLocalHost:                     appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:                schemaRepo.LoadLegacySchema,
 		SentryEnabled:                   appState.ServerConfig.Config.Sentry.Enabled,
+		TelemetryEnabled:                telemetryEnabled(appState),
 		AuthzController:                 appState.AuthzController,
 		RBAC:                            appState.RBAC,
 		DynamicUserController:           appState.APIKey.Dynamic,
@@ -1038,9 +1039,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.DB,
 		appState.SchemaManager,
 		appState.Logger,
-		getTelemetryURL(appState),
-		appState.ServerConfig.Config.TelemetryPushInterval,
-		telemetryEnabled(appState),
+		telemetry.Config{
+			ConsumerURL:          getTelemetryURL(appState),
+			PushInterval:         appState.ServerConfig.Config.TelemetryPushInterval,
+			Enabled:              telemetryEnabled(appState),
+			NodeID:               appState.ServerConfig.Config.Cluster.Hostname,
+			AsyncIndexingEnabled: appState.ServerConfig.Config.AsyncIndexingEnabled,
+			ClusterID:            appState.ClusterService.ClusterID,
+		},
 	)
 
 	var grpcInstrument []grpc.ServerOption
@@ -2266,6 +2272,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
 		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
+		registered.BackupMaxIndividualFiles = appState.ServerConfig.Config.Backup.MaxIndividualFiles
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {

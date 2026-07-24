@@ -855,6 +855,81 @@ func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
 	idx.shardCreateLocks.RUnlock(shardName)
 }
 
+// Asserts the shard reference is dropped only after backupLock is unlocked, on
+// every return that follows preventShutdown. Dropping the last reference can run
+// the shard teardown inline, which under backupLock blocks all writes to the shard.
+func TestBackupShardWithHardlinks_ReleasesShardAfterBackupLock(t *testing.T) {
+	className := "TestClass"
+	shardName := "test-shard"
+	snapshotFile := "objects/segment-0001.db"
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		snapshotErr error
+		// missingBigFile makes FillFileInfo stat a file that is absent from the staging dir.
+		missingBigFile bool
+		expectedErr    string
+	}{
+		{name: "success"},
+		{name: "snapshot fails", snapshotErr: errors.New("out of disk"), expectedErr: "snapshot shard"},
+		{name: "file info fails", missingBigFile: true, expectedErr: "gather shard"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shardState := NewMultiTenantShardingStateBuilder().
+				AddTenant(shardName, models.TenantActivityStatusHOT).
+				WithReplicationFactor(1).
+				Build()
+			idx := newDescriptorTestIndex(t, t.TempDir(), className, shardState)
+
+			var released, backupLockFreeAtRelease bool
+			mockShard := NewMockShardLike(t)
+			mockShard.EXPECT().preventShutdown().Return(func() {
+				released = true
+				backupLockFreeAtRelease = idx.backupLock.TryRLock(shardName)
+				if backupLockFreeAtRelease {
+					idx.backupLock.RUnlock(shardName)
+				}
+			}, nil)
+			mockShard.EXPECT().
+				CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+					if tt.snapshotErr != nil {
+						return nil, tt.snapshotErr
+					}
+					sd.Name = shardName
+					sd.Node = "node1"
+					return []string{snapshotFile}, nil
+				})
+			idx.shards.Store(shardName, mockShard)
+
+			var baseDescrs []*backup.ClassDescriptor
+			if tt.missingBigFile {
+				baseDescrs = []*backup.ClassDescriptor{{
+					BackupID: "base-backup",
+					Shards: []*backup.ShardDescriptor{{
+						Name:          shardName,
+						BigFilesChunk: map[string]backup.BigFileInfo{snapshotFile: {Size: 1}},
+					}},
+				}}
+			}
+
+			_, err := idx.backupShardWithHardlinks(ctx, shardName, baseDescrs, t.TempDir())
+			if tt.expectedErr != "" {
+				require.ErrorContains(t, err, tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.True(t, released, "shard reference must be released")
+			assert.True(t, backupLockFreeAtRelease,
+				"backupLock must be unlocked before the shard reference is dropped")
+		})
+	}
+}
+
 // Asserts both locks are released on the preventShutdown error path — guards
 // the shardCreateLocksHeld bookkeeping that supports the early-release.
 func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T) {
