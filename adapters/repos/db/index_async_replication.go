@@ -54,11 +54,13 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 	// ---- Code defaults (tier 1) ----
 	if multiTenancyEnabled {
 		config.hashtreeHeight = defaultHashtreeHeightMultiTenant
+		config.frequency = defaultFrequencyMultiTenant
+		config.frequencyWhilePropagating = defaultFrequencyWhilePropagatingMultiTenant
 	} else {
 		config.hashtreeHeight = defaultHashtreeHeightSingleTenant
+		config.frequency = defaultFrequencySingleTenant
+		config.frequencyWhilePropagating = defaultFrequencyWhilePropagatingSingleTenant
 	}
-	config.frequency = defaultFrequency
-	config.frequencyWhilePropagating = defaultFrequencyWhilePropagating
 	config.loggingFrequency = defaultLoggingFrequency
 	config.diffBatchSize = defaultDiffBatchSize
 	config.diffPerNodeTimeout = defaultDiffPerNodeTimeout

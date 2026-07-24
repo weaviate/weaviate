@@ -65,7 +65,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: int64(clusterSize),
+			Factor:      int64(clusterSize),
+			AsyncConfig: fastAsyncReplicationConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
