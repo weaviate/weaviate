@@ -85,6 +85,15 @@ var (
 	// failed arrives — refusing here avoids overwriting a terminal
 	// status the operator (or fail-fast path) committed in the meantime.
 	ErrTaskNotInFinalizingState = errors.New("task is not in finalizing state")
+
+	// ErrTaskCapExceeded matches "collection ... already has N active tasks
+	// (max M)". Returned by [Manager.AddTask] when a collection already has
+	// [MaxConcurrentActiveTasksPerCollection] concurrently active tasks in
+	// the task's namespace. This is the apply-time backstop for the REST
+	// handler's pre-submit cap check: a parallel submit burst defeats the
+	// pre-check (every request counts before any has applied), so the cap
+	// is re-enforced here under the RAFT serialization point.
+	ErrTaskCapExceeded = errors.New("per-collection active task cap exceeded")
 )
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
@@ -118,6 +127,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrUnitAlreadyTerminal, "unit-terminal"},
 	{ErrUnitWrongNode, "unit-wrong-node"},
 	{ErrTaskNotInFinalizingState, "task-not-finalizing"},
+	{ErrTaskCapExceeded, "task-cap-exceeded"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

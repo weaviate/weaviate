@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,28 @@ func errTaskNotRunning(namespace, taskID string, version uint64) error {
 	return wrapPermanent(ErrTaskNotRunning,
 		fmt.Sprintf("task %s/%s/%d is no longer running", namespace, taskID, version))
 }
+
+// MaxConcurrentActiveTasksPerCollection caps how many concurrently active
+// (STARTED/PREPARING/SWAPPING, via [TaskStatus.IsActive]) tasks may target
+// the same collection within one task namespace. Each reindex task creates
+// ingest + backup buckets on every replica; without a cap, a script that
+// runs PUT /indexes/<prop> per property would fan out N tasks for an
+// N-property collection and overwhelm both LSM compaction and disk.
+//
+// The value is sized to comfortably accommodate realistic batch property
+// changes (e.g. retokenizing every text property on a ~20-property
+// collection in one go) while still preventing pathological unbounded
+// fan-out from a script that loops over hundreds of properties. The
+// original value of 4 was too restrictive: it rejected legitimate batch
+// migrations against modest-sized collections and broke the
+// reindex_concurrent acceptance test which exercises 15 simultaneous
+// non-conflicting submits.
+//
+// Enforced atomically at apply time in [Manager.AddTask] (under m.mu, at
+// the RAFT serialization point). The REST handler's pre-submit check is
+// only a fast path over this same constant — keep both layers referencing
+// it so they cannot drift.
+const MaxConcurrentActiveTasksPerCollection = 32
 
 // Manager is responsible for managing distributed tasks across the cluster.
 type Manager struct {
@@ -308,6 +331,47 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		}
 		if err := cd.CheckConflict(r.Payload, existing); err != nil {
 			return fmt.Errorf("task %s/%s conflicts with existing task: %w", r.Namespace, r.Id, err)
+		}
+	}
+
+	// Apply-time backstop for the per-collection cap on concurrently active
+	// tasks. The REST handler enforces the same cap as a pre-submit check,
+	// but that check is a read-then-submit sequence a parallel submit burst
+	// defeats: every request observes the task list before any of them has
+	// applied. Re-checking here — under m.mu, at the RAFT serialization
+	// point — makes the cap atomic with the task insert.
+	//
+	// The error is returned TOP-LEVEL (never nested in another wrap): the
+	// "[dtm-perm/task-cap-exceeded]" marker must prefix the message so a
+	// cross-node caller can re-hydrate the sentinel after the gRPC
+	// round-trip (see errors.go's wire-format note).
+	//
+	// Namespaces without a registered [CollectionExtractor] are not
+	// collection-scoped and skip the cap. Payloads the extractor cannot
+	// decode also skip it — the same tolerance the handler-side counter
+	// shows toward unparseable payloads (a stray task must not block
+	// unrelated submits, and a mis-decoded new task must not be rejected
+	// for a cap we cannot attribute it to).
+	if extractor, ok := m.collectionExtractors[r.Namespace]; ok && extractor != nil {
+		if newCollection, ok := extractor(r.Payload); ok {
+			active := 0
+			for _, t := range m.tasks[r.Namespace] {
+				if !t.Status.IsActive() {
+					continue
+				}
+				collection, ok := extractor(t.Payload)
+				if !ok {
+					continue
+				}
+				if strings.EqualFold(collection, newCollection) {
+					active++
+				}
+			}
+			if active >= MaxConcurrentActiveTasksPerCollection {
+				return wrapPermanent(ErrTaskCapExceeded, fmt.Sprintf(
+					"collection %q already has %d active tasks (max %d); wait for one to finish before submitting another",
+					newCollection, active, MaxConcurrentActiveTasksPerCollection))
+			}
 		}
 	}
 

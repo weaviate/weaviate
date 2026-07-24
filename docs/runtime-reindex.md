@@ -92,7 +92,10 @@ Response shapes:
 - `409 Conflict` — an in-flight task already touches this property.
   The error names the offending task ID and migration type.
 - `429 / 503` — per-collection in-flight cap reached (default 32) or
-  cluster-service unavailable.
+  cluster-service unavailable. The cap is enforced atomically at
+  task-apply time in the distributed-task FSM (`Manager.AddTask`); the
+  handler's pre-submit check is only a fast path, so a parallel submit
+  burst still gets a clean 429.
 
 ### `DELETE /v1/schema/{class}/properties/{property}/index/{indexName}`
 
@@ -917,7 +920,7 @@ migration must complete in operator-tractable time, and serializing
 them at 4 made multi-hour migrations into multi-week migrations. 32
 was chosen empirically as the point where LSM compaction throughput
 saturates on a single shard's disk for the typical migration mix; the
-REST handler returns 503 once the cap is reached.
+REST handler returns 429 once the cap is reached.
 
 **Per-collection worker pool** in `processUnits`. Bounded by the
 `concurrency` function passed to the provider (typically a

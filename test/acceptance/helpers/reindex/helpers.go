@@ -33,8 +33,9 @@ import (
 type Option func(*options)
 
 type options struct {
-	tenants []string
-	timeout time.Duration
+	tenants        []string
+	timeout        time.Duration
+	status500Fatal string
 }
 
 func applyOptions(opts []Option) options {

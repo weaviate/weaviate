@@ -36,6 +36,7 @@ func TestWrapPermanent_ErrorsIsClassification(t *testing.T) {
 		{"task-not-exist", ErrTaskDoesNotExist},
 		{"unit-already-terminal", ErrUnitAlreadyTerminal},
 		{"unit-wrong-node", ErrUnitWrongNode},
+		{"task-cap-exceeded", ErrTaskCapExceeded},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,6 +109,7 @@ func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
 		{"task-not-exist", ErrTaskDoesNotExist},
 		{"unit-already-terminal", ErrUnitAlreadyTerminal},
 		{"unit-wrong-node", ErrUnitWrongNode},
+		{"task-cap-exceeded", ErrTaskCapExceeded},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -174,6 +176,7 @@ func TestExtractMarkerID(t *testing.T) {
 	cases := map[string]string{
 		"[dtm-perm/task-not-running] hello":                  "task-not-running",
 		"[dtm-perm/unit-terminal] longer message with [text": "unit-terminal",
+		"[dtm-perm/task-cap-exceeded] over the cap":          "task-cap-exceeded",
 		"no marker at all":                                   "",
 		"[dtm-perm/] empty id":                               "",
 		"[dtm-perm/no-closing-bracket and rest":              "",

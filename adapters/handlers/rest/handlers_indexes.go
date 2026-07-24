@@ -610,15 +610,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
 			ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
 		); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
-				errorResponse(principal, fmt.Sprintf("submitting task: %v", err)))
+			return submitTaskErrorResponder(principal, collection, err)
 		}
 	} else {
 		if err := h.appState.ClusterService.AddDistributedTaskWithBarrier(
 			ctx, db.ReindexNamespace, taskID, payload, unitIDs, semantic,
 		); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
-				errorResponse(principal, fmt.Sprintf("submitting task: %v", err)))
+			return submitTaskErrorResponder(principal, collection, err)
 		}
 	}
 
@@ -1342,21 +1340,13 @@ func normalizeSearchableAlgorithm(s string) string {
 	return ""
 }
 
-// maxConcurrentReindexPerCollection caps how many STARTED reindex tasks
-// can target the same collection at once. Each task creates ingest +
-// backup buckets on every replica; without a cap, a script that runs
-// PUT /indexes/<prop> per property would fan out N tasks for an
-// N-property collection and overwhelm both LSM compaction and disk.
-//
-// The value is sized to comfortably accommodate realistic batch property
-// changes (e.g. retokenizing every text property on a ~20-property
-// collection in one go) while still preventing pathological unbounded
-// fan-out from a script that loops over hundreds of properties. The
-// original value of 4 was too restrictive: it rejected legitimate batch
-// migrations against modest-sized collections and broke the
-// reindex_concurrent acceptance test which exercises 15 simultaneous
-// non-conflicting submits.
-const maxConcurrentReindexPerCollection = 32
+// maxConcurrentReindexPerCollection caps how many concurrently active
+// reindex tasks can target the same collection at once. It aliases the
+// DTM-level constant: [distributedtask.Manager.AddTask] enforces the cap
+// atomically at apply time (a parallel submit burst defeats the pre-submit
+// check here), so both layers MUST reference the same value — see the
+// sizing rationale on [distributedtask.MaxConcurrentActiveTasksPerCollection].
+const maxConcurrentReindexPerCollection = distributedtask.MaxConcurrentActiveTasksPerCollection
 
 // reindexCapExceededResponder returns a 429 Too Many Requests response with
 // the standard ErrorResponse body shape. The swagger spec for
@@ -1381,6 +1371,25 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 			panic(err)
 		}
 	})
+}
+
+// submitTaskErrorResponder maps a distributed-task submit failure to an HTTP
+// response. The DTM enforces the per-collection cap at apply time
+// ([distributedtask.Manager.AddTask]): a parallel submit burst can defeat
+// the pre-submit cap check above (every request counts in-flight tasks
+// before any of them has applied), so the FSM backstop rejects the over-cap
+// applies with [distributedtask.ErrTaskCapExceeded]. Map that rejection to
+// the same 429 the pre-check returns — one contract regardless of which
+// layer rejected. Every other submit failure keeps the generic 500 mapping.
+func submitTaskErrorResponder(principal *models.Principal, collection string, err error) middleware.Responder {
+	if errors.Is(err, distributedtask.ErrTaskCapExceeded) {
+		// The FSM only rejects at count >= cap, so cap is the truthful
+		// floor for the observed count in the response body.
+		return reindexCapExceededResponder(principal, collection,
+			maxConcurrentReindexPerCollection, maxConcurrentReindexPerCollection)
+	}
+	return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
+		errorResponse(principal, fmt.Sprintf("submitting task: %v", err)))
 }
 
 // countStartedTasksForCollection counts in-flight reindex tasks for a

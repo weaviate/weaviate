@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -128,6 +129,225 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 			UnitIds:               []string{"su-1"},
 		})
 		require.NoError(t, h.manager.AddTask(c, 100))
+	})
+}
+
+// TestManager_AddTask_CapBackstop pins the apply-time per-collection cap on
+// concurrently active tasks. The REST handler's pre-submit cap check is only
+// a fast path: a parallel submit burst defeats it because every request
+// observes the task list before any of them has applied. [Manager.AddTask]
+// therefore re-enforces the same cap under m.mu, at the RAFT serialization
+// point, so the cap holds no matter how parallel the submissions are.
+func TestManager_AddTask_CapBackstop(t *testing.T) {
+	const namespace = "test"
+
+	// testExtractor mirrors the contract of db.ExtractReindexTaskCollection
+	// (payload JSON with a top-level "collection" field) without importing
+	// the db package, which would create an import cycle.
+	testExtractor := func(payload []byte) (string, bool) {
+		var p struct {
+			Collection string `json:"collection"`
+		}
+		if err := json.Unmarshal(payload, &p); err != nil {
+			return "", false
+		}
+		return p.Collection, p.Collection != ""
+	}
+
+	payloadFor := func(t *testing.T, collection, prop string) []byte {
+		t.Helper()
+		raw, err := json.Marshal(struct {
+			MigrationType string   `json:"migrationType"`
+			Collection    string   `json:"collection"`
+			Properties    []string `json:"properties"`
+		}{"enable-filterable", collection, []string{prop}})
+		require.NoError(t, err)
+		return raw
+	}
+
+	addTask := func(t *testing.T, h *testHarness, id string, payload []byte, version uint64) error {
+		t.Helper()
+		return h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             namespace,
+			Id:                    id,
+			Payload:               payload,
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			UnitIds:               []string{"su-" + id},
+		}), version)
+	}
+
+	// fillToCap adds exactly MaxConcurrentActiveTasksPerCollection STARTED
+	// tasks for collection — distinct IDs, distinct properties, mirroring a
+	// burst of per-property reindex submits against one collection.
+	fillToCap := func(t *testing.T, h *testHarness, collection string) {
+		t.Helper()
+		for i := 0; i < MaxConcurrentActiveTasksPerCollection; i++ {
+			id := fmt.Sprintf("%s-task-%02d", collection, i)
+			err := addTask(t, h, id, payloadFor(t, collection, fmt.Sprintf("prop-%02d", i)), uint64(100+i))
+			require.NoError(t, err)
+		}
+	}
+
+	requireCapError := func(t *testing.T, err error, collection string) {
+		t.Helper()
+		require.Error(t, err)
+		require.True(t, errors.Is(err, ErrTaskCapExceeded),
+			"cap rejection must match the specific sentinel, got: %v", err)
+		require.True(t, errors.Is(err, ErrPermanentRejection),
+			"cap rejection must match the umbrella permanent-rejection sentinel, got: %v", err)
+		require.True(t, strings.HasPrefix(err.Error(), "[dtm-perm/task-cap-exceeded]"),
+			"message must START with the on-wire marker so a cross-node caller can re-hydrate the sentinel, got: %q", err.Error())
+		require.Contains(t, err.Error(), collection,
+			"message must name the capped collection")
+	}
+
+	t.Run("task beyond the cap is rejected", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor(namespace, testExtractor)
+		fillToCap(t, h, "CollectionA")
+
+		err := addTask(t, h, "CollectionA-task-32", payloadFor(t, "CollectionA", "prop-32"), 200)
+		requireCapError(t, err, "CollectionA")
+		require.Contains(t, err.Error(), fmt.Sprint(MaxConcurrentActiveTasksPerCollection),
+			"message must surface the observed count and cap for operator triage")
+
+		// The rejected task must not have entered the FSM state.
+		tasks, lerr := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, lerr)
+		require.Len(t, tasks[namespace], MaxConcurrentActiveTasksPerCollection,
+			"cap-rejected task MUST NOT be registered")
+	})
+
+	t.Run("cap is per-collection: another collection submits fine", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor(namespace, testExtractor)
+		fillToCap(t, h, "CollectionA")
+
+		err := addTask(t, h, "CollectionB-task-00", payloadFor(t, "CollectionB", "prop-00"), 200)
+		require.NoError(t, err,
+			"a different collection is governed by its own counter")
+	})
+
+	t.Run("collection match is case-insensitive", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor(namespace, testExtractor)
+		fillToCap(t, h, "MixedCase")
+
+		// Same collection spelled differently: the handler-side counter is
+		// case-insensitive (strings.EqualFold); the backstop must agree or
+		// the two layers could disagree on the count.
+		err := addTask(t, h, "mixedcase-task-32", payloadFor(t, "mixedcase", "prop-32"), 200)
+		requireCapError(t, err, "mixedcase")
+	})
+
+	t.Run("terminal tasks do not count toward the cap", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor(namespace, testExtractor)
+		fillToCap(t, h, "CollectionA")
+
+		// Drive one task to FINISHED: complete its only unit (→ SWAPPING),
+		// then finalize (→ FINISHED).
+		completeUnit(t, h, namespace, "CollectionA-task-00", 100, "local-node", "su-CollectionA-task-00")
+
+		// SWAPPING is still active (IsActive): the cap must still reject —
+		// SWAPPING tasks hold tracker dirs and reindex buckets.
+		err := addTask(t, h, "CollectionA-task-32", payloadFor(t, "CollectionA", "prop-32"), 200)
+		requireCapError(t, err, "CollectionA")
+
+		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+			Namespace:             namespace,
+			Id:                    "CollectionA-task-00",
+			Version:               100,
+			FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+
+		// A slot freed: the next submit for the collection is admitted.
+		err = addTask(t, h, "CollectionA-task-33", payloadFor(t, "CollectionA", "prop-33"), 201)
+		require.NoError(t, err, "FINISHED tasks must free their slot")
+	})
+
+	t.Run("dedup rejection takes precedence over the cap", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor(namespace, testExtractor)
+		fillToCap(t, h, "CollectionA")
+
+		// Re-apply an existing task ID at the same version: this must hit the
+		// same-ID dedup branch, not the cap — otherwise a retried RAFT apply
+		// would be misreported as a cap rejection.
+		err := addTask(t, h, "CollectionA-task-00", payloadFor(t, "CollectionA", "prop-00"), 100)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "already running")
+		require.False(t, errors.Is(err, ErrTaskCapExceeded),
+			"duplicate-ID error must not be classified as a cap rejection")
+	})
+
+	t.Run("conflict rejection takes precedence over the cap", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor(namespace, testExtractor)
+		fillToCap(t, h, "CollectionA")
+
+		// With the collection already at cap, a detector that reports a
+		// conflict must surface ITS error — the conflict check runs before
+		// the cap check (mirroring the handler's conflict-then-cap order).
+		detector := &fakeConflictDetector{
+			rejectWith: fmt.Errorf("simulated conflict: parallel migration on same prop"),
+		}
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{namespace: detector})
+
+		err := addTask(t, h, "CollectionA-task-32", payloadFor(t, "CollectionA", "prop-32"), 200)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "simulated conflict")
+		require.False(t, errors.Is(err, ErrTaskCapExceeded),
+			"conflict error must not be shadowed by the cap (check order: dedup → conflict → cap)")
+	})
+
+	t.Run("namespace without a collection extractor is not capped", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		// No extractor registered for the namespace: it is not
+		// collection-scoped (e.g. shard-noop debug tasks) and the cap must
+		// not apply.
+		for i := 0; i < MaxConcurrentActiveTasksPerCollection+1; i++ {
+			id := fmt.Sprintf("task-%02d", i)
+			err := addTask(t, h, id, []byte(fmt.Sprintf(`{"collection":"CollectionA","i":%d}`, i)), uint64(100+i))
+			require.NoError(t, err)
+		}
+	})
+
+	t.Run("new payload that fails extraction skips the cap", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor(namespace, testExtractor)
+		fillToCap(t, h, "CollectionA")
+
+		// Unparseable payload: the cap check cannot attribute the task to a
+		// collection, so it tolerates the submit — the same tolerance the
+		// handler-side counter shows toward unparseable payloads.
+		err := addTask(t, h, "garbage-task", []byte("not valid json"), 200)
+		require.NoError(t, err)
+	})
+
+	t.Run("existing tasks with unextractable payloads do not count", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor(namespace, testExtractor)
+
+		// cap-1 attributable tasks …
+		for i := 0; i < MaxConcurrentActiveTasksPerCollection-1; i++ {
+			id := fmt.Sprintf("CollectionA-task-%02d", i)
+			err := addTask(t, h, id, payloadFor(t, "CollectionA", fmt.Sprintf("prop-%02d", i)), uint64(100+i))
+			require.NoError(t, err)
+		}
+		// … plus unparseable stragglers (e.g. written by an older binary) …
+		for i := 0; i < 3; i++ {
+			err := addTask(t, h, fmt.Sprintf("garbage-%02d", i), []byte("not valid json"), uint64(150+i))
+			require.NoError(t, err)
+		}
+		// … must not push the counter to the cap: the next attributable
+		// submit is still admitted.
+		err := addTask(t, h, "CollectionA-task-31", payloadFor(t, "CollectionA", "prop-31"), 200)
+		require.NoError(t, err,
+			"only cap-1 attributable active tasks exist; garbage payloads must not count")
+		// Now at the cap — the next one is rejected.
+		err = addTask(t, h, "CollectionA-task-32", payloadFor(t, "CollectionA", "prop-32"), 201)
+		requireCapError(t, err, "CollectionA")
 	})
 }
 
