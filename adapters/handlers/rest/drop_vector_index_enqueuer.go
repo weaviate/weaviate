@@ -235,7 +235,7 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 			warnSkippedPayload(e.logger, "coverage-inheritance", task.ID, err)
 			continue
 		}
-		if !strings.EqualFold(p.Collection, collection) || !sameTargetSet(p.Targets, targets) {
+		if !strings.EqualFold(p.Collection, collection) || !db.SameTargetSet(p.Targets, targets) {
 			continue
 		}
 		matching[task] = p
@@ -269,26 +269,6 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 		return uuid.NewString(), nil, nil
 	}
 	return newest.DropEpochID, cleaned, nil
-}
-
-// sameTargetSet reports whether two target lists contain the same names with
-// the same multiplicities (exact case — target vector names are case-sensitive
-// identifiers).
-func sameTargetSet(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	counts := make(map[string]int, len(a))
-	for _, t := range a {
-		counts[t]++
-	}
-	for _, t := range b {
-		counts[t]--
-		if counts[t] < 0 {
-			return false
-		}
-	}
-	return true
 }
 
 // withoutCleanedShards strips already-cleaned shards from the ownership map,
