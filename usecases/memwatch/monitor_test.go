@@ -95,6 +95,20 @@ func TestMonitor(t *testing.T) {
 		m := NewMonitor(LiveHeapReader, debug.SetMemoryLimit, 0.97)
 		_ = m.Ratio()
 	})
+
+	t.Run("alloc landing exactly on the ratio is allowed", func(t *testing.T) {
+		metrics := &fakeHeapReader{val: 0}
+		limiter := &fakeLimitSetter{limit: 1000}
+
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.5)
+		m.Refresh(true)
+
+		// 500/1000 == 0.5, exactly maxRatio: the `> maxRatio` check must allow
+		// it (a `>= maxRatio` mutant would wrongly reject this boundary).
+		assert.NoError(t, m.CheckAlloc(500))
+		// 501/1000 = 0.501, just over the ratio: must be rejected.
+		assert.Error(t, m.CheckAlloc(501))
+	})
 }
 
 func TestMappings(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	mathrand "math/rand"
@@ -89,6 +90,45 @@ func TestReadAnWriteLargeBuffer(t *testing.T) {
 	byteOpsRead := NewReadWriter(writeBuffer)
 	byteOpsRead.MoveBufferPositionForward(uint64(MaxUint32))
 	require.Equal(t, byteOpsRead.ReadUint16(), uint16(10))
+}
+
+// TestWrite covers the io.Writer implementation, including the boundary where a
+// write lands exactly at the end of the buffer. The exact-fill case is what
+// distinguishes `bo.Position > len(Buffer)` (success) from `>=` (spurious EOF).
+func TestWrite(t *testing.T) {
+	t.Run("write that fills the buffer exactly succeeds", func(t *testing.T) {
+		buf := make([]byte, 4)
+		rw := NewReadWriter(buf)
+
+		n, err := rw.Write([]byte{1, 2, 3, 4})
+		require.NoError(t, err)
+		assert.Equal(t, 4, n)
+		assert.Equal(t, []byte{1, 2, 3, 4}, buf)
+		assert.Equal(t, uint64(4), rw.Position)
+	})
+
+	t.Run("write past the end of the buffer returns io.EOF", func(t *testing.T) {
+		buf := make([]byte, 3)
+		rw := NewReadWriter(buf)
+
+		n, err := rw.Write([]byte{1, 2, 3, 4})
+		assert.Equal(t, 0, n)
+		assert.ErrorIs(t, err, io.EOF)
+	})
+
+	t.Run("sequential writes advance the position", func(t *testing.T) {
+		buf := make([]byte, 4)
+		rw := NewReadWriter(buf)
+
+		n, err := rw.Write([]byte{1, 2})
+		require.NoError(t, err)
+		assert.Equal(t, 2, n)
+
+		n, err = rw.Write([]byte{3, 4})
+		require.NoError(t, err)
+		assert.Equal(t, 2, n)
+		assert.Equal(t, []byte{1, 2, 3, 4}, buf)
+	})
 }
 
 func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
