@@ -446,7 +446,7 @@ func TestSameTargetSet(t *testing.T) {
 		{nil, nil, true},
 	}
 	for _, tt := range tests {
-		require.Equal(t, tt.want, sameTargetSet(tt.a, tt.b), "%v vs %v", tt.a, tt.b)
+		require.Equal(t, tt.want, db.SameTargetSet(tt.a, tt.b), "%v vs %v", tt.a, tt.b)
 	}
 }
 

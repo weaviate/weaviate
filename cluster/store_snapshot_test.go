@@ -62,6 +62,44 @@ func TestSchemaSnapshotPersistAndRestore(t *testing.T) {
 	verifySchemaRestoration(t, source, target)
 }
 
+// TestSnapshotCapturesStateAtSnapshotTime pins the FSM snapshot cut: raft
+// calls Snapshot() apply-thread-serialized but runs Persist concurrently with
+// later applies, so state committed after Snapshot() must NOT leak into the
+// persisted bytes. A snapshot newer than its raft index (and torn across
+// sub-FSMs, each captured at a different instant) makes replayed entries hit
+// state they already assume — and the DTM-reading apply verdicts (drop-vector
+// marker purge-refusal, removal gate) then reject on the restoring node what
+// its peers accepted: silent per-node schema divergence.
+func TestSnapshotCapturesStateAtSnapshotTime(t *testing.T) {
+	source := NewMockStore(t, "cut-source-node", utils.MustGetFreeTCPPort())
+	setupTestSchema(t, source)
+
+	snapshot, err := source.store.Snapshot()
+	require.NoError(t, err)
+
+	// Committed after Snapshot(), i.e. "while Persist runs".
+	payloadBytes, err := json.Marshal(map[string]string{"collection": "Product"})
+	require.NoError(t, err)
+	lateTask := raft.Log{
+		Data: cmdAsBytes("", cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+			&cmd.AddDistributedTaskRequest{
+				Namespace:             "test-namespace",
+				Id:                    "committed-after-snapshot",
+				Payload:               payloadBytes,
+				SubmittedAtUnixMillis: 1,
+				UnitIds:               []string{"u-1"},
+			}, nil),
+	}
+	if resp, ok := source.store.Apply(&lateTask).(Response); !ok || resp.Error != nil {
+		t.Fatalf("apply late task: ok=%v err=%v", ok, resp.Error)
+	}
+
+	sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+	require.NoError(t, snapshot.Persist(sink))
+	require.NotContains(t, sink.Buffer.String(), "committed-after-snapshot",
+		"state committed after Snapshot() leaked into the persisted snapshot")
+}
+
 // TestSchemaSnapshotEmptyStore tests snapshot persistence and restoration with an empty store
 func TestSchemaSnapshotEmptyStore(t *testing.T) {
 	source := NewMockStore(t, "empty-source-node", utils.MustGetFreeTCPPort())
@@ -173,8 +211,11 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 				sink := &mocks.SnapshotSink{
 					Buffer: &bytes.Buffer{},
 				}
-				err := source.store.Persist(sink)
-				assert.NoError(t, err)
+				snapshot, err := source.store.Snapshot()
+				if !assert.NoError(t, err) {
+					continue
+				}
+				assert.NoError(t, snapshot.Persist(sink))
 				time.Sleep(time.Microsecond)
 			}
 		}()
@@ -189,7 +230,11 @@ func TestConcurrentSnapshotOperations(t *testing.T) {
 				sink := &mocks.SnapshotSink{
 					Buffer: &bytes.Buffer{},
 				}
-				err := source.store.Persist(sink)
+				snapshot, err := source.store.Snapshot()
+				if !assert.NoError(t, err) {
+					continue
+				}
+				err = snapshot.Persist(sink)
 				assert.NoError(t, err)
 
 				target.parser.On("ParseClass", mock.Anything).Return(nil)

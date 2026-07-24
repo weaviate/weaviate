@@ -20,8 +20,10 @@ import (
 
 // CheckConflict implements distributedtask.ConflictDetector. Called under the
 // Manager lock on the RAFT-apply AddTask path before a new task is stored, it
-// rejects a new drop that overlaps an in-flight drop's targets on the same
-// collection. FSM-deterministic: a pure function of (newPayload, existingTasks).
+// rejects (1) a new drop that overlaps an in-flight drop's targets on the same
+// collection, and (2) a payload whose inherited CleanedShards claim has no
+// surviving source records — the enqueue-to-commit TOCTOU guard.
+// FSM-deterministic: a pure function of (newPayload, existingTasks).
 func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks []*distributedtask.Task) error {
 	newP, err := decodeDropVectorIndexPayload(newPayload)
 	if err != nil {
@@ -47,6 +49,43 @@ func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks
 			return fmt.Errorf(
 				"drop-vector task %q is already in flight on %s for vector(s) %v (status=%s)",
 				task.ID, existP.Collection, overlap, task.Status)
+		}
+	}
+
+	// CleanedShards is a CLAIM of prior cleaning, composed from a leader read
+	// that predates this apply (the enqueue is not atomic with it). If the
+	// claim's source records are gone by now — a DeleteClass + re-create +
+	// re-drop landed in the gap (cascade/purge wiped them), or they expired —
+	// the claim belongs to another class generation or a closed epoch, and a
+	// task finalizing on it would remove the marker over unstripped shards.
+	// Require every claimed shard to be covered by a completed same-epoch
+	// record still in the FSM task list; the same matching rules as the
+	// enqueuer's inheritance. Deterministic across nodes; a rejected enqueue
+	// is retried by reconciliation, which derives coverage afresh.
+	if len(newP.CleanedShards) > 0 {
+		covered := map[string]struct{}{}
+		for _, task := range existingTasks {
+			if !task.Status.IsCompleted() {
+				continue
+			}
+			existP, err := decodeDropVectorIndexPayload(task.Payload)
+			if err != nil {
+				continue // same deterministic fail-open skip as above
+			}
+			if !strings.EqualFold(existP.Collection, newP.Collection) ||
+				!SameTargetSet(existP.Targets, newP.Targets) ||
+				existP.DropEpochID != newP.DropEpochID {
+				continue
+			}
+			for shard := range existP.CoveredShards() {
+				covered[shard] = struct{}{}
+			}
+		}
+		if missing := ShardsNotCovered(newP.CleanedShards, covered); len(missing) > 0 {
+			return fmt.Errorf(
+				"drop-vector task claims %d cleaned shards with no surviving source record for epoch %q on %s "+
+					"(records purged or expired since the enqueue was composed); a re-enqueue derives coverage afresh",
+				len(missing), newP.DropEpochID, newP.Collection)
 		}
 	}
 	return nil
@@ -117,14 +156,22 @@ func (p *DropVectorIndexProvider) CheckVectorConfigRemoval(className string, rem
 			continue
 		}
 		if coversVec {
-			// Count + sample only: this error reaches the HTTP body of a caller
+			// Count only in the error: it reaches the HTTP body of a caller
 			// holding just collection-update rights, and on an MT collection the
-			// shard names are tenant names — the full roster is not theirs to read
-			// (and can be multi-MB).
+			// shard names are tenant names — gated behind ShardsMetadata READ,
+			// and a shifting sorted sample would let repeat calls enumerate past
+			// any cap. Operators get the sample from the server-side log.
+			if p.logger != nil {
+				p.logger.WithField("collection", className).
+					WithField("targetVector", vec).
+					WithField("uncoveredCount", len(uncovered)).
+					WithField("sample", uncovered[:min(len(uncovered), 10)]).
+					Info("drop-vector: VectorConfig removal rejected: shards not covered by the completing cleanup task")
+			}
 			return fmt.Errorf(
-				"cannot remove dropped vector %q on %s: %d shards (sample: %v) are not covered by the completing cleanup task; "+
+				"cannot remove dropped vector %q on %s: %d shards are not covered by the completing cleanup task; "+
 					"cleanup re-runs automatically and the entry is removed once every shard is covered",
-				vec, className, len(uncovered), uncovered[:min(len(uncovered), 10)])
+				vec, className, len(uncovered))
 		}
 		return fmt.Errorf(
 			"cannot remove dropped vector %q on %s: only the completing cleanup task may remove the entry; "+

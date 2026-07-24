@@ -1038,6 +1038,126 @@ func TestCheckConflict(t *testing.T) {
 	})
 }
 
+// TestCheckConflict_InheritanceSourceGuard pins the enqueue-to-commit TOCTOU
+// guard: a payload's CleanedShards claim must be re-provable from records
+// still in the FSM task list when AddTask applies. The dangerous interleaving:
+// coverage read → DeleteClass (cascade wipes the records) + re-create with the
+// same tenant names + re-drop (nothing left to purge, nothing active to
+// refuse) → the stale AddTask commits. Without the guard that task inherits
+// the dead class generation's coverage and finalizes over the new class's
+// never-cleaned "cleaned" tenants.
+func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
+	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+
+	payload := func(epoch string, cleaned []string) []byte {
+		pl := &DropVectorIndexTaskPayload{
+			Collection: "C", Targets: []string{"v1"}, OpID: "new",
+			DropEpochID: epoch, CleanedShards: cleaned,
+		}
+		enc, _ := pl.encode()
+		return enc
+	}
+	record := func(id, epoch string, status distributedtask.TaskStatus, unitShards, cleaned []string, targets ...string) *distributedtask.Task {
+		pl := &DropVectorIndexTaskPayload{
+			Collection: "C", Targets: targets, OpID: "op-" + id,
+			DropEpochID: epoch, CleanedShards: cleaned, UnitToShard: map[string]string{},
+		}
+		for i, s := range unitShards {
+			pl.UnitToShard[fmt.Sprintf("%s__u%d", s, i)] = s
+		}
+		enc, _ := pl.encode()
+		return &distributedtask.Task{
+			Namespace:      DropVectorIndexNamespace,
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: id, Version: 1},
+			Payload:        enc,
+			Status:         status,
+		}
+	}
+	fin := distributedtask.TaskStatusFinished
+
+	tests := []struct {
+		name    string
+		payload []byte
+		tasks   []*distributedtask.Task
+		wantErr string // "" = accepted
+	}{
+		{
+			name:    "claim provable from a FINISHED same-epoch record",
+			payload: payload("E1", []string{"s1"}),
+			tasks:   []*distributedtask.Task{record("t1", "E1", fin, []string{"s1"}, nil, "v1")},
+		},
+		{
+			// SWAPPING is "completed" for inheritance but still ACTIVE for the
+			// overlap rule, which fires first — a new drop never lands next to
+			// a SWAPPING sibling, so the guard only ever vouches off FINISHED.
+			name:    "SWAPPING record hits the in-flight overlap rule before the guard",
+			payload: payload("E1", []string{"s1"}),
+			tasks:   []*distributedtask.Task{record("t1", "E1", distributedtask.TaskStatusSwapping, []string{"s1"}, nil, "v1")},
+			wantErr: "already in flight",
+		},
+		{
+			name:    "claim provable from the union of several records (units + cleaned)",
+			payload: payload("E1", []string{"s1", "s2"}),
+			tasks: []*distributedtask.Task{
+				record("t1", "E1", fin, []string{"s1"}, nil, "v1"),
+				record("t2", "E1", fin, nil, []string{"s2"}, "v1"),
+			},
+		},
+		{
+			name:    "empty claim needs no source",
+			payload: payload("E1", nil),
+		},
+		{
+			name:    "no surviving records: the wiped-records interleaving is refused",
+			payload: payload("E1", []string{"s1"}),
+			wantErr: "no surviving source record",
+		},
+		{
+			name:    "another epoch's records do not vouch",
+			payload: payload("E2", []string{"s1"}),
+			tasks:   []*distributedtask.Task{record("t1", "E1", fin, []string{"s1"}, nil, "v1")},
+			wantErr: "no surviving source record",
+		},
+		{
+			name:    "another target set's records do not vouch",
+			payload: payload("E1", []string{"s1"}),
+			tasks:   []*distributedtask.Task{record("t1", "E1", fin, []string{"s1"}, nil, "v1", "v2")},
+			wantErr: "no surviving source record",
+		},
+		{
+			name:    "FAILED records do not vouch (inheritance is completed-only)",
+			payload: payload("E1", []string{"s1"}),
+			tasks:   []*distributedtask.Task{record("t1", "E1", distributedtask.TaskStatusFailed, []string{"s1"}, nil, "v1")},
+			wantErr: "no surviving source record",
+		},
+		{
+			name:    "a corrupt record is skipped, a valid sibling still vouches",
+			payload: payload("E1", []string{"s1"}),
+			tasks: []*distributedtask.Task{
+				corruptDropTask("bad", fin),
+				record("t1", "E1", fin, []string{"s1"}, nil, "v1"),
+			},
+		},
+		{
+			name:    "partially provable claim is refused, not trimmed",
+			payload: payload("E1", []string{"s1", "s2"}),
+			tasks:   []*distributedtask.Task{record("t1", "E1", fin, []string{"s1"}, nil, "v1")},
+			wantErr: "no surviving source record",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := p.CheckConflict(tt.payload, tt.tasks)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestCheckClassMutation_DoesNotBlockDeleteDuringDrop(t *testing.T) {
 	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
 	// DeleteClass supersedes an in-flight drop (the whole bucket is going away);
@@ -1205,23 +1325,23 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", []string{"s1", "s2"}, "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not covered")
-		require.Contains(t, err.Error(), "s3")
 	})
 
-	t.Run("uncovered-shard error is capped at a 10-name sample", func(t *testing.T) {
+	t.Run("uncovered-shard error carries a count and no shard names", func(t *testing.T) {
 		// The error reaches the HTTP body of a caller with only
 		// collection-update rights; on MT collections shard names are tenant
-		// names, so the full roster must not leak through it.
+		// names (otherwise gated behind ShardsMetadata READ), and a shifting
+		// sorted sample would let repeat calls enumerate past any cap — no
+		// name may appear. Operators get the sample from the server-side log.
 		shards := make([]string, 0, 15)
 		for i := 1; i <= 15; i++ {
-			shards = append(shards, fmt.Sprintf("s%02d", i))
+			shards = append(shards, fmt.Sprintf("tenant%02d", i))
 		}
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, shards,
 			[]*distributedtask.Task{swappingDropTaskCovering("t1", "C", nil, "v1")})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "15 shards")
-		require.Contains(t, err.Error(), "s10")
-		require.NotContains(t, err.Error(), "s11")
+		require.NotContains(t, err.Error(), "tenant")
 	})
 
 	t.Run("any single swapping task covering everything vouches", func(t *testing.T) {
@@ -1246,15 +1366,16 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 		require.Contains(t, err.Error(), "not covered")
 	})
 
-	t.Run("the closest task's missing shards are reported", func(t *testing.T) {
+	t.Run("the closest task's missing-shard count is reported", func(t *testing.T) {
 		err := p.CheckVectorConfigRemoval("C", []string{"v1"}, []string{"s1", "s2", "s3"},
 			[]*distributedtask.Task{
 				swappingDropTaskCovering("t1", "C", []string{"s1"}, "v1"),       // misses s2, s3
 				swappingDropTaskCovering("t2", "C", []string{"s1", "s2"}, "v1"), // misses only s3
 			})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "s3")
-		require.NotContains(t, err.Error(), "s2", "the closest task misses only s3")
+		require.Contains(t, err.Error(), "1 shards", "the closest task misses only s3")
+		require.NotContains(t, err.Error(), "s2")
+		require.NotContains(t, err.Error(), "s3")
 	})
 
 	t.Run("a multi-target voucher covers each removed vector", func(t *testing.T) {

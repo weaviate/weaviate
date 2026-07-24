@@ -51,6 +51,27 @@ type DropVectorIndexTaskPayload struct {
 	CleanedShards []string `json:"cleanedShards,omitempty"`
 }
 
+// SameTargetSet reports whether two target lists contain the same names with
+// the same multiplicities (exact case — target vector names are case-sensitive
+// identifiers). Shared by the enqueuer's coverage inheritance and the
+// conflict-time inheritance guard, which must agree on what "same drop" means.
+func SameTargetSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[string]int, len(a))
+	for _, t := range a {
+		counts[t]++
+	}
+	for _, t := range b {
+		counts[t]--
+		if counts[t] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // ShardsNotCovered returns the shards absent from covered, sorted.
 func ShardsNotCovered(shards []string, covered map[string]struct{}) []string {
 	var missing []string
