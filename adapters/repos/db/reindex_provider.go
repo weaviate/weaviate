@@ -122,6 +122,18 @@ type ReindexProvider struct {
 	// indexType) tuples sharing the same shard — don't lose each
 	// other's registration.
 	cleanupInProgress map[reindexCleanupKey]int
+
+	// autoRepairEnabled gates the post-FAILED auto-repair dispatch
+	// (weaviate/0-weaviate-issues#221). nil or ()==false keeps the FAILED
+	// path at its log-only operator guidance. Held OFF until
+	// weaviate/weaviate#11982 (0-weaviate-issues#222) lands — see
+	// [ReindexProvider.SetAutoRepairDispatcher] for why auto-dispatching a
+	// repair before that preserve-set fix re-opens the #222 data-loss hazard.
+	autoRepairEnabled func() bool
+	// repairDispatch submits the idempotent repair-* migration on the FAILED
+	// path. Injected by configure_api.go so the db package stays free of a
+	// cluster-service dependency; nil on nodes/tests without wiring.
+	repairDispatch RepairDispatchFunc
 }
 
 // reindexCleanupKey identifies a per-(collection, shard) slot in the
@@ -206,6 +218,35 @@ func NewReindexProvider(
 
 func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCompletionRecorder) {
 	p.recorder = recorder
+}
+
+// RepairDispatchFunc submits an idempotent repair-* reindex migration for
+// (collection, properties) through the cluster task pipeline. Injected by
+// configure_api.go so the db package needs no cluster-service dependency (and
+// the import cycle it would create). Returning an error is non-fatal on the
+// FAILED path: OnTaskCompleted fires on every node, so the losing nodes'
+// submits are expected to bounce off the (collection, property) conflict
+// check — that conflict is "repair already dispatched", not a failure.
+type RepairDispatchFunc func(ctx context.Context, collection string, properties []string, migrationType ReindexMigrationType) error
+
+// SetAutoRepairDispatcher wires the post-FAILED auto-repair path
+// (weaviate/0-weaviate-issues#221): on a FAILED semantic migration,
+// [ReindexProvider.OnTaskCompleted] submits the idempotent repair-* migration
+// that rebuilds whichever inverted sub-task committed its swap before the
+// failure, instead of only logging operator guidance. enabled is the runtime
+// gate; dispatch performs the submission.
+//
+// Gated OFF (enabled==nil or ()==false) until weaviate/weaviate#11982
+// (0-weaviate-issues#222) merges. Auto-dispatching repair-filterable before
+// that preserve-set fix re-opens the #222 data-loss hazard: repair-filterable
+// leaves the canonical filterable bucket on a deferred-finalize
+// __roaringset_ingest_<gen> dir, which the pre-#11982
+// CleanStalePartialReindexState preserve-set would then delete on the next
+// submit/cancel/terminal cleanup — silently unlinking the live index. Until
+// the gate is enabled the FAILED path keeps its log-only behavior.
+func (p *ReindexProvider) SetAutoRepairDispatcher(enabled func() bool, dispatch RepairDispatchFunc) {
+	p.autoRepairEnabled = enabled
+	p.repairDispatch = dispatch
 }
 
 // SeedReindexTaskCache pre-populates the per-descriptor task cache with
@@ -1582,6 +1623,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 			case distributedtask.TaskStatusFailed:
 				logOperatorRepairGuidanceOnFailedSemanticMigration(logger, payload)
 				p.autoCleanupAfterTerminal(task, payload, logger)
+				// Auto-repair runs AFTER local sidecar cleanup so the
+				// dispatched rebuild starts from clean on-disk state. Gated
+				// OFF until #11982 — no-op while the gate is closed.
+				p.dispatchAutoRepairOnFailedSemanticMigration(p.serverCtx, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusStarted,
@@ -1880,6 +1925,90 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 				"the current schema",
 			payload.MigrationType, payload.Collection, propName)
 	}
+}
+
+// primaryRepairForFailedMigration returns the single idempotent repair-*
+// migration to auto-dispatch for a FAILED semantic migration, with ok=false
+// for types that have no repair (non-semantic / format-only — they never reach
+// the FAILED auto-repair path, which also makes auto-repair non-recursive
+// since a dispatched repair-* is itself format-only).
+//
+// Why ONE repair, not one per torn index: [typesConflictReason] rejects any
+// two reindex migrations on the same (collection, property) regardless of
+// bucket type, so a filterable and a searchable repair cannot run
+// concurrently. For single-index migrations the one repair is complete. For
+// change-tokenization (which can tear EITHER bucket) we dispatch the FILTERABLE
+// repair — the bucket the #218 race leaves torn and the one gated on #11982 —
+// and leave the searchable side to the retained operator log guidance. Fully
+// symmetric per-sub-task repair (rebuild whichever sub-task actually committed,
+// both when applicable) needs per-index ack granularity the per-node
+// PostCompletionAck does not carry, plus a dispatch ordered BEFORE
+// autoCleanupAfterTerminal wipes the on-disk tracker sentinels; tracked as a
+// #221 follow-up.
+//
+// Derived from [semanticMigrationIndexTypes] (filterable-if-present, else
+// searchable) so the index types a migration WRITES and the one it REPAIRS
+// cannot drift apart.
+func primaryRepairForFailedMigration(mt ReindexMigrationType) (ReindexMigrationType, bool) {
+	var hasFilterable, hasSearchable bool
+	for _, indexType := range semanticMigrationIndexTypes(mt) {
+		switch indexType {
+		case "filterable":
+			hasFilterable = true
+		case "searchable":
+			hasSearchable = true
+		}
+	}
+	switch {
+	case hasFilterable:
+		return ReindexTypeRepairFilterable, true
+	case hasSearchable:
+		return ReindexTypeRebuildSearchable, true
+	default:
+		return "", false
+	}
+}
+
+// dispatchAutoRepairOnFailedSemanticMigration is the auto-repair half of
+// weaviate/0-weaviate-issues#221: on a FAILED semantic migration it submits
+// the idempotent repair-* migration that rebuilds the torn inverted bucket
+// against the (reverted) current schema, instead of only logging operator
+// guidance. It fires on every node OnTaskCompleted runs on; the task
+// pipeline's (collection, property) conflict check collapses the concurrent
+// per-node submits to exactly one accepted task (mirroring how the schema flip
+// relies on RAFT idempotency), so a conflict from a losing node is expected
+// and benign — it means "the repair is already in flight", not a failure.
+//
+// A closed gate ([autoRepairEnabled] nil or false) is the default and keeps
+// the log-only behavior — see [ReindexProvider.SetAutoRepairDispatcher] for
+// the #11982/#222 sequencing that keeps it closed for now.
+func (p *ReindexProvider) dispatchAutoRepairOnFailedSemanticMigration(
+	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
+) {
+	if p.autoRepairEnabled == nil || !p.autoRepairEnabled() {
+		return
+	}
+	if !IsSemanticMigration(payload.MigrationType) || len(payload.Properties) == 0 {
+		return
+	}
+	repairType, ok := primaryRepairForFailedMigration(payload.MigrationType)
+	if !ok {
+		return
+	}
+	if p.repairDispatch == nil {
+		logger.Warn("reindex provider: auto-repair enabled but no dispatcher wired; falling back to log-only guidance")
+		return
+	}
+	if err := p.repairDispatch(ctx, payload.Collection, payload.Properties, repairType); err != nil {
+		// A conflict here means a peer node already submitted the same repair
+		// (expected — OnTaskCompleted fires on every node), not that dispatch
+		// failed. Log for visibility; never retry.
+		logger.WithField("repair_migration", repairType).
+			Warnf("reindex provider: auto-repair dispatch returned (likely a benign already-dispatched conflict from a peer node): %v", err)
+		return
+	}
+	logger.WithField("repair_migration", repairType).WithField("properties", payload.Properties).
+		Info("reindex provider: auto-repair dispatched for FAILED semantic migration")
 }
 
 // LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
