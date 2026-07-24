@@ -68,8 +68,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	if offloading {
 		// TODO: tenant offloading is calling HaltForTransfer but
-		// if Shutdown is called this step is not needed
-		s.mayStopAsyncReplication()
+		// if Shutdown is called this step is not needed.
+		// persistHashtree=false: shard stays live and its .ht is not offloaded.
+		s.mayStopAsyncReplication(false)
 	}
 
 	// Placed before the pause branch so it also covers count>1 callers: on error
