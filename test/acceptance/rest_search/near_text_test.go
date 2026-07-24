@@ -37,15 +37,16 @@ const (
 	movie2ID = strfmt.UUID("aa44bbee-ca5f-4db7-a412-5fc6a2300003")
 )
 
-// postNearText POSTs a raw JSON near-text search and decodes the raw JSON
-// reply, so assertions run against the wire shape, not generated models.
-func postNearText(t *testing.T, collection string, body map[string]interface{}) (int, map[string]interface{}) {
+// postSearch POSTs a raw JSON search of the given type and decodes the raw
+// JSON reply, so assertions run against the wire shape, not generated
+// models.
+func postSearch(t *testing.T, collection, searchType string, body map[string]interface{}) (int, map[string]interface{}) {
 	t.Helper()
 	payload, err := json.Marshal(body)
 	require.NoError(t, err)
 
-	url := fmt.Sprintf("http://%s:%s/v1/search/%s/near-text",
-		helper.ServerHost, helper.ServerPort, collection)
+	url := fmt.Sprintf("http://%s:%s/v1/search/%s/%s",
+		helper.ServerHost, helper.ServerPort, collection, searchType)
 	resp, err := http.Post(url, "application/json", bytes.NewReader(payload))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -53,6 +54,10 @@ func postNearText(t *testing.T, collection string, body map[string]interface{}) 
 	var out map[string]interface{}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	return resp.StatusCode, out
+}
+
+func postNearText(t *testing.T, collection string, body map[string]interface{}) (int, map[string]interface{}) {
+	return postSearch(t, collection, "near-text", body)
 }
 
 // errMessage extracts the message from either error shape: the handler's
@@ -512,6 +517,13 @@ func TestRESTSearchDisabled(t *testing.T) {
 
 	status, out := postNearText(t, "Anything", map[string]interface{}{
 		"query": []string{"anything"},
+	})
+	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+	assert.Contains(t, errMessage(t, out), "not enabled")
+
+	// the gate covers every search endpoint
+	status, out = postBm25(t, "Anything", map[string]interface{}{
+		"query": "anything",
 	})
 	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
 	assert.Contains(t, errMessage(t, out), "not enabled")
