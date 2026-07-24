@@ -12,6 +12,7 @@
 package gcpcommon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -134,4 +135,59 @@ func TestFetchTokenWithRetryNoRetryOnNonRetryableError(t *testing.T) {
 	_, err := b.fetchTokenWithRetry(t.Context(), testIdentityToken)
 	require.Error(t, err)
 	assert.Equal(t, 1, attempt)
+}
+
+func TestFetchTokenWithRetryStopsWhenContextExpires(t *testing.T) {
+	attempt := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	// Short deadline; Initial=500ms so we expect only a couple of attempts
+	// before the sleep is cancelled by the ctx deadline.
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
+
+	_, err := b.fetchTokenWithRetry(ctx, testIdentityToken)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "should surface the ctx deadline as the primary cause")
+	assert.ErrorIs(t, err, ErrRetryableAuthBroker, "should keep the underlying retryable error in the chain")
+	assert.GreaterOrEqual(t, attempt, 1, "should attempt at least once before context expires")
+}
+
+func TestResolveTokenTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		set   bool
+		want  time.Duration
+	}{
+		{"unset_uses_default", "", false, defaultTokenTimeout},
+		{"empty_uses_default", "", true, defaultTokenTimeout},
+		{"garbage_uses_default", "not-a-duration", true, defaultTokenTimeout},
+		{"bare_number_uses_default", "60", true, defaultTokenTimeout},
+		{"negative_uses_default", "-5s", true, defaultTokenTimeout},
+		{"zero_uses_default", "0s", true, defaultTokenTimeout},
+		{"seconds_are_respected", "45s", true, 45 * time.Second},
+		{"minutes_are_respected", "2m", true, 2 * time.Minute},
+		{"compound_is_respected", "1m30s", true, 90 * time.Second},
+		{"milliseconds_are_respected", "500ms", true, 500 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.set {
+				t.Setenv(tokenTimeoutEnvVar, tc.value)
+			}
+			assert.Equal(t, tc.want, resolveTokenTimeout())
+		})
+	}
+}
+
+func TestNewAuthBrokerTokenSourceReadsTimeoutFromEnv(t *testing.T) {
+	t.Setenv(tokenTimeoutEnvVar, "45s")
+	b := NewAuthBrokerTokenSource("http://example.invalid")
+	assert.Equal(t, 45*time.Second, b.tokenTimeout)
 }
