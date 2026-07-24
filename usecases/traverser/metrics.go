@@ -19,11 +19,12 @@ import (
 )
 
 type Metrics struct {
-	queriesCount       *prometheus.GaugeVec
-	queriesDurations   *prometheus.HistogramVec
-	dimensions         *prometheus.CounterVec
-	dimensionsCombined prometheus.Counter
-	groupClasses       bool
+	queriesAggregateCount *prometheus.GaugeVec
+	queriesGetCount       *prometheus.GaugeVec
+	queriesGetDurations   prometheus.ObserverVec
+	dimensions            *prometheus.CounterVec
+	dimensionsCombined    prometheus.Counter
+	groupClasses          bool
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -32,11 +33,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 	}
 
 	return &Metrics{
-		queriesCount:       prom.QueriesCount,
-		queriesDurations:   prom.QueriesDurations,
-		dimensions:         prom.QueryDimensions,
-		dimensionsCombined: prom.QueryDimensionsCombined,
-		groupClasses:       prom.Group,
+		queriesAggregateCount: prom.QueriesCount.MustCurryWith(prometheus.Labels{"query_type": "aggregate"}),
+		queriesGetCount:       prom.QueriesCount.MustCurryWith(prometheus.Labels{"query_type": "get_graphql"}),
+		queriesGetDurations:   prom.QueriesDurations.MustCurryWith(prometheus.Labels{"query_type": "get_graphql"}),
+		dimensions:            prom.QueryDimensions,
+		dimensionsCombined:    prom.QueryDimensionsCombined,
+		groupClasses:          prom.Group,
 	}
 }
 
@@ -49,10 +51,7 @@ func (m *Metrics) QueriesAggregateInc(className string) {
 		className = "n/a"
 	}
 
-	m.queriesCount.With(prometheus.Labels{
-		"class_name": className,
-		"query_type": "aggregate",
-	}).Inc()
+	m.queriesAggregateCount.WithLabelValues(className).Inc()
 }
 
 func (m *Metrics) QueriesAggregateDec(className string) {
@@ -64,10 +63,7 @@ func (m *Metrics) QueriesAggregateDec(className string) {
 		className = "n/a"
 	}
 
-	m.queriesCount.With(prometheus.Labels{
-		"class_name": className,
-		"query_type": "aggregate",
-	}).Dec()
+	m.queriesAggregateCount.WithLabelValues(className).Dec()
 }
 
 func (m *Metrics) QueriesGetInc(className string) {
@@ -79,10 +75,7 @@ func (m *Metrics) QueriesGetInc(className string) {
 		className = "n/a"
 	}
 
-	m.queriesCount.With(prometheus.Labels{
-		"class_name": className,
-		"query_type": "get_graphql",
-	}).Inc()
+	m.queriesGetCount.WithLabelValues(className).Inc()
 }
 
 func (m *Metrics) QueriesObserveDuration(className string, startMs int64) {
@@ -96,10 +89,7 @@ func (m *Metrics) QueriesObserveDuration(className string, startMs int64) {
 
 	took := float64(time.Now().UnixMilli() - startMs)
 
-	m.queriesDurations.With(prometheus.Labels{
-		"class_name": className,
-		"query_type": "get_graphql",
-	}).Observe(float64(took))
+	m.queriesGetDurations.WithLabelValues(className).Observe(took)
 }
 
 func (m *Metrics) QueriesGetDec(className string) {
@@ -111,10 +101,7 @@ func (m *Metrics) QueriesGetDec(className string) {
 		className = "n/a"
 	}
 
-	m.queriesCount.With(prometheus.Labels{
-		"class_name": className,
-		"query_type": "get_graphql",
-	}).Dec()
+	m.queriesGetCount.WithLabelValues(className).Dec()
 }
 
 func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dims int) {
@@ -126,10 +113,6 @@ func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dim
 		className = "n/a"
 	}
 
-	m.dimensions.With(prometheus.Labels{
-		"class_name": className,
-		"operation":  operation,
-		"query_type": queryType,
-	}).Add(float64(dims))
+	m.dimensions.WithLabelValues(queryType, operation, className).Add(float64(dims))
 	m.dimensionsCombined.Add(float64(dims))
 }
