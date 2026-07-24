@@ -1018,6 +1018,9 @@ func (s *Searcher) extractContainsBatch(ctx context.Context, path *filters.Path,
 	if operator != filters.ContainsAny && operator != filters.ContainsAll {
 		return nil, false, nil
 	}
+	if entcfg.BatchedContainsDisabled() {
+		return nil, false, nil
+	}
 
 	props := path.Slice()
 	if len(props) != 1 {

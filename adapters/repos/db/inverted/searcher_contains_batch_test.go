@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -364,4 +365,28 @@ func TestExtractContains_UsesBatchedPathWhenEligible(t *testing.T) {
 	require.NotNil(t, pv)
 	require.Nil(t, pv.children)
 	require.Len(t, pv.containsValues, 3)
+}
+
+// TestExtractContainsBatch_KillSwitch pins the operator escape hatch: with
+// WEAVIATE_DISABLE_BATCHED_CONTAINS set, an otherwise eligible shape
+// declines and extractContains resolves through the per-value desugared
+// path.
+func TestExtractContainsBatch_KillSwitch(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	s := f.searcher
+	ctx := context.Background()
+
+	t.Setenv(entcfg.EnvDisableBatchedContains, "true")
+
+	pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-int"),
+		schema.DataTypeInt, []int{1, 2, 3}, filters.ContainsAny, f.class)
+	require.False(t, eligible)
+	require.NoError(t, err)
+	require.Nil(t, pv)
+
+	pv, err = s.extractContains(ctx, containsPath("prop-int"), schema.DataTypeInt,
+		[]int{1, 2, 3}, filters.ContainsAny, f.class)
+	require.NoError(t, err)
+	require.Nil(t, pv.containsValues)
+	require.NotEmpty(t, pv.children, "with the kill switch on, Contains must desugar per value")
 }
