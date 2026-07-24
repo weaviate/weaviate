@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -28,14 +30,86 @@ import (
 
 // Version of backup structure
 const (
-	// Version > version1 support compression
 	// "2.1" support restore on 2 phases
 	Version = "2.1"
 	// "2.0" support compression
 	// Version = "2.0"
-	// version1 store plain files without compression
+	// version1 is the newest structure version that is no longer restorable
 	version1 = "1.0"
 )
+
+var (
+	errLegacySingleNode = legacyRestoreErr("by Weaviate older than v1.17, which stored a single " +
+		"top-level backup.json instead of per-node metadata")
+	errLegacyUncompressed = legacyRestoreErr("by Weaviate older than v1.21, which stored files uncompressed")
+	errLegacyFlatFS       = legacyRestoreErr("by Weaviate older than v1.23, which stored shard files " +
+		"in a flat directory instead of one directory per shard")
+)
+
+// legacyRestoreErr builds the refusal for a backup format this build no longer restores.
+func legacyRestoreErr(origin string) error {
+	return fmt.Errorf("backup was created %s, and can no longer be restored: restore it on a "+
+		"release that still supports it and create a new backup", origin)
+}
+
+// maxMajorVersion is the newest backup-structure major version this build restores.
+var maxMajorVersion, _ = parseMajor(Version)
+
+// checkRestorableVersion refuses backups this build cannot restore, either because their
+// format is too old or because a later Weaviate produced them. version is the
+// backup-structure version; serverVersion is the Weaviate version that wrote it.
+func checkRestorableVersion(version, serverVersion string) error {
+	// An empty version means a corrupt descriptor rather than an old one; Validate reports it.
+	if version != "" && version <= version1 {
+		return errLegacyUncompressed
+	}
+	if serverVersionOlderThan(serverVersion, 1, 23) {
+		return errLegacyFlatFS
+	}
+	// A structure version may omit the minor, so compare majors only.
+	if major, ok := parseMajor(version); ok && major > maxMajorVersion {
+		return fmt.Errorf("%s: %s > %s", errMsgHigherVersion, version, Version)
+	}
+	return nil
+}
+
+// parseMajor reads the leading number of a "major[.minor[.patch]]" version. ok is false
+// when it is missing or unparseable.
+func parseMajor(version string) (major int, ok bool) {
+	major, err := strconv.Atoi(strings.Split(version, ".")[0])
+	return major, err == nil
+}
+
+// parseVersion splits a "major.minor[.patch]" version. ok is false when either number is
+// missing or unparseable.
+func parseVersion(version string) (major, minor int, ok bool) {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return 0, 0, false
+	}
+	major, ok = parseMajor(version)
+	if !ok {
+		return 0, 0, false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	return major, minor, true
+}
+
+// serverVersionOlderThan reports whether serverVersion, formatted "major.minor[.patch]",
+// is older than major.minor. An unparseable version is not treated as older.
+func serverVersionOlderThan(serverVersion string, major, minor int) bool {
+	gotMajor, gotMinor, ok := parseVersion(serverVersion)
+	if !ok {
+		return false
+	}
+	if gotMajor != major {
+		return gotMajor < major
+	}
+	return gotMinor < minor
+}
 
 // TODO error handling need to be implemented properly.
 // Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.

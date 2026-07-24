@@ -561,6 +561,51 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			errorContains: []string{"backup \"backup-1\" has compression type", "expected"},
 		},
 		{
+			name:            "LegacyBaseByStructureVersion",
+			baseBackupID:    "backup-1",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return &backup.BackupDescriptor{
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						Version:         "1.0",
+						ServerVersion:   "1.23",
+						Status:          backup.Success,
+					}, nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\"", "older than v1.21"},
+		},
+		{
+			name:            "LegacyBaseDeeperInChain",
+			baseBackupID:    "backup-2",
+			compressionType: gzipCompression,
+			setupFetchMeta: func() fetchMetaFunc {
+				descriptors := map[string]*backup.BackupDescriptor{
+					"backup-1": {
+						ID:              "backup-1",
+						CompressionType: &gzipCompression,
+						Version:         Version,
+						ServerVersion:   "1.22",
+						Status:          backup.Success,
+					},
+					"backup-2": {
+						ID:              "backup-2",
+						CompressionType: &gzipCompression,
+						Version:         Version,
+						ServerVersion:   "1.23",
+						BaseBackupID:    "backup-1",
+						Status:          backup.Success,
+					},
+				}
+				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
+					return descriptors[backupID], nil
+				}
+			},
+			errorContains: []string{"base backup \"backup-1\"", "older than v1.23"},
+		},
+		{
 			name:            "FailedBackupStatus",
 			baseBackupID:    "backup-1",
 			compressionType: gzipCompression,

@@ -653,7 +653,7 @@ func (c *coordinator) commit(ctx context.Context,
 						},
 					}
 
-					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path, false); err == nil {
+					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path); err == nil {
 						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 						totalPreCompressionSize += meta.PreCompressionSizeBytes
 						c.log.WithFields(logrus.Fields{

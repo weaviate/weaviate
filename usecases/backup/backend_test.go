@@ -961,7 +961,6 @@ func (e *incrementalTestEnv) restore(backupID string, desc *backup.ClassDescript
 		},
 		destDir:    restoreDir,
 		tempDir:    filepath.Join(restoreDir, TempDirectory),
-		compressed: true,
 		GoPoolSize: 4,
 		logger:     logrus.New(),
 	}
@@ -1411,4 +1410,99 @@ func TestIncrementalBackupChainWithManySplitFiles(t *testing.T) {
 	for i := range shardNames {
 		env.verify(restoredDir, allFiles[i])
 	}
+}
+
+func TestCoordStoreMeta(t *testing.T) {
+	var (
+		ctx      = context.Background()
+		backupID = "1234"
+		global   = marshalCoordinatorMeta(backup.DistributedBackupDescriptor{ID: backupID})
+		single   = marshalMeta(backup.BackupDescriptor{ID: backupID})
+	)
+	tests := []struct {
+		name       string
+		filename   string
+		globalMeta []byte
+		singleMeta []byte
+		wantErr    error
+	}{
+		{name: "current layout", filename: GlobalBackupFile, globalMeta: global},
+		{
+			name: "single-node layout only", filename: GlobalBackupFile,
+			singleMeta: single, wantErr: errLegacySingleNode,
+		},
+		{name: "no metadata at all", filename: GlobalBackupFile, wantErr: backup.ErrNotFound{}},
+		{
+			// Only a backup read probes for the single-node layout; a restore-status read
+			// of a legacy backup reports the missing file rather than the legacy reject.
+			name: "restore status read never rejects", filename: GlobalRestoreFile,
+			singleMeta: single, wantErr: backup.ErrNotFound{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockBackend := newFakeBackend()
+			returnOrNotFound(mockBackend, ctx, backupID, tc.filename, tc.globalMeta)
+			returnOrNotFound(mockBackend, ctx, backupID, BackupFile, tc.singleMeta)
+
+			store := coordStore{objectStore{backend: mockBackend, backupId: backupID}}
+			got, err := store.Meta(ctx, tc.filename, "", "")
+
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				assert.Equal(t, backupID, got.ID)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestNodeStoreMeta(t *testing.T) {
+	var (
+		ctx      = context.Background()
+		backupID = "1234"
+		node     = "Node-1"
+		nodeHome = backupID + "/" + node
+		meta     = marshalMeta(backup.BackupDescriptor{ID: backupID})
+		baseMeta = marshalMeta(backup.BackupDescriptor{ID: "from-base-path"})
+	)
+	tests := []struct {
+		name     string
+		nodeMeta []byte
+		baseMeta []byte
+		wantErr  error
+	}{
+		{name: "current layout", nodeMeta: meta},
+		{name: "single-node layout only", baseMeta: baseMeta, wantErr: errLegacySingleNode},
+		{name: "no metadata at all", wantErr: backup.ErrNotFound{}},
+		{name: "both layouts present", nodeMeta: meta, baseMeta: baseMeta},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockBackend := newFakeBackend()
+			returnOrNotFound(mockBackend, ctx, nodeHome, BackupFile, tc.nodeMeta)
+			returnOrNotFound(mockBackend, ctx, backupID, BackupFile, tc.baseMeta)
+
+			store := nodeStore{objectStore{backend: mockBackend, backupId: nodeHome, node: node}}
+			got, err := store.Meta(ctx, backupID, "", "")
+
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				assert.Equal(t, backupID, got.ID)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+// returnOrNotFound mocks a metadata read that succeeds with body, or reports the object
+// missing when body is nil.
+func returnOrNotFound(fb *fakeBackend, ctx context.Context, backupID, key string, body []byte) {
+	if body == nil {
+		fb.On("GetObject", ctx, backupID, key).Return(nil, backup.ErrNotFound{})
+		return
+	}
+	fb.On("GetObject", ctx, backupID, key).Return(body, nil)
 }

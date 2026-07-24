@@ -711,11 +711,11 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if meta.Status != backup.Success {
 		return nil, fmt.Errorf("invalid backup in scheduler %s status: %s", destPath, meta.Status)
 	}
+	if err := checkRestorableVersion(meta.Version, meta.ServerVersion); err != nil {
+		return nil, err
+	}
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
-	}
-	if v := meta.Version; v[0] > Version[0] {
-		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.Classes()
 
@@ -758,7 +758,7 @@ func (s *Scheduler) fetchSchema(
 		if err != nil {
 			return nil, err
 		}
-		meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, true)
+		meta, err := store.Meta(ctx, req.ID, store.bucket, store.path)
 		if err != nil {
 			return nil, err
 		}
