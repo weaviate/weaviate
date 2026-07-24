@@ -103,7 +103,9 @@ func TestL2ByteImplMatchesGo(t *testing.T) {
 
 func BenchmarkDotByte(b *testing.B) {
 	rng := rand.New(rand.NewPCG(15, 16))
-	for _, n := range []int{1024, 1536} {
+	// 1000 is deliberately not a multiple of the SIMD block sizes: it times
+	// the kernels' tail handling (masked loads / step-down blocks).
+	for _, n := range []int{1000, 1024, 1536} {
 		x := randomByteVector(n, rng)
 		y := randomByteVector(n, rng)
 		for name, impl := range dotByteVariantsUnderTest() {
@@ -123,7 +125,7 @@ func BenchmarkDotByte(b *testing.B) {
 
 func BenchmarkL2Byte(b *testing.B) {
 	rng := rand.New(rand.NewPCG(17, 18))
-	for _, n := range []int{1024, 1536} {
+	for _, n := range []int{1000, 1024, 1536} {
 		x := randomByteVector(n, rng)
 		y := randomByteVector(n, rng)
 		for name, impl := range l2ByteVariantsUnderTest() {

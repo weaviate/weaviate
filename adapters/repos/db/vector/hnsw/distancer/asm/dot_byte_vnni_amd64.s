@@ -15,22 +15,43 @@
 //
 // VPDPBUSD wants u8 x s8, but both inputs here are u8. The standard
 // correction is exact: for any byte b, (b XOR 0x80) reinterpreted as s8
-// equals b-128, so
+// equals b-128. The correction term is produced by a second VPDPBUSD
+// against the 0x80 constant itself (0x80 as s8 is -128), not by
+// VPSADBW+VPADDQ - the dot-product ports are the loop's ceiling and the
+// second VPDPBUSD keeps the byte-sum on the same 1-uop budget while its
+// int32 lanes fold into the same reduce:
 //
-//	dot: sum a[i]*b[i]  = VPDPBUSD(a, b^0x80) + 128*sum(a[i])
-//	l2:  sum |a-b|[i]^2 = VPDPBUSD(d, d^0x80) + 128*sum(|a-b|[i])
-//	                      where d = |a-b| via VPMAXUB/VPMINUB/VPSUBB
+//	VPDPBUSD(a, b^0x80) -> acc:  sum a[i]*(b[i]-128)
+//	VPDPBUSD(a, 0x80)   -> corr: -128*sum a[i]
+//	dot = acc - corr             (per-lane VPSUBD, one int32 reduce)
 //
-// The byte sums come from VPSADBW (against zero for dot; for l2,
-// VPSADBW(a, b) directly yields sum |a-b| so the absolute differences are
-// not re-summed). All accumulation (VPDPBUSD int32 lanes, VPSADBW qword
-// lanes, the final scalar combine) wraps mod 2^32 exactly like the pure Go
-// fallbacks, so results are identical for every input, including saturated
+//	l2, on d = |a-b| via VPMAXUB/VPMINUB/VPSUBB:
+//	VPDPBUSD(d, d^0x80) -> acc, VPDPBUSD(d, 0x80) -> corr, l2 = acc - corr
+//
+// All accumulation wraps mod 2^32 exactly like the pure Go fallbacks (the
+// decomposition is an identity over the integers, and every add/sub here
+// wraps), so results are identical for every input, including saturated
 // ones.
+//
+// Tails: the 512-bit kernels have no scalar loop - the final 1..63 bytes
+// use a BZHI-built K-mask with zeroing loads. Masked-off lanes contribute
+// exactly 0 to both accumulators: a=0 zeroes the acc term (0 * anything)
+// and the corr term (-128*0), and for l2, a=b=0 gives d=0. The AVX-VNNI
+// kernels step down 32/16/8 bytes (XMM VPDPBUSD, then MOVQ-loaded XMM,
+// where the zeroed upper halves contribute 0 the same way) before a
+// <=7-byte scalar loop; the YMM accumulators are folded to XMM before the
+// sub-16-byte steps because a VEX-128 write zeroes bits 255:128 of its
+// destination.
+//
+// Future tier: AVX-VNNI-INT8's VPDPBUUD is u8 x u8 natively (no XOR, no
+// correction accumulator - true UDOT parity). Not emitted here because no
+// current AVX-512 server core has it (Sierra Forest / Arrow Lake / Lunar
+// Lake only; the EVEX form needs AVX10.2) - gate on
+// cpu.X86.HasAVXVNNIInt8 when such hardware matters.
 //
 // Two encodings of the same structure:
 //   - ...VNNI512Asm: ZMM, native mnemonics. Needs AVX512F+BW+VNNI
-//     (Cascade Lake+, Zen 4+).
+//     (Cascade Lake+, Zen 4+); BZHI is BMI2, universal on those.
 //   - ...AVXVNNIAsm: YMM with the VEX-encoded VPDPBUSD of AVX-VNNI
 //     (Alder Lake+ client CPUs without AVX-512). The Go assembler only
 //     emits the EVEX form (which would fault without AVX512VL), so the
@@ -42,163 +63,94 @@ TEXT ·dotByteVNNI512Asm(SB), NOSPLIT, $0-28
     MOVQ a+0(FP), SI
     MOVQ b+8(FP), DI
     MOVQ n+16(FP), DX
-    XORL BX, BX                // scalar tail accumulator
-    VPXORD Z0, Z0, Z0          // dot accumulator (even block)
-    VPXORD Z1, Z1, Z1          // dot accumulator (odd block)
-    VPXORD Z2, Z2, Z2          // byte-sum accumulator (even block)
-    VPXORD Z3, Z3, Z3          // byte-sum accumulator (odd block)
+    VPXORD Z0, Z0, Z0          // dot accumulators, 4 chains
+    VPXORD Z1, Z1, Z1
+    VPXORD Z2, Z2, Z2
+    VPXORD Z3, Z3, Z3
+    VPXORD Z20, Z20, Z20       // correction accumulators (-128*sum a)
+    VPXORD Z21, Z21, Z21
+    VPXORD Z22, Z22, Z22
+    VPXORD Z23, Z23, Z23
     MOVQ $0x8080808080808080, AX
-    VPBROADCASTQ AX, Z4        // sign-flip constant
-    VPXORD Z5, Z5, Z5          // zero, VPSADBW second operand
+    VPBROADCASTQ AX, Z4        // 0x80: XOR maps u8 to s8; as s8 it is -128
     MOVQ DX, CX
-    SHRQ $7, CX
-    JZ dv512_tail64
+    SHRQ $8, CX
+    JZ dv512_tail128
 
-dv512_loop128:
+dv512_loop256:
     VMOVDQU64 (SI), Z6         // a[0:64]
     VMOVDQU64 64(SI), Z7       // a[64:128]
-    VMOVDQU64 (DI), Z8         // b[0:64]
-    VMOVDQU64 64(DI), Z9       // b[64:128]
-    VPXORD Z4, Z8, Z8          // b-128 as s8
-    VPXORD Z4, Z9, Z9
-    VPDPBUSD Z8, Z6, Z0        // += a * (b-128)
-    VPDPBUSD Z9, Z7, Z1
-    VPSADBW Z5, Z6, Z10        // += sum(a) per 8-byte group
-    VPADDQ Z10, Z2, Z2
-    VPSADBW Z5, Z7, Z11
-    VPADDQ Z11, Z3, Z3
+    VMOVDQU64 128(SI), Z8      // a[128:192]
+    VMOVDQU64 192(SI), Z9      // a[192:256]
+    VMOVDQU64 (DI), Z10        // b[0:64]
+    VMOVDQU64 64(DI), Z11      // b[64:128]
+    VMOVDQU64 128(DI), Z12     // b[128:192]
+    VMOVDQU64 192(DI), Z13     // b[192:256]
+    VPXORD Z4, Z10, Z10        // b-128 as s8
+    VPXORD Z4, Z11, Z11
+    VPXORD Z4, Z12, Z12
+    VPXORD Z4, Z13, Z13
+    VPDPBUSD Z10, Z6, Z0       // += a * (b-128)
+    VPDPBUSD Z11, Z7, Z1
+    VPDPBUSD Z12, Z8, Z2
+    VPDPBUSD Z13, Z9, Z3
+    VPDPBUSD Z4, Z6, Z20       // += a * -128
+    VPDPBUSD Z4, Z7, Z21
+    VPDPBUSD Z4, Z8, Z22
+    VPDPBUSD Z4, Z9, Z23
+    ADDQ $256, SI
+    ADDQ $256, DI
+    DECQ CX
+    JNZ dv512_loop256
+
+dv512_tail128:
+    TESTQ $128, DX
+    JZ dv512_tail64
+    VMOVDQU64 (SI), Z6
+    VMOVDQU64 64(SI), Z7
+    VMOVDQU64 (DI), Z10
+    VMOVDQU64 64(DI), Z11
+    VPXORD Z4, Z10, Z10
+    VPXORD Z4, Z11, Z11
+    VPDPBUSD Z10, Z6, Z0
+    VPDPBUSD Z11, Z7, Z1
+    VPDPBUSD Z4, Z6, Z20
+    VPDPBUSD Z4, Z7, Z21
     ADDQ $128, SI
     ADDQ $128, DI
-    DECQ CX
-    JNZ dv512_loop128
 
 dv512_tail64:
     TESTQ $64, DX
-    JZ dv512_tail_scalar
+    JZ dv512_tail_mask
     VMOVDQU64 (SI), Z6
-    VMOVDQU64 (DI), Z8
-    VPXORD Z4, Z8, Z8
-    VPDPBUSD Z8, Z6, Z0
-    VPSADBW Z5, Z6, Z10
-    VPADDQ Z10, Z2, Z2
+    VMOVDQU64 (DI), Z10
+    VPXORD Z4, Z10, Z10
+    VPDPBUSD Z10, Z6, Z2
+    VPDPBUSD Z4, Z6, Z22
     ADDQ $64, SI
     ADDQ $64, DI
 
-dv512_tail_scalar:
+dv512_tail_mask:
     MOVQ DX, CX
     ANDQ $63, CX
     JZ dv512_reduce
-
-dv512_scalar:
-    MOVBLZX (SI), R9
-    MOVBLZX (DI), R10
-    IMULL R10, R9
-    ADDL R9, BX
-    INCQ SI
-    INCQ DI
-    DECQ CX
-    JNZ dv512_scalar
+    MOVQ $-1, AX
+    BZHIQ CX, AX, AX           // low CX bits set
+    KMOVQ AX, K1
+    VMOVDQU8.Z (SI), K1, Z6    // masked-off bytes load as 0
+    VMOVDQU8.Z (DI), K1, Z10
+    VPXORD Z4, Z10, Z10
+    VPDPBUSD Z10, Z6, Z3       // masked lanes: 0 * -128 = 0
+    VPDPBUSD Z4, Z6, Z23
 
 dv512_reduce:
     VPADDD Z1, Z0, Z0
-    VPADDQ Z3, Z2, Z2
-    VEXTRACTI64X4 $1, Z0, Y1   // int32 lane reduce of the dot terms
-    VPADDD Y1, Y0, Y0
-    VEXTRACTI128 $1, Y0, X1
-    VPADDD X1, X0, X0
-    VPSHUFD $0x4E, X0, X1
-    VPADDD X1, X0, X0
-    VPSHUFD $0xB1, X0, X1
-    VPADDD X1, X0, X0
-    VMOVD X0, AX
-    VEXTRACTI64X4 $1, Z2, Y3   // qword lane reduce of the byte sums
-    VPADDQ Y3, Y2, Y2
-    VEXTRACTI128 $1, Y2, X3
-    VPADDQ X3, X2, X2
-    VPSHUFD $0x4E, X2, X3
-    VPADDQ X3, X2, X2
-    VMOVD X2, R9               // low 32 bits suffice mod 2^32
-    SHLL $7, R9                // 128 * sum(a)
-    ADDL R9, AX
-    ADDL BX, AX
-    VZEROUPPER
-    MOVL AX, ret+24(FP)
-    RET
-
-// func l2ByteVNNI512Asm(a, b *byte, n int) uint32
-TEXT ·l2ByteVNNI512Asm(SB), NOSPLIT, $0-28
-    MOVQ a+0(FP), SI
-    MOVQ b+8(FP), DI
-    MOVQ n+16(FP), DX
-    XORL BX, BX
-    VPXORD Z0, Z0, Z0          // squared-diff accumulator (even block)
-    VPXORD Z1, Z1, Z1          // squared-diff accumulator (odd block)
-    VPXORD Z2, Z2, Z2          // |a-b| sum accumulator (even block)
-    VPXORD Z3, Z3, Z3          // |a-b| sum accumulator (odd block)
-    MOVQ $0x8080808080808080, AX
-    VPBROADCASTQ AX, Z4
-    MOVQ DX, CX
-    SHRQ $7, CX
-    JZ lv512_tail64
-
-lv512_loop128:
-    VMOVDQU64 (SI), Z6         // a[0:64]
-    VMOVDQU64 (DI), Z7         // b[0:64]
-    VPSADBW Z7, Z6, Z10        // += sum |a-b| per 8-byte group
-    VPADDQ Z10, Z2, Z2
-    VPMAXUB Z7, Z6, Z8
-    VPMINUB Z7, Z6, Z9
-    VPSUBB Z9, Z8, Z8          // d = |a-b|
-    VPXORD Z4, Z8, Z9          // d-128 as s8
-    VPDPBUSD Z9, Z8, Z0        // += d * (d-128)
-    VMOVDQU64 64(SI), Z11      // a[64:128]
-    VMOVDQU64 64(DI), Z12      // b[64:128]
-    VPSADBW Z12, Z11, Z15
-    VPADDQ Z15, Z3, Z3
-    VPMAXUB Z12, Z11, Z13
-    VPMINUB Z12, Z11, Z14
-    VPSUBB Z14, Z13, Z13
-    VPXORD Z4, Z13, Z14
-    VPDPBUSD Z14, Z13, Z1
-    ADDQ $128, SI
-    ADDQ $128, DI
-    DECQ CX
-    JNZ lv512_loop128
-
-lv512_tail64:
-    TESTQ $64, DX
-    JZ lv512_tail_scalar
-    VMOVDQU64 (SI), Z6
-    VMOVDQU64 (DI), Z7
-    VPSADBW Z7, Z6, Z10
-    VPADDQ Z10, Z2, Z2
-    VPMAXUB Z7, Z6, Z8
-    VPMINUB Z7, Z6, Z9
-    VPSUBB Z9, Z8, Z8
-    VPXORD Z4, Z8, Z9
-    VPDPBUSD Z9, Z8, Z0
-    ADDQ $64, SI
-    ADDQ $64, DI
-
-lv512_tail_scalar:
-    MOVQ DX, CX
-    ANDQ $63, CX
-    JZ lv512_reduce
-
-lv512_scalar:
-    MOVBLZX (SI), R9
-    MOVBLZX (DI), R10
-    SUBL R10, R9
-    IMULL R9, R9
-    ADDL R9, BX
-    INCQ SI
-    INCQ DI
-    DECQ CX
-    JNZ lv512_scalar
-
-lv512_reduce:
-    VPADDD Z1, Z0, Z0
-    VPADDQ Z3, Z2, Z2
+    VPADDD Z3, Z2, Z2
+    VPADDD Z2, Z0, Z0
+    VPADDD Z21, Z20, Z20
+    VPADDD Z23, Z22, Z22
+    VPADDD Z22, Z20, Z20
+    VPSUBD Z20, Z0, Z0         // dot = acc - corr, per int32 lane
     VEXTRACTI64X4 $1, Z0, Y1
     VPADDD Y1, Y0, Y0
     VEXTRACTI128 $1, Y0, X1
@@ -208,16 +160,90 @@ lv512_reduce:
     VPSHUFD $0xB1, X0, X1
     VPADDD X1, X0, X0
     VMOVD X0, AX
-    VEXTRACTI64X4 $1, Z2, Y3
-    VPADDQ Y3, Y2, Y2
-    VEXTRACTI128 $1, Y2, X3
-    VPADDQ X3, X2, X2
-    VPSHUFD $0x4E, X2, X3
-    VPADDQ X3, X2, X2
-    VMOVD X2, R9
-    SHLL $7, R9                // 128 * sum |a-b|
-    ADDL R9, AX
-    ADDL BX, AX
+    VZEROUPPER
+    MOVL AX, ret+24(FP)
+    RET
+
+// func l2ByteVNNI512Asm(a, b *byte, n int) uint32
+TEXT ·l2ByteVNNI512Asm(SB), NOSPLIT, $0-28
+    MOVQ a+0(FP), SI
+    MOVQ b+8(FP), DI
+    MOVQ n+16(FP), DX
+    VPXORD Z0, Z0, Z0          // squared-diff accumulators
+    VPXORD Z1, Z1, Z1
+    VPXORD Z20, Z20, Z20       // correction accumulators (-128*sum d)
+    VPXORD Z21, Z21, Z21
+    MOVQ $0x8080808080808080, AX
+    VPBROADCASTQ AX, Z4
+    MOVQ DX, CX
+    SHRQ $7, CX
+    JZ lv512_tail64
+
+lv512_loop128:
+    VMOVDQU64 (SI), Z6         // a[0:64]
+    VMOVDQU64 (DI), Z7         // b[0:64]
+    VPMAXUB Z7, Z6, Z8
+    VPMINUB Z7, Z6, Z9
+    VPSUBB Z9, Z8, Z8          // d = |a-b|
+    VPXORD Z4, Z8, Z9          // d-128 as s8
+    VPDPBUSD Z9, Z8, Z0        // += d * (d-128)
+    VPDPBUSD Z4, Z8, Z20       // += d * -128
+    VMOVDQU64 64(SI), Z11      // a[64:128]
+    VMOVDQU64 64(DI), Z12      // b[64:128]
+    VPMAXUB Z12, Z11, Z13
+    VPMINUB Z12, Z11, Z14
+    VPSUBB Z14, Z13, Z13
+    VPXORD Z4, Z13, Z14
+    VPDPBUSD Z14, Z13, Z1
+    VPDPBUSD Z4, Z13, Z21
+    ADDQ $128, SI
+    ADDQ $128, DI
+    DECQ CX
+    JNZ lv512_loop128
+
+lv512_tail64:
+    TESTQ $64, DX
+    JZ lv512_tail_mask
+    VMOVDQU64 (SI), Z6
+    VMOVDQU64 (DI), Z7
+    VPMAXUB Z7, Z6, Z8
+    VPMINUB Z7, Z6, Z9
+    VPSUBB Z9, Z8, Z8
+    VPXORD Z4, Z8, Z9
+    VPDPBUSD Z9, Z8, Z0
+    VPDPBUSD Z4, Z8, Z20
+    ADDQ $64, SI
+    ADDQ $64, DI
+
+lv512_tail_mask:
+    MOVQ DX, CX
+    ANDQ $63, CX
+    JZ lv512_reduce
+    MOVQ $-1, AX
+    BZHIQ CX, AX, AX
+    KMOVQ AX, K1
+    VMOVDQU8.Z (SI), K1, Z6    // masked-off bytes: a=b=0 so d=0
+    VMOVDQU8.Z (DI), K1, Z7
+    VPMAXUB Z7, Z6, Z8
+    VPMINUB Z7, Z6, Z9
+    VPSUBB Z9, Z8, Z8
+    VPXORD Z4, Z8, Z9
+    VPDPBUSD Z9, Z8, Z1
+    VPDPBUSD Z4, Z8, Z21
+
+lv512_reduce:
+    VPADDD Z1, Z0, Z0
+    VPADDD Z21, Z20, Z20
+    VPSUBD Z20, Z0, Z0         // l2 = acc - corr, per int32 lane
+    VEXTRACTI64X4 $1, Z0, Y1
+    VPADDD Y1, Y0, Y0
+    VEXTRACTI128 $1, Y0, X1
+    VPADDD X1, X0, X0
+    VPSHUFD $0x4E, X0, X1
+    VPADDD X1, X0, X0
+    VPSHUFD $0xB1, X0, X1
+    VPADDD X1, X0, X0
+    VMOVD X0, AX
     VZEROUPPER
     MOVL AX, ret+24(FP)
     RET
@@ -227,52 +253,114 @@ TEXT ·dotByteAVXVNNIAsm(SB), NOSPLIT, $0-28
     MOVQ a+0(FP), SI
     MOVQ b+8(FP), DI
     MOVQ n+16(FP), DX
-    XORL BX, BX
-    VPXOR Y0, Y0, Y0           // dot accumulator (even block)
-    VPXOR Y1, Y1, Y1           // dot accumulator (odd block)
-    VPXOR Y2, Y2, Y2           // byte-sum accumulator (even block)
-    VPXOR Y3, Y3, Y3           // byte-sum accumulator (odd block)
+    XORL BX, BX                // scalar tail accumulator
+    VPXOR Y0, Y0, Y0           // dot accumulators, 4 chains
+    VPXOR Y1, Y1, Y1
+    VPXOR Y2, Y2, Y2
+    VPXOR Y3, Y3, Y3
+    VPXOR Y8, Y8, Y8           // correction accumulators (-128*sum a)
+    VPXOR Y9, Y9, Y9
+    VPXOR Y10, Y10, Y10
+    VPXOR Y11, Y11, Y11
     MOVQ $0x8080808080808080, AX
     VMOVQ AX, X4
-    VPBROADCASTQ X4, Y4        // sign-flip constant
-    VPXOR Y5, Y5, Y5           // zero, VPSADBW second operand
+    VPBROADCASTQ X4, Y4        // 0x80: XOR maps u8 to s8; as s8 it is -128
     MOVQ DX, CX
-    SHRQ $6, CX
-    JZ dvv_tail32
+    SHRQ $7, CX
+    JZ dvv_tail64
 
-dvv_loop64:
+dvv_loop128:
     VMOVDQU (SI), Y6           // a[0:32]
     VMOVDQU (DI), Y7           // b[0:32]
     VPXOR Y4, Y7, Y7           // b-128 as s8
     LONG $0x504DE2C4; BYTE $0xC7 // VPDPBUSD Y7, Y6, Y0 (VEX, AVX-VNNI)
-    VPSADBW Y5, Y6, Y7         // Y7 dead after VPDPBUSD; += sum(a)
-    VPADDQ Y7, Y2, Y2
-    VMOVDQU 32(SI), Y6         // a[32:64]
-    VMOVDQU 32(DI), Y7
+    LONG $0x504D62C4; BYTE $0xC4 // VPDPBUSD Y4, Y6, Y8 (VEX, AVX-VNNI)
+    VMOVDQU 32(SI), Y12        // a[32:64]
+    VMOVDQU 32(DI), Y13
+    VPXOR Y4, Y13, Y13
+    LONG $0x501DC2C4; BYTE $0xCD // VPDPBUSD Y13, Y12, Y1 (VEX, AVX-VNNI)
+    LONG $0x501D62C4; BYTE $0xCC // VPDPBUSD Y4, Y12, Y9 (VEX, AVX-VNNI)
+    VMOVDQU 64(SI), Y6         // a[64:96]
+    VMOVDQU 64(DI), Y7
     VPXOR Y4, Y7, Y7
-    LONG $0x504DE2C4; BYTE $0xCF // VPDPBUSD Y7, Y6, Y1 (VEX, AVX-VNNI)
-    VPSADBW Y5, Y6, Y7
-    VPADDQ Y7, Y3, Y3
-    ADDQ $64, SI
-    ADDQ $64, DI
+    LONG $0x504DE2C4; BYTE $0xD7 // VPDPBUSD Y7, Y6, Y2 (VEX, AVX-VNNI)
+    LONG $0x504D62C4; BYTE $0xD4 // VPDPBUSD Y4, Y6, Y10 (VEX, AVX-VNNI)
+    VMOVDQU 96(SI), Y12        // a[96:128]
+    VMOVDQU 96(DI), Y13
+    VPXOR Y4, Y13, Y13
+    LONG $0x501DC2C4; BYTE $0xDD // VPDPBUSD Y13, Y12, Y3 (VEX, AVX-VNNI)
+    LONG $0x501D62C4; BYTE $0xDC // VPDPBUSD Y4, Y12, Y11 (VEX, AVX-VNNI)
+    ADDQ $128, SI
+    ADDQ $128, DI
     DECQ CX
-    JNZ dvv_loop64
+    JNZ dvv_loop128
 
-dvv_tail32:
-    TESTQ $32, DX
-    JZ dvv_tail_scalar
+dvv_tail64:
+    TESTQ $64, DX
+    JZ dvv_tail32
     VMOVDQU (SI), Y6
     VMOVDQU (DI), Y7
     VPXOR Y4, Y7, Y7
     LONG $0x504DE2C4; BYTE $0xC7 // VPDPBUSD Y7, Y6, Y0 (VEX, AVX-VNNI)
-    VPSADBW Y5, Y6, Y7
-    VPADDQ Y7, Y2, Y2
+    LONG $0x504D62C4; BYTE $0xC4 // VPDPBUSD Y4, Y6, Y8 (VEX, AVX-VNNI)
+    VMOVDQU 32(SI), Y12
+    VMOVDQU 32(DI), Y13
+    VPXOR Y4, Y13, Y13
+    LONG $0x501DC2C4; BYTE $0xCD // VPDPBUSD Y13, Y12, Y1 (VEX, AVX-VNNI)
+    LONG $0x501D62C4; BYTE $0xCC // VPDPBUSD Y4, Y12, Y9 (VEX, AVX-VNNI)
+    ADDQ $64, SI
+    ADDQ $64, DI
+
+dvv_tail32:
+    TESTQ $32, DX
+    JZ dvv_fold
+    VMOVDQU (SI), Y6
+    VMOVDQU (DI), Y7
+    VPXOR Y4, Y7, Y7
+    LONG $0x504DE2C4; BYTE $0xD7 // VPDPBUSD Y7, Y6, Y2 (VEX, AVX-VNNI)
+    LONG $0x504D62C4; BYTE $0xD4 // VPDPBUSD Y4, Y6, Y10 (VEX, AVX-VNNI)
     ADDQ $32, SI
     ADDQ $32, DI
 
+dvv_fold:
+    // Fold the YMM accumulators to XMM before the sub-16-byte tails: a
+    // VEX-128 VPDPBUSD zeroes bits 255:128 of its destination, so the XMM
+    // tail steps may only touch accumulators that are already 128-bit.
+    VPADDD Y1, Y0, Y0
+    VPADDD Y3, Y2, Y2
+    VPADDD Y2, Y0, Y0
+    VPADDD Y9, Y8, Y8
+    VPADDD Y11, Y10, Y10
+    VPADDD Y10, Y8, Y8
+    VEXTRACTI128 $1, Y0, X1
+    VPADDD X1, X0, X0          // X0 = folded dot acc
+    VEXTRACTI128 $1, Y8, X1
+    VPADDD X1, X8, X8          // X8 = folded corr acc
+
+    TESTQ $16, DX
+    JZ dvv_tail8
+    VMOVDQU (SI), X6
+    VMOVDQU (DI), X7
+    VPXOR X4, X7, X7
+    LONG $0x5049E2C4; BYTE $0xC7 // VPDPBUSD X7, X6, X0 (VEX, AVX-VNNI)
+    LONG $0x504962C4; BYTE $0xC4 // VPDPBUSD X4, X6, X8 (VEX, AVX-VNNI)
+    ADDQ $16, SI
+    ADDQ $16, DI
+
+dvv_tail8:
+    TESTQ $8, DX
+    JZ dvv_tail_scalar
+    VMOVQ (SI), X6             // upper 8 bytes zero: contribute 0 to both
+    VMOVQ (DI), X7
+    VPXOR X4, X7, X7
+    LONG $0x5049E2C4; BYTE $0xC7 // VPDPBUSD X7, X6, X0 (VEX, AVX-VNNI)
+    LONG $0x504962C4; BYTE $0xC4 // VPDPBUSD X4, X6, X8 (VEX, AVX-VNNI)
+    ADDQ $8, SI
+    ADDQ $8, DI
+
 dvv_tail_scalar:
     MOVQ DX, CX
-    ANDQ $31, CX
+    ANDQ $7, CX
     JZ dvv_reduce
 
 dvv_scalar:
@@ -286,22 +374,12 @@ dvv_scalar:
     JNZ dvv_scalar
 
 dvv_reduce:
-    VPADDD Y1, Y0, Y0
-    VPADDQ Y3, Y2, Y2
-    VEXTRACTI128 $1, Y0, X1
-    VPADDD X1, X0, X0
+    VPSUBD X8, X0, X0          // dot = acc - corr, per int32 lane
     VPSHUFD $0x4E, X0, X1
     VPADDD X1, X0, X0
     VPSHUFD $0xB1, X0, X1
     VPADDD X1, X0, X0
     VMOVD X0, AX
-    VEXTRACTI128 $1, Y2, X3
-    VPADDQ X3, X2, X2
-    VPSHUFD $0x4E, X2, X3
-    VPADDQ X3, X2, X2
-    VMOVD X2, R9
-    SHLL $7, R9                // 128 * sum(a)
-    ADDL R9, AX
     ADDL BX, AX
     VZEROUPPER
     MOVL AX, ret+24(FP)
@@ -313,10 +391,10 @@ TEXT ·l2ByteAVXVNNIAsm(SB), NOSPLIT, $0-28
     MOVQ b+8(FP), DI
     MOVQ n+16(FP), DX
     XORL BX, BX
-    VPXOR Y0, Y0, Y0           // squared-diff accumulator (even block)
-    VPXOR Y1, Y1, Y1           // squared-diff accumulator (odd block)
-    VPXOR Y2, Y2, Y2           // |a-b| sum accumulator (even block)
-    VPXOR Y3, Y3, Y3           // |a-b| sum accumulator (odd block)
+    VPXOR Y0, Y0, Y0           // squared-diff accumulators
+    VPXOR Y1, Y1, Y1
+    VPXOR Y8, Y8, Y8           // correction accumulators (-128*sum d)
+    VPXOR Y9, Y9, Y9
     MOVQ $0x8080808080808080, AX
     VMOVQ AX, X4
     VPBROADCASTQ X4, Y4
@@ -325,24 +403,22 @@ TEXT ·l2ByteAVXVNNIAsm(SB), NOSPLIT, $0-28
     JZ lvv_tail32
 
 lvv_loop64:
-    VMOVDQU (SI), Y8           // a[0:32]
-    VMOVDQU (DI), Y9           // b[0:32]
-    VPSADBW Y9, Y8, Y10        // += sum |a-b|
-    VPADDQ Y10, Y2, Y2
-    VPMAXUB Y9, Y8, Y6
-    VPMINUB Y9, Y8, Y7
-    VPSUBB Y7, Y6, Y6          // d = |a-b|
-    VPXOR Y4, Y6, Y7           // d-128 as s8
-    LONG $0x504DE2C4; BYTE $0xC7 // VPDPBUSD Y7, Y6, Y0 (VEX, AVX-VNNI)
-    VMOVDQU 32(SI), Y8         // a[32:64]
-    VMOVDQU 32(DI), Y9
-    VPSADBW Y9, Y8, Y10
-    VPADDQ Y10, Y3, Y3
-    VPMAXUB Y9, Y8, Y6
-    VPMINUB Y9, Y8, Y7
-    VPSUBB Y7, Y6, Y6
-    VPXOR Y4, Y6, Y7
-    LONG $0x504DE2C4; BYTE $0xCF // VPDPBUSD Y7, Y6, Y1 (VEX, AVX-VNNI)
+    VMOVDQU (SI), Y6           // a[0:32]
+    VMOVDQU (DI), Y7           // b[0:32]
+    VPMAXUB Y7, Y6, Y2
+    VPMINUB Y7, Y6, Y3
+    VPSUBB Y3, Y2, Y2          // d = |a-b|
+    VPXOR Y4, Y2, Y3           // d-128 as s8
+    LONG $0x506DE2C4; BYTE $0xC3 // VPDPBUSD Y3, Y2, Y0 (VEX, AVX-VNNI)
+    LONG $0x506D62C4; BYTE $0xC4 // VPDPBUSD Y4, Y2, Y8 (VEX, AVX-VNNI)
+    VMOVDQU 32(SI), Y12        // a[32:64]
+    VMOVDQU 32(DI), Y13
+    VPMAXUB Y13, Y12, Y14
+    VPMINUB Y13, Y12, Y15
+    VPSUBB Y15, Y14, Y14
+    VPXOR Y4, Y14, Y15
+    LONG $0x500DC2C4; BYTE $0xCF // VPDPBUSD Y15, Y14, Y1 (VEX, AVX-VNNI)
+    LONG $0x500D62C4; BYTE $0xCC // VPDPBUSD Y4, Y14, Y9 (VEX, AVX-VNNI)
     ADDQ $64, SI
     ADDQ $64, DI
     DECQ CX
@@ -350,22 +426,58 @@ lvv_loop64:
 
 lvv_tail32:
     TESTQ $32, DX
-    JZ lvv_tail_scalar
-    VMOVDQU (SI), Y8
-    VMOVDQU (DI), Y9
-    VPSADBW Y9, Y8, Y10
-    VPADDQ Y10, Y2, Y2
-    VPMAXUB Y9, Y8, Y6
-    VPMINUB Y9, Y8, Y7
-    VPSUBB Y7, Y6, Y6
-    VPXOR Y4, Y6, Y7
-    LONG $0x504DE2C4; BYTE $0xC7 // VPDPBUSD Y7, Y6, Y0 (VEX, AVX-VNNI)
+    JZ lvv_fold
+    VMOVDQU (SI), Y6
+    VMOVDQU (DI), Y7
+    VPMAXUB Y7, Y6, Y2
+    VPMINUB Y7, Y6, Y3
+    VPSUBB Y3, Y2, Y2
+    VPXOR Y4, Y2, Y3
+    LONG $0x506DE2C4; BYTE $0xC3 // VPDPBUSD Y3, Y2, Y0 (VEX, AVX-VNNI)
+    LONG $0x506D62C4; BYTE $0xC4 // VPDPBUSD Y4, Y2, Y8 (VEX, AVX-VNNI)
     ADDQ $32, SI
     ADDQ $32, DI
 
+lvv_fold:
+    // Fold YMM accumulators to XMM before the sub-16-byte tails (VEX-128
+    // writes zero bits 255:128 of the destination, see dot kernel).
+    VPADDD Y1, Y0, Y0
+    VPADDD Y9, Y8, Y8
+    VEXTRACTI128 $1, Y0, X1
+    VPADDD X1, X0, X0          // X0 = folded squared-diff acc
+    VEXTRACTI128 $1, Y8, X1
+    VPADDD X1, X8, X8          // X8 = folded corr acc
+
+    TESTQ $16, DX
+    JZ lvv_tail8
+    VMOVDQU (SI), X6
+    VMOVDQU (DI), X7
+    VPMAXUB X7, X6, X2
+    VPMINUB X7, X6, X3
+    VPSUBB X3, X2, X2
+    VPXOR X4, X2, X3
+    LONG $0x5069E2C4; BYTE $0xC3 // VPDPBUSD X3, X2, X0 (VEX, AVX-VNNI)
+    LONG $0x506962C4; BYTE $0xC4 // VPDPBUSD X4, X2, X8 (VEX, AVX-VNNI)
+    ADDQ $16, SI
+    ADDQ $16, DI
+
+lvv_tail8:
+    TESTQ $8, DX
+    JZ lvv_tail_scalar
+    VMOVQ (SI), X6             // upper 8 bytes zero on both sides: d=0
+    VMOVQ (DI), X7
+    VPMAXUB X7, X6, X2
+    VPMINUB X7, X6, X3
+    VPSUBB X3, X2, X2
+    VPXOR X4, X2, X3
+    LONG $0x5069E2C4; BYTE $0xC3 // VPDPBUSD X3, X2, X0 (VEX, AVX-VNNI)
+    LONG $0x506962C4; BYTE $0xC4 // VPDPBUSD X4, X2, X8 (VEX, AVX-VNNI)
+    ADDQ $8, SI
+    ADDQ $8, DI
+
 lvv_tail_scalar:
     MOVQ DX, CX
-    ANDQ $31, CX
+    ANDQ $7, CX
     JZ lvv_reduce
 
 lvv_scalar:
@@ -380,22 +492,12 @@ lvv_scalar:
     JNZ lvv_scalar
 
 lvv_reduce:
-    VPADDD Y1, Y0, Y0
-    VPADDQ Y3, Y2, Y2
-    VEXTRACTI128 $1, Y0, X1
-    VPADDD X1, X0, X0
+    VPSUBD X8, X0, X0          // l2 = acc - corr, per int32 lane
     VPSHUFD $0x4E, X0, X1
     VPADDD X1, X0, X0
     VPSHUFD $0xB1, X0, X1
     VPADDD X1, X0, X0
     VMOVD X0, AX
-    VEXTRACTI128 $1, Y2, X3
-    VPADDQ X3, X2, X2
-    VPSHUFD $0x4E, X2, X3
-    VPADDQ X3, X2, X2
-    VMOVD X2, R9
-    SHLL $7, R9                // 128 * sum |a-b|
-    ADDL R9, AX
     ADDL BX, AX
     VZEROUPPER
     MOVL AX, ret+24(FP)
