@@ -254,6 +254,21 @@ type Index struct {
 	partitioningEnabled  bool
 	AsyncIndexingEnabled bool
 
+	// coldObjects caches object counts for COLD tenants so the cap check
+	// can account for them without loading the shards. Allocated by
+	// SetUsageLimits when both partitioningEnabled is true *and* the
+	// object cap is configured at that moment; nil otherwise. When
+	// coldObjectsTracked is true this field is guaranteed non-nil.
+	coldObjects *coldObjectCounts
+
+	// coldObjectsTracked is the snapshot-once gate decided at
+	// SetUsageLimits time. The single source of truth for whether
+	// lifecycle hooks should populate or drop coldObjects. Never flips
+	// after install — operators who turn the object cap on after
+	// existing indexes already exist must restart for those indexes
+	// to track.
+	coldObjectsTracked bool
+
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
@@ -345,7 +360,7 @@ func (i *Index) snapshotsPath() string {
 }
 
 // NewIndex creates an index with the specified amount of shards, using only
-// the shards that are local to a node
+// the shards that are local to a node.
 func NewIndex(
 	ctx context.Context,
 	cfg IndexConfig,
@@ -527,14 +542,15 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		if shard.activityStatus != models.TenantActivityStatusHOT {
 			continue
 		}
-		hotShardNames = append(hotShardNames, shard.name)
 		shardName := shard.name
+		hotShardNames = append(hotShardNames, shardName)
 		eg.Go(func() error {
 			switch {
 			case i.Config.EnableLazyLoadShards:
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
+				i.dropColdObjectCount(shardName)
 				return nil
 			default:
 				// avoid footprint of empty shards
@@ -559,6 +575,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				promMetrics.NewLoadedShard()
 				newShard.metricsRegistered.Store(true)
 				i.shards.Store(shardName, newShard)
+				i.dropColdObjectCount(shardName)
 				return nil
 			}
 		}, shardName)
@@ -2780,6 +2797,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	}
 
 	i.shards.Store(shardName, shard)
+	i.dropColdObjectCount(shardName)
 
 	return nil
 }
@@ -2799,6 +2817,8 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	if !ok {
 		return nil // shard was not found, nothing to unload
 	}
+
+	i.cacheColdCountFromShard(ctx, shardLike)
 
 	if err := shardLike.Shutdown(ctx); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
@@ -2875,6 +2895,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 				return nil, func() {}, err
 			}
 			i.shards.Store(shardName, shard)
+			i.dropColdObjectCount(shardName)
 		}
 	}
 
@@ -3157,6 +3178,8 @@ func (i *Index) dropShards(names []string) error {
 			defer i.backupLock.RUnlock(name)
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
+
+			i.dropColdObjectCount(name)
 
 			shard, ok := i.shards.LoadAndDelete(name)
 			if !ok {

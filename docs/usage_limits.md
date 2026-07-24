@@ -40,9 +40,29 @@ The schema-side limits (collections, tenants, shards) stay at the use-case layer
 
 ## Counter source
 
-The object count is **node-wide** across local shards: the manager sums each loaded shard's `bucket.CountAsync()` (`adapters/repos/db/lsmkv/bucket.go`) on every enforced write. Each `CountAsync()` is O(segments-per-shard) — it walks the live segment list and sums each segment's already-loaded net-additions counter, no I/O. For the Free-Tier shape (few shards, few segments) that's a handful of atomic reads on the hot path.
+The object count is **node-wide** across all local tenants. Per-tenant decision is atomic under `shardCreateLocks.RLock(name)` — a transition is never observed as both or neither:
+
+- **HOT** (loaded) contributes via `shard.ObjectCountAsync()` → `bucket.CountAsync()` (`adapters/repos/db/lsmkv/bucket.go`) — O(segments), atomic counter reads, no I/O.
+- **COLD** (data on disk, shard not loaded) contributes from an in-memory cache (`coldObjects` on `*Index`, `adapters/repos/db/usage_limits.go`). Pure RAM read.
+- **FROZEN** contributes 0 — data lives in the cloud.
+
+The cache closes an abuse vector that would let an account deactivate tenants to dodge the cap. Allocated only when the collection is multi-tenant **and** `MAXIMUM_ALLOWED_OBJECTS_COUNT` is set at the moment `Index.SetUsageLimits` runs (index construction / startup load). Single-tenant indexes never see it, and deployments without the cap pay nothing. The gate is **snapshot-once** — turning the cap on after the fact via runtime override only affects indexes created afterward; existing indexes need a restart to start tracking COLD tenants.
 
 We deliberately don't route through `UsageForIndex` — that path triggers other usage-module computations beyond a count.
+
+### Cold-tenant cache lifecycle
+
+The per-Index cache is maintained by hooks at every transition that changes the local on-disk state of a tenant:
+
+| Transition | Hook | Sites |
+|---|---|---|
+| HOT → COLD | `cacheColdCountFromShard` | `Index.UnloadLocalShard`; `Migrator.UpdateTenants` cold branch; `Migrator.ShutdownShard` |
+| COLD → HOT | `dropColdObjectCount` | `Index.initLocalShardWithForcedLoading`; `Index.getOptInitLocalShard` |
+| Startup, tenant COLD on disk | `cacheColdCountFromDisk` | `Index.RestoreColdCounts` (called once by the startup load) |
+| Unfreeze (cloud download) | `cacheColdCountFromDisk` | `Migrator.unfreeze` success branch |
+| Tenant deleted | `dropColdObjectCount` | `Index.dropShards`; `Migrator.frozen` |
+
+`cacheColdCountFromShard` snapshots `ObjectCountAsync` before shutdown; `cacheColdCountFromDisk` reads the same per-segment counters from on-disk metadata without loading the shard.
 
 ## Error response
 
@@ -89,7 +109,9 @@ The pre-existing `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` enforcement previously retu
 ## Accepted imperfections
 
 - **Object count via async path.** Counts come from `CountAsync` and exclude the in-memory memtable, so during fast bulk imports the count lags slightly behind on-disk state. Bounded by in-flight write volume between count refreshes; self-corrects on the next flush. Sync counting on every write would scan the entire memtable — wasteful at the 10K free-tier scale, fatal at 10M+ scale.
-- **Cold lazy-load shards are skipped from the sum.** Including them wouldn't force a load (counts can be read from on-disk segment metadata), but it would add a directory walk + per-segment metadata read per cold shard on every write — unacceptable on the hot path. Effect: accounts with dormant tenants may sit slightly under-counted. Future option: cache cold counts in memory at load time.
+- **Lazy-but-not-yet-loaded HOT shards contribute 0** until first access loads them. Matches `ForEachLoadedShard` semantics; bounded — first read or write triggers the load.
+- **Cold-cache snapshot excludes the memtable** (`cacheColdCountFromShard` reads `ObjectCountAsync`). Under-counts by at most one memtable's worth per tenant for the COLD period; reactivation drops the cache and the loaded shard counts accurately.
+- **Cold-cache can over-count by one tenant on partial-failure deletion** (`shard.drop` fails mid-cleanup; cache drop is intentionally skipped because on-disk state is then unknowable). Stale entry clears at the next lifecycle transition.
 - **Per-shard-slice batch rejection** on multi-shard collections (see *Batch behavior*). Single-shard collections (Free Tier) see whole-batch rejection unchanged.
 - **Tenants checked at create time only**, not on subsequent multi-tenancy config changes.
 - **Schema-side caps are not transactional with RAFT.** Read-check-write is not atomic across the RAFT-replicated `AddClass`/`AddTenants` call, so two concurrent creates can both pass the check. Bounded overshoot; next request is correctly rejected.
