@@ -121,10 +121,17 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
 // CAUTION: bitmap uses entire capacity of underlying buffer. By expanding it may overwrite
 // node's data after additions bitmap
+//
+// It returns nil when the node holds no additions (length indicator 0), the
+// same contract as [*SegmentNode.Additions].
 func (sn *SegmentNode) AdditionsUnlimited() *sroar.Bitmap {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
-	return sroar.FromBufferUnlimited(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	buf := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	if len(buf) == 0 {
+		return nil
+	}
+	return sroar.FromBufferUnlimited(buf)
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use

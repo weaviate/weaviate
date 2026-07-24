@@ -64,12 +64,6 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 		}
 		out.Deletions, releaseDel = sn.DeletionsCloneToBuf(bitmapBufPool)
 		out.Additions, releaseAdd = sn.AdditionsCloneToBuf(bitmapBufPool)
-		if out.Additions == nil {
-			// additions become the mutable accumulator base when layers are
-			// flattened, so a non-nil (and non-shared, as it is mutated) bitmap
-			// is needed even when the node holds none
-			out.Additions = sroar.NewBitmap()
-		}
 	} else {
 		sn, release, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool)
 		if err != nil {
@@ -80,6 +74,14 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 		// node's data might get overwritten by changes of underlying additions bitmap.
 		// overwrites should be safe, as other data is not used later on
 		out.Additions, releaseAdd = sn.AdditionsUnlimited(), release
+	}
+
+	if out.Additions == nil {
+		// deletions-only node (both read branches return nil additions for an
+		// empty region): additions become the mutable accumulator base when
+		// layers are folded, so a non-nil (and non-shared, as it is mutated)
+		// bitmap is needed even when the node holds none
+		out.Additions = sroar.NewBitmap()
 	}
 
 	return out, combineReleases(releaseAdd, releaseDel), nil
