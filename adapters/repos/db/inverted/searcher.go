@@ -322,7 +322,11 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 
 	beforeResolve := time.Now()
-	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_len", len(pv.children))
+	n := len(pv.children)
+	if pv.containsValues != nil {
+		n = len(pv.containsValues)
+	}
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_len", n)
 	dbm, err := pv.resolveDocIDs(ctx, s, limit)
 	if err != nil {
 		return nil, fmt.Errorf("resolve doc ids for prop/value pair: %w", err)
@@ -976,10 +980,194 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 	}, nil
 }
 
+// encodeContainsKeys encodes every element of values to its on-disk key via
+// encode, wrapping the first failure with its position so the caller can
+// report which element was malformed.
+func encodeContainsKeys[T any](values []T, encode func(T) ([]byte, error)) ([][]byte, error) {
+	keys := make([][]byte, len(values))
+	for i, v := range values {
+		k, err := encode(v)
+		if err != nil {
+			return nil, fmt.Errorf("value %d: %w", i, err)
+		}
+		keys[i] = k
+	}
+	return keys, nil
+}
+
+// extractContainsBatch is the shape gate for the batched flat
+// ContainsAny/ContainsAll fast path. It recognizes a flat (non-nested),
+// single-property, roaringset-filterable Contains filter over a
+// one-value-maps-to-one-key type and, when eligible, pre-encodes every
+// value to its on-disk key using the exact same per-value encoders
+// buildPropValuePair would otherwise call once per value via N
+// propValuePair leaves.
+//
+// Returns a strict 3-state contract:
+//   - eligible == false: shape rejected before touching any value; err is
+//     always nil. The caller must fall through to the existing desugared
+//     extraction.
+//   - eligible == true, err == nil: pv is fully built; return it directly.
+//   - eligible == true, err != nil: the shape matched (property,
+//     tokenization, bucket all confirmed eligible) but encoding one of the
+//     values failed; the caller should return the error immediately rather
+//     than falling through to re-derive the identical failure.
+func (s *Searcher) extractContainsBatch(ctx context.Context, path *filters.Path,
+	propType schema.DataType, value interface{}, operator filters.Operator, class *models.Class,
+) (*propValuePair, bool, error) {
+	if operator != filters.ContainsAny && operator != filters.ContainsAll {
+		return nil, false, nil
+	}
+
+	props := path.Slice()
+	if len(props) != 1 {
+		return nil, false, nil
+	}
+
+	propName := filnested.RootPropName(props[0])
+	if s.onInternalProp(propName) {
+		return nil, false, nil
+	}
+	if _, ok := schema.IsPropertyLength(propName, 0); ok {
+		return nil, false, nil
+	}
+
+	property, err := schema.GetPropertyByName(class, propName)
+	if err != nil {
+		// The existing per-value path will raise the identical "property not
+		// found" error; no need to duplicate that error text here.
+		return nil, false, nil
+	}
+	if _, ok := schema.AsNested(property.DataType); ok {
+		return nil, false, nil
+	}
+	if s.onRefProp(property) || s.onGeoProp(property) {
+		return nil, false, nil
+	}
+
+	// encode is populated by whichever family below matches; it performs the
+	// actual per-value key encoding and is only invoked once every remaining
+	// gate check (bucket, strategy) has passed.
+	var encode func() ([][]byte, error)
+
+	switch {
+	case s.onUUIDProp(property):
+		if propType != schema.DataTypeText && propType != schema.DataTypeTextArray {
+			return nil, false, nil
+		}
+		values, err := s.extractStringArray(value)
+		if err != nil || len(values) < 2 {
+			return nil, false, nil
+		}
+		if !HasFilterableIndex(property) {
+			return nil, false, nil
+		}
+		encode = func() ([][]byte, error) {
+			return encodeContainsKeys(values, func(v string) ([]byte, error) { return s.extractUUIDValue(v) })
+		}
+
+	case s.onTokenizableProp(property):
+		if propType != schema.DataTypeText && propType != schema.DataTypeTextArray {
+			return nil, false, nil
+		}
+		// tokenizeField always produces exactly one token (a TrimFunc of the
+		// input, never zero, never more than one), so FIELD is provably a
+		// 1-value-to-1-key tokenization; any other tokenization can turn one
+		// value into zero or several tokens and must fall through.
+		effectiveTok := ResolveTokenization(s.tokResolver, property.Name, property.Tokenization)
+		if effectiveTok != models.PropertyTokenizationField {
+			return nil, false, nil
+		}
+		values, err := s.extractStringArray(value)
+		if err != nil || len(values) < 2 {
+			return nil, false, nil
+		}
+		if !HasFilterableIndex(property) || s.isFallbackToSearchable() {
+			return nil, false, nil
+		}
+		prepared := tokenizer.NewPreparedAnalyzer(property.TextAnalyzer)
+		encode = func() ([][]byte, error) {
+			// One batched analysis for all values: per-batch metrics and a
+			// shared token backing array instead of per-value Analyze calls.
+			batch := tokenizer.AnalyzeBatch(values, effectiveTok, class.Class, prepared, nil)
+			keys := make([][]byte, batch.Len())
+			for i, valueTokens := range batch.All() {
+				if len(valueTokens) != 1 {
+					return nil, fmt.Errorf("value %d: FIELD tokenization produced %d tokens, want exactly 1", i, len(valueTokens))
+				}
+				keys[i] = []byte(valueTokens[0])
+			}
+			return keys, nil
+		}
+
+	default:
+		switch propType {
+		case schema.DataTypeInt, schema.DataTypeIntArray:
+			values, err := s.extractIntArray(value)
+			if err != nil || len(values) < 2 || !HasFilterableIndex(property) {
+				return nil, false, nil
+			}
+			encode = func() ([][]byte, error) {
+				return encodeContainsKeys(values, func(v int) ([]byte, error) { return s.extractIntValue(v) })
+			}
+		case schema.DataTypeNumber, schema.DataTypeNumberArray:
+			values, err := s.extractFloat64Array(value)
+			if err != nil || len(values) < 2 || !HasFilterableIndex(property) {
+				return nil, false, nil
+			}
+			encode = func() ([][]byte, error) {
+				return encodeContainsKeys(values, func(v float64) ([]byte, error) { return s.extractNumberValue(v) })
+			}
+		case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
+			values, err := s.extractBoolArray(value)
+			if err != nil || len(values) < 2 || !HasFilterableIndex(property) {
+				return nil, false, nil
+			}
+			encode = func() ([][]byte, error) {
+				return encodeContainsKeys(values, func(v bool) ([]byte, error) { return s.extractBoolValue(v) })
+			}
+		case schema.DataTypeDate, schema.DataTypeDateArray:
+			values, err := s.extractStringArray(value)
+			if err != nil || len(values) < 2 || !HasFilterableIndex(property) {
+				return nil, false, nil
+			}
+			encode = func() ([][]byte, error) {
+				return encodeContainsKeys(values, func(v string) ([]byte, error) { return s.extractDateValue(v) })
+			}
+		default:
+			return nil, false, nil
+		}
+	}
+
+	b := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
+	if b == nil || b.Strategy() != lsmkv.StrategyRoaringSet {
+		return nil, false, nil
+	}
+
+	keys, err := encode()
+	if err != nil {
+		return nil, true, fmt.Errorf("extract contains values: %w", err)
+	}
+
+	pv, err := newPropValuePair(class)
+	if err != nil {
+		return nil, false, nil
+	}
+	pv.prop = property.Name
+	pv.operator = operator
+	pv.hasFilterableIndex = true
+	pv.containsValues = keys
+	return pv, true, nil
+}
+
 func (s *Searcher) extractContains(ctx context.Context,
 	path *filters.Path, propType schema.DataType, value interface{},
 	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
+	if pv, eligible, err := s.extractContainsBatch(ctx, path, propType, value, operator, class); eligible {
+		return pv, err
+	}
+
 	var operands []filters.Clause
 	switch propType {
 	case schema.DataTypeText, schema.DataTypeTextArray:
