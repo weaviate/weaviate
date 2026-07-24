@@ -328,24 +328,32 @@ func TestSegmentCleanerEditOps_AbortMidRewriteDoesNotBump(t *testing.T) {
 	require.Empty(t, q)
 }
 
-// TestSegmentCleanerEditOps_ENOENTRemovesStaleRow drops a pending row whose
-// segment is no longer on disk (merged away by a concurrent compaction).
-func TestSegmentCleanerEditOps_ENOENTRemovesStaleRow(t *testing.T) {
+// TestSegmentCleanerEditOps_GhostRowIsSkippedNotCompleted pins the ghost-row
+// contract: a pending row whose segment is not in the live set is SKIPPED —
+// never marked done — and must not stall the rest of the pass. Marking it done
+// would drain the op's pending set and let a drop finalize without stripping
+// that segment's data; reachable when the shard shuts down mid-pass (tenant
+// deactivation no longer waits for cleanups). Truly-dead rows are pruned by
+// the load-time Recover instead.
+func TestSegmentCleanerEditOps_GhostRowIsSkippedNotCompleted(t *testing.T) {
 	bucket, editOps := newReplaceBucketWithEditOps(t, prefixTransformer)
 
 	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
 	require.NoError(t, bucket.FlushAndSwitch())
 
+	segID := segIDsOf(bucket)[0]
 	require.NoError(t, editOps.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
-	require.NoError(t, editOps.SnapshotSegments("op1", []string{"9999999999999999999"}))
+	// The all-zero ghost sorts ahead of the real segment, so the pass hits it first.
+	require.NoError(t, editOps.SnapshotSegments("op1", []string{"0000000000000000000", segID}))
 
 	cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
 	require.NoError(t, err)
-	require.True(t, cleaned)
+	require.True(t, cleaned, "the ghost must not stall the pass; the real segment behind it is cleaned")
 
 	pending, err := editOps.Pending("op1")
 	require.NoError(t, err)
-	require.Empty(t, pending)
+	require.Equal(t, []string{"0000000000000000000"}, pending,
+		"the ghost row must survive the pass (only load-time Recover prunes it); the cleaned segment's row is done")
 }
 
 // TestSegmentCleanerEditOps_QuarantineAfterMaxAttempts quarantines a segment
