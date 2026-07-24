@@ -19,9 +19,14 @@ import (
 )
 
 var (
-	SearchOperatorAnd = "OPERATOR_AND"
-	SearchOperatorOr  = "OPERATOR_OR"
+	SearchOperatorAnd      = "OPERATOR_AND"
+	SearchOperatorOr       = "OPERATOR_OR"
+	SearchOperatorAndCross = "OPERATOR_AND_CROSS"
 )
+
+func IsAndOperator(operator string) bool {
+	return operator == SearchOperatorAnd || operator == SearchOperatorAndCross
+}
 
 func GenerateBM25SearchOperatorFields(prefixName string) *graphql.InputObjectFieldConfig {
 	searchesPrefixName := prefixName + "Searches"
@@ -43,6 +48,10 @@ func GenerateBM25SearchOperatorFields(prefixName string) *graphql.InputObjectFie
 								"Or": &graphql.EnumValueConfig{
 									Value:       SearchOperatorOr,
 									Description: "At least one token must match",
+								},
+								"AndCross": &graphql.EnumValueConfig{
+									Value:       SearchOperatorAndCross,
+									Description: "All tokens must match, but they may be spread across the searched properties (rather than all within one property); fails unless all searched properties share the same tokenization and analyzer settings",
 								},
 							},
 						}),

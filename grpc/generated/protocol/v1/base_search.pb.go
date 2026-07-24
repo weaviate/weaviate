@@ -3,12 +3,11 @@
 package protocol
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -82,6 +81,10 @@ const (
 	SearchOperatorOptions_OPERATOR_UNSPECIFIED SearchOperatorOptions_Operator = 0
 	SearchOperatorOptions_OPERATOR_OR          SearchOperatorOptions_Operator = 1
 	SearchOperatorOptions_OPERATOR_AND         SearchOperatorOptions_Operator = 2
+	// All tokens must match, but may be spread across the searched properties
+	// rather than all within a single one. Fails unless every searched property
+	// shares the same tokenization and analyzer settings.
+	SearchOperatorOptions_OPERATOR_AND_CROSS SearchOperatorOptions_Operator = 3
 )
 
 // Enum value maps for SearchOperatorOptions_Operator.
@@ -90,11 +93,13 @@ var (
 		0: "OPERATOR_UNSPECIFIED",
 		1: "OPERATOR_OR",
 		2: "OPERATOR_AND",
+		3: "OPERATOR_AND_CROSS",
 	}
 	SearchOperatorOptions_Operator_value = map[string]int32{
 		"OPERATOR_UNSPECIFIED": 0,
 		"OPERATOR_OR":          1,
 		"OPERATOR_AND":         2,
+		"OPERATOR_AND_CROSS":   3,
 	}
 )
 
@@ -1693,14 +1698,15 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x06_limitB\n" +
 	"\n" +
 	"\b_balanceB\v\n" +
-	"\tselection\"\x81\x02\n" +
+	"\tselection\"\x99\x02\n" +
 	"\x15SearchOperatorOptions\x12G\n" +
 	"\boperator\x18\x01 \x01(\x0e2+.weaviate.v1.SearchOperatorOptions.OperatorR\boperator\x12:\n" +
-	"\x17minimum_or_tokens_match\x18\x02 \x01(\x05H\x00R\x14minimumOrTokensMatch\x88\x01\x01\"G\n" +
+	"\x17minimum_or_tokens_match\x18\x02 \x01(\x05H\x00R\x14minimumOrTokensMatch\x88\x01\x01\"_\n" +
 	"\bOperator\x12\x18\n" +
 	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vOPERATOR_OR\x10\x01\x12\x10\n" +
-	"\fOPERATOR_AND\x10\x02B\x1a\n" +
+	"\fOPERATOR_AND\x10\x02\x12\x16\n" +
+	"\x12OPERATOR_AND_CROSS\x10\x03B\x1a\n" +
 	"\x18_minimum_or_tokens_match\"\x91\a\n" +
 	"\x06Hybrid\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1e\n" +
