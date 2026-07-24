@@ -71,6 +71,7 @@ var (
 	DEBUG   EndpointName = "debug"
 	CLUSTER EndpointName = "cluster"
 	MCP     EndpointName = "mcp"
+	METRICS EndpointName = "metrics"
 )
 
 type endpoint struct {
