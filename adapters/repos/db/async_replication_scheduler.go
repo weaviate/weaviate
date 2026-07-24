@@ -186,6 +186,8 @@ type asyncReplicationSchedulerMetrics struct {
 	queueDepth prometheus.Gauge
 	// workerPoolSize is the current target worker pool size.
 	workerPoolSize prometheus.Gauge
+	// workersLive tracks live worker goroutines (spawned, not yet exited).
+	workersLive prometheus.Gauge
 	// reconcileFailures counts indices that failed to reconcile their async
 	// replication state with the global flag (see DB.ReconcileAsyncReplication).
 	// A non-zero rate means a cluster may be stuck partially reconciled until
@@ -248,6 +250,18 @@ func newAsyncReplicationSchedulerMetrics(prom *monitoring.PrometheusMetrics) (as
 			Namespace: "weaviate",
 			Name:      "async_replication_scheduler_worker_pool_size",
 			Help:      "Current target size of the scheduler worker pool.",
+		}),
+	)
+	if err != nil {
+		return m, err
+	}
+
+	m.workersLive, _, err = monitoring.EnsureRegisteredMetric(
+		prom.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_scheduler_workers_live",
+			Help:      "Number of live scheduler worker goroutines (spawned but not yet exited).",
 		}),
 	)
 	if err != nil {
@@ -348,6 +362,18 @@ func (m *asyncReplicationSchedulerMetrics) setWorkerPoolSize(n int) {
 	}
 }
 
+func (m *asyncReplicationSchedulerMetrics) incWorkersLive() {
+	if m.monitoring {
+		m.workersLive.Inc()
+	}
+}
+
+func (m *asyncReplicationSchedulerMetrics) decWorkersLive() {
+	if m.monitoring {
+		m.workersLive.Dec()
+	}
+}
+
 func (m *asyncReplicationSchedulerMetrics) incRootPrefilterSkips() {
 	if m.monitoring {
 		m.rootPrefilterSkips.Inc()
@@ -409,6 +435,9 @@ type AsyncReplicationScheduler struct {
 	// adjustWorkers. Protected by workersMu.
 	targetWorkers int
 	workersMu     sync.Mutex
+
+	// liveWorkers counts spawned-but-not-exited workers (may briefly exceed targetWorkers mid-shrink).
+	liveWorkers atomic.Int64
 
 	// scaleDownCh receives one token per worker that should exit.
 	// Sized to maxMaxWorkers: at most one token per possible worker.
@@ -575,11 +604,7 @@ func NewAsyncReplicationScheduler(
 	}, s.logger)
 
 	for range s.targetWorkers {
-		s.wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer s.wg.Done()
-			s.worker()
-		}, s.logger)
+		s.spawnWorker()
 	}
 	s.metrics.setWorkerPoolSize(s.targetWorkers)
 
@@ -1191,6 +1216,29 @@ func (sched *AsyncReplicationScheduler) workerWatcher() {
 	}
 }
 
+// tryReclaimScaleDownToken removes one pending scale-down token if present.
+func (sched *AsyncReplicationScheduler) tryReclaimScaleDownToken() bool {
+	select {
+	case <-sched.scaleDownCh:
+		return true
+	default:
+		return false
+	}
+}
+
+// spawnWorker launches one pool worker, keeping wg, liveWorkers, and the gauge balanced.
+func (sched *AsyncReplicationScheduler) spawnWorker() {
+	sched.wg.Add(1)
+	sched.liveWorkers.Add(1)
+	sched.metrics.incWorkersLive()
+	enterrors.GoWrapper(func() {
+		defer sched.wg.Done()
+		defer sched.metrics.decWorkersLive()
+		defer sched.liveWorkers.Add(-1)
+		sched.worker()
+	}, sched.logger)
+}
+
 // adjustWorkers scales the pool to n: spawns goroutines when growing, sends
 // scale-down tokens when shrinking. n <= 0 falls back to the default. Safe
 // to call concurrently; workersMu serialises adjustments.
@@ -1220,22 +1268,13 @@ func (sched *AsyncReplicationScheduler) adjustWorkers(n int) {
 	sched.metrics.setWorkerPoolSize(n)
 
 	if delta > 0 {
-		// Drain stale scale-down tokens from a prior shrink, otherwise new
-		// workers would consume them immediately and exit. Non-blocking
-		// receives because running workers may consume concurrently.
-		for drained := false; !drained; {
-			select {
-			case <-sched.scaleDownCh:
-			default:
-				drained = true
-			}
+		// Reclaim up to delta stale tokens, then spawn only the shortfall (draining all leaks unretired workers).
+		reclaimed := 0
+		for reclaimed < delta && sched.tryReclaimScaleDownToken() {
+			reclaimed++
 		}
-		for range delta {
-			sched.wg.Add(1)
-			enterrors.GoWrapper(func() {
-				defer sched.wg.Done()
-				sched.worker()
-			}, sched.logger)
+		for range delta - reclaimed {
+			sched.spawnWorker()
 		}
 		return
 	}
