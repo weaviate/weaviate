@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // KnownReindexTaskLookup reports whether (taskID, taskVersion) is live
@@ -595,15 +596,15 @@ func partitionOrphansByQuarantine(lsmPath string, orphans []orphanReindexTracker
 // reindexAuditQuarantineWindow.
 func writeQuarantineSentinel(trackerPath string) error {
 	sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
-	f, err := os.OpenFile(sentinelPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
+	// Durable write: a lost sentinel would reset the quarantine clock after power loss.
+	if err := diskio.WriteFileSync(sentinelPath, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600); err != nil {
 		// EEXIST is benign — a concurrent audit may have written it.
 		if os.IsExist(err) {
 			return nil
 		}
 		return fmt.Errorf("create quarantine sentinel %q: %w", sentinelPath, err)
 	}
-	return f.Close()
+	return nil
 }
 
 // clearStaleQuarantineSentinels removes audit_quarantined.mig from

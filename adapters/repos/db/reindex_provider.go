@@ -2213,6 +2213,15 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 			return shard.SwapBucketAndSetOverlay(propName, target,
 				func() (*lsmkv.Bucket, error) {
 					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
+				},
+				func() error {
+					// Durable sentinel, deferred here so it runs after
+					// tokenizationOverlayMu is released (F1). Skip if a
+					// resumed swap already made it durable.
+					if rt.IsSwappedProp(propName) {
+						return nil
+					}
+					return rt.markSwappedProp(propName)
 				})
 		}
 	}
