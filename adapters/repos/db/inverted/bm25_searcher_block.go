@@ -139,6 +139,11 @@ func (b *BM25Searcher) wandBlock(
 		}
 
 		eg.Go(func() error {
+			// jobs queued behind the SetLimit semaphore still run after a
+			// sibling error cancels egCtx; bail before the index descents
+			if err := egCtx.Err(); err != nil {
+				return err
+			}
 			results, idfCounts, release, err := b.createBlockTerm(stats.N, filterDocIds, job.queryTerms, job.propName, stats.propertyBoosts[job.propName], job.duplicateBoosts, b.config, egCtx)
 			if err != nil {
 				return err
