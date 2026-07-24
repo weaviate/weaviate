@@ -99,6 +99,9 @@ func TestCheckRestorableVersion(t *testing.T) {
 		{version: "2.1", serverVersion: current},
 		{version: "2.9", serverVersion: current},
 		{version: "3.0", serverVersion: current, wantMsg: errMsgHigherVersion},
+		// A structure version may omit the minor; the major still decides.
+		{version: "3", serverVersion: current, wantMsg: errMsgHigherVersion},
+		{version: "10", serverVersion: current, wantMsg: errMsgHigherVersion},
 		// A byte compare read this as older than "2.1" and wrongly accepted it.
 		{version: "10.0", serverVersion: current, wantMsg: errMsgHigherVersion},
 		// A corrupt descriptor is reported by Validate, not refused as an old format.

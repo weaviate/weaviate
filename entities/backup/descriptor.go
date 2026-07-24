@@ -239,6 +239,14 @@ func (d *DistributedBackupDescriptor) GetStatus() Status {
 	return d.Status
 }
 
+func (d *DistributedBackupDescriptor) GetVersion() string {
+	return d.Version
+}
+
+func (d *DistributedBackupDescriptor) GetServerVersion() string {
+	return d.ServerVersion
+}
+
 func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
 	return d.CompressionType
 }
@@ -508,6 +516,14 @@ func (d *BackupDescriptor) GetCompressionType() CompressionType {
 
 func (d *BackupDescriptor) GetStatus() Status {
 	return d.Status
+}
+
+func (d *BackupDescriptor) GetVersion() string {
+	return d.Version
+}
+
+func (d *BackupDescriptor) GetServerVersion() string {
+	return d.ServerVersion
 }
 
 // List all existing classes in d

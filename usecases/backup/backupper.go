@@ -165,6 +165,8 @@ type ChainDescriptor interface {
 	GetBaseBackupID() string
 	GetCompressionType() backup.CompressionType
 	GetStatus() backup.Status
+	GetVersion() string
+	GetServerVersion() string
 }
 
 // resolveBaseBackupChain follows the chain of base backups and validates them.
@@ -175,6 +177,7 @@ type ChainDescriptor interface {
 // - All backups in the chain exist
 // - All backups have compression type set
 // - All backups have the same compression type as requested
+// - All backups are in a format this build can restore
 func resolveBaseBackupChain[T ChainDescriptor](
 	ctx context.Context,
 	baseBackupID string,
@@ -209,6 +212,11 @@ func resolveBaseBackupChain[T ChainDescriptor](
 
 		if baseDescr.GetStatus() != backup.Success {
 			return nil, fmt.Errorf("backup %q has status %q, expected %q", nextID, baseDescr.GetStatus(), backup.Success)
+		}
+
+		// An unrestorable base makes the whole chain unrestorable, so refuse it at creation.
+		if err := checkRestorableVersion(baseDescr.GetVersion(), baseDescr.GetServerVersion()); err != nil {
+			return nil, fmt.Errorf("base backup %q: %w", nextID, err)
 		}
 
 		baseDescrs = append(baseDescrs, baseDescr)

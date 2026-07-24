@@ -53,7 +53,7 @@ func legacyRestoreErr(origin string) error {
 }
 
 // maxMajorVersion is the newest backup-structure major version this build restores.
-var maxMajorVersion, _, _ = parseVersion(Version)
+var maxMajorVersion, _ = parseMajor(Version)
 
 // checkRestorableVersion refuses backups this build cannot restore, either because their
 // format is too old or because a later Weaviate produced them. version is the
@@ -66,10 +66,18 @@ func checkRestorableVersion(version, serverVersion string) error {
 	if serverVersionOlderThan(serverVersion, 1, 23) {
 		return errLegacyFlatFS
 	}
-	if major, _, ok := parseVersion(version); ok && major > maxMajorVersion {
+	// A structure version may omit the minor, so compare majors only.
+	if major, ok := parseMajor(version); ok && major > maxMajorVersion {
 		return fmt.Errorf("%s: %s > %s", errMsgHigherVersion, version, Version)
 	}
 	return nil
+}
+
+// parseMajor reads the leading number of a "major[.minor[.patch]]" version. ok is false
+// when it is missing or unparseable.
+func parseMajor(version string) (major int, ok bool) {
+	major, err := strconv.Atoi(strings.Split(version, ".")[0])
+	return major, err == nil
 }
 
 // parseVersion splits a "major.minor[.patch]" version. ok is false when either number is
@@ -79,11 +87,11 @@ func parseVersion(version string) (major, minor int, ok bool) {
 	if len(parts) < 2 {
 		return 0, 0, false
 	}
-	major, err := strconv.Atoi(parts[0])
-	if err != nil {
+	major, ok = parseMajor(version)
+	if !ok {
 		return 0, 0, false
 	}
-	minor, err = strconv.Atoi(parts[1])
+	minor, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return 0, 0, false
 	}
