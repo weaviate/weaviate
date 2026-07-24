@@ -56,9 +56,12 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts        *deferredShardOpts
-	shard            *Shard
-	loaded           bool
+	shardOpts *deferredShardOpts
+	shard     *Shard
+	loaded    bool
+	// dropped keeps a deleted shard from being instantiated again, which would
+	// recreate the directory the drop removed
+	dropped          bool
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
@@ -121,6 +124,9 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 
 	if l.loaded {
 		return nil
+	}
+	if l.dropped {
+		return errAlreadyShutdown
 	}
 
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
@@ -420,6 +426,8 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	// use lock to prevent eventual concurrent droping and loading
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
+
+	l.dropped = true
 
 	if !l.loaded {
 		idx := l.shardOpts.index
