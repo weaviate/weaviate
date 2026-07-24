@@ -22,6 +22,15 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
+const shardDropDrainPoll = 10 * time.Millisecond
+
+// shardDropDrainTimeout bounds how long a drop waits for the requests using the
+// shard to release it, matching the budget the teardown below gets. Callers
+// remove the shard from the index before dropping it, so a wait that never ends
+// would leave its files behind with nothing left to retry the drop. A drop also
+// runs while schema changes are applied, which a longer wait would stall.
+var shardDropDrainTimeout = 20 * time.Second
+
 // IMPORTANT:
 // Be advised there exists LazyLoadShard::drop() implementation intended
 // to drop shard that was not loaded (instantiated) yet.
@@ -32,17 +41,18 @@ import (
 // If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
 // to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
+	s.blockNewReferences()
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
+	if inUse := s.drainReferences(shardDropDrainTimeout); inUse > 0 {
+		s.dropLogger().Warnf("dropping shard while %d request(s) still use it", inUse)
+	}
+
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
 
-	s.index.logger.WithFields(logrus.Fields{
-		"action": "drop_shard",
-		"class":  s.class.Class,
-		"shard":  s.name,
-	}).Debug("dropping shard")
+	s.dropLogger().Debug("dropping shard")
 
 	s.clearDimensionMetrics() // not deleted in s.metrics.DeleteShardLabels
 
@@ -151,11 +161,38 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		s.metrics.baseMetrics.DeleteLoadedShard()
 	}
 
-	s.index.logger.WithFields(logrus.Fields{
+	s.dropLogger().Debug("shard successfully dropped")
+
+	return nil
+}
+
+func (s *Shard) dropLogger() *logrus.Entry {
+	return s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",
 		"class":  s.class.Class,
 		"shard":  s.name,
-	}).Debug("shard successfully dropped")
+	})
+}
 
-	return nil
+// blockNewReferences permanently stops preventShutdown from handing out
+// references, so no request can start using a shard that is being torn down.
+func (s *Shard) blockNewReferences() {
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+
+	s.shut.Store(true)
+}
+
+// drainReferences waits up to timeout for the requests that are already using
+// the shard to release it. It returns how many references are left; the drop
+// proceeds either way.
+func (s *Shard) drainReferences(timeout time.Duration) int64 {
+	deadline := time.Now().Add(timeout)
+	for {
+		inUse := s.inUseCounter.Load()
+		if inUse <= 0 || !time.Now().Before(deadline) {
+			return inUse
+		}
+		time.Sleep(shardDropDrainPoll)
+	}
 }

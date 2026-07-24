@@ -56,9 +56,12 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts        *deferredShardOpts
-	shard            *Shard
-	loaded           bool
+	shardOpts *deferredShardOpts
+	shard     *Shard
+	loaded    bool
+	// dropped keeps a deleted shard from being instantiated again, which would
+	// recreate the directory the drop removed
+	dropped          bool
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
@@ -121,6 +124,9 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 
 	if l.loaded {
 		return nil
+	}
+	if l.dropped {
+		return errAlreadyShutdown
 	}
 
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
@@ -414,57 +420,65 @@ func (l *LazyLoadShard) ID() string {
 }
 
 func (l *LazyLoadShard) drop(keepFiles bool) error {
-	// if not loaded, execute simplified drop without loading shard:
-	// - perform required actions
-	// - remove entire shard directory
 	// use lock to prevent eventual concurrent droping and loading
 	l.mutex.Lock()
-	defer l.mutex.Unlock()
+	l.dropped = true
 
 	if !l.loaded {
-		idx := l.shardOpts.index
-		className := idx.Config.ClassName.String()
-		shardName := l.shardOpts.name
-
-		// cleanup metrics
-		metrics, err := NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName)
-		if err != nil {
-			return fmt.Errorf("shard metrics: %w", err)
-		}
-
-		metrics.DeleteShardLabels(className, shardName)
-
-		// cleanup dimensions: not deleted in s.metrics.DeleteShardLabels
-		clearDimensionMetrics(idx.Config, l.shardOpts.promMetrics, className, shardName)
-
-		// cleanup index checkpoints
-		if l.shardOpts.indexCheckpoints != nil {
-			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID()); err != nil {
-				return fmt.Errorf("delete shard index checkpoints: %w", err)
-			}
-		}
-
-		// rename sync (must complete even if ctx is expired); RemoveAll async.
-		// Mirrors Shard.drop so the unloaded path doesn't reintroduce the
-		// blocking RemoveAll the loaded path was changed to avoid.
-		if !keepFiles {
-			path := shardPath(idx.path(), shardName)
-			deleted, err := renameForAsyncDelete(path, idx.logger)
-			if err != nil {
-				return fmt.Errorf("rename shard for async delete: %w", err)
-			}
-			if deleted != "" {
-				spawnAsyncDelete(deleted, idx.logger)
-			}
-		}
-
-		// decrement unloaded shard count since this shard is being deleted
-		l.shardOpts.promMetrics.DeleteUnloadedShard()
-
-		return nil
+		defer l.mutex.Unlock()
+		return l.dropUnloaded(keepFiles)
 	}
 
-	return l.shard.drop(keepFiles)
+	shard := l.shard
+	// released before the teardown: it waits for the requests still using the
+	// shard, and those re-enter Load, which needs this mutex
+	l.mutex.Unlock()
+
+	return shard.drop(keepFiles)
+}
+
+// dropUnloaded deletes a shard that is not instantiated: it removes the shard
+// directory and its metrics without loading it. Callers hold l.mutex.
+func (l *LazyLoadShard) dropUnloaded(keepFiles bool) error {
+	idx := l.shardOpts.index
+	className := idx.Config.ClassName.String()
+	shardName := l.shardOpts.name
+
+	// cleanup metrics
+	metrics, err := NewMetrics(idx.logger, l.shardOpts.promMetrics, className, shardName)
+	if err != nil {
+		return fmt.Errorf("shard metrics: %w", err)
+	}
+
+	metrics.DeleteShardLabels(className, shardName)
+
+	// cleanup dimensions: not deleted in s.metrics.DeleteShardLabels
+	clearDimensionMetrics(idx.Config, l.shardOpts.promMetrics, className, shardName)
+
+	// cleanup index checkpoints
+	if l.shardOpts.indexCheckpoints != nil {
+		if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID()); err != nil {
+			return fmt.Errorf("delete shard index checkpoints: %w", err)
+		}
+	}
+
+	// rename sync (must complete even if ctx is expired); RemoveAll async, so this
+	// path does not block on the removal either
+	if !keepFiles {
+		path := shardPath(idx.path(), shardName)
+		deleted, err := renameForAsyncDelete(path, idx.logger)
+		if err != nil {
+			return fmt.Errorf("rename shard for async delete: %w", err)
+		}
+		if deleted != "" {
+			spawnAsyncDelete(deleted, idx.logger)
+		}
+	}
+
+	// decrement unloaded shard count since this shard is being deleted
+	l.shardOpts.promMetrics.DeleteUnloadedShard()
+
+	return nil
 }
 
 func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
