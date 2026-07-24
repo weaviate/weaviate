@@ -38,8 +38,13 @@ func dotNibbleNibbleVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 func dotByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 	variants := map[string]func(a, b []byte) uint32{}
 	if cpu.X86.HasAVX2 {
-		variants["goat"] = asm.DotByteAVX256
-		variants["wide-avx2"] = dotByteWideAVX2
+		variants["avx2"] = asm.DotByteAVX256
+	}
+	if cpu.X86.HasAVXVNNI {
+		variants["avx-vnni"] = asm.DotByteAVXVNNI
+	}
+	if cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW {
+		variants["vnni512"] = asm.DotByteVNNI512
 	}
 	return variants
 }
@@ -47,8 +52,13 @@ func dotByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 func l2ByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 	variants := map[string]func(a, b []byte) uint32{}
 	if cpu.X86.HasAVX2 {
-		variants["goat"] = asm.L2ByteAVX256
-		variants["wide-avx2"] = l2ByteWideAVX2
+		variants["avx2"] = asm.L2ByteAVX256
+	}
+	if cpu.X86.HasAVXVNNI {
+		variants["avx-vnni"] = asm.L2ByteAVXVNNI
+	}
+	if cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW {
+		variants["vnni512"] = asm.L2ByteVNNI512
 	}
 	return variants
 }
