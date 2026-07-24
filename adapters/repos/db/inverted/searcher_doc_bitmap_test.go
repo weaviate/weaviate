@@ -143,6 +143,41 @@ func TestDocBitmapContainsBatch_ContainsAnyFold(t *testing.T) {
 		"every key must be read for ContainsAny, absent key included")
 }
 
+// Same fold as above but forced through the Accumulator path, which the
+// containsAnyAccumulatorMinKeys gate would otherwise route to the incremental
+// fold at this key count.
+func TestDocBitmapContainsBatch_ContainsAnyAccumulatorFold(t *testing.T) {
+	oldGate := containsAnyAccumulatorMinKeys
+	containsAnyAccumulatorMinKeys = 2
+	defer func() { containsAnyAccumulatorMinKeys = oldGate }()
+
+	ctx := context.Background()
+	spy := buildContainsBatchBucket(t, ctx, map[string][]uint64{
+		"present-a": {1, 2, 3},
+		"present-b": {3, 4, 5},
+		// A row spilling into further 64K ranges, so the union spans
+		// multiple result containers.
+		"present-c": {70_000, 200_000},
+	})
+
+	pv := &propValuePair{
+		operator: filters.ContainsAny,
+		containsValues: [][]byte{
+			[]byte("present-a"), []byte("missing"), []byte("present-b"), []byte("present-c"),
+		},
+	}
+
+	s := &Searcher{}
+	dbm, err := s.docBitmapContainsBatch(ctx, spy, pv)
+	require.NoError(t, err)
+	defer dbm.release()
+
+	require.Equal(t, []uint64{1, 2, 3, 4, 5, 70_000, 200_000}, dbm.docIDs.ToArray())
+	require.False(t, dbm.IsDenyList())
+	require.Equal(t, []string{"present-a", "missing", "present-b", "present-c"}, spy.reads,
+		"every key must be read for ContainsAny, absent key included")
+}
+
 func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
 	ctx := context.Background()
 
