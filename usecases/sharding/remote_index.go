@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -90,7 +89,6 @@ type RemoteIndexClient interface {
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-		selection *searchparams.Selection,
 	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
@@ -106,19 +104,6 @@ type RemoteIndexClient interface {
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
 
-	// PauseFileActivity pauses the shard replica background processes on the specified node.
-	// You should explicitly resume the background processes once you're done.
-	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error
-	// ResumeFileActivity resumes the shard replica background processes on the specified node.
-	ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error
-	// ListFiles returns a list of files that can be used to get the shard data at the time the pause was
-	// requested.
-	ListFiles(ctx context.Context, hostName, indexName, shardName string) ([]string, error)
-	// GetFileMetadata returns file info at the given path in the shard's root directory.
-	GetFileMetadata(ctx context.Context, hostName, indexName, shardName, fileName string) (file.FileMetadata, error)
-	// GetFile returns a reader for the file at the given path in the shard's root directory.
-	// The caller must close the returned io.ReadCloser if no error is returned.
-	GetFile(ctx context.Context, hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
 	// AddAsyncReplicationTargetNode adds the async replication target node for a shard.
 	AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error
 	// RemoveAsyncReplicationTargetNode removes the async replication target node for a shard.
@@ -293,11 +278,10 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-	selection *searchparams.Selection,
 ) ([]ReplicasSearchResult, error) {
 	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
 		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, selection)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
@@ -319,7 +303,6 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	adds additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
-	selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, string, error) {
 	type result struct {
 		objects       []*storobj.Object
@@ -328,7 +311,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	}
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, queryProfiles, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties, selection)
+			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
 			return nil, err
 		}

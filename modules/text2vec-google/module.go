@@ -61,6 +61,7 @@ type GoogleModule struct {
 	useBatchSimpleVectorizer     bool
 	sendObjectsInBatch           bool
 	batchSize                    int
+	batchSimple                  *batch.BatchSimple[[]float32]
 	vectorizerWithTitleProperty  text2vecbase.TextVectorizer[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
@@ -134,6 +135,7 @@ func (m *GoogleModule) initVectorizer(ctx context.Context, timeout time.Duration
 	client := clients.New(apiKey, useGoogleAuth, rpm, timeout, logger)
 	m.vectorizerBatchSimple = batchtext.NewWithAltNames(Name, m.AltNames(), vectorizer.LowerCaseInput, client)
 	m.vectorizerWithTitleProperty = vectorizer.New(client)
+	m.batchSimple = batch.NewBatchSimple[[]float32](logger, rpm)
 
 	batchSettings := newBatchSettings(maxObjectsPerBatch)
 	m.vectorizer = text2vecbase.New(client,
@@ -166,7 +168,7 @@ func (m *GoogleModule) VectorizeObject(ctx context.Context,
 func (m *GoogleModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	if m.useBatchSimpleVectorizer {
 		// use batch simple logic
-		return batch.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.logger, m.vectorizerBatchSimple.Objects, m.batchSize)
+		return m.batchSimple.VectorizeBatchObjects(ctx, objs, skipObject, cfg, m.vectorizerBatchSimple.Objects, m.batchSize)
 	}
 	// use default batch logic
 	icheck := vectorizer.NewClassSettings(cfg)
@@ -176,7 +178,7 @@ func (m *GoogleModule) VectorizeBatch(ctx context.Context, objs []*models.Object
 		return vecs, nil, errs
 	}
 	// this logic always sends multiple requests, each containing 1 object
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizerWithTitleProperty.Object)
+	return m.batchSimple.VectorizeBatch(ctx, objs, skipObject, cfg, m.vectorizerWithTitleProperty.Object)
 }
 
 func (m *GoogleModule) MetaInfo() (map[string]interface{}, error) {

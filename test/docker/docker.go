@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -34,6 +35,63 @@ type DockerCompose struct {
 
 func (d *DockerCompose) Containers() []*DockerContainer {
 	return d.containers
+}
+
+// DumpWeaviateLogs writes the last `tail` log lines of every weaviate node to w.
+// Call from TestMain on failure to capture the leader side; the start-failure
+// dump only covers boot crashes, not mid-test misbehavior.
+func (d *DockerCompose) DumpWeaviateLogs(ctx context.Context, w io.Writer, tail int) {
+	// crash traces can run to thousands of lines (full goroutine dumps);
+	// bound the per-node dump so a marker-triggered dump can't flood CI.
+	const dumpCeiling = 6000
+
+	for _, c := range d.containers {
+		if !strings.HasPrefix(c.name, "weaviate") {
+			continue
+		}
+
+		header := fmt.Sprintf("--- %s", c.name)
+		if ep, ok := c.endpoints[HTTP]; ok {
+			header += fmt.Sprintf(" (http %s)", ep.uri)
+		}
+		if state, err := c.container.State(ctx); err != nil {
+			header += fmt.Sprintf(" state-unavailable=%q", err.Error())
+		} else {
+			header += fmt.Sprintf(" status=%s exitCode=%d oomKilled=%v", state.Status, state.ExitCode, state.OOMKilled)
+		}
+
+		reader, err := c.container.Logs(ctx)
+		if err != nil {
+			fmt.Fprintf(w, "%s logs unavailable: %v ---\n", header, err)
+			continue
+		}
+		logs, _ := io.ReadAll(reader)
+		reader.Close()
+		lines := strings.Split(string(logs), "\n")
+
+		start := dumpWindowStart(lines, tail, dumpCeiling)
+		fmt.Fprintf(w, "%s logs (%d of %d lines) ---\n%s\n", header, len(lines)-start, len(lines), strings.Join(lines[start:], "\n"))
+	}
+}
+
+func dumpWindowStart(lines []string, tail, ceiling int) int {
+	start := len(lines) - tail
+	for i, line := range lines {
+		if strings.Contains(line, "panic:") || strings.Contains(line, "fatal error:") || strings.Contains(line, "WARNING: DATA RACE") {
+			// back up a little so the lines leading into the crash are visible
+			if i-20 < start {
+				start = i - 20
+			}
+			break
+		}
+	}
+	if start < len(lines)-ceiling {
+		start = len(lines) - ceiling
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start
 }
 
 func (d *DockerCompose) Terminate(ctx context.Context) error {
@@ -243,6 +301,54 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 	}
 	c.endpoints = endPoints
 	return nil
+}
+
+// weaviateNodeIndex resolves the containers-slice position of weaviate node n
+// (1-based) by name, so callers are unaffected by sidecar containers (e.g.
+// MinIO) that may precede the cluster nodes in the slice.
+func (d *DockerCompose) weaviateNodeIndex(n int) (int, error) {
+	name := fmt.Sprintf("weaviate-%d", n)
+	for i, c := range d.containers {
+		if c.name == name {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("weaviate node %d (%q) not found", n, name)
+}
+
+// StopNode stops weaviate node n (1-based).
+func (d *DockerCompose) StopNode(ctx context.Context, n int, timeout *time.Duration) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.StopAt(ctx, idx, timeout)
+}
+
+// StartNode starts weaviate node n (1-based), re-mapping its endpoints.
+func (d *DockerCompose) StartNode(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	return d.StartAt(ctx, idx)
+}
+
+// EnsureRunning starts weaviate node n (1-based) if it is not currently
+// running; a no-op when the node is already up.
+func (d *DockerCompose) EnsureRunning(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	state, err := d.containers[idx].container.State(ctx)
+	if err != nil {
+		return err
+	}
+	if state.Running {
+		return nil
+	}
+	return d.StartAt(ctx, idx)
 }
 
 func (d *DockerCompose) ContainerURI(index int) string {

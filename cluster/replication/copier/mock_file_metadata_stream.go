@@ -288,7 +288,7 @@ func (_c *MockFileMetadataStream_RecvMsg_Call) RunAndReturn(run func(interface{}
 }
 
 // Send provides a mock function with given fields: _a0
-func (_m *MockFileMetadataStream) Send(_a0 *protocol.GetFileMetadataRequest) error {
+func (_m *MockFileMetadataStream) Send(_a0 *protocol.GetReplicaSnapshotFileMetadataRequest) error {
 	ret := _m.Called(_a0)
 
 	if len(ret) == 0 {
@@ -296,7 +296,7 @@ func (_m *MockFileMetadataStream) Send(_a0 *protocol.GetFileMetadataRequest) err
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*protocol.GetFileMetadataRequest) error); ok {
+	if rf, ok := ret.Get(0).(func(*protocol.GetReplicaSnapshotFileMetadataRequest) error); ok {
 		r0 = rf(_a0)
 	} else {
 		r0 = ret.Error(0)
@@ -311,14 +311,14 @@ type MockFileMetadataStream_Send_Call struct {
 }
 
 // Send is a helper method to define mock.On call
-//   - _a0 *protocol.GetFileMetadataRequest
+//   - _a0 *protocol.GetReplicaSnapshotFileMetadataRequest
 func (_e *MockFileMetadataStream_Expecter) Send(_a0 interface{}) *MockFileMetadataStream_Send_Call {
 	return &MockFileMetadataStream_Send_Call{Call: _e.mock.On("Send", _a0)}
 }
 
-func (_c *MockFileMetadataStream_Send_Call) Run(run func(_a0 *protocol.GetFileMetadataRequest)) *MockFileMetadataStream_Send_Call {
+func (_c *MockFileMetadataStream_Send_Call) Run(run func(_a0 *protocol.GetReplicaSnapshotFileMetadataRequest)) *MockFileMetadataStream_Send_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*protocol.GetFileMetadataRequest))
+		run(args[0].(*protocol.GetReplicaSnapshotFileMetadataRequest))
 	})
 	return _c
 }
@@ -328,7 +328,7 @@ func (_c *MockFileMetadataStream_Send_Call) Return(_a0 error) *MockFileMetadataS
 	return _c
 }
 
-func (_c *MockFileMetadataStream_Send_Call) RunAndReturn(run func(*protocol.GetFileMetadataRequest) error) *MockFileMetadataStream_Send_Call {
+func (_c *MockFileMetadataStream_Send_Call) RunAndReturn(run func(*protocol.GetReplicaSnapshotFileMetadataRequest) error) *MockFileMetadataStream_Send_Call {
 	_c.Call.Return(run)
 	return _c
 }

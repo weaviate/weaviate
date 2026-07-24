@@ -27,6 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
 )
 
@@ -55,7 +56,7 @@ var (
 	semanticSimilarity taskType = "SEMANTIC_SIMILARITY"
 )
 
-func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string {
+func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string {
 	if useGenerativeAI {
 		if isLegacyModel(modelID) {
 			// legacy PaLM API
@@ -63,14 +64,15 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID string) stri
 		}
 		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", modelID)
 	}
-	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, modelID)
+	urlTemplate := "https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:predict"
+	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, location, modelID)
 }
 
 type settings struct {
 	ApiEndpoint string
 	ProjectID   string
 	Model       string
+	Location    string
 	Dimensions  *int64
 	TaskType    string
 }
@@ -81,7 +83,7 @@ type google struct {
 	useGoogleAuth bool
 	rpm           int
 	httpClient    *http.Client
-	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID string) string
+	urlBuilderFn  func(useGenerativeAI bool, apiEndpoint, projectID, modelID, location string) string
 	logger        logrus.FieldLogger
 }
 
@@ -160,7 +162,7 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 	}
 
 	endpointURL := v.urlBuilderFn(useGenerativeAIEndpoint,
-		v.getApiEndpoint(config), v.getProjectID(config), v.getModel(config))
+		v.getApiEndpoint(config), v.getProjectID(config), v.getModel(config), v.getLocation(config))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpointURL,
 		bytes.NewReader(body))
@@ -326,6 +328,10 @@ func (v *google) getModel(config settings) string {
 	return config.Model
 }
 
+func (v *google) getLocation(config settings) string {
+	return config.Location
+}
+
 func (v *google) isLegacy(config settings) bool {
 	return isLegacyModel(config.Model)
 }
@@ -336,6 +342,7 @@ func (v *google) getSettings(config moduletools.ClassConfig) settings {
 		ApiEndpoint: icheck.ApiEndpoint(),
 		ProjectID:   icheck.ProjectID(),
 		Model:       icheck.Model(),
+		Location:    icheck.Location(),
 		Dimensions:  icheck.Dimensions(),
 		TaskType:    icheck.TaskType(),
 	}

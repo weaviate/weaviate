@@ -248,18 +248,29 @@ func (s *s3Client) AllBackups(ctx context.Context,
 
 	// Construct the exact backup_config.json key for each backup ID prefix.
 	var keys []string
+	var listErr error
 	for info := range objectsInfo {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			listErr = err
+			break
 		}
 		if info.Err != nil {
-			return nil, fmt.Errorf("list objects: %w", info.Err)
+			listErr = fmt.Errorf("list objects: %w", info.Err)
+			break
 		}
 		// Non-recursive listing returns common prefixes (directories) as keys ending with "/".
 		// For each backup ID directory, the config file is at <prefix>backup_config.json.
 		if len(info.Key) > 0 && info.Key[len(info.Key)-1] == '/' {
 			keys = append(keys, info.Key+ubak.GlobalBackupFile)
 		}
+	}
+	if listErr != nil {
+		// Drain the channel as required by the ListObjects godoc ("caller
+		// must drain the channel entirely"); otherwise minio's producer
+		// goroutine blocks forever on an unguarded error-send.
+		for range objectsInfo {
+		}
+		return nil, listErr
 	}
 
 	return ubak.FetchBackupDescriptors(ctx, s.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
@@ -356,21 +367,26 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 }
 
 func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
-	client, err := s.getClient(ctx)
-	if err != nil {
-		return errors.Wrap(err, "failed to get client")
-	}
-
 	key := "access-check"
-
-	if err := s.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
-		return errors.Wrap(err, "failed to access-check s3 backup module")
-	}
 
 	bucket, objectName, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
 	if err != nil {
 		return err
 	}
+
+	if s.config.SkipAccessCheck {
+		return nil
+	}
+
+	client, err := s.getClient(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get client")
+	}
+
+	if err := s.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
+		return errors.Wrap(err, "failed to access-check s3 backup module")
+	}
+
 	opt := minio.RemoveObjectOptions{}
 	if err := client.RemoveObject(ctx, bucket, objectName, opt); err != nil {
 		return errors.Wrap(err, "failed to remove access-check s3 backup module")

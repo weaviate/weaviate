@@ -171,7 +171,8 @@ func TestVectorizeBatchObjects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			l, _ := test.NewNullLogger()
 			vectorizer := fakeBatchObjectsVectorizer{tt.vectors}
-			res, _, errs := VectorizeBatchObjects(context.Background(), tt.objs, tt.skipObject, nil, l, vectorizer.Objects, tt.batchSize)
+			sb := NewBatchSimple[[]float32](l, 0)
+			res, _, errs := sb.VectorizeBatchObjects(context.Background(), tt.objs, tt.skipObject, nil, vectorizer.Objects, tt.batchSize)
 			if tt.errs != nil {
 				require.Equal(t, len(tt.errs), len(errs))
 				for index := range tt.errs {

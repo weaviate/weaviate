@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -369,11 +370,9 @@ func TestReplicationAbort(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newReplicationClient(t, ts.Client())
-	// Abort's per-request deadline is timeoutUnit*ABORT_TIMEOUT_VALUE. With the
-	// default 20ms timeoutUnit that is only 100ms, which races a localhost
-	// round-trip and loses under parallel -race CPU load. Bump timeoutUnit so
-	// the deadline (4s) dwarfs both the round-trip and the retry budget (72ms),
-	// for every subtest below — not just ServerInternalError.
+	// Pin timeoutUnit to the retry budget so Abort's deadline
+	// (timeoutUnit*ABORT_TIMEOUT_VALUE = 4s) dwarfs the round-trip and retries
+	// for every subtest below, independent of the helper default.
 	client.timeoutUnit = client.maxBackOff * 100
 
 	t.Run("ConnectionError", func(t *testing.T) {
@@ -636,7 +635,6 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		got, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.NoError(t, err)
 		require.Equal(t, expected, got)
@@ -651,7 +649,6 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		got, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.NoError(t, err)
 		require.Equal(t, expected, got)
@@ -671,7 +668,6 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status code")
@@ -685,7 +681,6 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read digest")
@@ -727,9 +722,6 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		// timeoutUnit*20 is the per-request deadline; set it large enough to
-		// survive CI scheduling jitter without relying on retry.
-		c.timeoutUnit = time.Second
 		got, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
@@ -748,7 +740,6 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		got, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
@@ -767,7 +758,6 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
-		c.timeoutUnit = time.Second
 		got, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -891,8 +881,6 @@ func TestReplicationOverwriteObjectsConcurrent(t *testing.T) {
 		{ID: UUID1.String(), UpdateTime: now.UnixMilli()},
 	}
 
-	// Each request handler decompresses the body independently to verify the
-	// pooled encoder produces correct output under concurrent use.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dec, err := zstd.NewReader(r.Body)
 		if err != nil {
@@ -909,8 +897,6 @@ func TestReplicationOverwriteObjectsConcurrent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// A single client is shared across all goroutines to exercise the encoder
-	// pool under concurrent use. Run with -race to detect data races.
 	c := newReplicationClient(t, server.Client())
 
 	const goroutines = 50
@@ -927,6 +913,45 @@ func TestReplicationOverwriteObjectsConcurrent(t *testing.T) {
 
 	for i, err := range errs {
 		require.NoErrorf(t, err, "goroutine %d failed", i)
+	}
+}
+
+func TestReplicationOverwriteObjectsNoRetry(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	input := []*objects.VObject{
+		{
+			LatestObject:    &models.Object{ID: UUID1, Class: "C1", LastUpdateTimeUnix: now.UnixMilli()},
+			StaleUpdateTime: now.UnixMilli(),
+		},
+	}
+
+	cases := []struct {
+		name string
+		code int
+	}{
+		{name: "service unavailable", code: http.StatusServiceUnavailable},
+		{name: "internal server error", code: http.StatusInternalServerError},
+		{name: "too many requests", code: http.StatusTooManyRequests},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				http.Error(w, "boom", tc.code)
+			}))
+			defer server.Close()
+
+			c := newReplicationClient(t, server.Client())
+			_, err := c.OverwriteObjects(context.Background(), server.URL[7:], "C1", "S1", input)
+			require.Error(t, err)
+			assert.Equal(t, int32(1), calls.Load(), "OverwriteObjects must not retry on %d", tc.code)
+		})
 	}
 }
 
@@ -949,7 +974,9 @@ func newReplicationClient(t *testing.T, httpClient *http.Client) *replicationCli
 	require.NoError(t, err)
 	c.minBackOff = time.Millisecond * 1
 	c.maxBackOff = time.Millisecond * 8
-	c.timeoutUnit = time.Millisecond * 20
+	// Generous deadline: a localhost round-trip under -race CI load otherwise
+	// loses to it, surfacing "context deadline exceeded" instead of the real error.
+	c.timeoutUnit = time.Second
 	return c
 }
 

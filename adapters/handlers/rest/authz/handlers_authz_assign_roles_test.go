@@ -582,7 +582,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
-				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
+				controller.On("GetUsers", "testUser").Return(map[string]apikey.UserView{"testUser": {}}, nil)
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, authentication.AuthType(tt.params.Body.UserType)), tt.params.Body.Roles).Return(tt.assignErr)
 			}
 
@@ -666,7 +666,7 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled(t *testing.T) {
 			controller.On("GetRoles", tt.role).Return(map[string][]authorization.Policy{tt.role: {}}, nil)
 			isStatic := slices.Contains(tt.staticAPIKeyUsers, tt.userID)
 			if !isStatic {
-				controller.On("GetUsers", tt.userID).Return(map[string]*apikey.User{tt.userID: {}}, nil)
+				controller.On("GetUsers", tt.userID).Return(map[string]apikey.UserView{tt.userID: {}}, nil)
 			}
 			if !tt.wantForbidden {
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthTypeDb), params.Body.Roles).Return(nil)
@@ -748,7 +748,7 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed(t *testing.T) {
 			if !tt.wantForbidden {
 				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(userID)[0]).Return(nil)
 				controller.On("GetRoles", tt.role).Return(map[string][]authorization.Policy{tt.role: {}}, nil)
-				controller.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {}}, nil)
+				controller.On("GetUsers", userID).Return(map[string]apikey.UserView{userID: {}}, nil)
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(userID, authentication.AuthTypeDb), params.Body.Roles).Return(nil)
 			}
 
@@ -916,7 +916,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 					authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.userID)[0]).Return(nil)
 					controller.On("GetRoles", "customRole").Return(map[string][]authorization.Policy{"customRole": {}}, nil)
 					if tt.userType == string(models.UserTypeInputDb) && !isStatic {
-						controller.On("GetUsers", tt.userID).Return(map[string]*apikey.User{tt.userID: {}}, nil)
+						controller.On("GetUsers", tt.userID).Return(map[string]apikey.UserView{tt.userID: {}}, nil)
 					}
 					controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthType(tt.userType)), []string{"customRole"}).Return(nil)
 				}
@@ -943,7 +943,7 @@ func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 					authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.userID)[0]).Return(nil)
 					controller.On("GetRoles", "customRole").Return(map[string][]authorization.Policy{"customRole": {}}, nil)
 					if tt.userType == string(models.UserTypeInputDb) && !isStatic {
-						controller.On("GetUsers", tt.userID).Return(map[string]*apikey.User{tt.userID: {}}, nil)
+						controller.On("GetUsers", tt.userID).Return(map[string]apikey.UserView{tt.userID: {}}, nil)
 					}
 					controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthType(tt.userType)), "customRole").Return(nil)
 				}
@@ -1099,7 +1099,7 @@ func TestAssignRoleToUser_Namespaces(t *testing.T) {
 			case *authz.AssignRoleToUserOK:
 				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.authzKey)[0]).Return(nil)
 				controller.On("GetRoles", roles[0]).Return(map[string][]authorization.Policy{roles[0]: {}}, nil)
-				controller.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{tt.authzKey: {}}, nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {}}, nil)
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.authzKey, authentication.AuthType(userType)), roles).Return(nil)
 			}
 

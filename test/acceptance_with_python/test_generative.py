@@ -94,6 +94,9 @@ def test_generative_hybrid(collection_factory: CollectionFactory) -> None:
     collection = collection_factory(
         vectorizer_config=Configure.Vectorizer.none(),
         generative_config=Configure.Generative.custom("generative-dummy"),
+        # Flat (exact) index: with 100 identical "other" vectors HNSW can miss the
+        # distinct targets, collapsing relative-score fusion + autocut to the default limit.
+        vector_index_config=Configure.VectorIndex.flat(),
         properties=[
             Property(name="prop", data_type=DataType.TEXT),
             Property(name="prop2", data_type=DataType.TEXT),

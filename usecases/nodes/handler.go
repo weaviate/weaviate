@@ -71,14 +71,8 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 	if filterOutput {
 		resourceFilter := filter.New[*models.NodeShardStatus](m.authorizer, m.rbacconfig)
 
-		// Node-wide Stats and BatchStats are operator-only. Gate on the minimal
-		// grant, not on "shards trimmed?": an empty node has nothing to trim, yet
-		// its node-wide signal still isn't a scoped caller's to see.
-		keepNodeWide := m.authorizer.AuthorizeSilent(ctx, principal, authorization.READ,
-			authorization.Nodes(verbosity.OutputMinimal)...) == nil
-
 		for i, nodeS := range status {
-			status[i].Shards = resourceFilter.Filter(
+			filtered := resourceFilter.Filter(
 				ctx,
 				principal,
 				nodeS.Shards,
@@ -87,32 +81,34 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 					return authorization.Nodes(verbosityString, shard.Class)[0]
 				},
 			)
-			if keepNodeWide {
-				continue
+			if len(filtered) == len(nodeS.Shards) {
+				continue // caller is authorized for every shard on this node
 			}
-			// Scoped caller: recompute Stats from retained shards, drop BatchStats.
+			// Hidden shards mean the node-wide Stats still aggregate classes the
+			// caller can't see, so rebuild them from the visible shards. BatchStats
+			// is node-wide queue/throughput telemetry with no per-class data, so it
+			// leaks nothing and is left intact for the caller's dynamic batching.
+			status[i].Shards = filtered
 			if status[i].Stats != nil {
-				var objects int64
-				for _, shard := range status[i].Shards {
-					objects += shard.ObjectCount
-				}
-				status[i].Stats.ObjectCount = objects
-				status[i].Stats.ShardCount = int64(len(status[i].Shards))
-			}
-			status[i].BatchStats = nil
-		}
-	} else if className != "" && verbosityString == verbosity.OutputVerbose && m.rbacconfig.Enabled {
-		// The DB scopes Shards/Stats to the class, but BatchStats stays node-wide
-		// (global ingest rate/queue). Drop it for a class-scoped caller, keeping
-		// it only for an operator who also holds the node-wide minimal view.
-		if err := m.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Nodes(verbosity.OutputMinimal)...); err != nil {
-			for i := range status {
-				status[i].BatchStats = nil
+				status[i].Stats = statsFromShards(filtered)
 			}
 		}
 	}
 
 	return status, nil
+}
+
+// statsFromShards sums the object count over the given shards and reports how
+// many there are.
+func statsFromShards(shards []*models.NodeShardStatus) *models.NodeStats {
+	var objectCount int64
+	for _, shard := range shards {
+		objectCount += shard.ObjectCount
+	}
+	return &models.NodeStats{
+		ObjectCount: objectCount,
+		ShardCount:  int64(len(shards)),
+	}
 }
 
 func (m *Manager) GetNodeStatistics(ctx context.Context,

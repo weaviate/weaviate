@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/bits-and-blooms/bloom/v3"
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
@@ -88,8 +87,7 @@ func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]i
 				return nil
 			}
 
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
+			if !canRecomputeSidecar(err) {
 				return err
 			}
 
@@ -177,8 +175,7 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFile
 				return nil
 			}
 
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
+			if !canRecomputeSidecar(err) {
 				return err
 			}
 

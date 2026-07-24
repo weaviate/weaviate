@@ -262,19 +262,17 @@ func (r *singleTenantRouter) getWriteReplicasLocation(collection string, tenant 
 	}
 
 	var replicas []types.Replica
-	var additionalReplicas []types.Replica
 
 	for _, shardName := range targetShards {
-		writeReplica, additionalReplica, err := r.writeReplicasForShard(collection, tenant, shardName)
+		writeReplica, err := r.writeReplicasForShard(collection, tenant, shardName)
 		if err != nil {
 			return types.WriteReplicaSet{}, err
 		}
 
 		replicas = append(replicas, writeReplica...)
-		additionalReplicas = append(additionalReplicas, additionalReplica...)
 	}
 
-	return types.WriteReplicaSet{Replicas: replicas, AdditionalReplicas: additionalReplicas}, nil
+	return types.WriteReplicaSet{Replicas: replicas}, nil
 }
 
 // targetShards returns either all shards or a single one, depending on the value of the shard parameter.
@@ -311,19 +309,15 @@ func (r *singleTenantRouter) readReplicasForShard(collection, tenant, shard stri
 	return buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname), nil
 }
 
-// writeReplicasForShard gathers only write and additional write replicas for one shard.
-func (r *singleTenantRouter) writeReplicasForShard(collection, tenant, shard string) (write, additional []types.Replica, err error) {
+// writeReplicasForShard gathers the write replicas for one shard.
+func (r *singleTenantRouter) writeReplicasForShard(collection, tenant, shard string) ([]types.Replica, error) {
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error while getting replicas for collection %q shard %q: %w", collection, shard, err)
+		return nil, fmt.Errorf("error while getting replicas for collection %q shard %q: %w", collection, shard, err)
 	}
 
-	writeNodeNames, additionalWriteNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
-
-	write = buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
-	additional = buildReplicas(additionalWriteNodeNames, shard, r.nodeSelector.NodeHostname)
-
-	return write, additional, nil
+	writeNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
+	return buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname), nil
 }
 
 // BuildReadRoutingPlan constructs a read routing plan for single-tenant collections.
@@ -396,8 +390,7 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 		Shard:  params.Shard,
 		Tenant: params.Tenant,
 		ReplicaSet: types.WriteReplicaSet{
-			Replicas:           sortedWriteReplicas,
-			AdditionalReplicas: writeReplicas.AdditionalReplicas,
+			Replicas: sortedWriteReplicas,
 		},
 		ConsistencyLevel:    params.ConsistencyLevel,
 		IntConsistencyLevel: cl,
@@ -490,6 +483,21 @@ func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, s
 		return types.ReadReplicaSet{}, err
 	}
 
+	return r.readReplicasFromLocalSchema(collection, shard)
+}
+
+// readReplicasForPlan resolves read replicas honoring LocalOnly: local schema only
+// (no leader query, no tenant activation) when set, else the tenant-status path.
+func (r *multiTenantRouter) readReplicasForPlan(params types.RoutingPlanBuildOptions) (types.ReadReplicaSet, error) {
+	if params.LocalOnly {
+		return r.readReplicasFromLocalSchema(r.collection, params.Shard)
+	}
+	return r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard)
+}
+
+// readReplicasFromLocalSchema resolves read replicas from local schema without any
+// tenant-status check; callers must not use it where activation semantics are required.
+func (r *multiTenantRouter) readReplicasFromLocalSchema(collection, shard string) (types.ReadReplicaSet, error) {
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
 	if err != nil {
 		return types.ReadReplicaSet{}, err
@@ -517,11 +525,10 @@ func (r *multiTenantRouter) getWriteReplicasLocation(collection string, tenant, 
 		return types.WriteReplicaSet{}, err
 	}
 
-	writeNodeNames, additionalWriteNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
+	writeNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
 	writeReplicas := buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
-	additionalWriteReplicas := buildReplicas(additionalWriteNodeNames, shard, r.nodeSelector.NodeHostname)
 
-	return types.WriteReplicaSet{Replicas: writeReplicas, AdditionalReplicas: additionalWriteReplicas}, nil
+	return types.WriteReplicaSet{Replicas: writeReplicas}, nil
 }
 
 // tenantExistsAndIsActive validates that the tenant exists and is in HOT status.
@@ -567,8 +574,7 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 		Shard:  params.Shard,
 		Tenant: params.Tenant,
 		ReplicaSet: types.WriteReplicaSet{
-			Replicas:           orderedReplicas,
-			AdditionalReplicas: writeReplicas.AdditionalReplicas,
+			Replicas: orderedReplicas,
 		},
 		ConsistencyLevel:    params.ConsistencyLevel,
 		IntConsistencyLevel: cl,
@@ -588,7 +594,7 @@ func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOp
 
 // buildReadRoutingPlan constructs a read routing plan for multi-tenant collections.
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	readReplicas, err := r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard)
+	readReplicas, err := r.readReplicasForPlan(params)
 	if err != nil {
 		return types.ReadRoutingPlan{}, err
 	}

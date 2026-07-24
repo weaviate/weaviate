@@ -1403,8 +1403,133 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		restoredState, err := cl.readSnapshot(snapshotPath)
 		require.NoError(t, err)
 
-		require.NotEqual(t, state.Nodes, restoredState.Nodes)
+		// A multi-block snapshot must round-trip every slot faithfully. (This
+		// previously asserted NotEqual, which only held because the writer
+		// silently dropped a node at each block boundary.)
+		require.Equal(t, state.Nodes, restoredState.Nodes)
 	})
+}
+
+// TestSnapshotMultiBlockNodeLossRepro proves, directly against main's classic
+// writer/reader, that writeStateTo silently drops one node at every body-block
+// boundary (it labels the new block as starting at i+1 and never writes node i).
+// The existing "v3 - multi block" test masks this because it round-trips through
+// the same consistently-mislabeled reader and only asserts NotEqual. Here we
+// assert node-by-node survival, which fails at each block boundary.
+func TestSnapshotMultiBlockNodeLossRepro(t *testing.T) {
+	const size = 2000
+
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.Nil(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint: 1,
+		Level:      6,
+		Compressed: false,
+		Nodes:      make([]*vertex, size),
+		Tombstones: make(map[uint64]struct{}),
+	}
+	// every slot is a live node — no nil slots, no tombstones — so the ONLY
+	// way a node can go missing on round-trip is the block-boundary bug.
+	for i := 0; i < size; i++ {
+		state.Nodes[i] = &vertex{
+			id:          uint64(i),
+			level:       i % 6,
+			connections: c,
+		}
+	}
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id) // snapshotBlockSize = 4096
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	require.NoError(t, cl.writeSnapshot(state, snapshotPath))
+
+	restoredState, err := cl.readSnapshot(snapshotPath)
+	require.NoError(t, err)
+
+	var missing []int
+	for i := 0; i < size; i++ {
+		if restoredState.Nodes[i] == nil {
+			missing = append(missing, i)
+		}
+	}
+	require.Emptyf(t, missing, "nodes silently dropped on snapshot round-trip "+
+		"(one per 4KB block boundary): %v", missing)
+}
+
+// TestSnapshotOversizedNodeReturnsError ensures a single node entry that cannot
+// fit in one block fails loudly instead of panicking (negative pad math) or
+// being silently dropped. Uses a tiny block size to make one node oversized.
+func TestSnapshotOversizedNodeReturnsError(t *testing.T) {
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.Nil(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint: 0,
+		Level:      0,
+		Nodes:      []*vertex{{id: 0, level: 0, connections: c}},
+		Tombstones: make(map[uint64]struct{}),
+	}
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+	cl.snapshotBlockSize = 64 // force the single node to exceed one block
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	err = cl.writeSnapshot(state, snapshotPath)
+	require.Error(t, err, "a node larger than a block must be rejected, not dropped/panic")
+}
+
+// TestSnapshotCleanedTombstoneKeepsSlotAlignment covers the sibling drop: a node
+// that was deleted with its tombstone already cleaned up must be persisted as a
+// nil slot. The buggy code wrote a nil byte to the scratch buffer then
+// `continue`d, never appending it to the block, so every later node in the same
+// block was read back one id too low.
+func TestSnapshotCleanedTombstoneKeepsSlotAlignment(t *testing.T) {
+	const size = 10
+	const cleaned = 5
+
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.Nil(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint:        0,
+		Level:             6,
+		Nodes:             make([]*vertex, size),
+		Tombstones:        make(map[uint64]struct{}),
+		TombstonesDeleted: make(map[uint64]struct{}),
+	}
+	for i := 0; i < size; i++ {
+		state.Nodes[i] = &vertex{id: uint64(i), level: i, connections: c}
+	}
+	// node `cleaned` was deleted and its tombstone already cleaned up
+	state.Tombstones[cleaned] = struct{}{}
+	state.TombstonesDeleted[cleaned] = struct{}{}
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	require.NoError(t, cl.writeSnapshot(state, snapshotPath))
+
+	restored, err := cl.readSnapshot(snapshotPath)
+	require.NoError(t, err)
+
+	require.Nil(t, restored.Nodes[cleaned], "cleaned-tombstone node should be a nil slot")
+	for i := 0; i < size; i++ {
+		if i == cleaned {
+			continue
+		}
+		require.NotNilf(t, restored.Nodes[i], "node %d must survive", i)
+		require.Equalf(t, i, restored.Nodes[i].level, "node %d shifted id/level", i)
+	}
 }
 
 var connsSlice1 = []uint64{

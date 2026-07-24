@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.0-rc.0"
+    "version": "1.38.6"
   },
   "basePath": "/v1",
   "paths": {
@@ -1087,6 +1087,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "404": {
+            "description": "No role found."
           },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
@@ -3013,14 +3016,8 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-          "409": {
-            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3100,7 +3097,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state, which stops its dynamic users from authenticating; their rows, along with classes and aliases, are reclaimed by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
         "tags": [
           "namespaces"
         ],
@@ -3142,6 +3139,132 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/resume": {
+      "post": {
+        "description": "Return a suspended namespace to the \"active\" state, so its dynamic users authenticate again and its resources accept writes. Repeated calls against an already-active namespace are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Resume a namespace",
+        "operationId": "resumeNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is active."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/suspend": {
+      "post": {
+        "description": "Move a namespace to the \"suspended\" state. Suspending stops the namespace's users from authenticating and blocks the creation of new classes, aliases, users, roles, and role assignments, but retains the namespace and everything it owns. Repeated calls against an already-suspended namespace are idempotent and return 202. Use the resume endpoint to return it to \"active\".",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Suspend a namespace",
+        "operationId": "suspendNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is suspended."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6491,6 +6614,99 @@ func init() {
         ]
       }
     },
+    "/search/{collection}/near-text": {
+      "post": {
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-text",
+        "operationId": "search.nearText",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-text search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearTextRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -7182,7 +7398,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -7193,7 +7409,14 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeUsers": {
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured and each is authorized individually.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8728,10 +8951,12 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
+            "suspended",
+            "resuming",
             "deleting"
           ]
         }
@@ -10237,6 +10462,258 @@ func init() {
         }
       }
     },
+    "SearchCommon": {
+      "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "type": "object",
+      "properties": {
+        "autoLimit": {
+          "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "consistencyLevel": {
+          "description": "The consistency level for the read.",
+          "type": "string",
+          "enum": [
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ]
+        },
+        "groupBy": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "groupedTask": {
+          "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "limit": {
+          "description": "The maximum number of objects to return. Omitted or ` + "`" + `0` + "`" + ` falls back to the server default (` + "`" + `QUERY_DEFAULTS_LIMIT` + "`" + `); a value above ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` is rejected.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "numberOfGroups": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objectsPerGroup": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "offset": {
+          "description": "The number of objects to skip before returning results. Used with ` + "`" + `limit` + "`" + ` for pagination.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "rerank": {
+          "description": "Reserved for reranking. Returns 422 (not yet supported).",
+          "$ref": "#/definitions/SearchRerank"
+        },
+        "returnMetadata": {
+          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "distance",
+              "certainty",
+              "score",
+              "explainScore",
+              "creationTime",
+              "lastUpdateTime"
+            ]
+          }
+        },
+        "returnProperties": {
+          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "singlePrompt": {
+          "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "tenant": {
+          "description": "The tenant to search in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter to limit the objects that are searched.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "SearchNearTextRequest": {
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The concept(s) to search for, as an array of strings. Multiple entries perform a multi-concept search. A single concept is a one-element array, e.g. ` + "`" + `[\"space opera\"]` + "`" + `.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "targetVector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
+        }
+      }
+    },
+    "SearchResponse": {
+      "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
+      "type": "object",
+      "required": [
+        "results",
+        "tookMs"
+      ],
+      "properties": {
+        "results": {
+          "description": "The matched objects, ordered by relevance.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchResultObject"
+          },
+          "x-omitempty": false
+        },
+        "tookMs": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
+    "SearchResultMetadata": {
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "type": "object",
+      "properties": {
+        "certainty": {
+          "description": "The normalized certainty of the hit. Only computable on cosine-distance vector indexes.",
+          "type": "number",
+          "format": "double",
+          "x-nullable": true
+        },
+        "creationTime": {
+          "description": "The object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "distance": {
+          "description": "The vector distance between the hit and the query.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "explainScore": {
+          "description": "An explanation of how the score was computed.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "lastUpdateTime": {
+          "description": "The object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "score": {
+          "description": "The relevance score of the hit.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        }
+      }
+    },
+    "SearchResultObject": {
+      "description": "A single search hit: the object's ` + "`" + `id` + "`" + ` (always returned), the selected non-reference properties under ` + "`" + `properties` + "`" + `, the selected cross-references under ` + "`" + `references` + "`" + `, and the requested retrieval metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "id",
+        "properties"
+      ],
+      "properties": {
+        "id": {
+          "description": "The object's UUID. Always returned.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the request selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/JsonObject"
+            }
+          }
+        }
+      }
+    },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
       "type": "object",
@@ -10957,6 +11434,10 @@ func init() {
       "name": "graphql"
     },
     {
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+      "name": "search"
+    },
+    {
       "name": "meta"
     },
     {
@@ -11016,7 +11497,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.38.0-rc.0"
+    "version": "1.38.6"
   },
   "basePath": "/v1",
   "paths": {
@@ -12043,6 +12524,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "404": {
+            "description": "No role found."
           },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
@@ -13969,14 +14453,8 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-          "409": {
-            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "422": {
-            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, unknown home_node, or the namespace being in the ` + "`" + `deleting` + "`" + ` state).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14056,7 +14534,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state, which stops its dynamic users from authenticating; their rows, along with classes and aliases, are reclaimed by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
         "tags": [
           "namespaces"
         ],
@@ -14098,6 +14576,132 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/resume": {
+      "post": {
+        "description": "Return a suspended namespace to the \"active\" state, so its dynamic users authenticate again and its resources accept writes. Repeated calls against an already-active namespace are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Resume a namespace",
+        "operationId": "resumeNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is active."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}/suspend": {
+      "post": {
+        "description": "Move a namespace to the \"suspended\" state. Suspending stops the namespace's users from authenticating and blocks the creation of new classes, aliases, users, roles, and role assignments, but retains the namespace and everything it owns. Repeated calls against an already-suspended namespace are idempotent and return 202. Use the resume endpoint to return it to \"active\".",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Suspend a namespace",
+        "operationId": "suspendNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The state change is committed and the namespace is suspended."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Another state change was applied to this namespace while this request was in flight, so it was not applied. Re-read the namespace and retry if the change is still wanted.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or a namespace that is being deleted).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "No cluster leader was reachable. The state change may or may not have been applied; re-read the namespace before retrying.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -17557,6 +18161,99 @@ func init() {
         ]
       }
     },
+    "/search/{collection}/near-text": {
+      "post": {
+        "description": "Performs a semantic (near-text) search over the objects of a collection. The query text is vectorized server-side by the collection's vectorizer module and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-text",
+        "operationId": "search.nearText",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-text search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearTextRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. empty query, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "502": {
+            "description": "The embedding provider failed to vectorize the query; the search cannot run.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -18248,7 +18945,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -18259,7 +18956,14 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeUsers": {
+          "description": "List of dynamic DB users to include in the backup. Permits ` + "`" + `*` + "`" + ` and ` + "`" + `?` + "`" + ` wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured and each is authorized individually.",
           "type": "array",
           "items": {
             "type": "string"
@@ -19979,10 +20683,12 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"suspended\" namespaces reject new classes, aliases, users, roles, and role assignments, and their users can no longer authenticate; everything the namespace already owns is retained. \"resuming\" namespaces are on their way back to \"active\" and are still restricted the same way. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
+            "suspended",
+            "resuming",
             "deleting"
           ]
         }
@@ -21678,6 +22384,258 @@ func init() {
         }
       }
     },
+    "SearchCommon": {
+      "description": "Fields shared by every REST search request (near-text, and — when built — hybrid, bm25, near-object). Unknown fields are ignored (platform parity with the other endpoints). Reserved fields are accepted by the schema but rejected by the server with 422 until the corresponding feature ships.",
+      "type": "object",
+      "properties": {
+        "autoLimit": {
+          "description": "Cut results off at the first steep drop in score (autocut). The value is the number of score jumps to allow before cutting.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "consistencyLevel": {
+          "description": "The consistency level for the read.",
+          "type": "string",
+          "enum": [
+            "ONE",
+            "QUORUM",
+            "ALL"
+          ]
+        },
+        "groupBy": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "groupedTask": {
+          "description": "Reserved for grouped retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "limit": {
+          "description": "The maximum number of objects to return. Omitted or ` + "`" + `0` + "`" + ` falls back to the server default (` + "`" + `QUERY_DEFAULTS_LIMIT` + "`" + `); a value above ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` is rejected.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "numberOfGroups": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "objectsPerGroup": {
+          "description": "Reserved for grouped search. Returns 422 (not yet supported).",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "offset": {
+          "description": "The number of objects to skip before returning results. Used with ` + "`" + `limit` + "`" + ` for pagination.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "rerank": {
+          "description": "Reserved for reranking. Returns 422 (not yet supported).",
+          "$ref": "#/definitions/SearchRerank"
+        },
+        "returnMetadata": {
+          "description": "The retrieval metadata to return under each result's ` + "`" + `metadata` + "`" + ` key. The object ` + "`" + `id` + "`" + ` is always returned as each result's ` + "`" + `id` + "`" + ` field. Omitted or empty returns no ` + "`" + `metadata` + "`" + ` block.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "distance",
+              "certainty",
+              "score",
+              "explainScore",
+              "creationTime",
+              "lastUpdateTime"
+            ]
+          }
+        },
+        "returnProperties": {
+          "description": "The properties to return. A dot-path selects one hop across a reference (e.g. ` + "`" + `hasAuthor.name` + "`" + `). Omitted returns all non-reference, non-blob properties; an empty array returns no properties.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "singlePrompt": {
+          "description": "Reserved for per-object retrieval-augmented generation. Returns 422 (not yet supported).",
+          "type": "string",
+          "x-nullable": true
+        },
+        "tenant": {
+          "description": "The tenant to search in a multi-tenant collection.",
+          "type": "string"
+        },
+        "where": {
+          "description": "A conditional filter to limit the objects that are searched.",
+          "$ref": "#/definitions/WhereFilter"
+        }
+      }
+    },
+    "SearchNearTextRequest": {
+      "description": "Request body for the near-text search endpoint. The query is vectorized server-side by the collection's vectorizer module and the closest objects are returned. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-text-specific ` + "`" + `query` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "query": {
+              "description": "The concept(s) to search for, as an array of strings. Multiple entries perform a multi-concept search. A single concept is a one-element array, e.g. ` + "`" + `[\"space opera\"]` + "`" + `.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "targetVector": {
+              "description": "The named vector to search. Required when the collection has more than one named vector.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "SearchRerank": {
+      "description": "Reserved for reranking. Returns 422 (not yet supported).",
+      "type": "object",
+      "required": [
+        "property"
+      ],
+      "properties": {
+        "property": {
+          "description": "The property to rerank on.",
+          "type": "string"
+        },
+        "query": {
+          "description": "The query to rerank with. Defaults to the search query.",
+          "type": "string"
+        }
+      }
+    },
+    "SearchResponse": {
+      "description": "The result of a REST search: the matched objects as ` + "`" + `{id, properties, references, metadata}` + "`" + ` envelopes, plus the server-side processing time. Shared by all REST search endpoints.",
+      "type": "object",
+      "required": [
+        "results",
+        "tookMs"
+      ],
+      "properties": {
+        "results": {
+          "description": "The matched objects, ordered by relevance.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SearchResultObject"
+          },
+          "x-omitempty": false
+        },
+        "tookMs": {
+          "description": "Server-side processing time in milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
+    "SearchResultMetadata": {
+      "description": "The retrieval metadata of a single search hit, populated according to ` + "`" + `returnMetadata` + "`" + `. Every field is optional and only present when it was requested and is computable for the search.",
+      "type": "object",
+      "properties": {
+        "certainty": {
+          "description": "The normalized certainty of the hit. Only computable on cosine-distance vector indexes.",
+          "type": "number",
+          "format": "double",
+          "x-nullable": true
+        },
+        "creationTime": {
+          "description": "The object's creation time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "distance": {
+          "description": "The vector distance between the hit and the query.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "explainScore": {
+          "description": "An explanation of how the score was computed.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "lastUpdateTime": {
+          "description": "The object's last-update time, as epoch milliseconds.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
+        "score": {
+          "description": "The relevance score of the hit.",
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        }
+      }
+    },
+    "SearchResultObject": {
+      "description": "A single search hit: the object's ` + "`" + `id` + "`" + ` (always returned), the selected non-reference properties under ` + "`" + `properties` + "`" + `, the selected cross-references under ` + "`" + `references` + "`" + `, and the requested retrieval metadata under ` + "`" + `metadata` + "`" + `.",
+      "type": "object",
+      "required": [
+        "id",
+        "properties"
+      ],
+      "properties": {
+        "id": {
+          "description": "The object's UUID. Always returned.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "metadata": {
+          "x-nullable": true,
+          "$ref": "#/definitions/SearchResultMetadata"
+        },
+        "properties": {
+          "description": "The selected non-reference properties of the object; nested (object / object[]) properties are pruned to the selected nested fields. Always present — ` + "`" + `{}` + "`" + ` when the request selects no properties.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          },
+          "x-omitempty": false
+        },
+        "references": {
+          "description": "The selected cross-references: reference name to the array of referenced objects, each carrying the selected one-hop properties. Omitted when the request selects no references.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/JsonObject"
+            }
+          }
+        }
+      }
+    },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
       "type": "object",
@@ -22408,6 +23366,10 @@ func init() {
     },
     {
       "name": "graphql"
+    },
+    {
+      "description": "Operations for querying collections over REST. The near-text endpoint performs semantic vector search with server-side embedding of the query text; each result carries the object's ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `.",
+      "name": "search"
     },
     {
       "name": "meta"

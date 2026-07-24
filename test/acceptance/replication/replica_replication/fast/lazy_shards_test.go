@@ -43,7 +43,7 @@ func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "false").
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start docker compose cluster: %+v", err)
 	if cancel != nil {
 		cancel()
 	}
@@ -90,7 +90,7 @@ func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
 		nodes.NewNodesGetClassParams().WithClassName(cls.Class).WithOutput(&verbose),
 		nil,
 	)
-	require.Nil(t, err, "failed to get nodes for class %s: %v", cls.Class, err)
+	require.NoError(t, err, "failed to get nodes for class %s: %v", cls.Class, err)
 
 	replicaByTenant := make(map[string]string, len(randomTenants))
 	nodeNames := make([]string, 0, len(nodes.Payload.Nodes))
@@ -142,7 +142,7 @@ func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
 				}),
 				nil,
 			)
-			require.Nil(t, err, "failed to start replication for tenant %s on node %s: %v", tenantName, sourceNode, err)
+			require.NoError(t, err, "failed to start replication for tenant %s on node %s: %v", tenantName, sourceNode, err)
 			opIds = append(opIds, *res.Payload.ID)
 		})
 	}

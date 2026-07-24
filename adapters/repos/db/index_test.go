@@ -17,12 +17,15 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -253,4 +256,164 @@ func (f *fakeRouter) GetWriteReplicasLocation(collection, tenant, shard string) 
 func (f *fakeRouter) NodeHostname(nodeName string) (string, bool) {
 	host, ok := f.hostnames[nodeName]
 	return host, ok
+}
+
+// TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the
+// rf=1 scale-out lost-write fix: while a replica movement is active for the shard, a write
+// must be routed through the replicator (so it registers in the in-flight fence and the
+// source's change-capture log cannot be sealed over it), even at replicationFactor=1 with a
+// single-node write-set. Without the fix the "active movement, single replica" row returns
+// false — the write would take the direct-local path that bypasses the fence.
+func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement(t *testing.T) {
+	const (
+		className = "MoveClass"
+		shardName = "shard1"
+		tenant    = ""
+	)
+
+	tests := []struct {
+		name           string
+		replicationF   int64
+		movementActive bool
+		// writeReplicas is the router's write-set node names. nil means the router must NOT
+		// be consulted (the call should short-circuit before GetWriteReplicasLocation).
+		writeReplicas []string
+		want          bool
+	}{
+		{
+			name:           "rf=1, no movement, single replica -> direct-local",
+			replicationF:   1,
+			movementActive: false,
+			writeReplicas:  []string{"node-A"},
+			want:           false,
+		},
+		{
+			name:           "rf=1, ACTIVE movement, single replica -> replicator (regression pin)",
+			replicationF:   1,
+			movementActive: true,
+			writeReplicas:  nil, // movement short-circuits before the router is consulted
+			want:           true,
+		},
+		{
+			name:           "rf=1, no movement, two replicas -> replicator",
+			replicationF:   1,
+			movementActive: false,
+			writeReplicas:  []string{"node-A", "node-B"},
+			want:           true,
+		},
+		{
+			name:           "rf>1 -> replicator (short-circuit, FSM+router untouched)",
+			replicationF:   3,
+			movementActive: false,
+			writeReplicas:  nil,
+			want:           true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fsm := &fakeFSMReader{active: tt.movementActive}
+
+			mockRouter := types.NewMockRouter(t)
+			if tt.writeReplicas != nil {
+				replicas := make([]types.Replica, 0, len(tt.writeReplicas))
+				for _, n := range tt.writeReplicas {
+					replicas = append(replicas, types.Replica{NodeName: n, ShardName: shardName})
+				}
+				mockRouter.EXPECT().
+					GetWriteReplicasLocation(className, tenant, shardName).
+					Return(types.WriteReplicaSet{Replicas: replicas}, nil).
+					Once()
+			}
+			// When writeReplicas is nil we set no expectation, so any router call fails the
+			// test — proving the call short-circuited before consulting the router.
+
+			idx := &Index{
+				Config:               IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
+				replicationFSMReader: fsm,
+				router:               mockRouter,
+			}
+
+			got := idx.shardHasMultipleReplicasWrite(tenant, shardName)
+			require.Equal(t, tt.want, got)
+
+			if tt.replicationF > 1 {
+				require.Zero(t, fsm.callCount, "rf>1 must short-circuit before consulting the replication FSM")
+			}
+			if tt.movementActive {
+				require.Equal(t, className, fsm.gotColl)
+				require.Equal(t, shardName, fsm.gotShard)
+			}
+		})
+	}
+}
+
+// newDropLocalShardTestIndex builds a bare Index that is just wired enough to exercise
+// dropShards' unloaded-shard branch (os.RemoveAll fallback) without a full DB.
+func newDropLocalShardTestIndex(t *testing.T, logger logrus.FieldLogger) *Index {
+	t.Helper()
+	idx := &Index{
+		Config:           IndexConfig{RootPath: t.TempDir(), ClassName: schema.ClassName("DropTestClass")},
+		logger:           logger,
+		backupLock:       esync.NewKeyRWLocker(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+	}
+	require.NoError(t, os.MkdirAll(idx.path(), 0o755))
+	return idx
+}
+
+// TestIndexDropLocalShard covers the local drop primitive that backs the
+// cancelled-op target teardown, including the nil-deref pin in dropShards'
+// unloaded-shard error branch.
+func TestIndexDropLocalShard(t *testing.T) {
+	t.Run("absent shard is an idempotent no-op", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		idx := newDropLocalShardTestIndex(t, logger)
+
+		require.NoError(t, idx.DropLocalShard("never-existed"))
+	})
+
+	t.Run("unloaded shard files are actually removed", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		idx := newDropLocalShardTestIndex(t, logger)
+
+		shardDir := shardPath(idx.path(), "shard1")
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(shardDir, "store.db"), []byte("data"), 0o644))
+
+		require.NoError(t, idx.DropLocalShard("shard1"))
+
+		_, statErr := os.Stat(shardDir)
+		require.True(t, os.IsNotExist(statErr), "target shard dir must be gone after drop, stat err: %v", statErr)
+	})
+
+	t.Run("unloaded shard drop error logs the name, does not panic", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("chmod-based permission denial is a no-op for root")
+		}
+		logger, hook := test.NewNullLogger()
+		idx := newDropLocalShardTestIndex(t, logger)
+
+		shardDir := shardPath(idx.path(), "shard1")
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+
+		// Deny write/traverse on the index dir so os.RemoveAll(shardDir) fails.
+		require.NoError(t, os.Chmod(idx.path(), 0o000))
+		t.Cleanup(func() { _ = os.Chmod(idx.path(), 0o755) })
+
+		err := idx.DropLocalShard("shard1")
+		require.Error(t, err, "drop must surface the os.RemoveAll failure")
+
+		var sawNamedDropLog bool
+		for _, e := range hook.AllEntries() {
+			require.NotContains(t, e.Message, "Recovered from panic",
+				"dropShards must not panic on the unloaded-shard error branch")
+			if e.Data["action"] == "drop_shard" {
+				require.Equal(t, "shard1", e.Data["shard"],
+					"drop error must be logged against the requested name, not a nil shard")
+				sawNamedDropLog = true
+			}
+		}
+		require.True(t, sawNamedDropLog, "expected a drop_shard error log naming the shard")
+	})
 }

@@ -66,9 +66,9 @@ func TestSuccessGetUser(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 			if test.userType == models.UserTypeOutputDbUser {
-				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId, ApiKeyFirstLetters: "abc"}}, nil)
+				dynUser.On("GetUsers", test.userId).Return(map[string]apikey.UserView{test.userId: {Id: test.userId, ApiKeyFirstLetters: "abc"}}, nil)
 			} else {
-				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{}, nil)
+				dynUser.On("GetUsers", test.userId).Return(map[string]apikey.UserView{}, nil)
 			}
 			dynUser.On("GetRolesForUserOrGroup", test.userId, authentication.AuthTypeDb, false).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
@@ -127,7 +127,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 
-			dynUser.On("GetUsers", userId).Return(map[string]*apikey.User{userId: {Id: userId, LastUsedAt: returnedTime}}, nil)
+			dynUser.On("GetUsers", userId).Return(map[string]apikey.UserView{userId: {Id: userId, LastUsedAt: returnedTime}}, nil)
 			dynUser.On("GetRolesForUserOrGroup", userId, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 
 			var nodes []string
@@ -166,7 +166,7 @@ func TestNotFound(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("static")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "static").Return(map[string]*apikey.User{}, nil)
+	dynUser.On("GetUsers", "static").Return(map[string]apikey.UserView{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -185,7 +185,7 @@ func TestNotFoundStatic(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
+	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -202,11 +202,11 @@ func TestGetUserInternalServerError(t *testing.T) {
 	tests := []struct {
 		name               string
 		GetUserReturnErr   error
-		GetUserReturnValue map[string]*apikey.User
+		GetUserReturnValue map[string]apikey.UserView
 		GetRolesReturn     error
 	}{
 		{name: "get user error", GetUserReturnErr: errors.New("some error"), GetUserReturnValue: nil},
-		{name: "create user error", GetUserReturnErr: nil, GetUserReturnValue: map[string]*apikey.User{"user": {Id: "user"}}, GetRolesReturn: errors.New("some error")},
+		{name: "create user error", GetUserReturnErr: nil, GetUserReturnValue: map[string]apikey.UserView{"user": {Id: "user"}}, GetRolesReturn: errors.New("some error")},
 	}
 
 	for _, tt := range tests {
@@ -272,7 +272,7 @@ func TestGetUserWithNoPrincipal(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
+	dynUser.On("GetUsers", userID).Return(map[string]apikey.UserView{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
 	dynUser.On("GetRolesForUserOrGroup", userID, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 
 	h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
@@ -291,8 +291,8 @@ func TestGetUser_Namespaces(t *testing.T) {
 		userID           string // raw id as the client sends it
 		principalNS      string // principal.Namespace ("" = global)
 		isGlobalOperator bool
-		authzKey         string                  // resolved users/ key authz is asked for
-		storedUser       map[string]*apikey.User // GetUsers return; key by internal key
+		authzKey         string                     // resolved users/ key authz is asked for
+		storedUser       map[string]apikey.UserView // GetUsers return; key by internal key
 		wantStatus       any
 		wantUserID       string // expected response.UserID
 		wantNamespace    string // expected response.Namespace
@@ -302,7 +302,7 @@ func TestGetUser_Namespaces(t *testing.T) {
 			userID:        "bob",
 			principalNS:   "customer1",
 			authzKey:      "customer1:bob",
-			storedUser:    map[string]*apikey.User{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
+			storedUser:    map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
 			wantStatus:    &users.GetUserInfoOK{},
 			wantUserID:    "bob",
 			wantNamespace: "",
@@ -312,7 +312,7 @@ func TestGetUser_Namespaces(t *testing.T) {
 			userID:      "bob",
 			principalNS: "customer2",
 			authzKey:    "customer2:bob",
-			storedUser:  map[string]*apikey.User{},
+			storedUser:  map[string]apikey.UserView{},
 			wantStatus:  &users.GetUserInfoNotFound{},
 		},
 		{
@@ -320,7 +320,7 @@ func TestGetUser_Namespaces(t *testing.T) {
 			userID:           "customer1:bob",
 			isGlobalOperator: true,
 			authzKey:         "customer1:bob",
-			storedUser:       map[string]*apikey.User{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
+			storedUser:       map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
 			wantStatus:       &users.GetUserInfoOK{},
 			wantUserID:       "customer1:bob",
 			wantNamespace:    "customer1",
@@ -364,7 +364,7 @@ func TestGetUser_ResolveThenAuthorize(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("customer1:bob")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "customer1:bob").Return(map[string]*apikey.User{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}}, nil)
+	dynUser.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}}, nil)
 	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 	h := dynUserHandler{

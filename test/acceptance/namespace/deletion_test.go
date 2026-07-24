@@ -46,8 +46,9 @@ func rawDeleteNamespace(t *testing.T, name, key string) (*namespaces.DeleteNames
 // alias, and a DB user, deletes it, and verifies that the namespace,
 // its class, its alias, and the user are all gone.
 func TestNamespaces_DeleteHappyPath(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS()
 	const (
-		ns        = "delhappy"
 		userID    = "alice"
 		className = "Movies"
 		aliasName = "Films"
@@ -81,14 +82,12 @@ func TestNamespaces_DeleteHappyPath(t *testing.T) {
 
 // TestNamespaces_DeleteUserAuthBlockedClusterWide creates a namespace +
 // DB user, deletes the namespace, and asserts the user's API key
-// eventually fails with 401 against every replica. The leader applies
-// the synchronous DeleteUsersInNamespace before returning 202; followers
-// apply asynchronously, so each node is polled until auth is rejected.
+// eventually fails with 401 against every replica. The auth guard rejects
+// the key on any node that has applied the flip to deleting; followers apply
+// asynchronously, so each node is polled until auth is rejected.
 func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
-	const (
-		ns     = "delauth"
-		userID = "bob"
-	)
+	ns := uniqueNS()
+	const userID = "bob"
 
 	helper.CreateNamespace(t, ns, adminKey)
 	userKey := createNamespacedUser(t, userID, ns, adminKey)
@@ -98,8 +97,9 @@ func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 	require.NoError(t, err, "fresh DB user should authenticate")
 
 	// Issue the delete; do not wait for full cleanup — the auth-blocked
-	// guarantee is established by the synchronous user-delete RAFT
-	// command, which has committed by the time the 202 is received.
+	// guarantee comes from the flip to deleting, which the auth guard
+	// enforces on every node that has applied it, before the cleanup tick
+	// reclaims the user rows.
 	helper.DeleteNamespace(t, ns, adminKey, helper.WithoutWaitForCleanup())
 
 	// On every replica, the user's API key must eventually be rejected.
@@ -129,8 +129,9 @@ func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 // 409 (still deleting) and success are acceptable; any other response
 // fails the test.
 func TestNamespaces_RecreateAfterDelete(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS()
 	const (
-		ns        = "delrecreate"
 		userID    = "creator"
 		className = "Movies"
 	)
@@ -166,8 +167,8 @@ func TestNamespaces_RecreateAfterDelete(t *testing.T) {
 		}
 		require.Failf(t, "unexpected response during recreate", "%T: %v", err, err)
 		return true
-	}, 5*time.Second, 50*time.Millisecond,
-		"namespace did not become recreatable within 5s")
+	}, 30*time.Second, 50*time.Millisecond,
+		"namespace did not become recreatable within 30s")
 
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
 }
@@ -176,7 +177,8 @@ func TestNamespaces_RecreateAfterDelete(t *testing.T) {
 // the namespace is still in the deleting state and asserts both return
 // 202. After cleanup completes, DELETE returns 404.
 func TestNamespaces_DeleteIsIdempotent(t *testing.T) {
-	const ns = "delidempotent"
+	t.Parallel()
+	ns := uniqueNS()
 	helper.CreateNamespace(t, ns, adminKey)
 
 	// First DELETE: 202.
@@ -207,7 +209,8 @@ func TestNamespaces_DeleteIsIdempotent(t *testing.T) {
 // cleaned up — both outcomes are acceptable. The post-condition is that
 // no orphan class survives once the namespace entity is gone.
 func TestNamespaces_ConcurrentDeleteAndAddClass(t *testing.T) {
-	const ns = "delrace"
+	t.Parallel()
+	ns := uniqueNS()
 	const className = "Films"
 	qualifiedClass := ns + ":" + className
 
@@ -249,8 +252,9 @@ func TestNamespaces_ConcurrentDeleteAndAddClass(t *testing.T) {
 // class can be created cleanly — the latter is the proxy for "no torn
 // state was left behind".
 func TestNamespaces_DeleteWhileBatchInsertInFlight(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS()
 	const (
-		ns        = "delbatch"
 		userID    = "dave"
 		className = "Tickets"
 	)
@@ -348,7 +352,7 @@ func TestNamespaces_DeleteWhileBatchInsertInFlight(t *testing.T) {
 // must round-trip through gRPC and re-chain on the client so the
 // handler's errors.Is mapping returns 404 rather than 500.
 func TestNamespaces_DeleteMissingReturns404FromEveryReplica(t *testing.T) {
-	const ns = "neverexisted"
+	ns := uniqueNS()
 
 	originalURI := sharedCompose.GetWeaviate().URI()
 	t.Cleanup(func() { helper.SetupClient(originalURI) })

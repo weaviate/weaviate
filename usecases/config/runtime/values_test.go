@@ -69,6 +69,57 @@ slice: ["one", "two", "three"]
 		assert.Equal(t, []string{"one", "two", "three"}, val.Slice.Get())
 		assert.Nil(t, val.Slice.val)
 	})
+
+	t.Run("empty scalar decodes to nil for slice T", func(t *testing.T) {
+		val := struct {
+			Slice *DynamicValue[[]string] `yaml:"slice"`
+		}{}
+		require.NoError(t, yaml.NewDecoder(strings.NewReader(`slice: ""`)).Decode(&val))
+		assert.Nil(t, val.Slice.Get())
+	})
+
+	t.Run("empty scalar still errors for non-slice T", func(t *testing.T) {
+		cases := map[string]any{
+			`foo: ""`:   &struct{ Foo *DynamicValue[int] }{},
+			`bar: ""`:   &struct{ Bar *DynamicValue[float64] }{},
+			`alice: ""`: &struct{ Alice *DynamicValue[bool] }{},
+			`dave: ""`:  &struct{ Dave *DynamicValue[time.Duration] }{},
+		}
+		for input, target := range cases {
+			err := yaml.NewDecoder(strings.NewReader(input)).Decode(target)
+			require.Error(t, err, "expected %q to error", input)
+		}
+	})
+
+	t.Run("comma-separated scalar splits into slice T", func(t *testing.T) {
+		cases := map[string][]string{
+			`slice: "hfresh,hnsw,dynamic,flat"`: {"hfresh", "hnsw", "dynamic", "flat"},
+			`slice: "hnsw"`:                     {"hnsw"},
+			`slice: "a,b,"`:                     {"a", "b", ""},
+		}
+		for input, want := range cases {
+			val := struct {
+				Slice *DynamicValue[[]string] `yaml:"slice"`
+			}{}
+			require.NoError(t, yaml.NewDecoder(strings.NewReader(input)).Decode(&val), "input %q", input)
+			assert.Equal(t, want, val.Slice.Get(), "input %q", input)
+		}
+	})
+
+	t.Run("non-string scalar errors for slice T", func(t *testing.T) {
+		cases := []string{
+			`slice: 123`,
+			`slice: true`,
+			`slice: 1.5`,
+		}
+		for _, input := range cases {
+			val := struct {
+				Slice *DynamicValue[[]string] `yaml:"slice"`
+			}{}
+			err := yaml.NewDecoder(strings.NewReader(input)).Decode(&val)
+			require.Error(t, err, "expected %q to error", input)
+		}
+	})
 }
 
 func TestDynamicValue_JSON(t *testing.T) {

@@ -22,10 +22,9 @@ import (
 )
 
 func TestAuthzRolesWithPermissions(t *testing.T) {
-	adminUser := "existing-user"
 	adminKey := "existing-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	testClass := &models.Class{

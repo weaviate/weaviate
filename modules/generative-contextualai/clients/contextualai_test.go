@@ -28,10 +28,10 @@ import (
 )
 
 const (
-	baseURLKey        contextKey = "X-ContextualAI-Baseurl"
-	testAPIKey        string     = "test-key"
-	contentTypeHeader string     = "Content-Type"
-	applicationJSON   string     = "application/json"
+	baseURLKey        string = "X-ContextualAI-Baseurl"
+	testAPIKey        string = "test-key"
+	contentTypeHeader string = "Content-Type"
+	applicationJSON   string = "application/json"
 )
 
 func nullLogger() logrus.FieldLogger {

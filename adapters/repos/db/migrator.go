@@ -199,6 +199,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			}(),
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
+			HaltForTransferTimeout:                       m.db.config.HaltForTransferTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
 			SkipWriteClassNameOnDisk:                     m.db.config.LSMSkipWriteClassNameEnabled,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
@@ -220,15 +221,17 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				}
 				return m.db.config.HNSWWaitForCachePrefill
 			}(),
-			HNSWFlatSearchConcurrency: m.db.config.HNSWFlatSearchConcurrency,
-			HNSWAcornFilterRatio:      m.db.config.HNSWAcornFilterRatio,
-			VisitedListPoolMaxSize:    m.db.config.VisitedListPoolMaxSize,
-			QuerySlowLogEnabled:       m.db.config.QuerySlowLogEnabled,
-			QuerySlowLogThreshold:     m.db.config.QuerySlowLogThreshold,
-			InvertedSorterDisabled:    m.db.config.InvertedSorterDisabled,
-			MaintenanceModeEnabled:    m.db.config.MaintenanceModeEnabled,
-			HFreshEnabled:             m.db.config.HFreshEnabled,
-			AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
+			HNSWFlatSearchConcurrency:    m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:         m.db.config.HNSWAcornFilterRatio,
+			BM25FilterTombMergeGateRatio: m.db.config.BM25FilterTombMergeGateRatio,
+			VisitedListPoolMaxSize:       m.db.config.VisitedListPoolMaxSize,
+			QuerySlowLogEnabled:          m.db.config.QuerySlowLogEnabled,
+			QuerySlowLogThreshold:        m.db.config.QuerySlowLogThreshold,
+			InvertedSorterDisabled:       m.db.config.InvertedSorterDisabled,
+			LazyPropertyLengthsEnabled:   m.db.config.LazyPropertyLengthsEnabled,
+			MaintenanceModeEnabled:       m.db.config.MaintenanceModeEnabled,
+			HFreshEnabled:                m.db.config.HFreshEnabled,
+			AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -244,6 +247,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 
 	idx.usageLimits = m.db.usageLimits
 	idx.db = m.db
+	idx.SetReplicationFSMReader(m.db.replicationFSM)
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
@@ -323,6 +327,14 @@ func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
 		return fmt.Errorf("could not find collection %s", class)
 	}
 	return idx.dropShards([]string{shard})
+}
+
+func (m *Migrator) ReconcileAsyncReplicationForShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.ReconcileAsyncReplicationForShard(ctx, shard)
 }
 
 func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error {
@@ -439,18 +451,21 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 		return nil
 	}
 
-	if err := idx.dropShards(toRemove); err != nil {
-		return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
-	}
+	// the cloud delete runs even when the local drop fails, otherwise the
+	// offloaded data is orphaned: the dropped shards are gone from the index,
+	// so a later update no longer lists them
+	ec := errorcompounder.New()
+	ec.Add(idx.dropShards(toRemove))
 
 	if m.cloud != nil {
 		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
 		// better to filter the passed shards and get the frozen only
-		if err := idx.dropCloudShards(ctx, m.cloud, toRemove, m.nodeId); err != nil {
-			return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
-		}
+		ec.Add(idx.dropCloudShards(ctx, m.cloud, toRemove, m.nodeId))
 	}
 
+	if err := ec.ToError(); err != nil {
+		return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
+	}
 	return nil
 }
 
@@ -551,7 +566,8 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+		// index not yet local (RAFT schema not applied on this node) or class does not exist
+		return nil, fmt.Errorf("cannot get shards queue size for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
 	return idx.getShardsQueueSize(ctx, tenant)
@@ -565,7 +581,8 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+		// index not yet local (RAFT schema not applied on this node) or class does not exist
+		return nil, fmt.Errorf("cannot get shards status for a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
 	return idx.getShardsStatus(ctx, tenant)
@@ -579,7 +596,8 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
+		// index not yet local (RAFT schema not applied on this node) or class does not exist
+		return fmt.Errorf("cannot update shard status to a non-existing index for %s: %w", className, schemaUC.ErrNotFound)
 	}
 
 	return idx.updateShardStatus(ctx, shardName, targetStatus)
@@ -764,17 +782,17 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*m
 		}
 	}
 
-	if err := idx.dropShards(allTenantNames); err != nil {
-		return err
-	}
+	// the cloud delete runs even when the local drop fails, otherwise the
+	// offloaded data is orphaned: nothing retries once the schema entry is gone
+	ec := errorcompounder.New()
+	ec.Add(idx.dropShards(allTenantNames))
 
 	if m.cloud != nil && len(frozenTenants) > 0 {
-		if err := idx.dropCloudShards(ctx, m.cloud, frozenTenants, m.nodeId); err != nil {
-			return fmt.Errorf("drop tenant shards %v during update index: %w", frozenTenants, err)
-		}
+		ec.AddWrapf(idx.dropCloudShards(ctx, m.cloud, frozenTenants, m.nodeId),
+			"drop tenant shards %v during update index", frozenTenants)
 	}
 
-	return nil
+	return ec.ToError()
 }
 
 func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,

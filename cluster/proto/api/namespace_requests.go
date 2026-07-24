@@ -24,6 +24,9 @@ type Namespace struct {
 	Name      string
 	HomeNodes []string
 	State     NamespaceState
+	// StateChangeIndex is the RAFT log index of the create command, or of the
+	// last accepted State flip. 0 means unknown.
+	StateChangeIndex uint64
 }
 
 // Primary returns the namespace's home node, or "" if unset.
@@ -43,6 +46,12 @@ const (
 	// NamespaceStateDeleting rejects create-like operations; the entity is
 	// removed once cleanup empties it.
 	NamespaceStateDeleting NamespaceState = "deleting"
+	// NamespaceStateSuspended rejects create-like operations; the entity and
+	// everything it owns are retained.
+	NamespaceStateSuspended NamespaceState = "suspended"
+	// NamespaceStateResuming rejects create-like operations while the
+	// namespace is on its way back to active.
+	NamespaceStateResuming NamespaceState = "resuming"
 )
 
 // AddNamespaceRequest is the RAFT apply payload for creating a namespace.
@@ -63,7 +72,15 @@ type UpdateNamespaceRequest struct {
 type ChangeNamespaceStateRequest struct {
 	Name        string
 	TargetState NamespaceState
-	Version     int
+	// Version is the command policy version, not a RAFT index. The apply's
+	// log index arrives separately as ApplyRequest.Version.
+	Version int
+	// ExpectedStateChangeIndex stops a re-proposed command from undoing a
+	// state change made after it was first proposed: the apply refuses the
+	// flip unless the namespace's stored StateChangeIndex still equals this
+	// value. 0 skips the check, for callers whose command cannot undo
+	// anything.
+	ExpectedStateChangeIndex uint64
 }
 
 // RemoveNamespaceEntityRequest removes a deleting namespace's entity.

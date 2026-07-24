@@ -281,11 +281,13 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_push",
-		"duration": 20 * time.Second,
-		"level":    level,
-	}).Debug("context.WithTimeout")
+	c.log.WithFields(writeRoutingPlan.LogFields()).WithFields(logrus.Fields{
+		"action":     "coordinator_push",
+		"duration":   20 * time.Second,
+		"level":      level,
+		"class":      c.Class,
+		"request_id": c.TxID,
+	}).Debug("pushing write to resolved replica set")
 
 	// create callback for metrics
 	// the use of an immediately invoked function expression (IIFE) captures the start time
@@ -312,14 +314,6 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 
 	nodeCh := c.broadcast(ctxWithTimeout, writeRoutingPlan.HostAddresses(), ask, level)
 	commitCh := c.commitAll(context.Background(), nodeCh, com, callback)
-
-	// if there are additional hosts, we do a "best effort" write to them
-	// where we don't wait for a response because they are not part of the
-	// replicas used to reach level consistency
-	if len(writeRoutingPlan.AdditionalHostAddresses()) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, writeRoutingPlan.AdditionalHostAddresses(), ask, len(writeRoutingPlan.AdditionalHostAddresses()))
-		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
-	}
 
 	return c.read(level, commitCh, onResult, onFlatten, batchSize), nil
 }

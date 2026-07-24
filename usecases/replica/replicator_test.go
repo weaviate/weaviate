@@ -941,11 +941,11 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 		}).Maybe()
 
 	replicationFsmMock.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+		func(collection string, shard string, shardReplicasLocation []string) []string {
 			if replicas, ok := f.Shard2replicas[shard]; ok {
-				return replicas, []string{}
+				return replicas
 			}
-			return shardReplicasLocation, []string{}
+			return shardReplicasLocation
 		}).Maybe()
 
 	return clusterRouter.NewBuilder(f.CLS, f.isMultiTenant, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()

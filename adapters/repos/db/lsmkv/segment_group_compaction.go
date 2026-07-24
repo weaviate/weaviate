@@ -24,12 +24,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -325,6 +327,11 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		}
 	}
 
+	// only mark actual compaction work as active: candidate probing and OOM
+	// skips above are not real runs
+	backgroundDone := monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessCompaction)
+	defer backgroundDone()
+
 	var left, right Segment
 	func() {
 		sg.maintenanceLock.RLock()
@@ -382,6 +389,11 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 		c := newCompactorReplace(f, left.newReplaceCursorReusable(), right.newReplaceCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+		// recycle the cursor read buffers on every exit, including a panic in do()
+		defer func() {
+			c.c1.releaseReader()
+			c.c2.releaseReader()
+		}()
 
 		aborted, err := runCompactor(c.do)
 		if err != nil {
@@ -447,7 +459,20 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 			k1 = sg.bm25config.K1
 		}
 
-		c := newCompactorInverted(f, left.newInvertedCursorReusable(), right.newInvertedCursorReusable(),
+		// open the (possibly lazy-loaded) segments via the cursors before reading
+		// isPropertyLengthsLoaded: an unloaded lazySegment reports false, which
+		// would wrongly free an eagerly-loaded map on an aborted compaction.
+		// After this, the flag is false only for a map this compaction will load.
+		leftCursor := left.newInvertedCursorReusable()
+		rightCursor := right.newInvertedCursorReusable()
+		if !left.isPropertyLengthsLoaded() {
+			defer left.freePropertyLengths()
+		}
+		if !right.isPropertyLengthsLoaded() {
+			defer right.freePropertyLengths()
+		}
+
+		c := newCompactorInverted(f, leftCursor, rightCursor,
 			level, secondaryIndices, cleanupTombstones,
 			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation)
 
@@ -483,6 +508,10 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 
 	if err := replacer.switchInMemory(); err != nil {
 		return false, fmt.Errorf("replace compacted segments (blocking): %w", err)
+	}
+
+	if strategy == segmentindex.StrategyInverted {
+		sg.reconcileAveragePropertyLength(oldLeft, oldRight, newSegment)
 	}
 
 	sg.addSegmentsToAwaitingDrop(oldLeft, oldRight)
@@ -529,6 +558,7 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist
 			writeMetadata:                sg.writeMetadata,
 			deleteMarkerCounter:          sg.deleteMarkerCounter.Add(1),
+			lazyPropertyLengths:          sg.lazyPropertyLengths,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("initialize new segment: %w", err)
@@ -552,8 +582,8 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 	var lastWarn time.Time
 	t := time.NewTicker(tickerInterval)
 	for {
-		sg.segmentRefCounterLock.Lock()
-
+		// these segments are already swapped out of the active set, so their refs
+		// only decrease; an atomic read per segment is sufficient.
 		allZero := true
 		var pos, count int
 		for i, seg := range segments {
@@ -564,8 +594,6 @@ func (sg *SegmentGroup) waitForReferenceCountToReachZero(segments ...Segment) {
 				break
 			}
 		}
-
-		sg.segmentRefCounterLock.Unlock()
 
 		if allZero {
 			return
@@ -623,33 +651,30 @@ func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
 	var maxWaitingSegment Segment
 	var maxWaitingRefs int
 
+	// segmentsAwaitingDrop is only touched by the (serial) compaction/cleanup
+	// cycle, and getRefs is an atomic read, so no lock is needed here.
 	toDrop := []Segment{}
-	func() {
-		sg.segmentRefCounterLock.Lock()
-		defer sg.segmentRefCounterLock.Unlock()
+	i := 0
+	for _, st := range sg.segmentsAwaitingDrop {
+		if refs := st.seg.getRefs(); refs == 0 {
+			toDrop = append(toDrop, st.seg)
+		} else {
+			sg.segmentsAwaitingDrop[i] = st
+			i++
 
-		i := 0
-		for _, st := range sg.segmentsAwaitingDrop {
-			if refs := st.seg.getRefs(); refs == 0 {
-				toDrop = append(toDrop, st.seg)
-			} else {
-				sg.segmentsAwaitingDrop[i] = st
-				i++
-
-				if !skipWarning {
-					if d := now.Sub(st.time); d >= warnThreshold {
-						waitingCount++
-						if d > maxWaitingDuration {
-							maxWaitingDuration = d
-							maxWaitingSegment = st.seg
-							maxWaitingRefs = refs
-						}
+			if !skipWarning {
+				if d := now.Sub(st.time); d >= warnThreshold {
+					waitingCount++
+					if d > maxWaitingDuration {
+						maxWaitingDuration = d
+						maxWaitingSegment = st.seg
+						maxWaitingRefs = refs
 					}
 				}
 			}
 		}
-		sg.segmentsAwaitingDrop = sg.segmentsAwaitingDrop[:i]
-	}()
+	}
+	sg.segmentsAwaitingDrop = sg.segmentsAwaitingDrop[:i]
 
 	if !skipWarning && maxWaitingDuration > 0 {
 		sg.segmentsAwaitingLastWarn = now
@@ -669,6 +694,8 @@ func (sg *SegmentGroup) dropSegmentsAwaiting() (dropped int, err error) {
 
 	ec := errorcompounder.New()
 	for _, seg := range toDrop {
+		// refCount is 0 here, so no reader can still hold the property lengths map
+		seg.freePropertyLengths()
 		if err := seg.close(); err != nil {
 			ec.Add(fmt.Errorf("close segment: %w", err))
 			continue

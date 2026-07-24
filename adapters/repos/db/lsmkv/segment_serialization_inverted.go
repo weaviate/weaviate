@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/blockenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
@@ -39,28 +40,6 @@ func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
 	return out, values
 }
 
-func packedEncode(docIds, termFreqs []uint64, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) *terms.BlockData {
-	deltaEnc.Init(len(docIds))
-	docIdsPacked := deltaEnc.Encode(docIds)
-
-	tfEnc.Init(len(termFreqs))
-	termFreqsPacked := tfEnc.Encode(termFreqs)
-
-	return &terms.BlockData{
-		DocIds: docIdsPacked,
-		Tfs:    termFreqsPacked,
-	}
-}
-
-func packedDecode(values *terms.BlockData, numValues int, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) ([]uint64, []uint64) {
-	deltaEnc.Init(numValues)
-	docIds := deltaEnc.Decode(values.DocIds)
-
-	tfEnc.Init(numValues)
-	termFreqs := tfEnc.Decode(values.Tfs)
-	return docIds, termFreqs
-}
-
 func encodeBlockParam(nodes []MapPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) *terms.BlockData {
 	docIds := make([]uint64, len(nodes))
 	termFreqs := make([]uint64, len(nodes))
@@ -71,12 +50,16 @@ func encodeBlockParam(nodes []MapPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint
 		// propLengths[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[4:8])))
 	}
 
-	packed := packedEncode(docIds, termFreqs, deltaEnc, tfEnc)
+	packed := blockenc.PackedEncode(docIds, termFreqs, deltaEnc, tfEnc)
 
 	return packed
 }
 
-func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
+// createBlocks builds the block-max metadata and encoded block data for a
+// term's postings. Property lengths come from, in order: lookup (compaction
+// cursor, no map), a non-empty propLengths map, or the value bytes — backfilled
+// into propLengths for the flush path.
+func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, lookup *propLengthsView, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
 	tombstones, values := extractTombstones(nodes)
 	externalPropLengths := len(propLengths) != 0
 
@@ -101,9 +84,12 @@ func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, deltaEnc, tfEn
 			tf := float64(math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4])))
 			pl := float64(math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[4:8])))
 			docId := binary.BigEndian.Uint64(values[j].Key)
-			if externalPropLengths {
+			switch {
+			case lookup != nil:
+				pl = float64(lookup.get(docId))
+			case externalPropLengths:
 				pl = float64(propLengths[docId])
-			} else {
+			default:
 				propLengths[docId] = uint32(pl)
 			}
 
@@ -132,31 +118,6 @@ func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, deltaEnc, tfEn
 	return blockMetadata, blockDataEncoded, tombstones, propLengths
 }
 
-func encodeBlocks(blockEntries []*terms.BlockEntry, blockDatas []*terms.BlockData, docCount uint64) []byte {
-	length := 0
-	for i := range blockDatas {
-		length += blockDatas[i].Size() + blockEntries[i].Size()
-	}
-	out := make([]byte, length+8+8)
-	binary.LittleEndian.PutUint64(out, docCount)
-	offset := 8
-
-	binary.LittleEndian.PutUint64(out[offset:], uint64(length))
-	offset += 8
-
-	for _, blockEntry := range blockEntries {
-		copy(out[offset:], blockEntry.Encode())
-		offset += blockEntry.Size()
-	}
-	for _, blockData := range blockDatas {
-		// write the block data
-		copy(out[offset:], blockData.Encode())
-		offset += blockData.Size()
-	}
-
-	return out
-}
-
 func createAndEncodeSingleValue(mapPairs []MapPair, propLengths map[uint64]uint32) ([]byte, *sroar.Bitmap) {
 	tombstones := sroar.NewBitmap()
 	buffer := make([]byte, 8+12*len(mapPairs))
@@ -176,45 +137,24 @@ func createAndEncodeSingleValue(mapPairs []MapPair, propLengths map[uint64]uint3
 	return buffer[:offset], tombstones
 }
 
-func createAndEncodeBlocksTest(nodes []MapPair, propLengths map[uint64]uint32, encodeSingleSeparate int, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
+func createAndEncodeBlocksTest(nodes []MapPair, propLengths map[uint64]uint32, lookup *propLengthsView, encodeSingleSeparate int, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
 	if len(nodes) <= encodeSingleSeparate {
+		// single-value postings store tf inline and never consult propLengths
 		return createAndEncodeSingleValue(nodes, propLengths)
 	}
-	blockEntries, blockDatas, tombstones, _ := createBlocks(nodes, propLengths, deltaEnc, tfEnc, k1, b, avgPropLen)
-	return encodeBlocks(blockEntries, blockDatas, uint64(len(nodes))), tombstones
+	blockEntries, blockDatas, tombstones, _ := createBlocks(nodes, propLengths, lookup, deltaEnc, tfEnc, k1, b, avgPropLen)
+	return blockenc.EncodeBlocks(blockEntries, blockDatas, uint64(len(nodes))), tombstones
 }
 
 func createAndEncodeBlocksWithLengths(nodes []MapPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
 	propLengths := make(map[uint64]uint32)
-	return createAndEncodeBlocksTest(nodes, propLengths, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
+	return createAndEncodeBlocksTest(nodes, propLengths, nil, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
 }
 
-func createAndEncodeBlocks(nodes []MapPair, propLengths map[uint64]uint32, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
-	return createAndEncodeBlocksTest(nodes, propLengths, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
-}
-
-func decodeBlocks(data []byte) ([]*terms.BlockEntry, []*terms.BlockData, int) {
-	offset := 0
-	docCount := int(binary.LittleEndian.Uint64(data))
-	offset += 16
-
-	// calculate the number of blocks by dividing the number of documents by the block size and rounding up
-	blockCount := (docCount + (terms.BLOCK_SIZE - 1)) / terms.BLOCK_SIZE
-
-	blockEntries := make([]*terms.BlockEntry, blockCount)
-	blockDatas := make([]*terms.BlockData, blockCount)
-
-	blockDataInitialOffset := offset + blockCount*(terms.BlockEntry{}.Size())
-
-	for i := 0; i < blockCount; i++ {
-		blockEntries[i] = terms.DecodeBlockEntry(data[offset:])
-		dataOffset := int(blockEntries[i].Offset) + blockDataInitialOffset
-		blockDatas[i] = terms.DecodeBlockData(data[dataOffset:])
-		offset += blockEntries[i].Size()
-	}
-	dataOffset := int(blockEntries[blockCount-1].Offset) + blockDataInitialOffset + blockDatas[blockCount-1].Size()
-
-	return blockEntries, blockDatas, dataOffset
+// createAndEncodeBlocks is the compaction entry point: property lengths come
+// from the merged-segment cursor (lookup), not a map.
+func createAndEncodeBlocks(nodes []MapPair, lookup *propLengthsView, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
+	return createAndEncodeBlocksTest(nodes, nil, lookup, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
 }
 
 func decodeAndConvertValuesFromBlocks(data []byte) ([]value, int) {
@@ -238,7 +178,7 @@ func decodeAndConvertValuesFromBlocksTest(data []byte, encodeSingleSeparate int,
 		}
 		return values, offset
 	}
-	blockEntries, blockDatas, offset := decodeBlocks(data)
+	blockEntries, blockDatas, offset := blockenc.DecodeBlocks(data)
 	return convertFromBlocksValue(blockEntries, blockDatas, collectionSize, deltaEnc, tfEnc), offset
 }
 
@@ -265,7 +205,7 @@ func decodeAndConvertFromBlocksTest(data []byte, encodeSingleSeparate int, delta
 		}
 		return values, offset
 	}
-	blockEntries, blockDatas, offset := decodeBlocks(data)
+	blockEntries, blockDatas, offset := blockenc.DecodeBlocks(data)
 	return convertFromBlocks(blockEntries, blockDatas, collectionSize, deltaEnc, tfEnc), offset
 }
 
@@ -280,7 +220,7 @@ func convertFromBlocksValue(blockEntries []*terms.BlockEntry, encodedBlocks []*t
 		}
 		blockSizeInt := int(blockSize)
 
-		docIds, tfs := packedDecode(encodedBlocks[i], blockSizeInt, deltaEnc, tfEnc)
+		docIds, tfs := blockenc.PackedDecode(encodedBlocks[i], blockSizeInt, deltaEnc, tfEnc)
 
 		for j := 0; j < blockSizeInt; j++ {
 			docId := docIds[j]
@@ -312,7 +252,7 @@ func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.
 		}
 		blockSizeInt := int(blockSize)
 
-		docIds, tfs := packedDecode(encodedBlocks[i], blockSizeInt, deltaEnc, tfEnc)
+		docIds, tfs := blockenc.PackedDecode(encodedBlocks[i], blockSizeInt, deltaEnc, tfEnc)
 
 		for j := 0; j < blockSizeInt; j++ {
 			docId := docIds[j]
@@ -335,28 +275,106 @@ func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.
 	return out
 }
 
-func convertFixedLengthFromMemory(data []byte, blockSize int) *terms.BlockDataDecoded {
-	out := &terms.BlockDataDecoded{
-		DocIds: make([]uint64, blockSize),
-		Tfs:    make([]uint64, blockSize),
+// convertFromBlocksReusable is convertFromBlocks with the output MapPair slice
+// and the key/value arena passed in and grown as needed, so a caller decoding
+// many nodes reuses one allocation instead of a make([]byte, 8) per docID.
+// Returns the (possibly regrown) slices for the caller to store back.
+func convertFromBlocksReusable(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.BlockData, objectCount uint64, out []MapPair, kvArena []byte, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) ([]MapPair, []byte) {
+	if cap(out) < int(objectCount) {
+		out = make([]MapPair, 0, objectCount)
+	} else {
+		out = out[:0]
 	}
-	offset := 8
-	i := 0
-	for offset < len(data) {
-		out.DocIds[i] = binary.BigEndian.Uint64(data[offset : offset+8])
-		out.Tfs[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(data[offset+8 : offset+12])))
-		offset += 16
-		i++
+
+	neededArena := int(objectCount) * 16
+	if cap(kvArena) < neededArena {
+		kvArena = make([]byte, neededArena)
+	} else {
+		kvArena = kvArena[:neededArena] // reslice so len tracks content, like out above
 	}
-	return out
+	arenaOff := 0
+
+	for i := range blockEntries {
+		blockSize := uint64(terms.BLOCK_SIZE)
+		if i == len(blockEntries)-1 {
+			blockSize = objectCount - uint64(terms.BLOCK_SIZE)*uint64(i)
+		}
+		blockSizeInt := int(blockSize)
+
+		docIds, tfs := blockenc.PackedDecode(encodedBlocks[i], blockSizeInt, deltaEnc, tfEnc)
+
+		for j := 0; j < blockSizeInt; j++ {
+			key := kvArena[arenaOff : arenaOff+8]
+			binary.BigEndian.PutUint64(key, docIds[j])
+			arenaOff += 8
+
+			value := kvArena[arenaOff : arenaOff+8]
+			// PutUint64 (not PutUint32) writes the TF into value[0:4] and zeroes
+			// value[4:8] — the propLength slot, which a plain copy would leave as
+			// stale bytes from a prior node in the reused arena.
+			binary.LittleEndian.PutUint64(value, uint64(math.Float32bits(float32(tfs[j]))))
+			arenaOff += 8
+
+			out = append(out, MapPair{
+				Key:   key,
+				Value: value,
+			})
+		}
+	}
+	return out, kvArena
+}
+
+// decodeAndConvertFromBlocksReusable is decodeAndConvertFromBlocks with the
+// output slice and arena passed in and grown as needed. It returns the updated
+// mapPairBuf and kvArena for the caller to store back, plus the byte offset
+// where the node's data ends.
+func decodeAndConvertFromBlocksReusable(data []byte, mapPairBuf []MapPair, kvArena []byte, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) ([]MapPair, []byte, int) {
+	collectionSize := binary.LittleEndian.Uint64(data)
+
+	if collectionSize <= uint64(terms.ENCODE_AS_FULL_BYTES) {
+		neededArena := int(collectionSize) * 16
+		if cap(kvArena) < neededArena {
+			kvArena = make([]byte, neededArena)
+		} else {
+			kvArena = kvArena[:neededArena] // reslice so len tracks content, like mapPairBuf below
+		}
+		if cap(mapPairBuf) < int(collectionSize) {
+			mapPairBuf = make([]MapPair, 0, collectionSize)
+		} else {
+			mapPairBuf = mapPairBuf[:0]
+		}
+		arenaOff := 0
+		offset := 8
+		for i := 0; i < int(collectionSize*16); i += 16 {
+			key := kvArena[arenaOff : arenaOff+8]
+			copy(key, data[offset:offset+8])
+			arenaOff += 8
+			value := kvArena[arenaOff : arenaOff+8]
+			copy(value, data[offset+8:offset+12])
+			binary.LittleEndian.PutUint32(value[4:], 0) // zero the reused propLength slot
+			arenaOff += 8
+			mapPairBuf = append(mapPairBuf, MapPair{
+				Key:   key,
+				Value: value,
+			})
+			offset += 16
+		}
+		return mapPairBuf, kvArena, offset
+	}
+	blockEntries, blockDatas, offset := blockenc.DecodeBlocks(data)
+	mapPairBuf, kvArena = convertFromBlocksReusable(blockEntries, blockDatas, collectionSize, mapPairBuf, kvArena, deltaEnc, tfEnc)
+	return mapPairBuf, kvArena, offset
 }
 
 // a single node of strategy "inverted"
 type segmentInvertedNode struct {
-	values      []MapPair
-	primaryKey  []byte
-	offset      int
-	propLengths map[uint64]uint32
+	values     []MapPair
+	primaryKey []byte
+	offset     int
+	// propLengths is the lookup over the merged segments' property lengths used
+	// by block encoding. Required (non-nil): this node is built only during
+	// compaction; the flush path encodes via createAndEncodeBlocksWithLengths.
+	propLengths *propLengthsView
 }
 
 var invPayloadLen = 16
@@ -393,6 +411,194 @@ func (s segmentInvertedNode) KeyIndexAndWriteTo(w io.Writer, deltaEnc, tfEnc var
 	}
 
 	return out, nil
+}
+
+// compactorInvertedBuffers holds the reusable buffers the compaction encode
+// pipeline threads through, so encoding a key's blocks costs no per-key or
+// per-block heap allocation. It is held on compactorInverted.
+type compactorInvertedBuffers struct {
+	docIdsBuf       []uint64
+	termFreqsBuf    []uint64
+	blockEntries    []*terms.BlockEntry
+	blockDatas      []*terms.BlockData
+	blockEntryStore []terms.BlockEntry
+	blockDataStore  []terms.BlockData
+	encodeOutBuf    []byte
+	encArena        []byte
+	singleValBuf    []byte
+}
+
+func newCompactorInvertedBuffers() compactorInvertedBuffers {
+	return compactorInvertedBuffers{
+		docIdsBuf:    make([]uint64, terms.BLOCK_SIZE),
+		termFreqsBuf: make([]uint64, terms.BLOCK_SIZE),
+	}
+}
+
+// filterTombstonesInPlace drops tombstoned entries in place. The compaction
+// encode path tracks tombstones separately, so unlike extractTombstones it
+// builds no bitmap and allocates nothing.
+func filterTombstonesInPlace(nodes []MapPair) []MapPair {
+	writeIdx := 0
+	for readIdx := 0; readIdx < len(nodes); readIdx++ {
+		if !nodes[readIdx].Tombstone {
+			if writeIdx != readIdx {
+				nodes[writeIdx] = nodes[readIdx]
+			}
+			writeIdx++
+		}
+	}
+	return nodes[:writeIdx]
+}
+
+// encodeBlockParamReusable is encodeBlockParam writing into caller-owned
+// docIds/termFreqs scratch and appending encoded data to arena.
+func encodeBlockParamReusable(nodes []MapPair, docIds, termFreqs []uint64, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], arena []byte, out *terms.BlockData) []byte {
+	for i, n := range nodes {
+		docIds[i] = binary.BigEndian.Uint64(n.Key)
+		termFreqs[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[0:4])))
+	}
+	return blockenc.PackedEncodeArena(docIds[:len(nodes)], termFreqs[:len(nodes)], deltaEnc, tfEnc, arena, out)
+}
+
+// createBlocksCompaction is createBlocks for the compaction path: property
+// lengths always come from the merged-segment lookup, tombstones are filtered in
+// place, and block entry/data structs plus the varint arena are reused from bufs.
+func createBlocksCompaction(nodes []MapPair, lookup *propLengthsView, bufs *compactorInvertedBuffers, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]*terms.BlockEntry, []*terms.BlockData) {
+	values := filterTombstonesInPlace(nodes)
+
+	blockCount := (len(values) + (terms.BLOCK_SIZE - 1)) / terms.BLOCK_SIZE
+
+	if cap(bufs.blockEntries) < blockCount {
+		bufs.blockEntries = make([]*terms.BlockEntry, blockCount)
+		bufs.blockEntryStore = make([]terms.BlockEntry, blockCount)
+	} else {
+		bufs.blockEntries = bufs.blockEntries[:blockCount]
+		bufs.blockEntryStore = bufs.blockEntryStore[:blockCount]
+	}
+	if cap(bufs.blockDatas) < blockCount {
+		bufs.blockDatas = make([]*terms.BlockData, blockCount)
+		bufs.blockDataStore = make([]terms.BlockData, blockCount)
+	} else {
+		bufs.blockDatas = bufs.blockDatas[:blockCount]
+		bufs.blockDataStore = bufs.blockDataStore[:blockCount]
+	}
+
+	// reset the arena for this key: all blocks' encoded data must coexist until
+	// blockenc.EncodeBlocksInto serializes them
+	bufs.encArena = bufs.encArena[:0]
+
+	offset := uint32(0)
+
+	for i := 0; i < blockCount; i++ {
+		start := i * terms.BLOCK_SIZE
+		end := start + terms.BLOCK_SIZE
+		if end > len(values) {
+			end = len(values)
+		}
+		maxImpact := float64(0)
+		maxImpactTf := uint32(0)
+		maxImpactPropLength := uint32(0)
+
+		for j := start; j < end; j++ {
+			tf := float64(math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4])))
+			docId := binary.BigEndian.Uint64(values[j].Key)
+			pl := float64(lookup.get(docId))
+
+			impact := tf / (tf + k1*(1-b+b*(pl/avgPropLen)))
+
+			if impact > maxImpact {
+				maxImpact = impact
+				maxImpactTf = uint32(tf)
+				maxImpactPropLength = uint32(pl)
+			}
+		}
+
+		maxId := binary.BigEndian.Uint64(values[end-1].Key)
+
+		bufs.encArena = encodeBlockParamReusable(values[start:end], bufs.docIdsBuf, bufs.termFreqsBuf, deltaEnc, tfEnc, bufs.encArena, &bufs.blockDataStore[i])
+		bufs.blockDatas[i] = &bufs.blockDataStore[i]
+
+		bufs.blockEntryStore[i] = terms.BlockEntry{
+			MaxId:               maxId,
+			Offset:              offset,
+			MaxImpactTf:         maxImpactTf,
+			MaxImpactPropLength: maxImpactPropLength,
+		}
+		bufs.blockEntries[i] = &bufs.blockEntryStore[i]
+
+		offset += uint32(bufs.blockDatas[i].Size())
+	}
+
+	return bufs.blockEntries, bufs.blockDatas
+}
+
+// createAndEncodeSingleValueCompaction is createAndEncodeSingleValue reusing a
+// buffer from bufs and skipping the tombstone bitmap.
+func createAndEncodeSingleValueCompaction(mapPairs []MapPair, bufs *compactorInvertedBuffers) []byte {
+	needed := 8 + 12*len(mapPairs)
+	if cap(bufs.singleValBuf) < needed {
+		bufs.singleValBuf = make([]byte, needed)
+	} else {
+		bufs.singleValBuf = bufs.singleValBuf[:needed]
+	}
+	buf := bufs.singleValBuf
+
+	binary.LittleEndian.PutUint64(buf, uint64(len(mapPairs)))
+	offset := 8
+	for i := 0; i < len(mapPairs); i++ {
+		copy(buf[offset:offset+8], mapPairs[i].Key)
+		copy(buf[offset+8:offset+12], mapPairs[i].Value)
+		offset += 12
+	}
+	return buf[:offset]
+}
+
+// createAndEncodeBlocksCompaction is the compaction counterpart to
+// createAndEncodeBlocks: in-place tombstone filtering, reusable encode buffers,
+// and inline block serialization.
+func createAndEncodeBlocksCompaction(nodes []MapPair, lookup *propLengthsView, bufs *compactorInvertedBuffers, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) []byte {
+	if len(nodes) <= terms.ENCODE_AS_FULL_BYTES {
+		return createAndEncodeSingleValueCompaction(nodes, bufs)
+	}
+	blockEntries, blockDatas := createBlocksCompaction(nodes, lookup, bufs, deltaEnc, tfEnc, k1, b, avgPropLen)
+	bufs.encodeOutBuf, _ = blockenc.EncodeBlocksInto(blockEntries, blockDatas, uint64(len(nodes)), bufs.encodeOutBuf)
+	return bufs.encodeOutBuf
+}
+
+// KeyIndexAndWriteToCompaction is KeyIndexAndWriteTo for the compaction path: it
+// returns a KeyRedux (no ValueStart/SecondaryKeys), reuses the encode buffers in
+// bufs, and takes buf (>= 4 bytes) for the key-length prefix.
+//
+// This path emits no secondary keys, so it is only valid when
+// SecondaryIndexCount == 0. compactorInverted enforces that.
+func (s segmentInvertedNode) KeyIndexAndWriteToCompaction(w io.Writer, buf []byte, bufs *compactorInvertedBuffers, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) (segmentindex.KeyRedux, error) {
+	written := 0
+
+	blocksEncoded := createAndEncodeBlocksCompaction(s.values, s.propLengths, bufs, deltaEnc, tfEnc, k1, b, avgPropLen)
+	n, err := w.Write(blocksEncoded)
+	if err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write values for node")
+	}
+	written += n
+
+	keyLength := uint32(len(s.primaryKey))
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write key length encoding for node")
+	}
+	written += 4
+
+	n, err = w.Write(s.primaryKey)
+	if err != nil {
+		return segmentindex.KeyRedux{}, errors.Wrapf(err, "write node")
+	}
+	written += n
+
+	return segmentindex.KeyRedux{
+		ValueEnd: s.offset + written,
+		Key:      s.primaryKey,
+	}, nil
 }
 
 // ParseInvertedNode reads from r and parses the Inverted values into a segmentCollectionNode

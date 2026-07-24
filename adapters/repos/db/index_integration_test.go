@@ -147,8 +147,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	router := routerTypes.NewMockRouter(t)
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
-			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
-			AdditionalReplicas: nil,
+			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
 	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
@@ -234,6 +233,10 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		Tokenization: models.PropertyTokenizationWhitespace,
 	})
 	require.Nil(t, err)
+
+	// A cold shard materializes its directory at load, not on add-property;
+	// force-load it before comparing on-disk files.
+	require.NoError(t, index.LoadLocalShard(context.TODO(), shardName, false))
 
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
@@ -383,8 +386,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	router := routerTypes.NewMockRouter(t)
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
-			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
-			AdditionalReplicas: nil,
+			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
 	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
@@ -581,8 +583,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	router := routerTypes.NewMockRouter(t)
 	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
-			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
-			AdditionalReplicas: nil,
+			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
 	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{

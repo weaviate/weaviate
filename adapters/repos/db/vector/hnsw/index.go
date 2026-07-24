@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -119,6 +120,7 @@ type hnsw struct {
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
+	releaseVectorsOnce  sync.Once
 
 	commitLog CommitLogger
 
@@ -168,7 +170,10 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed       atomic.Bool
+	compressed atomic.Bool
+	// compressing spans Upgrade() through compressThenCallback completion;
+	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
+	compressing      atomic.Bool
 	doNotRescore     bool
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
@@ -667,6 +672,10 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	if h.compressed.Load() {
 		dist, err := distancer.DistanceToNode(node)
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "distToNode")
+			}
 			return 0, err
 		}
 
@@ -682,7 +691,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
-			return 0, nil
+			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err,
@@ -705,14 +714,37 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
-	h.shardedNodeLocks.RLock(h.entryPointID)
-	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
 
-	return h.isEmptyUnlocked()
+	empty := func() bool {
+		h.shardedNodeLocks.RLock(h.entryPointID)
+		defer h.shardedNodeLocks.RUnlock(h.entryPointID)
+
+		return h.isEmptyUnlocked()
+	}()
+	if !empty {
+		return false
+	}
+
+	// a nil entrypoint slot is not proof of emptiness: cleanup can remove a
+	// stranded entrypoint while live nodes remain
+	h.shardedNodeLocks.RLockAll()
+	defer h.shardedNodeLocks.RUnlockAll()
+
+	return !h.hasLiveNodesUnlocked()
 }
 
 func (h *hnsw) isEmptyUnlocked() bool {
 	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
+}
+
+// callers must hold h.RLock and all sharded node locks
+func (h *hnsw) hasLiveNodesUnlocked() bool {
+	for _, node := range h.nodes {
+		if node != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
@@ -738,14 +770,8 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "hnsw drop")
 	}
 
-	if h.compressed.Load() {
-		err := h.compressor.Drop()
-		if err != nil {
-			return fmt.Errorf("failed to shutdown compressed store")
-		}
-	} else {
-		// cancel vector cache goroutine
-		h.cache.Drop()
+	if err := h.releaseVectors(); err != nil {
+		return err
 	}
 
 	// cancel commit logger last, as the tombstone cleanup cycle might still
@@ -761,24 +787,30 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
 
-	if err := h.commitLog.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
+	ec := errorcompounder.New()
+	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")
+	ec.AddWrapf(h.tombstoneCleanupCallbackCtrl.Unregister(ctx), "unregister tombstone cleanup cycle")
 
-	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
+	// release the vectors even if the steps above failed, otherwise a failed
+	// teardown keeps the whole cache in memory
+	ec.Add(h.releaseVectors())
 
-	if h.compressed.Load() {
-		err := h.compressor.Drop()
-		if err != nil {
-			return errors.Wrap(err, "hnsw shutdown")
+	return ec.ToError()
+}
+
+// releaseVectors frees the vectors held in memory. Only the first call does the
+// work: dropping a cache notifies a goroutine that exits on the first
+// notification, so a repeated drop would block forever.
+func (h *hnsw) releaseVectors() error {
+	var err error
+	h.releaseVectorsOnce.Do(func() {
+		if h.compressed.Load() {
+			err = errors.Wrap(h.compressor.Drop(), "drop compressed store")
+		} else {
+			h.cache.Drop()
 		}
-	} else {
-		h.cache.Drop()
-	}
-
-	return nil
+	})
+	return err
 }
 
 func (h *hnsw) Flush() error {
@@ -911,6 +943,10 @@ func (h *hnsw) Multivector() bool {
 
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
+}
+
+func (h *hnsw) UpgradeInProgress() bool {
+	return h.compressing.Load()
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {

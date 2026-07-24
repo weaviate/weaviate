@@ -63,7 +63,7 @@ func TestSuccessListAll(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers").Return(map[string]*apikey.User{dbUser: {Id: dbUser}}, nil)
+			dynUser.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser}}, nil)
 			dynUser.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 			if tt.includeStatic {
@@ -98,7 +98,7 @@ func TestSuccessListAllAfterImport(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, &models.Principal{Username: "root"}, authorization.READ, authorization.Users()[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers").Return(map[string]*apikey.User{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
+	dynUser.On("GetUsers").Return(map[string]apikey.UserView{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
 	dynUser.On("GetRolesForUserOrGroup", exStaticUser, authentication.AuthTypeDb, false).Return(
 		map[string][]authorization.Policy{"role": {}}, nil)
 
@@ -195,9 +195,9 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 
-			usersRet := make(map[string]*apikey.User)
+			usersRet := make(map[string]apikey.UserView)
 			for _, user := range tt.userIds {
-				usersRet[user] = &apikey.User{Id: user, LastUsedAt: baseTime}
+				usersRet[user] = apikey.UserView{Id: user, LastUsedAt: baseTime}
 			}
 
 			dynUser.On("GetUsers").Return(usersRet, nil)
@@ -243,7 +243,7 @@ func TestSuccessListForbidden(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers").Return(map[string]*apikey.User{"test": {Id: "test"}}, nil)
+	dynUser.On("GetUsers").Return(map[string]apikey.UserView{"test": {Id: "test"}}, nil)
 
 	log, _ := test.NewNullLogger()
 	h := dynUserHandler{
@@ -281,7 +281,7 @@ func TestListNoDynamic(t *testing.T) {
 // TestListUsers_Namespaces — per-item response stripping: short id (no
 // Namespace) for a namespaced caller; full id (with Namespace) for a global op.
 func TestListUsers_Namespaces(t *testing.T) {
-	storedUser := &apikey.User{Id: "customer1:bob", Namespace: "customer1", Active: true}
+	storedUser := apikey.UserView{Id: "customer1:bob", Namespace: "customer1", Active: true}
 
 	tests := []struct {
 		name             string
@@ -311,7 +311,7 @@ func TestListUsers_Namespaces(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(storedUser.Id)[0]).Return(nil)
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers").Return(map[string]*apikey.User{storedUser.Id: storedUser}, nil)
+			dynUser.On("GetUsers").Return(map[string]apikey.UserView{storedUser.Id: storedUser}, nil)
 			dynUser.On("GetRolesForUserOrGroup", storedUser.Id, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 			h := dynUserHandler{
@@ -337,7 +337,7 @@ func TestListUsers_Namespaces(t *testing.T) {
 // specialization, exercised here via FilterAuthorizedResources) returns only
 // the caller's customer1:bob, stripped to the short name.
 func TestListUsers_CrossNamespaceIsolation(t *testing.T) {
-	stored := map[string]*apikey.User{
+	stored := map[string]apikey.UserView{
 		"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true},
 		"customer2:bob": {Id: "customer2:bob", Namespace: "customer2", Active: true},
 	}

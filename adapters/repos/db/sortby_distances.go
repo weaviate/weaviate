@@ -27,7 +27,11 @@ func (sbd *sortByDistances) Len() int {
 }
 
 func (sbd *sortByDistances) Less(i, j int) bool {
-	return sbd.scores[i] < sbd.scores[j]
+	if sbd.scores[i] != sbd.scores[j] {
+		return sbd.scores[i] < sbd.scores[j]
+	}
+	// Tie-breaker: use document ID for deterministic ordering
+	return sbd.objects[i].ID() < sbd.objects[j].ID()
 }
 
 func (sbd *sortByDistances) Swap(i, j int) {

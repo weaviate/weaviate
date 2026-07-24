@@ -99,7 +99,7 @@ func TestGetRolesForGroupSuccess(t *testing.T) {
 				}
 			}
 			controller.On("GetRolesForUserOrGroup", tt.params.ID, authentication.AuthTypeOIDC, true).Return(returnedPolices, nil)
-			// controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
+			// controller.On("GetUsers", tt.params.ID).Return(map[string]apikey.UserView{"testUser": {}}, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,

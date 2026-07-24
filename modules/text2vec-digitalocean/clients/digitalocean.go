@@ -210,8 +210,9 @@ func (c *Client) vectorize(ctx context.Context, input []string, cfg moduletools.
 }
 
 func buildURL(ctx context.Context, baseURL string) (string, error) {
-	if header := modulecomponents.GetValueFromContext(ctx, "X-Digitalocean-Baseurl"); header != "" {
-		baseURL = header
+	baseURL, err := modulecomponents.ValidatedBaseURLFromHeader(ctx, "X-Digitalocean-Baseurl", baseURL)
+	if err != nil {
+		return "", err
 	}
 	return url.JoinPath(baseURL, "/v1/embeddings")
 }

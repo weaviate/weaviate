@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 func TestCombinedCursor(t *testing.T) {
@@ -400,7 +401,7 @@ func createCursor(t *testing.T, bsts ...*BinarySearchTree) *CombinedCursor {
 	for _, bst := range bsts {
 		innerCursors = append(innerCursors, NewBinarySearchTreeCursor(bst))
 	}
-	return NewCombinedCursor(innerCursors, false)
+	return NewCombinedCursor(innerCursors, false, concurrency.SROAR_MERGE)
 }
 
 func createCursorKeyOnly(t *testing.T, bsts ...*BinarySearchTree) *CombinedCursor {
@@ -412,7 +413,7 @@ func createCursorKeyOnly(t *testing.T, bsts ...*BinarySearchTree) *CombinedCurso
 // Previous implementation of cursor called recursively Next() when empty entry occurred,
 // which could lead to stack overflow. This test prevents a regression.
 func TestCombinedCursor_StackOverflow(t *testing.T) {
-	cursor := NewCombinedCursor([]InnerCursor{&emptyInnerCursor{}}, false)
+	cursor := NewCombinedCursor([]InnerCursor{&emptyInnerCursor{}}, false, concurrency.SROAR_MERGE)
 
 	k, bm := cursor.First()
 	assert.Nil(t, k)

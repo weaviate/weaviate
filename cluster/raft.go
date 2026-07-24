@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -120,7 +121,22 @@ func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 }
 
 func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicationState) (bool, error) {
-	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, target), nil
+	if s.store.raft == nil {
+		return false, nil
+	}
+	cfg := s.store.raft.GetConfiguration()
+	if err := cfg.Error(); err != nil {
+		return false, fmt.Errorf("get raft configuration: %w", err)
+	}
+	servers := cfg.Configuration().Servers
+	if len(servers) == 0 {
+		return false, nil
+	}
+	peers := make([]string, 0, len(servers))
+	for _, server := range servers {
+		peers = append(peers, string(server.ID))
+	}
+	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, target, peers), nil
 }
 
 func (s *Raft) NodeSelector() cluster.NodeSelector {
@@ -131,6 +147,15 @@ func (s *Raft) ReplicationFsm() *replication.ShardReplicationFSM {
 	return s.store.replicationManager.GetReplicationFSM()
 }
 
+func (s *Raft) SetInflightDrainer(fn func(ctx context.Context, class, shard string) error) {
+	s.store.replicationManager.SetInflightDrainer(fn)
+}
+
 func (s *Raft) IsLeader() bool {
 	return s.store.IsLeader()
+}
+
+// ClusterID returns the stable cluster identity UUIDv7, or "" if not yet committed.
+func (s *Raft) ClusterID() string {
+	return s.store.ClusterID()
 }

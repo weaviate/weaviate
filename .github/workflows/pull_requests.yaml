@@ -105,7 +105,7 @@ jobs:
           echo "All security scans passed - proceeding with push"
 
       - name: Login to Docker Hub
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -140,7 +140,7 @@ jobs:
       matrix:
         include:
           - arch: "amd64"
-            runner: ubicloud-standard-2
+            runner: ubicloud-premium-2
             push-args: "--amd64-only"
           - arch: "arm64"
             runner: ubuntu-24.04-arm
@@ -152,7 +152,7 @@ jobs:
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -315,10 +315,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
       - name: Error on change
@@ -333,25 +330,30 @@ jobs:
             exit 0
           fi
   Unit-Tests:
-    name: unit tests
+    name: unit tests (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "adapters"
+            test: "--unit-only-adapters"
+          - name: "non-adapters"
+            test: "--unit-only-non-adapters"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Unit test
-        run: ./test/run.sh --unit-only
+        run: ./test/run.sh ${{ matrix.test }}
       - name: Archive code coverage results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: coverage-report-unit
+          name: coverage-report-unit-${{ matrix.name }}
           path: coverage-unit.txt
   Integration-Tests:
     name: integration tests (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     strategy:
       fail-fast: false
       matrix:
@@ -363,10 +365,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Cache vector datasets
         if: matrix.name == 'with vectors'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
@@ -384,7 +383,7 @@ jobs:
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     strategy:
       fail-fast: false
       matrix:
@@ -408,13 +407,10 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: ./.github/actions/docker-login
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -487,12 +483,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Login to Docker Hub
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -523,12 +516,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Login to Docker Hub
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -594,11 +584,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 2
-      - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
       - name: check
         env:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
@@ -611,6 +596,9 @@ jobs:
             echo "Skip pipeline. In order to run the pipeline commit title must contain: [api]"
             echo "run_pipeline=false" >> $GITHUB_ENV
           fi
+      - name: Set up Go
+        if: ${{ env.run_pipeline == 'true' }}
+        uses: ./.github/actions/setup-go
       - name: configure gcp
         if: ${{ env.run_pipeline == 'true' }}
         id: creds-gcp
@@ -652,7 +640,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     strategy:
       fail-fast: false
       matrix:
@@ -688,15 +676,14 @@ jobs:
             test: "--acceptance-go-client-only-fast-group-1"
           - name: "go-client-group-2"
             test: "--acceptance-go-client-only-fast-group-2"
+          - name: "go-client-group-3"
+            test: "--acceptance-go-client-only-fast-group-3"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Login to Docker Hub
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -725,6 +712,8 @@ jobs:
             test: "--acceptance-go-client-named-vectors-cluster"
           - name: "fast-group-4"
             test: "--acceptance-only-fast-group-4"
+          - name: "fast-group-5"
+            test: "--acceptance-only-fast-group-5"
           - name: "distributed-tasks"
             test: "--acceptance-distributed-tasks"
           - name: "compaction"
@@ -738,12 +727,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Login to Docker Hub
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -761,7 +747,7 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" || "$MATRIX_TEST" == "python-namespaces" ]]; then
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "fast-group-5" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" || "$MATRIX_TEST" == "python-namespaces" ]]; then
             echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
@@ -809,10 +795,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Login to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
@@ -842,12 +825,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.25'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Login to Docker Hub
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: ./.github/actions/docker-login
         if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -876,10 +856,16 @@ jobs:
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - name: Download coverage artifacts integration
+      - name: Download coverage unit adapters
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: coverage-report-unit
+          name: coverage-report-unit-adapters
+          path: coverage-unit-adapters
+      - name: Download coverage unit non-adapters
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-report-unit-non-adapters
+          path: coverage-unit-non-adapters
       - name: Download coverage integration without vector package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -894,7 +880,7 @@ jobs:
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
         with:
           fail_ci_if_error: false
-          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt
+          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
     name: compile and upload binaries
@@ -902,10 +888,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7
         with:
@@ -957,10 +940,7 @@ jobs:
         with:
           name: binaries-windows-amd64
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: '1.26'
-          cache: true
+        uses: ./.github/actions/setup-go
       - name: start weaviate
         shell: bash
         # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:

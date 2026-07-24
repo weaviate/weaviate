@@ -35,7 +35,7 @@ func TestSuccessActivate(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user", Active: false}}, nil)
+	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{"user": {Id: "user", Active: false}}, nil)
 	dynUser.On("ActivateUser", mock.Anything, "user").Return(nil)
 
 	h := dynUserHandler{
@@ -52,7 +52,7 @@ func TestActivateNotFound(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
+	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -103,7 +103,7 @@ func TestDoubleActivate(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users(user)[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{user: {Id: user, Active: true}}, nil)
+	dynUser.On("GetUsers", user).Return(map[string]apikey.UserView{user: {Id: user, Active: true}}, nil)
 
 	h := dynUserHandler{
 		dbUsers:              dynUser,
@@ -188,10 +188,10 @@ func TestActivateUser_Namespaces(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			switch tt.wantStatus.(type) {
 			case *users.ActivateUserOK:
-				dynUser.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{tt.authzKey: {Id: tt.authzKey, Active: false}}, nil)
+				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{tt.authzKey: {Id: tt.authzKey, Active: false}}, nil)
 				dynUser.On("ActivateUser", mock.Anything, tt.authzKey).Return(nil)
 			case *users.ActivateUserNotFound:
-				dynUser.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{}, nil)
+				dynUser.On("GetUsers", tt.authzKey).Return(map[string]apikey.UserView{}, nil)
 			}
 
 			h := dynUserHandler{
@@ -216,7 +216,7 @@ func TestActivateUser_ResolveThenAuthorize(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("customer1:bob")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", "customer1:bob").Return(map[string]*apikey.User{"customer1:bob": {Active: false}}, nil)
+	dynUser.On("GetUsers", "customer1:bob").Return(map[string]apikey.UserView{"customer1:bob": {Active: false}}, nil)
 	dynUser.On("ActivateUser", mock.Anything, "customer1:bob").Return(nil)
 
 	h := dynUserHandler{

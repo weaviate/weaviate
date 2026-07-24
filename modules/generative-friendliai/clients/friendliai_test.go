@@ -99,10 +99,12 @@ func TestGetAnswer(t *testing.T) {
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Friendli-Baseurl", []string{"https://inference.friendli.ai/dedicated"})
-		buildURL := c.getFriendliUrl(ctxWithValue, baseUrl)
+		buildURL, err := c.getFriendliUrl(ctxWithValue, baseUrl)
+		assert.NoError(t, err)
 		assert.Equal(t, "https://inference.friendli.ai/dedicated/v1/chat/completions", buildURL)
 
-		buildURL = c.getFriendliUrl(context.Background(), baseUrl)
+		buildURL, err = c.getFriendliUrl(context.Background(), baseUrl)
+		assert.NoError(t, err)
 		assert.Equal(t, "https://inference.friendli.ai/v1/chat/completions", buildURL)
 	})
 }

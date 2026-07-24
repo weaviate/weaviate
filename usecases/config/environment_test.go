@@ -13,8 +13,8 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
-	"runtime"
 	"testing"
 	"time"
 
@@ -298,6 +298,61 @@ func TestEnvironmentLazyLoadShardCountThreshold(t *testing.T) {
 	}
 }
 
+func TestEnvironmentBM25FilterTombMergeGateRatio(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    float64
+		expectError bool
+	}{
+		{"default when unset", "", DefaultBM25FilterTombMergeGateRatio, false},
+		{"explicit 1", "1", 1, false},
+		{"zero always merges", "0", 0, false},
+		{"custom ratio", "2.5", 2.5, false},
+		{"plus inf disables the fold", "+Inf", math.Inf(1), false},
+		{"inf lowercase", "inf", math.Inf(1), false},
+		{"negative rejected", "-1", 0, true},
+		{"NaN rejected", "NaN", 0, true},
+		{"unparseable rejected", "abc", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("BM25_FILTER_TOMBSTONE_MERGE_GATE_RATIO", tt.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.BM25FilterTombMergeGateRatio.Get())
+			}
+		})
+	}
+}
+
+func TestBM25GateRatioRuntimeValidation(t *testing.T) {
+	// The env value is validated at startup; NewDynamicValueWithValidation carries
+	// the same validator, so runtime config updates via SetValue are rejected too.
+	conf := Config{}
+	require.NoError(t, FromEnv(&conf))
+	dv := conf.BM25FilterTombMergeGateRatio
+	require.NotNil(t, dv)
+	require.Equal(t, DefaultBM25FilterTombMergeGateRatio, dv.Get())
+
+	// valid runtime updates apply
+	require.NoError(t, dv.SetValue(2.5))
+	assert.Equal(t, 2.5, dv.Get())
+	require.NoError(t, dv.SetValue(math.Inf(1)))
+
+	// invalid runtime updates are rejected; the last valid value is retained
+	require.Error(t, dv.SetValue(-1))
+	require.Error(t, dv.SetValue(math.NaN()))
+	assert.Equal(t, math.Inf(1), dv.Get())
+}
+
 func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
 	t.Run("DISABLE_LAZY_LOAD_SHARDS=true sets EnableLazyLoadShards=false", func(t *testing.T) {
 		t.Setenv("DISABLE_LAZY_LOAD_SHARDS", "true")
@@ -318,6 +373,80 @@ func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
 		require.NotNil(t, conf.EnableLazyLoadShards)
 		assert.False(t, *conf.EnableLazyLoadShards)
 		assert.Equal(t, 500, conf.LazyLoadShardCountThreshold)
+	})
+}
+
+func TestEnvironmentBackupMaxIndividualFiles(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected int
+		wantErr  bool
+	}{
+		{name: "unset uses the default", value: "", expected: DefaultBackupMaxIndividualFiles},
+		{name: "valid value is parsed", value: "250", expected: 250},
+		{name: "one is the smallest accepted value", value: "1", expected: 1},
+		{name: "zero is rejected", value: "0", wantErr: true},
+		{name: "negative is rejected", value: "-1", wantErr: true},
+		{name: "non-numeric is rejected", value: "many", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("BACKUP_MAX_INDIVIDUAL_FILES", tc.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "BACKUP_MAX_INDIVIDUAL_FILES")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, conf.Backup.MaxIndividualFiles.Get())
+		})
+	}
+}
+
+func TestEnvironmentSkipAccessCheck(t *testing.T) {
+	t.Run("unset defaults to false for both", func(t *testing.T) {
+		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "")
+		t.Setenv("EXPORT_SKIP_ACCESS_CHECK", "")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		assert.False(t, conf.Backup.SkipAccessCheck)
+		assert.False(t, conf.Export.SkipAccessCheck)
+	})
+
+	t.Run("BACKUP_SKIP_ACCESS_CHECK toggles only backup", func(t *testing.T) {
+		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "true")
+		t.Setenv("EXPORT_SKIP_ACCESS_CHECK", "")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		assert.True(t, conf.Backup.SkipAccessCheck)
+		assert.False(t, conf.Export.SkipAccessCheck)
+	})
+
+	t.Run("EXPORT_SKIP_ACCESS_CHECK toggles only export", func(t *testing.T) {
+		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "")
+		t.Setenv("EXPORT_SKIP_ACCESS_CHECK", "true")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		assert.False(t, conf.Backup.SkipAccessCheck)
+		assert.True(t, conf.Export.SkipAccessCheck)
+	})
+
+	t.Run("both set toggles both independently", func(t *testing.T) {
+		t.Setenv("BACKUP_SKIP_ACCESS_CHECK", "true")
+		t.Setenv("EXPORT_SKIP_ACCESS_CHECK", "true")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		assert.True(t, conf.Backup.SkipAccessCheck)
+		assert.True(t, conf.Export.SkipAccessCheck)
 	})
 }
 
@@ -358,15 +487,39 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	}
 }
 
+func TestEnvironmentHaltForTransferTimeout(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{name: "default", expected: DefaultHaltForTransferTimeout},
+		{name: "configured", value: "30m", expected: 30 * time.Minute},
+		{name: "invalid", value: "not-a-duration", expectedErr: true},
+		{name: "zero", value: "0s", expectedErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HALT_FOR_TRANSFER_TIMEOUT", tt.value)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, conf.HaltForTransferTimeout)
+		})
+	}
+}
+
 func TestEnvironmentParseClusterConfig(t *testing.T) {
 	hostname, _ := os.Hostname()
-	defaultRequestQueueConfig := cluster.RequestQueueConfig{
-		IsEnabled:                   configRuntime.NewDynamicValue(false),
-		NumWorkers:                  runtime.GOMAXPROCS(0) * 2,
-		QueueSize:                   2000,
-		QueueFullHttpStatus:         429,
-		QueueShutdownTimeoutSeconds: 90,
-	}
 	tests := []struct {
 		name           string
 		envVars        map[string]string
@@ -382,24 +535,22 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_ADVERTISE_PORT":   "9999",
 			},
 			expectedResult: cluster.Config{
-				Hostname:           hostname,
-				GossipBindPort:     7100,
-				DataBindPort:       7101,
-				AdvertiseAddr:      "193.0.0.1",
-				AdvertisePort:      9999,
-				MaintenanceNodes:   make([]string, 0),
-				RequestQueueConfig: defaultRequestQueueConfig,
+				Hostname:         hostname,
+				GossipBindPort:   7100,
+				DataBindPort:     7101,
+				AdvertiseAddr:    "193.0.0.1",
+				AdvertisePort:    9999,
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
 			name: "valid cluster config - no ports and advertiseaddr provided",
 			expectedResult: cluster.Config{
-				Hostname:           hostname,
-				GossipBindPort:     DefaultGossipBindPort,
-				DataBindPort:       DefaultGossipBindPort + 1,
-				AdvertiseAddr:      "",
-				MaintenanceNodes:   make([]string, 0),
-				RequestQueueConfig: defaultRequestQueueConfig,
+				Hostname:         hostname,
+				GossipBindPort:   DefaultGossipBindPort,
+				DataBindPort:     DefaultGossipBindPort + 1,
+				AdvertiseAddr:    "",
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
@@ -408,11 +559,10 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_GOSSIP_BIND_PORT": "7777",
 			},
 			expectedResult: cluster.Config{
-				Hostname:           hostname,
-				GossipBindPort:     7777,
-				DataBindPort:       7778,
-				MaintenanceNodes:   make([]string, 0),
-				RequestQueueConfig: defaultRequestQueueConfig,
+				Hostname:         hostname,
+				GossipBindPort:   7777,
+				DataBindPort:     7778,
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
@@ -422,11 +572,10 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_DATA_BIND_PORT":   "7111",
 			},
 			expectedResult: cluster.Config{
-				Hostname:           hostname,
-				GossipBindPort:     7100,
-				DataBindPort:       7111,
-				MaintenanceNodes:   make([]string, 0),
-				RequestQueueConfig: defaultRequestQueueConfig,
+				Hostname:         hostname,
+				GossipBindPort:   7100,
+				DataBindPort:     7111,
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
@@ -440,30 +589,6 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
 				MaintenanceNodes:        make([]string, 0),
-				RequestQueueConfig:      defaultRequestQueueConfig,
-			},
-		},
-		{
-			name: "request queue enabled with custom config",
-			envVars: map[string]string{
-				"REPLICATED_INDICES_REQUEST_QUEUE_ENABLED":                  "true",
-				"REPLICATED_INDICES_REQUEST_QUEUE_NUM_WORKERS":              "10",
-				"REPLICATED_INDICES_REQUEST_QUEUE_SIZE":                     "100",
-				"REPLICATED_INDICES_REQUEST_QUEUE_FULL_HTTP_STATUS":         "504",
-				"REPLICATED_INDICES_REQUEST_QUEUE_SHUTDOWN_TIMEOUT_SECONDS": "120",
-			},
-			expectedResult: cluster.Config{
-				Hostname:         hostname,
-				GossipBindPort:   7946,
-				DataBindPort:     7947,
-				MaintenanceNodes: make([]string, 0),
-				RequestQueueConfig: cluster.RequestQueueConfig{
-					IsEnabled:                   configRuntime.NewDynamicValue(true),
-					NumWorkers:                  10,
-					QueueSize:                   100,
-					QueueFullHttpStatus:         504,
-					QueueShutdownTimeoutSeconds: 120,
-				},
 			},
 		},
 	}
@@ -500,6 +625,38 @@ func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
 		FromEnv(&conf)
 		require.Equal(t, "l2-squared", conf.DefaultVectorDistanceMetric)
 	})
+}
+
+func TestEnvironmentDebugEndpointsEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		envSet   bool
+		envValue string
+		initial  *configRuntime.DynamicValue[bool] // value from config file
+		expected bool
+	}{
+		{name: "env true overrides unset", envSet: true, envValue: "true", expected: true},
+		{name: "env false overrides unset", envSet: true, envValue: "false", expected: false},
+		{name: "env true overrides config file false", envSet: true, envValue: "true", initial: configRuntime.NewDynamicValue(false), expected: true},
+		{name: "env false overrides config file true", envSet: true, envValue: "false", initial: configRuntime.NewDynamicValue(true), expected: false},
+		{name: "env unset preserves config file true", envSet: false, initial: configRuntime.NewDynamicValue(true), expected: true},
+		{name: "env unset preserves config file false", envSet: false, initial: configRuntime.NewDynamicValue(false), expected: false},
+		{name: "env unset and no config file defaults to false", envSet: false, expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if tt.envSet {
+				t.Setenv("DEBUG_ENDPOINTS_ENABLED", tt.envValue)
+			}
+			conf := Config{}
+			conf.Profiling.DebugEndpointsEnabled = tt.initial
+			require.NoError(t, FromEnv(&conf))
+			require.NotNil(t, conf.Profiling.DebugEndpointsEnabled)
+			require.Equal(t, tt.expected, conf.Profiling.DebugEndpointsEnabled.Get())
+		})
+	}
 }
 
 func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
@@ -589,6 +746,40 @@ func TestEnvironmentGRPCPort(t *testing.T) {
 	}
 }
 
+// TestEnvironmentGRPCWebEnabledDefaultsTrue pins that grpc-web is on by default
+// on every construction path now that the enable env var is gone: FromEnv seeds a
+// non-nil DynamicValue(true) (so the runtime override has a live value to flip),
+// and a bare Config resolves true via the nil-safe accessor (nil.Get() would
+// otherwise be false and silently disable the default).
+func TestEnvironmentGRPCWebEnabledDefaultsTrue(t *testing.T) {
+	t.Run("bare Config resolves true via accessor", func(t *testing.T) {
+		require.True(t, Config{}.GRPC.GrpcWebEnabledOrDefault())
+	})
+
+	// The config file is parsed into GRPC.GrpcWebEnabled before FromEnv runs, so
+	// FromEnv must only default when nothing set the value. Anything already there
+	// (an operator's grpc.grpcWebEnabled off-switch, in particular) has to survive.
+	preset := []struct {
+		name string
+		seed *configRuntime.DynamicValue[bool]
+		want bool
+	}{
+		{name: "nil is seeded to default true", seed: nil, want: true},
+		{name: "file-set false survives", seed: configRuntime.NewDynamicValue(false), want: false},
+		{name: "file-set true survives", seed: configRuntime.NewDynamicValue(true), want: true},
+	}
+	for _, tt := range preset {
+		t.Run("FromEnv preserves file value: "+tt.name, func(t *testing.T) {
+			conf := Config{}
+			conf.GRPC.GrpcWebEnabled = tt.seed
+			require.NoError(t, FromEnv(&conf))
+			require.NotNil(t, conf.GRPC.GrpcWebEnabled, "runtime override needs a live value to toggle")
+			require.Equal(t, tt.want, conf.GRPC.GrpcWebEnabled.Get())
+			require.Equal(t, tt.want, conf.GRPC.GrpcWebEnabledOrDefault())
+		})
+	}
+}
+
 func TestEnvironmentCORS_Methods(t *testing.T) {
 	factors := []struct {
 		name        string
@@ -643,7 +834,40 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 			if tt.expectedErr {
 				require.NotNil(t, err)
 			} else {
-				require.Equal(t, tt.expected, conf.DisableGraphQL)
+				require.Equal(t, tt.expected, conf.DisableGraphQL.Get())
+			}
+		})
+	}
+}
+
+func TestEnvironmentExperimentalRESTSearchEnabled(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    bool
+		expectedErr bool
+	}{
+		{"Valid: true", []string{"true"}, true, false},
+		{"Valid: false", []string{"false"}, false, false},
+		{"Valid: 1", []string{"1"}, true, false},
+		{"Valid: 0", []string{"0"}, false, false},
+		{"Valid: on", []string{"on"}, true, false},
+		{"Valid: off", []string{"off"}, false, false},
+		// experimental feature: unset means disabled (opt-in)
+		{"not given", []string{}, false, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("EXPERIMENTAL_REST_SEARCH_ENABLED", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.ExperimentalRESTSearchEnabled.Get())
 			}
 		})
 	}
@@ -1652,6 +1876,8 @@ func TestEnvironmentDefaultVectorIndex(t *testing.T) {
 		{"uppercase FLAT", "FLAT", "flat", ""},
 		{"mixed case Hnsw", "Hnsw", "hnsw", ""},
 		{"invalid value", "invalid", "", `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+		{"none sentinel rejected", "none", "", `invalid DEFAULT_VECTOR_INDEX "none"`},
+		{"noop sentinel rejected", "noop", "", `invalid DEFAULT_VECTOR_INDEX "noop"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

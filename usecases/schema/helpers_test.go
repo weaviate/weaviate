@@ -105,6 +105,10 @@ func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode s
 	return nil
 }
 
+func (f *fakeDB) ReconcileAsyncReplicationForShard(class string, shard string) error {
+	return nil
+}
+
 func (f *fakeDB) LoadShard(class string, shard string) {
 }
 
@@ -318,6 +322,11 @@ func (f *fakeMigrator) LoadShard(ctx context.Context, class string, shard string
 }
 
 func (f *fakeMigrator) DropShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) ReconcileAsyncReplicationForShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }

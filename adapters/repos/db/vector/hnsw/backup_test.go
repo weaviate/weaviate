@@ -104,6 +104,12 @@ func TestBackup_ListFiles(t *testing.T) {
 		assert.True(t, matched, "regex does not match")
 	})
 
+	t.Run("SnapshotMutableFiles returns nil (hnsw seals files in PrepareForBackup)", func(t *testing.T) {
+		relPaths, err := idx.SnapshotMutableFiles(ctx, dirName, t.TempDir())
+		assert.Nil(t, err)
+		assert.Nil(t, relPaths)
+	})
+
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
 }
@@ -151,4 +157,34 @@ func TestBackup_HFreshListFiles(t *testing.T) {
 
 	err = idx.Shutdown(ctx)
 	require.Nil(t, err)
+}
+
+func TestBackup_ListFilesWalkRootRemoved(t *testing.T) {
+	ctx := context.Background()
+
+	dirName := t.TempDir()
+	indexID := "backup-list-files-root-removed-test"
+
+	idx, err := New(Config{
+		RootPath:         dirName,
+		ID:               indexID,
+		Logger:           logrus.New(),
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupNoopBucketView{} },
+		MakeCommitLoggerThunk: func() (CommitLogger, error) {
+			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
+		},
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
+	require.Nil(t, err)
+	idx.PostStartup(ctx)
+
+	require.Nil(t, os.RemoveAll(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID))))
+
+	_, err = idx.ListFiles(ctx, dirName)
+	require.ErrorContains(t, err, "failed to list files for hnsw commitlog")
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	// the open commit-log fd survives the unlink; shutdown must not panic
+	_ = idx.Shutdown(ctx)
 }

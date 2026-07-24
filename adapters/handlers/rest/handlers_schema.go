@@ -379,12 +379,12 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 			return schema.NewSchemaDumpForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaDumpForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
+			return schema.NewSchemaDumpInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	payload := dbSchema.Objects
-	if principal != nil && principal.Namespace != "" && payload != nil && len(payload.Classes) > 0 {
+	if namespacing.ConfinedNamespace(principal) != "" && payload != nil && len(payload.Classes) > 0 {
 		stripped := make([]*models.Class, len(payload.Classes))
 		for i, c := range payload.Classes {
 			stripped[i] = namespacing.StripClassResponse(principal, c)
@@ -416,8 +416,11 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsShardsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
+		case errors.Is(err, schemaUC.ErrNotFound):
 			return schema.NewSchemaObjectsShardsGetNotFound().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		default:
+			return schema.NewSchemaObjectsShardsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
@@ -433,15 +436,19 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	_, err := s.manager.UpdateShardStatus(
-		ctx, principal, params.ClassName, params.ShardName, params.Body.Status)
+		ctx, principal, params.ClassName, params.ShardName, params.Body.Status,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsGetForbidden().
+			return schema.NewSchemaObjectsShardsUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		case errors.Is(err, schemaUC.ErrNotFound):
+			return schema.NewSchemaObjectsShardsUpdateNotFound().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
+			return schema.NewSchemaObjectsShardsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
@@ -457,7 +464,8 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	_, err := s.manager.AddTenants(
-		ctx, principal, params.ClassName, params.Body)
+		ctx, principal, params.ClassName, params.Body,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
@@ -483,7 +491,8 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	updatedTenants, err := s.manager.UpdateTenants(
-		ctx, principal, params.ClassName, params.Body)
+		ctx, principal, params.ClassName, params.Body,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -505,7 +514,8 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	err := s.manager.DeleteTenants(
-		ctx, principal, params.ClassName, params.Tenants)
+		ctx, principal, params.ClassName, params.Tenants,
+	)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {

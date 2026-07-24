@@ -13,16 +13,82 @@ package modstgazure
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
+
+func TestInitialize_SkipAccessCheck(t *testing.T) {
+	// Validation runs before the SkipAccessCheck short-circuit: a valid
+	// container skips the probe, an empty one still errors.
+	tests := []struct {
+		name      string
+		container string
+		wantErr   string
+	}{
+		{name: "valid container skips probe", container: "my-container"},
+		{name: "empty container still validates", container: "", wantErr: "container must not be empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &azureClient{config: clientConfig{Container: tt.container, SkipAccessCheck: true}}
+			err := c.Initialize(context.Background(), "backup-1", "", "")
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestInit_SkipAccessCheckWiring(t *testing.T) {
+	// Init must route Backup.SkipAccessCheck to the backup client and
+	// Export.SkipAccessCheck to the export client, without crossing them.
+	t.Setenv("BACKUP_AZURE_CONTAINER", "test")
+	t.Setenv("AZURE_STORAGE_ACCOUNT", "test")
+
+	tests := []struct {
+		name       string
+		backupFlag bool
+		exportFlag bool
+	}{
+		{name: "backup only", backupFlag: true, exportFlag: false},
+		{name: "export only", backupFlag: false, exportFlag: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Backup.SkipAccessCheck = tt.backupFlag
+			cfg.Export.SkipAccessCheck = tt.exportFlag
+
+			params := moduletools.NewMockModuleInitParams(t)
+			params.EXPECT().GetLogger().Return(logrus.New())
+			params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+			params.EXPECT().GetConfig().Return(cfg)
+
+			m := New()
+			require.NoError(t, m.Init(context.Background(), params))
+			assert.Equal(t, tt.backupFlag, m.config.SkipAccessCheck, "backup client")
+			assert.Equal(t, tt.exportFlag, m.exportClient.config.SkipAccessCheck, "export client")
+		})
+	}
+}
 
 // Test user overrides
 func TestUploadParams(t *testing.T) {
@@ -39,6 +105,7 @@ func TestUploadParams(t *testing.T) {
 	params := moduletools.NewMockModuleInitParams(t)
 	params.EXPECT().GetLogger().Return(logrus.New())
 	params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+	params.EXPECT().GetConfig().Return(&config.Config{})
 	err := azure.Init(testCtx, params)
 	require.Nil(t, err)
 
@@ -53,6 +120,7 @@ func TestUploadParams(t *testing.T) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
@@ -66,6 +134,7 @@ func TestUploadParams(t *testing.T) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
@@ -109,6 +178,7 @@ func TestUploadParams(t *testing.T) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
@@ -122,6 +192,7 @@ func TestUploadParams(t *testing.T) {
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
 		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		params.EXPECT().GetConfig().Return(&config.Config{})
 		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
@@ -200,6 +271,121 @@ func TestResolveContainer(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantContainer, container)
 			}
+		})
+	}
+}
+
+func TestAllBackupsSkipsMissingDescriptors(t *testing.T) {
+	const containerName = "test-container"
+
+	validDesc := []byte(`{"id":"backup-1"}`)
+
+	tests := []struct {
+		name             string
+		downloadResponse func(blobName string) (status int, headers map[string]string, body []byte)
+		wantIDs          []string
+		wantErr          bool
+	}{
+		{
+			name: "missing descriptor for one backup is skipped, other returned",
+			downloadResponse: func(blobName string) (int, map[string]string, []byte) {
+				switch blobName {
+				case "backup-1/" + ubak.GlobalBackupFile:
+					return http.StatusOK, nil, validDesc
+				case "backup-2/" + ubak.GlobalBackupFile:
+					return http.StatusNotFound,
+						map[string]string{"x-ms-error-code": "BlobNotFound"},
+						nil
+				}
+				return http.StatusNotFound,
+					map[string]string{"x-ms-error-code": "BlobNotFound"}, nil
+			},
+			wantIDs: []string{"backup-1"},
+		},
+		{
+			name: "non-not-found error on descriptor fetch fails the listing",
+			downloadResponse: func(blobName string) (int, map[string]string, []byte) {
+				if blobName == "backup-1/"+ubak.GlobalBackupFile {
+					return http.StatusOK, nil, validDesc
+				}
+				return http.StatusInternalServerError,
+					map[string]string{"x-ms-error-code": "InternalError"}, nil
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+
+			// Hierarchy list: GET /<container>?restype=container&comp=list&prefix=&delimiter=/
+			// Returns two BlobPrefix entries (one per backup ID).
+			mux.HandleFunc("/"+containerName, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("comp") != "list" {
+					// Treat as a blob download with empty name; reject.
+					http.Error(w, "unexpected", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/xml")
+				fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>`+
+					`<EnumerationResults ContainerName="`+containerName+`">`+
+					`<Blobs>`+
+					`<BlobPrefix><Name>backup-1/</Name></BlobPrefix>`+
+					`<BlobPrefix><Name>backup-2/</Name></BlobPrefix>`+
+					`</Blobs>`+
+					`<NextMarker/>`+
+					`</EnumerationResults>`)
+			})
+
+			// Blob download: GET /<container>/<blob path>
+			mux.HandleFunc("/"+containerName+"/", func(w http.ResponseWriter, r *http.Request) {
+				raw := strings.TrimPrefix(r.URL.Path, "/"+containerName+"/")
+				name, err := url.PathUnescape(raw)
+				if err != nil {
+					http.Error(w, "bad blob name", http.StatusBadRequest)
+					return
+				}
+				status, headers, body := tt.downloadResponse(name)
+				for k, v := range headers {
+					w.Header().Set(k, v)
+				}
+				w.WriteHeader(status)
+				w.Write(body)
+			})
+
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
+
+			// Disable retries so a 5xx surfaces immediately.
+			client, err := azblob.NewClientWithNoCredential(srv.URL+"/", &azblob.ClientOptions{
+				ClientOptions: policy.ClientOptions{
+					Retry: policy.RetryOptions{MaxRetries: -1},
+				},
+			})
+			require.NoError(t, err)
+
+			a := &azureClient{
+				client: client,
+				config: clientConfig{Container: containerName},
+				logger: logrus.New(),
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			got, err := a.AllBackups(ctx)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			ids := make([]string, 0, len(got))
+			for _, d := range got {
+				ids = append(ids, d.ID)
+			}
+			assert.ElementsMatch(t, tt.wantIDs, ids)
 		})
 	}
 }

@@ -24,13 +24,12 @@ import (
 )
 
 func TestAuthzRolesForGroups(t *testing.T) {
-	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	_, down := composeUpShared(t)
 	defer down()
 
 	all := "*"

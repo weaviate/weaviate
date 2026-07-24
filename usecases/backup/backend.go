@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -57,7 +58,12 @@ const (
 	TempDirectory     = ".backup.tmp"
 )
 
-var _NUMCPU = runtime.NumCPU()
+// numCPU sizes worker pools. GOMAXPROCS (not NumCPU) may reflect the cgroup CPU
+// limit, and is read at the call site so a GOMAXPROCS change during startup
+// (see limitResources) is honored rather than captured at package init.
+func numCPU() int {
+	return runtime.GOMAXPROCS(0)
+}
 
 type objectStore struct {
 	backend modulecapabilities.BackupBackend
@@ -204,15 +210,17 @@ type uploader struct {
 	cfg            config.Backup
 	sourcer        Sourcer
 	rbacSourcer    fsm.Snapshotter
-	dynUserSourcer fsm.Snapshotter
-	backend        nodeStore
-	backupID       string
+	dynUserSourcer dynUserSnapshotter
+	// Resolved includeUsers ids; empty → whole-cluster snapshot.
+	users    []string
+	backend  nodeStore
+	backupID string
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
 }
 
-func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backend nodeStore,
+func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer dynUserSnapshotter, users []string, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
@@ -220,6 +228,7 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter
 		sourcer:        sourcer,
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
+		users:          users,
 		backend:        backend,
 		backupID:       backupID,
 		zipConfig: newZipConfig(Compression{
@@ -242,6 +251,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	desc.Status = backup.Transferring
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes, baseDescr)
 	var totalPreCompressionSize int64 // Track total pre-compression bytes
+
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessBackup)()
+
 	defer func() {
 		//  release indexes under all conditions
 		u.releaseIndexes(classes, desc.ID)
@@ -266,6 +278,8 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			u.setStatus(backup.Cancelled)
 			desc.Status = backup.Cancelled
+		} else {
+			monitoring.GetBackgroundProcessMetrics().Failed(monitoring.ProcessBackup)
 		}
 
 		u.log.Info("start uploading metadata for cancelled or failed backup")
@@ -328,11 +342,13 @@ Loop:
 		return contextChecker(ctx)
 	} else if u.dynUserSourcer != nil {
 		u.log.Info("start uploading dynamic user backups")
-		descrp, err := u.dynUserSourcer.Snapshot()
+		descrp, err := u.dynUserSourcer.Snapshot(u.users...)
 		if err != nil {
 			return err
 		}
 		desc.UserBackups = descrp
+	} else if len(u.users) > 0 {
+		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 
 	u.setStatus(backup.Transferred)
@@ -526,11 +542,11 @@ func (u *uploader) compress(ctx context.Context,
 		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 
-	// bigFileThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
-	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFileThreshold.
-	bigFileThreshold := max(u.cfg.MinChunkSize, filesInShard.Top100Size)
-	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFileThreshold)
-	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFileThreshold, u.cfg.SplitFileSize)
+	// bigFilesThreshold: files >= this size are "big" and get their own chunk (tracked for incremental dedup).
+	// chunkTargetSize controls the max size when packing small files together; it must be at least bigFilesThreshold.
+	bigFilesThreshold := max(u.cfg.MinChunkSize, filesInShard.BigFilesThreshold)
+	chunkTargetSize := max(u.cfg.ChunkTargetSize, bigFilesThreshold)
+	zip, reader, err := NewZip(sourcePath, u.Level, chunkTargetSize, bigFilesThreshold, u.cfg.SplitFileSize)
 	if err != nil {
 		return nil, preCompressionSize.Load(), err
 	}
@@ -624,7 +640,7 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 }
 
 // createFileList creates a FileList from a ShardDescriptor with Files copied,
-// FileSizes map populated, and Top100Size calculated (size of 100th biggest file, minimum 1MB).
+// FileSizes map populated, and BigFilesThreshold calculated.
 // This allows file sizes to be collected once at the start of processing rather than repeatedly during compression.
 // Returns an error if any file in the shard doesn't exist at either the normal path or delete marker path.
 func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath string) (*backup.FileList, error) {
@@ -653,17 +669,26 @@ func (u *uploader) createFileList(shard *backup.ShardDescriptor, sourcePath stri
 	filesCopy := make([]string, len(files))
 	copy(filesCopy, files)
 
+	// A config not built by FromEnv leaves this nil, so Get yields 0.
+	maxIndividualFiles := u.cfg.MaxIndividualFiles.Get()
+	if maxIndividualFiles <= 0 {
+		maxIndividualFiles = config.DefaultBackupMaxIndividualFiles
+	}
+
 	return &backup.FileList{
-		Files:      filesCopy,
-		FileSizes:  fileSizes,
-		Top100Size: calculateTop100Size(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped, u.cfg.MinChunkSize),
+		Files:     filesCopy,
+		FileSizes: fileSizes,
+		BigFilesThreshold: calculateBigFilesThreshold(fileSizes, shard.IncrementalBackupInfo.NumFilesSkipped,
+			maxIndividualFiles, u.cfg.MinChunkSize),
 	}, nil
 }
 
-// calculateTop100Size returns the size of the 100th biggest file (or smallest if fewer than 100),
-// with a minimum of minSize. Uses a min-heap of size 100 for O(n) time and O(1) space complexity.
-func calculateTop100Size(fileSizes map[string]int64, numSkippedFiles int, minSize int64) int64 {
-	k := max(100-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
+// calculateBigFilesThreshold returns the size of the k-th biggest file, clamped to minSize,
+// where k is maxIndividualFiles reduced by numSkippedFiles and at least 1. Returns the
+// smallest file's size if there are fewer than k files.
+// Uses a min-heap for O(n) time and O(min(k, n)) space.
+func calculateBigFilesThreshold(fileSizes map[string]int64, numSkippedFiles, maxIndividualFiles int, minSize int64) int64 {
+	k := max(maxIndividualFiles-numSkippedFiles, 1) // take into account that this might be an incremental backup with skipped files
 
 	if len(fileSizes) == 0 {
 		return minSize
@@ -743,15 +768,29 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
-// Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
+// Write downloads files into the staging directory. materializedName keys the
+// staging dir; it differs from desc.Name only under namespace-graduation
+// restore, where it must match the RAFT-applied RestoreClassDir lookup. Chunk
+// keys keep desc.Name — object-storage paths are immutable from upload.
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, materializedName, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil
 	}
-	classTempDir := path.Join(fw.tempDir, desc.Name)
+	classTempDir := path.Join(fw.tempDir, materializedName)
 
 	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
+	}
+
+	if materializedName != desc.Name {
+		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(desc.Name))
+		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
+		if _, err := os.Stat(oldIndexDir); err == nil {
+			if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
+				return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
+			}
+		}
+
 	}
 
 	if fw.migrator != nil {
@@ -779,7 +818,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, override
 	// no compression processed as before
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
 	if !fw.compressed {
-		eg.SetLimit(2 * _NUMCPU)
+		eg.SetLimit(2 * numCPU())
 		for _, shard := range desc.Shards {
 			// Check for cancellation before processing each shard
 			if err := ctx.Err(); err != nil {
@@ -909,7 +948,7 @@ func routinePoolSize(percentage int) int {
 	} else if percentage > maxCPUPercentage {
 		percentage = maxCPUPercentage
 	}
-	if x := (_NUMCPU * percentage) / 100; x > 0 {
+	if x := (numCPU() * percentage) / 100; x > 0 {
 		return x
 	}
 	return 1

@@ -13,6 +13,7 @@ package namespace
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,10 +85,10 @@ func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 // caller's namespace; on top of that sits the handler-level
 // IsGlobalOperator/Namespace check plus the entity-name validators.
 func TestNamespaces_CollectionAndAlias(t *testing.T) {
-	const (
-		ns1 = "customer1"
-		ns2 = "customer2"
-	)
+	t.Parallel()
+	ns1 := uniqueNS()
+	ns2 := uniqueNS()
+	upperNS := func(ns string) string { return strings.ToUpper(ns[:1]) + ns[1:] }
 
 	helper.CreateNamespace(t, ns1, adminKey)
 	helper.CreateNamespace(t, ns2, adminKey)
@@ -104,30 +105,30 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	t.Run("namespace-local alias create succeeds and is independent across namespaces", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
 		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user2Key)
-		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
-		defer helper.DeleteClassAuth(t, "customer2:Movies", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
+		defer helper.DeleteClassAuth(t, ns2+":Movies", adminKey)
 
 		// Admin (global) sees both qualified collections.
-		gotClass1 := helper.GetClassAuth(t, "customer1:Movies", adminKey)
-		require.Equal(t, "customer1:Movies", gotClass1.Class)
-		gotClass2 := helper.GetClassAuth(t, "customer2:Movies", adminKey)
-		require.Equal(t, "customer2:Movies", gotClass2.Class)
+		gotClass1 := helper.GetClassAuth(t, ns1+":Movies", adminKey)
+		require.Equal(t, ns1+":Movies", gotClass1.Class)
+		gotClass2 := helper.GetClassAuth(t, ns2+":Movies", adminKey)
+		require.Equal(t, ns2+":Movies", gotClass2.Class)
 
-		// user1: Films -> Movies. The handler qualifies both to customer1:.
+		// user1: Films -> Movies. The handler qualifies both to ns1:.
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Films", Class: "Movies"}, user1Key)
 		// user2 can independently create the same short alias name.
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Films", Class: "Movies"}, user2Key)
 
 		// Admin can see both qualified aliases exist.
-		got1 := helper.GetAliasWithAuthz(t, "customer1:Films", helper.CreateAuth(adminKey))
-		require.Equal(t, "customer1:Films", got1.Alias)
-		require.Equal(t, "customer1:Movies", got1.Class)
-		got2 := helper.GetAliasWithAuthz(t, "customer2:Films", helper.CreateAuth(adminKey))
-		require.Equal(t, "customer2:Films", got2.Alias)
-		require.Equal(t, "customer2:Movies", got2.Class)
+		got1 := helper.GetAliasWithAuthz(t, ns1+":Films", helper.CreateAuth(adminKey))
+		require.Equal(t, ns1+":Films", got1.Alias)
+		require.Equal(t, ns1+":Movies", got1.Class)
+		got2 := helper.GetAliasWithAuthz(t, ns2+":Films", helper.CreateAuth(adminKey))
+		require.Equal(t, ns2+":Films", got2.Alias)
+		require.Equal(t, ns2+":Movies", got2.Class)
 
-		defer helper.DeleteAliasWithAuthz(t, "customer1:Films", helper.CreateAuth(adminKey))
-		defer helper.DeleteAliasWithAuthz(t, "customer2:Films", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Films", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns2+":Films", helper.CreateAuth(adminKey))
 	})
 
 	t.Run("end-to-end: insert and get object via alias, with cross-namespace isolation", func(t *testing.T) {
@@ -143,17 +144,17 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 				},
 			}, key)
 		}
-		defer helper.DeleteClassAuth(t, "customer1:E2EFilmsTarget", adminKey)
-		defer helper.DeleteClassAuth(t, "customer2:E2EFilmsTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":E2EFilmsTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns2+":E2EFilmsTarget", adminKey)
 
 		// Both namespaces get the same short alias name pointing at their own copy.
 		for _, key := range []string{user1Key, user2Key} {
 			helper.CreateAliasAuth(t, &models.Alias{Alias: "E2EFilmsAlias", Class: "E2EFilmsTarget"}, key)
 		}
-		defer helper.DeleteAliasWithAuthz(t, "customer1:E2EFilmsAlias", helper.CreateAuth(adminKey))
-		defer helper.DeleteAliasWithAuthz(t, "customer2:E2EFilmsAlias", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":E2EFilmsAlias", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns2+":E2EFilmsAlias", helper.CreateAuth(adminKey))
 
-		// user1 inserts via the alias name; on disk it lands as customer1:E2EFilmsTarget.
+		// user1 inserts via the alias name; on disk it lands as ns1:E2EFilmsTarget.
 		// retryOnAliasLag absorbs the brief window where the alias entry has
 		// been applied on the leader but the follower we are talking to has
 		// not yet replicated it, so local alias resolution would 500.
@@ -180,7 +181,7 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 
 		// Cross-namespace isolation: user2 asks for the same id under the same
 		// short class name and the same short alias name. Both qualify to
-		// customer2:* — different shard, no such object → 404.
+		// ns2:* — different shard, no such object → 404.
 		_, err = helper.GetObjectAuth(t, "E2EFilmsTarget", obj.ID, user2Key)
 		require.Error(t, err)
 		var nfClass *objectsCli.ObjectsClassGetNotFound
@@ -199,7 +200,7 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	})
 
 	t.Run("namespaced caller submitting class name with ':' rejected", func(t *testing.T) {
-		_, err := helper.CreateClassAuthWithReturn(t, &models.Class{Class: "Customer2:Movies"}, user1Key)
+		_, err := helper.CreateClassAuthWithReturn(t, &models.Class{Class: upperNS(ns2) + ":Movies"}, user1Key)
 		require.Error(t, err)
 		var unproc *schema.SchemaObjectsCreateUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected SchemaObjectsCreateUnprocessableEntity, got %T: %v", err, err)
@@ -207,14 +208,14 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	})
 
 	t.Run("namespaced caller submitting alias with ':' in target rejected", func(t *testing.T) {
-		_, err := helper.CreateAliasAuthWithReturn(t, &models.Alias{Alias: "Films", Class: "Customer2:Movies"}, user1Key)
+		_, err := helper.CreateAliasAuthWithReturn(t, &models.Alias{Alias: "Films", Class: upperNS(ns2) + ":Movies"}, user1Key)
 		require.Error(t, err)
 		var unproc *schema.AliasesCreateUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected AliasesCreateUnprocessableEntity, got %T: %v", err, err)
 	})
 
 	t.Run("namespaced caller submitting alias with ':' in alias name rejected", func(t *testing.T) {
-		_, err := helper.CreateAliasAuthWithReturn(t, &models.Alias{Alias: "Customer2:Films", Class: "Movies"}, user1Key)
+		_, err := helper.CreateAliasAuthWithReturn(t, &models.Alias{Alias: upperNS(ns2) + ":Films", Class: "Movies"}, user1Key)
 		require.Error(t, err)
 		var unproc *schema.AliasesCreateUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected AliasesCreateUnprocessableEntity, got %T: %v", err, err)
@@ -231,13 +232,13 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "DeleteMe"}, user1Key)
 
 		// Confirm the qualified class exists before delete.
-		got := helper.GetClassAuth(t, "customer1:DeleteMe", adminKey)
-		require.Equal(t, "customer1:DeleteMe", got.Class)
+		got := helper.GetClassAuth(t, ns1+":DeleteMe", adminKey)
+		require.Equal(t, ns1+":DeleteMe", got.Class)
 
-		// Short-name delete from user1 must qualify to customer1:DeleteMe.
+		// Short-name delete from user1 must qualify to ns1:DeleteMe.
 		helper.DeleteClassAuth(t, "DeleteMe", user1Key)
 
-		_, err := helper.GetClassAuthWithReturn(t, "customer1:DeleteMe", adminKey)
+		_, err := helper.GetClassAuthWithReturn(t, ns1+":DeleteMe", adminKey)
 		require.Error(t, err)
 	})
 
@@ -246,30 +247,30 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		for _, key := range []string{user1Key, user2Key} {
 			helper.CreateClassAuth(t, &models.Class{Class: "Shared"}, key)
 		}
-		defer helper.DeleteClassAuth(t, "customer2:Shared", adminKey)
+		defer helper.DeleteClassAuth(t, ns2+":Shared", adminKey)
 
-		// user1 deletes via the short name — only customer1:Shared should go.
+		// user1 deletes via the short name — only ns1:Shared should go.
 		helper.DeleteClassAuth(t, "Shared", user1Key)
 
-		_, err := helper.GetClassAuthWithReturn(t, "customer1:Shared", adminKey)
+		_, err := helper.GetClassAuthWithReturn(t, ns1+":Shared", adminKey)
 		require.Error(t, err)
 
-		got := helper.GetClassAuth(t, "customer2:Shared", adminKey)
-		require.Equal(t, "customer2:Shared", got.Class)
+		got := helper.GetClassAuth(t, ns2+":Shared", adminKey)
+		require.Equal(t, ns2+":Shared", got.Class)
 	})
 
 	t.Run("global admin deletes by qualified class name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AdminDelete"}, user1Key)
 
-		helper.DeleteClassAuth(t, "customer1:AdminDelete", adminKey)
+		helper.DeleteClassAuth(t, ns1+":AdminDelete", adminKey)
 
-		_, err := helper.GetClassAuthWithReturn(t, "customer1:AdminDelete", adminKey)
+		_, err := helper.GetClassAuthWithReturn(t, ns1+":AdminDelete", adminKey)
 		require.Error(t, err)
 	})
 
 	t.Run("namespaced caller updates its class via short path name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "UpdateMe", Description: "v1"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:UpdateMe", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":UpdateMe", adminKey)
 
 		// GET as the namespaced caller returns the stripped (short) class
 		// name; round-trip the same short name through both URL and body.
@@ -279,7 +280,7 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 
 		helper.UpdateClassAuth(t, "UpdateMe", got, user1Key)
 
-		after := helper.GetClassAuth(t, "customer1:UpdateMe", adminKey)
+		after := helper.GetClassAuth(t, ns1+":UpdateMe", adminKey)
 		assert.Equal(t, "v2", after.Description)
 	})
 
@@ -287,31 +288,31 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		for _, key := range []string{user1Key, user2Key} {
 			helper.CreateClassAuth(t, &models.Class{Class: "SharedUpdate", Description: "v1"}, key)
 		}
-		defer helper.DeleteClassAuth(t, "customer1:SharedUpdate", adminKey)
-		defer helper.DeleteClassAuth(t, "customer2:SharedUpdate", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":SharedUpdate", adminKey)
+		defer helper.DeleteClassAuth(t, ns2+":SharedUpdate", adminKey)
 
-		// user1's short-name update must only touch customer1:SharedUpdate.
+		// user1's short-name update must only touch ns1:SharedUpdate.
 		// GET as the namespaced caller so the round-tripped body carries
 		// the stripped short class name.
 		toUpdate := helper.GetClassAuth(t, "SharedUpdate", user1Key)
 		toUpdate.Description = "v2"
 		helper.UpdateClassAuth(t, "SharedUpdate", toUpdate, user1Key)
 
-		after1 := helper.GetClassAuth(t, "customer1:SharedUpdate", adminKey)
+		after1 := helper.GetClassAuth(t, ns1+":SharedUpdate", adminKey)
 		assert.Equal(t, "v2", after1.Description)
-		after2 := helper.GetClassAuth(t, "customer2:SharedUpdate", adminKey)
+		after2 := helper.GetClassAuth(t, ns2+":SharedUpdate", adminKey)
 		assert.Equal(t, "v1", after2.Description)
 	})
 
 	t.Run("global admin updates by qualified class name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AdminUpdate", Description: "v1"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AdminUpdate", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AdminUpdate", adminKey)
 
-		cls := helper.GetClassAuth(t, "customer1:AdminUpdate", adminKey)
+		cls := helper.GetClassAuth(t, ns1+":AdminUpdate", adminKey)
 		cls.Description = "by-admin"
-		helper.UpdateClassAuth(t, "customer1:AdminUpdate", cls, adminKey)
+		helper.UpdateClassAuth(t, ns1+":AdminUpdate", cls, adminKey)
 
-		after := helper.GetClassAuth(t, "customer1:AdminUpdate", adminKey)
+		after := helper.GetClassAuth(t, ns1+":AdminUpdate", adminKey)
 		assert.Equal(t, "by-admin", after.Description)
 	})
 
@@ -321,52 +322,52 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	// a namespaced cluster.
 	t.Run("namespaced caller cannot delete its class via an alias name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasDeleteTarget"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasDeleteTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasDeleteTarget", adminKey)
 
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasDeleter", Class: "AliasDeleteTarget"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasDeleter", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasDeleter", helper.CreateAuth(adminKey))
 
 		// DELETE by alias name must be a no-op on the underlying class.
 		// The HTTP delete returns 200 even for non-existent classes, so we
 		// verify the underlying class still exists afterwards.
 		helper.DeleteClassAuth(t, "AliasDeleter", user1Key)
 
-		got := helper.GetClassAuth(t, "customer1:AliasDeleteTarget", adminKey)
-		require.Equal(t, "customer1:AliasDeleteTarget", got.Class)
+		got := helper.GetClassAuth(t, ns1+":AliasDeleteTarget", adminKey)
+		require.Equal(t, ns1+":AliasDeleteTarget", got.Class)
 	})
 
 	t.Run("namespaced caller cannot update its class via an alias name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasUpdateTarget", Description: "v1"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasUpdateTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasUpdateTarget", adminKey)
 
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasUpdater", Class: "AliasUpdateTarget"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasUpdater", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasUpdater", helper.CreateAuth(adminKey))
 
 		// Body carries the underlying class name (mimicking a caller that
 		// fetched the qualified class and only swapped the URL path to the
 		// alias). The handler must reject regardless because the URL path
-		// resolves to "customer1:AliasUpdater", which is an alias, not a
+		// resolves to ns1+":AliasUpdater", which is an alias, not a
 		// class.
-		body := helper.GetClassAuth(t, "customer1:AliasUpdateTarget", adminKey)
+		body := helper.GetClassAuth(t, ns1+":AliasUpdateTarget", adminKey)
 		body.Description = "v2"
 		_, err := helper.UpdateClassAuthWithReturn(t, "AliasUpdater", body, user1Key)
 		require.Error(t, err)
 
-		after := helper.GetClassAuth(t, "customer1:AliasUpdateTarget", adminKey)
+		after := helper.GetClassAuth(t, ns1+":AliasUpdateTarget", adminKey)
 		assert.Equal(t, "v1", after.Description)
 	})
 
 	t.Run("global admin cannot delete a class via a qualified alias name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AdminAliasDeleteTarget"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AdminAliasDeleteTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AdminAliasDeleteTarget", adminKey)
 
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AdminAliasDeleter", Class: "AdminAliasDeleteTarget"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AdminAliasDeleter", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AdminAliasDeleter", helper.CreateAuth(adminKey))
 
-		helper.DeleteClassAuth(t, "customer1:AdminAliasDeleter", adminKey)
+		helper.DeleteClassAuth(t, ns1+":AdminAliasDeleter", adminKey)
 
-		got := helper.GetClassAuth(t, "customer1:AdminAliasDeleteTarget", adminKey)
-		require.Equal(t, "customer1:AdminAliasDeleteTarget", got.Class)
+		got := helper.GetClassAuth(t, ns1+":AdminAliasDeleteTarget", adminKey)
+		require.Equal(t, ns1+":AdminAliasDeleteTarget", got.Class)
 	})
 
 	// A delete with a wrong-case namespace prefix must be rejected at the
@@ -375,17 +376,17 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	// directory, and left the schema entry behind — blocking recreation.
 	t.Run("delete with wrong-case namespace prefix is rejected and class is untouched", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "CaseDelete"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:CaseDelete", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":CaseDelete", adminKey)
 
-		err := helper.DeleteClassAuthWithReturn(t, "Customer1:CaseDelete", adminKey)
+		err := helper.DeleteClassAuthWithReturn(t, upperNS(ns1)+":CaseDelete", adminKey)
 		require.Error(t, err)
 
-		got := helper.GetClassAuth(t, "customer1:CaseDelete", adminKey)
-		require.Equal(t, "customer1:CaseDelete", got.Class)
+		got := helper.GetClassAuth(t, ns1+":CaseDelete", adminKey)
+		require.Equal(t, ns1+":CaseDelete", got.Class)
 
 		// Caller can still recreate after attempted bad-case delete fails,
 		// confirming no partial deletion occurred.
-		helper.DeleteClassAuth(t, "customer1:CaseDelete", adminKey)
+		helper.DeleteClassAuth(t, ns1+":CaseDelete", adminKey)
 		helper.CreateClassAuth(t, &models.Class{Class: "CaseDelete"}, user1Key)
 	})
 
@@ -394,17 +395,17 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	// coverage on the read side too.
 	t.Run("get with wrong-case namespace prefix returns 422", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "CaseGet"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:CaseGet", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":CaseGet", adminKey)
 
-		_, err := helper.GetClassAuthWithReturn(t, "Customer1:CaseGet", adminKey)
+		_, err := helper.GetClassAuthWithReturn(t, upperNS(ns1)+":CaseGet", adminKey)
 		require.Error(t, err)
 		var unproc *schema.SchemaObjectsGetUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected SchemaObjectsGetUnprocessableEntity, got %T: %v", err, err)
 		assert.Contains(t, unproc.Payload.Error[0].Message, "invalid namespace prefix")
 
 		// Correct casing still works — the class is reachable as registered.
-		got := helper.GetClassAuth(t, "customer1:CaseGet", adminKey)
-		require.Equal(t, "customer1:CaseGet", got.Class)
+		got := helper.GetClassAuth(t, ns1+":CaseGet", adminKey)
+		require.Equal(t, ns1+":CaseGet", got.Class)
 	})
 
 	// Alias update/delete inherit the same namespace-aware qualification as
@@ -414,60 +415,60 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	// short name, exactly mirroring the create path.
 	t.Run("global admin alias delete with wrong-case namespace prefix returns 422", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasCaseDeleteTarget"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasCaseDeleteTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasCaseDeleteTarget", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasCaseDelete", Class: "AliasCaseDeleteTarget"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasCaseDelete", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasCaseDelete", helper.CreateAuth(adminKey))
 
-		_, err := helper.DeleteAliasAuthWithReturn(t, "Customer1:AliasCaseDelete", adminKey)
+		_, err := helper.DeleteAliasAuthWithReturn(t, upperNS(ns1)+":AliasCaseDelete", adminKey)
 		require.Error(t, err)
 		var unproc *schema.AliasesDeleteUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected AliasesDeleteUnprocessableEntity, got %T: %v", err, err)
 		assert.Contains(t, unproc.Payload.Error[0].Message, "invalid namespace prefix")
 
 		// Alias survives the malformed-prefix attempt.
-		got := helper.GetAliasWithAuthz(t, "customer1:AliasCaseDelete", helper.CreateAuth(adminKey))
-		require.Equal(t, "customer1:AliasCaseDelete", got.Alias)
+		got := helper.GetAliasWithAuthz(t, ns1+":AliasCaseDelete", helper.CreateAuth(adminKey))
+		require.Equal(t, ns1+":AliasCaseDelete", got.Alias)
 	})
 
 	t.Run("global admin alias update with wrong-case namespace prefix returns 422", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasCaseUpdateA"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasCaseUpdateA", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasCaseUpdateA", adminKey)
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasCaseUpdateB"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasCaseUpdateB", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasCaseUpdateB", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasCaseUpdate", Class: "AliasCaseUpdateA"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasCaseUpdate", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasCaseUpdate", helper.CreateAuth(adminKey))
 
 		// Wrong case in the alias path component is rejected.
-		_, err := helper.UpdateAliasAuthWithReturn(t, "Customer1:AliasCaseUpdate", "customer1:AliasCaseUpdateB", adminKey)
+		_, err := helper.UpdateAliasAuthWithReturn(t, upperNS(ns1)+":AliasCaseUpdate", ns1+":AliasCaseUpdateB", adminKey)
 		require.Error(t, err)
 		var unproc *schema.AliasesUpdateUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected AliasesUpdateUnprocessableEntity, got %T: %v", err, err)
 		assert.Contains(t, unproc.Payload.Error[0].Message, "invalid namespace prefix")
 
 		// Wrong case in the target class is also rejected.
-		_, err = helper.UpdateAliasAuthWithReturn(t, "customer1:AliasCaseUpdate", "Customer1:AliasCaseUpdateB", adminKey)
+		_, err = helper.UpdateAliasAuthWithReturn(t, ns1+":AliasCaseUpdate", upperNS(ns1)+":AliasCaseUpdateB", adminKey)
 		require.Error(t, err)
 		require.True(t, errors.As(err, &unproc), "expected AliasesUpdateUnprocessableEntity, got %T: %v", err, err)
 		assert.Contains(t, unproc.Payload.Error[0].Message, "invalid namespace prefix")
 
 		// Alias still points at its original target.
-		got := helper.GetAliasWithAuthz(t, "customer1:AliasCaseUpdate", helper.CreateAuth(adminKey))
-		require.Equal(t, "customer1:AliasCaseUpdateA", got.Class)
+		got := helper.GetAliasWithAuthz(t, ns1+":AliasCaseUpdate", helper.CreateAuth(adminKey))
+		require.Equal(t, ns1+":AliasCaseUpdateA", got.Class)
 	})
 
 	t.Run("namespaced caller deletes its own alias via short name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasShortDeleteTarget"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasShortDeleteTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasShortDeleteTarget", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasShortDelete", Class: "AliasShortDeleteTarget"}, user1Key)
 
 		// Short name path is qualified by the principal's namespace, so the
-		// underlying "customer1:AliasShortDelete" alias is found and removed.
+		// underlying ns1+":AliasShortDelete" alias is found and removed.
 		_, err := helper.DeleteAliasAuthWithReturn(t, "AliasShortDelete", user1Key)
 		require.NoError(t, err)
 
 		// Lookup against the qualified name returns 404 after delete.
 		_, err = helper.Client(t).Schema.AliasesGetAlias(
-			schema.NewAliasesGetAliasParams().WithAliasName("customer1:AliasShortDelete"),
+			schema.NewAliasesGetAliasParams().WithAliasName(ns1+":AliasShortDelete"),
 			helper.CreateAuth(adminKey),
 		)
 		require.Error(t, err)
@@ -475,19 +476,19 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 
 	t.Run("namespaced caller updates its own alias via short name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasShortUpdateA"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasShortUpdateA", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasShortUpdateA", adminKey)
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasShortUpdateB"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasShortUpdateB", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasShortUpdateB", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasShortUpdate", Class: "AliasShortUpdateA"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasShortUpdate", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasShortUpdate", helper.CreateAuth(adminKey))
 
 		// Short names on both the alias and target are qualified with the
 		// caller's namespace; the alias re-points to the qualified target.
 		_, err := helper.UpdateAliasAuthWithReturn(t, "AliasShortUpdate", "AliasShortUpdateB", user1Key)
 		require.NoError(t, err)
 
-		got := helper.GetAliasWithAuthz(t, "customer1:AliasShortUpdate", helper.CreateAuth(adminKey))
-		require.Equal(t, "customer1:AliasShortUpdateB", got.Class)
+		got := helper.GetAliasWithAuthz(t, ns1+":AliasShortUpdate", helper.CreateAuth(adminKey))
+		require.Equal(t, ns1+":AliasShortUpdateB", got.Class)
 	})
 
 	// Global operators do not have a namespace, so qualification is a no-op
@@ -495,14 +496,14 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	// lookup. These tests confirm that path works end-to-end.
 	t.Run("global admin deletes alias via qualified name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AdminAliasQualifiedDeleteTarget"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AdminAliasQualifiedDeleteTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AdminAliasQualifiedDeleteTarget", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AdminAliasQualifiedDelete", Class: "AdminAliasQualifiedDeleteTarget"}, user1Key)
 
-		_, err := helper.DeleteAliasAuthWithReturn(t, "customer1:AdminAliasQualifiedDelete", adminKey)
+		_, err := helper.DeleteAliasAuthWithReturn(t, ns1+":AdminAliasQualifiedDelete", adminKey)
 		require.NoError(t, err)
 
 		_, err = helper.Client(t).Schema.AliasesGetAlias(
-			schema.NewAliasesGetAliasParams().WithAliasName("customer1:AdminAliasQualifiedDelete"),
+			schema.NewAliasesGetAliasParams().WithAliasName(ns1+":AdminAliasQualifiedDelete"),
 			helper.CreateAuth(adminKey),
 		)
 		require.Error(t, err)
@@ -510,17 +511,17 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 
 	t.Run("global admin updates alias via qualified name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AdminAliasQualifiedUpdateA"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AdminAliasQualifiedUpdateA", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AdminAliasQualifiedUpdateA", adminKey)
 		helper.CreateClassAuth(t, &models.Class{Class: "AdminAliasQualifiedUpdateB"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AdminAliasQualifiedUpdateB", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AdminAliasQualifiedUpdateB", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AdminAliasQualifiedUpdate", Class: "AdminAliasQualifiedUpdateA"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AdminAliasQualifiedUpdate", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AdminAliasQualifiedUpdate", helper.CreateAuth(adminKey))
 
-		_, err := helper.UpdateAliasAuthWithReturn(t, "customer1:AdminAliasQualifiedUpdate", "customer1:AdminAliasQualifiedUpdateB", adminKey)
+		_, err := helper.UpdateAliasAuthWithReturn(t, ns1+":AdminAliasQualifiedUpdate", ns1+":AdminAliasQualifiedUpdateB", adminKey)
 		require.NoError(t, err)
 
-		got := helper.GetAliasWithAuthz(t, "customer1:AdminAliasQualifiedUpdate", helper.CreateAuth(adminKey))
-		require.Equal(t, "customer1:AdminAliasQualifiedUpdateB", got.Class)
+		got := helper.GetAliasWithAuthz(t, ns1+":AdminAliasQualifiedUpdate", helper.CreateAuth(adminKey))
+		require.Equal(t, ns1+":AdminAliasQualifiedUpdateB", got.Class)
 	})
 
 	// Read paths (GET /aliases/{name} and GET /aliases?class=) qualify in
@@ -529,9 +530,9 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	// malformed prefixes surface as 422.
 	t.Run("namespaced caller gets its own alias via short name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasShortGetTarget"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasShortGetTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasShortGetTarget", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasShortGet", Class: "AliasShortGetTarget"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasShortGet", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasShortGet", helper.CreateAuth(adminKey))
 
 		// Short name is qualified with the principal's namespace, and the
 		// response is stripped back to the short form for namespaced callers.
@@ -541,40 +542,40 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		require.Equal(t, "AliasShortGetTarget", resp.Payload.Class)
 
 		// Admin sees qualified Alias/Class verbatim (strip is a no-op).
-		respAdmin, err := helper.GetAliasAuthWithReturn(t, "customer1:AliasShortGet", adminKey)
+		respAdmin, err := helper.GetAliasAuthWithReturn(t, ns1+":AliasShortGet", adminKey)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:AliasShortGet", respAdmin.Payload.Alias,
+		assert.Equal(t, ns1+":AliasShortGet", respAdmin.Payload.Alias,
 			"global admin must see the qualified Alias unchanged")
-		assert.Equal(t, "customer1:AliasShortGetTarget", respAdmin.Payload.Class,
+		assert.Equal(t, ns1+":AliasShortGetTarget", respAdmin.Payload.Class,
 			"global admin must see the qualified Class unchanged")
 	})
 
 	t.Run("global admin alias get with wrong-case namespace prefix returns 422", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasCaseGetTarget"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasCaseGetTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasCaseGetTarget", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasCaseGet", Class: "AliasCaseGetTarget"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasCaseGet", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasCaseGet", helper.CreateAuth(adminKey))
 
-		_, err := helper.GetAliasAuthWithReturn(t, "Customer1:AliasCaseGet", adminKey)
+		_, err := helper.GetAliasAuthWithReturn(t, upperNS(ns1)+":AliasCaseGet", adminKey)
 		require.Error(t, err)
 		var unproc *schema.AliasesGetAliasUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected AliasesGetAliasUnprocessableEntity, got %T: %v", err, err)
 		assert.Contains(t, unproc.Payload.Error[0].Message, "invalid namespace prefix")
 
 		// Correct casing still resolves.
-		got := helper.GetAliasWithAuthz(t, "customer1:AliasCaseGet", helper.CreateAuth(adminKey))
-		require.Equal(t, "customer1:AliasCaseGet", got.Alias)
+		got := helper.GetAliasWithAuthz(t, ns1+":AliasCaseGet", helper.CreateAuth(adminKey))
+		require.Equal(t, ns1+":AliasCaseGet", got.Alias)
 	})
 
 	t.Run("namespaced caller submitting qualified alias name to GET is rejected", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasQualifiedGetTarget"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasQualifiedGetTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasQualifiedGetTarget", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasQualifiedGet", Class: "AliasQualifiedGetTarget"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasQualifiedGet", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasQualifiedGet", helper.CreateAuth(adminKey))
 
 		// Namespaced principals are not allowed to type a "<ns>:" prefix —
 		// the resolver adds their namespace automatically. Generic 422.
-		_, err := helper.GetAliasAuthWithReturn(t, "customer1:AliasQualifiedGet", user1Key)
+		_, err := helper.GetAliasAuthWithReturn(t, ns1+":AliasQualifiedGet", user1Key)
 		require.Error(t, err)
 		var unproc *schema.AliasesGetAliasUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected AliasesGetAliasUnprocessableEntity, got %T: %v", err, err)
@@ -583,13 +584,13 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 
 	t.Run("namespaced caller lists aliases filtered by short class name", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasListByClass"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasListByClass", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasListByClass", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasListByClassA", Class: "AliasListByClass"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasListByClassA", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasListByClassA", helper.CreateAuth(adminKey))
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasListByClassB", Class: "AliasListByClass"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasListByClassB", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasListByClassB", helper.CreateAuth(adminKey))
 
-		// Short class filter must be qualified to customer1:AliasListByClass.
+		// Short class filter must be qualified to ns1:AliasListByClass.
 		// Response is stripped back to short names for the namespaced caller.
 		class := "AliasListByClass"
 		resp, err := helper.GetAliasesAuthWithReturn(t, &class, user1Key)
@@ -605,11 +606,11 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 
 	t.Run("global admin alias list with wrong-case class filter returns 422", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AliasListCaseTarget"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AliasListCaseTarget", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AliasListCaseTarget", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasListCase", Class: "AliasListCaseTarget"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasListCase", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AliasListCase", helper.CreateAuth(adminKey))
 
-		class := "Customer1:AliasListCaseTarget"
+		class := upperNS(ns1) + ":AliasListCaseTarget"
 		_, err := helper.GetAliasesAuthWithReturn(t, &class, adminKey)
 		require.Error(t, err)
 		var unproc *schema.AliasesGetUnprocessableEntity
@@ -619,13 +620,13 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 
 	t.Run("global admin lists aliases across namespaces", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "AdminListA"}, user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:AdminListA", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":AdminListA", adminKey)
 		helper.CreateClassAuth(t, &models.Class{Class: "AdminListB"}, user2Key)
-		defer helper.DeleteClassAuth(t, "customer2:AdminListB", adminKey)
+		defer helper.DeleteClassAuth(t, ns2+":AdminListB", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AdminListAlphaA", Class: "AdminListA"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AdminListAlphaA", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":AdminListAlphaA", helper.CreateAuth(adminKey))
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AdminListAlphaB", Class: "AdminListB"}, user2Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer2:AdminListAlphaB", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns2+":AdminListAlphaB", helper.CreateAuth(adminKey))
 
 		resp, err := helper.GetAliasesAuthWithReturn(t, nil, adminKey)
 		require.NoError(t, err)
@@ -633,7 +634,7 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		for _, a := range resp.Payload.Aliases {
 			seen[a.Alias] = true
 		}
-		assert.True(t, seen["customer1:AdminListAlphaA"], "admin should see customer1's alias")
-		assert.True(t, seen["customer2:AdminListAlphaB"], "admin should see customer2's alias")
+		assert.True(t, seen[ns1+":AdminListAlphaA"], "admin should see ns1's alias")
+		assert.True(t, seen[ns2+":AdminListAlphaB"], "admin should see ns2's alias")
 	})
 }

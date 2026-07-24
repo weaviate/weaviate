@@ -45,7 +45,11 @@ var (
 	// postingMapBucketPrefixV1 is migrated to postingMapBucketPrefixV2 by migratePostingMapV1ToV2.
 	postingMapBucketPrefixV1   = []byte{sharedBucketVersionV1, 2}
 	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
-	reassignBucketKey          = []byte{sharedBucketVersionV1, 4, 0}
+	// reassignBucketKey is a legacy shared-bucket key used by the old persisted
+	// reassign deduplicator. It is intentionally reserved forever so no future
+	// metadata can accidentally read stale reassign blobs as a different format.
+	// New code must not write to this key.
+	reassignBucketKey = []byte{sharedBucketVersionV1, 4, 0}
 	// postingMapBucketPrefixV2 stores posting IDs without vector version bytes.
 	postingMapBucketPrefixV2 = []byte{sharedBucketVersionV1, 5}
 	// postingSizesBucketPrefix was added with postingMapBucketPrefixV2.
@@ -64,11 +68,33 @@ func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmk
 		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
-	return store.Bucket(bName), nil
+	bucket := store.Bucket(bName)
+	err = cleanupLegacyReassignBucket(bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	return bucket, nil
 }
 
 func sharedBucketName(id string) string {
 	return fmt.Sprintf("hfresh_shared_%s", id)
+}
+
+func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {
+	exists, err := bucket.Exists(reassignBucketKey)
+	if err != nil {
+		return errors.Wrap(err, "check legacy reassign bucket key")
+	}
+	if !exists {
+		return nil
+	}
+
+	err = bucket.Delete(reassignBucketKey)
+	if err != nil {
+		return errors.Wrap(err, "delete legacy reassign bucket key")
+	}
+	return nil
 }
 
 // IndexMetadataStore manages metadata for the index, such as dimensions and quantization data.
@@ -175,8 +201,7 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 		return nil
 	}
 
-	atomic.StoreUint32(&h.dims, dims)
-	if err := h.setMaxPostingSize(); err != nil {
+	if err := h.setMaxPostingSize(dims); err != nil {
 		return err
 	}
 
@@ -193,7 +218,7 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 		// Dimensions were persisted but quantization data was not (e.g. crash
 		// between persisting dimensions and quantization data). Re-create the
 		// quantizer from scratch.
-		quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
+		quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(dims), 42, h.config.DistanceProvider)
 		if err != nil {
 			return errors.Wrap(err, "could not create quantizer")
 		}
@@ -206,6 +231,7 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 	}
 
 	h.initDone = true
+	atomic.StoreUint32(&h.dims, dims)
 	return nil
 }
 

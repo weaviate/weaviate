@@ -26,7 +26,7 @@ type FileMetadataStream interface {
 	Trailer() metadata.MD
 	RecvMsg(m interface{}) error
 	SendMsg(interface{}) error
-	Send(*protocol.GetFileMetadataRequest) error
+	Send(*protocol.GetReplicaSnapshotFileMetadataRequest) error
 	Recv() (*protocol.FileMetadata, error)
 }
 
@@ -38,6 +38,6 @@ type FileChunkStream interface {
 	Trailer() metadata.MD
 	RecvMsg(m interface{}) error
 	SendMsg(interface{}) error
-	Send(*protocol.GetFileRequest) error
+	Send(*protocol.GetReplicaSnapshotFileRequest) error
 	Recv() (*protocol.FileChunk, error)
 }

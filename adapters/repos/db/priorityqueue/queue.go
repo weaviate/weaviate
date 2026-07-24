@@ -66,7 +66,9 @@ func NewMax[T supportedValueType](capacity int) *Queue[T] {
 }
 
 func (q *Queue[T]) ShouldEnqueue(distance float32, limit int) bool {
-	return q.Len() < limit || q.Top().Dist < distance
+	// read items[0].Dist directly rather than via Top(), which returns the whole
+	// Item by value (a multi-word copy) on this hot path.
+	return len(q.items) < limit || q.items[0].Dist < distance
 }
 
 func (q *Queue[T]) InsertAndPop(id uint64, score float64, limit int, worstDist *float64, val T) {

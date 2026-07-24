@@ -18,6 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
@@ -51,13 +52,8 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: namespace is required on namespace-enabled clusters", ErrBadRequest)
 	}
 
-	if req.Namespace != "" {
-		if !m.namespaces.Exists(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceGone, req.Namespace)
-		}
-		if !m.namespaces.IsActive(req.Namespace) {
-			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, req.Namespace)
-		}
+	if err := usecasesNamespaces.RequireActive(m.namespaces, req.Namespace); err != nil {
+		return fmt.Errorf("%w: %q", err, req.Namespace)
 	}
 
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
@@ -152,7 +148,12 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	response := cmd.QueryGetUsersResponse{Users: users}
+	// These pointers are local and never shared.
+	wireUsers := make(map[string]*dbuser.View, len(users))
+	for id, v := range users {
+		wireUsers[id] = &v
+	}
+	response := cmd.QueryGetUsersResponse{Users: wireUsers}
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
@@ -193,7 +194,8 @@ func (m *Manager) Restore(snapshot []byte) error {
 	if m.dynUser == nil {
 		return nil
 	}
-	err := m.dynUser.Restore(snapshot)
+	// false: RAFT log compaction never strips; only the backup-restore path does.
+	err := m.dynUser.Restore(snapshot, false)
 	if err != nil {
 		m.logger.Errorf("restored db users from snapshot failed with: %v", err)
 		return err

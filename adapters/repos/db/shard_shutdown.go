@@ -94,9 +94,8 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
 
 	s.haltForTransferMux.Lock()
-	if s.haltForTransferCancel != nil {
-		s.haltForTransferCancel()
-	}
+	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
+	s.mayStopInactivityMonitoring()
 	s.haltForTransferMux.Unlock()
 
 	ec := errorcompounder.New()

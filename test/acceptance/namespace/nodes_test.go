@@ -108,14 +108,12 @@ func assertScopedTo(t *testing.T, nodeStatuses []*models.NodeStatus, wantNS stri
 	}
 }
 
-// assertNoNodeWideLeak: a caller that sees no shards must see no node-wide
-// aggregate either — BatchStats dropped and Stats zeroed on every node. Pins the
-// empty-node leak (a node with no shards for the caller still withholds its
-// node-wide ingest signal).
-func assertNoNodeWideLeak(t *testing.T, nodeStatuses []*models.NodeStatus) {
+// assertNoStatsLeak: a caller that sees no shards must see zeroed Stats on
+// every node that holds hidden shards. BatchStats is node-wide queue/throughput
+// telemetry with no per-class data, so it is preserved.
+func assertNoStatsLeak(t *testing.T, nodeStatuses []*models.NodeStatus) {
 	t.Helper()
 	for _, n := range nodeStatuses {
-		assert.Nil(t, n.BatchStats, "node %s leaked node-wide BatchStats to a caller with no shards", n.Name)
 		if n.Stats != nil {
 			assert.Equal(t, int64(0), n.Stats.ShardCount, "node %s ShardCount must be 0 for a caller with no shards", n.Name)
 			assert.Equal(t, int64(0), n.Stats.ObjectCount, "node %s ObjectCount must be 0 for a caller with no shards", n.Name)
@@ -129,10 +127,10 @@ func assertNoNodeWideLeak(t *testing.T, nodeStatuses []*models.NodeStatus) {
 // none, the node-wide minimal view stays operator-only, and the global root
 // sees all.
 func TestNamespaces_NodesEndpoint(t *testing.T) {
-	user1Key, user2Key := twoNamespaces(t)
+	ns1, ns2, user1Key, user2Key := twoNamespaces(t)
 
 	const class = "NodesProbe"
-	setupClassInBothNamespaces(t, class, user1Key, user2Key)
+	setupClassInBothNamespaces(t, ns1, ns2, class, user1Key, user2Key)
 
 	// Seed one object per namespace so the owning shard reports a non-zero count.
 	id := strfmt.UUID("11111111-1111-1111-1111-111111111111")
@@ -151,54 +149,47 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 			_, total := shardClassPrefixes(nodesGetVerbose(t, user1Key).Nodes)
 			assert.Positive(c, total, "ns admin should eventually see its own shards")
 		}, 20*time.Second, 200*time.Millisecond, "ns admin verbose nodes never populated")
-		assertScopedTo(t, nodesGetVerbose(t, user1Key).Nodes, "customer1:")
+		assertScopedTo(t, nodesGetVerbose(t, user1Key).Nodes, ns1+":")
 	})
 
 	t.Run("namespaced admin denied node-wide minimal view", func(t *testing.T) {
 		requireMinimalForbidden(t, user1Key)
 	})
 
-	t.Run("namespaced admin by-class verbose is scoped and leaks no node-wide batch stats", func(t *testing.T) {
+	t.Run("namespaced admin by-class verbose is scoped to its namespace", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			_, total := shardClassPrefixes(nodesGetClassVerbose(t, user1Key, class).Nodes)
 			assert.Positive(c, total, "ns admin should eventually see its own class shards")
 		}, 20*time.Second, 200*time.Millisecond, "ns admin by-class verbose nodes never populated")
-
-		payload := nodesGetClassVerbose(t, user1Key, class)
-		assertScopedTo(t, payload.Nodes, "customer1:")
-		// BatchStats is node-wide; a class-scoped caller must not receive it.
-		for _, n := range payload.Nodes {
-			assert.Nil(t, n.BatchStats,
-				"node %s leaked node-wide BatchStats to a class-scoped caller via by-class", n.Name)
-		}
+		assertScopedTo(t, nodesGetClassVerbose(t, user1Key, class).Nodes, ns1+":")
 	})
 
 	t.Run("regular namespace viewer sees no shards and is denied minimal", func(t *testing.T) {
-		viewerKey := createNamespacedViewerUser(t, "nodesview", "customer1", adminKey)
-		t.Cleanup(func() { helper.DeleteUser(t, "customer1:nodesview", adminKey) })
+		viewerKey := createNamespacedViewerUser(t, "nodesview", ns1, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, ns1+":nodesview", adminKey) })
 
 		viewerNodes := nodesGetVerbose(t, viewerKey).Nodes
 		_, total := shardClassPrefixes(viewerNodes)
 		assert.Zero(t, total, "viewer without a nodes grant must see no shards")
-		assertNoNodeWideLeak(t, viewerNodes)
+		assertNoStatsLeak(t, viewerNodes)
 		requireMinimalForbidden(t, viewerKey)
 	})
 
 	t.Run("custom verbose-nodes role grants scoped access to a non-admin namespace user", func(t *testing.T) {
-		key := helper.CreateUserWithNamespace(t, "vn", "customer1", adminKey)
-		t.Cleanup(func() { helper.DeleteUser(t, "customer1:vn", adminKey) })
+		key := helper.CreateUserWithNamespace(t, "vn", ns1, adminKey)
+		t.Cleanup(func() { helper.DeleteUser(t, ns1+":vn", adminKey) })
 
 		// No role yet: verbose returns 200 with no shards, minimal is forbidden.
 		bareNodes := nodesGetVerbose(t, key).Nodes
 		_, total := shardClassPrefixes(bareNodes)
 		assert.Zero(t, total, "bare namespace user must see no shards before the role is granted")
-		assertNoNodeWideLeak(t, bareNodes)
+		assertNoStatsLeak(t, bareNodes)
 		requireMinimalForbidden(t, key)
 
 		// A custom role with verbose read_nodes over all collections; the matcher
 		// scopes it to the caller's namespace. There is no built-in nodes role for
 		// non-admin namespace users — this is how an operator would grant one.
-		helper.CreateRoleAndAssign(t, adminKey, "customer1:vn", "ns-nodes-viewer",
+		helper.CreateRoleAndAssign(t, adminKey, ns1+":vn", "ns-nodes-viewer",
 			helper.NewNodesPermission().
 				WithAction(authorization.ReadNodes).
 				WithVerbosity(verbosity.OutputVerbose).
@@ -210,7 +201,7 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 			_, total := shardClassPrefixes(nodesGetVerbose(t, key).Nodes)
 			assert.Positive(c, total, "the verbose-nodes role should eventually expose the namespace's shards")
 		}, 20*time.Second, 200*time.Millisecond, "verbose-nodes role never populated")
-		assertScopedTo(t, nodesGetVerbose(t, key).Nodes, "customer1:")
+		assertScopedTo(t, nodesGetVerbose(t, key).Nodes, ns1+":")
 
 		// verbose-only role: the node-wide minimal view stays denied.
 		requireMinimalForbidden(t, key)
@@ -219,8 +210,8 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 	t.Run("global root sees shards from every namespace", func(t *testing.T) {
 		prefixes, total := shardClassPrefixes(nodesGetVerbose(t, adminKey).Nodes)
 		require.Positive(t, total)
-		_, hasC1 := prefixes["customer1:"]
-		_, hasC2 := prefixes["customer2:"]
-		assert.True(t, hasC1 && hasC2, "root must see shards from both customer1 and customer2; saw %v", prefixes)
+		_, hasNs1 := prefixes[ns1+":"]
+		_, hasNs2 := prefixes[ns2+":"]
+		assert.True(t, hasNs1 && hasNs2, "root must see shards from both namespaces; saw %v", prefixes)
 	})
 }

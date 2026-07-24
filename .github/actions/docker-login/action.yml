@@ -1,0 +1,21 @@
+name: Docker Hub login (with retry)
+description: Log in to Docker Hub, retrying through transient auth/network flakes.
+inputs:
+  username:
+    description: Docker Hub username
+    required: true
+  password:
+    description: Docker Hub password or access token
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
+      env:
+        DOCKER_USERNAME: ${{ inputs.username }}
+        DOCKER_PASSWORD: ${{ inputs.password }}
+      with:
+        max_attempts: 5
+        timeout_minutes: 2
+        retry_wait_seconds: 30
+        command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin

@@ -88,6 +88,7 @@ func (m *Module) Init(ctx context.Context,
 	// SSL on by default
 	useSSL := strings.ToLower(os.Getenv(s3UseSSL)) != "false"
 	config := newConfig(os.Getenv(s3Endpoint), bucket, os.Getenv(s3Path), useSSL)
+	config.SkipAccessCheck = params.GetConfig().Backup.SkipAccessCheck
 	client, err := newClient(config, m.logger, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "initialize S3 backup module")
@@ -108,6 +109,7 @@ func (m *Module) Init(ctx context.Context,
 			exportCfg.RoleSessionName = "weaviate-export-s3"
 		}
 	}
+	exportCfg.SkipAccessCheck = params.GetConfig().Export.SkipAccessCheck
 	exportClient, err := newClient(exportCfg, m.logger, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "initialize S3 export client")

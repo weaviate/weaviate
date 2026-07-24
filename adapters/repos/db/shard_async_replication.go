@@ -37,7 +37,9 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
+	"github.com/weaviate/weaviate/entities/storobj"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
@@ -469,6 +471,9 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 
 	s.hashtreeFullyInitialized = false
 	s.minimalHashtreeInitializationCh = make(chan struct{})
+	// The init goroutine closes the channel it owns, not the shard field, which a
+	// concurrent enable may have swapped out under flapping. See closeInitCh.
+	initCh := s.minimalHashtreeInitializationCh
 
 	// asyncRepWg tracks this goroutine so that rebuildHashtree's
 	// asyncRepWg.Wait() serialises rebuilds against it, preventing the old
@@ -479,6 +484,27 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	s.asyncRepWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer s.asyncRepWg.Done()
+
+		// closeInitCh closes this goroutine's owned channel exactly once, unblocking
+		// merges parked in waitForMinimalHashTreeInitialization. It runs as both
+		// initHashtree's afterInMemCallback and a defer covering the early exits
+		// (scheduler nil, slot acquisition cancelled) that never reach initHashtree
+		// and would otherwise leave the channel open forever. The retry loop replaces
+		// ownedCh per attempt.
+		//
+		// No lock: ownedCh/ownedClosed are goroutine-local and close() already
+		// synchronizes with receivers. It must NOT take asyncReplicationRWMux — it
+		// runs while writes hold the RLock, so becoming a pending writer would, under
+		// Go's writer-priority RWMutex, block every new RLock and deadlock them.
+		ownedCh := initCh
+		ownedClosed := false
+		closeInitCh := func() {
+			if !ownedClosed {
+				ownedClosed = true
+				close(ownedCh)
+			}
+		}
+		defer closeInitCh()
 
 		if s.index.asyncReplicationScheduler == nil {
 			return
@@ -501,7 +527,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 			// the goroutine boundary, after the deferred release fires).
 			err := func() error {
 				defer s.index.asyncReplicationScheduler.releaseHashtreeInitSlot()
-				return s.initHashtree(ctx, effectiveConfig, bucket)
+				return s.initHashtree(ctx, effectiveConfig, bucket, closeInitCh)
 			}()
 
 			if err == nil {
@@ -544,13 +570,13 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				return
 			}
 			s.hashtree.Reset()
-			// releaseInitialization (the afterInMemCallback passed to
-			// ApplyToObjectDigests) always closes minimalHashtreeInitializationCh
-			// before initHashtree returns — even on error — so the channel is
-			// already closed here. Closing it again would panic. Replace it with
-			// a fresh channel for the next attempt so write paths that arrive
-			// during the retry wait for that attempt's releaseInitialization.
-			s.minimalHashtreeInitializationCh = make(chan struct{})
+			// initHashtree already closed ownedCh (afterInMemCallback fires once, even
+			// on error); take ownership of a fresh channel so writes arriving during
+			// the retry block until the next attempt completes.
+			newCh := make(chan struct{})
+			s.minimalHashtreeInitializationCh = newCh
+			ownedCh = newCh
+			ownedClosed = false
 			s.asyncReplicationRWMux.Unlock()
 		}
 	}, s.index.logger)
@@ -685,12 +711,31 @@ func (s *Shard) tryLoadHashtreeFromDisk(expectedHeight int) (hashtree.Aggregated
 	return loaded, nil
 }
 
+// aggregateHashTreeLeaf folds one object into ht at the given height without
+// touching s.hashtree, so the init scan can run it lock-free (see initHashtree).
+func aggregateHashTreeLeaf(ht hashtree.AggregatedHashTree, height int, uuidBytes []byte, updateTime int64) error {
+	if len(uuidBytes) != 16 {
+		return fmt.Errorf("invalid object uuid")
+	}
+	if updateTime < 1 {
+		return fmt.Errorf("invalid object last update time")
+	}
+	leaf := hashtreeLeafForHeight(uuidBytes, height)
+	var objectDigest [16 + 8]byte
+	copy(objectDigest[:], uuidBytes)
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
+	return ht.AggregateLeafWith(leaf, objectDigest[:])
+}
+
 // initHashtree performs a full on-disk object scan to populate the shard's
 // hashtree. It is called from a background goroutine after the write lock is
 // released so that concurrent reads and writes are not blocked. Progress is
 // logged at loggingFrequency intervals. The scan is gated by hashtreeInitSem
 // to bound concurrent I/O across all shards at startup.
-func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket) (err error) {
+//
+// releaseInit runs once the in-memory scan completes (as ApplyToObjectDigests'
+// afterInMemCallback, which fires exactly once even on error).
+func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket, releaseInit func()) (err error) {
 	start := time.Now()
 
 	s.metrics.IncAsyncReplicationHashTreeInitCount()
@@ -707,24 +752,21 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		s.metrics.ObserveAsyncReplicationHashTreeInitDuration(time.Since(start))
 	}()
 
-	// releaseInitialization closes minimalHashtreeInitializationCh under RLock
-	// so it serializes with the write-lock path in the retry loop that replaces
-	// the channel. RLock is the correct lock here (not Lock): we are only
-	// reading the channel field and closing it; the retry path replaces the
-	// field under Lock. Invariant: this closure is called exactly once per
-	// initHashtree attempt (ApplyToObjectDigests guarantees it fires the
-	// afterInMemCallback exactly once), so there is no risk of double-close.
-	releaseInitialization := func() {
-		s.asyncReplicationRWMux.RLock()
-		defer s.asyncReplicationRWMux.RUnlock()
-
-		close(s.minimalHashtreeInitializationCh)
+	// Capture the tree once so the scan never takes asyncReplicationRWMux per leaf
+	// under the memtable cursor: that inverts lock order vs writes (RLock → memtable) and deadlocks.
+	s.asyncReplicationRWMux.RLock()
+	ht := s.hashtree
+	s.asyncReplicationRWMux.RUnlock()
+	if ht == nil {
+		releaseInit()
+		return nil
 	}
+	height := ht.Height()
 
 	objCount := 0
 	prevProgressLogging := time.Now()
 
-	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(uuidBytes []byte, updateTime int64) error {
+	err = bucket.ApplyToObjectDigests(ctx, releaseInit, func(uuidBytes []byte, updateTime int64) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -736,7 +778,7 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 			prevProgressLogging = time.Now()
 		}
 
-		if err := s.upsertHashTreeLeaf(uuidBytes, updateTime); err != nil {
+		if err := aggregateHashTreeLeaf(ht, height, uuidBytes, updateTime); err != nil {
 			return err
 		}
 
@@ -750,7 +792,9 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 
 	s.asyncReplicationRWMux.Lock()
 
-	if s.hashtree == nil {
+	// Bail if a concurrent disable nil-ed the tree or a disable+enable flap replaced
+	// it: finalizing here would mark a different, partially-scanned tree ready.
+	if s.hashtree != ht {
 		s.asyncReplicationRWMux.Unlock()
 		s.index.logger.
 			WithField("action", "async_replication").
@@ -887,10 +931,19 @@ func (s *Shard) mayStopAsyncReplication() {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		}
 	}
+	drainStart := time.Now()
 	workersDone := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		defer close(workersDone)
 		s.asyncRepWg.Wait()
+		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
+		if elapsed := time.Since(drainStart); elapsed > asyncReplicationWorkerDrainTimeout {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("async replication drain completed after deadline (took %s)", elapsed)
+		}
 	}, s.index.logger)
 	select {
 	case <-workersDone:
@@ -991,22 +1044,21 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		s.hashtree = nil
 		s.hashtreeFullyInitialized = false
 		s.clearAsyncCheckpointLocked()
+
+		// Deregister under the write lock so {hashtree=nil, Deregister} is atomic vs
+		// a concurrent enable's Register (else disable's late Deregister orphans it).
+		// Deadlock-free: the removeCh path takes only sched.mu, never asyncReplicationRWMux.
+		if s.index.asyncReplicationScheduler != nil {
+			if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
+				s.index.logger.WithField("action", "async_replication").Error(err)
+			}
+		}
 		return true
 	}()
 	if !stopped {
 		return nil
 	}
 
-	// Remove from the scheduler. The context has already been cancelled so any
-	// in-flight cycle will exit promptly; we do not wait for it here.
-	// Deregister may return context.Canceled if the scheduler is shutting down
-	// concurrently; that is safe to ignore because the rebuild path does not
-	// require a strict happens-before with the scheduler's shutdown.
-	if s.index.asyncReplicationScheduler != nil {
-		if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
-			s.index.logger.WithField("action", "async_replication").Error(err)
-		}
-	}
 	// Clear stats outside asyncReplicationRWMux to avoid nesting
 	// asyncReplicationStatsMux inside a write lock.
 	s.asyncReplicationStatsMux.Lock()
@@ -1088,12 +1140,18 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 		// updateReplicationConfig can't interleave (see RevertAsyncReplicationOnShard).
 		s.index.replicationConfigLock.RLock()
 		defer s.index.replicationConfigLock.RUnlock()
-		if s.index.asyncReplicationEnabled() {
+		if s.index.asyncReplicationEnabledForShard(s.name) {
 			return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 		}
 		return s.disableAsyncReplication(ctx)
 	}
 	return nil
+}
+
+func (s *Shard) hasActiveAsyncReplicationTargetOverrides() bool {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	return len(s.targetNodeOverrides) > 0
 }
 
 func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
@@ -1107,7 +1165,7 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 	// removeTargetNodeOverride for the locking rationale.
 	s.index.replicationConfigLock.RLock()
 	defer s.index.replicationConfigLock.RUnlock()
-	if s.index.asyncReplicationEnabled() {
+	if s.index.asyncReplicationEnabledForShard(s.name) {
 		return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 	}
 	return s.disableAsyncReplication(ctx)
@@ -1263,8 +1321,9 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 }
 
 var (
-	errAsyncReplicationNotActive = replica.ErrAsyncReplicationNotActive
-	errAsyncCheckpointStale      = replica.ErrAsyncCheckpointStale
+	errAsyncReplicationNotActive   = replica.ErrAsyncReplicationNotActive
+	errAsyncCheckpointStale        = replica.ErrAsyncCheckpointStale
+	errAsyncCheckpointCutoffInPast = replica.ErrAsyncCheckpointCutoffInPast
 )
 
 func (s *Shard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
@@ -1285,6 +1344,13 @@ func (s *Shard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, creat
 	if s.asyncCheckpointHashtree != nil && !createdAt.After(s.asyncCheckpointCreatedAt) {
 		s.metrics.IncAsyncCheckpointCreateFailureCount()
 		return errAsyncCheckpointStale
+	}
+
+	// Checked under the clone lock so it can't go stale: if this node's clock already reached
+	// the cutoff, applied >cutoff writes would be baked into the clone and diverge the root.
+	if cutoffMs <= time.Now().UnixMilli() {
+		s.metrics.IncAsyncCheckpointCreateFailureCount()
+		return errAsyncCheckpointCutoffInPast
 	}
 
 	// Lifetime measured from local activation, never initiator createdAt, to avoid skew.
@@ -1346,6 +1412,18 @@ func (s *Shard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, 
 	return s.asyncCheckpointHashtree.Root(), s.asyncCheckpointCutoff, s.asyncCheckpointCreatedAt, true
 }
 
+// HashTreeRoot returns the shard's async-replication hashtree root; ok is false when the
+// hashtree is not fully initialised. Computed like HashTreeLevel(level=0) so roots match.
+func (s *Shard) HashTreeRoot() (root hashtree.Digest, ok bool) {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	if !s.hashtreeFullyInitialized {
+		return hashtree.Digest{}, false
+	}
+	return s.hashtree.Root(), true
+}
+
 // runHashbeatCycle runs one full hashbeat cycle and is called by a scheduler
 // worker goroutine. It uses shard-level state maps (asyncRepLast*) which are
 // only ever accessed from a single worker at a time (enforced by asyncRepWg).
@@ -1370,7 +1448,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		return len(s.targetNodeOverrides)
 	}()
 
-	if (!s.index.AsyncReplicationEnabled() && targetNodeOverridesLen == 0) || s.index.maintenanceModeEnabled() {
+	if (!s.index.AsyncReplicationEnabledForShard(s.name) && targetNodeOverridesLen == 0) || s.index.maintenanceModeEnabled() {
 		// skip hashbeat iteration when async replication is disabled and no target node overrides are set
 		// or maintenance mode is enabled for localhost
 		if s.index.maintenanceModeEnabled() {
@@ -1383,6 +1461,16 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 					Info("skipping async replication in maintenance mode")
 			}
 		}
+		return false, nil
+	}
+
+	// Skip the cycle while a non-terminal op targets THIS node for this shard:
+	// CCL replay is the exclusive catch-up channel for that op, and an
+	// un-caught-up target running hashbeat would push its stale state back to
+	// the source. (Source-side hashbeat during the same op is left enabled —
+	// LWW makes any source→target push idempotent with the concurrent CCL replay.)
+	if s.index.replicationFSMReader != nil &&
+		s.index.replicationFSMReader.HasActiveTargetReplicationForShard(s.class.Class, s.name, s.index.db.localNodeName) {
 		return false, nil
 	}
 
@@ -1533,6 +1621,8 @@ func (s *Shard) hashBeat(
 	s.metrics.IncAsyncReplicationIterationCount()
 	s.metrics.IncAsyncReplicationIterationRunning()
 
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessAsyncReplication)()
+
 	defer func() {
 		s.metrics.DecAsyncReplicationIterationRunning()
 
@@ -1604,58 +1694,23 @@ func (s *Shard) hashBeat(
 	hashtreeDiffTook := time.Since(hashtreeDiffStart)
 	s.metrics.ObserveAsyncReplicationHashtreeDiffDuration(hashtreeDiffTook)
 
-	rangeReader := shardDiffReader.RangeReader
-
 	objectDigestsDiffStart := time.Now()
-
-	localObjectDigestsCount := 0
-	objectsDiffCount := 0
-
-	localObjectsToPropagate := make([]strfmt.UUID, 0, config.propagationLimit)
-	localUpdateTimeByUUID := make(map[strfmt.UUID]int64, config.propagationLimit)
-	remoteStaleUpdateTimeByUUID := make(map[strfmt.UUID]int64, config.propagationLimit)
 
 	objectDigestsDiffCtx, cancel := context.WithTimeout(ctx, config.prePropagationTimeout)
 	defer cancel()
 
-	for len(localObjectsToPropagate) < config.propagationLimit {
-		initialLeaf, finalLeaf, err := rangeReader.Next()
-		if err != nil {
-			if errors.Is(err, hashtree.ErrNoMoreRanges) {
-				break
-			}
-			return nil, fmt.Errorf("reading collected differences: %w", err)
-		}
-
-		localObjsCountWithinRange, objsToPropagateWithinRange, err := s.objectsToPropagateWithinRange(
-			objectDigestsDiffCtx,
-			config,
-			shardDiffReader.TargetNodeAddress,
-			shardDiffReader.TargetNodeName,
-			initialLeaf,
-			finalLeaf,
-			config.propagationLimit-len(localObjectsToPropagate),
-			targetNodeOverridesSnapshot,
-			activeCutoff,
-		)
-		if err != nil {
-			if objectDigestsDiffCtx.Err() != nil {
-				// it may be the case that just pre propagation timeout was reached
-				// and some objects could be propagated
-				break
-			}
-
-			return nil, fmt.Errorf("collecting local objects to be propagated: %w", err)
-		}
-
-		localObjectDigestsCount += localObjsCountWithinRange
-		objectsDiffCount += len(objsToPropagateWithinRange)
-
-		for _, obj := range objsToPropagateWithinRange {
-			localObjectsToPropagate = append(localObjectsToPropagate, obj.uuid)
-			localUpdateTimeByUUID[obj.uuid] = obj.lastUpdateTime
-			remoteStaleUpdateTimeByUUID[obj.uuid] = obj.remoteStaleUpdateTime
-		}
+	localObjectsToPropagate, localUpdateTimeByUUID, remoteStaleUpdateTimeByUUID,
+		localObjectDigestsCount, objectsDiffCount, err := s.collectObjectsToPropagate(
+		objectDigestsDiffCtx,
+		config,
+		shardDiffReader.RangeReader,
+		shardDiffReader.TargetNodeAddress,
+		shardDiffReader.TargetNodeName,
+		targetNodeOverridesSnapshot,
+		activeCutoff,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	objectDigestsDiffTook := time.Since(objectDigestsDiffStart)
@@ -1735,23 +1790,22 @@ func (s *Shard) resolveObjectConflict(
 		// Deletion conflict detected but auto-resolution is disabled.
 		return false, true, nil
 	}
-	if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
-		(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
-			r.UpdateTime > localUpdateTimes[strfmt.UUID(r.ID)]) {
+	if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		if err := s.DeleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime)); err != nil {
 			return false, false, fmt.Errorf("deleting local objects: %w", err)
 		}
 		return true, false, nil
 	}
-	return false, false, nil
-}
-
-func uuidFromBytes(uuidBytes []byte) (id strfmt.UUID, err error) {
-	uuidParsed, err := uuid.FromBytes(uuidBytes)
-	if err != nil {
-		return id, err
+	if deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
+		r.UpdateTime > localUpdateTimes[strfmt.UUID(r.ID)] {
+		// skipIfLocalNewer re-checks the live time under docIdLock so a write landing after the propagation snapshot is not clobbered by an older tombstone.
+		deleted, err := s.deleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime), true)
+		if err != nil {
+			return false, false, fmt.Errorf("deleting local objects: %w", err)
+		}
+		return deleted, false, nil
 	}
-	return strfmt.UUID(uuidParsed.String()), nil
+	return false, false, nil
 }
 
 func bytesFromUUID(id strfmt.UUID) (uuidBytes []byte, err error) {
@@ -1779,31 +1833,118 @@ type objectToPropagate struct {
 	remoteStaleUpdateTime int64
 }
 
+// propagationScratch holds buffers reused across all diff ranges of a hashBeat, allocating them per-beat not per-range.
+type propagationScratch struct {
+	filteredDigests    []types.RepairResponse
+	localDigestsByUUID map[uuid.UUID]int64
+	objectsToPropagate []objectToPropagate
+}
+
+func newPropagationScratch(diffBatchSize int) *propagationScratch {
+	return &propagationScratch{
+		filteredDigests:    make([]types.RepairResponse, 0, diffBatchSize),
+		localDigestsByUUID: make(map[uuid.UUID]int64, diffBatchSize),
+		objectsToPropagate: make([]objectToPropagate, 0, diffBatchSize),
+	}
+}
+
+// collectObjectsToPropagate scans the hashtree diff ranges and returns the local
+// objects that must be propagated. It owns a single reusable objects-bucket
+// cursor for the whole scan (released before propagation begins) so the cursor,
+// its memtable snapshot and segment reader chain are reused across all ranges
+// and batches instead of re-allocated per batch.
+func (s *Shard) collectObjectsToPropagate(
+	ctx context.Context,
+	config AsyncReplicationConfig,
+	rangeReader hashtree.AggregatedHashTreeRangeReader,
+	targetNodeAddress, targetNodeName string,
+	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
+	asyncCheckpointCutoff int64,
+) (
+	localObjectsToPropagate []strfmt.UUID,
+	localUpdateTimeByUUID map[strfmt.UUID]int64,
+	remoteStaleUpdateTimeByUUID map[strfmt.UUID]int64,
+	localObjectDigestsCount int,
+	objectsDiffCount int,
+	err error,
+) {
+	localObjectsToPropagate = make([]strfmt.UUID, 0, config.propagationLimit)
+	localUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
+	remoteStaleUpdateTimeByUUID = make(map[strfmt.UUID]int64, config.propagationLimit)
+
+	// Digest mode: this scan reads only headers; full objects are fetched later.
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).CursorReplaceDigestReusable(storobj.MarshallerV1HeaderLen)
+	defer cursor.Close()
+
+	scratch := newPropagationScratch(config.diffBatchSize)
+
+	for len(localObjectsToPropagate) < config.propagationLimit {
+		initialLeaf, finalLeaf, rangeErr := rangeReader.Next()
+		if rangeErr != nil {
+			if errors.Is(rangeErr, hashtree.ErrNoMoreRanges) {
+				break
+			}
+			return nil, nil, nil, 0, 0, fmt.Errorf("reading collected differences: %w", rangeErr)
+		}
+
+		localObjsCountWithinRange, objsToPropagateWithinRange, rangeErr := s.objectsToPropagateWithinRange(
+			ctx,
+			config,
+			cursor,
+			scratch,
+			targetNodeAddress,
+			targetNodeName,
+			initialLeaf,
+			finalLeaf,
+			config.propagationLimit-len(localObjectsToPropagate),
+			targetNodeOverrides,
+			asyncCheckpointCutoff,
+		)
+		if rangeErr != nil {
+			if ctx.Err() != nil {
+				// pre-propagation timeout may have been reached with some objects
+				// already collected; propagate those
+				break
+			}
+			return nil, nil, nil, 0, 0, fmt.Errorf("collecting local objects to be propagated: %w", rangeErr)
+		}
+
+		localObjectDigestsCount += localObjsCountWithinRange
+		objectsDiffCount += len(objsToPropagateWithinRange)
+
+		for _, obj := range objsToPropagateWithinRange {
+			localObjectsToPropagate = append(localObjectsToPropagate, obj.uuid)
+			localUpdateTimeByUUID[obj.uuid] = obj.lastUpdateTime
+			remoteStaleUpdateTimeByUUID[obj.uuid] = obj.remoteStaleUpdateTime
+		}
+	}
+
+	return localObjectsToPropagate, localUpdateTimeByUUID, remoteStaleUpdateTimeByUUID,
+		localObjectDigestsCount, objectsDiffCount, nil
+}
+
 // objectsToPropagateWithinRange returns the local objects in the given hashtree
 // leaf range that must be propagated to the target. Per batch it fetches local
-// digests (DigestObjectsInRange), drops the ones too recent to propagate (per
+// digests via the shared cursor, drops the ones too recent to propagate (per
 // maxUpdateTime), and asks the target via CompareDigests for the subset needing
 // action: objects missing on the target (UpdateTime==0, which also covers
 // target-side tombstones) and objects the source holds a newer version of. Every
 // returned entry is queued; tombstone resolution is left to the post-Overwrite
 // resolveObjectConflict path.
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
+	cursor *lsmkv.CursorReplace, scratch *propagationScratch,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
 	asyncCheckpointCutoff int64,
 ) (localObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
-	objectsToPropagate = make([]objectToPropagate, 0, min(limit, config.diffBatchSize))
+	// Returned buffer must start empty; caller copies it out before the next range reuses it.
+	objectsToPropagate = scratch.objectsToPropagate[:0]
 
 	hashtreeHeight := config.hashtreeHeight
 
 	finalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(finalUUIDBytes, finalLeaf<<(64-hashtreeHeight)|((1<<(64-hashtreeHeight))-1))
 	copy(finalUUIDBytes[8:], []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff})
-
-	finalUUID, err := uuidFromBytes(finalUUIDBytes)
-	if err != nil {
-		return localObjectsCount, objectsToPropagate, err
-	}
 
 	// Computed once so every batch uses the same cut-off; a per-batch recompute
 	// would let objects near the boundary flip eligibility mid-scan.
@@ -1817,23 +1958,19 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 	currLocalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(currLocalUUIDBytes, initialLeaf<<(64-hashtreeHeight))
 
-	// Reused (reset) each iteration to avoid per-batch allocations.
-	filteredDigests := make([]types.RepairResponse, 0, config.diffBatchSize)
-	localDigestsByUUID := make(map[uuid.UUID]int64, config.diffBatchSize)
+	// From scratch: reset before use each batch (below), so per-beat not per-range.
+	filteredDigests := scratch.filteredDigests
+	localDigestsByUUID := scratch.localDigestsByUUID
 
-	for limit > 0 && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
+	for len(objectsToPropagate) < limit && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
 		if ctx.Err() != nil {
 			return localObjectsCount, objectsToPropagate, ctx.Err()
 		}
 
-		currLocalUUID, err := uuidFromBytes(currLocalUUIDBytes)
-		if err != nil {
-			return localObjectsCount, objectsToPropagate, err
-		}
+		// Scan/compare at the full diff batch size, not the remaining budget, so a nearly-exhausted limit can't degrade a leaf into one CompareDigests RPC per object; limit only caps how many results get queued (below).
+		currBatchSize := config.diffBatchSize
 
-		currBatchSize := min(limit, config.diffBatchSize)
-
-		allLocalDigests, err := s.index.DigestObjectsInRange(ctx, s.name, currLocalUUID, finalUUID, currBatchSize)
+		allLocalDigests, err := collectObjectDigests(ctx, cursor, currLocalUUIDBytes, finalUUIDBytes, currBatchSize)
 		if err != nil {
 			return localObjectsCount, objectsToPropagate, fmt.Errorf("fetching local object digests: %w", err)
 		}
@@ -1889,7 +2026,6 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 			return localObjectsCount, objectsToPropagate, fmt.Errorf("comparing digests with remote: %w", err)
 		}
 
-		batchActionCount := 0
 		for _, stale := range staleDigests {
 			key, err := uuid.Parse(stale.ID)
 			if err != nil {
@@ -1912,7 +2048,10 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 				lastUpdateTime:        localUT,
 				remoteStaleUpdateTime: stale.UpdateTime, // 0 when missing-or-tombstoned on target
 			})
-			batchActionCount++
+			// Budget reached; leftover eligible objects are picked up next hashbeat.
+			if len(objectsToPropagate) >= limit {
+				break
+			}
 		}
 
 		if len(allLocalDigests) < currBatchSize {
@@ -1925,8 +2064,6 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 		}
 
 		currLocalUUIDBytes = lastLocalUUIDBytes
-		// Charge the budget only for queued propagations, not for scanned-but-current objects.
-		limit -= batchActionCount
 	}
 
 	// Note: propagations == 0 means local shard is laying behind remote shard,
@@ -1952,6 +2089,31 @@ func (s *Shard) getHashBeatMaxUpdateTime(config AsyncReplicationConfig, targetNo
 		}
 	}
 	return time.Now().Add(-config.propagationDelay).UnixMilli()
+}
+
+// buildPropagationBatch wraps each local object's raw on-disk bytes as a VObject
+// to overwrite on the target. Objects deleted locally in the meantime are
+// skipped. An older target that cannot decode raw fails gracefully and converges
+// once upgraded (see VObject.MarshalBinaryRaw).
+func (s *Shard) buildPropagationBatch(ctx context.Context, uuidBatch []strfmt.UUID,
+	remoteStaleUpdateTime map[strfmt.UUID]int64,
+) ([]*objects.VObject, error) {
+	rawObjs, err := s.MultiObjectRawByID(ctx, uuidBatch)
+	if err != nil {
+		return nil, err
+	}
+
+	batch := make([]*objects.VObject, 0, len(rawObjs))
+	for j, raw := range rawObjs {
+		if raw == nil {
+			continue
+		}
+		batch = append(batch, &objects.VObject{
+			StaleUpdateTime: remoteStaleUpdateTime[uuidBatch[j]],
+			RawBytes:        raw,
+		})
+	}
+	return batch, nil
 }
 
 func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationConfig, host string,
@@ -2023,7 +2185,7 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 					continue
 				}
 
-				localObjs, err := s.MultiObjectByID(workerCtx, wrapIDsInMulti(uuidBatch))
+				batch, err := s.buildPropagationBatch(workerCtx, uuidBatch, remoteStaleUpdateTime)
 				if err != nil {
 					// Skip ctx-cancellation errors: the parent surfaces the cancel
 					// cause via context.Cause(workerCtx) once workers drain.
@@ -2036,43 +2198,6 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 						err: fmt.Errorf("fetching local objects: %w", err),
 					}
 					continue
-				}
-
-				batch := make([]*objects.VObject, 0, len(localObjs))
-
-				for _, obj := range localObjs {
-					if obj == nil {
-						// local object was deleted meanwhile
-						continue
-					}
-
-					var vectors map[string][]float32
-					var multiVectors map[string][][]float32
-
-					if obj.Vectors != nil {
-						vectors = make(map[string][]float32, len(obj.Vectors))
-						for targetVector, v := range obj.Vectors {
-							vectors[targetVector] = v
-						}
-					}
-					if obj.MultiVectors != nil {
-						multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
-						for targetVector, v := range obj.MultiVectors {
-							multiVectors[targetVector] = v
-						}
-					}
-
-					obj := &objects.VObject{
-						ID:                      obj.ID(),
-						LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
-						LatestObject:            &obj.Object,
-						Vector:                  obj.Vector,
-						Vectors:                 vectors,
-						MultiVectors:            multiVectors,
-						StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
-					}
-
-					batch = append(batch, obj)
 				}
 
 				if len(batch) > 0 {

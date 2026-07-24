@@ -52,6 +52,7 @@ type ClassSettings interface {
 	Endpoint() string
 	TargetModel() string
 	TargetVariant() string
+	Dimensions() *int64
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
@@ -76,6 +77,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 		Endpoint:      icheck.Endpoint(),
 		TargetModel:   icheck.TargetModel(),
 		TargetVariant: icheck.TargetVariant(),
+		Dimensions:    icheck.Dimensions(),
 	})
 	if err != nil {
 		return nil, err

@@ -78,10 +78,16 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 		}
 	}
 
-	for id := range targets.Iter() {
-		_, err = h.append(ctx, v, id, false)
+	for postingID := range targets.Iter() {
+		added, err := h.append(ctx, v, postingID, false)
 		if err != nil {
-			return errors.Wrapf(err, "failed to append vector %d to posting %d", id, id)
+			return errors.Wrapf(err, "failed to append vector %d to posting %d", v.ID(), postingID)
+		}
+		if !added {
+			err = h.taskQueue.EnqueueReassign(postingID, v.ID())
+			if err != nil {
+				return errors.Wrapf(err, "failed to enqueue reassign for vector %d after posting %d disappeared", v.ID(), postingID)
+			}
 		}
 	}
 
@@ -100,16 +106,15 @@ func (h *HFresh) initDimensions(vector []float32) error {
 	}
 
 	size := uint32(len(vector))
-	atomic.StoreUint32(&h.dims, size)
 
-	if err := h.setMaxPostingSize(); err != nil {
+	if err := h.setMaxPostingSize(size); err != nil {
 		return err
 	}
 	if err := h.IndexMetadata.SetDimensions(size); err != nil {
 		return errors.Wrap(err, "could not persist dimensions")
 	}
 
-	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
+	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(size), 42, h.config.DistanceProvider)
 	if err != nil {
 		return errors.Wrap(err, "could not create quantizer")
 	}
@@ -122,6 +127,7 @@ func (h *HFresh) initDimensions(vector []float32) error {
 
 	h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
 	h.initDone = true
+	atomic.StoreUint32(&h.dims, size)
 	return nil
 }
 
@@ -177,19 +183,8 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	// check if the posting still exists
 	if !h.Centroids.Exists(centroidID) {
 		// the posting might have been deleted concurrently,
-		// might happen if we are reassigning
-		version, err := h.VersionMap.Get(h.ctx, vector.ID())
-		if err != nil {
-			return false, err
-		}
-		if version == vector.Version() {
-			err := h.taskQueue.EnqueueReassign(centroidID, vector.ID(), vector.Version())
-			if err != nil {
-				h.postingLocks.Unlock(centroidID)
-				return false, err
-			}
-		}
-
+		// might happen if we are reassigning or inserting while
+		// background maintenance deletes a posting.
 		h.postingLocks.Unlock(centroidID)
 		return false, nil
 	}

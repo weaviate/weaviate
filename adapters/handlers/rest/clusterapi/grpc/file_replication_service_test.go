@@ -14,6 +14,9 @@ package grpc
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,6 +26,7 @@ import (
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -110,9 +114,45 @@ func (r *fakeRepo) GetIndexForIncomingSharding(className schema.ClassName) shard
 	return idx
 }
 
+// fakeSchema implements sharding.RemoteIncomingSchema. ReadOnlyClassWithVersion
+// records every requested version and errors when asked for a version higher
+// than `applied`, simulating a source node that has not yet applied that schema
+// command — which is exactly the wait the StartChangeCapture barrier relies on.
+type fakeSchema struct {
+	mu        sync.Mutex
+	requested []uint64
+	applied   uint64 // highest applied schema version; requests above this fail
+	err       error  // forced error, overrides the applied check when set
+}
+
+func (s *fakeSchema) ReadOnlyClassWithVersion(_ context.Context, class string, version uint64) (*models.Class, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requested = append(s.requested, version)
+	if s.err != nil {
+		return nil, s.err
+	}
+	if version > s.applied {
+		return nil, fmt.Errorf("schema version %d not applied (have %d)", version, s.applied)
+	}
+	return &models.Class{Class: class}, nil
+}
+
+func (s *fakeSchema) requestedVersions() []uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]uint64(nil), s.requested...)
+}
+
 func newService(t *testing.T, indices map[string]*fakeIndex) *FileReplicationService {
 	t.Helper()
-	return NewFileReplicationService(&fakeRepo{indices: indices}, nil, 64*1024)
+	// Permissive schema: every version is already applied, so the barrier never blocks.
+	return newServiceWithSchema(t, indices, &fakeSchema{applied: math.MaxUint64})
+}
+
+func newServiceWithSchema(t *testing.T, indices map[string]*fakeIndex, sc sharding.RemoteIncomingSchema) *FileReplicationService {
+	t.Helper()
+	return NewFileReplicationService(&fakeRepo{indices: indices}, sc, 64*1024)
 }
 
 func TestStartChangeCapture_HappyPath(t *testing.T) {
@@ -155,6 +195,47 @@ func TestStartChangeCapture_IndexError(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.Internal, status.Code(err))
+}
+
+// StartChangeCapture must wait for the source to apply the op's HOT-activation
+// schema version before opening the change-capture log. When the version is
+// already applied, the barrier passes and the log is activated.
+func TestStartChangeCapture_WaitsForSchemaVersion(t *testing.T) {
+	fi := &fakeIndex{}
+	sc := &fakeSchema{applied: 4}
+	svc := newServiceWithSchema(t, map[string]*fakeIndex{"MyClass": fi}, sc)
+
+	_, err := svc.StartChangeCapture(context.Background(), &pb.StartChangeCaptureRequest{
+		IndexName:     "MyClass",
+		ShardName:     "shard1",
+		OpId:          "op-1",
+		SchemaVersion: 4,
+	})
+	require.NoError(t, err)
+	require.Len(t, fi.startCalls, 1)
+	// The handler consulted the schema with the op's version before activating.
+	require.Equal(t, []uint64{4}, sc.requestedVersions())
+}
+
+// Regression for the auto-tenant-activation FINALIZING flake: when the source
+// has not yet applied the op's schema version (the tenant reactivation is still
+// queued), the barrier must fail BEFORE the change-capture log is opened — never
+// activate it on a shard instance a pending COLD→HOT reactivation will sweep.
+func TestStartChangeCapture_BlockedUntilSchemaVersionApplied(t *testing.T) {
+	fi := &fakeIndex{}
+	sc := &fakeSchema{applied: 3} // op needs v5 but only v3 is applied on the source
+	svc := newServiceWithSchema(t, map[string]*fakeIndex{"MyClass": fi}, sc)
+
+	_, err := svc.StartChangeCapture(context.Background(), &pb.StartChangeCaptureRequest{
+		IndexName:     "MyClass",
+		ShardName:     "shard1",
+		OpId:          "op-1",
+		SchemaVersion: 5,
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.Empty(t, fi.startCalls, "change-capture log must not be activated before the schema version is applied")
+	require.Equal(t, []uint64{5}, sc.requestedVersions())
 }
 
 func TestFinalizeChangeLog_HappyPath(t *testing.T) {

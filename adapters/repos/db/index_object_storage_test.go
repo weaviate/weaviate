@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -146,14 +147,12 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
+			mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
 
 			// Create mock schema getter
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
-			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
-				return readerFunc(class, shardState)
-			}).Maybe()
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
 			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
@@ -318,14 +317,12 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
 	}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
 
 	// Create mock schema getter
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
-		return readerFunc(class, shardState)
-	}).Maybe()
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardOwner(className, tenantNamePopulated).Maybe().Return("test-node", nil)
 	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().
@@ -341,6 +338,9 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}},
 		}, nil).Maybe()
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
+	// Seed a non-zero counter so the populated tenant reads as non-empty and is
+	// loaded as a raw *Shard (not deferred as an empty tenant).
+	seedShardObjectCounter(t, dirName, className, tenantNamePopulated)
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:              dirName,
@@ -486,7 +486,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
-	usage, err := newIndex.usageForCollection(ctx, time.Nanosecond, true, class.VectorConfig)
+	usage, err := newIndex.usageForCollection(ctx, semaphore.NewWeighted(4), true, class.VectorConfig)
 	require.NoError(t, err)
 
 	for _, shardUsage := range usage.Shards {

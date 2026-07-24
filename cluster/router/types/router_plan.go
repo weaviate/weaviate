@@ -33,14 +33,16 @@ type RoutingPlanBuildOptions struct {
 	Tenant              string
 	ConsistencyLevel    ConsistencyLevel
 	DirectCandidateNode string
+	// LocalOnly resolves replicas from local schema; no leader query, no tenant activation.
+	LocalOnly bool
 }
 
 // String returns a human-readable representation of the RoutingPlanBuildOptions.
 // Useful for debugging and logging.
 func (o RoutingPlanBuildOptions) String() string {
 	return fmt.Sprintf(
-		"RoutingPlanBuildOptions{shard: %q, tenant: %q, consistencyLevel: %s, directCandidateNode: %q}",
-		o.Shard, o.Tenant, o.ConsistencyLevel, o.DirectCandidateNode,
+		"RoutingPlanBuildOptions{shard: %q, tenant: %q, consistencyLevel: %s, directCandidateNode: %q, localOnly: %t}",
+		o.Shard, o.Tenant, o.ConsistencyLevel, o.DirectCandidateNode, o.LocalOnly,
 	)
 }
 
@@ -169,27 +171,4 @@ func (p WriteRoutingPlan) Shards() []string {
 // Replicas returns a list of replicas
 func (p WriteRoutingPlan) Replicas() []Replica {
 	return p.ReplicaSet.Replicas
-}
-
-// AdditionalHostNames returns the hostnames of the additional write Replicas,
-// which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
-func (p WriteRoutingPlan) AdditionalHostNames() []string {
-	return p.ReplicaSet.AdditionalHostAddresses()
-}
-
-// AdditionalHostAddresses returns the host addresses of the additional write
-// Replicas, which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
-func (p WriteRoutingPlan) AdditionalHostAddresses() []string {
-	return p.ReplicaSet.AdditionalHostAddresses()
-}
-
-// AdditionalShards returns the shard names associated with the additional write Replicas
-// in the WriteRoutingPlan.
-func (p WriteRoutingPlan) AdditionalShards() []string {
-	return p.ReplicaSet.AdditionalShards()
-}
-
-// AdditionalReplicas returns a list of additional replicas
-func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
-	return p.ReplicaSet.AdditionalReplicas
 }

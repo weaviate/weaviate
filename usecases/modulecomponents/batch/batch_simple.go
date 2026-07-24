@@ -13,9 +13,12 @@ package batch
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
+
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -24,13 +27,56 @@ import (
 
 type objectVectorizer[T dto.Embedding] func(context.Context, *models.Object, moduletools.ClassConfig) (T, models.AdditionalProperties, error)
 
-func VectorizeBatch[T dto.Embedding](
+type batchObjectsVectorizer[T dto.Embedding] func(context.Context, []*models.Object, moduletools.ClassConfig) ([]T, models.AdditionalProperties, error)
+
+// BatchSimple exposes the per-object (VectorizeBatch) and per-batch
+// (VectorizeBatchObjects) vectorization helpers used by modules that do not
+// need the full token-aware Batch[T] pipeline.
+//
+// When a positive RPM is supplied to NewBatchSimple, requests are paced by a
+// token-bucket limiter. One limiter token is reserved per input embedding
+// (NOT per HTTP request) because some providers — e.g. Google Gemini — count
+// each embedding as a separate request against the RPM quota even when
+// multiple inputs are batched into a single HTTP call.
+type BatchSimple[T dto.Embedding] struct {
+	logger      logrus.FieldLogger
+	rateLimiter *rate.Limiter
+}
+
+// NewBatchSimple returns a BatchSimple. When rpm > 0 requests are limited to
+// approximately rpm embeddings per minute with a burst of max(rpm/60, 1).
+// When rpm <= 0 no rate limiting is applied.
+func NewBatchSimple[T dto.Embedding](logger logrus.FieldLogger, rpm int) *BatchSimple[T] {
+	sb := &BatchSimple[T]{logger: logger}
+	if rpm > 0 {
+		sb.rateLimiter = rate.NewLimiter(rate.Limit(float64(rpm)/60.0), max(rpm/60, 1))
+	}
+	return sb
+}
+
+// waitForQuota blocks until the rate limiter grants quota for n embeddings.
+// Requests larger than the limiter's burst size are reserved in chunks.
+// Returns nil immediately when the limiter is disabled.
+func (b *BatchSimple[T]) waitForQuota(ctx context.Context, n int) error {
+	if b.rateLimiter == nil {
+		return nil
+	}
+	for n > 0 {
+		take := min(n, b.rateLimiter.Burst())
+		if err := b.rateLimiter.WaitN(ctx, take); err != nil {
+			return fmt.Errorf("wait for rate limit quota: %w", err)
+		}
+		n -= take
+	}
+	return nil
+}
+
+func (b *BatchSimple[T]) VectorizeBatch(
 	ctx context.Context,
 	objs []*models.Object,
 	skipObject []bool,
 	cfg moduletools.ClassConfig,
-	logger logrus.FieldLogger,
-	objectVectorizer objectVectorizer[T],
+	vectorize objectVectorizer[T],
 ) ([]T, []models.AdditionalProperties, map[int]error) {
 	vecs := make([]T, len(objs))
 	// error should be the exception so dont preallocate
@@ -38,7 +84,7 @@ func VectorizeBatch[T dto.Embedding](
 	errorLock := sync.Mutex{}
 
 	// error group is used to limit concurrency
-	eg := enterrors.NewErrorGroupWrapper(logger)
+	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	for i := range objs {
 		i := i
@@ -47,7 +93,13 @@ func VectorizeBatch[T dto.Embedding](
 			continue
 		}
 		eg.Go(func() error {
-			vec, _, err := objectVectorizer(ctx, objs[i], cfg)
+			if err := b.waitForQuota(ctx, 1); err != nil {
+				errorLock.Lock()
+				defer errorLock.Unlock()
+				errs[i] = err
+				return nil
+			}
+			vec, _, err := vectorize(ctx, objs[i], cfg)
 			if err != nil {
 				errorLock.Lock()
 				defer errorLock.Unlock()
@@ -70,20 +122,17 @@ func VectorizeBatch[T dto.Embedding](
 	return vecs, nil, errs
 }
 
-type batchObjectsVectorizer[T dto.Embedding] func(context.Context, []*models.Object, moduletools.ClassConfig) ([]T, models.AdditionalProperties, error)
-
 type batchObjects struct {
 	indexes []int
 	objs    []*models.Object
 }
 
-func VectorizeBatchObjects[T dto.Embedding](
+func (b *BatchSimple[T]) VectorizeBatchObjects(
 	ctx context.Context,
 	objs []*models.Object,
 	skipObject []bool,
 	cfg moduletools.ClassConfig,
-	logger logrus.FieldLogger,
-	batchObjectVectorizer batchObjectsVectorizer[T],
+	vectorize batchObjectsVectorizer[T],
 	batchSize int,
 ) ([]T, []models.AdditionalProperties, map[int]error) {
 	vecs := make([]T, len(objs))
@@ -105,11 +154,19 @@ func VectorizeBatchObjects[T dto.Embedding](
 		batchOfObjects[j].objs = append(batchOfObjects[j].objs, objs[i])
 	}
 	// error group is used to limit concurrency
-	eg := enterrors.NewErrorGroupWrapper(logger)
+	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	for batchIndex := range batchOfObjects {
 		eg.Go(func() error {
-			res, _, err := batchObjectVectorizer(ctx, batchOfObjects[batchIndex].objs, cfg)
+			if err := b.waitForQuota(ctx, len(batchOfObjects[batchIndex].objs)); err != nil {
+				errorLock.Lock()
+				defer errorLock.Unlock()
+				for _, index := range batchOfObjects[batchIndex].indexes {
+					errs[index] = err
+				}
+				return nil
+			}
+			res, _, err := vectorize(ctx, batchOfObjects[batchIndex].objs, cfg)
 			if err != nil {
 				errorLock.Lock()
 				defer errorLock.Unlock()

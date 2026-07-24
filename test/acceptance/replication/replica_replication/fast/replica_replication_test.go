@@ -90,7 +90,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-	require.Nil(t, err)
+	require.NoError(t, err, "failed to start compose cluster")
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
@@ -137,7 +137,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			require.NoError(ct, clientErr)
+			require.NoError(ct, clientErr, "failed to get nodes status: %+v", clientErr)
 			require.NotNil(ct, body.Payload)
 
 			resp := body.Payload
@@ -155,7 +155,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		verbose := verbosity.OutputVerbose
 		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
 		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		require.NoError(t, clientErr)
+		require.NoError(t, clientErr, "failed to get nodes status: %+v", clientErr)
 		require.NotNil(t, body.Payload)
 		targetNode := docker.Weaviate2
 		hasFoundNode := false
@@ -194,7 +194,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 					),
 					nil,
 				)
-				require.NoError(t, err)
+				require.NoError(t, err, "failed to start replication operation: %+v", err)
 				require.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
 				require.NotNil(t, resp.Payload)
 				require.NotNil(t, resp.Payload.ID)
@@ -217,7 +217,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 			details, err := helper.Client(t).Replication.ReplicationDetails(
 				replication.NewReplicationDetailsParams().WithID(uuid), nil,
 			)
-			assert.Nil(t, err, "failed to get replication details %s", err)
+			assert.NoError(t, err, "failed to get replication details %s", err)
 			assert.NotNil(t, details, "expected replication details to be not nil")
 			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
@@ -234,11 +234,11 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, objId := range paragraphIDs {
 				exists, err := common.ObjectExistsCL(t, compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
-				assert.Nil(ct, err)
+				assert.NoError(ct, err, "failed to check object existence: %+v", err)
 				assert.True(ct, exists)
 
 				resp, err := common.GetObjectCL(t, compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
-				assert.Nil(ct, err)
+				assert.NoError(ct, err, "failed to get object: %+v", err)
 				assert.NotNil(ct, resp)
 			}
 		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
@@ -247,7 +247,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 	t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
 		nodes, err := helper.Client(t).Nodes.
 			NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get nodes status: %+v", err)
 		for _, node := range nodes.Payload.Nodes {
 			for _, shard := range node.Shards {
 				require.Len(t, shard.AsyncReplicationStatus, 0)
@@ -323,7 +323,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 		verbose := verbosity.OutputVerbose
 		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
 		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		require.NoError(t, clientErr)
+		require.NoError(t, clientErr, "failed to get nodes status: %+v", clientErr)
 		require.NotNil(t, body.Payload)
 
 		hasFoundNode := false
@@ -390,7 +390,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 					),
 					nil,
 				)
-				require.NoError(t, err)
+				require.NoError(t, err, "failed to start replication operation: %+v", err)
 				require.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
 				require.NotNil(t, resp.Payload)
 				require.NotNil(t, resp.Payload.ID)
@@ -411,7 +411,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 			details, err := helper.Client(t).Replication.ReplicationDetails(
 				replication.NewReplicationDetailsParams().WithID(uuid), nil,
 			)
-			assert.Nil(t, err, "failed to get replication details %s", err)
+			assert.NoError(t, err, "failed to get replication details %s", err)
 			assert.NotNil(t, details, "expected replication details to be not nil")
 			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
@@ -428,7 +428,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, objId := range paragraphIDs {
 				obj, err := common.GetTenantObjectFromNode(t, targetNodeURI, paragraphClass.Class, objId, targetNode, "tenant0")
-				assert.Nil(ct, err)
+				assert.NoError(ct, err, "failed to get tenant object: %+v", err)
 				assert.NotNil(ct, obj)
 			}
 		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
@@ -437,7 +437,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 	t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
 		nodes, err := helper.Client(t).Nodes.
 			NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
-		require.Nil(t, err)
+		require.NoError(t, err, "failed to get nodes status: %+v", err)
 		for _, node := range nodes.Payload.Nodes {
 			for _, shard := range node.Shards {
 				require.Len(t, shard.AsyncReplicationStatus, 0)

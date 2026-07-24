@@ -478,7 +478,7 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string, selection *searchparams.Selection,
+	properties []string,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	return nil, nil, nil, nil
 }
@@ -651,6 +651,12 @@ func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 func (c *fakeReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
 	digests []types.RepairResponse,
 ) ([]types.RepairResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) CompareHashTreeRoots(ctx context.Context, host, index string,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
 	return nil, nil
 }
 

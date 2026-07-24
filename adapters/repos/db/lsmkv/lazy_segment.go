@@ -244,6 +244,11 @@ func (s *lazySegment) markForDeletion() error {
 	return s.segment.markForDeletion()
 }
 
+func (s *lazySegment) markForDeletionExceptSegment() error {
+	s.mustLoad()
+	return s.segment.markForDeletionExceptSegment()
+}
+
 func (s *lazySegment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error) {
 	s.mustLoad()
 	return s.segment.MergeTombstones(other)
@@ -267,6 +272,11 @@ func (s *lazySegment) newCursor() innerCursorReplaceAllKeys {
 func (s *lazySegment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
 	s.mustLoad()
 	return s.segment.newReplaceCursorReusable()
+}
+
+func (s *lazySegment) newReplaceCursorDigestReusable(valuePrefixLen int) *segmentCursorReplaceReusable {
+	s.mustLoad()
+	return s.segment.newReplaceCursorDigestReusable(valuePrefixLen)
 }
 
 func (s *lazySegment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
@@ -320,10 +330,10 @@ func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 	return s.segment.roaringSetGet(key, bitmapBufPool)
 }
 
-func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
+func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int,
 ) error {
 	s.mustLoad()
-	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool)
+	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool, maxConc)
 }
 
 func (s *lazySegment) numberFromPath(re *regexp.Regexp) (int, bool) {
@@ -364,22 +374,50 @@ func (s *lazySegment) getPropertyLengths() (map[uint64]uint32, error) {
 	return s.segment.getPropertyLengths()
 }
 
+func (s *lazySegment) isPropertyLengthsLoaded() bool {
+	// an unloaded segment cannot have cached arrays, and checking must not load it
+	if !s.isLoaded() {
+		return false
+	}
+	return s.segment.isPropertyLengthsLoaded()
+}
+
+func (s *lazySegment) freePropertyLengths() {
+	// freeing must not trigger a load: an unloaded segment has nothing cached
+	if !s.isLoaded() {
+		return
+	}
+	s.segment.freePropertyLengths()
+}
+
+func (s *lazySegment) propLengthsView() (propLengthsView, error) {
+	if err := s.load(); err != nil {
+		return propLengthsView{}, fmt.Errorf("lazySegment::propLengthsView: %w", err)
+	}
+	return s.segment.propLengthsView()
+}
+
 func (s *lazySegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 	s.mustLoad()
 	return s.segment.newInvertedCursorReusable()
 }
 
-func (s *lazySegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64,
+func (s *lazySegment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64,
 	propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList,
 	averagePropLength float64, config schema.BM25Config,
 ) *SegmentBlockMax {
 	s.mustLoad()
-	return s.segment.newSegmentBlockMax(key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
+	return s.segment.newSegmentBlockMax(node, key, queryTermIndex, idf, propertyBoost, tombstones, memTombstones, filterDocIds, averagePropLength, config)
 }
 
 func (s *lazySegment) getDocCount(key []byte) uint64 {
 	s.mustLoad()
 	return s.segment.getDocCount(key)
+}
+
+func (s *lazySegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
+	s.mustLoad()
+	return s.segment.getInvertedNodeAndDocCount(key)
 }
 
 func (s *lazySegment) getCountNetAdditions() int {
