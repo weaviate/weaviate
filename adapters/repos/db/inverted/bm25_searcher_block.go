@@ -73,87 +73,129 @@ func (b *BM25Searcher) wandBlock(
 		return objects, scores, true, err
 	}
 
-	allResults := make([][][]*lsmkv.SegmentBlockMax, 0, len(params.Properties))
-	termCounts := make([][]string, 0, len(params.Properties))
-	minimumOrTokensMatchByProperty := make([]int, 0, len(params.Properties))
+	type blockTermJob struct {
+		propName        string
+		queryTerms      []string
+		duplicateBoosts []int
+	}
+	// jobs of the same tokenization are contiguous; the group's idf
+	// accumulation happens after the parallel join
+	type tokenizationGroup struct {
+		queryTerms      []string
+		duplicateBoosts []int
+		start, end      int
+	}
+
+	jobs := make([]blockTermJob, 0, len(params.Properties))
+	groups := make([]tokenizationGroup, 0, len(stats.propNamesByTokenization))
+	for tokenization, propNames := range stats.propNamesByTokenization {
+		if len(propNames) == 0 {
+			continue
+		}
+		queryTerms, duplicateBoosts := stats.queryTermsByTokenization[tokenization], stats.duplicateBoostsByTokenization[tokenization]
+		group := tokenizationGroup{queryTerms: queryTerms, duplicateBoosts: duplicateBoosts, start: len(jobs)}
+		for _, propName := range propNames {
+			jobs = append(jobs, blockTermJob{propName: propName, queryTerms: queryTerms, duplicateBoosts: duplicateBoosts})
+		}
+		group.end = len(jobs)
+		groups = append(groups, group)
+		helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(queryTerms))
+	}
+
+	allResults := make([][][]*lsmkv.SegmentBlockMax, len(jobs))
+	termCounts := make([][]string, len(jobs))
+	minimumOrTokensMatchByProperty := make([]int, len(jobs))
+	perJobIdfCounts := make([]map[string]uint64, len(jobs))
 
 	// These locks are the segmentCompactions locks for the searched properties
 	// The old search process locked the compactions and read the full postings list into memory.
 	// We don't do that anymore, as the goal of BlockMaxWAND is to avoid reading the full postings list into memory.
 	// The locks are needed here instead of at DoBlockMaxWand only, as we separate term creation from the actual search.
 	// TODO: We should consider if we can remove these locks and only lock at DoBlockMaxWand
-	releaseCallbacks := make(map[string]func(), len(params.Properties))
+	releaseCallbacks := make([]func(), len(jobs))
 
 	defer func() {
 		for _, release := range releaseCallbacks {
-			release()
+			if release != nil {
+				release()
+			}
 		}
 	}()
 
 	tokenizationTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
-	for tokenization, propNames := range stats.propNamesByTokenization {
-		if len(propNames) > 0 {
-			lenAllResults := len(allResults)
-			queryTerms, duplicateBoosts := stats.queryTermsByTokenization[tokenization], stats.duplicateBoostsByTokenization[tokenization]
-			duplicateBoostsByTerm := make(map[string]int, len(duplicateBoosts))
-			for i, term := range queryTerms {
-				duplicateBoostsByTerm[term] = duplicateBoosts[i]
+
+	// each property is a distinct bucket, so term creation (the per-segment
+	// index descents) is independent across jobs; the derived context cancels
+	// sibling jobs on the first error
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(b.logger, ctx)
+	eg.SetLimit(_NUMCPU)
+	for i, job := range jobs {
+		termCounts[i] = job.queryTerms
+		minimumOrTokensMatchByProperty[i] = params.MinimumOrTokensMatch
+		if params.SearchOperator == common_filters.SearchOperatorAnd {
+			minimumOrTokensMatchByProperty[i] = len(job.queryTerms)
+		}
+
+		eg.Go(func() error {
+			// jobs queued behind the SetLimit semaphore still run after a
+			// sibling error cancels egCtx; bail before the index descents
+			if err := egCtx.Err(); err != nil {
+				return err
 			}
-			globalIdfCounts := make(map[string]uint64, len(queryTerms))
-			nonZeroTerms := make(map[string]uint64, len(queryTerms))
-			for _, propName := range propNames {
-				results, idfCounts, release, err := b.createBlockTerm(stats.N, filterDocIds, queryTerms, propName, stats.propertyBoosts[propName], duplicateBoosts, b.config, ctx)
-				if err != nil {
-					return nil, nil, false, err
-				}
+			results, idfCounts, release, err := b.createBlockTerm(stats.N, filterDocIds, job.queryTerms, job.propName, stats.propertyBoosts[job.propName], job.duplicateBoosts, b.config, egCtx)
+			if err != nil {
+				return err
+			}
+			releaseCallbacks[i] = release
+			allResults[i] = results
+			perJobIdfCounts[i] = idfCounts
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, nil, false, err
+	}
 
-				if release != nil {
-					releaseCallbacks[propName] = release
-				}
-
-				allResults = append(allResults, results)
-				termCounts = append(termCounts, queryTerms)
-
-				minimumOrTokensMatch := params.MinimumOrTokensMatch
-				if params.SearchOperator == common_filters.SearchOperatorAnd {
-					minimumOrTokensMatch = len(queryTerms)
-				}
-
-				minimumOrTokensMatchByProperty = append(minimumOrTokensMatchByProperty, minimumOrTokensMatch)
-				for _, term := range queryTerms {
-					globalIdfCounts[term] += idfCounts[term]
-					if idfCounts[term] > 0 {
-						nonZeroTerms[term]++
-					}
+	for _, group := range groups {
+		duplicateBoostsByTerm := make(map[string]int, len(group.duplicateBoosts))
+		for i, term := range group.queryTerms {
+			duplicateBoostsByTerm[term] = group.duplicateBoosts[i]
+		}
+		globalIdfCounts := make(map[string]uint64, len(group.queryTerms))
+		nonZeroTerms := make(map[string]uint64, len(group.queryTerms))
+		for i := group.start; i < group.end; i++ {
+			for _, term := range group.queryTerms {
+				globalIdfCounts[term] += perJobIdfCounts[i][term]
+				if perJobIdfCounts[i][term] > 0 {
+					nonZeroTerms[term]++
 				}
 			}
-			globalIdfs := make(map[string]float64, len(queryTerms))
-			for term := range globalIdfCounts {
-				if nonZeroTerms[term] == 0 {
+		}
+		globalIdfs := make(map[string]float64, len(group.queryTerms))
+		for term := range globalIdfCounts {
+			if nonZeroTerms[term] == 0 {
+				continue
+			}
+			n := globalIdfCounts[term] / nonZeroTerms[term]
+
+			globalIdfs[term] = terms.Idf(float64(n), stats.N) * float64(duplicateBoostsByTerm[term])
+		}
+		for _, result := range allResults[group.start:group.end] {
+			if len(result) == 0 {
+				continue
+			}
+			for j := range result {
+				if len(result[j]) == 0 {
 					continue
 				}
-				n := globalIdfCounts[term] / nonZeroTerms[term]
-
-				globalIdfs[term] = terms.Idf(float64(n), stats.N) * float64(duplicateBoostsByTerm[term])
-			}
-			for _, result := range allResults[lenAllResults:] {
-				if len(result) == 0 {
-					continue
-				}
-				for j := range result {
-					if len(result[j]) == 0 {
-						continue
-					}
-					for k := range result[j] {
-						if result[j][k] != nil {
-							result[j][k].SetIdf(globalIdfs[result[j][k].QueryTerm()])
-						}
+				for k := range result[j] {
+					if result[j][k] != nil {
+						result[j][k].SetIdf(globalIdfs[result[j][k].QueryTerm()])
 					}
 				}
 			}
-			helpers.AnnotateSlowQueryLog(ctx, "kwd_2_terms_"+tokenization, len(queryTerms))
 		}
 	}
 
@@ -196,7 +238,7 @@ func (b *BM25Searcher) wandBlock(
 	start = time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_3_term_time", termSearchTime)
 
-	eg := enterrors.NewErrorGroupWrapper(b.logger)
+	eg = enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
 	allIds := make([][][]uint64, len(allResults))
