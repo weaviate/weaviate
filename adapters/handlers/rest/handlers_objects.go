@@ -300,6 +300,9 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		case uco.StatusUnprocessableEntity:
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(rerr))
+		case uco.StatusTooManyRequests:
+			// No generated 429 responder for this operation.
+			return tooManyRequestsResponder(rerr)
 		default:
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(rerr))

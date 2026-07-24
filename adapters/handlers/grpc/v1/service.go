@@ -13,13 +13,18 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/sirupsen/logrus"
@@ -275,7 +280,20 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
+	if grpcErr := admissionToGRPCError(errInner); grpcErr != nil {
+		return nil, grpcErr
+	}
+
 	return result, errInner
+}
+
+// admissionToGRPCError maps an admission shed to gRPC ResourceExhausted so
+// the coordinator's retryer backs off.
+func admissionToGRPCError(err error) error {
+	if errors.Is(err, queryadmission.ErrOverloaded) {
+		return status.Error(codes.ResourceExhausted, err.Error())
+	}
+	return nil
 }
 
 func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
