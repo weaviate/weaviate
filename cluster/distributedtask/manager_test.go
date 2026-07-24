@@ -409,6 +409,46 @@ func TestManager_SnapshotRestore(t *testing.T) {
 	assertTasks(t, expectedTasks, tasks)
 }
 
+// TestManager_Restore_ReplacesState pins the Raft FSM contract: Restore must
+// REPLACE the manager's task state, not merge into it. A task present before
+// the restore but absent from the snapshot must not survive, otherwise a
+// follower that installs a snapshot accumulates phantom tasks no other node
+// knows about (weaviate/0-weaviate-issues#241).
+func TestManager_Restore_ReplacesState(t *testing.T) {
+	var (
+		h   = newTestHarness(t).init(t)
+		now = h.clock.Now().Truncate(time.Millisecond)
+	)
+
+	// Seed the target manager with a stale task that the snapshot will omit.
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns1",
+		Id:                    "stale-task",
+		Payload:               []byte("stale"),
+		SubmittedAtUnixMillis: now.UnixMilli(),
+	}), 1))
+
+	// Produce a snapshot from an independent manager holding only the fresh
+	// task, in the same namespace, so a merge would leave both tasks behind.
+	source := newTestHarness(t).init(t)
+	require.NoError(t, source.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns1",
+		Id:                    "fresh-task",
+		Payload:               []byte("fresh"),
+		SubmittedAtUnixMillis: now.UnixMilli(),
+	}), 2))
+	snap, err := source.manager.Snapshot()
+	require.NoError(t, err)
+
+	require.NoError(t, h.manager.Restore(snap))
+
+	tasks, err := h.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, tasks["ns1"], 1, "restore must replace state, not merge the stale task in")
+	require.Equal(t, "fresh-task", tasks["ns1"][0].ID)
+}
+
 func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Task {
 	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             "ns1",

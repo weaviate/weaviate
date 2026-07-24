@@ -257,12 +257,14 @@ func (m *Manager) Restore(bytes []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for namespace, tasks := range s.Tasks {
-		for _, task := range tasks {
-			if _, ok := m.tasks[namespace]; !ok {
-				m.tasks[namespace] = make(map[string]*Task)
-			}
+	// FSM contract: Restore must REPLACE state, not merge into it. The snapshot
+	// is the canonical truth; tasks absent from it were cleaned up cluster-wide
+	// and must not survive as phantom entries on a follower that installs it.
+	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
 
+	for namespace, tasks := range s.Tasks {
+		m.tasks[namespace] = make(map[string]*Task, len(tasks))
+		for _, task := range tasks {
 			m.tasks[namespace][task.ID] = task
 		}
 	}
