@@ -13,7 +13,6 @@ package compressionhelpers
 
 import (
 	"fmt"
-	"slices"
 	"sync"
 	"unsafe"
 
@@ -417,8 +416,8 @@ func encodeRotatedQuery(rx []float32) rq4QueryCode {
 	codesInt8 := make([]int8, len(rx))
 
 	var maxCode uint8 = (1 << rq4QueryBits) - 1
-	lower := slices.Min(rx)
-	step := (slices.Max(rx) - lower) / float32(maxCode)
+	lower, upper, _ := rq4MinMaxSumImpl(rx)
+	step := (upper - lower) / float32(maxCode)
 	if step <= 0 {
 		return rq4QueryCode{codes: codes, codesInt8: codesInt8}
 	}
