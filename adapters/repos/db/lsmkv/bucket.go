@@ -246,6 +246,12 @@ type Bucket struct {
 	// observing true is guaranteed a populated rep.
 	rangeableRepRebuilt atomic.Bool
 
+	// shuttingDown flips at Shutdown entry and never resets: registering a
+	// NEW edit op on a closing bucket must hard-fail (see RegisterEditOp) —
+	// the snapshot would race the dismantling and could record "nothing to
+	// clean" for a bucket full of data.
+	shuttingDown atomic.Bool
+
 	// Dedup for the rangeable diagnostic log lines, once per bucket-open.
 	rangeableDeferredLogOnce  sync.Once
 	rangeableFallbackWarnOnce sync.Once
@@ -436,6 +442,13 @@ func (b *Bucket) HasEditOps() bool {
 func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	if !b.HasEditOps() {
 		return fmt.Errorf("edit ops not enabled for this bucket")
+	}
+	if b.shuttingDown.Load() {
+		// Arming against a closing bucket is unsound: the flush + segment
+		// snapshot race the dismantling, and an empty or partial snapshot
+		// would let the drop record completion without stripping. Fail the
+		// unit instead; a later round re-arms on a live instance.
+		return fmt.Errorf("bucket is shutting down; refusing to register edit op %q", opID)
 	}
 	snapshotted, err := b.disk.editOps.HasPendingSnapshot(opID)
 	if err != nil {
@@ -1744,6 +1757,7 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
+	b.shuttingDown.Store(true)
 	// Drain all in-flight read pins first (see the lifetimeLock doc); the
 	// heartbeat makes a wedged drain diagnosable.
 	drained := make(chan struct{})
@@ -1763,7 +1777,6 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	b.lifetimeLock.Lock()
 	close(drained)
 	defer b.lifetimeLock.Unlock()
-
 	defer GlobalBucketRegistry.Remove(b.GetDir())
 
 	start := time.Now()

@@ -23,6 +23,27 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
+// shardStillAlive reports whether a shard instance remains operational after a
+// failed Shutdown. performShutdown refuses BEFORE marking the shard shut when
+// it is still in use, so a failed close usually leaves a fully live instance —
+// the caller must then restore it to the shard map rather than orphan it (an
+// orphaned live instance lets a reactivation double-open the same directory).
+func shardStillAlive(s ShardLike) bool {
+	switch sh := s.(type) {
+	case *Shard:
+		return !sh.shut.Load()
+	case *LazyLoadShard:
+		sh.mutex.Lock()
+		defer sh.mutex.Unlock()
+		return sh.loaded && !sh.shard.shut.Load()
+	default:
+		// Unknown wrapper: restoring a live shard is the safe direction — a
+		// dead map entry fails requests loudly, an orphaned live instance
+		// corrupts silently.
+		return true
+	}
+}
+
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.shutdownRequested.Store(true)
 	return backoff.Retry(func() error {

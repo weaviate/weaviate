@@ -715,10 +715,21 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
+						// Lifecycle fence: a shard whose shutdown failed (typically
+						// "still in use" — performShutdown refuses before marking the
+						// shard shut) is fully alive. Leaving it out of the map would
+						// orphan the running instance, and a later reactivation would
+						// build a SECOND instance over the same directory (double-open
+						// corruption; observed as sidecar flock timeouts). Restore it
+						// under the still-held shardCreateLock: the tenant stays
+						// loaded locally and the failed transition is retryable.
+						if shardStillAlive(shard) {
+							idx.shards.Store(name, shard)
+						}
 						idx.logger.
 							WithField("action", "shard_shutdown").
 							WithField("shard", shard.ID()).
-							Error(err)
+							Errorf("shutdown failed; live shard restored to the active map to prevent a duplicate instance: %v", err)
 						ec.Add(err)
 					}
 				}

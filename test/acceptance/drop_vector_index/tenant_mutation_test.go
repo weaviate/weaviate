@@ -24,9 +24,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testTenantMutationDuringDrop pins the tenant-mutation guard: deactivating a
-// tenant while a drop is in flight is rejected (its shard's cleanup unit would
-// lose its data), and the same mutation succeeds once the drop finalized.
+// testTenantMutationDuringDrop pins the decoupling of tenant lifecycle from
+// drop cleanups: deactivating a tenant mid-strip succeeds immediately, the
+// round's unit for that tenant fails and reconciliation re-covers the
+// remaining active tenants, the marker stays until every tenant is covered,
+// and reactivating the tenant lets the drop complete fully.
 func testTenantMutationDuringDrop() func(t *testing.T) {
 	return func(t *testing.T) {
 		const (
@@ -77,30 +79,44 @@ func testTenantMutationDuringDrop() func(t *testing.T) {
 			time.Sleep(3 * time.Second) // past the 1s dirty-flush
 		})
 
-		t.Run("deactivating a tenant mid-drop is rejected", func(t *testing.T) {
+		t.Run("deactivating a tenant mid-drop succeeds immediately", func(t *testing.T) {
 			dropTargetVector(t, className, dropped)
 
 			// Guaranteed still in flight: the first poll tick is 30s away.
 			err := helper.UpdateTenantsReturnError(t, className, []*models.Tenant{
 				{Name: tenant2, ActivityStatus: models.TenantActivityStatusCOLD},
 			})
-			require.Error(t, err, "tenant deactivation must be blocked while the drop is in flight")
-			require.Contains(t, errorResponseText(err), "wait for it to complete")
+			require.NoError(t, err, "tenant lifecycle must not be coupled to an in-flight drop")
 		})
 
-		t.Run("deactivation succeeds after the drop finalized", func(t *testing.T) {
-			eventuallyTargetVectorRemoved(t, className, dropped)
+		t.Run("the remaining active tenant is stripped; the marker defers on the cold one", func(t *testing.T) {
+			// tenant2's unit fails once its shard closed (bounded poll retries),
+			// the round ends FAILED, and reconciliation re-enqueues for tenant1
+			// alone — so tenant1 strips despite the aborted first round.
+			requireTenantStripped(t, className, tenant1, dropped, 10)
+			got, err := getClassErr(className)
+			require.NoError(t, err)
+			cfg, present := got.VectorConfig[dropped]
+			require.True(t, present, "the marker must stay while a tenant is uncovered")
+			require.Equal(t, "none", cfg.VectorIndexType)
+		})
+
+		t.Run("reactivating the tenant completes the drop", func(t *testing.T) {
 			helper.UpdateTenants(t, className, []*models.Tenant{
-				{Name: tenant2, ActivityStatus: models.TenantActivityStatusCOLD},
+				{Name: tenant2, ActivityStatus: models.TenantActivityStatusHOT},
 			})
+			eventuallyTargetVectorRemoved(t, className, dropped)
 		})
 
-		t.Run("active tenant is stripped with sibling intact", func(t *testing.T) {
-			objs := listTenantObjectsWithVectors(t, className, tenant1)
-			require.Len(t, objs, 10)
-			for _, obj := range objs {
-				require.NotContains(t, obj.Vectors, dropped)
-				require.Equal(t, dim, vecDim(t, obj.Vectors[sibling]))
+		t.Run("both tenants stripped with sibling intact", func(t *testing.T) {
+			for _, tenant := range []string{tenant1, tenant2} {
+				objs := listTenantObjectsWithVectors(t, className, tenant)
+				require.Len(t, objs, 10)
+				for _, obj := range objs {
+					require.NotContains(t, obj.Vectors, dropped)
+					require.Equal(t, dim, vecDim(t, obj.Vectors[sibling]))
+				}
+				require.Equal(t, 3, nearVectorTenantResults(t, className, tenant, sibling, randVec(dim, 5), 3))
 			}
 		})
 	}

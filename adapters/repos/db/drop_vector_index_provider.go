@@ -311,11 +311,23 @@ func (p *DropVectorIndexProvider) drainUnit(
 	ctx context.Context, task *distributedtask.Task,
 	payload *DropVectorIndexTaskPayload, unitID string, bucket editOpBucket,
 ) {
-	if err := p.pollUntilEmpty(ctx, bucket, task, unitID, payload.OpID); err != nil {
+	shardGone := func() bool {
+		return !p.shardLocallyLoaded(payload.Collection, payload.UnitToShard[unitID])
+	}
+	if err := p.pollUntilEmpty(ctx, bucket, task, unitID, payload.OpID, shardGone); err != nil {
 		if ctx.Err() != nil {
 			return // shutdown: resume after restart, do not mark failed
 		}
-		p.failUnit(ctx, task, unitID, "drain pending segments: "+err.Error())
+		msg := "drain pending segments: " + err.Error()
+		// Tenant lifecycle is decoupled from cleanups (see CheckTenantMutation):
+		// a mid-strip deactivation surfaces here as persistent read errors on
+		// the closed sidecar. Name the real cause — this failure is an expected
+		// hand-off to the next reconcile round, not a fault.
+		if shard := payload.UnitToShard[unitID]; !p.shardLocallyLoaded(payload.Collection, shard) {
+			msg += " (shard no longer locally available — tenant deactivated, offloaded, or deleted; " +
+				"reconciliation re-covers the remaining shards and the tenant on reactivation)"
+		}
+		p.failUnit(ctx, task, unitID, msg)
 		return
 	}
 
@@ -332,7 +344,7 @@ func (p *DropVectorIndexProvider) drainUnit(
 // unstripped, so empty pending with a quarantine row is not success.
 func (p *DropVectorIndexProvider) pollUntilEmpty(
 	ctx context.Context, bucket editOpBucket, task *distributedtask.Task,
-	unitID, opID string,
+	unitID, opID string, shardGone func() bool,
 ) error {
 	ticker := time.NewTicker(p.pollInterval)
 	defer ticker.Stop()
@@ -351,6 +363,14 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 		}
 		switch {
 		case err != nil:
+			// A read error on a shard that is no longer locally loaded is not a
+			// blip — the tenant deactivated/offloaded/deleted mid-drain (tenant
+			// lifecycle is decoupled from cleanups). Fail the unit NOW instead
+			// of burning the blip tolerance: the round ends and reconciliation
+			// re-covers the surviving shards without multi-tick delay.
+			if shardGone() {
+				return fmt.Errorf("shard no longer locally loaded: %w", err)
+			}
 			// Tolerate a few consecutive blips (incl. the first read); only
 			// persistent errors fail the unit.
 			consecutiveErrors++
@@ -385,6 +405,18 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 		case <-ticker.C:
 		}
 	}
+}
+
+// shardLocallyLoaded reports whether the shard is currently loaded on this
+// node. Diagnostic only (enriches a unit-failure reason); errors read as
+// "loaded" so a listing blip cannot mislabel a real drain failure.
+func (p *DropVectorIndexProvider) shardLocallyLoaded(collection, shardName string) bool {
+	buckets, err := p.shards.EditOpBucketsForLoadedShards(collection, []string{shardName})
+	if err != nil {
+		return true
+	}
+	_, ok := buckets[shardName]
+	return ok
 }
 
 func (p *DropVectorIndexProvider) failUnit(
