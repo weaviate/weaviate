@@ -32,6 +32,7 @@ import (
 // If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
 // to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
+	s.blockNewReferences()
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
@@ -158,4 +159,13 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	}).Debug("shard successfully dropped")
 
 	return nil
+}
+
+// blockNewReferences permanently stops preventShutdown from handing out
+// references, so no request can start using a shard that is being torn down.
+func (s *Shard) blockNewReferences() {
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+
+	s.shut.Store(true)
 }
