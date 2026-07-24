@@ -220,6 +220,13 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
 			mergedProps[oldIdx].IndexFilterable = new[idx].IndexFilterable
 			mergedProps[oldIdx].IndexSearchable = new[idx].IndexSearchable
+			if new[idx].Tokenization != "" {
+				// Backport for weaviate/0-weaviate-issues#238: v1.38 change-tokenization
+				// migrations replay as an UpdateProperty; skipping this merge leaves a
+				// downgraded v1.37 node on stale tokenization, silently returning 0 hits.
+				// Holds only while v1.38.x reindexes to the unsuffixed bucket path.
+				mergedProps[oldIdx].Tokenization = new[idx].Tokenization
+			}
 
 			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(
 				mergedProps[oldIdx].NestedProperties,
