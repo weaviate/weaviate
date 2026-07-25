@@ -32,12 +32,9 @@ type BitmapBufPool interface {
 	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
 }
 
-// bitmapCloneGrowthFactor is the headroom a pooled clone gets on top of its
-// source length. A clone is only ever the seed of a merge, and sroar replaces
-// the whole backing slice with a 2x larger unpooled one as soon as a merge
-// adds a container, so a clone that outgrows its buffer leaves the pool for
-// the rest of its life. 1.25 matches the factor SegmentGroup.roaringSetGet
-// already applies to its first layer.
+// bitmapCloneGrowthFactor gives a pooled clone headroom so a merge that adds
+// containers doesn't make sroar swap in an unpooled buffer. Matches
+// SegmentGroup.roaringSetGet's first-layer factor.
 const bitmapCloneGrowthFactor = 1.25
 
 func cloneToBuf(pool BitmapBufPool, bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
@@ -214,9 +211,8 @@ func (p *bitmapBufPoolFactorWrapper) Get(minCap int) (buf []byte, put func()) {
 }
 
 func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	// p.factor is merge headroom already, so it replaces the clone factor
-	// rather than stacking with it: stacking would only push the request into
-	// a larger size class.
+	// factor is already merge headroom, so it replaces rather than stacks
+	// with the clone factor.
 	buf, put := p.pool.Get(withGrowthHeadroom(bm.LenInBytes(), max(p.factor, bitmapCloneGrowthFactor)))
 	return bm.CloneToBuf(buf), put
 }

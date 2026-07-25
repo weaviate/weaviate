@@ -853,9 +853,8 @@ func TestValidateBufferRanges(t *testing.T) {
 func TestCloneToBufGrowthHeadroom(t *testing.T) {
 	const MiB = 1 << 20
 
-	// recordingPool captures what cloneToBuf asks for and hands back a buffer
-	// of exactly that capacity, so the test sees the request, not the size
-	// class a real ladder would round it up to.
+	// hands back a buffer of exactly the requested capacity, so the test sees
+	// the raw request instead of a ladder's rounded-up size class.
 	newRecording := func() (*recordingBufPool, BitmapBufPool) {
 		p := &recordingBufPool{}
 		return p, p

@@ -28,9 +28,8 @@ import (
 // here because a storage package must not import usecases/config.
 const shippedMaxMemory = 1 << 27
 
-// mergeShape describes what the merge following a pooled clone does to that
-// clone. The range cascade only ever shrinks it; a roaringset layer merge can
-// grow it.
+// mergeShape is what the merge following a pooled clone does to it: the
+// range cascade only shrinks, a roaringset layer merge can grow.
 type mergeShape string
 
 const (
@@ -47,8 +46,7 @@ func benchPool(tb testing.TB, metrics *monitoring.PrometheusMetrics, maxMemo int
 	return pool
 }
 
-// denseBitmap returns a bitmap of at least targetBytes built from full
-// containers, matching the shape of a whole-shard allow list.
+// denseBitmap builds from full containers, matching a whole-shard allow list.
 func denseBitmap(targetBytes int) *sroar.Bitmap {
 	const idsPerContainer = 1 << 16
 	ids := uint64(idsPerContainer)
@@ -60,9 +58,8 @@ func denseBitmap(targetBytes int) *sroar.Bitmap {
 	return bm
 }
 
-// disjointBitmap returns a bitmap whose containers sit above src, so an Or
-// against it has to add keys and containers -- the shape of merging a newer
-// segment's additions into an older segment's.
+// disjointBitmap sits above src so an Or against it adds keys and
+// containers, mimicking a newer segment merging into an older one.
 func disjointBitmap(src *sroar.Bitmap, containers int) *sroar.Bitmap {
 	base := src.Maximum() + 1<<16
 	bm := sroar.NewBitmap()
@@ -77,10 +74,6 @@ func disjointBitmap(src *sroar.Bitmap, containers int) *sroar.Bitmap {
 
 // BenchmarkBitmapBufPoolClone measures a pooled clone plus the merge that
 // follows it, holding the buffer for the whole merge the way a query does.
-// Run with -cpu 1,4,8 to sweep merge worker counts, on this branch and on the
-// base branch, to see what the clone growth headroom changes. %miss is the same
-// quantity inmemo_created / (inmemo_created + inmemo_got) reports in
-// production.
 func BenchmarkBitmapBufPoolClone(b *testing.B) {
 	const MiB = 1 << 20
 	metrics := monitoring.GetMetrics()
@@ -135,8 +128,7 @@ func BenchmarkBitmapBufPoolClone(b *testing.B) {
 	}
 }
 
-// counterSnapshot records inmemo_created / inmemo_got for every size class the
-// ladder can produce, so a delta isolates one sub-benchmark.
+// counterSnapshot covers every size class so a delta isolates one sub-benchmark.
 func counterSnapshot(metrics *monitoring.PrometheusMetrics) map[string]float64 {
 	snapshot := map[string]float64{}
 	for p2 := 9; p2 <= 40; p2++ {

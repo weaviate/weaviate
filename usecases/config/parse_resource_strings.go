@@ -18,12 +18,8 @@ import (
 	"strings"
 )
 
-// MaxQueryBitmapBufsSize bounds QUERY_BITMAP_BUFS_MAX_MEMORY and
-// QUERY_BITMAP_BUFS_MAX_BUF_SIZE. Both size an in-process buffer pool whose
-// per-size-class buffer counts are derived by dividing the value, so an
-// unbounded setting asks the runtime for channels with ~10^11 slots at boot.
-// No machine has more than 1 TiB to give a bitmap pool, so a larger value is
-// a typo and is better rejected than acted on.
+// MaxQueryBitmapBufsSize caps QUERY_BITMAP_BUFS_MAX_MEMORY and
+// _MAX_BUF_SIZE: an unbounded value would size channels with ~10^11 slots at boot.
 const MaxQueryBitmapBufsSize = 1 << 40
 
 func parseBitmapBufsSize(envName, value string) (int, error) {
