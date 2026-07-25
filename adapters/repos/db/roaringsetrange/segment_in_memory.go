@@ -34,21 +34,18 @@ type SegmentInMemory struct {
 	memtables     []*Memtable // flushed memtables, waiting to be merged into bitmaps
 	memtablesLock *sync.Mutex
 
-	// generation identifies the bitmap contents. It changes only inside
-	// mutateBitmaps and is read under RLock, making it a sound invalidation
-	// token for leafCache, which is nil when the cache is disabled.
+	// generation is leafCache's invalidation token: it only changes inside
+	// mutateBitmaps and is read under RLock, so it's never stale relative to
+	// the bitmaps it labels. leafCache is nil when caching is disabled.
 	generation uint64
 	leafCache  *leafCache
 }
 
-// mutateBitmaps is the only place the bit planes may be written. It takes the
-// write lock and bumps the generation, so a writer cannot mutate the planes
-// without invalidating everything derived from them — the alternative is a
-// stale allow-list, which returns wrong results with no panic and no log.
-//
-// TestPlanesAreOnlyMutatedThroughMutateBitmaps enforces that this stays the
-// only entry point, so a future writer cannot reintroduce the hazard by
-// reaching for s.bitmaps or s.bitmapsLock directly.
+// mutateBitmaps is the only place the bit planes may be written. It bumps
+// generation while holding the write lock, so leafCache can never be left
+// serving a stale allow-list: skip this path and queries silently return
+// wrong results, with no panic and no log. Enforced, not conventional — see
+// TestPlanesAreOnlyMutatedThroughMutateBitmaps.
 func (s *SegmentInMemory) mutateBitmaps(fn func(bitmaps *rangeBitmaps)) {
 	s.bitmapsLock.Lock()
 	defer s.bitmapsLock.Unlock()

@@ -27,8 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-// planeAccessAllowed lists the functions that may name s.bitmaps, with the
-// reason each one is exempt. Everything else must go through mutateBitmaps.
+// planeAccessAllowed lists functions exempt from routing plane access through
+// mutateBitmaps.
 var planeAccessAllowed = map[string]string{
 	"NewSegmentInMemory": "builds the planes before the value is published",
 	"mutateBitmaps":      "the sanctioned mutation scope; bumps the generation",
@@ -36,11 +36,9 @@ var planeAccessAllowed = map[string]string{
 	"Readers":            "snapshots the planes under RLock",
 }
 
-// writeLockAllowed lists the functions that may take bitmapsLock for writing.
-// Restricting this to mutateBitmaps is what closes the gap: a plane mutation
-// either takes the write lock, in which case it must come through the scope
-// that bumps the generation, or it does not, in which case it is a data race
-// the -race concurrency tests are there to catch.
+// writeLockAllowed lists functions that may take bitmapsLock for writing.
+// Together with planeAccessAllowed this closes the gap: any plane write either
+// goes through mutateBitmaps or races the RLock readers, which -race catches.
 var writeLockAllowed = map[string]string{
 	"mutateBitmaps": "bumps the generation inside the same critical section",
 }
@@ -51,10 +49,9 @@ type planeViolation struct {
 	position string
 }
 
-// findPlaneViolations reports functions owned by SegmentInMemory that reach for
-// the bit planes or the write lock outside the allowlists above. It only
-// considers SegmentInMemory, since segmentInMemoryReader holds a read-only
-// snapshot and naming its own bitmaps field is not a hazard.
+// findPlaneViolations flags SegmentInMemory functions that reach the planes or
+// write lock outside the allowlists. segmentInMemoryReader is excluded: its
+// snapshot is read-only, so naming its own bitmaps field is not a hazard.
 func findPlaneViolations(fset *token.FileSet, files []*ast.File) []planeViolation {
 	var out []planeViolation
 
@@ -141,13 +138,9 @@ func parsePackageSources(t *testing.T) (*token.FileSet, []*ast.File) {
 	return fset, files
 }
 
-// TestPlanesAreOnlyMutatedThroughMutateBitmaps is the structural guard for this
-// package's one silent-failure mode. The leaf cache is invalidated by a
-// generation counter; a writer that mutates the bit planes without bumping it
-// serves a stale allow-list, which means missing or extra objects in query
-// results with no panic, no log and no error metric. This test goes red the
-// moment a new function reaches for the planes or takes the write lock, so the
-// mistake is caught when it is written rather than in production.
+// TestPlanesAreOnlyMutatedThroughMutateBitmaps guards against a writer that
+// mutates the bit planes without bumping generation: leafCache would then
+// serve a stale allow-list, giving wrong query results with no panic or log.
 func TestPlanesAreOnlyMutatedThroughMutateBitmaps(t *testing.T) {
 	fset, files := parsePackageSources(t)
 
@@ -159,8 +152,7 @@ func TestPlanesAreOnlyMutatedThroughMutateBitmaps(t *testing.T) {
 	}
 }
 
-// TestPlaneGuardDetectsAnUnguardedWriter proves the guard above is not vacuous:
-// against a package that does have a rogue writer, it fires.
+// TestPlaneGuardDetectsAnUnguardedWriter proves the guard fires on a rogue writer.
 func TestPlaneGuardDetectsAnUnguardedWriter(t *testing.T) {
 	const rogue = `package roaringsetrange
 
