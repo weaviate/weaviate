@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -190,6 +191,12 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	return out, "vector,nearText", nil
 }
 
+// hybridFilterDedupeDisabled is the operator kill switch for sharing one filter
+// allow list between the dense and sparse legs of a hybrid query.
+func (e *Explorer) hybridFilterDedupeDisabled() bool {
+	return e.config.HybridFilterDedupeDisabled != nil && e.config.HybridFilterDedupeDisabled.Get()
+}
+
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
 	if params.AdditionalProperties.QueryProfile {
@@ -242,6 +249,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	resultsCount := 1
 	if params.HybridSearch.Alpha != 0 && params.HybridSearch.Alpha != 1 {
 		resultsCount = 2
+	}
+
+	// Tag both legs as one query so each shard builds the shared filter allow
+	// list once instead of once per leg.
+	if resultsCount == 2 && params.Filters != nil && !e.hybridFilterDedupeDisabled() {
+		ctx = helpers.CtxWithQueryDedupeToken(ctx, uuid.NewString())
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(e.logger)

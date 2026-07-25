@@ -525,12 +525,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var filterDocIds helpers.AllowList
 
 		if filters != nil {
-			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
-				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
-				s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
-				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
-				s.bitmapFactory).
-				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
+			filterDocIds, err = s.buildAllowList(ctx, filters, additional)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -932,7 +927,24 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 	return sortedDocIDs, sortedDists, nil
 }
 
+// buildAllowList resolves filters into an allow list of doc IDs, sharing the
+// build with any concurrent caller on this shard using the same query token
+// and filter (e.g. the two legs of a filtered hybrid query).
+//
+// The returned list is read-only for its holder: legs share one bitmap, and
+// mutating it (Insert, Truncate) would corrupt peers still reading it.
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
+	list, shared, err := s.allowListDedupe.do(ctx, helpers.QueryDedupeToken(ctx), filters,
+		func(ctx context.Context) (helpers.AllowList, error) {
+			return s.buildAllowListDirect(ctx, filters, addl)
+		})
+	if shared {
+		helpers.AnnotateSlowQueryLog(ctx, "filters_allow_list_shared", true)
+	}
+	return list, err
+}
+
+func (s *Shard) buildAllowListDirect(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
