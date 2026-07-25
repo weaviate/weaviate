@@ -13,8 +13,8 @@ package v1
 
 import (
 	"fmt"
-	"math/big"
-	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -79,9 +79,15 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 			failed += 1
 		}
 		if verbose {
-			hexInteger, success := new(big.Int).SetString(strings.ReplaceAll(obj.UUID.String(), "-", ""), 16)
-			if !success {
-				return nil, fmt.Errorf("failed to parse hex string to integer")
+			// MarshalBinary keeps all 16 bytes. Decoding into an integer instead
+			// drops leading zero bytes, which shortens roughly one in 256 uuids.
+			parsed, err := uuid.Parse(obj.UUID.String())
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse id %q as uuid: %w", obj.UUID.String(), err)
+			}
+			uuidBytes, err := parsed.MarshalBinary()
+			if err != nil {
+				return nil, fmt.Errorf("failed to encode id %q as bytes: %w", obj.UUID.String(), err)
 			}
 			errorString := ""
 			if obj.Err != nil {
@@ -89,7 +95,7 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 			}
 
 			resultObj := &pb.BatchDeleteObject{
-				Uuid:       hexInteger.Bytes(),
+				Uuid:       uuidBytes,
 				Successful: obj.Err == nil,
 				Error:      &errorString,
 			}
