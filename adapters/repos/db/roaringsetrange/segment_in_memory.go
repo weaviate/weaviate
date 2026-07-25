@@ -34,10 +34,9 @@ type SegmentInMemory struct {
 	memtables     []*Memtable // flushed memtables, waiting to be merged into bitmaps
 	memtablesLock *sync.Mutex
 
-	// generation identifies the contents of bitmaps. It is written only inside
-	// the two bitmapsLock write sections that mutate bitmaps, and read only
-	// under RLock, which makes it a complete invalidation token for anything
-	// derived from the planes. leafCache is nil when the cache is disabled.
+	// generation identifies the bitmap contents. It changes only inside the two
+	// bitmapsLock write sections and is read under RLock, making it a sound
+	// invalidation token for leafCache, which is nil when the cache is disabled.
 	generation uint64
 	leafCache  *leafCache
 }
@@ -69,8 +68,8 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 
 	s.bitmapsLock.Lock()
 	defer s.bitmapsLock.Unlock()
-	// unconditional: over-invalidating is free, under-invalidating serves a
-	// stale allow-list
+	// unconditional: over-invalidating the cache is free, under-invalidating
+	// risks stale results
 	defer func() { s.generation++ }()
 
 	if deletions := layer.Deletions; !deletions.IsEmpty() {
@@ -100,8 +99,8 @@ func (s *SegmentInMemory) MergeMemtableEventually(memtable *Memtable) {
 func (s *SegmentInMemory) mergeMemtables() {
 	s.bitmapsLock.Lock()
 	defer s.bitmapsLock.Unlock()
-	// unconditional: over-invalidating is free, under-invalidating serves a
-	// stale allow-list
+	// unconditional: over-invalidating the cache is free, under-invalidating
+	// risks stale results
 	defer func() { s.generation++ }()
 
 	i := 0
@@ -167,9 +166,8 @@ func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []I
 
 // -----------------------------------------------------------------------------
 
-// segmentInMemoryReader is only valid while the read lock its Readers() call
-// took is still held, which is what makes generation a sound cache token: no
-// writer can advance the planes underneath it.
+// segmentInMemoryReader is only valid while the read lock from Readers() is
+// held; that lock is what makes generation a sound cache token.
 type segmentInMemoryReader struct {
 	bitmaps    rangeBitmaps
 	bufPool    roaringset.BitmapBufPool
@@ -296,10 +294,9 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
-// cloneCached hands out a private copy of a cached leaf. The buffer is sized to
-// the widest plane rather than to the leaf, so the caller keeps exactly the
-// growth headroom the uncached path gives it for the memtable merges that
-// follow.
+// cloneCached hands out a private copy of a cached leaf, sized to the widest
+// plane rather than the leaf so it keeps the same merge headroom the uncached
+// path gives downstream memtable ORs.
 func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
 	buf, release := r.bufPool.Get(max(bm.LenInBytes(), r.bitmaps[0].LenInBytes()))
 	return bm.CloneToBuf(buf), release
@@ -308,7 +305,7 @@ func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, fu
 func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
 	key := leafKey{kind: leafGreaterThanEqual, valueMin: value}
 
-	// a leaf is a subset of plane 0, so plane 0's size bounds the entry's
+	// a leaf is a subset of plane 0, so plane 0's size bounds it
 	cached, admit := r.cache.probe(r.generation, key, r.bitmaps[0].LenInBytes())
 	if cached != nil {
 		return r.cloneCached(cached)
@@ -339,7 +336,7 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqualUncached(value uint64, conc
 func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
 	key := leafKey{kind: leafBetween, valueMin: valueMinInc, valueMax: valueMaxExc}
 
-	// a leaf is a subset of plane 0, so plane 0's size bounds the entry's
+	// a leaf is a subset of plane 0, so plane 0's size bounds it
 	cached, admit := r.cache.probe(r.generation, key, r.bitmaps[0].LenInBytes())
 	if cached != nil {
 		return r.cloneCached(cached)

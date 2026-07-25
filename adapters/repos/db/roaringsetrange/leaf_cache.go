@@ -22,18 +22,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// DefaultLeafCacheMaxMemory caps the cached leaf bitmaps of a single
-// SegmentInMemory. The instance it sits on already holds 65 whole-shard planes
-// (~187 MiB for a 24 M-document shard), so this bound adds at most ~9% to a
-// structure that has to exist anyway. Sizing is by bytes rather than by entry
-// count because a leaf bitmap's size tracks the cardinality it matches, and a
-// near-full-shard predicate is both the most useful and the most expensive
-// thing to keep.
+// DefaultLeafCacheMaxMemory caps cached leaf bitmaps by bytes, not entry
+// count, since a leaf's size tracks the cardinality it matches and is a small
+// fraction of the ~187 MiB a 24M-doc shard's planes already cost.
 const DefaultLeafCacheMaxMemory = 16 << 20
 
-// LeafCacheMaxMemoryEnv sets the per-SegmentInMemory budget. 0 disables the
-// cache entirely and is the kill switch: it removes every cache read and write,
-// leaving the uncached merge path exactly as it shipped.
+// LeafCacheMaxMemoryEnv sets the per-segment cache budget in bytes; 0 is the
+// kill switch that disables the cache entirely.
 const LeafCacheMaxMemoryEnv = "QUERY_RANGEABLE_LEAF_CACHE_MAX_MEMORY"
 
 // leafCacheAdmissions is the width of the second-sight admission filter. Keys
@@ -42,9 +37,8 @@ const leafCacheAdmissions = 32
 
 var leafCacheMaxMemory = parseLeafCacheMaxMemory(os.Getenv(LeafCacheMaxMemoryEnv))
 
-// parseLeafCacheMaxMemory falls back to the default on anything unparseable
-// rather than failing startup: this cache is an optimisation, and a typo in an
-// operator's env should not stop a node from serving.
+// parseLeafCacheMaxMemory falls back to the default rather than failing
+// startup: a typo in an operator's env should not stop a node from serving.
 func parseLeafCacheMaxMemory(v string) int {
 	if v == "" {
 		return DefaultLeafCacheMaxMemory
@@ -97,29 +91,16 @@ type leafEntry struct {
 	bytes int
 }
 
-// leafCache memoises the whole-shard bitmap a range predicate merges out of the
-// 65 bit-planes of a SegmentInMemory. The planes only change under the
-// segment's write lock, so a generation counter bumped inside those two write
-// critical sections and read under the same read lock is a complete
-// invalidation token: any reader whose generation matches the cache is looking
-// at the exact planes the cached bitmap was built from.
+// leafCache memoises the bitmap merged from a SegmentInMemory's bit-planes.
+// Entries are keyed by a generation counter bumped only inside the segment's
+// write-lock sections, so a matching generation guarantees the planes are
+// unchanged since the entry was built. Bitmaps are only ever cloned out,
+// never handed out directly.
 //
-// Cached bitmaps are never handed out. Callers get a clone, which is the clone
-// the uncached path already pays, so nothing downstream can mutate an entry.
-//
-// Admission is on second sight. A predicate value seen once is recorded in a
-// fixed-width filter and nothing else; only a repeat within the same generation
-// is worth a bitmap. A workload with no repeated predicates therefore behaves
-// as if the cache were switched off: no bitmap is cloned and no byte is
-// retained.
-//
-// A full cache stops admitting rather than evicting. Eviction would let a
-// working set larger than the budget clone a bitmap on every query and then
-// throw it away, which is a regression paid by exactly the workloads that get
-// no benefit. Declining instead caps the cache at the first predicates that
-// proved themselves, and the counters say when the budget is too small. The
-// cost is that a hot set which shifts is only relearned at the next write to
-// the segment, which drops the cache anyway.
+// A predicate is cached only on second sight, so a workload with no repeated
+// predicates retains nothing and clones nothing. A full cache declines new
+// entries rather than evicting, so a working set larger than the budget never
+// pays a clone-and-discard per query either.
 type leafCache struct {
 	lock sync.Mutex
 
@@ -128,13 +109,12 @@ type leafCache struct {
 	// generation is the segment generation every entry below was built from.
 	generation uint64
 
-	// entries is ordered oldest-first and evicted from the front.
+	// entries is append-only; a generation change clears it wholesale.
 	entries []leafEntry
 	bytes   int
 
-	// The admission filter deliberately survives generation changes: a
-	// predicate that was hot before a flush is still hot after it, and
-	// re-learning it would cost a miss per flush.
+	// The admission filter survives generation changes: a predicate hot
+	// before a flush should not need re-learning after it.
 	admissions    [leafCacheAdmissions]leafKey
 	admissionUsed [leafCacheAdmissions]bool
 	nextAdmission int
@@ -147,14 +127,13 @@ func newLeafCache(maxBytes int) *leafCache {
 	return &leafCache{maxBytes: maxBytes}
 }
 
-// probe returns the bitmap cached for key at this generation, if any, and
-// whether a freshly computed result for key should be admitted.
-//
-// The returned bitmap may be evicted by another goroutine before the caller
-// clones it. That is safe: eviction only drops the reference, it never recycles
-// the backing buffer, so the caller's pointer keeps the bitmap alive.
-// maxEntryBytes is an upper bound on the size of the bitmap the caller is about
-// to compute, used to decide admission before the caller pays for a clone.
+// probe reports the cached bitmap for key, if any, and whether the caller
+// should compute and admit one. maxEntryBytes is the caller's upper bound on
+// the bitmap it is about to compute, so admission can be declined before the
+// caller pays for a clone that would not fit. A returned bitmap stays valid
+// even if a concurrent generation change drops it from the cache before the
+// caller clones it, since dropping only releases the reference, never the
+// buffer.
 func (c *leafCache) probe(generation uint64, key leafKey, maxEntryBytes int) (bm *sroar.Bitmap, admit bool) {
 	if c == nil {
 		return nil, false
@@ -165,9 +144,8 @@ func (c *leafCache) probe(generation uint64, key leafKey, maxEntryBytes int) (bm
 
 	if c.generation != generation {
 		if c.generation > generation {
-			// A reader older than the cache cannot happen while readers hold the
-			// segment's read lock for their whole lifetime. If it ever does, serve
-			// and record nothing rather than risk a stale bitmap.
+			// Should be unreachable while readers hold the segment's read lock for
+			// their whole lifetime; guard anyway rather than risk a stale bitmap.
 			return nil, false
 		}
 		c.dropLocked(generation)

@@ -45,8 +45,7 @@ func newCachedSegment(logger logrus.FieldLogger, maxBytes int) *SegmentInMemory 
 	return s
 }
 
-// query runs the full production read shape: a CombinedReader over the
-// in-memory segment plus whatever memtables are still pending.
+// query exercises the real CombinedReader read path, not a shortcut.
 func query(t *testing.T, s *SegmentInMemory, value uint64, operator filters.Operator) []uint64 {
 	t.Helper()
 
@@ -70,9 +69,8 @@ func cachedEntries(s *SegmentInMemory) int {
 	return len(s.leafCache.entries)
 }
 
-// TestLeafCacheIsOnTheReadPath poisons a warm entry with a sentinel bitmap. If
-// the read still returns the true result, every other test in this file is
-// vacuous, because nothing was ever served from the cache.
+// TestLeafCacheIsOnTheReadPath poisons a cached entry with a sentinel bitmap;
+// if a read still returns the true result, the cache is not on the read path.
 func TestLeafCacheIsOnTheReadPath(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	mt1, mt2, mt3 := createTestMemtables(logger)
@@ -85,7 +83,7 @@ func TestLeafCacheIsOnTheReadPath(t *testing.T) {
 
 	expected := []uint64{113, 213, 117, 217, 119, 219}
 
-	// twice: the first is first sight, the second admits and stores
+	// first is first sight, second admits and stores, third hits the cache
 	assert.ElementsMatch(t, expected, query(t, seg, 13, filters.OperatorGreaterThanEqual))
 	assert.ElementsMatch(t, expected, query(t, seg, 13, filters.OperatorGreaterThanEqual))
 	assert.ElementsMatch(t, expected, query(t, seg, 13, filters.OperatorGreaterThanEqual))
@@ -108,8 +106,8 @@ func TestLeafCacheIsOnTheReadPath(t *testing.T) {
 	assert.ElementsMatch(t, append(expected, 131), query(t, seg, 13, filters.OperatorGreaterThanEqual))
 }
 
-// TestLeafCacheInvalidation is the write -> read -> write -> read gate, run for
-// both of the two writers that mutate the planes, with additions and deletions.
+// TestLeafCacheInvalidation runs the write -> read -> write -> read gate for
+// both writers that mutate the planes, with additions and deletions.
 func TestLeafCacheInvalidation(t *testing.T) {
 	writers := []struct {
 		name  string
@@ -195,10 +193,9 @@ func TestLeafCacheInvalidation(t *testing.T) {
 	}
 }
 
-// TestLeafCacheDifferential compares the cached read path against the uncached
-// one over randomized sequences of writes, flushes and compactions. Both
-// segments see identical mutations, so any divergence is the cache serving
-// something stale.
+// TestLeafCacheDifferential runs a cached and uncached segment through
+// identical randomized mutations and queries; any divergence means the cache
+// served something stale.
 func TestLeafCacheDifferential(t *testing.T) {
 	const (
 		seeds     = 64
@@ -288,10 +285,9 @@ func readBytes(t *testing.T, s *SegmentInMemory, value uint64, operator filters.
 	return out
 }
 
-// TestLeafCacheConcurrentReadersAndWriter hammers the generation counter with
-// N readers against 1 writer. Under -race this covers the counter itself; the
-// assertions cover the invariant that a reader never observes a bitmap that
-// contradicts a write it can already see.
+// TestLeafCacheConcurrentReadersAndWriter runs N readers against 1 writer
+// under -race, asserting a reader never sees a bitmap that contradicts a
+// write it can already observe.
 func TestLeafCacheConcurrentReadersAndWriter(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	seg := newCachedSegment(logger, 1<<20)
@@ -354,13 +350,11 @@ func TestLeafCacheConcurrentReadersAndWriter(t *testing.T) {
 	require.Greater(t, writes.Load(), int64(20))
 }
 
-// TestLeafCacheBudgetConstrainedConcurrentReads runs concurrent readers against
-// a cache whose budget holds only a fraction of the values they ask for, so most
-// queries miss and a few hit, all interleaved.
+// TestLeafCacheBudgetConstrainedConcurrentReads runs concurrent readers
+// against a cache whose budget fits only a fraction of the values queried.
 func TestLeafCacheBudgetConstrainedConcurrentReads(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
-	// budget for roughly two leaves, so every new value evicts an old one
 	probe := newCachedSegment(logger, 1<<30)
 	mt := NewMemtable(logger)
 	for i := uint64(0); i < 200; i++ {
@@ -369,6 +363,8 @@ func TestLeafCacheBudgetConstrainedConcurrentReads(t *testing.T) {
 	require.NoError(t, probe.MergeSegmentByCursor(newFakeSegmentCursor(mt)))
 	entrySize := len(readBytes(t, probe, 5, filters.OperatorGreaterThanEqual))
 
+	// budget for roughly two leaves; once full, new values are declined rather
+	// than evicting an existing entry
 	seg := newCachedSegment(logger, 2*entrySize)
 	require.NoError(t, seg.MergeSegmentByCursor(newFakeSegmentCursor(mt)))
 
@@ -397,9 +393,8 @@ func TestLeafCacheBudgetConstrainedConcurrentReads(t *testing.T) {
 	assert.LessOrEqual(t, seg.leafCache.bytes, 2*entrySize)
 }
 
-// TestLeafCacheEntryIsNotAliased pins the reason cached bitmaps are handed out
-// as clones: CombinedReader merges pending memtable layers into the bitmap the
-// segment reader returns, in place.
+// TestLeafCacheEntryIsNotAliased pins why the cache must clone: the reader's
+// bitmap is mutated in place by CombinedReader's memtable merge.
 func TestLeafCacheEntryIsNotAliased(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	seg := newCachedSegment(logger, 1<<20)
@@ -430,9 +425,8 @@ func TestLeafCacheEntryIsNotAliased(t *testing.T) {
 		"the cache entry must hold the segment leaf only, without memtable deltas")
 }
 
-// TestLeafCacheHitReturnsPooledBuffers pins that a hit borrows and returns
-// exactly as many buffers as the uncached path, so the cache cannot leak the
-// bitmap buffer pool.
+// TestLeafCacheHitReturnsPooledBuffers pins that a cache hit borrows and
+// releases exactly one buffer, same as the uncached path.
 func TestLeafCacheHitReturnsPooledBuffers(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	mt1, mt2, mt3 := createTestMemtables(logger)
@@ -462,9 +456,8 @@ func TestLeafCacheHitReturnsPooledBuffers(t *testing.T) {
 	require.NotZero(t, cachedEntries(seg))
 }
 
-// TestLeafCacheLongTailRetainsNothing is the end-to-end version of the
-// admission guarantee: a workload where no predicate value repeats must leave
-// the cache empty.
+// TestLeafCacheLongTailRetainsNothing is the end-to-end check that a
+// no-repeat workload leaves the cache empty.
 func TestLeafCacheLongTailRetainsNothing(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	seg := newCachedSegment(logger, 1<<20)

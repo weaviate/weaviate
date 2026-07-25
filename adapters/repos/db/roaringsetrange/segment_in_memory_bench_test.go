@@ -23,9 +23,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-// The synthetic shard reproduces the shape of a large production deployment:
-// ~24.1 M documents per shard, an integer range predicate that ~97.5% of
-// documents satisfy, and therefore ~369 sroar containers (~2.88 MiB) per plane.
+// The synthetic shard mirrors production scale: ~24M docs/shard with a range
+// predicate that ~97.5% of documents satisfy.
 var (
 	benchDocs      = flag.Int("bench.docs", 24_100_000, "documents in the synthetic shard")
 	benchThreshold = flag.Int64("bench.threshold", 101, "range predicate threshold")
@@ -38,8 +37,7 @@ var benchSegment *SegmentInMemory
 // plane 0 for any non-negative value.
 func encodeInt64(v int64) uint64 { return uint64(v ^ math.MinInt64) }
 
-// benchScore models a retailer score: ~97.5% of documents land above the
-// threshold, matching the measured selectivity.
+// benchScore matches a ~97.5% selectivity distribution measured in production.
 func benchScore(rng *rand.Rand) int64 {
 	if rng.Float64() < 0.025 {
 		return rng.Int63n(101)
@@ -93,17 +91,10 @@ func benchReader(b *testing.B, cacheBytes int) *segmentInMemoryReader {
 	}
 }
 
-// BenchmarkMergeGreaterThanEqual measures the range-filter leaf against the
-// merge-worker axis. Arms:
-//
-//	shipped    — cache disabled, i.e. the loop exactly as it ships
-//	cache-hit  — the memoised path: one clone, no cascade
-//	cache-miss — the long-tail path: probe, then the full cascade. Nothing is
-//	             cloned and nothing is retained, which is what a workload with no
-//	             repeated predicates pays.
-//
-// Admission, which happens once per (predicate, generation), costs the cascade
-// plus one bitmap clone; BenchmarkLeafAdmissionClone measures that clone.
+// BenchmarkMergeGreaterThanEqual compares three arms: shipped (cache
+// disabled), cache-hit (memoised, one clone), and cache-miss (full cascade,
+// nothing retained). Admission cost (one clone) is measured separately by
+// BenchmarkLeafAdmissionClone.
 func BenchmarkMergeGreaterThanEqual(b *testing.B) {
 	value := encodeInt64(*benchThreshold)
 
@@ -155,13 +146,11 @@ func BenchmarkMergeGreaterThanEqual(b *testing.B) {
 	}
 }
 
-// BenchmarkLeafCacheProbeMiss is the cost a workload with no repeated
-// predicates pays per query: one linear scan of the entries and one of the
-// admission filter. Nothing is cloned and nothing is retained.
+// BenchmarkLeafCacheProbeMiss is the per-query cost when no predicate
+// repeats: a linear scan of entries and of the admission filter, no clone.
 func BenchmarkLeafCacheProbeMiss(b *testing.B) {
 	c := newLeafCache(64 << 20)
-	// fill the admission filter and hold a few entries, the worst case for the
-	// two linear scans
+	// worst case for the two linear scans: admission filter full, entries held
 	for i := uint64(0); i < leafCacheAdmissions; i++ {
 		key := leafKey{kind: leafGreaterThanEqual, valueMin: i}
 		c.probe(0, key, 0)
@@ -175,9 +164,8 @@ func BenchmarkLeafCacheProbeMiss(b *testing.B) {
 	}
 }
 
-// BenchmarkLeafAdmissionClone is the one-time cost of admitting a leaf into the
-// cache: an independent copy of the merged bitmap, paid once per predicate per
-// segment generation.
+// BenchmarkLeafAdmissionClone is the one-time cost of admitting a leaf: an
+// independent copy paid once per predicate per generation.
 func BenchmarkLeafAdmissionClone(b *testing.B) {
 	s := buildBenchSegment(b)
 	b.ResetTimer()

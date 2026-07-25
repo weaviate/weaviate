@@ -66,8 +66,7 @@ func TestLeafCacheAdmitsOnSecondSight(t *testing.T) {
 	require.Nil(t, bmOut)
 	require.False(t, admit, "first sight must not be admitted")
 
-	// a store that was never admitted is still accepted; the point of the
-	// filter is that the read path does not ask for one
+	// store never checks the admission filter itself, only probe does
 	bmOut, admit = c.probe(0, key, 0)
 	require.Nil(t, bmOut)
 	require.True(t, admit, "second sight must be admitted")
@@ -112,8 +111,8 @@ func TestLeafCacheStopsAdmittingWhenFull(t *testing.T) {
 	defer c.lock.Unlock()
 	assert.LessOrEqual(t, c.bytes, 2*entrySize)
 	require.Len(t, c.entries, 2)
-	// the first two proved themselves and keep their slots; a working set wider
-	// than the budget must not clone a bitmap per query to churn them
+	// the first two admitted keep their slots; a wider working set must not
+	// churn them via a clone-and-discard per query
 	assert.Equal(t, uint64(0), c.entries[0].key.valueMin)
 	assert.Equal(t, uint64(1), c.entries[1].key.valueMin)
 }
@@ -201,10 +200,9 @@ func TestLeafCacheKeySeparatesBetweenRanges(t *testing.T) {
 	assert.Nil(t, cached, "a different merge shape must not share an entry")
 }
 
-// TestLeafCacheDropDuringClone covers the ordering that makes handing out a raw
-// entry pointer safe: probe returns the pointer under the lock, the caller
-// clones it afterwards, and a concurrent generation change may drop the entry
-// in between. Dropping must only release the reference.
+// TestLeafCacheDropDuringClone pins that probe's returned pointer stays valid
+// even if a concurrent generation change drops the entry before the caller
+// clones it: dropping only releases the reference, never the buffer.
 func TestLeafCacheDropDuringClone(t *testing.T) {
 	c := newLeafCache(1 << 20)
 	key := leafKey{kind: leafGreaterThanEqual, valueMin: 7}
