@@ -15,4 +15,5 @@ import "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm
 
 func init() {
 	prefetchFunc = asm.Prefetch
+	prefetchNFunc = asm.PrefetchN
 }

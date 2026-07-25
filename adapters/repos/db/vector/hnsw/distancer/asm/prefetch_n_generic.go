@@ -9,11 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package cache
+//go:build !amd64 && !arm64
 
-import "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+package asm
 
-func init() {
-	prefetchFunc = asm.Prefetch
-	prefetchNFunc = asm.PrefetchN
-}
+// PrefetchN is a no-op on architectures without a prefetch kernel.
+func PrefetchN(addr uintptr, n int) {}

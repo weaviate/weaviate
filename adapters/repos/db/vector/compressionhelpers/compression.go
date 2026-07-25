@@ -1219,11 +1219,21 @@ func (distancer *quantizedCompressorDistancer[T]) DistancesToNodes(ids []uint64,
 		distancer.vecs = make([][]T, len(ids))
 	}
 	vecs := distancer.vecs[:len(ids)]
-	for i, id := range ids {
-		vecs[i] = distancer.compressor.cache.PrefetchGet(id)
+	// Fetch and hint each code prefetchAhead iterations before the distance
+	// kernel consumes it, instead of prefetching the whole batch up front.
+	// A full batch of hints (~25 cache lines per 8-bit d1536 code, dozens
+	// of codes) far exceeds the core's outstanding-miss capacity, so
+	// up-front hints past the first few codes get dropped and demand-missed
+	// anyway; fetching ahead inside the loop also overlaps the cache's
+	// pointer chase with the current distance computation.
+	for i := range min(prefetchAhead, len(ids)) {
+		vecs[i] = distancer.compressor.cache.PrefetchGet(ids[i])
 	}
 	var errs []error
 	for i, id := range ids {
+		if next := i + prefetchAhead; next < len(ids) {
+			vecs[next] = distancer.compressor.cache.PrefetchGet(ids[next])
+		}
 		var err error
 		if len(vecs[i]) == 0 {
 			dists[i], err = distancer.DistanceToNode(id)
@@ -1240,6 +1250,8 @@ func (distancer *quantizedCompressorDistancer[T]) DistancesToNodes(ids []uint64,
 	}
 	return errs
 }
+
+const prefetchAhead = 4
 
 func (distancer *quantizedCompressorDistancer[T]) DistanceToFloat(vector []float32) (float32, error) {
 	return distancer.distancer.DistanceToFloat(vector)

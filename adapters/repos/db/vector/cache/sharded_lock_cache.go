@@ -277,6 +277,14 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// this function will be overridden for amd64 and arm64
 }
 
+// prefetchNFunc hints n bytes (ceil(n/64) cache lines) starting at addr with
+// a single call, so hot paths don't pay one assembly CALL per cache line.
+// n must be > 0.
+var prefetchNFunc func(addr uintptr, n int) = func(addr uintptr, n int) {
+	// do nothing on default arch
+	// this function will be overridden for amd64 and arm64
+}
+
 const (
 	// compressedPrefetchMaxBytes covers whole compressed codes at realistic
 	// dimensions (e.g. 8-bit RQ up to ~2000d, 4-bit RQ up to ~4000d).
@@ -295,10 +303,7 @@ func prefetchVector[T any](vec []T, maxBytes int) {
 	}
 	var zero T
 	n := min(len(vec)*int(unsafe.Sizeof(zero)), maxBytes)
-	base := uintptr(unsafe.Pointer(&vec[0]))
-	for off := 0; off < n; off += 64 {
-		prefetchFunc(base + uintptr(off))
-	}
+	prefetchNFunc(uintptr(unsafe.Pointer(&vec[0])), n)
 	runtime.KeepAlive(vec)
 }
 

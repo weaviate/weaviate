@@ -34,7 +34,11 @@ func TestPrefetch(t *testing.T) {
 	c.Preload(1, make([]byte, 784))                           // a d1536 4-bit code, fully covered
 	c.Preload(2, nil)                                         // explicit nil
 	c.Preload(4, make([]byte, compressedPrefetchMaxBytes+64)) // longer than the cap
-	for _, id := range []uint64{0, 1, 2, 3, 4} {              // 3 was never loaded
+	c.Preload(5, make([]byte, 63))                            // one line, sub-line tail
+	c.Preload(6, make([]byte, 64))                            // exactly one line
+	c.Preload(7, make([]byte, 65))                            // one line + 1 byte
+	c.Preload(8, make([]byte, 1552))                          // a d1536 8-bit RQ code
+	for _, id := range []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8} {  // 3 was never loaded
 		c.Prefetch(id)
 	}
 
