@@ -308,7 +308,8 @@ func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, fu
 func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
 	key := leafKey{kind: leafGreaterThanEqual, valueMin: value}
 
-	cached, admit := r.cache.probe(r.generation, key)
+	// a leaf is a subset of plane 0, so plane 0's size bounds the entry's
+	cached, admit := r.cache.probe(r.generation, key, r.bitmaps[0].LenInBytes())
 	if cached != nil {
 		return r.cloneCached(cached)
 	}
@@ -338,7 +339,8 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqualUncached(value uint64, conc
 func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
 	key := leafKey{kind: leafBetween, valueMin: valueMinInc, valueMax: valueMaxExc}
 
-	cached, admit := r.cache.probe(r.generation, key)
+	// a leaf is a subset of plane 0, so plane 0's size bounds the entry's
+	cached, admit := r.cache.probe(r.generation, key, r.bitmaps[0].LenInBytes())
 	if cached != nil {
 		return r.cloneCached(cached)
 	}

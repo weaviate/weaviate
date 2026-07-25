@@ -354,10 +354,10 @@ func TestLeafCacheConcurrentReadersAndWriter(t *testing.T) {
 	require.Greater(t, writes.Load(), int64(20))
 }
 
-// TestLeafCacheEvictionDuringClone forces evictions while readers are mid-clone
-// of an entry they already probed. Eviction must only drop the reference, never
-// recycle the bitmap.
-func TestLeafCacheEvictionDuringClone(t *testing.T) {
+// TestLeafCacheBudgetConstrainedConcurrentReads runs concurrent readers against
+// a cache whose budget holds only a fraction of the values they ask for, so most
+// queries miss and a few hit, all interleaved.
+func TestLeafCacheBudgetConstrainedConcurrentReads(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	// budget for roughly two leaves, so every new value evicts an old one
@@ -428,6 +428,61 @@ func TestLeafCacheEntryIsNotAliased(t *testing.T) {
 	require.Len(t, seg.leafCache.entries, 1)
 	assert.ElementsMatch(t, []uint64{200}, seg.leafCache.entries[0].bm.ToArray(),
 		"the cache entry must hold the segment leaf only, without memtable deltas")
+}
+
+// TestLeafCacheHitReturnsPooledBuffers pins that a hit borrows and returns
+// exactly as many buffers as the uncached path, so the cache cannot leak the
+// bitmap buffer pool.
+func TestLeafCacheHitReturnsPooledBuffers(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	mt1, mt2, mt3 := createTestMemtables(logger)
+
+	seg := newCachedSegment(logger, 1<<20)
+	seg.MergeMemtableEventually(mt1)
+	seg.MergeMemtableEventually(mt2)
+	seg.MergeMemtableEventually(mt3)
+	waitUntilMemtablesMerged(t, seg)
+
+	bufPool := newBitmapBufPoolWithCounter()
+	readers, release := seg.Readers(bufPool)
+	defer release()
+	require.Len(t, readers, 1)
+
+	for _, op := range cacheTestOperators {
+		t.Run(op.Name(), func(t *testing.T) {
+			for round := 0; round < 3; round++ {
+				_, releaseBm, err := readers[0].Read(context.Background(), 13, op)
+				require.NoError(t, err)
+				assert.GreaterOrEqual(t, 1, bufPool.InUseCounter(), "round %d", round)
+				releaseBm()
+				assert.Equal(t, 0, bufPool.InUseCounter(), "round %d", round)
+			}
+		})
+	}
+	require.NotZero(t, cachedEntries(seg))
+}
+
+// TestLeafCacheLongTailRetainsNothing is the end-to-end version of the
+// admission guarantee: a workload where no predicate value repeats must leave
+// the cache empty.
+func TestLeafCacheLongTailRetainsNothing(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	seg := newCachedSegment(logger, 1<<20)
+
+	mt := NewMemtable(logger)
+	for i := uint64(0); i < 500; i++ {
+		mt.Insert(i, []uint64{i})
+	}
+	require.NoError(t, seg.MergeSegmentByCursor(newFakeSegmentCursor(mt)))
+
+	for i := uint64(0); i < 500; i++ {
+		query(t, seg, i, filters.OperatorGreaterThanEqual)
+	}
+
+	assert.Zero(t, cachedEntries(seg))
+	seg.leafCache.lock.Lock()
+	defer seg.leafCache.lock.Unlock()
+	assert.Zero(t, seg.leafCache.bytes)
 }
 
 func TestLeafCacheDisabledMatchesShippedPath(t *testing.T) {

@@ -96,12 +96,14 @@ func benchReader(b *testing.B, cacheBytes int) *segmentInMemoryReader {
 // BenchmarkMergeGreaterThanEqual measures the range-filter leaf against the
 // merge-worker axis. Arms:
 //
-//	shipped   — cache disabled, i.e. the loop exactly as it ships
-//	cache-hit — the memoised path: one clone, no cascade
-//	cache-miss-upper-bound — a miss that is forced to compute and then clone the
-//	            result for admission. The real long-tail miss never reaches the
-//	            clone (second-sight admission), so this is an upper bound on the
-//	            regression, not the expected cost.
+//	shipped    — cache disabled, i.e. the loop exactly as it ships
+//	cache-hit  — the memoised path: one clone, no cascade
+//	cache-miss — the long-tail path: probe, then the full cascade. Nothing is
+//	             cloned and nothing is retained, which is what a workload with no
+//	             repeated predicates pays.
+//
+// Admission, which happens once per (predicate, generation), costs the cascade
+// plus one bitmap clone; BenchmarkLeafAdmissionClone measures that clone.
 func BenchmarkMergeGreaterThanEqual(b *testing.B) {
 	value := encodeInt64(*benchThreshold)
 
@@ -125,10 +127,10 @@ func BenchmarkMergeGreaterThanEqual(b *testing.B) {
 			},
 		},
 		{
-			name: "cache-miss-upper-bound",
+			name: "cache-miss",
 			build: func(b *testing.B) *segmentInMemoryReader {
-				// a budget of one byte rejects every store, so the arm stays on
-				// the miss path forever while still paying admission's clone
+				// a budget of one byte never has room, so the arm stays on the
+				// miss path forever
 				r := benchReader(b, 1)
 				r.mergeGreaterThanEqual(value, 1)
 				return r
@@ -162,13 +164,26 @@ func BenchmarkLeafCacheProbeMiss(b *testing.B) {
 	// two linear scans
 	for i := uint64(0); i < leafCacheAdmissions; i++ {
 		key := leafKey{kind: leafGreaterThanEqual, valueMin: i}
-		c.probe(0, key)
-		c.probe(0, key)
+		c.probe(0, key, 0)
+		c.probe(0, key, 0)
 		c.store(0, key, roaringset.NewBitmap(i))
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		c.probe(0, leafKey{kind: leafGreaterThanEqual, valueMin: uint64(i) + 1e6})
+		c.probe(0, leafKey{kind: leafGreaterThanEqual, valueMin: uint64(i) + 1e6}, 0)
+	}
+}
+
+// BenchmarkLeafAdmissionClone is the one-time cost of admitting a leaf into the
+// cache: an independent copy of the merged bitmap, paid once per predicate per
+// segment generation.
+func BenchmarkLeafAdmissionClone(b *testing.B) {
+	s := buildBenchSegment(b)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if s.bitmaps[0].Clone() == nil {
+			b.Fatal("nil clone")
+		}
 	}
 }

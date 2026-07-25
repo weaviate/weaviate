@@ -63,21 +63,15 @@ var (
 			Name:      "lsm_roaringsetrange_leaf_cache_ops_total",
 			Help: "Range-filter leaf bitmap cache operations. " +
 				"hit/(hit+miss) is the hit rate; store counts admitted bitmaps, " +
-				"evict counts bitmaps dropped for the byte budget, " +
+				"rejected counts repeat predicates declined because the byte budget is full " +
+				"(a sustained non-zero rate means the budget is too small for the working set), " +
 				"invalidate counts writes to the in-memory segment that dropped the cache.",
 		}, []string{"operation"})
-
-	leafCacheBytes = promauto.With(monitoring.GetMetrics().Registerer).NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "lsm_roaringsetrange_leaf_cache_bytes",
-			Help:      "Bytes currently held by range-filter leaf bitmap caches across all in-memory segments.",
-		})
 
 	leafCacheHits         = leafCacheOps.WithLabelValues("hit")
 	leafCacheMisses       = leafCacheOps.WithLabelValues("miss")
 	leafCacheStores       = leafCacheOps.WithLabelValues("store")
-	leafCacheEvictions    = leafCacheOps.WithLabelValues("evict")
+	leafCacheRejections   = leafCacheOps.WithLabelValues("rejected")
 	leafCacheInvalidation = leafCacheOps.WithLabelValues("invalidate")
 )
 
@@ -118,6 +112,14 @@ type leafEntry struct {
 // is worth a bitmap. A workload with no repeated predicates therefore behaves
 // as if the cache were switched off: no bitmap is cloned and no byte is
 // retained.
+//
+// A full cache stops admitting rather than evicting. Eviction would let a
+// working set larger than the budget clone a bitmap on every query and then
+// throw it away, which is a regression paid by exactly the workloads that get
+// no benefit. Declining instead caps the cache at the first predicates that
+// proved themselves, and the counters say when the budget is too small. The
+// cost is that a hot set which shifts is only relearned at the next write to
+// the segment, which drops the cache anyway.
 type leafCache struct {
 	lock sync.Mutex
 
@@ -151,7 +153,9 @@ func newLeafCache(maxBytes int) *leafCache {
 // The returned bitmap may be evicted by another goroutine before the caller
 // clones it. That is safe: eviction only drops the reference, it never recycles
 // the backing buffer, so the caller's pointer keeps the bitmap alive.
-func (c *leafCache) probe(generation uint64, key leafKey) (bm *sroar.Bitmap, admit bool) {
+// maxEntryBytes is an upper bound on the size of the bitmap the caller is about
+// to compute, used to decide admission before the caller pays for a clone.
+func (c *leafCache) probe(generation uint64, key leafKey, maxEntryBytes int) (bm *sroar.Bitmap, admit bool) {
 	if c == nil {
 		return nil, false
 	}
@@ -177,7 +181,14 @@ func (c *leafCache) probe(generation uint64, key leafKey) (bm *sroar.Bitmap, adm
 	}
 
 	leafCacheMisses.Inc()
-	return nil, c.admitLocked(key)
+	if !c.admitLocked(key) {
+		return nil, false
+	}
+	if c.bytes+maxEntryBytes > c.maxBytes {
+		leafCacheRejections.Inc()
+		return nil, false
+	}
+	return nil, true
 }
 
 // store takes ownership of bm, which must be an independent bitmap the caller
@@ -187,10 +198,6 @@ func (c *leafCache) store(generation uint64, key leafKey, bm *sroar.Bitmap) {
 		return
 	}
 	size := bm.LenInBytes()
-	if size > c.maxBytes {
-		// One oversized leaf must not evict everything else to fit.
-		return
-	}
 
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -205,20 +212,14 @@ func (c *leafCache) store(generation uint64, key leafKey, bm *sroar.Bitmap) {
 		}
 	}
 
-	for c.bytes+size > c.maxBytes && len(c.entries) > 0 {
-		c.bytes -= c.entries[0].bytes
-		leafCacheBytes.Sub(float64(c.entries[0].bytes))
-		last := len(c.entries) - 1
-		copy(c.entries, c.entries[1:])
-		// clear the vacated slot so the backing array stops referencing the bitmap
-		c.entries[last] = leafEntry{}
-		c.entries = c.entries[:last]
-		leafCacheEvictions.Inc()
+	if c.bytes+size > c.maxBytes {
+		// raced another store into the last of the budget
+		leafCacheRejections.Inc()
+		return
 	}
 
 	c.entries = append(c.entries, leafEntry{key: key, bm: bm, bytes: size})
 	c.bytes += size
-	leafCacheBytes.Add(float64(size))
 	leafCacheStores.Inc()
 }
 
@@ -238,7 +239,6 @@ func (c *leafCache) admitLocked(key leafKey) bool {
 
 func (c *leafCache) dropLocked(generation uint64) {
 	if len(c.entries) > 0 {
-		leafCacheBytes.Sub(float64(c.bytes))
 		leafCacheInvalidation.Inc()
 	}
 	c.entries = nil
