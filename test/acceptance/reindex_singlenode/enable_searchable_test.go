@@ -137,8 +137,8 @@ func testEnableSearchable(t *testing.T, restURI string) {
 
 	// Submit enable-searchable with tokenization=word so the BM25 queries
 	// below split on whitespace.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, enableSearchableClassName, "description",
-		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, enableSearchableClassName, "description", "searchable",
+		`{"tokenization":"word"}`)
 	t.Logf("submitted enable-searchable task for description: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 

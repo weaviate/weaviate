@@ -281,6 +281,12 @@ func TestBackup_BucketLevel(t *testing.T) {
 }
 
 func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
+	return setupTestDBWithConfig(t, rootDir, nil, classes...)
+}
+
+// setupTestDBWithConfig builds a single-node DB. override, when non-nil, adjusts
+// the Config before the DB is created.
+func setupTestDBWithConfig(t *testing.T, rootDir string, override func(*Config), classes ...*models.Class) *DB {
 	logger, _ := test.NewNullLogger()
 
 	shardState := singleShardState()
@@ -309,12 +315,16 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
-	db, err := New(logger, "node1", Config{
+	cfg := Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}
+	if override != nil {
+		override(&cfg)
+	}
+	db, err := New(logger, "node1", cfg, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)

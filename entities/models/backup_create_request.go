@@ -32,14 +32,17 @@ type BackupCreateRequest struct {
 	// Custom configuration for the backup creation process
 	Config *BackupConfig `json:"config,omitempty"`
 
-	// List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with `include`.
+	// List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with `include`. Permits wildcards, e.g. `*` or `prefix*`.
 	Exclude []string `json:"exclude"`
 
 	// The ID of the backup (required). Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with `exclude`.
+	// List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with `exclude`. Permits wildcards, e.g. `*` or `prefix*`.
 	Include []string `json:"include"`
+
+	// List of dynamic DB users to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured and each is authorized individually.
+	IncludeUsers []string `json:"includeUsers"`
 
 	// The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.
 	IncrementalBaseBackupID *string `json:"incremental_base_backup_id,omitempty"`

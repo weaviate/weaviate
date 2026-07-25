@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -664,7 +665,7 @@ func (h *hnsw) distanceFromBytesToFloatNodeWithView(ctx context.Context, concret
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "distanceFromBytesToFloatNodeWithView")
+			h.handleDeletedNode(nodeID, "distanceFromBytesToFloatNodeWithView")
 			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
@@ -709,6 +710,94 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 			"tombstone was added", docID)
 }
 
+// handleDeletedDocID tombstones the nodes behind a store-reported docID: for
+// non-muvera multivector indexes docIDs are a different id space than node
+// ids and map to one or more vec ids
+func (h *hnsw) handleDeletedDocID(docID uint64, operation string) {
+	if !h.multivector.Load() || h.muvera.Load() {
+		h.handleDeletedNode(docID, operation)
+		return
+	}
+	h.RLock()
+	vecIDs := append([]uint64{}, h.docIDVectors[docID]...)
+	h.RUnlock()
+	for _, vecID := range vecIDs {
+		h.handleDeletedNode(vecID, operation)
+	}
+}
+
+// handleDeletedDocOfNode tombstones a dead node and, for non-muvera
+// multivector indexes, its doc's sibling vec ids — the store fetches whole
+// docs, so a dead vec usually means the entire doc is gone. Each sibling is
+// probed first and only tombstoned if it is really gone: a live doc can carry
+// a phantom vec slot (e.g. after snapshot corruption), and the mapping is only
+// trusted if the sibling list contains the probed node. Must not be called
+// while holding sharded node locks.
+func (h *hnsw) handleDeletedDocOfNode(nodeID uint64, operation string) {
+	h.handleDeletedNode(nodeID, operation)
+	if !h.multivector.Load() || h.muvera.Load() {
+		return
+	}
+	var docID uint64
+	if h.compressed.Load() {
+		docID, _ = h.compressor.GetKeys(nodeID)
+	} else {
+		docID, _ = h.cache.GetKeys(nodeID)
+	}
+	h.RLock()
+	siblings := append([]uint64{}, h.docIDVectors[docID]...)
+	h.RUnlock()
+	if !slices.Contains(siblings, nodeID) {
+		return
+	}
+	for _, sibling := range siblings {
+		if sibling == nodeID || h.hasTombstone(sibling) {
+			continue
+		}
+		var err error
+		if h.compressed.Load() {
+			_, err = h.compressor.NewDistancerFromID(sibling)
+		} else {
+			_, err = h.vectorForID(context.Background(), sibling)
+		}
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(sibling, operation)
+		}
+	}
+}
+
+// entrypointDistWithRepair returns a usable search entrypoint and its distance
+// to the query vector, repairing dead (nil or deleted-in-store) entrypoints.
+// Terminates: each iteration either succeeds or rules out another dead node.
+// Returns errNoUsableEntrypoint if no usable node remains.
+func (h *hnsw) entrypointDistWithRepair(ctx context.Context,
+	distancer compressionhelpers.CompressorDistancer, entryPointID uint64,
+	searchVec []float32,
+) (uint64, float32, error) {
+	for {
+		if h.nodeByID(entryPointID) != nil {
+			dist, err := h.distToNode(distancer, entryPointID, searchVec)
+			if err == nil {
+				return entryPointID, dist, nil
+			}
+			var e storobj.ErrNotFound
+			if !errors.As(err, &e) {
+				return 0, 0, errors.Wrap(err, "distance between entrypoint and query node")
+			}
+			h.handleDeletedDocOfNode(entryPointID, "entrypointDistWithRepair")
+		}
+		if err := ctx.Err(); err != nil {
+			return 0, 0, err
+		}
+		newEp, err := h.repairGlobalEntrypoint(entryPointID, helpers.NewAllowList(entryPointID))
+		if err != nil {
+			return 0, 0, err
+		}
+		entryPointID = newEp
+	}
+}
+
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
@@ -731,15 +820,13 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
-	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
+	entryPointID, entryPointDistance, err := h.entrypointDistWithRepair(ctx, compressorDistancer,
+		entryPointID, searchVec)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "knnSearchByVector")
-			return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		if errors.Is(err, errNoUsableEntrypoint) {
+			return nil, nil, nil
 		}
-		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
+		return nil, nil, errors.Wrap(err, "knn search")
 	}
 
 	// stop at layer 1, not 0!

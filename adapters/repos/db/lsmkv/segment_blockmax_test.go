@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -110,7 +111,7 @@ func TestBlockMaxWandSinglePostingNotPruned(t *testing.T) {
 	corpusN := len(commonDocs) + 1 // distinct documents
 	limit := len(commonDocs)       // forces the heap to fill before the rare doc
 
-	got := runBlockMaxWand(t, bucket, []string{commonTerm, rareTerm}, corpusN, limit)
+	got := runBlockMaxWand(t, bucket, []string{commonTerm, rareTerm}, nil, corpusN, limit)
 
 	_, found := got[rareDocID]
 	require.True(t, found,
@@ -127,9 +128,21 @@ func TestBlockMaxWandSinglePostingNotPruned(t *testing.T) {
 }
 
 // runBlockMaxWand runs the block-max WAND search the same way createDiskTermFromCV
-// feeds it in production and returns docID -> score across all segments/memtables.
-func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, corpusN, limit int) map[uint64]float32 {
+// feeds it in production, under an optional filter, and returns docID -> score
+// across all segments/memtables.
+func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, filter helpers.AllowList, corpusN, limit int) map[uint64]float32 {
 	t.Helper()
+	got, err := queryBlockMaxWand(bucket, queries, filter, corpusN, limit, nil)
+	require.NoError(t, err)
+	return got
+}
+
+// queryBlockMaxWand is the require-free core of runBlockMaxWand: it returns an
+// error instead of failing the test, so it is safe to call from goroutines other
+// than the test's (require's FailNow must not run off the test goroutine).
+// inspect, if non-nil, sees the built disk terms before scoring (for tests
+// asserting per-term state).
+func queryBlockMaxWand(bucket *Bucket, queries []string, filter helpers.AllowList, corpusN, limit int, inspect func([][]*SegmentBlockMax)) (map[uint64]float32, error) {
 	ctx := context.Background()
 
 	view := bucket.GetConsistentView()
@@ -141,8 +154,13 @@ func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, corpusN, li
 		boosts[i] = 1
 	}
 
-	diskTerms, _, _, err := bucket.createDiskTermFromCV(ctx, view, float64(corpusN), nil, queries, "", 1, boosts, config)
-	require.NoError(t, err)
+	diskTerms, _, _, err := bucket.createDiskTermFromCV(ctx, view, float64(corpusN), filter, queries, "", 1, boosts, config)
+	if err != nil {
+		return nil, err
+	}
+	if inspect != nil {
+		inspect(diskTerms)
+	}
 
 	got := make(map[uint64]float32)
 	for _, segTerms := range diskTerms {
@@ -150,13 +168,15 @@ func runBlockMaxWand(t *testing.T, bucket *Bucket, queries []string, corpusN, li
 			continue
 		}
 		heap, err := DoBlockMaxWand(ctx, limit, segTerms, 1.0, false, len(queries), 1, bucket.logger)
-		require.NoError(t, err)
+		if err != nil {
+			return nil, err
+		}
 		for heap.Len() > 0 {
 			item := heap.Pop()
 			got[item.ID] = item.Dist
 		}
 	}
-	return got
+	return got, nil
 }
 
 func keysOf(m map[uint64]float32) []uint64 {

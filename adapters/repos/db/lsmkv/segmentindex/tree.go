@@ -341,12 +341,21 @@ func (t *Tree) Size() int {
 
 // MarshalSortedKeys serializes a balanced BST index directly from sorted
 // KeyRedux entries, without constructing intermediate Tree or Node structures.
-// Keys must be in sorted order. Each key's ValueEnd is the absolute byte
-// offset where that key's data ends in the segment file.
-func MarshalSortedKeys(w io.Writer, keys []KeyRedux) (int64, error) {
+// Keys must be in sorted order. Each key's ValueEnd is the absolute byte offset
+// where that key's data ends in the segment file. dataStartOffset is where the
+// first key's data begins — HeaderSize for most strategies, larger for inverted
+// segments with an extended header.
+func MarshalSortedKeys(w io.Writer, keys []KeyRedux, dataStartOffset uint64) (int64, error) {
 	n := len(keys)
 	if n == 0 {
 		return 0, nil
+	}
+
+	// The first key's data spans [dataStartOffset, keys[0].ValueEnd]; a start past
+	// the end would silently serialize a corrupt node, so reject it explicitly.
+	if dataStartOffset > uint64(keys[0].ValueEnd) {
+		return 0, fmt.Errorf("dataStartOffset %d exceeds first key's ValueEnd %d",
+			dataStartOffset, keys[0].ValueEnd)
 	}
 
 	capacity := balancedTreeCapacity(n)
@@ -387,7 +396,7 @@ func MarshalSortedKeys(w io.Writer, keys []KeyRedux) (int64, error) {
 		// Derive Start from the previous key's ValueEnd.
 		var start uint64
 		if si == 0 {
-			start = uint64(HeaderSize)
+			start = dataStartOffset
 		} else {
 			start = uint64(keys[si-1].ValueEnd)
 		}

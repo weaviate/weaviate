@@ -47,6 +47,7 @@ func TestProperties_SingleNode(t *testing.T) {
 	t.Run("create class without vector index", testCreateClassWithoutVectorIndex())
 	t.Run("drop vector index", testDropVectorIndex(compose, true))
 	t.Run("drop vector index multi-tenant", testDropVectorIndexMultiTenant(compose, true))
+	t.Run("drop vector index smoke", testDropVectorIndexSmoke())
 	// NOTE: "delete property's index" must run last because it destabilises the
 	// Weaviate container (the class is not cleaned up and the text2vec-model2vec
 	// module may leave the server in a bad state for subsequent tests).
@@ -75,5 +76,6 @@ func TestProperties_Cluster(t *testing.T) {
 	t.Run("create class without vector index", testCreateClassWithoutVectorIndex())
 	t.Run("drop vector index", testDropVectorIndex(nil, false))
 	t.Run("drop vector index multi-tenant", testDropVectorIndexMultiTenant(nil, false))
+	t.Run("drop vector index smoke", testDropVectorIndexSmoke())
 	t.Run("delete property's index", testDeletePropertyIndex(nil))
 }

@@ -10,7 +10,6 @@ inverted_sorter_disabled: false
 # disable_graphql: false
 # for usage module if enabled make sure that usage-gcs or usage-s3 module is enabled
 # usage_scrape_interval: 1s
-# usage_shard_jitter_interval: 50ms
 
 # usage_gcs_bucket: weaviate-usage
 # usage_gcs_prefix: billing

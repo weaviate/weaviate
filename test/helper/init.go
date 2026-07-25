@@ -20,6 +20,7 @@ package helper
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/go-openapi/runtime"
 )
@@ -33,6 +34,11 @@ var (
 	ServerScheme   string
 	DebugHTTP      bool
 )
+
+// serverMu guards the server address globals above. Suites call SetupClient or
+// ResetClient between tests while EventuallyWithT tick goroutines from the
+// previous test may still be reading them through Client() or ClientGRPC().
+var serverMu sync.RWMutex
 
 // Credentials for the root key
 var RootAuth runtime.ClientAuthInfoWriterFunc
@@ -50,16 +56,30 @@ func init() {
 }
 
 func ResetClient() {
+	serverMu.Lock()
 	ServerScheme = "http"
 	ServerPort = "8080"
 	ServerGRPCPort = ""
+	serverMu.Unlock()
+
 	RootAuth = nil
 }
 
+// serverTarget reads the HTTP server address under serverMu.
+func serverTarget() (target, scheme string) {
+	serverMu.RLock()
+	defer serverMu.RUnlock()
+	return fmt.Sprintf("%s:%s", ServerHost, ServerPort), ServerScheme
+}
+
 func GetWeaviateURL() string {
+	serverMu.RLock()
+	defer serverMu.RUnlock()
 	return fmt.Sprintf("%s://%s:%s", ServerScheme, ServerHost, ServerPort)
 }
 
 func GetWeaviateGRPCURL() string {
+	serverMu.RLock()
+	defer serverMu.RUnlock()
 	return fmt.Sprintf("%s:%s", ServerGRPCHost, ServerGRPCPort)
 }

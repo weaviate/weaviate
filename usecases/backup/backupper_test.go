@@ -450,7 +450,7 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{})
+	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{})
 }
 
 type fakeRbacBackupWrapper struct{}
@@ -460,6 +460,17 @@ func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
 }
 
 func (r fakeRbacBackupWrapper) Restore([]byte) error {
+	return nil
+}
+
+// fakeDynUserBackupWrapper satisfies dynUserSnapshotter (variadic Snapshot).
+type fakeDynUserBackupWrapper struct{}
+
+func (fakeDynUserBackupWrapper) Snapshot(userIDs ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func (fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 

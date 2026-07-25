@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -188,6 +189,14 @@ func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, le
 		return nil, pr.FirstError()
 	}
 	return index.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (db *DB) CompareHashTreeRoots(ctx context.Context, className string, roots map[string]hashtree.Digest) ([]string, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.CompareHashTreeRoots(ctx, roots)
 }
 
 func (db *DB) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
@@ -651,7 +660,7 @@ func (s *Shard) filePutter(ctx context.Context,
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	s, release, err := idx.getOrInitShard(ctx, shard)
+	s, release, err := idx.GetShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
@@ -833,6 +842,19 @@ type ChangeLogReplayEntry struct {
 	Payload []byte
 }
 
+type changeLogReplayCtxKey struct{}
+
+// withChangeLogReplay marks a write as change-log replay so putObjectLSM/DeleteObject
+// drop it when the local object is newer (atomic under the docIdLock).
+func withChangeLogReplay(ctx context.Context) context.Context {
+	return context.WithValue(ctx, changeLogReplayCtxKey{}, true)
+}
+
+func fromChangeLogReplay(ctx context.Context) bool {
+	v, _ := ctx.Value(changeLogReplayCtxKey{}).(bool)
+	return v
+}
+
 // OverwriteObjectsFromChangeLog replays entries under pure LWW by
 // LastUpdateTimeUnixMilli — no StaleUpdateTime conflicts and no
 // DeletionStrategy, unlike OverwriteObjects. Entries MUST be in LSN order;
@@ -844,6 +866,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 	if len(updates) == 0 {
 		return nil
 	}
+	debugEnabled := idx.debugLoggingEnabled()
+
+	ctx = withChangeLogReplay(ctx)
 
 	s, release, err := idx.getOrInitShard(ctx, shard)
 	if err != nil {
@@ -860,6 +885,8 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 	}
 	pending := map[strfmt.UUID]pendingPut{}
 
+	var appliedPuts, appliedDeletes []strfmt.UUID
+
 	flushPending := func() error {
 		if len(pending) == 0 {
 			return nil
@@ -874,6 +901,11 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 				return fmt.Errorf("replay put batch: %w", e)
 			}
 		}
+		if debugEnabled {
+			for _, o := range objs {
+				appliedPuts = append(appliedPuts, o.ID())
+			}
+		}
 		clear(pending)
 		return nil
 	}
@@ -884,31 +916,15 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		}
 		u := &updates[i]
 
-		var currUpdateTime int64
-		localObj, err := s.ObjectDigestErrDeleted(ctx, u.ID)
-		switch {
-		case err == nil:
-			currUpdateTime = localObj.UpdateTime
-		case errors.Is(err, lsmkv.Deleted):
-			var errDeleted lsmkv.ErrDeleted
-			if errors.As(err, &errDeleted) {
-				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
-			}
-		case errors.Is(err, lsmkv.NotFound):
-		default:
-			return fmt.Errorf("read local digest for %s: %w", u.ID, err)
-		}
-
-		if currUpdateTime > u.LastUpdateTimeUnixMilli {
-			continue
-		}
-
 		if u.IsDelete {
 			if err := flushPending(); err != nil {
 				return err
 			}
 			if err := s.DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli)); err != nil {
 				return fmt.Errorf("replay delete for %s: %w", u.ID, err)
+			}
+			if debugEnabled {
+				appliedDeletes = append(appliedDeletes, u.ID)
 			}
 			continue
 		}
@@ -932,7 +948,17 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		pending[u.ID] = pendingPut{decoded: decoded, ts: u.LastUpdateTimeUnixMilli}
 	}
 
-	return flushPending()
+	if err := flushPending(); err != nil {
+		return err
+	}
+	idx.logger.WithFields(logrus.Fields{
+		"action":          "change_capture_log",
+		"shard":           shard,
+		"entries":         len(updates),
+		"puts_applied":    appliedPuts,
+		"deletes_applied": appliedDeletes,
+	}).Debug("change-capture log replay batch applied")
+	return nil
 }
 
 func (i *Index) DigestObjects(ctx context.Context,
@@ -1050,6 +1076,37 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+// CompareHashTreeRoots returns shards whose local root was read and differs; not-ready
+// shards (missing/uninitialised/cold) are omitted — caught once they become ready.
+func (i *Index) CompareHashTreeRoots(ctx context.Context,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	diverging := make([]string, 0, len(roots))
+	for shardName, sourceRoot := range roots {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		localRoot, ok := func() (hashtree.Digest, bool) {
+			shard, release, err := i.GetShard(ctx, shardName)
+			if err != nil || shard == nil {
+				return hashtree.Digest{}, false
+			}
+			defer release()
+			return shard.HashTreeRoot()
+		}()
+		if ok && localRoot != sourceRoot {
+			diverging = append(diverging, shardName)
+		}
+	}
+	return diverging, nil
+}
+
+func (i *Index) IncomingCompareHashTreeRoots(ctx context.Context,
+	roots map[string]hashtree.Digest,
+) ([]string, error) {
+	return i.CompareHashTreeRoots(ctx, roots)
 }
 
 func (i *Index) CountObjects(ctx context.Context, shardName string) (int, error) {

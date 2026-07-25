@@ -127,11 +127,12 @@ func (l *hnswCommitLogger) InitMaintenance() {
 }
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
-	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
+	// plain concatenation avoids fmt.Sprintf churn on this hot maintenance path
+	return commitLogDirectory(rootPath, indexName) + "/" + fileName
 }
 
 func commitLogDirectory(rootPath, name string) string {
-	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
+	return rootPath + "/" + name + ".hnsw.commitlog.d"
 }
 
 // createNewCommitFile always starts a fresh raw commit log file, regardless
@@ -194,7 +195,7 @@ func pruneEmptyRawCommitLogs(dir string, logger logrus.FieldLogger) error {
 		if info.Size() != 0 {
 			continue
 		}
-		path := fmt.Sprintf("%s/%s", dir, entry.Name())
+		path := dir + "/" + entry.Name()
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			logger.WithError(err).
 				WithField("action", "hnsw_commit_log_prune_empty").
@@ -579,10 +580,15 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
+	// Drain before locking: Shutdown waits for an in-flight switchCommitLogs,
+	// which starts by taking l.Mutex. Holding it here deadlocks both until ctx
+	// expires. Report the drain error only after the fd is closed, or a timed-out
+	// drain leaks it.
+	shutdownErr := l.Shutdown(ctx)
+
 	l.Lock()
 	defer l.Unlock()
 
-	// Flush and close the file
 	if err := l.currentWriter.Flush(); err != nil {
 		return errors.Wrap(err, "flush hnsw commit logger prior to delete")
 	}
@@ -590,9 +596,8 @@ func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "close hnsw commit logger prior to delete")
 	}
 
-	// stop all goroutines
-	if err := l.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "drop commitlog")
+	if shutdownErr != nil {
+		return errors.Wrap(shutdownErr, "drop commitlog")
 	}
 
 	if keepFiles {

@@ -43,17 +43,34 @@ func (s *MMRSelection) Select(ctx context.Context, ids []uint64, queryDistances 
 	}
 
 	vectors := make([][]float32, n)
+	eligible := make([]bool, n)
+	eligibleCount := 0
 	for i := 0; i < n; i++ {
 		vec, err := s.vecForID(ctx, ids[i])
 		if err != nil {
 			return nil, nil, err
 		}
 		vectors[i] = vec
+		if len(vec) > 0 {
+			eligible[i] = true
+			eligibleCount++
+		}
 	}
 
-	bestIdx := 0
-	for i := 1; i < n; i++ {
-		if queryDistances[i] < queryDistances[bestIdx] {
+	// Vectorless candidates are excluded so the distancer is never handed a nil vector.
+	if eligibleCount == 0 {
+		return nil, nil, nil
+	}
+	if k > eligibleCount {
+		k = eligibleCount
+	}
+
+	bestIdx := -1
+	for i := 0; i < n; i++ {
+		if !eligible[i] {
+			continue
+		}
+		if bestIdx == -1 || queryDistances[i] < queryDistances[bestIdx] {
 			bestIdx = i
 		}
 	}
@@ -68,6 +85,11 @@ func (s *MMRSelection) Select(ctx context.Context, ids []uint64, queryDistances 
 	}
 
 	removed := make([]bool, n)
+	for i := 0; i < n; i++ {
+		if !eligible[i] {
+			removed[i] = true
+		}
+	}
 	removed[bestIdx] = true
 
 	// minDist[i] tracks the minimum distance from candidate i to any

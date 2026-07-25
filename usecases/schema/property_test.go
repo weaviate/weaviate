@@ -1100,7 +1100,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 				sm.On("UpdateProperty", tt.wantAuthName, mock.Anything, mock.Anything).Return(nil)
 			}
 
-			err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
+			_, err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
 				tt.inputName, "title", "filterable")
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
@@ -1227,9 +1227,10 @@ func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testin
 			sm.On("UpdateProperty", "Movies", mock.Anything, mock.Anything).Return(
 				fmt.Errorf("reindex task is in flight on this property"))
 
-			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", "title", idx.indexName)
 			require.Error(t, err, "UpdateProperty was mocked to fail")
+			require.False(t, wrote, "a failed UpdateProperty must not report a RAFT write")
 
 			// The CRITICAL assertion: after the failed apply, the FSM's
 			// Property struct's pointer field for this index name must
@@ -1266,15 +1267,17 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 
 	cases := []struct {
 		indexName string
-		wantField string
+		// Deleting searchable also clears the durable SearchableBlockmax
+		// stamp, so its mask carries two tags; the other two carry one.
+		wantFields []string
 		// fsmProp is built per-case because rangeFilters validation
 		// requires a numeric data type and forbids the searchable flag,
 		// while the text-typed property forbids rangeFilters.
 		fsmProp *models.Property
 	}{
 		{
-			indexName: "filterable",
-			wantField: command.PropertyFieldIndexFilterable,
+			indexName:  "filterable",
+			wantFields: []string{command.PropertyFieldIndexFilterable},
 			fsmProp: &models.Property{
 				Name:            "title",
 				DataType:        schema.DataTypeText.PropString(),
@@ -1284,19 +1287,20 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 			},
 		},
 		{
-			indexName: "searchable",
-			wantField: command.PropertyFieldIndexSearchable,
+			indexName:  "searchable",
+			wantFields: []string{command.PropertyFieldIndexSearchable, command.PropertyFieldSearchableBlockmax},
 			fsmProp: &models.Property{
-				Name:            "title",
-				DataType:        schema.DataTypeText.PropString(),
-				IndexFilterable: boolPtr(true),
-				IndexSearchable: boolPtr(true),
-				Tokenization:    "word",
+				Name:               "title",
+				DataType:           schema.DataTypeText.PropString(),
+				IndexFilterable:    boolPtr(true),
+				IndexSearchable:    boolPtr(true),
+				SearchableBlockmax: boolPtr(true),
+				Tokenization:       "word",
 			},
 		},
 		{
-			indexName: "rangeFilters",
-			wantField: command.PropertyFieldIndexRangeFilters,
+			indexName:  "rangeFilters",
+			wantFields: []string{command.PropertyFieldIndexRangeFilters},
 			fsmProp: &models.Property{
 				Name:              "size",
 				DataType:          schema.DataTypeNumber.PropString(),
@@ -1319,18 +1323,128 @@ func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
 			sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
 			sm.On("UpdateProperty", "Movies", mock.Anything,
 				mock.MatchedBy(func(fields []string) bool {
-					// Exactly one field tag, exactly the one the
-					// REST request touched. Anything else (empty
-					// mask → replace-all; multiple fields → could
-					// clobber unrelated state) is the regression.
-					return len(fields) == 1 && fields[0] == tc.wantField
+					// Exactly the tags the REST request touched, no more:
+					// an empty mask → replace-all, and any extra tag could
+					// clobber unrelated state.
+					if len(fields) != len(tc.wantFields) {
+						return false
+					}
+					got := map[string]bool{}
+					for _, f := range fields {
+						got[f] = true
+					}
+					for _, w := range tc.wantFields {
+						if !got[w] {
+							return false
+						}
+					}
+					return true
 				}),
 			).Return(nil)
 
-			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
 				"Movies", tc.fsmProp.Name, tc.indexName)
 			require.NoError(t, err)
+			require.True(t, wrote, "flipping the flag off must report a RAFT write")
 			sm.AssertExpectations(t)
+		})
+	}
+}
+
+// TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp pins that
+// dropping the searchable index clears the durable SearchableBlockmax stamp
+// in the same masked write, so it can't outlive the index and resolve stale
+// truth on re-enable.
+func TestDeleteClassPropertyIndex_SearchableClearsBlockmaxStamp(t *testing.T) {
+	t.Parallel()
+	handler, sm := newTestHandlerWithNamespaces(t, false)
+
+	fsmProp := &models.Property{
+		Name:               "title",
+		DataType:           schema.DataTypeText.PropString(),
+		IndexSearchable:    boolPtr(true),
+		SearchableBlockmax: boolPtr(true),
+		Tokenization:       "word",
+	}
+	fsmClass := &models.Class{Class: "Movies", Vectorizer: "none", Properties: []*models.Property{fsmProp}}
+	sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
+
+	var forwarded *models.Property
+	var forwardedFields []string
+	sm.On("UpdateProperty", "Movies", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			forwarded = args.Get(1).(*models.Property)
+			forwardedFields = args.Get(2).([]string)
+		}).Return(nil)
+
+	wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil, "Movies", "title", "searchable")
+	require.NoError(t, err)
+	require.True(t, wrote)
+
+	require.NotNil(t, forwarded)
+	require.Nil(t, forwarded.SearchableBlockmax,
+		"the blockmax stamp must be cleared when the searchable index is dropped")
+	require.Contains(t, forwardedFields, command.PropertyFieldSearchableBlockmax,
+		"the mask must include the stamp field so RAFT actually clears it")
+	require.NotNil(t, fsmProp.SearchableBlockmax,
+		"the FSM property's stamp pointer must stay untouched (mutation via a copy)")
+
+	sm.AssertExpectations(t)
+}
+
+// TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff pins that deleting an
+// already-off index performs no RAFT write and reports wrote=false, which the
+// handler needs to skip recording a GET-suppression delete marker for a
+// write that never happened.
+func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		indexName string
+		fsmProp   *models.Property
+	}{
+		{
+			indexName: "filterable",
+			fsmProp: &models.Property{
+				Name: "title", DataType: schema.DataTypeText.PropString(),
+				IndexFilterable: boolPtr(false), IndexSearchable: boolPtr(true), Tokenization: "word",
+			},
+		},
+		{
+			indexName: "searchable",
+			fsmProp: &models.Property{
+				Name: "title", DataType: schema.DataTypeText.PropString(),
+				IndexFilterable: boolPtr(true), IndexSearchable: boolPtr(false), Tokenization: "word",
+			},
+		},
+		{
+			indexName: "rangeFilters",
+			fsmProp: &models.Property{
+				Name: "size", DataType: schema.DataTypeNumber.PropString(),
+				IndexFilterable: boolPtr(true), IndexRangeFilters: boolPtr(false),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.indexName, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, false)
+
+			fsmClass := &models.Class{
+				Class:      "Movies",
+				Vectorizer: "none",
+				Properties: []*models.Property{tc.fsmProp},
+			}
+			sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
+			// No UpdateProperty expectation: a no-op must not reach RAFT.
+
+			wrote, err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+				"Movies", tc.fsmProp.Name, tc.indexName)
+			require.NoError(t, err)
+			require.False(t, wrote,
+				"deleting an already-off index must be a no-op (no RAFT write) so no masking marker is recorded")
+			sm.AssertNotCalled(t, "UpdateProperty", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 }

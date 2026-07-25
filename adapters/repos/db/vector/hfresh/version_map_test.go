@@ -12,6 +12,8 @@
 package hfresh
 
 import (
+	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,6 +28,90 @@ func makeVersionMap(t *testing.T) *VersionMap {
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
 	return NewVersionMap(bucket)
+}
+
+// MarkDeleted must persist the tombstone even when the vector is already
+// deleted in memory: if a previous persist failed (or was lost), a retry has
+// to heal the store, otherwise the vector resurrects on restart.
+func TestMarkDeletedRepersistsTombstone(t *testing.T) {
+	ctx := t.Context()
+	vm := makeVersionMap(t)
+
+	_, err := vm.MarkDeleted(ctx, 7)
+	require.NoError(t, err)
+
+	// simulate a store that missed the tombstone (failed/lost persist)
+	require.NoError(t, vm.store.Set(ctx, 7, VectorVersion(3)))
+
+	// memory already says deleted — the retry must still persist
+	v, err := vm.MarkDeleted(ctx, 7)
+	require.NoError(t, err)
+	require.True(t, v.Deleted())
+
+	got, err := vm.store.Get(ctx, 7)
+	require.NoError(t, err)
+	require.True(t, got.Deleted(), "tombstone was not re-persisted to the store")
+}
+
+// Concurrent writers and readers must leave memory and store converged: the
+// persist path re-reads memory under a per-id persist lock, so the last
+// persist always lands the newest value. Run with -race.
+func TestVersionMapConcurrentConvergence(t *testing.T) {
+	ctx := context.Background()
+	vm := makeVersionMap(t)
+
+	const numIDs = 32
+	const writersPerID = 4
+	const incrementsPerWriter = 20
+
+	var wg sync.WaitGroup
+	for id := range uint64(numIDs) {
+		for range writersPerID {
+			wg.Go(func() {
+				for range incrementsPerWriter {
+					cur, err := vm.Get(ctx, id)
+					if err != nil {
+						return
+					}
+					if cur.Deleted() {
+						return
+					}
+					_, _ = vm.Increment(ctx, id, cur) // CAS may fail; retried next round
+				}
+			})
+		}
+		// concurrent readers
+		wg.Go(func() {
+			for range 100 {
+				_, _ = vm.IsDeleted(ctx, id)
+			}
+		})
+	}
+	// delete a subset concurrently with the increments
+	for id := range uint64(numIDs) {
+		if id%4 != 0 {
+			continue
+		}
+		wg.Go(func() {
+			_, _ = vm.MarkDeleted(ctx, id)
+		})
+	}
+	wg.Wait()
+
+	// memory and store must agree for every id, and deletes must stick
+	for id := range uint64(numIDs) {
+		page, slot := vm.data.GetPageFor(id)
+		require.NotNil(t, page, "id %d", id)
+		mem := page[slot]
+
+		stored, err := vm.store.Get(ctx, id)
+		require.NoError(t, err, "id %d", id)
+		require.Equal(t, mem, stored, "memory and store diverged for id %d", id)
+
+		if id%4 == 0 {
+			require.True(t, mem.Deleted(), "delete lost for id %d", id)
+		}
+	}
 }
 
 func TestVectorVersion(t *testing.T) {

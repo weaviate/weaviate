@@ -469,6 +469,64 @@ func TestCoordinator_Tick_EmptyDeletingSetIsNoop(t *testing.T) {
 	assert.Empty(t, raft.calls)
 }
 
+// TestCoordinator_Tick_MidTickLeadershipLossLogging pins that losing
+// leadership partway through a tick stays visible in the log, while a
+// shutdown ends the tick silently. The shutdown row pins the order of the
+// two guards: it goes red if the ErrNotLeader check runs before the ctx one.
+func TestCoordinator_Tick_MidTickLeadershipLossLogging(t *testing.T) {
+	tests := []struct {
+		name     string
+		shutdown bool
+		wantMsg  string
+	}{
+		{
+			name:    "leadership moved logs one entry",
+			wantMsg: "cleanup namespace deferred, leadership moved",
+		},
+		{
+			name:     "shutdown logs nothing",
+			shutdown: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raft := newStubRaft()
+			ns := stubNamespaces{deleting: []string{"alpha", "beta"}}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Drop leadership on alpha's cleanup entry, after Tick's own
+			// up-front check has already passed.
+			calls := 0
+			isLeader := func() bool {
+				calls++
+				if calls == 1 {
+					return true
+				}
+				if tc.shutdown {
+					cancel()
+				}
+				return false
+			}
+			logger, hook := test.NewNullLogger()
+			c := NewCoordinator(ns, stubSchema{}, stubUsers{}, raft, nil, isLeader, logger)
+
+			require.NoError(t, c.Tick(ctx))
+			assert.Empty(t, raft.calls, "no namespace may be cleaned once leadership moved")
+
+			if tc.wantMsg == "" {
+				assert.Empty(t, hook.AllEntries())
+				return
+			}
+			require.Len(t, hook.AllEntries(), 1)
+			entry := hook.LastEntry()
+			assert.Equal(t, logrus.InfoLevel, entry.Level)
+			assert.Contains(t, entry.Message, tc.wantMsg)
+			assert.Equal(t, "alpha", entry.Data["namespace"])
+		})
+	}
+}
+
 func TestCoordinator_Tick_NotLeaderReturnsBeforeAnyCall(t *testing.T) {
 	raft := newStubRaft()
 	ns := stubNamespaces{deleting: []string{"alpha"}}

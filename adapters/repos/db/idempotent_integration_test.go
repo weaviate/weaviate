@@ -325,6 +325,12 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("run update index", func(t *testing.T) {
+			// Cold shards materialize added properties by re-reading the class
+			// at load, so the schema must already carry them before the
+			// migrator runs (as production does via the schema store).
+			localMigrator.db.schemaGetter.(*fakeSchemaGetter).schema = schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{remoteClass}},
+			}
 			// UpdateIndex should be able to run an arbitrary number
 			// of times without any changes to the internal DB state
 			for i := 0; i < iterations; i++ {
@@ -413,6 +419,12 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		})
 
 		t.Run("run update index", func(t *testing.T) {
+			// Cold shards materialize added properties by re-reading the class
+			// at load, so the schema must already carry them before the
+			// migrator runs (as production does via the schema store).
+			localMigrator.db.schemaGetter.(*fakeSchemaGetter).schema = schema.Schema{
+				Objects: &models.Schema{Classes: []*models.Class{remoteClass}},
+			}
 			// UpdateIndex should be able to run an arbitrary number
 			// of times without any changes to the internal DB state
 			for i := 0; i < iterations; i++ {
