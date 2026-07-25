@@ -21,9 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// uuidCases covers every count of leading zero bytes a v4 UUID can realistically
-// produce plus the two extremes, since the previous encoding dropped exactly the
-// leading zeros.
+// uuidCases pins the leading-zero-byte truncation bug across zero-byte counts 0-3 plus the extremes.
 var uuidCases = []struct {
 	name string
 	id   string

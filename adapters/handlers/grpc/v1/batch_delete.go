@@ -79,8 +79,7 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 			failed += 1
 		}
 		if verbose {
-			// MarshalBinary keeps all 16 bytes. Decoding into an integer instead
-			// drops leading zero bytes, which shortens roughly one in 256 uuids.
+			// Avoids the leading-zero-byte truncation from decoding uuids through big.Int.
 			parsed, err := uuid.Parse(obj.UUID.String())
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse id %q as uuid: %w", obj.UUID.String(), err)

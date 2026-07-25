@@ -200,8 +200,7 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 		return nil, "", errors.New("could not extract format id in additional prop")
 	}
 	idStrfmtStr := idStrfmt.String()
-	// MarshalBinary keeps all 16 bytes. Decoding into an integer instead drops
-	// leading zero bytes, which shortens roughly one in 256 ids on the wire.
+	// Avoids the leading-zero-byte truncation from decoding uuids through big.Int.
 	parsed, err := uuid.Parse(idStrfmtStr)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to parse id %q as uuid: %w", idStrfmtStr, err)
