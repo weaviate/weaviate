@@ -9,6 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build benchmark
+
 package compressionhelpers_test
 
 import (
