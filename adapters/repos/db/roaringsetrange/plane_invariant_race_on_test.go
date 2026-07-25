@@ -20,9 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-// TestPlaneInvariantGuardFires proves the guard is not vacuous by handing the
-// cascade the corruption it exists to catch: a plane holding a doc that plane 0
-// does not.
+// TestPlaneInvariantGuardFires: a plane holding a doc absent from plane 0 must panic.
 func TestPlaneInvariantGuardFires(t *testing.T) {
 	seg := newCascadeFixture(t, 3)
 	seg.bitmaps[1].Set(1 << 30)

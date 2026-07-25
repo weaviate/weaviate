@@ -23,12 +23,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-// The synthetic shard reproduces the shape measured in a large production
-// deployment: ~24M docs per shard behind an integer range predicate that ~97.5%
-// of them satisfy, which is 369 containers / ~2.88 MiB per plane.
-//
-// This file is written to compile unchanged against v1.37, so the same
-// benchmark can be run on a pristine checkout for the baseline arm.
+// Docs/threshold mirror a realistic large shard: high cardinality, ~97.5%
+// match rate. Kept buildable unchanged against v1.37 so this same benchmark
+// gives the pre-change baseline.
 var (
 	cascadeBenchDocs      = flag.Int("cascadebench.docs", 24_100_000, "documents in the synthetic shard")
 	cascadeBenchThreshold = flag.Int64("cascadebench.threshold", 101, "range predicate threshold")
@@ -90,9 +87,8 @@ func cascadeBenchReader(b *testing.B) *segmentInMemoryReader {
 	}
 }
 
-// BenchmarkCascadeGreaterThanEqual measures the range leaf at the production
-// predicate value. Its lowest set bit is bit 0, so the seeded cascade drops one
-// of the whole-shard passes the shipped cascade performs.
+// threshold's lowest set bit is bit 0, so the seeded cascade drops one
+// whole-shard pass here.
 func BenchmarkCascadeGreaterThanEqual(b *testing.B) {
 	value := cascadeBenchEncodeInt64(*cascadeBenchThreshold)
 
@@ -111,8 +107,7 @@ func BenchmarkCascadeGreaterThanEqual(b *testing.B) {
 	}
 }
 
-// BenchmarkCascadeBetween covers the equality leaf, where both cascades seed
-// independently and two whole-shard passes are dropped.
+// both cascades seed independently here, dropping two whole-shard passes.
 func BenchmarkCascadeBetween(b *testing.B) {
 	value := cascadeBenchEncodeInt64(*cascadeBenchThreshold)
 

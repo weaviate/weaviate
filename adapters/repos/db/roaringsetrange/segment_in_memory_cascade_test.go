@@ -29,10 +29,8 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-// cascadeSeeds trades runtime against coverage: the failure mode here is a
-// wrong allow-list with no panic and no error, so the differential is worth
-// paying for, but under -race the whole-plane guard makes each seed cost real
-// time. 32 seeds add ~17s to a package that otherwise runs in 2s.
+// 32 seeds balance differential coverage against the race-build guard's
+// whole-plane cost per seed (~17s here vs ~2s unseeded).
 const cascadeSeeds = 32
 
 // cascadeEdgeValues pins the cases where the seed index is degenerate: no set
@@ -134,20 +132,15 @@ func assertCascadesAgree(t *testing.T, seg *SegmentInMemory, bufPool roaringset.
 	}
 }
 
-// canonicalBytes re-serializes a bitmap into a right-sized arena, so the
-// differential compares bytes rather than set membership. See
-// TestSeededCascadeLeavesADifferentArena for why the raw arena cannot be
-// compared directly.
+// canonicalBytes re-serializes into a right-sized arena so the differential
+// compares set membership, not arena layout (see
+// TestSeededCascadeLeavesADifferentArena).
 func canonicalBytes(bm *sroar.Bitmap) []byte {
 	return sroar.FromSortedList(bm.ToArray()).ToBuffer()
 }
 
-// TestSeededCascadeLeavesADifferentArena records why the differential above
-// normalizes. sroar keeps its containers in one flat arena, and the seeded
-// cascade starts from a different plane and runs one operation fewer, so the
-// containers land at different offsets and stale copies are left behind at
-// different places. The sets are identical, the arenas are not, and comparing
-// raw ToBuffer() bytes would fail for a reason unrelated to correctness.
+// sroar's flat arena places containers at different offsets depending on the
+// cascade's start plane, so raw ToBuffer() differs even when the sets match.
 func TestSeededCascadeLeavesADifferentArena(t *testing.T) {
 	seg := newCascadeFixture(t, 7)
 	readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
@@ -266,10 +259,9 @@ func unseededRead(bitmaps rangeBitmaps, value uint64, operator filters.Operator)
 
 // -----------------------------------------------------------------------------
 
-// newCascadeFixture drives a SegmentInMemory through a randomized sequence of
-// the three ways planes are written in production — a merged memtable, a
-// flushed segment and a compacted segment — and asserts the subset invariant
-// after every one of them.
+// newCascadeFixture writes planes via the three production paths (merged
+// memtable, flushed segment, compacted segment), asserting the subset
+// invariant after each.
 func newCascadeFixture(t *testing.T, seed int64) *SegmentInMemory {
 	t.Helper()
 

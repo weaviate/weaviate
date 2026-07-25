@@ -13,6 +13,5 @@
 
 package roaringsetrange
 
-// See the race build for what this guards; it is too expensive to run on the
-// query path of a release binary.
+// No-op: too costly for a release query path. See plane_invariant_race_on.go.
 func assertPlaneIsSubsetOfPlaneZero(bitmaps rangeBitmaps, plane int) {}

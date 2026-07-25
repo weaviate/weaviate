@@ -276,15 +276,10 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
-// cascadeSeed returns the plane the bit-sliced cascade for value starts from,
-// and the first bit that still needs merging.
-//
-// The cascade's first operation is always an AND against plane f+1, where f is
-// value's lowest set bit, because the OR branch is gated on having ANDed once.
-// Every plane is a subset of plane 0 (plane 0's additions are the union of all
-// additions, and deletions are removed from all 65 planes uniformly), so
-// clone(plane 0) AND plane f+1 is plane f+1, and one whole-shard pass can be
-// dropped. value 0 has no set bit at all: its cascade never leaves plane 0.
+// cascadeSeed returns the plane to start the cascade from and the next bit to
+// merge. Every plane is a subset of plane 0, so seeding from the lowest set
+// bit's plane directly skips the whole-shard AND that would otherwise produce
+// it. value 0 has no set bit, so its cascade starts at plane 0 itself.
 func (r *segmentInMemoryReader) cascadeSeed(value uint64) (seed *sroar.Bitmap, nextBit int) {
 	if value == 0 {
 		return r.bitmaps[0], len(r.bitmaps)
@@ -295,8 +290,8 @@ func (r *segmentInMemoryReader) cascadeSeed(value uint64) (seed *sroar.Bitmap, n
 	return r.bitmaps[bit], bit + 1
 }
 
-// cloneSeed sizes the pooled buffer to plane 0 rather than to the seed, so the
-// merges downstream keep the growth headroom the plane-0 clone gave them.
+// cloneSeed buffers from plane 0's size, not the seed's, so later merges keep
+// the same growth headroom as before seeding.
 func (r *segmentInMemoryReader) cloneSeed(seed *sroar.Bitmap) (*sroar.Bitmap, func()) {
 	buf, release := r.bufPool.Get(max(seed.LenInBytes(), r.bitmaps[0].LenInBytes()))
 	return seed.CloneToBuf(buf), release
@@ -324,8 +319,8 @@ func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, co
 	resultMax, releaseMax := r.cloneSeed(seedMax)
 	defer releaseMax()
 
-	// the two cascades share one loop so each plane is read once, even though
-	// they start at different bits
+	// one loop for both cascades: each plane is read once despite the two
+	// starting at different bits
 	for bit := min(bitMin, bitMax); bit < len(r.bitmaps); bit++ {
 		var b uint64 = 1 << (bit - 1)
 

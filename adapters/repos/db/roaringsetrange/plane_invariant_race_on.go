@@ -15,11 +15,10 @@ package roaringsetrange
 
 import "fmt"
 
-// assertPlaneIsSubsetOfPlaneZero checks the property the seeded range cascade
-// rests on. A plane escaping plane 0 makes the cascade return a wrong
-// allow-list: no panic, no log, no metric, just missing or extra objects. The
-// check costs a whole-shard AndNot, so it is compiled into race builds only —
-// which is every test binary CI runs, unit and acceptance alike.
+// assertPlaneIsSubsetOfPlaneZero guards the invariant the seeded cascade
+// depends on: if a plane escapes plane 0, results are silently wrong with no
+// panic or log. The check is a whole-shard AndNot, so it only runs in race
+// builds, i.e. every test binary.
 func assertPlaneIsSubsetOfPlaneZero(bitmaps rangeBitmaps, plane int) {
 	outside := bitmaps[plane].Clone()
 	outside.AndNot(bitmaps[0])
