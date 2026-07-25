@@ -12,10 +12,14 @@
 package aggregator
 
 import (
+	"fmt"
+	"math/rand"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -74,5 +78,287 @@ func TestDateAggregator(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// modeIterations is the number of times each case below recomputes the mode.
+// Every tie case has at least three tied values, so a mode decided by Go's
+// randomized map iteration is caught within the first few iterations.
+const modeIterations = 200
+
+// referenceMode computes the mode with a sorted slice rather than a map: the
+// most frequent value, ties broken by the smallest value. It is the oracle for
+// the cases below, so the expectations are not hand-computed.
+func referenceMode(t *testing.T, values []string) string {
+	t.Helper()
+	type entry struct {
+		ts    timestamp
+		count uint64
+	}
+	var entries []entry
+	for _, v := range values {
+		parsed, err := time.Parse(time.RFC3339Nano, v)
+		require.Nil(t, err)
+		ts := timestamp{epochNano: parsed.UnixNano(), rfc3339: v}
+		found := false
+		for i := range entries {
+			if entries[i].ts == ts {
+				entries[i].count++
+				found = true
+				break
+			}
+		}
+		if !found {
+			entries = append(entries, entry{ts: ts, count: 1})
+		}
+	}
+	require.NotEmpty(t, entries)
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ts.epochNano != entries[j].ts.epochNano {
+			return entries[i].ts.epochNano < entries[j].ts.epochNano
+		}
+		return entries[i].ts.rfc3339 < entries[j].ts.rfc3339
+	})
+
+	best := entries[0]
+	for _, e := range entries[1:] {
+		if e.count > best.count {
+			best = e
+		}
+	}
+	return best.ts.rfc3339
+}
+
+// hourlyTimestamps returns n RFC3339 timestamps one hour apart.
+func hourlyTimestamps(base time.Time, n int) []string {
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, newTimestamp(base.Add(time.Duration(i)*time.Hour).UnixNano()).rfc3339)
+	}
+	return out
+}
+
+func repeatValues(values []string, times int) []string {
+	out := make([]string, 0, len(values)*times)
+	for i := 0; i < times; i++ {
+		out = append(out, values...)
+	}
+	return out
+}
+
+// Aggregate { <dateProp> { mode } } used to return a different answer for
+// unchanged data on repeated identical requests: buildPairsFromCounts ranged
+// over valueCounter and kept the first value it saw with the top count, so a
+// count tie was decided by Go's randomized map iteration order.
+func TestDateAggregatorModeIsDeterministicOnTies(t *testing.T) {
+	base := time.Date(2026, 5, 6, 7, 8, 9, 0, time.UTC)
+	preEpoch := time.Date(1965, 3, 4, 5, 6, 7, 0, time.UTC)
+
+	sixtyFour := hourlyTimestamps(base, 64)
+	preEpochValues := hourlyTimestamps(preEpoch, 32)
+	crossEpoch := append(append([]string{}, preEpochValues...), sixtyFour...)
+
+	// Seeded so the counts are identical on every run and in CI.
+	rnd := rand.New(rand.NewSource(20260725))
+	var randomized []string
+	for _, v := range hourlyTimestamps(base, 20) {
+		for i := 0; i < 1+rnd.Intn(4); i++ {
+			randomized = append(randomized, v)
+		}
+	}
+
+	tests := []struct {
+		name string
+		// values are fed to the aggregator once each, so a repeated value
+		// raises its count.
+		values []string
+		// expectedMode is additionally asserted when set. Every case is always
+		// checked against referenceMode and against its own first run.
+		expectedMode string
+	}{
+		{
+			name:         "single value",
+			values:       sixtyFour[:1],
+			expectedMode: sixtyFour[0],
+		},
+		{
+			name:         "sixty four values all tied at count one",
+			values:       sixtyFour,
+			expectedMode: sixtyFour[0],
+		},
+		{
+			name:         "top count shared by three of many",
+			values:       append(repeatValues(sixtyFour[10:13], 3), sixtyFour[20:40]...),
+			expectedMode: sixtyFour[10],
+		},
+		{
+			name:         "unique winner, no tie",
+			values:       append(repeatValues(sixtyFour[30:31], 5), sixtyFour...),
+			expectedMode: sixtyFour[30],
+		},
+		{
+			name:         "pre-epoch values all tied",
+			values:       preEpochValues,
+			expectedMode: preEpochValues[0],
+		},
+		{
+			name:         "pre- and post-epoch values all tied",
+			values:       crossEpoch,
+			expectedMode: preEpochValues[0],
+		},
+		{
+			// One instant, three legal spellings. These are three distinct
+			// valueCounter keys with an identical epochNano, so ordering on
+			// epochNano alone would still leave the winner to map order.
+			name: "one instant spelled three ways, all tied",
+			values: []string{
+				"2026-01-01T01:00:00+01:00",
+				"2026-01-01T00:00:00.000Z",
+				"2026-01-01T00:00:00Z",
+			},
+			expectedMode: "2026-01-01T00:00:00.000Z",
+		},
+		{
+			name:   "randomized counts over twenty values",
+			values: randomized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := referenceMode(t, tt.values)
+			if tt.expectedMode != "" {
+				require.Equal(t, tt.expectedMode, want, "reference oracle disagrees with the pinned expectation")
+			}
+
+			build := func() (string, string) {
+				agg := newDateAggregator()
+				for _, v := range tt.values {
+					require.Nil(t, agg.AddTimestamp(v))
+				}
+				agg.buildPairsFromCounts()
+				return agg.Mode(), agg.Median()
+			}
+
+			firstMode, firstMedian := build()
+			require.Equal(t, want, firstMode)
+
+			for i := 1; i <= modeIterations; i++ {
+				mode, median := build()
+				require.Equal(t, want, mode, "mode diverged on iteration %d", i)
+				require.Equal(t, firstMedian, median, "median diverged on iteration %d", i)
+			}
+		})
+	}
+}
+
+// The user-visible mode comes out of ShardCombiner.mergeDateProp, which replays
+// each shard's pairs into a combined aggregator and calls buildPairsFromCounts
+// again. Ties survive that merge, so the determinism has to hold there too.
+func TestDateAggregatorModeIsDeterministicAcrossShardMerge(t *testing.T) {
+	values := hourlyTimestamps(time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC), 24)
+
+	build := func() (string, string) {
+		shards := make([]*dateAggregator, 3)
+		for s := range shards {
+			agg := newDateAggregator()
+			for _, v := range values {
+				require.Nil(t, agg.AddTimestamp(v))
+			}
+			agg.buildPairsFromCounts()
+			shards[s] = agg
+		}
+
+		combined := shards[0]
+		for _, src := range shards[1:] {
+			for _, pair := range src.pairs {
+				for i := uint64(0); i < pair.count; i++ {
+					require.Nil(t, combined.AddTimestamp(pair.value.rfc3339))
+				}
+			}
+			combined.buildPairsFromCounts()
+		}
+		return combined.Mode(), combined.Median()
+	}
+
+	firstMode, firstMedian := build()
+	require.Equal(t, values[0], firstMode)
+
+	for i := 1; i <= modeIterations; i++ {
+		mode, median := build()
+		require.Equal(t, firstMode, mode, "mode diverged on iteration %d", i)
+		require.Equal(t, firstMedian, median, "median diverged on iteration %d", i)
+	}
+}
+
+// A count tie has to resolve the same way whether the property is a date or a
+// number, otherwise the same Aggregate query answers differently per data type.
+func TestDateAndNumericalAggregatorsAgreeOnTiebreak(t *testing.T) {
+	base := time.Date(2026, 9, 8, 7, 6, 5, 0, time.UTC)
+	const n = 32
+
+	countsWith := func(mutate func(counts []uint64)) []uint64 {
+		counts := make([]uint64, n)
+		for i := range counts {
+			counts[i] = 1
+		}
+		mutate(counts)
+		return counts
+	}
+
+	tests := []struct {
+		name      string
+		counts    []uint64
+		wantIndex int
+	}{
+		{
+			name:      "every value tied at count one",
+			counts:    countsWith(func(c []uint64) {}),
+			wantIndex: 0,
+		},
+		{
+			name:      "top count shared by three, lowest index wins",
+			counts:    countsWith(func(c []uint64) { c[7], c[18], c[29] = 4, 4, 4 }),
+			wantIndex: 7,
+		},
+		{
+			name:      "unique winner",
+			counts:    countsWith(func(c []uint64) { c[9], c[21] = 9, 4 }),
+			wantIndex: 9,
+		},
+		{
+			name:      "last value ties with the first",
+			counts:    countsWith(func(c []uint64) { c[0], c[n-1] = 3, 3 }),
+			wantIndex: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			timestamps := make([]timestamp, n)
+			for j := range timestamps {
+				timestamps[j] = newTimestamp(base.Add(time.Duration(j) * time.Hour).UnixNano())
+			}
+
+			for i := 1; i <= modeIterations; i++ {
+				dateAgg := newDateAggregator()
+				numAgg := newNumericalAggregator()
+				for j := 0; j < n; j++ {
+					require.Nil(t, dateAgg.addRow(timestamps[j], tt.counts[j]))
+					// the numerical twin is fed the index, so both aggregators
+					// see the same value ordering and the same counts
+					require.Nil(t, numAgg.AddNumberRow(float64(j), tt.counts[j]))
+				}
+				dateAgg.buildPairsFromCounts()
+				numAgg.buildPairsFromCounts()
+
+				numIndex := int(numAgg.Mode())
+				require.Equal(t, tt.wantIndex, numIndex,
+					fmt.Sprintf("numerical mode picked the wrong value on iteration %d", i))
+				require.Equal(t, timestamps[numIndex].rfc3339, dateAgg.Mode(),
+					fmt.Sprintf("date and numerical aggregators disagree on iteration %d", i))
+			}
+		})
 	}
 }

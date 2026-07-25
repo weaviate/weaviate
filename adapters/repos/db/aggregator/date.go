@@ -110,6 +110,19 @@ type timestampCountPair struct {
 	count uint64
 }
 
+// lessThan is a total order over timestamp. epochNano is the primary key.
+// rfc3339 breaks the remaining ties because one instant can be stored in
+// several spellings ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00.000Z",
+// "2026-01-01T01:00:00+01:00"). Those are separate valueCounter keys with an
+// identical epochNano, so ordering on epochNano alone would still leave the
+// outcome up to map iteration order.
+func (t timestamp) lessThan(other timestamp) bool {
+	if t.epochNano != other.epochNano {
+		return t.epochNano < other.epochNano
+	}
+	return t.rfc3339 < other.rfc3339
+}
+
 func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
 	t, err := time.Parse(time.RFC3339Nano, rfc3339)
 	if err != nil {
@@ -202,7 +215,8 @@ func (a *dateAggregator) Median() string {
 func (a *dateAggregator) buildPairsFromCounts() {
 	a.pairs = a.pairs[:0] // clear out old values in case this function called more than once
 	for value, count := range a.valueCounter {
-		if count > a.maxCount {
+		// get one with higher count or lower value if counts are equal
+		if count > a.maxCount || (count == a.maxCount && value.lessThan(a.mode)) {
 			a.maxCount = count
 			a.mode = value
 		}
@@ -210,6 +224,6 @@ func (a *dateAggregator) buildPairsFromCounts() {
 	}
 
 	sort.Slice(a.pairs, func(x, y int) bool {
-		return a.pairs[x].value.epochNano < a.pairs[y].value.epochNano
+		return a.pairs[x].value.lessThan(a.pairs[y].value)
 	})
 }
