@@ -333,6 +333,49 @@ func TestEnvironmentBM25FilterTombMergeGateRatio(t *testing.T) {
 	}
 }
 
+func TestEnvironmentHybridFilterDedupeDisabled(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"dedupe is on when unset", "", false},
+		{"true disables", "true", true},
+		{"on disables", "on", true},
+		{"1 disables", "1", true},
+		{"false keeps it on", "false", false},
+		{"unparseable keeps it on", "maybe", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HYBRID_FILTER_DEDUPE_DISABLED", tt.value)
+
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.NotNil(t, conf.HybridFilterDedupeDisabled)
+			assert.Equal(t, tt.want, conf.HybridFilterDedupeDisabled.Get())
+		})
+	}
+}
+
+func TestHybridFilterDedupeIsRuntimeOverridable(t *testing.T) {
+	// The kill switch is only useful during an incident if it can be flipped
+	// without a rolling restart.
+	conf := Config{}
+	require.NoError(t, FromEnv(&conf))
+	dv := conf.HybridFilterDedupeDisabled
+	require.NotNil(t, dv)
+	require.False(t, dv.Get())
+
+	require.NoError(t, dv.SetValue(true))
+	assert.True(t, dv.Get())
+
+	var registered WeaviateRuntimeConfig
+	registered.HybridFilterDedupeDisabled = dv
+	assert.True(t, registered.HybridFilterDedupeDisabled.Get())
+}
+
 func TestBM25GateRatioRuntimeValidation(t *testing.T) {
 	// The env value is validated at startup; NewDynamicValueWithValidation carries
 	// the same validator, so runtime config updates via SetValue are rejected too.
