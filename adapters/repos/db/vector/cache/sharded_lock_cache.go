@@ -13,6 +13,7 @@ package cache
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -298,6 +299,7 @@ func prefetchVector[T any](vec []T, maxBytes int) {
 	for off := 0; off < n; off += 64 {
 		prefetchFunc(base + uintptr(off))
 	}
+	runtime.KeepAlive(vec)
 }
 
 func (s *shardedLockCache[T]) LockAll() {
