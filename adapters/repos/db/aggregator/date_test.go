@@ -81,14 +81,12 @@ func TestDateAggregator(t *testing.T) {
 	}
 }
 
-// modeIterations is the number of times each case below recomputes the mode.
-// Every tie case has at least three tied values, so a mode decided by Go's
-// randomized map iteration is caught within the first few iterations.
+// modeIterations is how many times each case recomputes the mode, enough
+// to catch a result still depending on map iteration order.
 const modeIterations = 200
 
-// referenceMode computes the mode with a sorted slice rather than a map: the
-// most frequent value, ties broken by the smallest value. It is the oracle for
-// the cases below, so the expectations are not hand-computed.
+// referenceMode is the independent oracle: most frequent value, ties broken
+// by the smallest value, computed without a map.
 func referenceMode(t *testing.T, values []string) string {
 	t.Helper()
 	type entry struct {
@@ -130,7 +128,6 @@ func referenceMode(t *testing.T, values []string) string {
 	return best.ts.rfc3339
 }
 
-// hourlyTimestamps returns n RFC3339 timestamps one hour apart.
 func hourlyTimestamps(base time.Time, n int) []string {
 	out := make([]string, 0, n)
 	for i := 0; i < n; i++ {
@@ -147,10 +144,7 @@ func repeatValues(values []string, times int) []string {
 	return out
 }
 
-// Aggregate { <dateProp> { mode } } used to return a different answer for
-// unchanged data on repeated identical requests: buildPairsFromCounts ranged
-// over valueCounter and kept the first value it saw with the top count, so a
-// count tie was decided by Go's randomized map iteration order.
+// Pins mode determinism on count ties, previously decided by map iteration order.
 func TestDateAggregatorModeIsDeterministicOnTies(t *testing.T) {
 	base := time.Date(2026, 5, 6, 7, 8, 9, 0, time.UTC)
 	preEpoch := time.Date(1965, 3, 4, 5, 6, 7, 0, time.UTC)
@@ -169,12 +163,9 @@ func TestDateAggregatorModeIsDeterministicOnTies(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
-		// values are fed to the aggregator once each, so a repeated value
-		// raises its count.
+		name   string
 		values []string
-		// expectedMode is additionally asserted when set. Every case is always
-		// checked against referenceMode and against its own first run.
+		// expectedMode is optional; when empty, only referenceMode is checked.
 		expectedMode string
 	}{
 		{
@@ -208,9 +199,7 @@ func TestDateAggregatorModeIsDeterministicOnTies(t *testing.T) {
 			expectedMode: preEpochValues[0],
 		},
 		{
-			// One instant, three legal spellings. These are three distinct
-			// valueCounter keys with an identical epochNano, so ordering on
-			// epochNano alone would still leave the winner to map order.
+			// distinct valueCounter keys with identical epochNano; see timestamp.lessThan
 			name: "one instant spelled three ways, all tied",
 			values: []string{
 				"2026-01-01T01:00:00+01:00",
@@ -253,9 +242,7 @@ func TestDateAggregatorModeIsDeterministicOnTies(t *testing.T) {
 	}
 }
 
-// The user-visible mode comes out of ShardCombiner.mergeDateProp, which replays
-// each shard's pairs into a combined aggregator and calls buildPairsFromCounts
-// again. Ties survive that merge, so the determinism has to hold there too.
+// Pins mode determinism through ShardCombiner.mergeDateProp's shard merge.
 func TestDateAggregatorModeIsDeterministicAcrossShardMerge(t *testing.T) {
 	values := hourlyTimestamps(time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC), 24)
 
@@ -292,8 +279,7 @@ func TestDateAggregatorModeIsDeterministicAcrossShardMerge(t *testing.T) {
 	}
 }
 
-// A count tie has to resolve the same way whether the property is a date or a
-// number, otherwise the same Aggregate query answers differently per data type.
+// Pins that date and numerical mode tiebreaks agree on the same counts.
 func TestDateAndNumericalAggregatorsAgreeOnTiebreak(t *testing.T) {
 	base := time.Date(2026, 9, 8, 7, 6, 5, 0, time.UTC)
 	const n = 32
@@ -346,8 +332,7 @@ func TestDateAndNumericalAggregatorsAgreeOnTiebreak(t *testing.T) {
 				numAgg := newNumericalAggregator()
 				for j := 0; j < n; j++ {
 					require.Nil(t, dateAgg.addRow(timestamps[j], tt.counts[j]))
-					// the numerical twin is fed the index, so both aggregators
-					// see the same value ordering and the same counts
+					// index mirrors timestamp ordering so both aggregators tie-break the same way
 					require.Nil(t, numAgg.AddNumberRow(float64(j), tt.counts[j]))
 				}
 				dateAgg.buildPairsFromCounts()
