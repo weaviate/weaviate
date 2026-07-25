@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/bits"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -275,15 +276,40 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
-func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
-	result, release := r.bufPool.CloneToBuf(r.bitmaps[0])
-	ANDed := false
+// cascadeSeed returns the plane the bit-sliced cascade for value starts from,
+// and the first bit that still needs merging.
+//
+// The cascade's first operation is always an AND against plane f+1, where f is
+// value's lowest set bit, because the OR branch is gated on having ANDed once.
+// Every plane is a subset of plane 0 (plane 0's additions are the union of all
+// additions, and deletions are removed from all 65 planes uniformly), so
+// clone(plane 0) AND plane f+1 is plane f+1, and one whole-shard pass can be
+// dropped. value 0 has no set bit at all: its cascade never leaves plane 0.
+func (r *segmentInMemoryReader) cascadeSeed(value uint64) (seed *sroar.Bitmap, nextBit int) {
+	if value == 0 {
+		return r.bitmaps[0], len(r.bitmaps)
+	}
 
-	for bit := 1; bit < len(r.bitmaps); bit++ {
+	bit := bits.TrailingZeros64(value) + 1
+	assertPlaneIsSubsetOfPlaneZero(r.bitmaps, bit)
+	return r.bitmaps[bit], bit + 1
+}
+
+// cloneSeed sizes the pooled buffer to plane 0 rather than to the seed, so the
+// merges downstream keep the growth headroom the plane-0 clone gave them.
+func (r *segmentInMemoryReader) cloneSeed(seed *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	buf, release := r.bufPool.Get(max(seed.LenInBytes(), r.bitmaps[0].LenInBytes()))
+	return seed.CloneToBuf(buf), release
+}
+
+func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
+	seed, bit := r.cascadeSeed(value)
+	result, release := r.cloneSeed(seed)
+
+	for ; bit < len(r.bitmaps); bit++ {
 		if value&(1<<(bit-1)) != 0 {
 			result.AndConc(r.bitmaps[bit], conc)
-			ANDed = true
-		} else if ANDed {
+		} else {
 			result.OrConc(r.bitmaps[bit], conc)
 		}
 	}
@@ -291,27 +317,32 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*
 }
 
 func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
-	resultMin, releaseMin := r.bufPool.CloneToBuf(r.bitmaps[0])
-	resultMax, releaseMax := r.bufPool.CloneToBuf(r.bitmaps[0])
-	defer releaseMax()
-	ANDedMin := false
-	ANDedMax := false
+	seedMin, bitMin := r.cascadeSeed(valueMinInc)
+	seedMax, bitMax := r.cascadeSeed(valueMaxExc)
 
-	for bit := 1; bit < len(r.bitmaps); bit++ {
+	resultMin, releaseMin := r.cloneSeed(seedMin)
+	resultMax, releaseMax := r.cloneSeed(seedMax)
+	defer releaseMax()
+
+	// the two cascades share one loop so each plane is read once, even though
+	// they start at different bits
+	for bit := min(bitMin, bitMax); bit < len(r.bitmaps); bit++ {
 		var b uint64 = 1 << (bit - 1)
 
-		if valueMinInc&b != 0 {
-			resultMin.AndConc(r.bitmaps[bit], conc)
-			ANDedMin = true
-		} else if ANDedMin {
-			resultMin.OrConc(r.bitmaps[bit], conc)
+		if bit >= bitMin {
+			if valueMinInc&b != 0 {
+				resultMin.AndConc(r.bitmaps[bit], conc)
+			} else {
+				resultMin.OrConc(r.bitmaps[bit], conc)
+			}
 		}
 
-		if valueMaxExc&b != 0 {
-			resultMax.AndConc(r.bitmaps[bit], conc)
-			ANDedMax = true
-		} else if ANDedMax {
-			resultMax.OrConc(r.bitmaps[bit], conc)
+		if bit >= bitMax {
+			if valueMaxExc&b != 0 {
+				resultMax.AndConc(r.bitmaps[bit], conc)
+			} else {
+				resultMax.OrConc(r.bitmaps[bit], conc)
+			}
 		}
 	}
 
