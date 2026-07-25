@@ -1854,3 +1854,66 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"not given", []string{}, 0, false},
+		{"plain bytes", []string{"2097152"}, 2097152, false},
+		{"with unit", []string{"2GiB"}, 2 << 30, false},
+		{"at the ceiling", []string{"1TiB"}, MaxQueryBitmapBufsSize, false},
+		// math.MaxInt64 buffers would build channels with ~1.4e11 slots.
+		{"unlimited", []string{"unlimited"}, 0, true},
+		{"nolimit", []string{"nolimit"}, 0, true},
+		// 10_000_000 * 2^40 wraps int64 negative before the bounds are seen.
+		{"overflows int64", []string{"10000000TiB"}, 0, true},
+		{"above the ceiling", []string{"2TiB"}, 0, true},
+		{"zero", []string{"0"}, 0, true},
+		{"negative", []string{"-1"}, 0, true},
+		{"not parsable", []string{"I'm not a number"}, 0, true},
+		{"unsupported unit", []string{"5GiL"}, 0, true},
+	}
+
+	envNames := []struct {
+		envName    string
+		defaultVal int
+		read       func(Config) int
+	}{
+		{
+			"QUERY_BITMAP_BUFS_MAX_MEMORY", DefaultQueryBitmapBufsMaxMemory,
+			func(c Config) int { return c.QueryBitmapBufsMaxMemory },
+		},
+		{
+			"QUERY_BITMAP_BUFS_MAX_BUF_SIZE", DefaultQueryBitmapBufsMaxBufSize,
+			func(c Config) int { return c.QueryBitmapBufsMaxBufSize },
+		},
+	}
+
+	for _, env := range envNames {
+		for _, tt := range tests {
+			t.Run(env.envName+"/"+tt.name, func(t *testing.T) {
+				if len(tt.value) == 1 {
+					t.Setenv(env.envName, tt.value[0])
+				}
+				conf := Config{}
+				err := FromEnv(&conf)
+
+				if tt.expectedErr {
+					require.Error(t, err)
+					require.Contains(t, err.Error(), env.envName)
+					return
+				}
+				require.NoError(t, err)
+				expected := tt.expected
+				if len(tt.value) == 0 {
+					expected = env.defaultVal
+				}
+				require.Equal(t, expected, env.read(conf))
+			})
+		}
+	}
+}

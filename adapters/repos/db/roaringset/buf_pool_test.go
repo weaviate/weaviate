@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -847,4 +848,102 @@ func TestValidateBufferRanges(t *testing.T) {
 			require.Equal(t, tc.expectedRanges, ranges)
 		})
 	}
+}
+
+func TestCloneToBufGrowthHeadroom(t *testing.T) {
+	const MiB = 1 << 20
+
+	// recordingPool captures what cloneToBuf asks for and hands back a buffer
+	// of exactly that capacity, so the test sees the request, not the size
+	// class a real ladder would round it up to.
+	newRecording := func() (*recordingBufPool, BitmapBufPool) {
+		p := &recordingBufPool{}
+		return p, p
+	}
+
+	t.Run("clone is asked for more than the source length", func(t *testing.T) {
+		rec, pool := newRecording()
+		src := prefilledOfAtLeast(2 * MiB)
+
+		cloned, put := pool.CloneToBuf(src)
+		defer put()
+
+		require.Equal(t, withGrowthHeadroom(src.LenInBytes(), bitmapCloneGrowthFactor), rec.lastMinCap)
+		require.Greater(t, rec.lastMinCap, src.LenInBytes())
+		require.Equal(t, src.GetCardinality(), cloned.GetCardinality())
+	})
+
+	t.Run("a merge that adds containers stays inside the buffer", func(t *testing.T) {
+		rec, pool := newRecording()
+		src := prefilledOfAtLeast(2 * MiB)
+		grower := bitmapAbove(src, 16)
+
+		cloned, put := pool.CloneToBuf(src)
+		defer put()
+		cloned.Or(grower)
+
+		// Outgrowing the buffer is what makes sroar swap in an unpooled slice.
+		require.LessOrEqual(t, cloned.LenInBytes(), rec.lastCap)
+	})
+
+	t.Run("factor wrapper does not stack with the clone factor", func(t *testing.T) {
+		rec, base := newRecording()
+		src := prefilledOfAtLeast(2 * MiB)
+
+		// below the clone factor: the clone factor wins
+		NewBitmapBufPoolFactorWrapper(base, 1.1).CloneToBuf(src)
+		require.Equal(t, withGrowthHeadroom(src.LenInBytes(), bitmapCloneGrowthFactor), rec.lastMinCap)
+
+		// above it: the wrapper's own factor wins, and is not multiplied by it
+		NewBitmapBufPoolFactorWrapper(base, 2.0).CloneToBuf(src)
+		require.Equal(t, withGrowthHeadroom(src.LenInBytes(), 2.0), rec.lastMinCap)
+	})
+
+	t.Run("Get is untouched", func(t *testing.T) {
+		rec, pool := newRecording()
+
+		buf, put := pool.Get(1234)
+		defer put()
+
+		require.Equal(t, 1234, rec.lastMinCap)
+		require.Equal(t, 1234, cap(buf))
+	})
+}
+
+type recordingBufPool struct {
+	lastMinCap int
+	lastCap    int
+}
+
+func (p *recordingBufPool) Get(minCap int) ([]byte, func()) {
+	p.lastMinCap = minCap
+	buf := make([]byte, 0, minCap)
+	p.lastCap = cap(buf)
+	return buf, func() {}
+}
+
+func (p *recordingBufPool) CloneToBuf(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	return cloneToBuf(p, bm)
+}
+
+func prefilledOfAtLeast(bytes int) *sroar.Bitmap {
+	ids := uint64(1 << 16)
+	bm := sroar.Prefill(ids)
+	for bm.LenInBytes() < bytes {
+		ids += 1 << 16
+		bm = sroar.Prefill(ids)
+	}
+	return bm
+}
+
+func bitmapAbove(src *sroar.Bitmap, containers int) *sroar.Bitmap {
+	base := src.Maximum() + 1<<16
+	bm := sroar.NewBitmap()
+	for c := 0; c < containers; c++ {
+		start := base + uint64(c)<<16
+		for i := uint64(0); i < 1<<16; i += 2 {
+			bm.Set(start + i)
+		}
+	}
+	return bm
 }

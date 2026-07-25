@@ -18,6 +18,26 @@ import (
 	"strings"
 )
 
+// MaxQueryBitmapBufsSize bounds QUERY_BITMAP_BUFS_MAX_MEMORY and
+// QUERY_BITMAP_BUFS_MAX_BUF_SIZE. Both size an in-process buffer pool whose
+// per-size-class buffer counts are derived by dividing the value, so an
+// unbounded setting asks the runtime for channels with ~10^11 slots at boot.
+// No machine has more than 1 TiB to give a bitmap pool, so a larger value is
+// a typo and is better rejected than acted on.
+const MaxQueryBitmapBufsSize = 1 << 40
+
+func parseBitmapBufsSize(envName, value string) (int, error) {
+	bytes, err := parseResourceString(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", envName, err)
+	}
+	if bytes <= 0 || bytes > MaxQueryBitmapBufsSize {
+		return 0, fmt.Errorf("%s: must be between 1 and %d bytes, got %d",
+			envName, int64(MaxQueryBitmapBufsSize), bytes)
+	}
+	return int(bytes), nil
+}
+
 // parseResourceString takes a string like "1024", "1KiB", "43TiB" and converts it to an integer number of bytes.
 func parseResourceString(resource string) (int64, error) {
 	resource = strings.TrimSpace(resource)
@@ -60,5 +80,8 @@ func parseResourceString(resource string) (int64, error) {
 		return 0, fmt.Errorf("invalid or unsupported unit")
 	}
 
+	if value > math.MaxInt64/multiplier {
+		return 0, fmt.Errorf("%q overflows int64", resource)
+	}
 	return value * multiplier, nil
 }
