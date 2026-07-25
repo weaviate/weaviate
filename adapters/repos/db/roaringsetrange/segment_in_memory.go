@@ -34,11 +34,28 @@ type SegmentInMemory struct {
 	memtables     []*Memtable // flushed memtables, waiting to be merged into bitmaps
 	memtablesLock *sync.Mutex
 
-	// generation identifies the bitmap contents. It changes only inside the two
-	// bitmapsLock write sections and is read under RLock, making it a sound
-	// invalidation token for leafCache, which is nil when the cache is disabled.
+	// generation identifies the bitmap contents. It changes only inside
+	// mutateBitmaps and is read under RLock, making it a sound invalidation
+	// token for leafCache, which is nil when the cache is disabled.
 	generation uint64
 	leafCache  *leafCache
+}
+
+// mutateBitmaps is the only place the bit planes may be written. It takes the
+// write lock and bumps the generation, so a writer cannot mutate the planes
+// without invalidating everything derived from them — the alternative is a
+// stale allow-list, which returns wrong results with no panic and no log.
+//
+// TestPlanesAreOnlyMutatedThroughMutateBitmaps enforces that this stays the
+// only entry point, so a future writer cannot reintroduce the hazard by
+// reaching for s.bitmaps or s.bitmapsLock directly.
+func (s *SegmentInMemory) mutateBitmaps(fn func(bitmaps *rangeBitmaps)) {
+	s.bitmapsLock.Lock()
+	defer s.bitmapsLock.Unlock()
+	// deferred so an early return or a panic inside fn cannot skip it
+	defer func() { s.generation++ }()
+
+	fn(&s.bitmaps)
 }
 
 func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
@@ -66,20 +83,16 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 		return fmt.Errorf("invalid first key of merged segment")
 	}
 
-	s.bitmapsLock.Lock()
-	defer s.bitmapsLock.Unlock()
-	// unconditional: over-invalidating the cache is free, under-invalidating
-	// risks stale results
-	defer func() { s.generation++ }()
-
-	if deletions := layer.Deletions; !deletions.IsEmpty() {
-		for key := range s.bitmaps {
-			s.bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+	s.mutateBitmaps(func(bitmaps *rangeBitmaps) {
+		if deletions := layer.Deletions; !deletions.IsEmpty() {
+			for key := range bitmaps {
+				bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+			}
 		}
-	}
-	for ; ok; key, layer, ok = cursor.Next() {
-		s.bitmaps[key].OrConc(layer.Additions, concurrency.SROAR_MERGE)
-	}
+		for ; ok; key, layer, ok = cursor.Next() {
+			bitmaps[key].OrConc(layer.Additions, concurrency.SROAR_MERGE)
+		}
+	})
 	return nil
 }
 
@@ -97,37 +110,33 @@ func (s *SegmentInMemory) MergeMemtableEventually(memtable *Memtable) {
 }
 
 func (s *SegmentInMemory) mergeMemtables() {
-	s.bitmapsLock.Lock()
-	defer s.bitmapsLock.Unlock()
-	// unconditional: over-invalidating the cache is free, under-invalidating
-	// risks stale results
-	defer func() { s.generation++ }()
-
-	i := 0
-	for {
-		s.memtablesLock.Lock()
-		if i == len(s.memtables) {
-			s.memtables = s.memtables[:0]
+	s.mutateBitmaps(func(bitmaps *rangeBitmaps) {
+		i := 0
+		for {
+			s.memtablesLock.Lock()
+			if i == len(s.memtables) {
+				s.memtables = s.memtables[:0]
+				s.memtablesLock.Unlock()
+				return
+			}
+			memtable := s.memtables[i]
+			i++
 			s.memtablesLock.Unlock()
-			return
-		}
-		memtable := s.memtables[i]
-		i++
-		s.memtablesLock.Unlock()
 
-		nodes := memtable.Nodes()
-		if len(nodes) == 0 {
-			continue
-		}
-		if deletions := nodes[0].Deletions; !deletions.IsEmpty() {
-			for key := range s.bitmaps {
-				s.bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+			nodes := memtable.Nodes()
+			if len(nodes) == 0 {
+				continue
+			}
+			if deletions := nodes[0].Deletions; !deletions.IsEmpty() {
+				for key := range bitmaps {
+					bitmaps[key].AndNotConc(deletions, concurrency.SROAR_MERGE)
+				}
+			}
+			for _, node := range nodes {
+				bitmaps[node.Key].OrConc(node.Additions, concurrency.SROAR_MERGE)
 			}
 		}
-		for _, node := range nodes {
-			s.bitmaps[node.Key].OrConc(node.Additions, concurrency.SROAR_MERGE)
-		}
-	}
+	})
 }
 
 func (s *SegmentInMemory) countPendingMemtables() int {
