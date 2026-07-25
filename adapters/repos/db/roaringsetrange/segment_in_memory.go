@@ -33,6 +33,13 @@ type SegmentInMemory struct {
 	bitmapsLock   *entsync.ReadPreferringRWMutex
 	memtables     []*Memtable // flushed memtables, waiting to be merged into bitmaps
 	memtablesLock *sync.Mutex
+
+	// generation identifies the contents of bitmaps. It is written only inside
+	// the two bitmapsLock write sections that mutate bitmaps, and read only
+	// under RLock, which makes it a complete invalidation token for anything
+	// derived from the planes. leafCache is nil when the cache is disabled.
+	generation uint64
+	leafCache  *leafCache
 }
 
 func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
@@ -41,6 +48,7 @@ func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
 		bitmapsLock:   entsync.NewReadPreferringRWMutex(),
 		memtables:     make([]*Memtable, 0, 8),
 		memtablesLock: new(sync.Mutex),
+		leafCache:     newLeafCache(leafCacheMaxMemory),
 	}
 
 	for key := range s.bitmaps {
@@ -61,6 +69,9 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 
 	s.bitmapsLock.Lock()
 	defer s.bitmapsLock.Unlock()
+	// unconditional: over-invalidating is free, under-invalidating serves a
+	// stale allow-list
+	defer func() { s.generation++ }()
 
 	if deletions := layer.Deletions; !deletions.IsEmpty() {
 		for key := range s.bitmaps {
@@ -89,6 +100,9 @@ func (s *SegmentInMemory) MergeMemtableEventually(memtable *Memtable) {
 func (s *SegmentInMemory) mergeMemtables() {
 	s.bitmapsLock.Lock()
 	defer s.bitmapsLock.Unlock()
+	// unconditional: over-invalidating is free, under-invalidating serves a
+	// stale allow-list
+	defer func() { s.generation++ }()
 
 	i := 0
 	for {
@@ -140,8 +154,10 @@ func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []I
 
 	readers = make([]InnerReader, 1+len(memtables))
 	readers[0] = &segmentInMemoryReader{
-		bitmaps: s.bitmaps,
-		bufPool: bufPool,
+		bitmaps:    s.bitmaps,
+		bufPool:    bufPool,
+		cache:      s.leafCache,
+		generation: s.generation,
 	}
 	for i := range memtables {
 		readers[1+i] = NewMemtableReader(memtables[i])
@@ -151,9 +167,14 @@ func (s *SegmentInMemory) Readers(bufPool roaringset.BitmapBufPool) (readers []I
 
 // -----------------------------------------------------------------------------
 
+// segmentInMemoryReader is only valid while the read lock its Readers() call
+// took is still held, which is what makes generation a sound cache token: no
+// writer can advance the planes underneath it.
 type segmentInMemoryReader struct {
-	bitmaps rangeBitmaps
-	bufPool roaringset.BitmapBufPool
+	bitmaps    rangeBitmaps
+	bufPool    roaringset.BitmapBufPool
+	cache      *leafCache
+	generation uint64
 }
 
 func (r *segmentInMemoryReader) Read(ctx context.Context, value uint64, operator filters.Operator,
@@ -275,7 +296,31 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
+// cloneCached hands out a private copy of a cached leaf. The buffer is sized to
+// the widest plane rather than to the leaf, so the caller keeps exactly the
+// growth headroom the uncached path gives it for the memtable merges that
+// follow.
+func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
+	buf, release := r.bufPool.Get(max(bm.LenInBytes(), r.bitmaps[0].LenInBytes()))
+	return bm.CloneToBuf(buf), release
+}
+
 func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
+	key := leafKey{kind: leafGreaterThanEqual, valueMin: value}
+
+	cached, admit := r.cache.probe(r.generation, key)
+	if cached != nil {
+		return r.cloneCached(cached)
+	}
+
+	result, release := r.mergeGreaterThanEqualUncached(value, conc)
+	if admit {
+		r.cache.store(r.generation, key, result.Clone())
+	}
+	return result, release
+}
+
+func (r *segmentInMemoryReader) mergeGreaterThanEqualUncached(value uint64, conc int) (*sroar.Bitmap, func()) {
 	result, release := r.bufPool.CloneToBuf(r.bitmaps[0])
 	ANDed := false
 
@@ -291,6 +336,21 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*
 }
 
 func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
+	key := leafKey{kind: leafBetween, valueMin: valueMinInc, valueMax: valueMaxExc}
+
+	cached, admit := r.cache.probe(r.generation, key)
+	if cached != nil {
+		return r.cloneCached(cached)
+	}
+
+	result, release := r.mergeBetweenUncached(valueMinInc, valueMaxExc, conc)
+	if admit {
+		r.cache.store(r.generation, key, result.Clone())
+	}
+	return result, release
+}
+
+func (r *segmentInMemoryReader) mergeBetweenUncached(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
 	resultMin, releaseMin := r.bufPool.CloneToBuf(r.bitmaps[0])
 	resultMax, releaseMax := r.bufPool.CloneToBuf(r.bitmaps[0])
 	defer releaseMax()
