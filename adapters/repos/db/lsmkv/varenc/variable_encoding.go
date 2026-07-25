@@ -29,6 +29,10 @@ const (
 type VarEncEncoder[T any] interface {
 	Init(expectedCount int)
 	Encode(values []T) []byte
+	// EncodeAppend appends the encoding to arena and returns the encoded sub-slice
+	// plus the (possibly reallocated) arena. A growth realloc leaves earlier
+	// sub-slices valid but detached, so pre-size arena if they must stay contiguous.
+	EncodeAppend(values []T, arena []byte) (encoded []byte, updatedArena []byte)
 	Decode(data []byte) []T
 	EncodeReusable(values []T, buf []byte)
 	DecodeReusable(data []byte, values []T)

@@ -41,6 +41,9 @@ func TestWandLoops_NonCancellableContext(t *testing.T) {
 				topKHeap, err := DoBlockMaxWand(c.ctx, 10, Terms{}, 1.0, false, 0, 0, logrus.New())
 				require.NoError(t, err)
 				require.NotNil(t, topKHeap)
+				// empty input → empty heap; guards against an accidental population
+				// path that would silently satisfy the NotPanics + NotNil checks above.
+				require.Equal(t, 0, topKHeap.Len())
 			})
 		})
 
@@ -48,6 +51,7 @@ func TestWandLoops_NonCancellableContext(t *testing.T) {
 			require.NotPanics(t, func() {
 				topKHeap := DoWand(c.ctx, 10, &terms.Terms{}, 1.0, false, 0, logrus.New())
 				require.NotNil(t, topKHeap)
+				require.Equal(t, 0, topKHeap.Len())
 			})
 		})
 	}

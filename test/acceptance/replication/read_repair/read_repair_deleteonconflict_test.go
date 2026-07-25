@@ -94,6 +94,7 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 
 	t.Run("restart node 2", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 2)
+		common.WaitForNodeReadyForClass(t, compose.GetWeaviateNode2().URI(), "Paragraph", paragraphIDs[0])
 	})
 
 	t.Run("require new object read repair was made", func(t *testing.T) {
@@ -127,6 +128,7 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 
 	t.Run("restart node 3", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 3)
+		common.WaitForNodeReadyForClass(t, compose.GetWeaviateNode3().URI(), "Paragraph", paragraphIDs[0])
 	})
 
 	t.Run("require updated object read repair was made", func(t *testing.T) {
@@ -163,6 +165,7 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 
 	t.Run("restart node 2", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 2)
+		common.WaitForNodeReadyForClass(t, compose.GetWeaviateNode2().URI(), "Paragraph", paragraphIDs[0])
 	})
 
 	t.Run("stop node3", func(t *testing.T) {
@@ -179,6 +182,7 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 
 	t.Run("restart node 3", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 3)
+		common.WaitForNodeReadyForClass(t, compose.GetWeaviateNode3().URI(), "Paragraph", paragraphIDs[0])
 	})
 
 	t.Run("deleted article should not be present in node3", func(t *testing.T) {

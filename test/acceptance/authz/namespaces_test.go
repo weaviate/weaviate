@@ -138,6 +138,28 @@ func TestAuthzNamespaces(t *testing.T) {
 		var delForbidden *namespaces.DeleteNamespaceForbidden
 		require.True(t, errors.As(err, &delForbidden), "expected DeleteNamespaceForbidden, got %T: %v", err, err)
 
+		// SUSPEND in scope succeeds; out of scope is 403. The grant is
+		// resource-scoped, so holding manage_namespaces somewhere does not
+		// license flipping a namespace elsewhere.
+		helper.SuspendNamespace(t, scopedName, scopedManageKey)
+		helper.ResumeNamespace(t, scopedName, scopedManageKey)
+
+		_, err = helper.Client(t).Namespaces.SuspendNamespace(
+			namespaces.NewSuspendNamespaceParams().WithNamespaceID(otherName),
+			helper.CreateAuth(scopedManageKey),
+		)
+		require.Error(t, err)
+		var suspendForbidden *namespaces.SuspendNamespaceForbidden
+		require.ErrorAs(t, err, &suspendForbidden)
+
+		_, err = helper.Client(t).Namespaces.ResumeNamespace(
+			namespaces.NewResumeNamespaceParams().WithNamespaceID(otherName),
+			helper.CreateAuth(scopedManageKey),
+		)
+		require.Error(t, err)
+		var resumeForbidden *namespaces.ResumeNamespaceForbidden
+		require.ErrorAs(t, err, &resumeForbidden)
+
 		// LIST filters via FilterAuthorizedResources.
 		names := authzNamespaceNames(helper.ListNamespaces(t, scopedManageKey))
 		assert.Contains(t, names, scopedName)
@@ -170,6 +192,20 @@ func TestAuthzNamespaces(t *testing.T) {
 		require.Error(t, err)
 		var delForbidden *namespaces.DeleteNamespaceForbidden
 		require.True(t, errors.As(err, &delForbidden), "expected DeleteNamespaceForbidden, got %T: %v", err, err)
+
+		_, err = helper.Client(t).Namespaces.SuspendNamespace(
+			namespaces.NewSuspendNamespaceParams().WithNamespaceID(name),
+			helper.CreateAuth(noPermsKey),
+		)
+		var suspendForbidden *namespaces.SuspendNamespaceForbidden
+		require.ErrorAs(t, err, &suspendForbidden)
+
+		_, err = helper.Client(t).Namespaces.ResumeNamespace(
+			namespaces.NewResumeNamespaceParams().WithNamespaceID(name),
+			helper.CreateAuth(noPermsKey),
+		)
+		var resumeForbidden *namespaces.ResumeNamespaceForbidden
+		require.ErrorAs(t, err, &resumeForbidden)
 
 		assert.Empty(t, helper.ListNamespaces(t, noPermsKey))
 	})
@@ -395,6 +431,33 @@ func TestAuthzNamespaces(t *testing.T) {
 		}
 		assert.True(t, sawCollectionsStar, "wildcard collection must pass through unchanged")
 		assert.True(t, sawAliasesStar, "wildcard alias must pass through unchanged")
+	})
+
+	// A namespace-scoped caller is hard-denied the namespaces domain whatever
+	// roles it holds, so a namespace can never suspend itself into a state no
+	// principal inside it can undo — its own users stop authenticating the
+	// moment the flip applies. Both its own namespace and a neighbour's are
+	// denied.
+	t.Run("a namespaced caller cannot suspend any namespace", func(t *testing.T) {
+		const selfRole = "ns-self-suspend"
+		helper.CreateRoleAndAssign(t, adminKey, ns1+":u1", selfRole,
+			helper.NewNamespacesPermission().
+				WithAction(authorization.ManageNamespaces).
+				WithNamespace("*").
+				Permission(),
+		)
+
+		for _, target := range []string{ns1, ns2} {
+			_, err := helper.Client(t).Namespaces.SuspendNamespace(
+				namespaces.NewSuspendNamespaceParams().WithNamespaceID(target),
+				helper.CreateAuth(user1Key),
+			)
+			var forbidden *namespaces.SuspendNamespaceForbidden
+			require.ErrorAs(t, err, &forbidden, "suspend %q: expected 403, got %T: %v", target, err, err)
+
+			// Still active, so nothing was locked out.
+			assert.Equal(t, string(models.NamespaceStateActive), helper.GetNamespace(t, target, adminKey).State)
+		}
 	})
 
 	t.Run("own-info: global admin sees raw username", func(t *testing.T) {

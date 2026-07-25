@@ -55,6 +55,7 @@ type memtable interface {
 	DirtyDuration() time.Duration
 	updateDirtyAt()
 	countStats() *countStats
+	netCount() int
 	getStrategy() string
 	commitlogSize() int64
 	commitlogWalPath() string
@@ -112,15 +113,21 @@ type memtable interface {
 
 type Memtable struct {
 	sync.RWMutex
-	key                *binarySearchTree
-	keyMulti           *binarySearchTreeMulti
-	keyMap             *binarySearchTreeMap
-	primaryIndex       *binarySearchTree
-	roaringSet         *roaringset.BinarySearchTree
-	roaringSetRange    *roaringsetrange.Memtable
-	commitlog          memtableCommitLogger
-	allocChecker       memwatch.AllocChecker
-	size               uint64
+	key             *binarySearchTree
+	keyMulti        *binarySearchTreeMulti
+	keyMap          *binarySearchTreeMap
+	primaryIndex    *binarySearchTree
+	roaringSet      *roaringset.BinarySearchTree
+	roaringSetRange *roaringsetrange.Memtable
+	commitlog       memtableCommitLogger
+	allocChecker    memwatch.AllocChecker
+	size            uint64
+	// netCountAdditions approximates the net live keys this memtable adds on
+	// top of the rest of the LSM tree. Whether a key already exists further
+	// down is unknown at write time: updates of flushed keys over-count,
+	// deletes of never-written keys under-count, and the drift is corrected by
+	// the exact per-segment count at flush. StrategyReplace only.
+	netCountAdditions  int
 	path               string
 	strategy           string
 	secondaryIndices   uint16
@@ -132,6 +139,18 @@ type Memtable struct {
 	writesSinceLastSync bool
 
 	tombstones *sroar.Bitmap
+	// tombstonesSnapshot is an immutable copy of tombstones published for lock-free
+	// reads. SetTombstone clears it to nil to mark it stale; ReadOnlyTombstones
+	// rebuilds it lazily when it loads nil. It is never mutated in place, so readers
+	// share it without cloning or locking, and the read fast path is a single atomic
+	// load that touches neither the memtable RWMutex nor a copy.
+	tombstonesSnapshot atomic.Pointer[sroar.Bitmap]
+	// invMu guards the inverted-strategy delete/prop-length state (tombstones,
+	// propLengthExists, currPropLength*) independently of the tree RWMutex, so
+	// SetTombstone does not take the exclusive lock that getMap readers wait on.
+	// GetPropLengths only reads, so it takes the read lock.
+	// Lock order when both are held: the tree lock first, then invMu (appendMapSorted).
+	invMu sync.RWMutex
 
 	enableChecksumValidation bool
 
@@ -290,8 +309,11 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
+	netAdditions, previousKeys, wasLive := m.key.insert(key, value, secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+	if !wasLive {
+		m.netCountAdditions++
+	}
 
 	m.size += uint64(netAdditions)
 	m.metrics.observeSize(m.size)
@@ -329,8 +351,11 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	previousKeys := m.key.setTombstone(key, nil, secondaryKeys)
+	previousKeys, wasTombstoned := m.key.setTombstone(key, nil, secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+	if !wasTombstoned {
+		m.netCountAdditions--
+	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
@@ -369,8 +394,11 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	previousKeys := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
+	previousKeys, wasTombstoned := m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
 	m.updateSecondaryToPrimary(key, secondaryKeys, previousKeys)
+	if !wasTombstoned {
+		m.netCountAdditions--
+	}
 
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.observeSize(m.size)
@@ -571,10 +599,14 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	if m.strategy == StrategyInverted && !pair.Tombstone {
 		docID := binary.LittleEndian.Uint64(pair.Key)
 		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
+		// propLengthExists + currPropLength* are shared with SetTombstone, which no
+		// longer holds the tree lock; guard them with invMu (nested inside m.Lock).
+		m.invMu.Lock()
 		if m.propLengthExists.Set(docID) {
 			m.currPropLengthSum += uint64(fieldLength)
 			m.currPropLengthCount++
 		}
+		m.invMu.Unlock()
 	}
 
 	return nil
@@ -625,6 +657,12 @@ func (m *Memtable) countStats() *countStats {
 	return m.key.countStats()
 }
 
+func (m *Memtable) netCount() int {
+	m.RLock()
+	defer m.RUnlock()
+	return m.netCountAdditions
+}
+
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
 // this function explicitly called. This allows to safge unnecessary disk
 // writes in larger operations, such as batches. It is sufficient to call write
@@ -638,19 +676,35 @@ func (m *Memtable) writeWAL() error {
 	return m.commitlog.flushBuffers()
 }
 
+// ReadOnlyTombstones returns a shared, immutable snapshot of the memtable's tombstones.
+// Returned bitmap must not be mutated: concurrent readers hold the same instance.
 func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	if err := m.checkStrategy(StrategyInverted); err != nil {
 		return nil, fmt.Errorf("Memtable::ReadOnlyTombstones(): %w", err)
 	}
+	// checkStrategy passing implies the inverted constructor ran, which sets
+	// m.tombstones to a non-nil bitmap, so the Clone below never nil-derefs.
 
-	m.RLock()
-	defer m.RUnlock()
-
-	if m.tombstones != nil {
-		return m.tombstones.Clone(), nil
+	// Lock-free fast path: an already-published snapshot is served without touching
+	// the memtable RWMutex. SetTombstone clears the snapshot to nil only after mutating
+	// the bitmap, so a non-nil snapshot always reflects every tombstone set before it
+	// was published. A tombstone set concurrently with this load may not yet be visible,
+	// which is within consistent-view semantics — the query fixes its tombstone view at
+	// setup, and a delete racing the query may order either way.
+	if snap := m.tombstonesSnapshot.Load(); snap != nil {
+		return snap, nil
 	}
 
-	return nil, lsmkv.NotFound
+	// Rebuild under invMu (the same lock SetTombstone takes), re-checking after locking
+	// in case another reader already republished the snapshot.
+	m.invMu.Lock()
+	defer m.invMu.Unlock()
+	if snap := m.tombstonesSnapshot.Load(); snap != nil {
+		return snap, nil
+	}
+	snap := m.tombstones.Clone()
+	m.tombstonesSnapshot.Store(snap)
+	return snap, nil
 }
 
 func (m *Memtable) SetTombstone(docId uint64) error {
@@ -658,16 +712,20 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 		return fmt.Errorf("Memtable::SetTombstone(): %w", err)
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	m.invMu.Lock()
+	defer m.invMu.Unlock()
 
 	m.tombstones.Set(docId)
+	m.tombstonesSnapshot.Store(nil)
 	m.propLengthExists.Remove(docId)
 
 	return nil
 }
 
 func (m *Memtable) GetPropLengths() (uint64, uint64) {
+	m.invMu.RLock()
+	defer m.invMu.RUnlock()
+
 	return m.currPropLengthSum, m.currPropLengthCount
 }
 

@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 )
 
 type retryClient struct {
@@ -68,7 +70,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 		defer res.Body.Close()
 
-		respBody, err := io.ReadAll(res.Body)
+		respBody, err := clusterapi.ReadBody(res.Body, res.ContentLength)
 		if err != nil {
 			return shouldRetry(res.StatusCode), fmt.Errorf("read response: %w", err)
 		}
@@ -101,7 +103,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		defer res.Body.Close()
 
 		if code = res.StatusCode; !success(code) {
-			b, _ := io.ReadAll(res.Body)
+			b, _ := clusterapi.ReadBody(res.Body, res.ContentLength)
 			return shouldRetry(code), &HTTPError{Code: code, Body: b}
 		}
 		if resp != nil {

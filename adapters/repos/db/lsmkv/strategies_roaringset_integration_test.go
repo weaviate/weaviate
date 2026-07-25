@@ -67,21 +67,21 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			err = b.RoaringSetAddList(key3, orig3)
 			require.Nil(t, err)
 
-			res, release, err := b.RoaringSetGet(key1)
+			res, release, err := b.RoaringSetGet(context.Background(), key1)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range orig1 {
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, release, err = b.RoaringSetGet(key2)
+			res, release, err = b.RoaringSetGet(context.Background(), key2)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range orig2 {
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, release, err = b.RoaringSetGet(key3)
+			res, release, err = b.RoaringSetGet(context.Background(), key3)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range orig3 {
@@ -98,21 +98,21 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			err = b.RoaringSetRemoveOne(key3, removal3)
 			require.Nil(t, err)
 
-			res, release, err := b.RoaringSetGet(key1)
+			res, release, err := b.RoaringSetGet(context.Background(), key1)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range []uint64{1, 2} { // unchanged values
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, release, err = b.RoaringSetGet(key2)
+			res, release, err = b.RoaringSetGet(context.Background(), key2)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range []uint64{3, 4, 5} { // extended with 5
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, release, err = b.RoaringSetGet(key3)
+			res, release, err = b.RoaringSetGet(context.Background(), key3)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range []uint64{6} { // fewer remain
@@ -150,21 +150,21 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			err = b.RoaringSetAddList(key3, orig3)
 			require.Nil(t, err)
 
-			res, release, err := b.RoaringSetGet(key1)
+			res, release, err := b.RoaringSetGet(context.Background(), key1)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range orig1 {
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, release, err = b.RoaringSetGet(key2)
+			res, release, err = b.RoaringSetGet(context.Background(), key2)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range orig2 {
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, release, err = b.RoaringSetGet(key3)
+			res, release, err = b.RoaringSetGet(context.Background(), key3)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range orig3 {
@@ -185,21 +185,21 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			err = b.RoaringSetRemoveOne(key3, removal3)
 			require.Nil(t, err)
 
-			res, release, err := b.RoaringSetGet(key1)
+			res, release, err := b.RoaringSetGet(context.Background(), key1)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range []uint64{1, 2} { // unchanged values
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, release, err = b.RoaringSetGet(key2)
+			res, release, err = b.RoaringSetGet(context.Background(), key2)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range []uint64{3, 4, 5} { // extended with 5
 				assert.True(t, res.Contains(testVal))
 			}
 
-			res, release, err = b.RoaringSetGet(key3)
+			res, release, err = b.RoaringSetGet(context.Background(), key3)
 			require.NoError(t, err)
 			defer release()
 			for _, testVal := range []uint64{6} { // fewer remain

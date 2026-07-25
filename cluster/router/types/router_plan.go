@@ -33,14 +33,20 @@ type RoutingPlanBuildOptions struct {
 	Tenant              string
 	ConsistencyLevel    ConsistencyLevel
 	DirectCandidateNode string
+
+	// AllowTenantActivation if set to true, it will activate a COLD tenant under auto tenant activation.
+	// Rule of thumb: only set to true if the plan serves an external request.
+	AllowTenantActivation bool
+	// LocalOnly resolves replicas from local schema; no leader query, no tenant activation.
+	LocalOnly bool
 }
 
 // String returns a human-readable representation of the RoutingPlanBuildOptions.
 // Useful for debugging and logging.
 func (o RoutingPlanBuildOptions) String() string {
 	return fmt.Sprintf(
-		"RoutingPlanBuildOptions{shard: %q, tenant: %q, consistencyLevel: %s, directCandidateNode: %q}",
-		o.Shard, o.Tenant, o.ConsistencyLevel, o.DirectCandidateNode,
+		"RoutingPlanBuildOptions{shard: %q, tenant: %q, consistencyLevel: %s, directCandidateNode: %q, localOnly: %t}",
+		o.Shard, o.Tenant, o.ConsistencyLevel, o.DirectCandidateNode, o.LocalOnly,
 	)
 }
 

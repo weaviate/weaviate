@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -102,6 +101,14 @@ type fakeSegment struct {
 	refs                  atomic.Int64
 	path                  string
 	getCounter            int
+
+	// roaringSetReleases counts how many times the release func handed out by
+	// roaringSetGet was actually invoked, so tests can pin buffer-release
+	// behavior without a production seam.
+	roaringSetReleases int
+	// roaringSetMergeErr, when set, makes roaringSetMergeWith fail, simulating a
+	// mid-merge disk read error.
+	roaringSetMergeErr error
 
 	isMarkedForDeletion  bool
 	isStrippedExtensions bool
@@ -221,13 +228,11 @@ func (f *fakeSegment) getCollectionBytes(key []byte) ([][]byte, error) {
 func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 	return &segmentInvertedData{
 		tombstones: sroar.NewBitmap(),
-		propertyLengths: map[uint64]uint32{
-			// NOTE: we are returning hardcoded fake data here which is good enough
-			// for the purpose of this test. This could be extended to return real
-			// data if necessary in the future.
-			0: 3,
-			1: 3,
-		},
+		// NOTE: we are returning hardcoded fake data here which is good enough
+		// for the purpose of this test. This could be extended to return real
+		// data if necessary in the future.
+		propLengthsPairIds:      []uint64{0, 1},
+		propLengthsPairLens:     []uint32{3, 3},
 		propertyLengthsLoaded:   true,
 		tombstonesLoaded:        true,
 		avgPropertyLengthsAvg:   3.0,
@@ -240,6 +245,11 @@ func (f *fakeSegment) isLoaded() bool {
 }
 
 func (f *fakeSegment) markForDeletion() error {
+	f.isMarkedForDeletion = true
+	return nil
+}
+
+func (f *fakeSegment) markForDeletionExceptSegment() error {
 	f.isMarkedForDeletion = true
 	return nil
 }
@@ -268,6 +278,10 @@ func (f *fakeSegment) newCollectionCursorReusable() *segmentCursorCollectionReus
 }
 
 func (f *fakeSegment) newReplaceCursorReusable() *segmentCursorReplaceReusable {
+	panic("not implemented")
+}
+
+func (f *fakeSegment) newReplaceCursorDigestReusable(valuePrefixLen int) *segmentCursorReplaceReusable {
 	panic("not implemented")
 }
 
@@ -346,14 +360,17 @@ func (f *fakeSegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapB
 	if val, ok := f.roaringStore[string(key)]; ok {
 		return roaringset.BitmapLayer{
 			Additions: val.Clone(),
-		}, func() {}, nil
+		}, func() { f.roaringSetReleases++ }, nil
 	}
 
 	return roaringset.BitmapLayer{}, nil, lsmkv.NotFound
 }
 
-func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error {
+func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool, maxConc int) error {
 	f.getCounter++
+	if f.roaringSetMergeErr != nil {
+		return f.roaringSetMergeErr
+	}
 	layer, _, err := f.roaringSetGet(key, bitmapBufPool)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
@@ -362,8 +379,8 @@ func (f *fakeSegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLay
 	}
 
 	input.Additions.
-		AndNotConc(layer.Deletions, concurrency.SROAR_MERGE).
-		OrConc(layer.Additions, concurrency.SROAR_MERGE)
+		AndNotConc(layer.Deletions, maxConc).
+		OrConc(layer.Additions, maxConc)
 
 	return nil
 }
@@ -385,6 +402,19 @@ func (s *fakeSegment) getDocCount(key []byte) uint64 {
 	return uint64(len(s.collectionStore[string(key)]))
 }
 
+func (s *fakeSegment) getInvertedNodeAndDocCount(key []byte) (segmentindex.Node, uint64, bool) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return segmentindex.Node{}, 0, false
+	}
+	pairs, ok := s.collectionStore[string(key)]
+	if !ok {
+		return segmentindex.Node{}, 0, false
+	}
+	// the fake's newSegmentBlockMax rebuilds terms from collectionStore and
+	// ignores the node, so a zero node with the right count is sufficient
+	return segmentindex.Node{Key: key}, uint64(len(pairs)), true
+}
+
 func (s *fakeSegment) getCountNetAdditions() int {
 	// NOTE: This oversimplified fake implementation ignores deletes and updates,
 	// it pretends every write is a unique insert.
@@ -398,12 +428,44 @@ func (s *fakeSegment) getCountNetAdditions() int {
 }
 
 func (s *fakeSegment) getPropertyLengths() (map[uint64]uint32, error) {
-	panic("not implemented")
+	// reconstruct from the same getInvertedData arrays propLengthsView reads, so
+	// the map and the view agree (mirrors segment.getPropertyLengths)
+	d := s.getInvertedData()
+	if d.propLengthsDense != nil {
+		m := make(map[uint64]uint32)
+		for i, l := range d.propLengthsDense {
+			if l != 0 {
+				m[d.propLengthsDenseMin+uint64(i)] = l
+			}
+		}
+		return m, nil
+	}
+	if len(d.propLengthsPairIds) == 0 {
+		return nil, nil
+	}
+	m := make(map[uint64]uint32, len(d.propLengthsPairIds))
+	for i, id := range d.propLengthsPairIds {
+		m[id] = d.propLengthsPairLens[i]
+	}
+	return m, nil
 }
 
 func (s *fakeSegment) isPropertyLengthsLoaded() bool { return false }
 
 func (s *fakeSegment) freePropertyLengths() {}
+
+func (s *fakeSegment) propLengthsView() (propLengthsView, error) {
+	// mirror segment.propLengthsView over the fake's getInvertedData arrays so
+	// inverted read paths (Bucket.MapList / DocPointerWithScoreList) get real
+	// lengths instead of a panic
+	d := s.getInvertedData()
+	return propLengthsView{
+		dense: d.propLengthsDense,
+		min:   d.propLengthsDenseMin,
+		ids:   d.propLengthsPairIds,
+		lens:  d.propLengthsPairLens,
+	}, nil
+}
 
 func (s *fakeSegment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
 	panic("not implemented")
@@ -433,7 +495,7 @@ func (s *fakeSegment) stripTmpExtensions(leftSegmentID, rightSegmentID string) e
 	return nil
 }
 
-func (s *fakeSegment) newSegmentBlockMax(key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+func (s *fakeSegment) newSegmentBlockMax(node *segmentindex.Node, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones, memTombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
 	// we're taking a bit of a creative route to make this work with a fake
 	// segment. We have existing functions to create a SegmentBlockMax from a
 	// memtable which are used with real memtables. So if we convert the fake

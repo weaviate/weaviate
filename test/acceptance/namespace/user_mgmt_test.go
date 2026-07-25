@@ -341,10 +341,11 @@ func TestNamespacedAdminConflictsAndCollisions(t *testing.T) {
 	require.Equal(t, ns, adminUserInNs.Namespace)
 }
 
-// TestNamespacedAdminAuthzSurface — failure-mode pins for the authz user-role
-// surface from a namespaced caller's view: deprecated endpoint fails closed
-// (matcher cannot specialize the unqualified key), and assign/revoke fail at
-// authz on the qualified key (no AssignAndRevokeUsers in the widened admin).
+// TestNamespacedAdminAuthzSurface — pins the authz user-role surface from a
+// namespaced caller's view: the deprecated endpoint fails closed (matcher
+// cannot specialize the unqualified key), while assign and revoke succeed on the
+// qualified key — the widened admin holds AssignAndRevokeUsers, which the
+// matcher confines to the caller's own namespace.
 func TestNamespacedAdminAuthzSurface(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS()
@@ -363,7 +364,8 @@ func TestNamespacedAdminAuthzSurface(t *testing.T) {
 	var deprecatedGone *authz.GetRolesForUserDeprecatedGone
 	require.True(t, errors.As(err, &deprecatedGone), "expected GetRolesForUserDeprecatedGone, got %T", err)
 
-	// 2. assign → 403-at-authz (no AssignAndRevokeUsers grant for namespaced admin).
+	// 2. assign a role the admin holds to an own-namespace user → succeeds; the
+	//    matcher confines the AssignAndRevokeUsers grant to ns:bob.
 	_, err = helper.Client(t).Authz.AssignRoleToUser(
 		authz.NewAssignRoleToUserParams().WithID("bob").WithBody(authz.AssignRoleToUserBody{
 			Roles:    []string{authorization.Viewer},
@@ -371,11 +373,9 @@ func TestNamespacedAdminAuthzSurface(t *testing.T) {
 		}),
 		helper.CreateAuth(nsAdminKey),
 	)
-	require.Error(t, err)
-	var assignForbidden *authz.AssignRoleToUserForbidden
-	require.True(t, errors.As(err, &assignForbidden), "expected AssignRoleToUserForbidden, got %T", err)
+	require.NoError(t, err)
 
-	// 3. revoke → same failure mode.
+	// 3. revoke the same binding → succeeds for the same reason.
 	_, err = helper.Client(t).Authz.RevokeRoleFromUser(
 		authz.NewRevokeRoleFromUserParams().WithID("bob").WithBody(authz.RevokeRoleFromUserBody{
 			Roles:    []string{authorization.Viewer},
@@ -383,9 +383,7 @@ func TestNamespacedAdminAuthzSurface(t *testing.T) {
 		}),
 		helper.CreateAuth(nsAdminKey),
 	)
-	require.Error(t, err)
-	var revokeForbidden *authz.RevokeRoleFromUserForbidden
-	require.True(t, errors.As(err, &revokeForbidden), "expected RevokeRoleFromUserForbidden, got %T", err)
+	require.NoError(t, err)
 }
 
 // TestCreateUserAgainstDeletingNamespace — createUser into a namespace

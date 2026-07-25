@@ -179,4 +179,31 @@ func TestMergePropsMasked(t *testing.T) {
 		require.NotNil(t, merged[0].IndexFilterable)
 		assert.True(t, *merged[0].IndexFilterable, "unknown mask tag must not match any field; old values must survive")
 	})
+
+	t.Run("searchableBlockmax mask stamps in isolation", func(t *testing.T) {
+		// The migration cutover stamps SearchableBlockmax via a masked
+		// UpdateProperty; the mask must set that field and touch nothing else,
+		// so the stamp write can't clobber a concurrent tokenization/flag flip.
+		old := []*models.Property{{
+			Name:            "title",
+			DataType:        []string{"text"},
+			IndexSearchable: mkBool(true),
+			Tokenization:    "word",
+		}}
+		next := []*models.Property{{
+			Name:               "title",
+			DataType:           []string{"text"},
+			IndexSearchable:    nil, // stale; must NOT win
+			Tokenization:       "",  // stale; must NOT win
+			SearchableBlockmax: mkBool(true),
+		}}
+
+		merged := MergePropsMasked(old, next, []string{api.PropertyFieldSearchableBlockmax})
+		require.Len(t, merged, 1)
+		require.NotNil(t, merged[0].SearchableBlockmax)
+		assert.True(t, *merged[0].SearchableBlockmax, "masked stamp must be applied")
+		require.NotNil(t, merged[0].IndexSearchable, "unmasked IndexSearchable must not be cleared")
+		assert.True(t, *merged[0].IndexSearchable)
+		assert.Equal(t, "word", merged[0].Tokenization, "unmasked Tokenization must survive")
+	})
 }

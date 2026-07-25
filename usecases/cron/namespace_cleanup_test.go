@@ -57,6 +57,7 @@ func nonNilCoordinator(t *testing.T) *namespacecleanup.Coordinator {
 		stubLister{},
 		stubLister{},
 		stubLister{},
+		nil,
 		func() bool { return true },
 		logger,
 	)
@@ -82,6 +83,8 @@ func (stubLister) DeleteClass(context.Context, string) (uint64, error) {
 func (stubLister) RemoveNamespaceEntity(context.Context, string) (uint64, error) {
 	return 0, nil
 }
+func (stubLister) DeleteRoles(...string) error                { return nil }
+func (stubLister) RevokeRolesForUser(string, ...string) error { return nil }
 
 func TestCronsNamespaceCleanup_Init_NilCoordinator(t *testing.T) {
 	c, cr, cancel := newTestNamespaceCleanup(t, time.Minute)

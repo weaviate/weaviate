@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -28,6 +30,17 @@ import (
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
+
+// partialWindowBudget bounds the mixed-state cutover window. 700ms matches
+// the per-shard RUNSWAP+RAFT envelope on a representative disk; starved
+// environments (e.g. soak VMs) exceed it without any convergence defect and
+// may widen it via REINDEX_PARTIAL_WINDOW_BUDGET_MS.
+func partialWindowBudget() time.Duration {
+	if ms, err := strconv.Atoi(os.Getenv("REINDEX_PARTIAL_WINDOW_BUDGET_MS")); err == nil && ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return 700 * time.Millisecond
+}
 
 // TestLiveQueriesDuringChangeTokenization pins the correctness
 // invariant of the per-shard tokenization overlay introduced for
@@ -173,22 +186,11 @@ func runLiveQueryDuringChangeTokenizationCase(
 		rf          = 3
 		objectCount = 1500
 		batchSize   = 100
-		// Cross-shard cutover window budget. The cluster-wide schema flip in
-		// OnTaskCompleted propagates via RAFT after every node has run its
-		// local swap, so a brief window of mixed states (some shards
-		// swapped, some not) is expected on every replica regardless of the
-		// overlay. The 700 ms ceiling matches the per-shard
-		// RUNSWAP+RAFT-propagation envelope on a representative disk; the
-		// overlay does NOT shrink that spread — it closes a specific
-		// failure MODE within it (the out-of-range "0 from a swapped
-		// replica with stale schema" shape, asserted separately below by
-		// c.OutOfRange == 0).
-		partialWindowBudget = 700 * time.Millisecond
 	)
 
 	className := fmt.Sprintf("LiveQueryTok_%s_%s_%s", startTok, targetTok, indexType)
 
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
 		[]*models.Property{
 			{Name: "text", DataType: []string{"text"}, Tokenization: startTok},
 		})
@@ -210,13 +212,9 @@ func runLiveQueryDuringChangeTokenizationCase(
 	// stable baseline. If the probe matches zero at startTok we'd
 	// classify steady-state samples as partial, blowing the budget.
 	//
-	// Wait for per-replica convergence first. batchImport uses default
-	// write consistency; the synchronous POST returning does NOT
-	// guarantee that every replica has finished its replication leg —
-	// there can be a brief lag (typically <500ms) before all 3 nodes
-	// return identical probe counts. Without this wait the baseline
-	// captured here can be 5-10 below steady-state, and the
-	// classifyProbeSamples helper will subsequently treat *every*
+	// Wait for per-replica convergence first: consistency_level=ALL only
+	// guarantees acked writes, not that every replica has finished indexing.
+	// Without this wait, classifyProbeSamples would treat *every*
 	// steady-state sample as out-of-range (count > captured baseline).
 	// That misclassification produced 13 spurious failures on PR
 	// #11323 CI run b19dd49366 / job 76404184658:
@@ -234,7 +232,7 @@ func runLiveQueryDuringChangeTokenizationCase(
 	var taskID string
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text", indexUpdateJSON)
+			taskID = reindexhelpers.SubmitIndexUpsert(t, compose.GetWeaviateNode(1).URI(), className, "text", indexType, indexUpdateJSON)
 			t.Logf("submitted change-tokenization-%s task: %s", indexType, taskID)
 			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 			require.Eventually(t, func() bool {
@@ -298,10 +296,11 @@ func runLiveQueryDuringChangeTokenizationCase(
 	// out-of-range assertion above is what guards correctness.
 	if c.Partial > 0 {
 		windowDuration := c.LastPartial.Sub(c.FirstPartial)
-		assert.LessOrEqualf(t, windowDuration, partialWindowBudget,
+		budget := partialWindowBudget()
+		assert.LessOrEqualf(t, windowDuration, budget,
 			"partial-results window of %v exceeds budget of %v for %s→%s on %s — "+
 				"the cross-shard cutover took longer than the design admits.",
-			windowDuration, partialWindowBudget, startTok, targetTok, indexType)
+			windowDuration, budget, startTok, targetTok, indexType)
 	}
 
 	// Post-window guarantee: after the bounded partial window closes
@@ -336,16 +335,15 @@ func maxInt(a, b int) int {
 	return b
 }
 
-// buildTokenizationIndexUpdate produces the index-update request body
-// for a change-tokenization migration. Split out of the test body so
+// buildTokenizationIndexUpdate produces the GA upsert body for a
+// change-tokenization migration. The index type is now a path segment, so
+// the body is just the property-level fields for either type. Split out so
 // the assertion logic above stays readable.
 func buildTokenizationIndexUpdate(t *testing.T, indexType, targetTok string) string {
 	t.Helper()
 	switch indexType {
-	case "searchable":
-		return fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok)
-	case "filterable":
-		return fmt.Sprintf(`{"filterable":{"tokenization":%q}}`, targetTok)
+	case "searchable", "filterable":
+		return fmt.Sprintf(`{"tokenization":%q}`, targetTok)
 	default:
 		t.Fatalf("unsupported indexType %q", indexType)
 		return ""
@@ -415,7 +413,7 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 		queryLimit  = 2000 // Must exceed objectCount so all matches are returned.
 	)
 
-	createCollection(t, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
+	createCollection(t, compose, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
 		[]*models.Property{
 			{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 		})
@@ -456,8 +454,8 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	var taskID string
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
-				className, "text", `{"searchable":{"tokenization":"field"}}`)
+			taskID = reindexhelpers.SubmitIndexUpsert(t, compose.GetWeaviateNode(1).URI(),
+				className, "text", "searchable", `{"tokenization":"field"}`)
 			t.Logf("submitted change-tokenization task: %s", taskID)
 			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 			require.Eventually(t, func() bool {
@@ -486,7 +484,6 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	// budget. The test continues to enforce the looser ceiling as a
 	// no-regression guard against either the cluster-wide cutover
 	// spread or the per-shard alignment regressing.
-	const partialWindowBudget = 700 * time.Millisecond
 
 	// Window-duration only. Partial-sample count is `window × probe_rate ×
 	// shard_count`, which inherits per-shard IO variance even when the
@@ -498,13 +495,14 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	// dependent.
 	if c.Partial > 0 {
 		windowDuration := c.LastPartial.Sub(c.FirstPartial)
-		assert.LessOrEqual(t, windowDuration, partialWindowBudget,
+		budget := partialWindowBudget()
+		assert.LessOrEqual(t, windowDuration, budget,
 			"partial-results window of %v exceeds the budget of %v — "+
 				"the cluster-wide cutover is taking longer than the bounded "+
 				"RAFT-propagation + scheduler-wake design admits; investigate "+
 				"the reactive-firing path (Manager.notifySchedulerWithLock, "+
 				"Scheduler.wakeCh, OnGroupCompleted, OnTaskCompleted)",
-			windowDuration, partialWindowBudget)
+			windowDuration, budget)
 	}
 
 	// Post-window guarantee: after the bounded partial window closes,
@@ -524,7 +522,9 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	}
 }
 
-// batchImport posts objects in batches of `batchSize` using /v1/batch/objects.
+// batchImport posts in batches of `batchSize` at consistency_level=ALL — a
+// lagging replica would otherwise build a permanently-short WORD bucket for
+// the reverse reindex. Mirrors importObjects.
 func batchImport(t *testing.T, restURI, className string, texts []string, batchSize int) {
 	t.Helper()
 
@@ -547,7 +547,7 @@ func batchImport(t *testing.T, restURI, className string, texts []string, batchS
 		require.NoError(t, err)
 
 		resp, err := http.Post(
-			fmt.Sprintf("http://%s/v1/batch/objects", restURI),
+			fmt.Sprintf("http://%s/v1/batch/objects?consistency_level=ALL", restURI),
 			"application/json",
 			bytes.NewReader(body),
 		)

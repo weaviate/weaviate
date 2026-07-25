@@ -194,6 +194,25 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		var invalid ErrInvalidUserInput
 		require.True(t, errors.As(err, &invalid), "expected ErrInvalidUserInput, got %T: %v", err, err)
 	})
+
+	t.Run("missing required match fields classify as ErrInvalidUserInput", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			match *models.BatchDeleteMatch
+		}{
+			{name: "no match", match: nil},
+			{name: "empty match.class", match: &models.BatchDeleteMatch{Class: ""}},
+			{name: "missing match.where", match: &models.BatchDeleteMatch{Class: "Foo"}},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				_, err := manager.DeleteObjects(ctx, nil, test.match, nil, nil, ptString(verbosity.OutputVerbose), nil, "")
+				require.Error(t, err)
+				var invalid ErrInvalidUserInput
+				require.True(t, errors.As(err, &invalid), "expected ErrInvalidUserInput, got %T: %v", err, err)
+			})
+		}
+	})
 }
 
 // Test_BatchDelete_NamespaceResolution proves DeleteObjects routes the

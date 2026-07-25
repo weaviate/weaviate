@@ -88,7 +88,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 
 	for _, test := range testsWithQuantization {
 		t.Run(fmt.Sprintf("%s: %s", test.quantization, test.name), func(t *testing.T) {
-			bucket := buildCompressedBucketForTest(t, test.totalVecs)
+			bucket := buildCompressedBucketForTest(t, test.totalVecs, true)
 			defer bucket.Shutdown(context.Background())
 
 			logger, _ := logrustest.NewNullLogger()
@@ -138,7 +138,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 		t.Run("context already cancelled", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
-					bucket := buildCompressedBucketForTest(t, test.totalVecs)
+					bucket := buildCompressedBucketForTest(t, test.totalVecs, true)
 					defer bucket.Shutdown(context.Background())
 
 					cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
@@ -157,7 +157,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 		t.Run("context cancelled in the meantime", func(t *testing.T) {
 			for _, test := range testsCancellable {
 				t.Run(test.name, func(t *testing.T) {
-					bucket := buildCompressedBucketForTest(t, test.totalVecs)
+					bucket := buildCompressedBucketForTest(t, test.totalVecs, true)
 					defer bucket.Shutdown(context.Background())
 
 					cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
@@ -222,7 +222,7 @@ func testIterator[T uint64 | byte](t *testing.T, cpi *parallelIterator[T], test 
 	require.False(t, <-abortedCh)
 }
 
-func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
+func buildCompressedBucketForTest(t *testing.T, totalVecs int, flush bool) *lsmkv.Bucket {
 	ctx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
@@ -243,7 +243,33 @@ func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
 		require.Nil(t, err)
 	}
 
-	require.Nil(t, bucket.FlushAndSwitch())
+	if flush {
+		require.Nil(t, bucket.FlushAndSwitch())
+	}
 
 	return bucket
+}
+
+func TestCompressedParallelIteratorMemtableOnly(t *testing.T) {
+	// data that only lives in the memtable (e.g. recovered from the WAL after
+	// a restart, never flushed to a segment) yields no quantile-key seeds;
+	// the iterator must fall back to a sequential cursor instead of reporting
+	// an empty bucket
+	logger, _ := logrustest.NewNullLogger()
+	loadId := binary.BigEndian.Uint64
+	q := NewBinaryQuantizer(nil)
+
+	for _, totalVecs := range []int{1, 100, 3000} {
+		t.Run(fmt.Sprintf("%d unflushed vectors", totalVecs), func(t *testing.T) {
+			bucket := buildCompressedBucketForTest(t, totalVecs, false)
+			defer bucket.Shutdown(context.Background())
+
+			cpi := NewParallelIterator(bucket, 16, loadId,
+				q.FromCompressedBytesWithSubsliceBuffer, logger)
+			testIterator(t, cpi, iteratorTestCase{totalVecs: totalVecs, parallel: 16},
+				func(t *testing.T, vec VecAndID[uint64]) {
+					assert.Equal(t, vec.Id, vec.Vec[0])
+				})
+		})
+	}
 }

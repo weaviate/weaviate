@@ -569,7 +569,7 @@ func (e *recExecutor) evalSplit(ctx context.Context, n *recSplitNode, parentScop
 // branchScope, and recurses into branch.plan. The returned bitmap and release
 // belong to the branch result; idxK is released internally.
 func (e *recExecutor) evalSplitBranch(ctx context.Context, lcaPath string, br recSplitBranch, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
-	idxK, idxRel, err := e.metaBucket.RoaringSetGet(invnested.IdxKey(lcaPath, br.index))
+	idxK, idxRel, err := e.metaBucket.RoaringSetGet(ctx, invnested.IdxKey(lcaPath, br.index))
 	if err != nil {
 		return nil, nil, fmt.Errorf("evalSplit: read _idx[%q,%d]: %w", lcaPath, br.index, err)
 	}
@@ -691,7 +691,7 @@ func (e *recExecutor) evalNot(ctx context.Context, n *recNotNode, parentScope *s
 	// means the operand can't match anything in any element — NOT result is
 	// also empty (existential per-element: no element exists to satisfy
 	// "this element does not satisfy operand").
-	universeBucket, universeBucketRel, err := e.metaBucket.RoaringSetGet(invnested.ExistsKey(n.lca))
+	universeBucket, universeBucketRel, err := e.metaBucket.RoaringSetGet(ctx, invnested.ExistsKey(n.lca))
 	if err != nil {
 		return nil, nil, fmt.Errorf("evalNot: read _exists for %q: %w", n.lca, err)
 	}
@@ -720,7 +720,7 @@ func (e *recExecutor) evalNot(ctx context.Context, n *recNotNode, parentScope *s
 	var keyBuf [invnested.IdxKeySize]byte
 	for _, pin := range n.pins {
 		pinBm, pinRel, err := e.metaBucket.RoaringSetGet(
-			invnested.IdxKeyToBuf(pin.RelPath, pin.Index, keyBuf[:]))
+			ctx, invnested.IdxKeyToBuf(pin.RelPath, pin.Index, keyBuf[:]))
 		if err != nil {
 			return nil, nil, fmt.Errorf("evalNot: read _idx for pin %q[%d]: %w", pin.RelPath, pin.Index, err)
 		}

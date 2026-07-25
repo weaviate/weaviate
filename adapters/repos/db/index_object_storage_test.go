@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -337,6 +338,9 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}},
 		}, nil).Maybe()
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
+	// Seed a non-zero counter so the populated tenant reads as non-empty and is
+	// loaded as a raw *Shard (not deferred as an empty tenant).
+	seedShardObjectCounter(t, dirName, className, tenantNamePopulated)
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:              dirName,
@@ -482,7 +486,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)
 
-	usage, err := newIndex.usageForCollection(ctx, time.Nanosecond, true, class.VectorConfig)
+	usage, err := newIndex.usageForCollection(ctx, semaphore.NewWeighted(4), true, class.VectorConfig)
 	require.NoError(t, err)
 
 	for _, shardUsage := range usage.Shards {

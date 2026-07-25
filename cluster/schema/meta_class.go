@@ -308,6 +308,9 @@ func MergePropsMasked(old, new []*models.Property, mask []string) []*models.Prop
 			// mask.
 			mergedProps[oldIdx].BucketGeneration = new[idx].BucketGeneration
 		}
+		if allow(command.PropertyFieldSearchableBlockmax) {
+			mergedProps[oldIdx].SearchableBlockmax = new[idx].SearchableBlockmax
+		}
 
 		if allow(command.PropertyFieldNestedProperties) {
 			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(

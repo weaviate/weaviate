@@ -37,22 +37,30 @@ type DynusersNamespaceLister interface {
 	UsersInNamespace(namespace string) []string
 }
 
+// RBACNamespaceLister counts the local roles and role assignments that still
+// belong to a namespace.
+type RBACNamespaceLister interface {
+	CountNamespaceLocalRBAC(namespace string) (int, error)
+}
+
 // Manager is the RAFT FSM adapter. It does not own state.
 type Manager struct {
 	controller *usecasesNamespaces.Controller
 	schema     SchemaNamespaceLister
 	dynusers   DynusersNamespaceLister
+	rbac       RBACNamespaceLister
 	logger     logrus.FieldLogger
 }
 
 // NewManager wraps the controller and the listers RemoveEntity consults
 // to verify the namespace is empty. Panics on a nil controller or nil
-// schema lister. The dynusers lister is optional: deployments without
-// dynamic users pass nil and the user check is skipped.
+// schema lister. The dynusers and rbac listers are optional: deployments
+// without dynamic users or RBAC pass nil and the respective check is skipped.
 func NewManager(
 	controller *usecasesNamespaces.Controller,
 	schema SchemaNamespaceLister,
 	dynusers DynusersNamespaceLister,
+	rbac RBACNamespaceLister,
 	logger logrus.FieldLogger,
 ) *Manager {
 	if controller == nil {
@@ -65,19 +73,21 @@ func NewManager(
 		controller: controller,
 		schema:     schema,
 		dynusers:   dynusers,
+		rbac:       rbac,
 		logger:     logger,
 	}
 }
 
-// Add applies an AddNamespace RAFT command. It rejects malformed payloads
-// and invalid names with [usecasesNamespaces.ErrBadRequest], and duplicates
-// with [usecasesNamespaces.ErrAlreadyExists].
+// Add applies an AddNamespace RAFT command, recording the command's RAFT log
+// index on the new namespace. It rejects malformed payloads and invalid names
+// with [usecasesNamespaces.ErrBadRequest], and duplicates with
+// [usecasesNamespaces.ErrAlreadyExists].
 func (m *Manager) Add(c *cmd.ApplyRequest) error {
 	req := &cmd.AddNamespaceRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
-	return m.controller.Create(req.Namespace)
+	return m.controller.Create(req.Namespace, c.Version)
 }
 
 // Update applies an UpdateNamespace RAFT command. It rewrites the stored
@@ -94,25 +104,33 @@ func (m *Manager) Update(c *cmd.ApplyRequest) error {
 }
 
 // ChangeState applies a ChangeNamespaceState RAFT command, transitioning
-// the namespace into the target state. Returns
-// [usecasesNamespaces.ErrBadRequest] for malformed payloads or unknown
-// target states, [usecasesNamespaces.ErrNotFound] when the namespace does
-// not exist, and [usecasesNamespaces.ErrInvalidStateTransition] when the
-// requested transition is forbidden.
+// the namespace into the target state and recording the command's RAFT log
+// index against it. A nonzero req.ExpectedStateChangeIndex is enforced as a
+// precondition: the flip is refused with
+// [usecasesNamespaces.ErrStateChangedConcurrently] unless the namespace is
+// still at that index. Returns
+// [usecasesNamespaces.ErrBadRequest] for malformed payloads or unknown target
+// states, [usecasesNamespaces.ErrNotFound] when the namespace does not exist,
+// and [usecasesNamespaces.ErrInvalidStateTransition] when the requested
+// transition is forbidden.
 func (m *Manager) ChangeState(c *cmd.ApplyRequest) error {
 	req := &cmd.ChangeNamespaceStateRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
-	return m.controller.ChangeState(req.Name, req.TargetState)
+	// c.Version is this command's RAFT log index.
+	return m.controller.ChangeState(req.Name, req.TargetState, usecasesNamespaces.StateChange{
+		AppliedIndex:  c.Version,
+		ExpectedIndex: req.ExpectedStateChangeIndex,
+	})
 }
 
 // RemoveEntity applies a RemoveNamespaceEntity RAFT command. Returns
 // [usecasesNamespaces.ErrBadRequest] for malformed payloads,
 // [usecasesNamespaces.ErrNotFound] when the namespace does not exist,
 // [usecasesNamespaces.ErrInvalidState] when called on an active namespace,
-// and [usecasesNamespaces.ErrNamespaceNotEmpty] when classes, aliases, or
-// users still remain in the namespace.
+// and [usecasesNamespaces.ErrNamespaceNotEmpty] when classes, aliases, users,
+// or RBAC rows still remain in the namespace.
 func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 	req := &cmd.RemoveNamespaceEntityRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
@@ -134,18 +152,17 @@ func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 			return fmt.Errorf("%w: %d user(s) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(users), req.Name)
 		}
 	}
+	// rbac is nil when RBAC is disabled.
+	if m.rbac != nil {
+		rbacRows, err := m.rbac.CountNamespaceLocalRBAC(req.Name)
+		if err != nil {
+			return fmt.Errorf("count RBAC rows in namespace %q: %w", req.Name, err)
+		}
+		if rbacRows > 0 {
+			return fmt.Errorf("%w: %d RBAC row(s) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, rbacRows, req.Name)
+		}
+	}
 	return m.controller.RemoveEntity(req.Name)
-}
-
-// Exists proxies to the controller. Lets the apply switch satisfy
-// [usecasesNamespaces.Exister] from a single namespaceManager reference.
-func (m *Manager) Exists(name string) bool {
-	return m.controller.Exists(name)
-}
-
-// IsActive proxies to the controller.
-func (m *Manager) IsActive(name string) bool {
-	return m.controller.IsActive(name)
 }
 
 // GetNamespace returns the namespace by name. ok is false when the

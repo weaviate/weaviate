@@ -214,17 +214,39 @@ func (m *AutoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
 	return dtypes
 }
 
+// couldBeRFC3339 reports whether s has the shape of an RFC3339 timestamp: '-' at
+// 4 and 7, 'T'/'t' at 10, length >= len("2006-01-02T15:04:05Z"). Necessary
+// condition only — it must never reject a value time.Parse would accept.
+func couldBeRFC3339(s string) bool {
+	return len(s) >= 20 && s[4] == '-' && s[7] == '-' && (s[10] == 'T' || s[10] == 't')
+}
+
+// couldBeUUID reports whether s has a length uuid.Parse could accept: 32 (no
+// hyphens), 36 (canonical), 38 ({} braced), or 45 (urn:uuid: prefixed).
+// Necessary condition only — it must never reject a valid UUID.
+func couldBeUUID(s string) bool {
+	l := len(s)
+	return l == 32 || l == 36 || l == 38 || l == 45
+}
+
 func (m *AutoSchemaManager) determineType(value interface{}, ofNestedProp bool) ([]schema.DataType, error) {
 	fallbackDataType := []schema.DataType{schema.DataTypeText}
 	fallbackArrayDataType := []schema.DataType{schema.DataTypeTextArray}
 
 	switch typedValue := value.(type) {
 	case string:
-		if _, err := time.Parse(time.RFC3339, typedValue); err == nil {
-			return []schema.DataType{schema.DataType(m.config.DefaultDate)}, nil
+		// Guard the parses: on the common non-date/non-uuid string, time.Parse and
+		// uuid.Parse clone the input into a discarded error on failure, the dominant
+		// auto-schema allocation. The shape checks skip that for values that cannot match.
+		if couldBeRFC3339(typedValue) {
+			if _, err := time.Parse(time.RFC3339, typedValue); err == nil {
+				return []schema.DataType{schema.DataType(m.config.DefaultDate)}, nil
+			}
 		}
-		if _, err := uuid.Parse(typedValue); err == nil {
-			return []schema.DataType{schema.DataTypeUUID}, nil
+		if couldBeUUID(typedValue) {
+			if _, err := uuid.Parse(typedValue); err == nil {
+				return []schema.DataType{schema.DataTypeUUID}, nil
+			}
 		}
 		if m.config.DefaultString != "" {
 			return []schema.DataType{schema.DataType(m.config.DefaultString)}, nil
@@ -332,11 +354,16 @@ func (m *AutoSchemaManager) determineArrayType(value interface{}, ofNestedProp b
 ) (schema.DataType, schema.DataType, error) {
 	switch typedValue := value.(type) {
 	case string:
-		if _, err := time.Parse(time.RFC3339, typedValue); err == nil {
-			return schema.DataTypeDateArray, "", nil
+		// Shape checks skip the allocating parse for non-matches, as in determineType.
+		if couldBeRFC3339(typedValue) {
+			if _, err := time.Parse(time.RFC3339, typedValue); err == nil {
+				return schema.DataTypeDateArray, "", nil
+			}
 		}
-		if _, err := uuid.Parse(typedValue); err == nil {
-			return schema.DataTypeUUIDArray, "", nil
+		if couldBeUUID(typedValue) {
+			if _, err := uuid.Parse(typedValue); err == nil {
+				return schema.DataTypeUUIDArray, "", nil
+			}
 		}
 		if schema.DataType(m.config.DefaultString) == schema.DataTypeString {
 			return schema.DataTypeStringArray, "", nil

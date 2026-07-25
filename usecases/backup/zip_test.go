@@ -335,35 +335,35 @@ func TestNewZipClampsSplitFileSize(t *testing.T) {
 	tests := []struct {
 		name                  string
 		chunkTargetSize       int64
-		bigFileThreshold      int64
+		bigFilesThreshold     int64
 		splitFileSize         int64
 		expectedSplitFileSize int64
 	}{
 		{
-			name:                  "splitFileSize already above bigFileThreshold",
+			name:                  "splitFileSize already above bigFilesThreshold",
 			chunkTargetSize:       500,
-			bigFileThreshold:      300,
+			bigFilesThreshold:     300,
 			splitFileSize:         1000,
 			expectedSplitFileSize: 1000,
 		},
 		{
-			name:                  "splitFileSize equals bigFileThreshold",
+			name:                  "splitFileSize equals bigFilesThreshold",
 			chunkTargetSize:       500,
-			bigFileThreshold:      1000,
+			bigFilesThreshold:     1000,
 			splitFileSize:         1000,
 			expectedSplitFileSize: 1000,
 		},
 		{
-			name:                  "splitFileSize below bigFileThreshold gets clamped up",
+			name:                  "splitFileSize below bigFilesThreshold gets clamped up",
 			chunkTargetSize:       500,
-			bigFileThreshold:      1000,
+			bigFilesThreshold:     1000,
 			splitFileSize:         300,
 			expectedSplitFileSize: 1000,
 		},
 		{
-			name:                  "splitFileSize below chunkTargetSize stays as-is when bigFileThreshold is zero",
+			name:                  "splitFileSize below chunkTargetSize stays as-is when bigFilesThreshold is zero",
 			chunkTargetSize:       1000,
-			bigFileThreshold:      0,
+			bigFilesThreshold:     0,
 			splitFileSize:         500,
 			expectedSplitFileSize: 500,
 		},
@@ -371,7 +371,7 @@ func TestNewZipClampsSplitFileSize(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, tc.bigFileThreshold, tc.splitFileSize)
+			z, rc, err := NewZip(dir, int(GzipBestSpeed), tc.chunkTargetSize, tc.bigFilesThreshold, tc.splitFileSize)
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedSplitFileSize, z.splitFileSizeBytes)
 			go func() { io.Copy(io.Discard, rc) }()
@@ -434,8 +434,8 @@ func TestWriteRegulars(t *testing.T) {
 			files: []testFile{
 				{"shard/huge.db", 5000},
 			},
-			// chunkTargetSize=1000, bigFileThreshold=1000, splitFileSize=500.
-			// splitFileSize clamped to bigFileThreshold=1000.
+			// chunkTargetSize=1000, bigFilesThreshold=1000, splitFileSize=500.
+			// splitFileSize clamped to bigFilesThreshold=1000.
 			// fileSize(5000) > splitFileSizeBytes(1000) → numParts=ceil(5000/1000)=5, partSize=ceil(5000/5)=1000.
 			// WriteSplitFile writes first 1000 bytes.
 			chunkTargetSize:      1000,
@@ -444,7 +444,7 @@ func TestWriteRegulars(t *testing.T) {
 			expectTarFiles:       []string{"shard/huge.db"},
 			expectRemainingFiles: nil,
 			expectSplitFile:      "shard/huge.db",
-			expectAlreadyWritten: 1000, // splitFileSize clamped to bigFileThreshold
+			expectAlreadyWritten: 1000, // splitFileSize clamped to bigFilesThreshold
 		},
 		{
 			name: "small file exceeding split threshold returns SplitFile with first part written",
@@ -625,6 +625,107 @@ func TestWriteRegulars(t *testing.T) {
 		require.Equal(t, int64(2000), bigInfo.Size)
 		require.Equal(t, []string{"chunk2"}, bigInfo.ChunkKeys)
 	})
+
+	// A mutable big file (bbolt meta.db) must be fully archived but NOT tracked for
+	// dedup: it can be rewritten in place without a size+mtime change signal, so
+	// tracking it would let an incremental wrongly skip a changed file.
+	t.Run("mutable big file is written but not tracked in BigFilesChunk", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "source")
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard"), os.ModePerm))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "shard", "meta.db"), bytes.Repeat([]byte("M"), 2000), 0o644))
+
+		sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
+		fileList := &backup.FileList{
+			Files:     []string{"shard/meta.db"},
+			FileSizes: map[string]int64{"shard/meta.db": 2000},
+		}
+
+		z, rc, err := NewZip(dir, int(NoCompression), 10000, 500, 0)
+		require.NoError(t, err)
+		preComp := &atomic.Int64{}
+		var writeErr error
+		go func() {
+			_, _, writeErr = z.WriteRegulars(context.Background(), &sd, fileList, preComp, "chunk1")
+			z.Close()
+		}()
+
+		buf := bytes.NewBuffer(nil)
+		_, err = io.Copy(buf, rc)
+		require.NoError(t, err)
+		require.NoError(t, rc.Close())
+		require.NoError(t, writeErr)
+		require.Equal(t, 0, fileList.Len(), "meta.db should be written")
+
+		// meta.db is fully archived...
+		tr := tar.NewReader(buf)
+		var tarFiles []string
+		for {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+			tarFiles = append(tarFiles, hdr.Name)
+		}
+		require.Equal(t, []string{"shard/meta.db"}, tarFiles)
+
+		// ...but not registered as a dedup candidate.
+		_, ok := sd.BigFilesChunk["shard/meta.db"]
+		require.False(t, ok, "mutable meta.db must not be tracked in BigFilesChunk")
+	})
+
+	// The split path (WriteSplitFile) is the one most mutable big files hit — a raw
+	// commitlog large enough to span several chunks. It must be fully archived across
+	// those chunks yet never registered as a dedup candidate.
+	t.Run("mutable split file is archived across chunks but not tracked", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "source")
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard", "main.hnsw.commitlog.d"), os.ModePerm))
+		relPath := "shard/main.hnsw.commitlog.d/1709203456"
+		const total = 5000
+		require.NoError(t, os.WriteFile(filepath.Join(dir, relPath), bytes.Repeat([]byte("C"), total), 0o644))
+
+		sd := backup.ShardDescriptor{Name: "shard", Node: "node1"}
+		fileList := &backup.FileList{
+			Files:     []string{relPath},
+			FileSizes: map[string]int64{relPath: total},
+		}
+
+		// splitFileSize 1000 forces the 5000-byte file into 5 parts.
+		var split *SplitFile
+		runZipChunk(t, dir, func(z *zip, pc *atomic.Int64) {
+			_, split, _ = z.WriteRegulars(context.Background(), &sd, fileList, pc, "chunk0")
+		})
+		// Drive the remaining parts like the production producer does: one chunk each.
+		for i := 1; split != nil; i++ {
+			require.Less(t, i, 100, "split file did not converge")
+			next, chunkKey := split, fmt.Sprintf("chunk%d", i)
+			runZipChunk(t, dir, func(z *zip, pc *atomic.Int64) {
+				split, _ = z.WriteSplitFile(context.Background(), &sd, next, pc, chunkKey)
+			})
+		}
+
+		// The loop exited with split == nil, so every byte was archived across the
+		// chunks — yet the file is not a dedup candidate.
+		_, ok := sd.BigFilesChunk[relPath]
+		require.False(t, ok, "mutable split commitlog must not be tracked in BigFilesChunk")
+	})
+}
+
+// runZipChunk runs one backup chunk: it creates a zip with a 1000-byte split size,
+// invokes write in a goroutine, and drains the reader so the write can't block on
+// the pipe. Used to drive a split file across multiple chunks.
+func runZipChunk(t *testing.T, sourceDir string, write func(z *zip, pc *atomic.Int64)) {
+	t.Helper()
+	z, rc, err := NewZip(sourceDir, int(NoCompression), 1000, 1000, 1000)
+	require.NoError(t, err)
+	pc := &atomic.Int64{}
+	go func() {
+		write(&z, pc)
+		z.Close()
+	}()
+	_, err = io.Copy(io.Discard, rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
 }
 
 // TestWriteShardFirstChunkRespectsInMemoryFiles verifies that when WriteShard
@@ -1892,7 +1993,7 @@ func TestBackupRestoreEndToEnd(t *testing.T) {
 }
 
 // TestWriteRegularsBigFileReturnsSplitFile verifies that when a "big" file
-// (>= bigFileThreshold) also exceeds splitFileSizeBytes, WriteRegulars
+// (>= bigFilesThreshold) also exceeds splitFileSizeBytes, WriteRegulars
 // returns the SplitFile so the caller can split it across chunks instead of
 // silently dropping it.
 // makeTestData creates deterministic test data of the given size.

@@ -55,6 +55,7 @@ type DistributedBackupDescriptor struct {
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
 	CompressionType         CompressionType            `json:"compressionType"`
 	BaseBackupID            string                     `json:"baseBackupId"`
+	Users                   []string                   `json:"users,omitempty"`
 }
 
 // Len returns how many nodes exist in d
@@ -94,6 +95,19 @@ func (d *DistributedBackupDescriptor) Classes() []string {
 	for cls := range set {
 		lst[i] = cls
 		i++
+	}
+	return lst
+}
+
+// UserList returns the deduped dynamic-user IDs recorded in d (empty when none).
+func (d *DistributedBackupDescriptor) UserList() []string {
+	set := make(map[string]struct{}, len(d.Users))
+	for _, u := range d.Users {
+		set[u] = struct{}{}
+	}
+	lst := make([]string, 0, len(set))
+	for u := range set {
+		lst = append(lst, u)
 	}
 	return lst
 }
@@ -243,6 +257,10 @@ func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
 	return d.CompressionType
 }
 
+func (d *DistributedBackupDescriptor) GetStartedAt() time.Time {
+	return d.StartedAt
+}
+
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
 	Name                  string                 `json:"name"`
@@ -338,10 +356,11 @@ type ShardAndID struct {
 type FileList struct {
 	Files     []string
 	FileSizes map[string]int64 // map of relative file path to file size in bytes
-	// Top100Size is the size of the 100th biggest file (or smallest if fewer than 100 files),
-	// with a minimum of 1MB. This can be used for chunk size optimization.
-	Top100Size int64
-	start      int
+	// BigFilesThreshold is the size of the n-th biggest file, clamped to a minimum chunk size,
+	// where n is the configured number of files that may get their own chunk, minus the files
+	// reused from the base backup.
+	BigFilesThreshold int64
+	start             int
 }
 
 // Len returns the number of files in the list
@@ -521,6 +540,10 @@ func (d *BackupDescriptor) List() []string {
 
 func (d *BackupDescriptor) GetBaseBackupID() string {
 	return d.BaseBackupID
+}
+
+func (d *BackupDescriptor) GetStartedAt() time.Time {
+	return d.StartedAt
 }
 
 // AllExist checks if all classes exist in d.

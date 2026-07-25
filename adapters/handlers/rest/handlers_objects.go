@@ -404,6 +404,8 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
 			return objects.NewObjectsClassPutForbidden().
 				WithPayload(errPayloadFromSingleErr(principal, err))
+		} else if errors.As(err, &uco.ErrNotFound{}) {
+			return objects.NewObjectsClassPutNotFound()
 		} else {
 			return objects.NewObjectsClassPutInternalServerError().
 				WithPayload(errPayloadFromSingleErr(principal, err))
@@ -934,6 +936,11 @@ func parseIncludeParam(in *string, modulesProvider ModulesProvider, includeModul
 		}
 		if prop == "vector" {
 			out.Vector = true
+			// Named vectors too: the remote-shard result marshaling
+			// (storobj.MarshalBinaryOptional) strips target vectors unless this is
+			// set, so without it a cluster LIST returns nil Vectors for objects on
+			// remote shards while a single-node LIST returns them.
+			out.IncludeAllTargetVectors = true
 			continue
 		}
 		if includeModuleParams && modulesProvider != nil {

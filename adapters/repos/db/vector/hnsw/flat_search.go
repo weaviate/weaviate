@@ -164,12 +164,7 @@ func (h *hnsw) flatMultiSearch(ctx context.Context, queryVector [][]float32, lim
 				dist, err := h.computeScore(queryVector, candidate)
 
 				if errors.As(err, &e) {
-					h.RLock()
-					vecIDs := h.docIDVectors[candidate]
-					h.RUnlock()
-					for _, vecID := range vecIDs {
-						h.handleDeletedNode(vecID, "flatSearch")
-					}
+					h.handleDeletedDocID(candidate, "flatSearch")
 					continue
 				}
 				if err != nil {

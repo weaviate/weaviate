@@ -119,6 +119,8 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	allowAnonymous := state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled
 	authComposer := composer.New(
 		state.ServerConfig.Config.Authentication,
+		state.ServerConfig.Config.Namespaces.Enabled,
+		state.Logger,
 		state.APIKey,
 		state.OIDC,
 	)

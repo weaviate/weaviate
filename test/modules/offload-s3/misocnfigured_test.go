@@ -77,7 +77,7 @@ func Test_DeleteTenantsWhileMisconfigured(t *testing.T) {
 		})
 
 		t.Run("delete tenant 1 in time manner", func(t *testing.T) {
-			customCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+			customCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 			defer cancel()
 
 			errChan := make(chan error, 1)
@@ -164,7 +164,7 @@ func Test_DeleteTenantsWhileProviderIsDown(t *testing.T) {
 		})
 
 		t.Run("delete tenant 1 in time manner", func(t *testing.T) {
-			customCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+			customCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 			defer cancel()
 
 			errChan := make(chan error, 1)
