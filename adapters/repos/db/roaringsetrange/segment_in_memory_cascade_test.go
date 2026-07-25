@@ -132,9 +132,10 @@ func assertCascadesAgree(t *testing.T, seg *SegmentInMemory, bufPool roaringset.
 	}
 }
 
-// canonicalBytes re-serializes into a right-sized arena so the differential
-// compares set membership, not arena layout (see
-// TestSeededCascadeLeavesADifferentArena).
+// canonicalBytes re-serializes into a right-sized arena. The differential then
+// compares bytes, but only up to that normalization: sroar's raw arena is not a
+// function of the set (see TestSeededCascadeLeavesADifferentArena), so it
+// cannot be compared directly.
 func canonicalBytes(bm *sroar.Bitmap) []byte {
 	return sroar.FromSortedList(bm.ToArray()).ToBuffer()
 }
