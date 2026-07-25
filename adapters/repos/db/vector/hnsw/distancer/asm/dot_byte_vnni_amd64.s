@@ -8,7 +8,7 @@
 //
 // VPDPBUSD (VNNI) kernels for uint8 dot product and squared L2 distance -
 // the x86 counterpart of the arm64 UDOT kernels in
-// compressionhelpers/dot_byte_arm64.s. One
+// dot_byte_udot_arm64.s. One
 // VPDPBUSD replaces the whole widen+VPMADDWD+VPADDD sequence of the AVX2
 // kernels: it multiplies 4-byte groups (unsigned x signed) and accumulates
 // into int32 lanes without saturation.

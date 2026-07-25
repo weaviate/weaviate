@@ -9,9 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build arm64
-
-package compressionhelpers
+package asm
 
 //go:noescape
 func dotByteNibbleUDOTAsm(q, packed *byte, half int) uint32
@@ -25,7 +23,11 @@ func dotNibbleNibbleUDOTAsm(a, b *byte, n int) uint32
 //go:noescape
 func dotNibbleNibbleUADALPAsm(a, b *byte, n int) uint32
 
-func dotByteNibbleUDOT(q, packed []byte) uint32 {
+// DotByteNibbleUDOT computes the dot product between an unpacked 8-bit code
+// and a packed 4-bit code in plane layout (byte j holds dimension j in the
+// low nibble and dimension j+D/2 in the high nibble), unpacking nibbles in
+// registers. Callers must gate on cpu.ARM64.HasASIMDDP.
+func DotByteNibbleUDOT(q, packed []byte) uint32 {
 	half := len(packed)
 	if half == 0 {
 		return 0
@@ -34,7 +36,9 @@ func dotByteNibbleUDOT(q, packed []byte) uint32 {
 	return dotByteNibbleUDOTAsm(&q[0], &packed[0], half)
 }
 
-func dotByteNibbleUADALP(q, packed []byte) uint32 {
+// DotByteNibbleUADALP is the UMULL/UADALP variant of DotByteNibbleUDOT for
+// baseline ASIMD CPUs without the DotProd extension.
+func DotByteNibbleUADALP(q, packed []byte) uint32 {
 	half := len(packed)
 	if half == 0 {
 		return 0
@@ -43,7 +47,9 @@ func dotByteNibbleUADALP(q, packed []byte) uint32 {
 	return dotByteNibbleUADALPAsm(&q[0], &packed[0], half)
 }
 
-func dotNibbleNibbleUDOT(a, b []byte) uint32 {
+// DotNibbleNibbleUDOT computes the dot product between two packed 4-bit
+// codes in plane layout. Callers must gate on cpu.ARM64.HasASIMDDP.
+func DotNibbleNibbleUDOT(a, b []byte) uint32 {
 	if len(a) == 0 {
 		return 0
 	}
@@ -51,7 +57,9 @@ func dotNibbleNibbleUDOT(a, b []byte) uint32 {
 	return dotNibbleNibbleUDOTAsm(&a[0], &b[0], len(a))
 }
 
-func dotNibbleNibbleUADALP(a, b []byte) uint32 {
+// DotNibbleNibbleUADALP is the UMULL/UADALP variant of DotNibbleNibbleUDOT
+// for baseline ASIMD CPUs without the DotProd extension.
+func DotNibbleNibbleUADALP(a, b []byte) uint32 {
 	if len(a) == 0 {
 		return 0
 	}

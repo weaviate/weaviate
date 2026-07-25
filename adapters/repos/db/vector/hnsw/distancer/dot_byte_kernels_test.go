@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package compressionhelpers
+package distancer
 
 import (
 	"fmt"
@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Pure Go references, mirroring the default impls in distance.go (the vars
-// are replaced at init time, so the references live here).
+// Pure Go references for the uint8 kernels in asm, exact integer semantics
+// (including uint32 wraparound).
 func dotByteRef(a, b []byte) uint32 {
 	var sum uint32
 	for i := range a {
@@ -46,16 +46,15 @@ func randomByteVector(n int, rng *rand.Rand) []byte {
 	return v
 }
 
-// TestDotByteImplMatchesGo pins the dispatched u8 dot product and all
-// architecture-specific kernels (including the goat-generated ones they may
-// replace) to the pure Go reference, exact integer equality.
+// TestDotByteImplMatchesGo pins all architecture-specific u8 dot product
+// kernels runnable on this machine (including the goat-generated ones newer
+// kernels may replace at dispatch time) to the pure Go reference, exact
+// integer equality.
 func TestDotByteImplMatchesGo(t *testing.T) {
-	variants := dotByteVariantsUnderTest()
-	variants["dispatched"] = dotByteImpl
-	for name, impl := range variants {
+	for name, impl := range dotByteVariantsUnderTest() {
 		t.Run(name, func(t *testing.T) {
 			rng := rand.New(rand.NewPCG(11, 12))
-			for _, n := range nibbleKernelSizes {
+			for _, n := range byteKernelSizes {
 				for trial := range 10 {
 					a := randomByteVector(n, rng)
 					b := randomByteVector(n, rng)
@@ -74,12 +73,10 @@ func TestDotByteImplMatchesGo(t *testing.T) {
 }
 
 func TestL2ByteImplMatchesGo(t *testing.T) {
-	variants := l2ByteVariantsUnderTest()
-	variants["dispatched"] = l2SquaredByteImpl
-	for name, impl := range variants {
+	for name, impl := range l2ByteVariantsUnderTest() {
 		t.Run(name, func(t *testing.T) {
 			rng := rand.New(rand.NewPCG(13, 14))
-			for _, n := range nibbleKernelSizes {
+			for _, n := range byteKernelSizes {
 				for trial := range 10 {
 					a := randomByteVector(n, rng)
 					b := randomByteVector(n, rng)
@@ -101,7 +98,7 @@ func TestL2ByteImplMatchesGo(t *testing.T) {
 	}
 }
 
-func BenchmarkDotByte(b *testing.B) {
+func BenchmarkDotByteKernels(b *testing.B) {
 	rng := rand.New(rand.NewPCG(15, 16))
 	// 1000 is deliberately not a multiple of the SIMD block sizes: it times
 	// the kernels' tail handling (masked loads / step-down blocks).
@@ -115,15 +112,15 @@ func BenchmarkDotByte(b *testing.B) {
 				}
 			})
 		}
-		b.Run(fmt.Sprintf("dispatched-d%d", n), func(b *testing.B) {
+		b.Run(fmt.Sprintf("go-d%d", n), func(b *testing.B) {
 			for b.Loop() {
-				dotByteImpl(x, y)
+				dotByteRef(x, y)
 			}
 		})
 	}
 }
 
-func BenchmarkL2Byte(b *testing.B) {
+func BenchmarkL2ByteKernels(b *testing.B) {
 	rng := rand.New(rand.NewPCG(17, 18))
 	for _, n := range []int{1000, 1024, 1536} {
 		x := randomByteVector(n, rng)
@@ -135,9 +132,9 @@ func BenchmarkL2Byte(b *testing.B) {
 				}
 			})
 		}
-		b.Run(fmt.Sprintf("dispatched-d%d", n), func(b *testing.B) {
+		b.Run(fmt.Sprintf("go-d%d", n), func(b *testing.B) {
 			for b.Loop() {
-				l2SquaredByteImpl(x, y)
+				l2ByteRef(x, y)
 			}
 		})
 	}

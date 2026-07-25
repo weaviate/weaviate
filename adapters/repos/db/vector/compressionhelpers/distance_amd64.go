@@ -21,8 +21,8 @@ func init() {
 		l2SquaredByteImpl = asm.L2ByteAVX256
 		dotByteImpl = asm.DotByteAVX256
 		hammingBitwiseImpl = asm.HammingBitwiseAVX256
-		dotByteNibbleImpl = dotByteNibbleAVX2
-		dotNibbleNibbleImpl = dotNibbleNibbleAVX2
+		dotByteNibbleImpl = asm.DotByteNibbleAVX2
+		dotNibbleNibbleImpl = asm.DotNibbleNibbleAVX2
 		rq4QuantCorrImpl = rq4QuantCorrAVX2
 		rq4MinMaxSumImpl = rq4MinMaxSumAVX2
 	}
@@ -38,7 +38,7 @@ func init() {
 		dotByteImpl = asm.DotByteVNNI512
 		// Nibbles are non-negative as int8, so the packed 4-bit kernels use
 		// VPDPBUSD without any unsigned correction: load, unpack, dot.
-		dotByteNibbleImpl = dotByteNibbleVNNI512
-		dotNibbleNibbleImpl = dotNibbleNibbleVNNI512
+		dotByteNibbleImpl = asm.DotByteNibbleVNNI512
+		dotNibbleNibbleImpl = asm.DotNibbleNibbleVNNI512
 	}
 }

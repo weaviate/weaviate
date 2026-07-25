@@ -24,13 +24,13 @@ func init() {
 		rq4QuantCorrImpl = rq4QuantCorrNEON
 		rq4MinMaxSumImpl = rq4MinMaxSumNEON
 		if cpu.ARM64.HasASIMDDP {
-			l2SquaredByteImpl = l2ByteUDOT
-			dotByteImpl = dotByteUDOT
-			dotByteNibbleImpl = dotByteNibbleUDOT
-			dotNibbleNibbleImpl = dotNibbleNibbleUDOT
+			l2SquaredByteImpl = asm.L2ByteUDOT
+			dotByteImpl = asm.DotByteUDOT
+			dotByteNibbleImpl = asm.DotByteNibbleUDOT
+			dotNibbleNibbleImpl = asm.DotNibbleNibbleUDOT
 		} else {
-			dotByteNibbleImpl = dotByteNibbleUADALP
-			dotNibbleNibbleImpl = dotNibbleNibbleUADALP
+			dotByteNibbleImpl = asm.DotByteNibbleUADALP
+			dotNibbleNibbleImpl = asm.DotNibbleNibbleUADALP
 		}
 	}
 }

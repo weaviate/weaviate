@@ -11,10 +11,10 @@
 
 //go:build !arm64 && !amd64
 
-package compressionhelpers
+package distancer
 
-// No SIMD kernels on other architectures; the generic test still covers the
-// dispatched (pure Go) implementation.
+// No SIMD kernels on other architectures; the dispatched (pure Go)
+// implementations are covered by the compressionhelpers dispatch tests.
 func dotByteNibbleVariantsUnderTest() map[string]func(q, packed []byte) uint32 {
 	return map[string]func(q, packed []byte) uint32{}
 }

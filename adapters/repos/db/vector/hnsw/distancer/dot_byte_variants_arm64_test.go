@@ -9,9 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build amd64
+//go:build arm64
 
-package compressionhelpers
+package distancer
 
 import (
 	"golang.org/x/sys/cpu"
@@ -19,52 +19,46 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
+// Both NEON variants are testable on any ASIMD machine; UDOT additionally
+// needs the DotProd extension.
 func dotByteNibbleVariantsUnderTest() map[string]func(q, packed []byte) uint32 {
-	variants := map[string]func(q, packed []byte) uint32{}
-	if cpu.X86.HasAVX2 {
-		variants["avx2"] = dotByteNibbleAVX2
+	variants := map[string]func(q, packed []byte) uint32{
+		"uadalp": asm.DotByteNibbleUADALP,
 	}
-	if cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW {
-		variants["vnni512"] = dotByteNibbleVNNI512
+	if cpu.ARM64.HasASIMDDP {
+		variants["udot"] = asm.DotByteNibbleUDOT
 	}
 	return variants
 }
 
 func dotNibbleNibbleVariantsUnderTest() map[string]func(a, b []byte) uint32 {
-	variants := map[string]func(a, b []byte) uint32{}
-	if cpu.X86.HasAVX2 {
-		variants["avx2"] = dotNibbleNibbleAVX2
+	variants := map[string]func(a, b []byte) uint32{
+		"uadalp": asm.DotNibbleNibbleUADALP,
 	}
-	if cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW {
-		variants["vnni512"] = dotNibbleNibbleVNNI512
+	if cpu.ARM64.HasASIMDDP {
+		variants["udot"] = asm.DotNibbleNibbleUDOT
 	}
 	return variants
 }
 
 func dotByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 	variants := map[string]func(a, b []byte) uint32{}
-	if cpu.X86.HasAVX2 {
-		variants["avx2"] = asm.DotByteAVX256
+	if cpu.ARM64.HasASIMD {
+		variants["goat"] = asm.DotByteARM64
 	}
-	if cpu.X86.HasAVXVNNI {
-		variants["avx-vnni"] = asm.DotByteAVXVNNI
-	}
-	if cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW {
-		variants["vnni512"] = asm.DotByteVNNI512
+	if cpu.ARM64.HasASIMDDP {
+		variants["udot"] = asm.DotByteUDOT
 	}
 	return variants
 }
 
 func l2ByteVariantsUnderTest() map[string]func(a, b []byte) uint32 {
 	variants := map[string]func(a, b []byte) uint32{}
-	if cpu.X86.HasAVX2 {
-		variants["avx2"] = asm.L2ByteAVX256
+	if cpu.ARM64.HasASIMD {
+		variants["goat"] = asm.L2ByteARM64
 	}
-	if cpu.X86.HasAVXVNNI {
-		variants["avx-vnni"] = asm.L2ByteAVXVNNI
-	}
-	if cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW {
-		variants["vnni512"] = asm.L2ByteVNNI512
+	if cpu.ARM64.HasASIMDDP {
+		variants["udot"] = asm.L2ByteUDOT
 	}
 	return variants
 }

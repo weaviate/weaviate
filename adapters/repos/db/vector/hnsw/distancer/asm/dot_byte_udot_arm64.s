@@ -4,9 +4,9 @@
 
 // Hand-written UDOT kernels for uint8 dot product and squared L2 distance,
 // used by the 8-bit rotational and scalar quantizers. They require the
-// ARMv8.2 DotProd extension (all Apple M-series, Graviton2+); init falls
-// back to the goat-generated UMULL/UADALP kernels in distancer/asm without
-// it. UDOT accumulates 16 byte-products per instruction where the UMULL
+// ARMv8.2 DotProd extension (all Apple M-series, Graviton2+); the
+// compressionhelpers dispatch falls back to the goat-generated UMULL/UADALP
+// kernels in this package without it. UDOT accumulates 16 byte-products per instruction where the UMULL
 // idiom needs four, roughly doubling throughput on cache-resident codes.
 // Results are exact integer sums, identical to the pure Go fallbacks
 // (including uint32 wraparound behavior).

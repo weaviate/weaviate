@@ -9,9 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build amd64
-
-package compressionhelpers
+package asm
 
 //go:noescape
 func dotByteNibbleAVX2Asm(q, packed *byte, half int) uint32
@@ -25,7 +23,11 @@ func dotByteNibbleVNNI512Asm(q, packed *byte, half int) uint32
 //go:noescape
 func dotNibbleNibbleVNNI512Asm(a, b *byte, n int) uint32
 
-func dotByteNibbleAVX2(q, packed []byte) uint32 {
+// DotByteNibbleAVX2 computes the dot product between an unpacked 8-bit code
+// and a packed 4-bit code in plane layout (byte j holds dimension j in the
+// low nibble and dimension j+D/2 in the high nibble), unpacking nibbles in
+// registers. Callers must gate on cpu.X86.HasAVX2.
+func DotByteNibbleAVX2(q, packed []byte) uint32 {
 	half := len(packed)
 	if half == 0 {
 		return 0
@@ -34,7 +36,9 @@ func dotByteNibbleAVX2(q, packed []byte) uint32 {
 	return dotByteNibbleAVX2Asm(&q[0], &packed[0], half)
 }
 
-func dotNibbleNibbleAVX2(a, b []byte) uint32 {
+// DotNibbleNibbleAVX2 computes the dot product between two packed 4-bit
+// codes in plane layout. Callers must gate on cpu.X86.HasAVX2.
+func DotNibbleNibbleAVX2(a, b []byte) uint32 {
 	if len(a) == 0 {
 		return 0
 	}
@@ -42,9 +46,9 @@ func dotNibbleNibbleAVX2(a, b []byte) uint32 {
 	return dotNibbleNibbleAVX2Asm(&a[0], &b[0], len(a))
 }
 
-// dotByteNibbleVNNI512 is the AVX-512 VPDPBUSD variant. Callers must gate on
-// cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW.
-func dotByteNibbleVNNI512(q, packed []byte) uint32 {
+// DotByteNibbleVNNI512 is the AVX-512 VPDPBUSD variant of DotByteNibbleAVX2.
+// Callers must gate on cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW.
+func DotByteNibbleVNNI512(q, packed []byte) uint32 {
 	half := len(packed)
 	if half == 0 {
 		return 0
@@ -53,9 +57,10 @@ func dotByteNibbleVNNI512(q, packed []byte) uint32 {
 	return dotByteNibbleVNNI512Asm(&q[0], &packed[0], half)
 }
 
-// dotNibbleNibbleVNNI512 is the AVX-512 VPDPBUSD variant. Callers must gate
-// on cpu.X86.HasAVX512VNNI && cpu.X86.HasAVX512BW.
-func dotNibbleNibbleVNNI512(a, b []byte) uint32 {
+// DotNibbleNibbleVNNI512 is the AVX-512 VPDPBUSD variant of
+// DotNibbleNibbleAVX2. Callers must gate on cpu.X86.HasAVX512VNNI &&
+// cpu.X86.HasAVX512BW.
+func DotNibbleNibbleVNNI512(a, b []byte) uint32 {
 	if len(a) == 0 {
 		return 0
 	}
