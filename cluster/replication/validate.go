@@ -61,7 +61,7 @@ func ValidateReplicationReplicateShard(schemaReader schema.SchemaReader, c *api.
 		return fmt.Errorf("could not find shard %s for collection %s on source node %s: %w", c.SourceShard, c.SourceCollection, c.SourceNode, ErrNodeNotFound)
 	}
 	if foundTarget {
-		return fmt.Errorf("shard %s already exist for collection %s on target node %s: %w", c.SourceShard, c.SourceCollection, c.SourceNode, ErrAlreadyExists)
+		return fmt.Errorf("shard %s already exist for collection %s on target node %s: %w", c.SourceShard, c.SourceCollection, c.TargetNode, ErrAlreadyExists)
 	}
 	return nil
 }

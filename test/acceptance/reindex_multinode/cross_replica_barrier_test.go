@@ -91,7 +91,7 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 	// This is the topology Etienne's design sketch on
 	// weaviate/0-weaviate-issues#225 (comment 4472712888) prescribes
 	// as the sharp cross-replica reproducer.
-	createCollection(t, restURI, className, 5, 1, []*models.Property{
+	createCollection(t, compose, restURI, className, 5, 1, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer deleteCollection(t, restURI, className)
@@ -135,8 +135,8 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 	// so this task goes through PREPARING -> SWAPPING -> FINISHED
 	// instead of the legacy single-callback STARTED -> FINALIZING ->
 	// FINISHED path.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "text", "searchable",
+		`{"tokenization":"field"}`)
 	t.Logf("submitted change-tokenization task: %s", taskID)
 
 	// Poll task status at fast cadence and collect every distinct

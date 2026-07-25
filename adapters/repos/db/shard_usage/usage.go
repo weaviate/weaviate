@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
+	entsync "github.com/weaviate/weaviate/entities/sync"
 )
 
 func shardPathLSM(indexPath, shardName string) string {
@@ -98,15 +99,24 @@ func usageDisk(shardUsage *types.ShardUsage) *types.UsageDisk {
 	return &types.UsageDisk{Version: types.UsageDiskVersion, ShardUsage: shardUsage}
 }
 
-// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
-	bucketPath := shardPathDimensionsLSM(path, tenantName)
+// unloadedDimensionsBucketLocks serializes access to the same unloaded dimensions bucket.
+// Concurrent usage reports (overlapping periodic collections, /debug/usage, both usage modules
+// enabled) and the node-wide metrics observer may otherwise open the same bucket at once,
+// which lsmkv's GlobalBucketRegistry rejects with "bucket already registered".
+var unloadedDimensionsBucketLocks = entsync.NewKeyLockerContext()
+
+// openUnloadedDimensionsBucket opens the dimensions bucket of an unloaded shard without
+// loading the shard into memory. The bucket is opened with a sequential-access hint, as the
+// dimension calculations scan it with cursors.
+// Callers must hold the unloadedDimensionsBucketLocks lock for bucketPath until the returned
+// bucket is shut down.
+func openUnloadedDimensionsBucket(ctx context.Context, logger logrus.FieldLogger, path, bucketPath string) (*lsmkv.Bucket, error) {
 	strategy, err := lsmkv.DetermineUnloadedBucketStrategyAmong(bucketPath, lsmkv.DimensionsBucketPrioritizedStrategies)
 	if err != nil {
-		return types.Dimensionality{}, fmt.Errorf("determine dimensions bucket strategy: %w", err)
+		return nil, fmt.Errorf("determine dimensions bucket strategy: %w", err)
 	}
 
-	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+	return lsmkv.NewBucketCreator().NewBucket(ctx,
 		bucketPath,
 		path,
 		logger,
@@ -114,13 +124,58 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		lsmkv.WithStrategy(strategy),
+		lsmkv.WithSequentialAccess(true),
 	)
+}
+
+// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
+func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
+	bucketPath := shardPathDimensionsLSM(path, tenantName)
+	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
+		return types.Dimensionality{}, fmt.Errorf("lock dimensions bucket: %w", err)
+	}
+	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
+
+	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
 	if err != nil {
 		return types.Dimensionality{}, err
 	}
 	defer bucket.Shutdown(ctx)
 
 	return CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+}
+
+// CalculateUnloadedDimensionsUsageAll calculates dimensions and object count for all target
+// vectors of an unloaded shard without loading it into memory. The dimensions bucket is opened
+// once and shared by all target vector calculations, instead of once per target vector.
+func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
+	logger logrus.FieldLogger, path, tenantName string, targetVectors []string,
+) (map[string]types.Dimensionality, error) {
+	if len(targetVectors) == 0 {
+		return nil, nil
+	}
+
+	bucketPath := shardPathDimensionsLSM(path, tenantName)
+	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
+		return nil, fmt.Errorf("lock dimensions bucket: %w", err)
+	}
+	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
+
+	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
+	if err != nil {
+		return nil, err
+	}
+	defer bucket.Shutdown(ctx)
+
+	dimensionalities := make(map[string]types.Dimensionality, len(targetVectors))
+	for _, targetVector := range targetVectors {
+		dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, bucket, targetVector)
+		if err != nil {
+			return nil, err
+		}
+		dimensionalities[targetVector] = dimensionality
+	}
+	return dimensionalities, nil
 }
 
 // CalculateUnloadedVectorsMetrics calculates vector storage size from disk

@@ -57,7 +57,6 @@ type node struct {
 	scheduler     *ubak.Scheduler
 	migrator      *db.Migrator
 	hostname      string
-	objectCount   int
 }
 
 func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State, asyncIndexEnabled bool) {
@@ -137,6 +136,7 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		return shardState.Physical[shard].BelongsToNodes[0], nil
 	}).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(class string, shard string, replicas []string) []string {
 			return replicas
@@ -166,12 +166,12 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{},
+		logger, config.Backup{}, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeDynUserBackupWrapper{},
 	)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, nil, backendProvider, nodeResolver, n.schemaManager, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
@@ -186,7 +186,16 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
 	mux.HandleFunc("/replicas/indices/{collection}/shards/{shard}/objects/_count", func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, strconv.Itoa(n.objectCount))
+		// Return the real per-shard count, mirroring the production handler. A
+		// hardcoded value only matches when every shard is counted over HTTP;
+		// once local replica calls are short-circuited in-process (true count),
+		// a fabricated remote count makes the aggregated total flaky.
+		count, err := n.repo.CountObjects(r.Context(), r.PathValue("collection"), r.PathValue("shard"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		io.WriteString(w, strconv.Itoa(count))
 	})
 
 	srv := httptest.NewServer(mux)
@@ -212,6 +221,16 @@ func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
 }
 
 func (r fakeRbacBackupWrapper) Restore([]byte) error {
+	return nil
+}
+
+type fakeDynUserBackupWrapper struct{}
+
+func (r fakeDynUserBackupWrapper) Snapshot(userIds ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func (r fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 
@@ -279,7 +298,7 @@ func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenan
 	return res, nil
 }
 
-func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -290,7 +309,7 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	return ss.Shard("", string(uuid))
 }
 
-func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwrite bool) error {
+func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwrite bool, stripNamespaces bool) error {
 	return nil
 }
 
@@ -313,6 +332,14 @@ func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 
 func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
+}
+
+func (f *fakeSchemaManager) NamespacesEnabled() bool {
+	return false
+}
+
+func (f *fakeSchemaManager) ClassEqual(string) string {
+	return ""
 }
 
 type nodeResolver struct {

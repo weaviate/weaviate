@@ -18,9 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -259,15 +257,6 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 			}
 
 			c.clearTransaction()
-			monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
-				"ownership": "n/a",
-				"status":    "expire",
-			}).Inc()
-			took := time.Since(c.currentTransactionBegin)
-			monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
-				"ownership": "n/a",
-				"status":    "expire",
-			}).Observe(took.Seconds())
 			c.slowLog.Close("expired")
 		}
 	}
@@ -358,10 +347,6 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 	c.slowLog.Start(tx.ID, true, !tolerateNodeFailures)
 	c.Unlock()
 
-	monitoring.GetMetrics().SchemaTxOpened.With(prometheus.Labels{
-		"ownership": "coordinator",
-	}).Inc()
-
 	c.resetTxExpiry(ttl, tx.ID)
 
 	if err := c.remote.BroadcastTransaction(ctx, tx); err != nil {
@@ -387,15 +372,6 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 
 		c.Lock()
 		c.clearTransaction()
-		monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
-			"ownership": "coordinator",
-			"status":    "abort",
-		}).Inc()
-		took := time.Since(c.currentTransactionBegin)
-		monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
-			"ownership": "coordinator",
-			"status":    "abort",
-		}).Observe(took.Seconds())
 		c.slowLog.Close("abort_on_open")
 		c.Unlock()
 
@@ -435,15 +411,6 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 	defer func() {
 		c.Lock()
 		c.clearTransaction()
-		monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
-			"ownership": "coordinator",
-			"status":    "commit",
-		}).Inc()
-		took := time.Since(c.currentTransactionBegin)
-		monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
-			"ownership": "coordinator",
-			"status":    "commit",
-		}).Observe(took.Seconds())
 		c.slowLog.Close("committed")
 		c.Unlock()
 	}()
@@ -498,10 +465,6 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 		return nil, err
 	}
 
-	monitoring.GetMetrics().SchemaTxOpened.With(prometheus.Labels{
-		"ownership": "participant",
-	}).Inc()
-
 	var ttl time.Duration
 	if tx.Deadline.UnixMilli() != 0 {
 		ttl = time.Until(tx.Deadline)
@@ -525,15 +488,6 @@ func (c *TxManager) IncomingAbortTransaction(ctx context.Context,
 	}
 
 	c.currentTransaction = nil
-	monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
-		"ownership": "participant",
-		"status":    "abort",
-	}).Inc()
-	took := time.Since(c.currentTransactionBegin)
-	monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
-		"ownership": "participant",
-		"status":    "abort",
-	}).Observe(took.Seconds())
 	c.slowLog.Close("abort_request_received")
 
 	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {
@@ -615,15 +569,6 @@ func (c *TxManager) incomingTxCommitCleanup(
 	defer c.Unlock()
 	c.currentTransaction = nil
 
-	monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
-		"ownership": "participant",
-		"status":    "commit",
-	}).Inc()
-	took := time.Since(c.currentTransactionBegin)
-	monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
-		"ownership": "participant",
-		"status":    "commit",
-	}).Observe(took.Seconds())
 	c.slowLog.Close("committed")
 
 	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {

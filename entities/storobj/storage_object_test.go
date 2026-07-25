@@ -1707,6 +1707,81 @@ func TestObjectsByDocID(t *testing.T) {
 	}
 }
 
+func TestObjectsByDocIDSharedView(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		name     string
+		inputIDs []uint64
+	}{
+		{name: "1 object - sequential code path", inputIDs: []uint64{0}},
+		{name: "2 objects - concurrent code path", inputIDs: []uint64{0, 1}},
+		{name: "100 objects - concurrent code path", inputIDs: pickRandomIDsBetween(0, 1000, 100)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket := genFakeBucket(t, 1000)
+
+			res, err := ObjectsByDocID(bucket, tt.inputIDs, additional.Properties{}, nil, logger)
+			require.NoError(t, err)
+			require.Len(t, res, len(tt.inputIDs))
+
+			// a single consistent view is acquired and released for the whole
+			// batch, regardless of the number of objects or parallel chunks
+			assert.Equal(t, 1, bucket.views)
+			assert.Equal(t, 1, bucket.released)
+
+			for i, obj := range res {
+				expectedDocID := tt.inputIDs[i]
+				assert.Equal(t, expectedDocID, uint64(obj.Properties().(map[string]any)["i"].(float64)))
+			}
+		})
+	}
+}
+
+func TestObjectsByDocIDSharedViewReleasedOnError(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	for _, name := range []string{"sequential code path", "concurrent code path"} {
+		t.Run(name, func(t *testing.T) {
+			ids := []uint64{0}
+			if name == "concurrent code path" {
+				ids = pickRandomIDsBetween(0, 1000, 100)
+			}
+
+			bucket := genFakeBucket(t, 1000)
+			bucket.lookupErr = fmt.Errorf("boom")
+
+			_, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+			require.Error(t, err)
+
+			// the view is still released exactly once when a lookup fails mid-batch
+			assert.Equal(t, 1, bucket.views)
+			assert.Equal(t, 1, bucket.released)
+		})
+	}
+}
+
+func TestObjectsByDocIDEmptyBatch(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	bucket := genFakeBucket(t, 1000)
+
+	res, err := ObjectsByDocID(bucket, nil, additional.Properties{}, nil, logger)
+	require.NoError(t, err)
+	require.Empty(t, res)
+
+	// an empty batch acquires no consistent view
+	assert.Equal(t, 0, bucket.views)
+	assert.Equal(t, 0, bucket.released)
+}
+
+func TestObjectsByDocIDNilBucket(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	_, err := ObjectsByDocID(nil, []uint64{0}, additional.Properties{}, nil, logger)
+	require.Error(t, err)
+}
+
 func TestSkipMissingObjects(t *testing.T) {
 	bucket := genFakeBucket(t, 1000)
 	logger, _ := test.NewNullLogger()
@@ -1897,13 +1972,29 @@ func FuzzObjectGet(f *testing.F) {
 
 type fakeBucket struct {
 	objects map[uint64][]byte
+	// views and released count how often a consistent view is acquired and
+	// released for a batch.
+	views    int
+	released int
+	// lookupErr, when set, makes every lookup fail, simulating an error
+	// mid-batch.
+	lookupErr error
 }
 
-func (f *fakeBucket) GetBySecondary(_ context.Context, _ int, _ []byte) ([]byte, error) {
-	panic("not implemented")
+func (f *fakeBucket) SecondaryViewLookup() (secondaryLookup, func()) {
+	f.views++
+	return f.GetBySecondaryWithBuffer, func() { f.released++ }
+}
+
+func (f *fakeBucket) GetBySecondary(ctx context.Context, indexID int, docIDBytes []byte) ([]byte, error) {
+	res, _, err := f.GetBySecondaryWithBuffer(ctx, indexID, docIDBytes, []byte{})
+	return res, err
 }
 
 func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
+	if f.lookupErr != nil {
+		return nil, nil, f.lookupErr
+	}
 	docID := binary.LittleEndian.Uint64(docIDBytes)
 	objBytes, ok := f.objects[docID]
 	if !ok {
@@ -1960,6 +2051,53 @@ func TestDocIDAndTimeFromBinary_Errors(t *testing.T) {
 		_, _, err := DocIDAndTimeFromBinary(input)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported binary marshaller version 0")
+	})
+}
+
+func TestPatchDocID(t *testing.T) {
+	obj := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties:         map[string]interface{}{"name": "MyName"},
+		},
+		[]float32{1, 2, 0.7},
+		map[string][]float32{"vector1": {1, 2, 3}},
+		nil,
+	)
+	obj.DocID = 7
+
+	asBinary, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	require.NoError(t, PatchDocID(asBinary, 42))
+
+	gotID, err := DocIDFromBinary(asBinary)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(42), gotID)
+
+	obj.DocID = 42
+	expected, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	assert.Equal(t, expected, asBinary)
+
+	decoded, err := FromBinaryNetwork(asBinary)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(42), decoded.DocID)
+	assert.Equal(t, obj.ID(), decoded.ID())
+}
+
+func TestPatchDocID_Errors(t *testing.T) {
+	t.Run("too short", func(t *testing.T) {
+		require.Error(t, PatchDocID(make([]byte, 8), 1))
+	})
+
+	t.Run("unsupported version", func(t *testing.T) {
+		buf := make([]byte, 9)
+		buf[0] = 2
+		require.Error(t, PatchDocID(buf, 1))
 	})
 }
 

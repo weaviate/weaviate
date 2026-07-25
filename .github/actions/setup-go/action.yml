@@ -1,0 +1,33 @@
+name: Set up Go (with module retry)
+description: >
+  Set up Go and pre-download modules into the cache, retrying through
+  transient proxy.golang.org / network flakes so the later build and test
+  steps read from a warm cache instead of hitting the network themselves.
+inputs:
+  go-version:
+    description: Go version to install
+    required: false
+    default: '1.26'
+  cache:
+    description: Whether to enable setup-go's built-in module cache
+    required: false
+    default: 'true'
+  download-modules:
+    description: Whether to pre-download modules (with retry) after setup
+    required: false
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: ${{ inputs.cache }}
+    - name: Pre-download Go modules (with retry)
+      if: ${{ inputs.download-modules == 'true' }}
+      uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+      with:
+        max_attempts: 5
+        timeout_minutes: 10
+        retry_wait_seconds: 15
+        command: go mod download

@@ -12,11 +12,22 @@
 package lsmkv
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"sort"
+	"sync"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	bolt "go.etcd.io/bbolt"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
+	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
 )
 
 // SegmentEditOps is a bolt-backed sidecar that records in-place segment edit
@@ -38,17 +49,41 @@ import (
 // pending_segments and quarantined use a nested sub-bucket per operation so the
 // op and segment IDs never need an in-key separator.
 type SegmentEditOps struct {
+	dir string
+	// className is the bucket's canonical class name, handed to each transformer
+	// factory at build time (the global transformers registry can't capture per-bucket
+	// state). Set once at construction.
+	className string
+	// resolve maps an op type to its transformer factory. It defaults to the global
+	// transformers registry (transformers.Lookup); the edit-ops DB drives selection,
+	// so the persisted ops — not the bucket wiring — decide what runs. Overridable
+	// in tests to inject fakes for op types absent from the real registry.
+	resolve transformerResolver
+
+	// db is opened lazily: the bolt sidecar file is created only when the first
+	// edit op is registered (see ensureOpen), so an idle objects bucket — the
+	// common case, no drop ever issued — carries no sidecar. Read and bookkeeping
+	// paths use openIfExists, which opens an already-present file but never creates
+	// one, so the constantly-running compaction/cleanup cycles can't materialize it.
+	// mu guards the one-time open and warnedMissingTransformer; once set, db is
+	// stable until Close.
+	mu sync.Mutex
 	db *bolt.DB
-	// buildTransformer is the storobj-opaque builder (func([]ActiveOp) ->
-	// valueTransformer) injected once at construction. It is a permanent member,
-	// not a per-call argument, because the storobj bridge cannot be reconstructed
-	// by the storobj-ignorant compaction/cleanup code that needs it at pass time,
-	// and those passes are driven by the cycle manager with no handle to pass it
-	// in. It is a builder, not a cached transformer: BuildCurrentTransformer
-	// invokes it per pass so the result always reflects the live ops. nil disables
-	// transformation for this segment group.
-	buildTransformer transformerBuilder
+
+	// logger is optional (nil disables logging); the segment group sets it after
+	// construction. Used only to warn about ops with no registered transformer.
+	logger logrus.FieldLogger
+	// warnedMissingTransformer dedups the "no transformer for this op type" warning
+	// to once per type, so the frequent compaction/cleanup passes can't spam it.
+	warnedMissingTransformer map[OpType]struct{}
+	// lastOrphanSweep rate-limits SweepOrphans' cluster-level liveness lookup.
+	// Guarded by mu.
+	lastOrphanSweep time.Time
 }
+
+// transformerResolver maps an op type to its transformer factory, reporting
+// whether one is registered. Production uses transformers.Lookup; tests inject.
+type transformerResolver func(OpType) (OpTransformerFactory, bool)
 
 const segmentEditOpsFileName = "segment_edit_ops.db.bolt"
 
@@ -58,31 +93,18 @@ var (
 	editOpsBucketQuarantine = []byte("quarantined")
 )
 
-// OpType discriminates an edit operation. lsmkv treats it opaquely (the injected
-// builder selects the transformer); the typed string just buys callers
-// compile-time safety over a bare string field.
-type OpType string
+// The op vocabulary lives in package editops so the transformers package can
+// define factories against it without importing lsmkv (avoiding an import cycle).
+// These aliases keep the existing lsmkv.X spellings valid for callers and tests.
+type (
+	OpType               = editops.OpType
+	OpDescriptor         = editops.OpDescriptor
+	ActiveOp             = editops.ActiveOp
+	OpTransformerFactory = editops.OpTransformerFactory
+)
 
 // OpTypeRemoveTargetVectors strips dropped named vectors from stored objects.
-const OpTypeRemoveTargetVectors OpType = "remove_target_vectors"
-
-// OpDescriptor describes a single edit operation. It is opaque to the rewrite
-// machinery beyond Type, which selects the transformer to apply.
-type OpDescriptor struct {
-	// Type discriminates the operation; OpTypeRemoveTargetVectors today.
-	Type OpType `json:"type"`
-	// Targets are the operands, e.g. the named vectors to strip.
-	Targets []string `json:"targets"`
-	// CreatedAt is a monotonic timestamp (caller-supplied) that orders
-	// transformer application when multiple ops are active.
-	CreatedAt int64 `json:"createdAt"`
-}
-
-// ActiveOp pairs an operation's ID with its descriptor.
-type ActiveOp struct {
-	ID         string
-	Descriptor OpDescriptor
-}
+const OpTypeRemoveTargetVectors = editops.OpTypeRemoveTargetVectors
 
 // PendingSegment is one segment still awaiting rewrite for an operation, with
 // its retry bookkeeping.
@@ -98,60 +120,242 @@ type PendingSegment struct {
 // It must be a pure, idempotent function of the value bytes.
 type valueTransformer func(value []byte) ([]byte, error)
 
-// transformerBuilder produces the per-pass valueTransformer for the currently
-// active edit operations. It is invoked once at the start of each compaction or
-// cleanup pass so the transformer reflects the ops live at that moment.
-type transformerBuilder func(ops []ActiveOp) valueTransformer
+// newSegmentEditOps constructs the edit-ops store for the segment group rooted at
+// dir, resolving op types against the global transformers registry. This is the
+// production constructor. It does NO I/O: the bolt sidecar file is opened (and
+// created) lazily on the first registered op, so an objects bucket that never sees
+// a drop carries no sidecar — keeping it out of file listings, backups and
+// disk-size accounting. className is the canonical class name passed to each
+// transformer factory.
+func newSegmentEditOps(dir, className string) *SegmentEditOps {
+	return newSegmentEditOpsWithLookup(dir, className, nil)
+}
+
+// newSegmentEditOpsWithLookup is newSegmentEditOps with an explicit op-type
+// resolver. Tests use it to inject fakes (including op types absent from the real
+// registry); a nil resolve falls back to the global transformers registry.
+func newSegmentEditOpsWithLookup(dir, className string, resolve transformerResolver) *SegmentEditOps {
+	if resolve == nil {
+		resolve = transformers.Lookup
+	}
+	return &SegmentEditOps{
+		dir:                      dir,
+		className:                className,
+		resolve:                  resolve,
+		warnedMissingTransformer: map[OpType]struct{}{},
+	}
+}
+
+// ensureOpen opens — creating the file if absent — the bolt sidecar and its
+// buckets. Used by the write paths (RegisterOp/SnapshotSegments) so the sidecar
+// materializes exactly when an edit op first exists.
+func (s *SegmentEditOps) ensureOpen() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		return nil
+	}
+	return s.openLocked()
+}
+
+// openIfExists opens the bolt sidecar only when its file is already on disk, so
+// read and bookkeeping paths (the constantly-running compaction/cleanup cycles,
+// reconcile, completion bookkeeping) never create it on an idle shard. Returns
+// false when there is nothing to open yet.
+func (s *SegmentEditOps) openIfExists() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		return true, nil
+	}
+	if _, err := os.Stat(filepath.Join(s.dir, segmentEditOpsFileName)); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat segment edit ops db: %w", err)
+	}
+	if err := s.openLocked(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// openLocked performs the actual bolt open + bucket init. Caller must hold s.mu
+// and have checked s.db == nil.
+func (s *SegmentEditOps) openLocked() error {
+	// One handle per segment group. The Timeout turns an accidental second open
+	// into a fast error instead of a forever-hang; the single-open path is uncontended.
+	db, err := bolt.Open(filepath.Join(s.dir, segmentEditOpsFileName), 0o600,
+		&bolt.Options{Timeout: 5 * time.Second})
+	if err != nil {
+		return fmt.Errorf("open segment edit ops db: %w", err)
+	}
+
+	if err := db.Update(func(tx *bolt.Tx) error {
+		for _, name := range [][]byte{editOpsBucketOperations, editOpsBucketPending, editOpsBucketQuarantine} {
+			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		db.Close()
+		return fmt.Errorf("init segment edit ops buckets: %w", err)
+	}
+
+	s.db = db
+	return nil
+}
 
 func (s *SegmentEditOps) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
 	return s.db.Close()
+}
+
+// withWriteTx runs fn in a single write transaction. create true materializes the
+// sidecar first (paths that establish an op); create false makes an absent sidecar
+// a no-op (fn never runs). This is the one home for the "writes-may-create,
+// reads-never-create" policy, and it guarantees s.db is non-nil before the tx so no
+// caller can nil-deref the handle.
+func (s *SegmentEditOps) withWriteTx(create bool, fn func(tx *bolt.Tx) error) error {
+	if create {
+		if err := s.ensureOpen(); err != nil {
+			return err
+		}
+	} else {
+		ok, err := s.openIfExists()
+		if err != nil || !ok {
+			return err
+		}
+	}
+	return s.db.Update(fn)
+}
+
+// withReadTx runs fn in a single read transaction, or is a no-op (fn never runs,
+// nil returned) when no sidecar exists yet — an idle bucket has nothing to read.
+func (s *SegmentEditOps) withReadTx(fn func(tx *bolt.Tx) error) error {
+	ok, err := s.openIfExists()
+	if err != nil || !ok {
+		return err
+	}
+	return s.db.View(fn)
 }
 
 // BuildCurrentTransformer composes the ops live right now into one value
 // transformer for a single compaction or cleanup pass, plus the exact ops it was
-// built from. Building per pass keeps it in step with the live ops; the op set
-// lets RecordCompaction decide what the pass stripped by membership. Transformer
-// and set are both nil when no builder is configured or no ops are active.
+// built from. The op types recorded in the sidecar drive selection: ops are
+// grouped by type, each present type's registered factory builds a transformer
+// over its ops, and the per-type transformers are chained (in first-seen
+// CreatedAt order). An op whose type has no registered factory is skipped — a
+// forward-compatible no-op. Building per pass keeps it in step with the live ops;
+// the returned op set lets RecordCompaction decide what the pass stripped by
+// membership. Transformer and set are both nil when nothing applies.
 //
-// One transformer is applied to every segment of the pass (it is not specialised
-// per segment) and that is intentional: a dropped target must be removed from
-// all segments, so over-applying is always correct — a segment that predates an
-// op was snapshotted as pending for it (must be stripped), and one created after
-// the op cannot contain that target (the write-path reject blocked it), so the
-// strip is a harmless no-op. What varies per segment is only whether it still
-// needs processing, which pending_segments tracks separately.
+// One transformer is applied to every segment of a pass, by design: a dropped
+// target must be removed everywhere, so over-applying is always correct (a
+// segment created after the op can't carry the target — the write-path reject
+// blocked it). Per-segment state lives in pending_segments, not the transformer.
 func (s *SegmentEditOps) BuildCurrentTransformer() (valueTransformer, []ActiveOp, error) {
-	if s.buildTransformer == nil {
+	if s.resolve == nil {
 		return nil, nil, nil
 	}
 	ops, err := s.LoadOps()
 	if err != nil {
 		return nil, nil, fmt.Errorf("load edit ops: %w", err)
 	}
-	if len(ops) == 0 {
+
+	var order []OpType
+	factories := map[OpType]OpTransformerFactory{}
+	byType := map[OpType][]ActiveOp{}
+	var applied, missing []ActiveOp
+	for _, op := range ops {
+		opType := op.Descriptor.Type
+		if _, resolved := factories[opType]; !resolved {
+			factory, ok := s.resolve(opType)
+			if !ok {
+				missing = append(missing, op)
+				continue
+			}
+			factories[opType] = factory
+			order = append(order, opType)
+		}
+		byType[opType] = append(byType[opType], op)
+		applied = append(applied, op)
+	}
+	s.warnMissingTransformers(missing)
+	if len(applied) == 0 {
 		return nil, nil, nil
 	}
-	return s.buildTransformer(ops), ops, nil
+
+	built := make([]valueTransformer, 0, len(order))
+	for _, opType := range order {
+		built = append(built, factories[opType](s.className, byType[opType]))
+	}
+	return chainTransformers(built), applied, nil
+}
+
+// warnMissingTransformers logs — once per op type per process — that the sidecar
+// holds an op whose type has no registered transformer, so its pending segments
+// will never be rewritten and the operation cannot complete. This is reached when
+// either a new op type was persisted without adding its factory to the transformers
+// registry, or a downgrade dropped support for a type still on disk. Skipping such
+// an op is the safe behavior (we don't run a transform we don't understand), but it
+// must be visible rather than silently stalling.
+func (s *SegmentEditOps) warnMissingTransformers(missing []ActiveOp) {
+	if s.logger == nil || len(missing) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, op := range missing {
+		if _, warned := s.warnedMissingTransformer[op.Descriptor.Type]; warned {
+			continue
+		}
+		s.warnedMissingTransformer[op.Descriptor.Type] = struct{}{}
+		s.logger.WithFields(logrus.Fields{
+			"op_id":   op.ID,
+			"op_type": op.Descriptor.Type,
+		}).Warn("segment edit op has no registered transformer for its type; its pending " +
+			"segments will not be rewritten and the operation cannot complete — add the " +
+			"op type to the transformers registry (or this op is a leftover from a newer " +
+			"version after a downgrade)")
+	}
+}
+
+// chainTransformers threads the output of each transformer into the next, so
+// multiple op types apply in sequence within a single segment rewrite. A lone
+// transformer is returned unwrapped.
+func chainTransformers(transformers []valueTransformer) valueTransformer {
+	if len(transformers) == 1 {
+		return transformers[0]
+	}
+	return func(value []byte) ([]byte, error) {
+		var err error
+		for _, transform := range transformers {
+			if value, err = transform(value); err != nil {
+				return nil, err
+			}
+		}
+		return value, nil
+	}
 }
 
 // RecordCompaction does the post-merge bookkeeping for leftID+rightID ->
-// leftID_rightID in one bolt tx: the sequenced step after the rename and
-// in-memory swap. It marks the merged inputs done for every op, and re-queues
-// the merged output for any op absent from builtOps (registered after the
-// transformer was built, so its target was not stripped) that had a pending
-// input. Membership — not a timestamp — gates the re-queue: the compactor's
-// local clock and the caller-supplied op CreatedAt are different clocks once ops
-// come from a leader.
+// leftID_rightID in one bolt tx (the sequenced step after rename + in-memory
+// swap). It marks the merged inputs done for every op, and re-queues the merged
+// output for any op absent from builtOps (registered after the transformer was
+// built, so not stripped) that had a pending input. Membership — not a timestamp
+// — gates this, since the compactor clock and the leader-assigned CreatedAt differ.
 //
 // Crash window: if the process dies after switchOnDisk but before this commit,
-// the merge inputs are already gone from disk while their pending rows remain.
-// Reconcile then prunes those rows (segments missing) but cannot derive that the
-// merged output still needs stripping for an op that was not in builtOps — so
-// Reconcile ALONE does not recover this case. Recovery relies on the producer
-// re-snapshotting live ops against the on-disk segments at startup (the
-// leader-startup reconciliation pass, not yet implemented), which re-queues the
-// merged output. Until that pass lands a crash in this window can leave a
-// dropped target on disk.
+// the merge inputs are gone from disk but the merged output never got a pending
+// row for an op absent from builtOps. Reconcile only prunes missing-segment rows,
+// so it can't recover this; the re-snapshot on shard load (recoverEditOps) re-queues
+// every current segment for each live op, which covers the merged output.
 func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []ActiveOp) error {
 	mergedID := leftID + "_" + rightID
 
@@ -160,7 +364,7 @@ func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []Act
 		built[op.ID] = struct{}{}
 	}
 
-	return s.WithTx(func(tx *bolt.Tx) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		ops, err := s.loadOpsTx(tx)
 		if err != nil {
 			return err
@@ -186,11 +390,13 @@ func (s *SegmentEditOps) RecordCompaction(leftID, rightID string, builtOps []Act
 	})
 }
 
-// RegisterOp persists an operation descriptor. It is idempotent: re-registering
-// an existing op keeps the original descriptor (notably its CreatedAt) so a
-// retry does not reorder transformer application.
+// RegisterOp persists an operation descriptor WITHOUT a pending snapshot.
+// Production uses RegisterOpWithSnapshot (descriptor + snapshot atomically); this
+// primitive remains for tests that need the descriptor-only state (e.g. the
+// interrupted-register resume path). Idempotent: re-registering keeps the
+// original descriptor (notably its CreatedAt).
 func (s *SegmentEditOps) RegisterOp(opID string, op OpDescriptor) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.withWriteTx(true, func(tx *bolt.Tx) error {
 		b := tx.Bucket(editOpsBucketOperations)
 		if b.Get([]byte(opID)) != nil {
 			return nil
@@ -203,11 +409,79 @@ func (s *SegmentEditOps) RegisterOp(opID string, op OpDescriptor) error {
 	})
 }
 
+// RegisterOpWithSnapshot writes the op descriptor and the pending rows for segIDs
+// in one transaction, so the descriptor is never durable without its snapshot (a
+// resume would otherwise skip a drop that stripped nothing). Idempotent: an
+// existing descriptor keeps its CreatedAt and already-pending segments are left
+// untouched. Callers must derive segIDs under maintenanceLock (see
+// SnapshotSegments' invariant) and hold it across this call.
+func (s *SegmentEditOps) RegisterOpWithSnapshot(opID string, op OpDescriptor, segIDs []string) error {
+	return s.withWriteTx(true, func(tx *bolt.Tx) error {
+		ops := tx.Bucket(editOpsBucketOperations)
+		if ops.Get([]byte(opID)) == nil {
+			enc, err := json.Marshal(op)
+			if err != nil {
+				return err
+			}
+			if err := ops.Put([]byte(opID), enc); err != nil {
+				return err
+			}
+		}
+		return s.addPendingRowsTx(tx, opID, segIDs)
+	})
+}
+
+// addPendingRowsTx inserts pending rows for segIDs within the caller's
+// transaction, preserving existing rows (accrued retries) and skipping segments
+// quarantined for the op — a quarantine verdict (retry budget exhausted) must
+// survive restarts and re-snapshots, not ping-pong back to pending.
+func (s *SegmentEditOps) addPendingRowsTx(tx *bolt.Tx, opID string, segIDs []string) error {
+	sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
+	if err != nil {
+		return err
+	}
+	quarantined := tx.Bucket(editOpsBucketQuarantine).Bucket([]byte(opID))
+	for _, segID := range segIDs {
+		if sub.Get([]byte(segID)) != nil {
+			continue
+		}
+		if quarantined != nil && quarantined.Get([]byte(segID)) != nil {
+			continue
+		}
+		enc, err := json.Marshal(PendingSegment{})
+		if err != nil {
+			return err
+		}
+		if err := sub.Put([]byte(segID), enc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// HasPendingSnapshot reports whether opID's segments have been snapshotted (its
+// pending sub-bucket exists, even if now empty). Only a snapshot creates that
+// sub-bucket, so this — not descriptor presence — is the correct "resume may skip
+// the snapshot" signal.
+func (s *SegmentEditOps) HasPendingSnapshot(opID string) (bool, error) {
+	if ok, err := s.openIfExists(); err != nil || !ok {
+		return false, err
+	}
+	exists := false
+	if err := s.db.View(func(tx *bolt.Tx) error {
+		exists = tx.Bucket(editOpsBucketPending).Bucket([]byte(opID)) != nil
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 // LoadOps returns all active operations sorted by CreatedAt (ties broken by ID)
 // so transformers are applied in a deterministic order.
 func (s *SegmentEditOps) LoadOps() ([]ActiveOp, error) {
 	var ops []ActiveOp
-	if err := s.db.View(func(tx *bolt.Tx) error {
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
 		var err error
 		ops, err = s.loadOpsTx(tx)
 		return err
@@ -251,44 +525,25 @@ func (s *SegmentEditOps) loadOpsTx(tx *bolt.Tx) ([]ActiveOp, error) {
 // completed (and whose segment was merged/cleaned away) re-queues it. Reconcile
 // is the safety net — it drops pending rows for segments no longer on disk.
 //
-// INVARIANT (load-bearing for RecordCompaction's membership re-queue): segIDs
-// must be the IDs of the in-memory segment list (SegmentGroup.segments) captured
-// under maintenanceLock, never a raw directory listing. switchOnDisk deletes the
-// merge inputs from disk before it strips the .tmp suffix off the merged output,
-// so there is a window in which neither the inputs nor the output exist under a
-// live .db name. A snapshot taken from the directory during that window would
-// record neither, and the op would never strip that data — silent partial data
-// loss. The in-memory list is swapped atomically in switchInMemory under the
-// same lock, so a lock-held snapshot always sees a coherent input-or-output set.
+// INVARIANT (load-bearing for RecordCompaction's membership re-queue): pass the
+// IDs of the in-memory segment list (SegmentGroup.segments) under maintenanceLock,
+// never a raw directory listing. switchOnDisk deletes the merge inputs before
+// renaming the .tmp output, so a directory snapshot in that window would record
+// neither input nor output — silent partial data loss. The in-memory list is
+// swapped atomically under the same lock, so a lock-held snapshot stays coherent.
 func (s *SegmentEditOps) SnapshotSegments(opID string, segIDs []string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.withWriteTx(true, func(tx *bolt.Tx) error {
 		if tx.Bucket(editOpsBucketOperations).Get([]byte(opID)) == nil {
 			return fmt.Errorf("snapshot segments: operation %q is not registered", opID)
 		}
-		sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
-		if err != nil {
-			return err
-		}
-		for _, segID := range segIDs {
-			if sub.Get([]byte(segID)) != nil {
-				continue
-			}
-			enc, err := json.Marshal(PendingSegment{})
-			if err != nil {
-				return err
-			}
-			if err := sub.Put([]byte(segID), enc); err != nil {
-				return err
-			}
-		}
-		return nil
+		return s.addPendingRowsTx(tx, opID, segIDs)
 	})
 }
 
 // Pending returns the segment IDs still awaiting rewrite for opID.
 func (s *SegmentEditOps) Pending(opID string) ([]string, error) {
 	var segIDs []string
-	if err := s.db.View(func(tx *bolt.Tx) error {
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
 		sub := tx.Bucket(editOpsBucketPending).Bucket([]byte(opID))
 		if sub == nil {
 			return nil
@@ -307,7 +562,7 @@ func (s *SegmentEditOps) Pending(opID string) ([]string, error) {
 // the cleanup driver.
 func (s *SegmentEditOps) AllPending() ([]PendingSegment, error) {
 	var out []PendingSegment
-	if err := s.db.View(func(tx *bolt.Tx) error {
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
 		return tx.Bucket(editOpsBucketPending).ForEachBucket(func(opID []byte) error {
 			return tx.Bucket(editOpsBucketPending).Bucket(opID).ForEach(func(segID, v []byte) error {
 				ps, err := decodePending(string(opID), string(segID), v)
@@ -327,15 +582,9 @@ func (s *SegmentEditOps) AllPending() ([]PendingSegment, error) {
 // MarkSegmentDone removes a segment from the pending set for opID, signalling
 // the rewrite for that (op, segment) pair is complete.
 func (s *SegmentEditOps) MarkSegmentDone(opID, segID string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		return s.markSegmentDoneTx(tx, opID, segID)
 	})
-}
-
-// WithTx runs fn inside a single write transaction. Compaction completion uses
-// it to mark inputs done and re-queue the merged output atomically.
-func (s *SegmentEditOps) WithTx(fn func(tx *bolt.Tx) error) error {
-	return s.db.Update(fn)
 }
 
 func (s *SegmentEditOps) markSegmentDoneTx(tx *bolt.Tx, opID, segID string) error {
@@ -357,28 +606,16 @@ func (s *SegmentEditOps) pendingContainsTx(tx *bolt.Tx, opID, segID string) bool
 }
 
 // addPendingTx records segID as newly pending for opID within the caller's
-// transaction. It is idempotent: an already-pending row (with its retry state)
-// is left untouched.
+// transaction; see addPendingRowsTx for the idempotency/quarantine rules.
 func (s *SegmentEditOps) addPendingTx(tx *bolt.Tx, opID, segID string) error {
-	sub, err := tx.Bucket(editOpsBucketPending).CreateBucketIfNotExists([]byte(opID))
-	if err != nil {
-		return err
-	}
-	if sub.Get([]byte(segID)) != nil {
-		return nil
-	}
-	enc, err := json.Marshal(PendingSegment{})
-	if err != nil {
-		return err
-	}
-	return sub.Put([]byte(segID), enc)
+	return s.addPendingRowsTx(tx, opID, []string{segID})
 }
 
 // BumpAttempt records a failed rewrite attempt for a pending segment. The
 // quarantine threshold decision lives in the cleanup driver; this only persists
 // the count and last error.
 func (s *SegmentEditOps) BumpAttempt(opID, segID string, opErr error) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		sub := tx.Bucket(editOpsBucketPending).Bucket([]byte(opID))
 		if sub == nil {
 			return nil
@@ -407,7 +644,7 @@ func (s *SegmentEditOps) BumpAttempt(opID, segID string, opErr error) error {
 // Quarantine moves a segment from pending to quarantined for opID, preserving
 // its retry metadata. A quarantined segment fails the operation.
 func (s *SegmentEditOps) Quarantine(opID, segID string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		pendingSub := tx.Bucket(editOpsBucketPending).Bucket([]byte(opID))
 		var raw []byte
 		if pendingSub != nil {
@@ -428,10 +665,29 @@ func (s *SegmentEditOps) Quarantine(opID, segID string) error {
 	})
 }
 
+// QuarantinedFor returns opID's quarantined segment IDs (scoped sub-bucket
+// read, mirroring Pending).
+func (s *SegmentEditOps) QuarantinedFor(opID string) ([]string, error) {
+	var out []string
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
+		sub := tx.Bucket(editOpsBucketQuarantine).Bucket([]byte(opID))
+		if sub == nil {
+			return nil
+		}
+		return sub.ForEach(func(segID, v []byte) error {
+			out = append(out, string(segID))
+			return nil
+		})
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Quarantined returns the quarantined segments across all operations.
 func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 	var out []PendingSegment
-	if err := s.db.View(func(tx *bolt.Tx) error {
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
 		return tx.Bucket(editOpsBucketQuarantine).ForEachBucket(func(opID []byte) error {
 			return tx.Bucket(editOpsBucketQuarantine).Bucket(opID).ForEach(func(segID, v []byte) error {
 				ps, err := decodePending(string(opID), string(segID), v)
@@ -449,9 +705,10 @@ func (s *SegmentEditOps) Quarantined() ([]PendingSegment, error) {
 }
 
 // DeleteOp removes an operation and all of its pending and quarantined rows.
-// Called once the operation has fully completed (its DTM task is FINISHED).
+// Called when the op stops being live: task success (delivered as SWAPPING, or
+// FINISHED on a replay), terminal failure (FAILED/CANCELLED), or an orphan sweep.
 func (s *SegmentEditOps) DeleteOp(opID string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		if err := tx.Bucket(editOpsBucketOperations).Delete([]byte(opID)); err != nil {
 			return err
 		}
@@ -460,6 +717,135 @@ func (s *SegmentEditOps) DeleteOp(opID string) error {
 		}
 		return deleteSubBucket(tx.Bucket(editOpsBucketQuarantine), opID)
 	})
+}
+
+// Recover runs the load-time bookkeeping: sweep ops with no live task, prune rows
+// for segments gone from disk (Reconcile), then re-snapshot every surviving op
+// over segIDs. resolveLive is called only when ops exist (it may be a remote
+// lookup); a nil result skips the sweep. The reload between Reconcile and the
+// re-snapshot is load-bearing: the sweep mutates the op set, and re-snapshotting
+// a swept op would resurrect it.
+//
+// The re-snapshot deliberately covers ALL current segments, resetting per-segment
+// progress: completion is encoded as absence from pending, which is
+// indistinguishable from the crash-window merged output this recovery exists to
+// re-queue. Re-cleaning is idempotent; correctness is bought with restart-time
+// rework. Quarantined segments are NOT re-pended (see addPendingRowsTx).
+func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh func() map[string]struct{}) error {
+	ops, err := s.LoadOps()
+	if err != nil {
+		return err
+	}
+	if len(ops) == 0 {
+		return nil
+	}
+
+	existing := make(map[string]struct{}, len(segIDs))
+	for _, id := range segIDs {
+		existing[id] = struct{}{}
+	}
+	liveOpIDs := resolveLive()
+	if liveOpIDs != nil && len(suspectedOrphans(ops, liveOpIDs)) > 0 {
+		// About to sweep: the (possibly cached) set may predate a suspect's task
+		// commit. Re-resolve fresh; if that fails, skip the sweep this load rather
+		// than destroy on stale evidence.
+		liveOpIDs = resolveLiveFresh()
+	}
+	if liveOpIDs != nil {
+		// Op types the liveness provider does not cover must survive the sweep
+		// (see SetLivenessProvider); treat them as live.
+		for _, op := range ops {
+			if op.Descriptor.Type != OpTypeRemoveTargetVectors {
+				liveOpIDs[op.ID] = struct{}{}
+			}
+		}
+	}
+	if err := s.Reconcile(existing, liveOpIDs); err != nil {
+		return err
+	}
+	if liveOpIDs != nil {
+		if ops, err = s.LoadOps(); err != nil {
+			return err
+		}
+	}
+	for _, op := range ops {
+		if err := s.SnapshotSegments(op.ID, segIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// editOpsOrphanSweepInterval rate-limits the cleanup-cycle orphan sweep's
+// cluster-level liveness lookup.
+const editOpsOrphanSweepInterval = 5 * time.Minute
+
+// SweepOrphans deletes ops whose task is no longer live. The load-time sweep
+// (Recover) only helps on shard load; this cleanup-cycle variant disarms an
+// orphan on a RUNNING node — e.g. a finalize whose local op-delete failed, or a
+// replica whose sidecar was copied mid-drop — before a compaction could strip a
+// re-created same-name vector. Rate-limited; a missing provider or lookup error
+// skips the sweep (safe fallback, retried next window).
+//
+// A sweep that wrongly removes a LIVE op (e.g. a stale task list read during a
+// cold-start log replay) self-heals: the active task's StartTask re-registers
+// the op with a fresh snapshot; the cost is re-cleaning, not lost cleanup.
+func (s *SegmentEditOps) SweepOrphans(ctx context.Context) {
+	s.mu.Lock()
+	if time.Since(s.lastOrphanSweep) < editOpsOrphanSweepInterval {
+		s.mu.Unlock()
+		return
+	}
+	s.lastOrphanSweep = time.Now()
+	s.mu.Unlock()
+
+	ops, err := s.LoadOps()
+	if err != nil || len(ops) == 0 {
+		return
+	}
+	live, err := editops.LiveOps(ctx)
+	if err != nil || live == nil {
+		return
+	}
+	suspected := suspectedOrphans(ops, live)
+	if len(suspected) == 0 {
+		return
+	}
+	// The cached set may predate a suspect's task commit (the op is registered
+	// strictly after the commit) — deleting on it would kill a live op whose
+	// draining unit then reads the empty pending set as "done" and the drop
+	// finalizes without stripping. Confirm with a fresh read before destroying.
+	live, err = editops.LiveOpsFresh(ctx)
+	if err != nil || live == nil {
+		return
+	}
+	for _, op := range suspectedOrphans(suspected, live) {
+		if err := s.DeleteOp(op.ID); err != nil {
+			if s.logger != nil {
+				s.logger.WithField("op_id", op.ID).Warnf("edit-ops orphan sweep: delete failed: %v", err)
+			}
+			continue
+		}
+		if s.logger != nil {
+			s.logger.WithField("op_id", op.ID).Info("edit-ops orphan sweep: removed op with no live task")
+		}
+	}
+}
+
+// suspectedOrphans returns the sweepable ops (liveness-covered types only; an
+// unknown future type fails safe until its producer extends the provider) that
+// are absent from live.
+func suspectedOrphans(ops []ActiveOp, live map[string]struct{}) []ActiveOp {
+	var out []ActiveOp
+	for _, op := range ops {
+		if op.Descriptor.Type != OpTypeRemoveTargetVectors {
+			continue
+		}
+		if _, ok := live[op.ID]; !ok {
+			out = append(out, op)
+		}
+	}
+	return out
 }
 
 // Reconcile repairs the store against ground truth at open time (C1):
@@ -473,7 +859,7 @@ func (s *SegmentEditOps) DeleteOp(opID string) error {
 // existingSegmentIDs and liveOpIDs are membership sets. A nil liveOpIDs skips
 // the orphaned-op sweep (used when the live set is unknown).
 func (s *SegmentEditOps) Reconcile(existingSegmentIDs, liveOpIDs map[string]struct{}) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.withWriteTx(false, func(tx *bolt.Tx) error {
 		ops := tx.Bucket(editOpsBucketOperations)
 
 		// Drop orphaned operations first; the segment sweep then skips them.

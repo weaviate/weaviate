@@ -73,6 +73,44 @@ func UpdateNamespace(t *testing.T, name, homeNode, key string) *models.Namespace
 	return resp.Payload
 }
 
+// SuspendNamespace suspends the namespace and blocks until a follow-up GET
+// reports it, so callers can act on the new state immediately on return.
+func SuspendNamespace(t *testing.T, name, key string) {
+	t.Helper()
+	_, err := Client(t).Namespaces.SuspendNamespace(
+		namespaces.NewSuspendNamespaceParams().WithNamespaceID(name),
+		CreateAuth(key),
+	)
+	require.NoError(t, err)
+	waitForNamespaceState(t, name, key, string(models.NamespaceStateSuspended))
+}
+
+// ResumeNamespace returns the namespace to active and blocks until a
+// follow-up GET reports it.
+func ResumeNamespace(t *testing.T, name, key string) {
+	t.Helper()
+	_, err := Client(t).Namespaces.ResumeNamespace(
+		namespaces.NewResumeNamespaceParams().WithNamespaceID(name),
+		CreateAuth(key),
+	)
+	require.NoError(t, err)
+	waitForNamespaceState(t, name, key, string(models.NamespaceStateActive))
+}
+
+// waitForNamespaceState polls until the namespace reports want. The flip
+// endpoints return no body, and on multi-node clusters RAFT replication can
+// lag the 202 by a few hundred milliseconds.
+func waitForNamespaceState(t *testing.T, name, key, want string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		resp, err := Client(t).Namespaces.GetNamespace(
+			namespaces.NewGetNamespaceParams().WithNamespaceID(name),
+			CreateAuth(key),
+		)
+		return err == nil && resp != nil && resp.Payload != nil && resp.Payload.State == want
+	}, 10*time.Second, 50*time.Millisecond, "namespace %q not %s after flip", name, want)
+}
+
 func GetNamespace(t *testing.T, name, key string) *models.Namespace {
 	t.Helper()
 	resp, err := Client(t).Namespaces.GetNamespace(

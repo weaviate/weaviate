@@ -19,19 +19,16 @@ package compaction_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/compactions"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 )
 
@@ -39,26 +36,6 @@ const (
 	backupCollection = "BackupCompactionTest"
 	backupID         = "backup-compaction-test"
 )
-
-// importBatchForClass inserts objectsPerBatch objects into the given class.
-func importBatchForClass(t *testing.T, className string) {
-	t.Helper()
-	objects := make([]*models.Object, objectsPerBatch)
-	for i := range objects {
-		objects[i] = &models.Object{
-			Class: className,
-			ID:    strfmt.UUID(uuid.New().String()),
-			Properties: map[string]interface{}{
-				"text": randomText(textSize),
-			},
-		}
-	}
-	params := batch.NewBatchObjectsCreateParams().
-		WithBody(batch.BatchObjectsCreateBody{Objects: objects})
-	resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-}
 
 // getShardNameForClass returns the first shard name for the given class.
 func getShardNameForClass(t *testing.T, className string) string {
@@ -104,13 +81,13 @@ func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 
 	// 2. Import initial data — 100 batches to make the backup take long enough to observe compactions during its execution
 	for i := 0; i < 100; i++ {
-		importBatchForClass(t, backupCollection)
+		compactions.ImportBatch(t, backupCollection)
 	}
 
 	// 3. Wait for segments to appear on disk
 	shardName := getShardNameForClass(t, backupCollection)
 	require.Eventually(t, func() bool {
-		return totalSegmentFileCount(ctx, container, backupCollection, shardName, "objects") >= 1
+		return compactions.TotalSegmentFileCount(ctx, container, backupCollection, shardName, "objects") >= 1
 	}, 180*time.Second, time.Second, "not enough segments appeared")
 
 	// 4. Record pre-backup object count
@@ -140,20 +117,10 @@ func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 		}
 
 		// Insert more data to keep creating segments that need compaction
-		importBatchForClass(t, backupCollection)
+		compactions.ImportBatch(t, backupCollection)
 
 		// Snapshot segment state
-		files := listBucketFiles(ctx, container, backupCollection, shardName, "objects")
-		maxLevel := 0
-		segCount := 0
-		for _, f := range files {
-			if strings.HasSuffix(f, ".db") && !strings.HasSuffix(f, ".deleteme") {
-				segCount++
-				if lvl := segmentLevel(f); lvl > maxLevel {
-					maxLevel = lvl
-				}
-			}
-		}
+		maxLevel, segCount := compactions.MaxLevelAndCount(ctx, container, backupCollection, shardName, "objects")
 
 		t.Logf("  [poll] backup_done=%v segments=%d max_level=%d prev_segments=%d prev_max_level=%d\n",
 			backupDone, segCount, maxLevel, prevSegCount, prevMaxLevel)

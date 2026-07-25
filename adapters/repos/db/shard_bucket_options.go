@@ -61,6 +61,7 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 	case lsmkv.StrategyInverted:
 		options = append(options,
 			lsmkv.WithLazyPropertyLengths(s.index.Config.LazyPropertyLengthsEnabled),
+			lsmkv.WithBM25FilterTombMergeGateRatio(s.index.Config.BM25FilterTombMergeGateRatio),
 		)
 	}
 

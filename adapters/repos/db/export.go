@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/export"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -161,16 +162,15 @@ func (db *DB) SnapshotShards(ctx context.Context, className string, shardNames [
 	}
 	defer idx.dropIndex.RUnlock()
 
-	idx.closeLock.RLock()
-	defer idx.closeLock.RUnlock()
-	if idx.closed {
-		return nil, errAlreadyShutdown
+	if err := idx.enterRead(); err != nil {
+		return nil, err
 	}
+	defer idx.exitRead()
 	return idx.snapshotShardsForExport(ctx, shardNames, exportID)
 }
 
 func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string, exportID string) ([]export.ShardSnapshotResult, error) {
-	if !i.probeHardlinkSupport() {
+	if !file.ProbeHardlinkSupport(i.Config.RootPath) {
 		// Export snapshots rely on hard-linking immutable LSM segment files to
 		// create a frozen, read-only view without holding shard locks for the
 		// duration of the scan. Supporting filesystems without hard links would

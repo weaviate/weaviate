@@ -22,5 +22,6 @@ type ReplicationFSMReader interface {
 	HasActiveReplicationForShard(collection string, shard string) bool
 	// HasActiveTargetReplicationForShard reports whether the FSM currently tracks any
 	// replication op for (collection, shard, targetNode) whose state is non-terminal.
+	// Eventually consistent with the RAFT log (local FSM read); not a synchronization barrier.
 	HasActiveTargetReplicationForShard(collection, shard, targetNode string) bool
 }

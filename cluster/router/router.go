@@ -437,7 +437,8 @@ func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tena
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
 
-	readReplicas, err := r.getReadReplicasLocation(collection, tenant, shard)
+	// Serves an external request, so auto tenant activation applies.
+	readReplicas, err := r.getReadReplicasLocation(collection, tenant, shard, true)
 	if err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
@@ -469,12 +470,17 @@ func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant st
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.ReadReplicaSet{}, err
 	}
-	return r.getReadReplicasLocation(collection, tenant, shard)
+	// Serves an external request, so auto tenant activation applies.
+	return r.getReadReplicasLocation(collection, tenant, shard, true)
 }
 
 // getReadReplicasLocation returns only read replicas for multi-tenant collections.
-func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, shard string) (types.ReadReplicaSet, error) {
-	tenantStatus, err := r.schemaGetter.OptimisticTenantStatus(context.TODO(), collection, tenant)
+//
+// allowTenantActivation lets the status lookup activate a COLD tenant under auto tenant
+// activation. Only callers acting for an external request pass true; internal ones must not
+// revive a tenant just by asking where its shard lives.
+func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, shard string, allowTenantActivation bool) (types.ReadReplicaSet, error) {
+	tenantStatus, err := r.schemaGetter.OptimisticTenantStatus(context.TODO(), collection, tenant, allowTenantActivation)
 	if err != nil {
 		return types.ReadReplicaSet{}, objects.NewErrMultiTenancy(err)
 	}
@@ -483,6 +489,21 @@ func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, s
 		return types.ReadReplicaSet{}, err
 	}
 
+	return r.readReplicasFromLocalSchema(collection, shard)
+}
+
+// readReplicasForPlan resolves read replicas honoring LocalOnly: local schema only
+// (no leader query, no tenant activation) when set, else the tenant-status path.
+func (r *multiTenantRouter) readReplicasForPlan(params types.RoutingPlanBuildOptions) (types.ReadReplicaSet, error) {
+	if params.LocalOnly {
+		return r.readReplicasFromLocalSchema(r.collection, params.Shard)
+	}
+	return r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard, params.AllowTenantActivation)
+}
+
+// readReplicasFromLocalSchema resolves read replicas from local schema without any
+// tenant-status check; callers must not use it where activation semantics are required.
+func (r *multiTenantRouter) readReplicasFromLocalSchema(collection, shard string) (types.ReadReplicaSet, error) {
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
 	if err != nil {
 		return types.ReadReplicaSet{}, err
@@ -495,8 +516,12 @@ func (r *multiTenantRouter) getReadReplicasLocation(collection string, tenant, s
 }
 
 // getWriteReplicasLocation returns only write replicas for multi-tenant collections.
+//
+// Writes only reach the router on the node serving an external request — replicated writes
+// from a peer land on the Incoming* path, which never consults the router — so auto tenant
+// activation always applies.
 func (r *multiTenantRouter) getWriteReplicasLocation(collection string, tenant, shard string) (types.WriteReplicaSet, error) {
-	tenantStatus, err := r.schemaGetter.OptimisticTenantStatus(context.TODO(), collection, tenant)
+	tenantStatus, err := r.schemaGetter.OptimisticTenantStatus(context.TODO(), collection, tenant, true)
 	if err != nil {
 		return types.WriteReplicaSet{}, objects.NewErrMultiTenancy(err)
 	}
@@ -579,7 +604,7 @@ func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOp
 
 // buildReadRoutingPlan constructs a read routing plan for multi-tenant collections.
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	readReplicas, err := r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard)
+	readReplicas, err := r.readReplicasForPlan(params)
 	if err != nil {
 		return types.ReadRoutingPlan{}, err
 	}

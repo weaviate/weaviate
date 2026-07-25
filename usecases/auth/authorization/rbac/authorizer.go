@@ -44,13 +44,11 @@ func (m *Manager) auditFields(principal *models.Principal) logrus.Fields {
 		case principal.Namespace != "":
 			f["namespace"] = principal.Namespace
 		default:
-			// Defense-in-depth: every namespace enabled principal must be classified
-			// as namespace-bound or global upstream. If a producer drifts,
-			// default to global (no namespace claim is leaked) and warn so
-			// the gap surfaces.
+			// Producer drift: principal carries neither a namespace nor the
+			// operator flag. Label it unclassified rather than operator, and warn.
 			m.logger.WithField("user", principal.Username).
-				Warn("rbac: principal missing namespace and global classification on namespace enabled cluster; defaulting to global_operator")
-			f["global_operator"] = true
+				Warn("rbac: principal missing namespace and global-operator classification on namespace-enabled cluster")
+			f["unclassified"] = true
 		}
 	}
 	return f

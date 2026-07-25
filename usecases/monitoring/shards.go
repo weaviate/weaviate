@@ -96,3 +96,14 @@ func (pm *PrometheusMetrics) DeleteUnloadedShard() {
 
 	pm.ShardsUnloaded.Dec()
 }
+
+// SetStartupShardProgress publishes the latest eager shard-loading progress
+// (loaded so far / expected to load eagerly) computed during startup.
+func (pm *PrometheusMetrics) SetStartupShardProgress(loaded, total int64) {
+	if pm == nil {
+		return
+	}
+
+	pm.StartupShardsLoaded.Set(float64(loaded))
+	pm.StartupShardsToLoad.Set(float64(total))
+}

@@ -251,7 +251,7 @@ func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 
 	// Set up expectations
 	mockUsageService.EXPECT().Usage(mock.Anything, mock.Anything).Return(&types.Report{Node: "test-node"}, nil).Maybe()
-	mockUsageService.EXPECT().SetJitterInterval(mock.Anything).Return().Maybe()
+	mockUsageService.EXPECT().SetShardConcurrency(mock.Anything).Return().Maybe()
 	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockStorage.EXPECT().UpdateConfig(mock.Anything).Return(true, nil).Maybe()
 
@@ -378,7 +378,7 @@ func TestSetUsageService_StartsCollectorExactlyOnce(t *testing.T) {
 	mockUsageService := clusterusage.NewMockService(t)
 
 	uploads := make(chan struct{}, 16)
-	mockUsageService.EXPECT().SetJitterInterval(mock.Anything).Return().Once()
+	mockUsageService.EXPECT().SetShardConcurrency(mock.Anything).Return().Once()
 	mockUsageService.EXPECT().Usage(mock.Anything, mock.Anything).Return(&types.Report{Node: "test-node"}, nil)
 	mockStorage.EXPECT().UploadUsageData(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, *types.Report) error {
 		uploads <- struct{}{}
@@ -401,7 +401,7 @@ func TestSetUsageService_StartsCollectorExactlyOnce(t *testing.T) {
 		Usage: usagetypes.UsageConfig{
 			// matches the module's jitter so reloadConfig does not call
 			// SetJitterInterval again
-			ShardJitterInterval: runtime.NewDynamicValue(DefaultShardJitterInterval),
+			ShardConcurrency: runtime.NewDynamicValue(int(DefaultShardConcurrency)),
 		},
 		RuntimeOverrides: config.RuntimeOverrides{
 			LoadInterval: 2 * time.Minute,
