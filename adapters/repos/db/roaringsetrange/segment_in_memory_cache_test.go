@@ -285,6 +285,11 @@ func readBytes(t *testing.T, s *SegmentInMemory, value uint64, operator filters.
 	return out
 }
 
+const (
+	concurrentWrites = 20
+	concurrentReads  = 200
+)
+
 // TestLeafCacheConcurrentReadersAndWriter runs N readers against 1 writer
 // under -race, asserting a reader never sees a bitmap that contradicts a
 // write it can already observe.
@@ -326,7 +331,10 @@ func TestLeafCacheConcurrentReadersAndWriter(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; !stop.Load(); i++ {
+		// bounded by writes rather than by wall clock: reader pressure decides
+		// how long a fixed number of writes takes, so a time-boxed run measures
+		// the runner, not the code
+		for i := 0; i < concurrentWrites; i++ {
 			mt := NewMemtable(logger)
 			for d := uint64(0); d < 100; d++ {
 				mt.Insert(uint64((i+int(d))%64), []uint64{d})
@@ -340,14 +348,13 @@ func TestLeafCacheConcurrentReadersAndWriter(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(3 * time.Second)
+	// wait for both sides to do real work rather than asserting a floor and
+	// hoping the runner was fast enough to reach it
+	require.Eventually(t, func() bool {
+		return writes.Load() == concurrentWrites && reads.Load() >= concurrentReads
+	}, 2*time.Minute, 10*time.Millisecond)
 	stop.Store(true)
 	wg.Wait()
-
-	// floors rather than exact counts: the point is that both sides made real
-	// progress against each other, not how much
-	require.Greater(t, reads.Load(), int64(100))
-	require.Greater(t, writes.Load(), int64(20))
 }
 
 // TestLeafCacheBudgetConstrainedConcurrentReads runs concurrent readers
