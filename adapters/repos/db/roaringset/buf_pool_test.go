@@ -1161,22 +1161,3 @@ func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 		})
 	}
 }
-
-func TestCloneBufSize(t *testing.T) {
-	const MiB = 1 << 20
-
-	// A clone sized from a wider bound than its source has to end up asking for
-	// the same thing CloneToBuf would have asked for at that size.
-	rec := &recordingBufPool{}
-	src := prefilledOfAtLeast(2 * MiB)
-	wider := src.LenInBytes() * 2
-
-	rec.Get(CloneBufSize(wider))
-	viaHelper := rec.lastMinCap
-
-	widerBm := prefilledOfAtLeast(wider)
-	rec.CloneToBuf(widerBm)
-
-	require.Equal(t, CloneBufSize(widerBm.LenInBytes()), rec.lastMinCap)
-	require.Greater(t, viaHelper, wider)
-}

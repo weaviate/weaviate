@@ -47,14 +47,6 @@ func withGrowthHeadroom(lenInBytes int, factor float64) int {
 	return int(math.Ceil(float64(lenInBytes) * factor))
 }
 
-// CloneBufSize mirrors CloneToBuf's headroom for callers that size a clone
-// from a bound wider than its source and so can't call CloneToBuf directly;
-// a raw Get with that size would silently drop the headroom. Used by
-// roaringsetrange, which sizes clones from plane 0 rather than the leaf.
-func CloneBufSize(lenInBytes int) int {
-	return withGrowthHeadroom(lenInBytes, bitmapCloneGrowthFactor)
-}
-
 const (
 	bufPoolSyncMinRangeP2   = 9                         // 512B
 	bufPoolSyncMaxRangeP2   = 20                        // 1MiB, largest sync.Pool class
