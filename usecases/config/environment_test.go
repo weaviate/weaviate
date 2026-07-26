@@ -1951,7 +1951,7 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 		{
 			name:   "budget below the smallest in-memory class",
 			memory: "1MiB",
-			expErr: "exceeds the total buffer budget",
+			expErr: "leaves no in-memory buffer class",
 		},
 		{
 			name:    "budget below the smallest in-memory class, matching buf size",
@@ -1969,11 +1969,22 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			bufSize: "1MiB",
 			expErr:  "leaves no in-memory buffer class",
 		},
+		// Degrade only the pool, so they boot. The two below are the same
+		// ladder either side of MAX_BUF_SIZE == MAX_MEMORY.
 		{
 			name:    "max buf size above the budget",
 			memory:  "4MiB",
 			bufSize: "32MiB",
-			expErr:  "exceeds the total buffer budget",
+		},
+		{
+			name:    "budget one byte above the max buf size",
+			memory:  "33554433",
+			bufSize: "33554432",
+		},
+		{
+			name:    "max buf size one byte above the budget",
+			memory:  "33554432",
+			bufSize: "33554433",
 		},
 	}
 

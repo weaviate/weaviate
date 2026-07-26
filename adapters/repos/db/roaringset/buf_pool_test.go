@@ -1006,7 +1006,7 @@ func TestValidateBufPoolSizes(t *testing.T) {
 			name:       "budget below the smallest in-memory class",
 			maxBufSize: 2 * MiB,
 			maxMemory:  1 * MiB,
-			expErr:     "exceeds the total buffer budget",
+			expErr:     "leaves no in-memory buffer class",
 		},
 		{
 			name:       "budget below the smallest in-memory class, matching buf size",
@@ -1018,19 +1018,28 @@ func TestValidateBufPoolSizes(t *testing.T) {
 			name:       "default max buf size against a 1MiB budget",
 			maxBufSize: defaultMaxBufSize,
 			maxMemory:  1 * MiB,
-			expErr:     "exceeds the total buffer budget",
+			expErr:     "leaves no in-memory buffer class",
 		},
+		// Degrade the pool, not the node, so they serve.
 		{
 			name:       "max buf size above the budget",
 			maxBufSize: 32 * MiB,
 			maxMemory:  4 * MiB,
-			expErr:     "exceeds the total buffer budget",
 		},
 		{
 			name:       "max buf size one byte above the budget",
 			maxBufSize: 2*MiB + 1,
 			maxMemory:  2 * MiB,
-			expErr:     "exceeds the total buffer budget",
+		},
+		{
+			name:       "budget one byte above the max buf size",
+			maxBufSize: 32 * MiB,
+			maxMemory:  32*MiB + 1,
+		},
+		{
+			name:       "max buf size one byte above the budget, at 32MiB",
+			maxBufSize: 32*MiB + 1,
+			maxMemory:  32 * MiB,
 		},
 	}
 
@@ -1137,13 +1146,27 @@ func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 			name:       "no in-memory class at all",
 			maxBufSize: 512 * KiB,
 			maxMemory:  128 * MiB,
-			expWarn:    "leaves no in-memory buffer class",
+			expWarn:    "builds no in-memory bitmap buffer class at all",
 		},
 		{
 			name:       "budget covers fewer classes than requested",
 			maxBufSize: 32 * MiB,
 			maxMemory:  40 * MiB,
-			expWarn:    "only covers in-memory buffer classes up to 16 MiB",
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
+		},
+		// The pair whose ladder is identical either side of maxBufSize ==
+		// maxMemory: both boot, so both have to warn the same way.
+		{
+			name:       "budget one byte above the max buf size",
+			maxBufSize: 32 * MiB,
+			maxMemory:  32*MiB + 1,
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
+		},
+		{
+			name:       "max buf size one byte above the budget",
+			maxBufSize: 32*MiB + 1,
+			maxMemory:  32 * MiB,
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
 		},
 	}
 
@@ -1206,4 +1229,39 @@ func TestDisposableBufMetricSizeLabel(t *testing.T) {
 				"disposable label for %d bytes must match the pooled label %q", rng, pooledLabel)
 		}
 	})
+}
+
+// The gate has to be a function of the ladder that gets built, not of how the
+// two inputs compare. Configs one byte apart either side of maxBufSize ==
+// maxMemory build the same ladder, so they have to get the same verdict.
+func TestValidateBufPoolSizesGatesOnTheLadderOnly(t *testing.T) {
+	const MiB = 1 << 20
+
+	testCases := []struct {
+		name string
+		a, b struct{ maxBufSize, maxMemory int }
+	}{
+		{
+			name: "one byte either side at 32MiB",
+			a:    struct{ maxBufSize, maxMemory int }{32 * MiB, 32*MiB + 1},
+			b:    struct{ maxBufSize, maxMemory int }{32*MiB + 1, 32 * MiB},
+		},
+		{
+			name: "one byte either side at 2MiB",
+			a:    struct{ maxBufSize, maxMemory int }{2 * MiB, 2*MiB + 1},
+			b:    struct{ maxBufSize, maxMemory int }{2*MiB + 1, 2 * MiB},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ladderA, _ := inMemoBufferRangesAndLimits(tc.a.maxBufSize, tc.a.maxMemory)
+			ladderB, _ := inMemoBufferRangesAndLimits(tc.b.maxBufSize, tc.b.maxMemory)
+			require.Equal(t, ladderA, ladderB, "precondition: the two configs must build the same ladder")
+			require.NotEmpty(t, ladderA)
+
+			require.NoError(t, ValidateBufPoolSizes(tc.a.maxBufSize, tc.a.maxMemory))
+			require.NoError(t, ValidateBufPoolSizes(tc.b.maxBufSize, tc.b.maxMemory))
+		})
+	}
 }

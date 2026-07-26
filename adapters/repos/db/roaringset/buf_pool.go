@@ -347,14 +347,12 @@ func inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize int) ([]int, map[int]in
 		maxBufSize, maxMemoSize)
 }
 
-// ValidateBufPoolSizes rejects size pairs that combine into a pool with no
-// in-memory size class: individually valid values can still silently disable
-// pooling above 1MiB, with no metric to reveal it.
+// ValidateBufPoolSizes rejects exactly one thing: a pair that leaves the pool
+// with no in-memory size class at all. Everything short of that degrades only
+// the pool, which is an optimisation, so it warns and serves. Gating on the
+// two values relative to each other instead would refuse boots for ladders
+// identical to ones that are allowed through.
 func ValidateBufPoolSizes(maxBufSize, maxMemoSize int) error {
-	if maxBufSize > maxMemoSize {
-		return fmt.Errorf("max buffer size %s exceeds the total buffer budget %s",
-			humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(maxMemoSize)))
-	}
 	if ranges, _ := inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize); len(ranges) == 0 {
 		return fmt.Errorf("max buffer size %s with a total buffer budget of %s leaves no in-memory "+
 			"buffer class: the max buffer size must be greater than %s and the budget at least %s",
@@ -364,28 +362,42 @@ func ValidateBufPoolSizes(maxBufSize, maxMemoSize int) error {
 	return nil
 }
 
-// logDegradedBufPool warns about the two silent-degradation cases
-// ValidateBufPoolSizes can't catch: pools built without config validation,
-// and budgets that silently drop the largest requested class.
+// logDegradedBufPool is the whole signal for a pool that built fewer classes
+// than asked for. The surviving sync.Pool tier emits no metrics, so without
+// this the state is invisible.
 func logDegradedBufPool(logger logrus.FieldLogger, inMemoRanges []int, maxBufSize, maxMemoSize int) {
 	if logger == nil {
 		return
 	}
+	entry := logger.WithFields(logrus.Fields{
+		"action":                         "bitmap_buf_pool_init",
+		"query_bitmap_bufs_max_buf_size": humanize.IBytes(uint64(maxBufSize)),
+		"query_bitmap_bufs_max_memory":   humanize.IBytes(uint64(maxMemoSize)),
+		"in_memory_size_classes":         humanizeSizes(inMemoRanges),
+	})
 	if len(inMemoRanges) == 0 {
-		logger.WithField("action", "bitmap_buf_pool_init").
-			Warnf("max buffer size %s with a total buffer budget of %s leaves no in-memory buffer class; "+
-				"bitmap buffers above %s are allocated per request and never pooled",
-				humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(maxMemoSize)),
-				humanize.IBytes(1<<bufPoolSyncMaxRangeP2))
+		entry.Warnf("QUERY_BITMAP_BUFS_MAX_BUF_SIZE=%s with QUERY_BITMAP_BUFS_MAX_MEMORY=%s builds no "+
+			"in-memory bitmap buffer class at all; every buffer above %s is allocated per request and "+
+			"never pooled",
+			humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(maxMemoSize)),
+			humanize.IBytes(1<<bufPoolSyncMaxRangeP2))
 		return
 	}
 	if largest := inMemoRanges[len(inMemoRanges)-1]; largest < maxBufSize {
-		logger.WithField("action", "bitmap_buf_pool_init").
-			Warnf("total buffer budget of %s only covers in-memory buffer classes up to %s, "+
-				"not the requested max buffer size of %s",
-				humanize.IBytes(uint64(maxMemoSize)), humanize.IBytes(uint64(largest)),
-				humanize.IBytes(uint64(maxBufSize)))
+		entry.Warnf("QUERY_BITMAP_BUFS_MAX_MEMORY=%s only affords in-memory bitmap buffer classes %v, "+
+			"short of the QUERY_BITMAP_BUFS_MAX_BUF_SIZE=%s requested; buffers above %s are allocated "+
+			"per request and never pooled",
+			humanize.IBytes(uint64(maxMemoSize)), humanizeSizes(inMemoRanges),
+			humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(largest)))
 	}
+}
+
+func humanizeSizes(sizes []int) []string {
+	out := make([]string, len(sizes))
+	for i, s := range sizes {
+		out[i] = humanize.IBytes(uint64(s))
+	}
+	return out
 }
 
 func calculateInMemoBufferRangesAndLimits(maxSyncBufSize, minRangeP2, maxBufSize, maxMemoSize int,
