@@ -139,3 +139,29 @@ func findSlowQueryEntry(t *testing.T, hook *test.Hook, query string) *logrus.Ent
 	t.Fatalf("no slow-query record for %q; the shard emitted %d entries", query, len(hook.AllEntries()))
 	return nil
 }
+
+// The slow-query record above only exists once QUERY_SLOW_LOG_ENABLED is on,
+// which it is not by default, and is sampled after that. On a stock deployment
+// the counter is the only evidence that a delete was served from the range
+// cascade, so it has to move with the slow log off.
+func Test_FindUUIDs_CountsCascadeRoutingWithTheSlowLogOff(t *testing.T) {
+	ctx := testCtx()
+	shard, hook := newFindUUIDsSlowLogShard(t, ctx, func(idx *Index) {
+		idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(false)
+	})
+
+	before := gatheredLabelValues(t, "weaviate_lsm_roaringsetrange_batch_delete_total")
+
+	_, err := shard.FindUUIDs(ctx, rangeableIntFilter(filters.OperatorLessThanEqual, 5), 0)
+	require.NoError(t, err)
+
+	after := gatheredLabelValues(t, "weaviate_lsm_roaringsetrange_batch_delete_total")
+	require.Equalf(t, before["cascade"]+1, after["cascade"],
+		"a cascade-routed delete left no counter behind, so on stock settings nothing records it")
+	require.Equal(t, before["other"], after["other"], "it was not routed through the cascade")
+
+	for _, entry := range hook.AllEntries() {
+		require.NotEqualf(t, "FindUUIDs", entry.Data["query"],
+			"the slow log is off, so this reading has to come from the counter alone: %s", entry.Message)
+	}
+}

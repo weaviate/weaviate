@@ -32,6 +32,7 @@ const (
 	leafCacheOpsName      = "lsm_roaringsetrange_leaf_cache_ops_total"
 	cascadeSeedConfigName = "lsm_roaringsetrange_cascade_seed_config"
 	cascadeSeedOpsName    = "lsm_roaringsetrange_cascade_seed_total"
+	batchDeleteOpsName    = "lsm_roaringsetrange_batch_delete_total"
 
 	// Help text cross-references have to name the emitted series, which is what
 	// a dashboard greps for, not the Name field the namespace is prepended to.

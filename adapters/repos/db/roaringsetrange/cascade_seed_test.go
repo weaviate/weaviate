@@ -261,6 +261,7 @@ func TestEmittedSeriesNames(t *testing.T) {
 			"hit", "miss", "store", "rejected", "invalidate", "disabled",
 		},
 		cascadeSeedOpsName:    {"seeded", "disabled", "no_set_bit"},
+		batchDeleteOpsName:    {"cascade", "other"},
 		cascadeSeedConfigName: {"enabled", "disabled", "unrecognised"},
 		// The one gauge that reads on the default path, where every other series
 		// in this subsystem is flat. A rename here is invisible to the other

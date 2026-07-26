@@ -73,8 +73,8 @@ func boolToFloat(b bool) float64 {
 	return 0
 }
 
-// gatheredLabelValues reads one gauge family from the default registry, which is
-// where this subsystem registers, as {label value: reading}.
+// gatheredLabelValues reads one gauge or counter family from the default
+// registry, which is where this subsystem registers, as {label value: reading}.
 func gatheredLabelValues(t *testing.T, name string) map[string]float64 {
 	t.Helper()
 
@@ -87,8 +87,12 @@ func gatheredLabelValues(t *testing.T, name string) map[string]float64 {
 		}
 		got := map[string]float64{}
 		for _, metric := range family.GetMetric() {
+			value := metric.GetGauge().GetValue()
+			if metric.Counter != nil {
+				value = metric.GetCounter().GetValue()
+			}
 			for _, label := range metric.GetLabel() {
-				got[label.GetValue()] = metric.GetGauge().GetValue()
+				got[label.GetValue()] = value
 			}
 		}
 		return got

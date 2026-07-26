@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -196,6 +197,14 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 			"filter_took":    fetchStart.Sub(start).String(),
 			"docids_found":   it.Len(),
 			"uuids_resolved": currIdx,
+		}
+
+		if err == nil {
+			// The slow-log record below is the detail, but it only exists once an
+			// operator turns the slow log on and is sampled after that. This is the
+			// reading available by default.
+			_, viaCascade := helpers.ExtractSlowQueryDetails(ctx)[roaringsetrange.DocBitmapAnnotation]
+			roaringsetrange.ObserveBatchDeleteRouting(viaCascade)
 		}
 
 		// A delete-heavy workload makes one FindUUIDs call per batch per shard, so
