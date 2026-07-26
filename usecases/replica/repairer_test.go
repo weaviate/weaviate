@@ -31,8 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// replicasOf is what a replica answers a content read with for the versions of
-// xs it holds.
+// replicasOf builds the FetchObjects response for the current versions of xs.
 func replicasOf(xs ...*storobj.Object) []replica.Replica {
 	rs := make([]replica.Replica, len(xs))
 	for i, x := range xs {
@@ -41,17 +40,15 @@ func replicasOf(xs ...*storobj.Object) []replica.Replica {
 	return rs
 }
 
-// expectFetch answers node's single content read with xs, and only accepts
-// exactly ids.
+// expectFetch mocks node's one FetchObjects call for exactly ids, returning xs.
 func expectFetch(f *fakeFactory, node, cls, shard string, ids []strfmt.UUID, xs []replica.Replica) {
 	f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, ids).
 		Return(xs, nil).
 		Once()
 }
 
-// expectFetchAnyOrder answers node's single content read with xs and pins the
-// ids it is asked for. Read repair batches those per replica, so the order they
-// arrive in is not part of the contract.
+// expectFetchAnyOrder is like expectFetch but asserts the ids in any order:
+// read repair batches ids per replica without guaranteeing their order.
 func expectFetchAnyOrder(t *testing.T, f *fakeFactory, node, cls, shard string, want []strfmt.UUID, xs []replica.Replica) {
 	f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, anyVal).
 		Return(xs, nil).
