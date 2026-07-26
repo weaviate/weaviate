@@ -76,8 +76,7 @@ func parseCascadeSeedDisabled(v string) (disabled, recognised bool) {
 var (
 	cascadeSeedConfig = promauto.With(monitoring.GetMetrics().Registerer).NewGaugeVec(
 		prometheus.GaugeOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "lsm_roaringsetrange_cascade_seed_config",
+			Name: "lsm_roaringsetrange_cascade_seed_config",
 			Help: "Which state " + CascadeSeedDisabledEnv + " left the seeded range cascade in, " +
 				"readable at boot rather than only once a query exercises it. " +
 				"unrecognised means the variable was set to something this build does not parse " +
@@ -86,8 +85,7 @@ var (
 
 	cascadeSeedOps = promauto.With(monitoring.GetMetrics().Registerer).NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "lsm_roaringsetrange_cascade_seed_total",
+			Name: "lsm_roaringsetrange_cascade_seed_total",
 			Help: "Range-filter cascades by where they started. " +
 				"seeded means the cascade started from the lowest set bit's plane; " +
 				"disabled means " + CascadeSeedDisabledEnv + " engaged and it started from plane 0; " +

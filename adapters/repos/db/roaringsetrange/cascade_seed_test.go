@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -198,4 +199,34 @@ func TestLogCascadeSeedConfigReportsAnUnrecognisedValue(t *testing.T) {
 	require.Len(t, hook.Entries, 1)
 	assert.Contains(t, hook.LastEntry().Message, CascadeSeedDisabledEnv)
 	assert.Contains(t, hook.LastEntry().Message, `"of"`)
+}
+
+// TestEmittedSeriesNames pins the exact strings a dashboard or a QA gate greps
+// for. Declaring a Namespace here would prefix these with weaviate_ while the
+// neighbour in the same subsystem, lsm_bitmap_buffers_usage, stays unprefixed —
+// so no single prefix would select all LSM metrics. A gate built to observe the
+// leaf cache matched the unprefixed name, got zero, and came close to reporting
+// that the memo never engaged.
+//
+// Whether DefaultMetricsNamespace should become the convention is a repo-wide
+// migration decision for all ~130 metrics at once, not something to settle in a
+// performance PR. Until then, matching the neighbours is what keeps the
+// subsystem greppable.
+func TestEmittedSeriesNames(t *testing.T) {
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	got := map[string]bool{}
+	for _, family := range families {
+		got[family.GetName()] = true
+	}
+
+	for _, name := range []string{
+		"lsm_roaringsetrange_leaf_cache_ops_total",
+		"lsm_roaringsetrange_cascade_seed_total",
+		"lsm_roaringsetrange_cascade_seed_config",
+	} {
+		assert.Truef(t, got[name], "%q is not emitted; a dashboard or gate matching it reads a silent zero", name)
+		assert.Falsef(t, got["weaviate_"+name], "%q is prefixed, unlike lsm_bitmap_buffers_usage in the same subsystem", name)
+	}
 }

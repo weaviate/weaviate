@@ -291,7 +291,7 @@ func leafCacheCounters(t *testing.T) map[string]float64 {
 
 	out := map[string]float64{}
 	for _, family := range families {
-		if family.GetName() != "weaviate_lsm_roaringsetrange_leaf_cache_ops_total" {
+		if family.GetName() != "lsm_roaringsetrange_leaf_cache_ops_total" {
 			continue
 		}
 		for _, metric := range family.GetMetric() {
