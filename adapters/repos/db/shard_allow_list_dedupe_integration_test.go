@@ -371,7 +371,7 @@ func TestShardAllowListDedupeCountsEachLegOnce(t *testing.T) {
 	t.Run("two overlapping legs", func(t *testing.T) {
 		// An overlap is likely but not guaranteed; retry until one lands. Every
 		// attempt still checks the total, which catches a double-count either way.
-		const attempts = 50
+		const attempts = 200
 		overlapped := false
 
 		for i := 0; i < attempts && !overlapped; i++ {
@@ -435,6 +435,88 @@ func TestShardAllowListDedupeCountsEachLegOnce(t *testing.T) {
 		after := gatherCounter(t, metric, "outcome")
 		assert.EqualValues(t, 0, total(after)-total(before),
 			"a query that was never a dedupe candidate must not move the counters")
+	})
+
+	// A leg that joins and then gives up before the result is published consumed
+	// nothing, so no share happened. Counting it as one made a cancelled wait
+	// look like a successful dedupe, and cancellation is exactly what an abort
+	// storm produces on purpose: every storm query would have recorded a share
+	// that never occurred.
+	//
+	// The follower's context is cancelled before it starts, so a legitimate share
+	// is impossible by construction and any movement on "shared" is the defect.
+	// A leg that joins and then gives up before the result is published consumed
+	// nothing, so no share happened. Counting it as one made a cancelled wait
+	// read as a successful dedupe, and cancellation is what an abort storm
+	// produces on purpose: every storm query would have recorded a phantom share.
+	//
+	// The leader is driven through the dedupe directly because buildAllowList
+	// offers no way to pause a real build, and without a pause the window is too
+	// narrow to hit reliably. The waiters, which is where the claim lives, go
+	// through the real call site.
+	t.Run("a leg cancelled before publish is not a share", func(t *testing.T) {
+		const deadLegs = 4
+		const token = "tok-cancel"
+
+		before := gatherCounter(t, metric, "outcome")
+
+		gate := make(chan struct{})
+		var (
+			leaderOutcome string
+			leaderWG      sync.WaitGroup
+		)
+		leaderWG.Add(1)
+		go func() {
+			defer leaderWG.Done()
+			list, outcome, err := shard.allowListDedupe.do(context.Background(), token, filter,
+				func(ctx context.Context) (helpers.AllowList, error) {
+					<-gate
+					return shard.buildAllowListDirect(ctx, filter, addl)
+				})
+			leaderOutcome = outcome
+			if err == nil && list != nil {
+				list.Close()
+			}
+		}()
+		waitForParticipants(t, &shard.allowListDedupe, token, 1)
+
+		followCtx, cancelFollowers := context.WithCancel(
+			helpers.CtxWithQueryDedupeToken(context.Background(), token))
+		var followWG sync.WaitGroup
+		for leg := 0; leg < deadLegs; leg++ {
+			followWG.Add(1)
+			go func() {
+				defer followWG.Done()
+				list, err := shard.buildAllowList(followCtx, filter, addl)
+				if err == nil && list != nil {
+					list.Close()
+				}
+			}()
+		}
+		// Every follower is parked on the leader before any of them gives up.
+		waitForParticipants(t, &shard.allowListDedupe, token, 1+deadLegs)
+
+		cancelFollowers()
+		followWG.Wait()
+		close(gate)
+		leaderWG.Wait()
+
+		after := gatherCounter(t, metric, "outcome")
+		assert.EqualValues(t, deadLegs,
+			after[helpers.AllowListDedupeCancelled]-before[helpers.AllowListDedupeCancelled],
+			"every follower gave up while waiting")
+		assert.EqualValues(t, deadLegs, total(after)-total(before),
+			"only the followers went through the call site, and each exactly once")
+		assert.EqualValues(t, 0,
+			after[helpers.AllowListDedupeShared]-before[helpers.AllowListDedupeShared],
+			"a leg that gave up before publish consumed no bitmap, so nothing was shared")
+
+		// The leader's own label carries the rest of the claim: it published to
+		// nobody, so it led an unshared build. Reporting "shared" here is the
+		// defect, and it is the direction that inflates the series rather than
+		// deflating it.
+		assert.Equal(t, helpers.AllowListDedupeUnshared, leaderOutcome,
+			"the leader published to an empty audience")
 	})
 
 	t.Run("two legs that never overlap both lead", func(t *testing.T) {
