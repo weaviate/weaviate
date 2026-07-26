@@ -23,11 +23,9 @@ import (
 )
 
 const (
-	// metricsNamespace prefixes every series this package emits. It matches
-	// adapters/repos/db/lsmkv, where the current lsm_* convention lives and which
-	// is prefixed throughout. The bare lsm_bitmap_buffers_usage in the same
-	// subsystem belongs to the legacy PrometheusMetrics monolith, which carries
-	// its own instruction not to add metrics to it.
+	// metricsNamespace matches the lsm_* convention in adapters/repos/db/lsmkv.
+	// The bare lsm_bitmap_buffers_usage neighbour belongs to the legacy,
+	// frozen PrometheusMetrics monolith and isn't the convention to follow.
 	metricsNamespace = "weaviate"
 
 	leafCacheConfigName   = "lsm_roaringsetrange_leaf_cache_config"
@@ -51,10 +49,9 @@ var (
 	indexRangeableLogged   atomic.Bool
 )
 
-// parseBoolEnv classifies a boolean env value three ways where entcfg.Enabled
-// classifies it two: it tells "the operator asked for off" apart from "this
-// build did not understand the value". Collapsing those two makes a typo
-// indistinguishable from a deliberate off, with nothing logged either way.
+// parseBoolEnv classifies a value three ways, not entcfg.Enabled's two: it
+// keeps a deliberate off distinct from an unrecognised value, so a typo isn't
+// silently read as intentional.
 func parseBoolEnv(v string) (value, recognised bool) {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "on", "enabled", "1", "true":
@@ -141,14 +138,10 @@ func PublishConfig(featureEnabled bool, logger logrus.FieldLogger) {
 	logCascadeSeedConfig(logger)
 }
 
-// logIndexRangeableConfig names a value entcfg.Enabled dropped. It recognises
-// only truthy words, so INDEX_RANGEABLE_IN_MEMORY=yes is indistinguishable from
-// unset and from false: feature off, gauge disabled_feature_off, no line saying
-// the value was why. The feature's other two knobs both report an unparsed
-// value, so the one gating them should too.
-//
-// Scoped to naming the value here. Correcting entcfg.Enabled would change
-// behaviour for every caller in the repo, which is a separate decision.
+// logIndexRangeableConfig names a value entcfg.Enabled silently dropped:
+// entcfg.Enabled recognises only truthy words, so an unparseable value reads
+// as unset with nothing logged. Scoped to naming it here rather than fixing
+// entcfg.Enabled, which every caller in the repo shares.
 func logIndexRangeableConfig(logger logrus.FieldLogger) {
 	if logger == nil || indexRangeableEnvValue == "" ||
 		!indexRangeableLogged.CompareAndSwap(false, true) {

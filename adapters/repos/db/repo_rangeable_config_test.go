@@ -31,10 +31,9 @@ import (
 )
 
 // weaviate_lsm_roaringsetrange_leaf_cache_config is the only series in its
-// subsystem that reads on the default path, and it reads because starting a DB
-// publishes it. Asserting the gauge rather than the call survives the
-// publication moving inside New or into something New calls; only removing it
-// goes red. Both arms run, so neither can pass on the other's leftover value.
+// subsystem that reads on the default path. Asserting the gauge, not the call
+// site, means only removing the publish call goes red. Both arms run so
+// neither can pass on the other's leftover value.
 func TestNewPublishesTheRangeableConfigGauge(t *testing.T) {
 	tests := []struct {
 		name              string

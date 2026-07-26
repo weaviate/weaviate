@@ -35,12 +35,9 @@ import (
 
 const findUUIDsSlowLogProp = "rangeableInt"
 
-// Delete resolves victims through Shard.FindUUIDs, which bypasses
-// buildAllowList and so reaches the filter annotations with no slow-log sink
-// installed. Without one the annotations land nowhere and the record says
-// nothing about how the delete resolved. Asserting on the emitted record rather
-// than on the ctx is what makes this fail if the sink stops being installed;
-// asserting inside a searcher the test set up itself would pass either way.
+// FindUUIDs bypasses buildAllowList, so it needs its own slow-log sink to
+// record how the filter resolved. Asserting on the emitted record, not a
+// test-installed one, is what catches that sink being removed.
 func Test_FindUUIDs_RecordsHowTheFilterResolved(t *testing.T) {
 	ctx := testCtx()
 	shard, hook := newFindUUIDsSlowLogShard(t, ctx)
@@ -74,10 +71,9 @@ func Test_FindUUIDs_RecordIsBoundedByTheSlowLogSwitch(t *testing.T) {
 	}
 }
 
-// newFindUUIDsSlowLogShard builds a shard holding ten objects at
-// rangeableInt == 1..10, with the slow log on and its threshold below any
-// achievable duration so every call reports and the assertion is not a coin
-// flip on sampling.
+// newFindUUIDsSlowLogShard builds a shard with ten objects at rangeableInt ==
+// 1..10; the slow-log threshold is set below any achievable duration so every
+// call reports and the assertion isn't a coin flip on sampling.
 func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, indexOpts ...func(*Index),
 ) (ShardLike, *test.Hook) {
 	t.Helper()

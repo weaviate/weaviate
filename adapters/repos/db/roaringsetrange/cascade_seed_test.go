@@ -235,10 +235,9 @@ func TestLogCascadeSeedConfigReportsAnUnrecognisedValue(t *testing.T) {
 	assert.Contains(t, hook.LastEntry().Message, `"of"`)
 }
 
-// Pins the emitted series names, prefix included, because a dashboard matching
-// the wrong form reads a silent zero and a silent zero is indistinguishable
-// from a feature that never engaged. Both halves are asserted: without the
-// negative half a half-renamed subsystem passes.
+// Pins the emitted series names, prefix included: a dashboard matching the
+// wrong form reads a silent zero indistinguishable from a feature that never
+// engaged. Both halves are asserted, or a half-renamed subsystem still passes.
 func TestEmittedSeriesNames(t *testing.T) {
 	families, err := prometheus.DefaultGatherer.Gather()
 	require.NoError(t, err)

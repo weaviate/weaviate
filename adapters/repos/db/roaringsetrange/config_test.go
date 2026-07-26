@@ -48,11 +48,8 @@ func withIndexRangeableEnv(t *testing.T, value string) {
 	indexRangeableEnvValue = value
 }
 
-// entcfg.Enabled recognises only truthy words, so INDEX_RANGEABLE_IN_MEMORY=yes
-// reads exactly like unset: feature off, gauge disabled_feature_off, and until
-// this warning nothing named the value as the reason. Both sibling knobs report
-// a value they could not parse; the one gating the feature must not be the
-// silent one.
+// entcfg.Enabled only recognises truthy words, so an unparseable value like
+// "yes" silently reads as unset/off; pins that it now warns instead.
 func TestPublishConfigNamesAnUnparsedFeatureFlag(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -154,9 +151,8 @@ func TestPublishConfigCoversAllFourStates(t *testing.T) {
 	t.Cleanup(func() { PublishConfig(false, nil) })
 }
 
-// The warning has to fire with the feature off, which is where most nodes are:
-// an unparsed budget there is still an operator mistake, and nothing else on
-// that path says so.
+// The warning must fire with the feature off — where most nodes are — since an
+// unparsed budget is a mistake nothing else on that path reports.
 func TestPublishConfigWarnsWithTheFeatureOff(t *testing.T) {
 	withLeafCacheEnv(t, "64MiBB",
 		fmt.Errorf("%s: %q: unhandled size name", LeafCacheMaxMemoryEnv, "64MiBB"),

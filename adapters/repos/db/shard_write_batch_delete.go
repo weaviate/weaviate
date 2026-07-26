@@ -198,10 +198,9 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 			"uuids_resolved": currIdx,
 		}
 
-		// The annotations the filter left on ctx are a per-operation record, and a
-		// delete-heavy workload makes one call per batch per shard. The reporter
-		// is the bound every other per-query record on this shard already uses:
-		// the slow-log switch, its threshold and its sampling.
+		// A delete-heavy workload makes one FindUUIDs call per batch per shard, so
+		// route the ctx annotations through the same slow-query reporter every
+		// other per-shard read path already bounds by.
 		reported := map[string]any{
 			"collection": s.index.Config.ClassName,
 			"shard":      s.ID(),

@@ -176,12 +176,10 @@ func newRangeableInMemoFixture(t *testing.T) (*Searcher, *lsmkv.Bucket) {
 	return searcher, bucket
 }
 
-// requireInMemoryRangeablePathIsLive is the positive control every assertion on
-// the leaf-cache counters needs. probe sits behind Bucket.keepSegmentsInMemory,
-// so with it off the query takes readerRoaringSetRangeFromSegments and no
-// counter moves — making "the cache is broken" and "the fixture never reached
-// the cache" the same reading. Asserting both halves, the answer and the
-// counters, separates them.
+// requireInMemoryRangeablePathIsLive is the positive control the leaf-cache
+// counter assertions need: with the in-memory path off the counters never
+// move, so a broken cache and a fixture that never reached it read the same
+// unless the answer is checked too.
 func requireInMemoryRangeablePathIsLive(t *testing.T, searcher *Searcher) {
 	t.Helper()
 
@@ -258,8 +256,8 @@ func Test_BatchDelete_RangeableInMemory_SharesTheLeafCacheWithSearch(t *testing.
 	})
 }
 
-// Covers the producing half only: this package cannot see Shard, so the sink
-// here is one the test installed. Whether FindUUIDs installs one of its own is
+// Covers the producing half only; this package can't see Shard, so the sink
+// here is the test's own. Shard's own sink is covered by
 // Test_FindUUIDs_RecordsHowTheFilterResolved in package db.
 func Test_BatchDelete_RangeableInMemory_AnnotatesTheRangeCascade(t *testing.T) {
 	searcher, _ := newRangeableInMemoFixture(t)

@@ -22,13 +22,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// CascadeSeedEnabledEnv switches the seeded cascade off and restores the
-// plane-0 cascade. Defaults to on, and is read once at startup, so it needs a
-// restart to take effect.
-//
-// Named positively so the value an operator reaches for to switch seeding off
-// means that. A *_DISABLED name cannot: its own trailing word, as a value,
-// parses as falsy and leaves the feature on.
+// CascadeSeedEnabledEnv switches the seeded cascade off; unset defaults to on,
+// and it's read once at startup so a change needs a restart. Named positively
+// because a *_DISABLED variable's own trailing word, used as a value, parses
+// as falsy and would leave the feature on.
 const CascadeSeedEnabledEnv = "QUERY_RANGEABLE_CASCADE_SEED_ENABLED"
 
 var (
