@@ -14,14 +14,17 @@ package replica_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -1450,6 +1453,145 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 			err := finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, xs)
 			require.Nil(t, err)
 			require.Equal(t, want, xs)
+		})
+	}
+}
+
+// Known red: pins that read repair reuses the caller's already projected search
+// result as the payload it writes to a lagging replica, instead of the stored
+// object. Fix direction not decided yet.
+func TestRepairerCheckConsistencyProjectedRepairPayloadKnownRed(t *testing.T) {
+	var (
+		id    = strfmt.UUID("10")
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B"}
+		ids   = []strfmt.UUID{id}
+		ctx   = context.Background()
+
+		// update time of the copy held by the coordinator (node A)
+		localTime = int64(2)
+
+		// what the object actually looks like on disk on every replica
+		storedProps = map[string]interface{}{
+			"num":    float64(1),
+			"bucket": "b1",
+			"tag":    "t1",
+			"body":   "lorem ipsum",
+		}
+		storedVector = []float32{0.1, 0.2, 0.3}
+
+		// what a Get selecting only "num" materialises
+		projectedProps = map[string]interface{}{"num": float64(1)}
+	)
+
+	newObject := func(updateTime int64, props map[string]interface{}, vector []float32) *storobj.Object {
+		return &storobj.Object{
+			Object: models.Object{
+				ID:                 id,
+				Class:              cls,
+				LastUpdateTimeUnix: updateTime,
+				Properties:         props,
+				Vector:             vector,
+			},
+			BelongsToShard: shard,
+			BelongsToNode:  nodes[0],
+			Vector:         vector,
+		}
+	}
+
+	tests := []struct {
+		name string
+		// inputProps/inputVector describe the object handed to CheckConsistency,
+		// i.e. what the local search actually materialised
+		inputProps  map[string]interface{}
+		inputVector []float32
+		// remoteTime is the update time reported by the other replica's digest
+		remoteTime int64
+		// repairedNode is the replica expected to receive the repair payload
+		repairedNode string
+	}{
+		{
+			name:         "projected properties reach the lagging replica",
+			inputProps:   projectedProps,
+			inputVector:  storedVector,
+			remoteTime:   localTime - 1,
+			repairedNode: nodes[1],
+		},
+		{
+			name:         "unprojected properties reach the lagging replica",
+			inputProps:   storedProps,
+			inputVector:  storedVector,
+			remoteTime:   localTime - 1,
+			repairedNode: nodes[1],
+		},
+		{
+			name:         "vector reaches the lagging replica",
+			inputProps:   storedProps,
+			inputVector:  nil,
+			remoteTime:   localTime - 1,
+			repairedNode: nodes[1],
+		},
+		{
+			name:         "newer remote is refetched before repairing the local replica",
+			inputProps:   projectedProps,
+			inputVector:  nil,
+			remoteTime:   localTime + 1,
+			repairedNode: nodes[0],
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var (
+				f        = newFakeFactory(t, cls, shard, nodes, false)
+				finder   = f.newFinder(nodes[0])
+				xs       = []*storobj.Object{newObject(localTime, tt.inputProps, tt.inputVector)}
+				digestR  = []types.RepairResponse{{ID: id.String(), UpdateTime: tt.remoteTime}}
+				mu       sync.Mutex
+				captured []*objects.VObject
+			)
+
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
+				Return(digestR, nil)
+
+			if tt.remoteTime > localTime {
+				full := []replica.Replica{{
+					ID:     id,
+					Object: newObject(tt.remoteTime, storedProps, storedVector),
+				}}
+				f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, ids).Return(full, nil)
+			}
+
+			f.RClient.EXPECT().OverwriteObjects(anyVal, tt.repairedNode, cls, shard, anyVal).
+				Return([]types.RepairResponse{}, nil).
+				Once().
+				RunFn = func(a mock.Arguments) {
+				mu.Lock()
+				defer mu.Unlock()
+				captured = append(captured, a[4].([]*objects.VObject)...)
+			}
+
+			require.NoError(t, finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, xs))
+
+			mu.Lock()
+			defer mu.Unlock()
+			require.Len(t, captured, 1, "expected a single repair payload for node %q", tt.repairedNode)
+			payload := captured[0]
+			require.NotNil(t, payload.LatestObject, "repair payload carries no object")
+
+			gotProps, _ := payload.LatestObject.Properties.(map[string]interface{})
+			assert.Equal(t, storedProps, gotProps,
+				"this is the payload read repair sends to node %q as the winning version of the object, "+
+					"stamped with the winning update time. Any property missing here is missing from that "+
+					"write, and no later digest comparison can notice, because digests only compare "+
+					"update times.", tt.repairedNode)
+
+			assert.Equal(t, storedVector, payload.Vector,
+				"this is the payload read repair sends to node %q as the winning version of the object, "+
+					"stamped with the winning update time. A missing vector here is missing from that "+
+					"write, and no later digest comparison can notice, because digests only compare "+
+					"update times.", tt.repairedNode)
 		})
 	}
 }
