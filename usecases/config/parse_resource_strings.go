@@ -22,12 +22,20 @@ import (
 // _MAX_BUF_SIZE: an unbounded value would size channels with ~10^11 slots at boot.
 const MaxQueryBitmapBufsSize = 1 << 40
 
-// parseBitmapBufsSize fails loudly, naming the variable and rejected value,
+// parseResourceEnv fails loudly, naming the variable and the rejected value,
 // rather than falling back to a default that would silently behave as unset.
-func parseBitmapBufsSize(envName, value string) (int, error) {
+func parseResourceEnv(envName, value string) (int64, error) {
 	bytes, err := parseResourceString(value)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %q: %w", envName, value, err)
+	}
+	return bytes, nil
+}
+
+func parseBitmapBufsSize(envName, value string) (int, error) {
+	bytes, err := parseResourceEnv(envName, value)
+	if err != nil {
+		return 0, err
 	}
 	if bytes <= 0 || bytes > MaxQueryBitmapBufsSize {
 		return 0, fmt.Errorf("%s: %q must be between 1 and %d bytes, got %d",

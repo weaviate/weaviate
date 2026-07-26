@@ -1951,7 +1951,7 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 		{
 			name:   "budget below the smallest in-memory class",
 			memory: "1MiB",
-			expErr: "exceeds the total buffer budget",
+			expErr: "leaves no in-memory buffer class",
 		},
 		{
 			name:    "budget below the smallest in-memory class, matching buf size",
@@ -1969,11 +1969,21 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			bufSize: "1MiB",
 			expErr:  "leaves no in-memory buffer class",
 		},
+		// These degrade only the pool, not the boot, so no expErr.
 		{
 			name:    "max buf size above the budget",
 			memory:  "4MiB",
 			bufSize: "32MiB",
-			expErr:  "exceeds the total buffer budget",
+		},
+		{
+			name:    "budget one byte above the max buf size",
+			memory:  "33554433",
+			bufSize: "33554432",
+		},
+		{
+			name:    "max buf size one byte above the budget",
+			memory:  "33554432",
+			bufSize: "33554433",
 		},
 	}
 
@@ -1998,5 +2008,43 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			require.NoError(t, roaringset.ValidateBufPoolSizes(
 				conf.QueryBitmapBufsMaxBufSize, conf.QueryBitmapBufsMaxMemory))
 		})
+	}
+}
+
+// Every size-valued env var must name itself and its rejected value on error.
+func TestEnvironmentResourceSizeRejectionsNameTheValue(t *testing.T) {
+	envNames := []string{
+		"PERSISTENCE_LSM_MAX_SEGMENT_SIZE",
+		"PERSISTENCE_MIN_MMAP_SIZE",
+		"PERSISTENCE_MAX_REUSE_WAL_SIZE",
+		"PERSISTENCE_HNSW_MAX_LOG_SIZE",
+		"BACKUP_MIN_CHUNK_SIZE",
+		"BACKUP_CHUNK_TARGET_SIZE",
+		"BACKUP_SPLIT_FILE_SIZE",
+		"QUERY_BITMAP_BUFS_MAX_MEMORY",
+		"QUERY_BITMAP_BUFS_MAX_BUF_SIZE",
+	}
+
+	badValues := []struct {
+		name  string
+		value string
+	}{
+		{name: "not a number", value: "I'm not a number"},
+		{name: "unsupported unit", value: "5GiL"},
+		{name: "overflows int64", value: "10000000TiB"},
+	}
+
+	for _, envName := range envNames {
+		for _, bad := range badValues {
+			t.Run(envName+"/"+bad.name, func(t *testing.T) {
+				t.Setenv(envName, bad.value)
+
+				err := FromEnv(&Config{})
+
+				require.Error(t, err)
+				require.Contains(t, err.Error(), envName)
+				require.Contains(t, err.Error(), bad.value)
+			})
+		}
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -914,12 +915,14 @@ func TestCloneToBufGrowthHeadroom(t *testing.T) {
 type recordingBufPool struct {
 	lastMinCap int
 	lastCap    int
+	lastBuf    []byte
 }
 
 func (p *recordingBufPool) Get(minCap int) ([]byte, func()) {
 	p.lastMinCap = minCap
 	buf := make([]byte, 0, minCap)
 	p.lastCap = cap(buf)
+	p.lastBuf = buf
 	return buf, func() {}
 }
 
@@ -1003,7 +1006,7 @@ func TestValidateBufPoolSizes(t *testing.T) {
 			name:       "budget below the smallest in-memory class",
 			maxBufSize: 2 * MiB,
 			maxMemory:  1 * MiB,
-			expErr:     "exceeds the total buffer budget",
+			expErr:     "leaves no in-memory buffer class",
 		},
 		{
 			name:       "budget below the smallest in-memory class, matching buf size",
@@ -1015,19 +1018,28 @@ func TestValidateBufPoolSizes(t *testing.T) {
 			name:       "default max buf size against a 1MiB budget",
 			maxBufSize: defaultMaxBufSize,
 			maxMemory:  1 * MiB,
-			expErr:     "exceeds the total buffer budget",
+			expErr:     "leaves no in-memory buffer class",
 		},
+		// Degrade the pool, not the node, so they serve.
 		{
 			name:       "max buf size above the budget",
 			maxBufSize: 32 * MiB,
 			maxMemory:  4 * MiB,
-			expErr:     "exceeds the total buffer budget",
 		},
 		{
 			name:       "max buf size one byte above the budget",
 			maxBufSize: 2*MiB + 1,
 			maxMemory:  2 * MiB,
-			expErr:     "exceeds the total buffer budget",
+		},
+		{
+			name:       "budget one byte above the max buf size",
+			maxBufSize: 32 * MiB,
+			maxMemory:  32*MiB + 1,
+		},
+		{
+			name:       "max buf size one byte above the budget, at 32MiB",
+			maxBufSize: 32*MiB + 1,
+			maxMemory:  32 * MiB,
 		},
 	}
 
@@ -1098,7 +1110,8 @@ func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 		require.Equal(t, 4*MiB, servedClass(p))
 	})
 
-	t.Run("the whole-shard clone inherits it", func(t *testing.T) {
+	// The one clone that opts out, because nothing downstream of it can grow.
+	t.Run("the whole-shard clone stays in its own class", func(t *testing.T) {
 		p := newPool(t)
 		bmf := NewBitmapFactory(p, func() uint64 { return topOfClassIDs - defaultIdIncrement })
 
@@ -1106,7 +1119,7 @@ func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 		require.Equal(t, topOfClassIDs-defaultIdIncrement, bm.Maximum())
 		release()
 
-		require.Equal(t, 4*MiB, servedClass(p))
+		require.Equal(t, 2*MiB, servedClass(p))
 	})
 }
 
@@ -1133,13 +1146,26 @@ func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 			name:       "no in-memory class at all",
 			maxBufSize: 512 * KiB,
 			maxMemory:  128 * MiB,
-			expWarn:    "leaves no in-memory buffer class",
+			expWarn:    "builds no in-memory bitmap buffer class at all",
 		},
 		{
 			name:       "budget covers fewer classes than requested",
 			maxBufSize: 32 * MiB,
 			maxMemory:  40 * MiB,
-			expWarn:    "only covers in-memory buffer classes up to 16 MiB",
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
+		},
+		// Same ladder either side of maxBufSize == maxMemory, same warning.
+		{
+			name:       "budget one byte above the max buf size",
+			maxBufSize: 32 * MiB,
+			maxMemory:  32*MiB + 1,
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
+		},
+		{
+			name:       "max buf size one byte above the budget",
+			maxBufSize: 32*MiB + 1,
+			maxMemory:  32 * MiB,
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
 		},
 	}
 
@@ -1160,51 +1186,79 @@ func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 	}
 }
 
-func TestCloneBufSize(t *testing.T) {
-	const MiB = 1 << 20
+// pins disposable_created's size label to match the pooled tiers' (previously off by up to 4x).
+func TestDisposableBufMetricSizeLabel(t *testing.T) {
+	metrics := monitoring.GetMetrics()
+	m := newPromBufDisposableMetrics(metrics)
 
-	// A clone sized from a wider bound than its source has to end up asking for
-	// the same thing CloneToBuf would have asked for at that size.
-	rec := &recordingBufPool{}
-	src := prefilledOfAtLeast(2 * MiB)
-	wider := src.LenInBytes() * 2
-
-	rec.Get(CloneBufSize(wider))
-	viaHelper := rec.lastMinCap
-
-	widerBm := prefilledOfAtLeast(wider)
-	rec.CloneToBuf(widerBm)
-
-	require.Equal(t, CloneBufSize(widerBm.LenInBytes()), rec.lastMinCap)
-	require.Greater(t, viaHelper, wider)
-}
-
-// The disposable counter is the only one that fires in the degraded state the
-// buffer-pool bounds exist to prevent, so its size label has to line up with
-// the inmemo_* labels for the same request. It rounded an exact power of two up
-// a second time, overstating by 2x-4x.
-func TestSizeClassCeil(t *testing.T) {
-	tests := []struct {
-		sizeInBytes int
-		want        uint64
-		label       string
-	}{
-		{sizeInBytes: 0, want: 1, label: "1 B"},
-		{sizeInBytes: 1, want: 1, label: "1 B"},
-		{sizeInBytes: 2, want: 2, label: "2 B"},
-		{sizeInBytes: 3, want: 4, label: "4 B"},
-		{sizeInBytes: 512, want: 512, label: "512 B"},
-		{sizeInBytes: 513, want: 1024, label: "1.0 KiB"},
-		{sizeInBytes: 1 << 20, want: 1 << 20, label: "1.0 MiB"},
-		{sizeInBytes: (1 << 20) + 1, want: 1 << 21, label: "2.0 MiB"},
-		{sizeInBytes: 1 << 22, want: 1 << 22, label: "4.0 MiB"},
-		{sizeInBytes: 3 << 20, want: 1 << 22, label: "4.0 MiB"},
+	countFor := func(label string) float64 {
+		return testutil.ToFloat64(metrics.LSMBitmapBuffersUsage.WithLabelValues(label, "disposable_created"))
 	}
 
-	for _, tt := range tests {
-		t.Run(humanize.IBytes(uint64(tt.sizeInBytes)), func(t *testing.T) {
-			require.Equal(t, tt.want, sizeClassCeil(tt.sizeInBytes))
-			require.Equal(t, tt.label, humanize.IBytes(sizeClassCeil(tt.sizeInBytes)))
+	testCases := []struct {
+		name     string
+		size     int
+		expLabel string
+	}{
+		{name: "single byte", size: 1, expLabel: "1 B"},
+		{name: "exactly the smallest class", size: 512, expLabel: "512 B"},
+		{name: "one byte above a class", size: 513, expLabel: "1.0 KiB"},
+		{name: "exactly the sync tier ceiling", size: 1 << 20, expLabel: "1.0 MiB"},
+		{name: "exactly the largest in-memory class", size: 1 << 25, expLabel: "32 MiB"},
+		{name: "one byte above the largest class", size: 1<<25 + 1, expLabel: "64 MiB"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := countFor(tc.expLabel)
+			m.bufCreated(tc.size)
+			require.Equal(t, before+1, countFor(tc.expLabel))
+		})
+	}
+
+	t.Run("a request the size of a pooled class carries that class's label", func(t *testing.T) {
+		inMemoRanges, _ := inMemoBufferRangesAndLimits(1<<25, 1<<27)
+		require.NotEmpty(t, inMemoRanges)
+
+		for _, rng := range inMemoRanges {
+			pooledLabel := humanize.IBytes(uint64(rng))
+			before := countFor(pooledLabel)
+			m.bufCreated(rng)
+			require.Equal(t, before+1, countFor(pooledLabel),
+				"disposable label for %d bytes must match the pooled label %q", rng, pooledLabel)
+		}
+	})
+}
+
+// Pins: configs that build the same ladder must get the same verdict.
+func TestValidateBufPoolSizesGatesOnTheLadderOnly(t *testing.T) {
+	const MiB = 1 << 20
+
+	testCases := []struct {
+		name string
+		a, b struct{ maxBufSize, maxMemory int }
+	}{
+		{
+			name: "one byte either side at 32MiB",
+			a:    struct{ maxBufSize, maxMemory int }{32 * MiB, 32*MiB + 1},
+			b:    struct{ maxBufSize, maxMemory int }{32*MiB + 1, 32 * MiB},
+		},
+		{
+			name: "one byte either side at 2MiB",
+			a:    struct{ maxBufSize, maxMemory int }{2 * MiB, 2*MiB + 1},
+			b:    struct{ maxBufSize, maxMemory int }{2*MiB + 1, 2 * MiB},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ladderA, _ := inMemoBufferRangesAndLimits(tc.a.maxBufSize, tc.a.maxMemory)
+			ladderB, _ := inMemoBufferRangesAndLimits(tc.b.maxBufSize, tc.b.maxMemory)
+			require.Equal(t, ladderA, ladderB, "precondition: the two configs must build the same ladder")
+			require.NotEmpty(t, ladderA)
+
+			require.NoError(t, ValidateBufPoolSizes(tc.a.maxBufSize, tc.a.maxMemory))
+			require.NoError(t, ValidateBufPoolSizes(tc.b.maxBufSize, tc.b.maxMemory))
 		})
 	}
 }
