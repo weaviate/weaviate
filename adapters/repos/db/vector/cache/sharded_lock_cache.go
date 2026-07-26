@@ -272,6 +272,10 @@ func (s *shardedLockCache[T]) PageSize() uint64 {
 	return s.shardedLocks.PageSize
 }
 
+// prefetchFunc hints a single cache line at addr; superseded by prefetchNFunc
+// on the hot path but kept for future use.
+//
+//nolint:unused
 var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// do nothing on default arch
 	// this function will be overridden for amd64 and arm64

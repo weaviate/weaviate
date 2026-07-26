@@ -42,6 +42,7 @@ const (
 )
 
 type CompressorDistancer interface {
+	BatchCompressorDistancer
 	DistanceToNode(id uint64) (float32, error)
 	DistanceToFloat(vec []float32) (float32, error)
 }

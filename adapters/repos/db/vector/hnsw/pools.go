@@ -31,11 +31,8 @@ type pools struct {
 	tempVectors       *common.TempVectorsPool
 	tempVectorsUint64 *common.TempVectorUint64Pool
 
-	// normalizeBufs holds *[]float32 scratch buffers for cosine
-	// normalization during inserts into a compressed index, where the
-	// normalized vector is only read during the insert (see
-	// normalizeVecForInsert).
-	normalizeBufs *sync.Pool
+	normalizeBufs        *sync.Pool
+	floatBatchDistancers *sync.Pool
 }
 
 func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pools {
@@ -55,6 +52,11 @@ func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pool
 			New: func() interface{} {
 				s := make([]float32, 0)
 				return &s
+			},
+		},
+		floatBatchDistancers: &sync.Pool{
+			New: func() interface{} {
+				return &floatBatchDistancer{}
 			},
 		},
 	}

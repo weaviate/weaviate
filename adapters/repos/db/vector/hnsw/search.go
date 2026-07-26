@@ -244,21 +244,25 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	var floatDistancer distancer.Distancer
 	compressed := h.compressed.Load()
 	var batchDistancer compressionhelpers.BatchCompressorDistancer
-	var distSlice *common.VectorSlice
 	if compressed {
 		if compressorDistancer == nil {
 			var returnFn compressionhelpers.ReturnDistancerFn
 			compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
 			defer returnFn()
 		}
-		if bd, ok := compressorDistancer.(compressionhelpers.BatchCompressorDistancer); ok {
-			batchDistancer = bd
-			distSlice = h.pools.tempVectors.Get(8 * h.maximumConnectionsLayerZero)
-			defer h.pools.tempVectors.Put(distSlice)
-		}
+		batchDistancer = compressorDistancer
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
+		fbd := h.pools.floatBatchDistancers.Get().(*floatBatchDistancer)
+		fbd.h, fbd.distancer = h, floatDistancer
+		defer func() {
+			fbd.distancer = nil
+			h.pools.floatBatchDistancers.Put(fbd)
+		}()
+		batchDistancer = fbd
 	}
+	distSlice := h.pools.tempVectors.Get(8 * h.maximumConnectionsLayerZero)
+	defer h.pools.tempVectors.Put(distSlice)
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
@@ -483,38 +487,18 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			unvisited = append(unvisited, neighborID)
 		}
 
-		var neighborDists []float32
-		var neighborErrs []error
-		if batchDistancer != nil {
-			if cap(distSlice.Slice) < len(unvisited) {
-				distSlice.Mem = make([]float32, len(unvisited))
-				distSlice.Slice = distSlice.Mem
-			}
-			neighborDists = distSlice.Slice[:len(unvisited)]
-			neighborErrs = batchDistancer.DistancesToNodes(unvisited, neighborDists)
-		} else if compressed {
-			for _, neighborID := range unvisited {
-				h.compressor.Prefetch(neighborID)
-			}
-		} else {
-			for _, neighborID := range unvisited {
-				h.cache.Prefetch(neighborID)
-			}
+		if cap(distSlice.Slice) < len(unvisited) {
+			distSlice.Mem = make([]float32, len(unvisited))
+			distSlice.Slice = distSlice.Mem
 		}
+		neighborDists := distSlice.Slice[:len(unvisited)]
+		neighborErrs := batchDistancer.DistancesToNodes(unvisited, neighborDists)
 
 		for i, neighborID := range unvisited {
-			var distance float32
+			distance := neighborDists[i]
 			var err error
-			switch {
-			case batchDistancer != nil:
-				distance = neighborDists[i]
-				if neighborErrs != nil {
-					err = neighborErrs[i]
-				}
-			case compressed:
-				distance, err = compressorDistancer.DistanceToNode(neighborID)
-			default:
-				distance, err = h.distanceToFloatNode(floatDistancer, neighborID)
+			if neighborErrs != nil {
+				err = neighborErrs[i]
 			}
 			if err != nil {
 				var e storobj.ErrNotFound
@@ -720,6 +704,44 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 	}
 
 	return dist, nil
+}
+
+const floatPrefetchAhead = 4
+
+type floatBatchDistancer struct {
+	h         *hnsw
+	distancer distancer.Distancer
+	vecs      [][]float32
+}
+
+func (b *floatBatchDistancer) DistancesToNodes(ids []uint64, dists []float32) []error {
+	if cap(b.vecs) < len(ids) {
+		b.vecs = make([][]float32, len(ids))
+	}
+	vecs := b.vecs[:len(ids)]
+	for i := range min(floatPrefetchAhead, len(ids)) {
+		vecs[i] = b.h.cache.PrefetchGet(ids[i])
+	}
+	var errs []error
+	for i, id := range ids {
+		if next := i + floatPrefetchAhead; next < len(ids) {
+			vecs[next] = b.h.cache.PrefetchGet(ids[next])
+		}
+		var err error
+		if len(vecs[i]) == 0 {
+			dists[i], err = b.h.distanceToFloatNode(b.distancer, id)
+		} else {
+			dists[i], err = b.distancer.Distance(vecs[i])
+		}
+		if err != nil {
+			if errs == nil {
+				errs = make([]error, len(ids))
+			}
+			errs[i] = err
+		}
+		vecs[i] = nil
+	}
+	return errs
 }
 
 // the underlying object seems to have been deleted, to recover from
