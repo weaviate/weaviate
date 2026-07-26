@@ -1040,9 +1040,7 @@ func TestValidateBufPoolSizes(t *testing.T) {
 			}
 			require.NoError(t, err)
 
-			// Accepting a pair has to mean the pool it builds is usable. Anything
-			// that validates and still has an empty in-memory tier is the silent
-			// truncation this check exists to prevent.
+			// An accepted pair must build a pool with a non-empty in-memory tier.
 			logger, _ := test.NewNullLogger()
 			pool, stop := NewBitmapBufPoolDefault(logger, nil, tc.maxBufSize, tc.maxMemory)
 			defer stop()
@@ -1053,8 +1051,8 @@ func TestValidateBufPoolSizes(t *testing.T) {
 	}
 }
 
-// The growth factor applies to every pooled clone at the shipped defaults, so
-// it needs a gate that does not depend on a test double or a non-default knob.
+// Gates growth headroom against the shipped defaults, not a test double or a
+// non-default knob.
 func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 	const MiB = 1 << 20
 
@@ -1111,9 +1109,8 @@ func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 	})
 }
 
-// A pool built outside config validation, or one whose budget silently drops
-// the largest class asked for, has to say so — the surviving sync.Pool tier
-// emits no metrics, so nothing else would show it.
+// Warns when a pool skips config validation, or a budget silently drops the
+// largest requested class — nothing else surfaces it.
 func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 	const (
 		KiB = 1 << 10

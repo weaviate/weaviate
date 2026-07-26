@@ -33,9 +33,9 @@ type BitmapBufPool interface {
 	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
 }
 
-// bitmapCloneGrowthFactor gives a pooled clone headroom so a merge that adds
-// containers doesn't make sroar swap in an unpooled buffer. Matches
-// SegmentGroup.roaringSetGet's first-layer factor.
+// bitmapCloneGrowthFactor gives a pooled clone headroom so a merge that grows
+// it doesn't spill to an unpooled buffer. Matches SegmentGroup.roaringSetGet's
+// first-layer factor.
 const bitmapCloneGrowthFactor = 1.25
 
 func cloneToBuf(pool BitmapBufPool, bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
@@ -47,10 +47,9 @@ func withGrowthHeadroom(lenInBytes int, factor float64) int {
 	return int(math.Ceil(float64(lenInBytes) * factor))
 }
 
-// CloneBufSize is what a pooled clone of lenInBytes has to ask Get for to end
-// up with the same headroom CloneToBuf gives it. Call sites that size a clone
-// from something wider than its source cannot express that through CloneToBuf,
-// and calling Get with the raw size silently drops the headroom.
+// CloneBufSize mirrors CloneToBuf's headroom for callers that size a clone
+// from a bound wider than its source and so can't call CloneToBuf directly;
+// a raw Get with that size would silently drop the headroom.
 func CloneBufSize(lenInBytes int) int {
 	return withGrowthHeadroom(lenInBytes, bitmapCloneGrowthFactor)
 }
@@ -222,8 +221,7 @@ func (p *bitmapBufPoolFactorWrapper) Get(minCap int) (buf []byte, put func()) {
 }
 
 func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	// factor is already merge headroom, so it replaces rather than stacks
-	// with the clone factor.
+	// factor is already merge headroom, so it replaces rather than stacks with the clone factor.
 	buf, put := p.pool.Get(withGrowthHeadroom(bm.LenInBytes(), max(p.factor, bitmapCloneGrowthFactor)))
 	return bm.CloneToBuf(buf), put
 }
@@ -348,20 +346,17 @@ func calculateSyncBufferRanges(minRangeP2, maxRangeP2 int) []int {
 	return ranges
 }
 
-// inMemoBufferRangesAndLimits is the ladder NewBitmapBufPoolDefault builds, so
-// that ValidateBufPoolSizes judges the pool that would actually be created
-// rather than a restatement of the rules that shape it.
+// inMemoBufferRangesAndLimits builds the same ladder NewBitmapBufPoolDefault
+// uses, so ValidateBufPoolSizes checks the pool that would actually be built.
 func inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize int) ([]int, map[int]int) {
 	maxSyncBufSize := 1 << bufPoolSyncMaxRangeP2
 	return calculateInMemoBufferRangesAndLimits(maxSyncBufSize, bufPoolInMemoMinRangeP2,
 		maxBufSize, maxMemoSize)
 }
 
-// ValidateBufPoolSizes rejects size pairs that build a pool with no in-memory
-// size class at all. Both values can be individually sane and still combine
-// into an empty ladder, which turns pooling above 1MiB off for the life of the
-// process while the surviving sync.Pool tier keeps emitting no metrics — so
-// there is nothing to observe and nothing to attribute it to later.
+// ValidateBufPoolSizes rejects size pairs that combine into a pool with no
+// in-memory size class: individually valid values can still silently disable
+// pooling above 1MiB, with no metric to reveal it.
 func ValidateBufPoolSizes(maxBufSize, maxMemoSize int) error {
 	if maxBufSize > maxMemoSize {
 		return fmt.Errorf("max buffer size %s exceeds the total buffer budget %s",
@@ -376,10 +371,9 @@ func ValidateBufPoolSizes(maxBufSize, maxMemoSize int) error {
 	return nil
 }
 
-// logDegradedBufPool covers the two states ValidateBufPoolSizes cannot: callers
-// that build a pool without going through config validation, and a budget that
-// is large enough for some classes but not for the largest one requested, which
-// the ladder drops silently.
+// logDegradedBufPool warns about the two silent-degradation cases
+// ValidateBufPoolSizes can't catch: pools built without config validation,
+// and budgets that silently drop the largest requested class.
 func logDegradedBufPool(logger logrus.FieldLogger, inMemoRanges []int, maxBufSize, maxMemoSize int) {
 	if logger == nil {
 		return
