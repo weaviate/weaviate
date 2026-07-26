@@ -62,8 +62,40 @@ func TestRepairBatchPartTimeBasedLiveWinnerFailedRefetch(t *testing.T) {
 		{BatchReply: BatchReply{Sender: "C", DigestData: []types.RepairResponse{{ID: id.String(), UpdateTime: 80, Deleted: true}}}, Count: make([]int, len(ids))},
 	}
 
+	var resolved []bool
 	require.NotPanics(t, func() {
-		_, err = r.repairBatchPart(ctx, shard, ids, votes, 0)
+		resolved, err = r.repairBatchPart(ctx, shard, ids, votes, 0)
 	})
+	require.ErrorContains(t, err, "read 1 object(s) from B")
+	require.Equal(t, []bool{false}, resolved)
+}
+
+// TestRepairBatchPartWithoutCallerCopy pins that a missing caller copy is
+// reported instead of indexing votes[-1].
+func TestRepairBatchPartWithoutCallerCopy(t *testing.T) {
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+	ids := []strfmt.UUID{id}
+
+	metrics, err := NewMetrics(monitoring.GetMetrics())
 	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+
+	r := &repairer{
+		class:               "C1",
+		getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyNoAutomatedResolution },
+		client:              NewFinderClient(NewMockRClient(t)),
+		metrics:             metrics,
+		logger:              logger,
+	}
+
+	votes := []Vote{
+		{BatchReply: BatchReply{Sender: "A", DigestData: []types.RepairResponse{{ID: id.String(), UpdateTime: 100}}}, Count: make([]int, len(ids))},
+	}
+
+	var resolved []bool
+	require.NotPanics(t, func() {
+		resolved, err = r.repairBatchPart(context.Background(), "S1", ids, votes, -1)
+	})
+	require.ErrorContains(t, err, "no reply identified as the caller's copy")
+	require.Equal(t, []bool{false}, resolved)
 }

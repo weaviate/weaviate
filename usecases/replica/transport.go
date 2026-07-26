@@ -300,17 +300,42 @@ func (fc FinderClient) CompareHashTreeRoots(ctx context.Context,
 	return fc.cl.CompareHashTreeRoots(ctx, host, index, roots)
 }
 
-// FullReads read full objects
+// maxFullReadIDsPerRequest bounds ids per FetchObjects request. The REST
+// transport base64-encodes them into the URL query string, where an unbounded
+// list can grow long enough for a proxy to reject it with a 414 that is not
+// retried; it also caps how many whole objects one response holds in memory.
+// 64 ids keep the query string under 4 KB, inside the smallest header buffer
+// a proxy is likely to be configured with.
+const maxFullReadIDsPerRequest = 64
+
+// FullReads reads the current version of each id from host, one entry per
+// requested id in request order. A response that does not line up with the
+// request is rejected rather than returned: callers index it positionally, so
+// a misaligned entry would apply one object's content to another id.
 func (fc FinderClient) FullReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID,
 ) ([]Replica, error) {
-	n := len(ids)
-	rs, err := fc.cl.FetchObjects(ctx, host, index, shard, ids)
-	if m := len(rs); err == nil && n != m {
-		err = fmt.Errorf("malformed full read response: length expected %d got %d", n, m)
+	rs := make([]Replica, 0, len(ids))
+	for start := 0; start < len(ids); start += maxFullReadIDsPerRequest {
+		chunk := ids[start:min(start+maxFullReadIDsPerRequest, len(ids))]
+		part, err := fc.cl.FetchObjects(ctx, host, index, shard, chunk)
+		if err != nil {
+			return nil, err
+		}
+		if len(part) != len(chunk) {
+			return nil, fmt.Errorf("malformed full read response: length expected %d got %d",
+				len(chunk), len(part))
+		}
+		for i := range part {
+			if part[i].ID != chunk[i] {
+				return nil, fmt.Errorf("malformed full read response: object %d is %q, expected %q",
+					start+i, part[i].ID, chunk[i])
+			}
+		}
+		rs = append(rs, part...)
 	}
-	return rs, err
+	return rs, nil
 }
 
 // Overwrite specified object with most recent contents

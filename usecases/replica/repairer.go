@@ -345,9 +345,14 @@ func (r *repairer) repairExist(ctx context.Context,
 }
 
 // repairBatchPart repairs stale replicas found while reading a batch (used
-// with Finder::GetAll) and reports, per object, whether every replica now
-// matches the winner. Content always comes from the winning replica, never
-// the caller's copy, which may be a partial search result.
+// with Finder::GetAll). Content comes from the winning replica, never the
+// caller's copy, which may be a partial search result.
+//
+// resolved[i] is false when the winning content could not be fetched, or the
+// deletion strategy left the conflict unresolved. It does not claim the writes
+// landed: the caller combines it with the vote counts, which the write path
+// decrements on failure. A non-nil error names which objects were left stale;
+// it is not a read failure.
 func (r *repairer) repairBatchPart(ctx context.Context,
 	shard string,
 	ids []strfmt.UUID,
@@ -373,6 +378,10 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		nVotes            = len(votes)
 		deletionStrategy  = r.getDeletionStrategy()
 	)
+
+	if contentIdx < 0 || contentIdx >= len(votes) {
+		return resolved, fmt.Errorf("no reply identified as the caller's copy among %d replies", len(votes))
+	}
 
 	// find most recent objects
 	for i, x := range votes[contentIdx].DigestData {
@@ -425,8 +434,16 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			continue
 		}
 
+		if lastTimes[i].Deleted && !resolvesDeleteConflicts(deletionStrategy) {
+			// nothing will be written for this object; fetching it would be wasted
+			continue
+		}
+
 		ms = append(ms, lastTimes[i])
 	}
+
+	// Collected here since nothing else records why an object stayed stale.
+	var fetchErrs []error
 
 	if len(ms) > 0 { // fetch most recent objects
 		// partition by hostname
@@ -441,10 +458,13 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		}
 		partitions = append(partitions, len(ms))
 
+		// One slot per partition: a failure on one replica must not hide others.
+		fetchErrs = make([]error, len(partitions))
+
 		// concurrent fetches
 		gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
 		start := 0
-		for _, end := range partitions { // fetch diffs
+		for p, end := range partitions { // fetch diffs
 			rid := ms[start].S
 			receiver := votes[rid].Sender
 			query := make([]strfmt.UUID, end-start)
@@ -454,27 +474,47 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			}
 			start := start
 			gr.Go(func() error {
+				n := len(query)
 				resp, err := cl.FullReads(ctx, receiver, r.class, shard, query)
-				for i, n := 0, len(query); i < n; i++ {
-					idx := ms[start-n+i].O
-					if err != nil || lastTimes[idx].T != resp[i].UpdateTime() {
-						votes[rid].Count[idx]--
-					} else {
-						result[idx] = resp[i].Object
-						resolved[idx] = result[idx] != nil
+				if err != nil {
+					for i := 0; i < n; i++ {
+						votes[rid].Count[ms[start-n+i].O]--
 					}
+					fetchErrs[p] = fmt.Errorf("read %d object(s) from %s: %w", n, receiver, err)
+					return nil
+				}
+
+				var changed []strfmt.UUID
+				for i := 0; i < n; i++ {
+					idx := ms[start-n+i].O
+					if lastTimes[idx].T != resp[i].UpdateTime() {
+						// the winner moved on between casting its vote and this read
+						votes[rid].Count[idx]--
+						changed = append(changed, query[i])
+						continue
+					}
+					result[idx] = resp[i].Object
+					resolved[idx] = result[idx] != nil
+					if result[idx] == nil {
+						changed = append(changed, query[i])
+					}
+				}
+				if len(changed) > 0 {
+					fetchErrs[p] = fmt.Errorf("%s no longer holds the agreed version of %v: %w",
+						receiver, changed, ErrConflictObjectChanged)
 				}
 				return nil
 			})
 
 		}
 		if err := gr.Wait(); err != nil {
-			return nil, err
+			return resolved, err
 		}
 	}
 
 	// concurrent repairs
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
+	writeErrs := make([]error, len(votes))
 
 	for rid, vote := range votes {
 		query := make([]*objects.VObject, 0, len(ids)/2)
@@ -564,18 +604,35 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				for _, idx := range m {
 					votes[rid].Count[idx]--
 				}
+				writeErrs[rid] = fmt.Errorf("repair %d object(s) on %s: %w", len(query), receiver, err)
 				return nil
 			}
+			var rejected []string
 			for _, r := range rs {
 				if r.Err != "" {
 					if idx, ok := m[r.ID]; ok {
 						votes[rid].Count[idx]--
+						rejected = append(rejected, r.ID)
 					}
 				}
+			}
+			if len(rejected) > 0 {
+				writeErrs[rid] = fmt.Errorf("%s rejected the repair of %v: %w",
+					receiver, rejected, ErrConflictObjectChanged)
 			}
 			return nil
 		})
 	}
 
-	return resolved, gr.Wait()
+	if err := gr.Wait(); err != nil {
+		return resolved, err
+	}
+	return resolved, errors.Join(errors.Join(fetchErrs...), errors.Join(writeErrs...))
+}
+
+// resolvesDeleteConflicts reports whether strategy writes anything once a
+// replica holds a tombstone; keep in sync with the repair loop's Deleted branches.
+func resolvesDeleteConflicts(strategy string) bool {
+	return strategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
+		strategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict
 }

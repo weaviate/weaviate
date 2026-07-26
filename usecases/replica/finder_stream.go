@@ -258,10 +258,11 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 		resolved, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
 		if err != nil {
-			resultCh <- ErrRepair
+			// Repair failures don't fail the read: unresolved objects already
+			// report IsConsistent=false, and failing here would cancel repairs
+			// still running for the other shards of the same request.
 			f.log.WithField("op", "repair_batch").WithField("class", f.class).
 				WithField("shard", batch.Shard).WithField("uuids", ids).Error(err)
-			return
 		}
 		// count total number of votes
 		maxCount := len(votes) * len(votes)
