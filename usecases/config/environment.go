@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -1419,21 +1420,28 @@ func FromEnv(config *Config) error {
 	envName := "QUERY_BITMAP_BUFS_MAX_MEMORY"
 	config.QueryBitmapBufsMaxMemory = DefaultQueryBitmapBufsMaxMemory
 	if v := os.Getenv(envName); v != "" {
-		bytes, err := parseResourceString(v)
+		bytes, err := parseBitmapBufsSize(envName, v)
 		if err != nil {
-			return fmt.Errorf("%s: %w", envName, err)
+			return err
 		}
-		config.QueryBitmapBufsMaxMemory = int(bytes)
+		config.QueryBitmapBufsMaxMemory = bytes
 	}
 
 	envName = "QUERY_BITMAP_BUFS_MAX_BUF_SIZE"
 	config.QueryBitmapBufsMaxBufSize = DefaultQueryBitmapBufsMaxBufSize
 	if v := os.Getenv(envName); v != "" {
-		bytes, err := parseResourceString(v)
+		bytes, err := parseBitmapBufsSize(envName, v)
 		if err != nil {
-			return fmt.Errorf("%s: %w", envName, err)
+			return err
 		}
-		config.QueryBitmapBufsMaxBufSize = int(bytes)
+		config.QueryBitmapBufsMaxBufSize = bytes
+	}
+
+	// Valid in isolation, these two can still combine into a pool with no
+	// in-memory size class.
+	if err := roaringset.ValidateBufPoolSizes(config.QueryBitmapBufsMaxBufSize,
+		config.QueryBitmapBufsMaxMemory); err != nil {
+		return fmt.Errorf("QUERY_BITMAP_BUFS_MAX_BUF_SIZE/QUERY_BITMAP_BUFS_MAX_MEMORY: %w", err)
 	}
 
 	invertedSorterDisabled := false

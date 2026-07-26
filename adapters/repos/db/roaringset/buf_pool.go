@@ -13,6 +13,7 @@ package roaringset
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/bits"
 	"slices"
@@ -32,23 +33,41 @@ type BitmapBufPool interface {
 	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
 }
 
+// bitmapCloneGrowthFactor gives a pooled clone headroom so a merge that grows
+// it doesn't spill to an unpooled buffer. Matches SegmentGroup.roaringSetGet's
+// first-layer factor.
+const bitmapCloneGrowthFactor = 1.25
+
 func cloneToBuf(pool BitmapBufPool, bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	buf, put := pool.Get(bm.LenInBytes())
+	buf, put := pool.Get(withGrowthHeadroom(bm.LenInBytes(), bitmapCloneGrowthFactor))
 	return bm.CloneToBuf(buf), put
 }
+
+func withGrowthHeadroom(lenInBytes int, factor float64) int {
+	return int(math.Ceil(float64(lenInBytes) * factor))
+}
+
+// CloneBufSize mirrors CloneToBuf's headroom for callers that size a clone
+// from a bound wider than its source and so can't call CloneToBuf directly;
+// a raw Get with that size would silently drop the headroom.
+func CloneBufSize(lenInBytes int) int {
+	return withGrowthHeadroom(lenInBytes, bitmapCloneGrowthFactor)
+}
+
+const (
+	bufPoolSyncMinRangeP2   = 9                         // 512B
+	bufPoolSyncMaxRangeP2   = 20                        // 1MiB, largest sync.Pool class
+	bufPoolInMemoMinRangeP2 = bufPoolSyncMaxRangeP2 + 1 // 2MiB, smallest in-memory class
+)
 
 func NewBitmapBufPoolDefault(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics,
 	inMemoMaxBufSize int, maxMemoSizeForBufs int,
 ) (pool BitmapBufPool, close func()) {
-	syncMinRangeP2 := 9  // 2^9 = 512B
-	syncMaxRangeP2 := 20 // 2^20 = 1MB
-	syncRanges := calculateSyncBufferRanges(syncMinRangeP2, syncMaxRangeP2)
+	syncRanges := calculateSyncBufferRanges(bufPoolSyncMinRangeP2, bufPoolSyncMaxRangeP2)
+	inMemoRanges, inMemoBufsLimits := inMemoBufferRangesAndLimits(inMemoMaxBufSize, maxMemoSizeForBufs)
+	logDegradedBufPool(logger, inMemoRanges, inMemoMaxBufSize, maxMemoSizeForBufs)
+
 	syncMaxBufSize := syncRanges[len(syncRanges)-1]
-
-	inMemoMinRangeP2 := syncMaxRangeP2 + 1
-	inMemoRanges, inMemoBufsLimits := calculateInMemoBufferRangesAndLimits(syncMaxBufSize, inMemoMinRangeP2,
-		inMemoMaxBufSize, maxMemoSizeForBufs)
-
 	allRanges := syncRanges
 	if len(inMemoRanges) > 0 {
 		allRanges = append(allRanges, inMemoRanges...)
@@ -198,12 +217,13 @@ func NewBitmapBufPoolFactorWrapper(pool BitmapBufPool, factor float64) *bitmapBu
 }
 
 func (p *bitmapBufPoolFactorWrapper) Get(minCap int) (buf []byte, put func()) {
-	newMinCap := int(math.Ceil(float64(minCap) * p.factor))
-	return p.pool.Get(newMinCap)
+	return p.pool.Get(withGrowthHeadroom(minCap, p.factor))
 }
 
 func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	return cloneToBuf(p, bm)
+	// factor is already merge headroom, so it replaces rather than stacks with the clone factor.
+	buf, put := p.pool.Get(withGrowthHeadroom(bm.LenInBytes(), max(p.factor, bitmapCloneGrowthFactor)))
+	return bm.CloneToBuf(buf), put
 }
 
 // -----------------------------------------------------------------------------
@@ -324,6 +344,55 @@ func calculateSyncBufferRanges(minRangeP2, maxRangeP2 int) []int {
 		ranges[i] = 1 << (i + minRangeP2)
 	}
 	return ranges
+}
+
+// inMemoBufferRangesAndLimits builds the same ladder NewBitmapBufPoolDefault
+// uses, so ValidateBufPoolSizes checks the pool that would actually be built.
+func inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize int) ([]int, map[int]int) {
+	maxSyncBufSize := 1 << bufPoolSyncMaxRangeP2
+	return calculateInMemoBufferRangesAndLimits(maxSyncBufSize, bufPoolInMemoMinRangeP2,
+		maxBufSize, maxMemoSize)
+}
+
+// ValidateBufPoolSizes rejects size pairs that combine into a pool with no
+// in-memory size class: individually valid values can still silently disable
+// pooling above 1MiB, with no metric to reveal it.
+func ValidateBufPoolSizes(maxBufSize, maxMemoSize int) error {
+	if maxBufSize > maxMemoSize {
+		return fmt.Errorf("max buffer size %s exceeds the total buffer budget %s",
+			humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(maxMemoSize)))
+	}
+	if ranges, _ := inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize); len(ranges) == 0 {
+		return fmt.Errorf("max buffer size %s with a total buffer budget of %s leaves no in-memory "+
+			"buffer class: the max buffer size must be greater than %s and the budget at least %s",
+			humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(maxMemoSize)),
+			humanize.IBytes(1<<bufPoolSyncMaxRangeP2), humanize.IBytes(1<<bufPoolInMemoMinRangeP2))
+	}
+	return nil
+}
+
+// logDegradedBufPool warns about the two silent-degradation cases
+// ValidateBufPoolSizes can't catch: pools built without config validation,
+// and budgets that silently drop the largest requested class.
+func logDegradedBufPool(logger logrus.FieldLogger, inMemoRanges []int, maxBufSize, maxMemoSize int) {
+	if logger == nil {
+		return
+	}
+	if len(inMemoRanges) == 0 {
+		logger.WithField("action", "bitmap_buf_pool_init").
+			Warnf("max buffer size %s with a total buffer budget of %s leaves no in-memory buffer class; "+
+				"bitmap buffers above %s are allocated per request and never pooled",
+				humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(maxMemoSize)),
+				humanize.IBytes(1<<bufPoolSyncMaxRangeP2))
+		return
+	}
+	if largest := inMemoRanges[len(inMemoRanges)-1]; largest < maxBufSize {
+		logger.WithField("action", "bitmap_buf_pool_init").
+			Warnf("total buffer budget of %s only covers in-memory buffer classes up to %s, "+
+				"not the requested max buffer size of %s",
+				humanize.IBytes(uint64(maxMemoSize)), humanize.IBytes(uint64(largest)),
+				humanize.IBytes(uint64(maxBufSize)))
+	}
 }
 
 func calculateInMemoBufferRangesAndLimits(maxSyncBufSize, minRangeP2, maxBufSize, maxMemoSize int,
