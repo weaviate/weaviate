@@ -193,9 +193,8 @@ func requireInMemoryRangeablePathIsLive(t *testing.T, searcher *Searcher) {
 	})
 }
 
-// requireRangeablePathIsLive is the control's body, over any fixture's own
-// query, so a second fixture carries the same guarantee rather than a parallel
-// one that drifts.
+// requireRangeablePathIsLive is shared by every fixture's control check, so
+// they all get the same live-path guarantee instead of drifting copies.
 func requireRangeablePathIsLive(t *testing.T, want int, ask func() []uint64) {
 	t.Helper()
 
@@ -205,15 +204,21 @@ func requireRangeablePathIsLive(t *testing.T, want int, ask func() []uint64) {
 	require.Equalf(t, want, len(got),
 		"the fixture query returned %d of %d docs, so any counter reading below is vacuous", len(got), want)
 
+	// Only the memo-eligible ops count: a disabled cache still moves the
+	// disabled counter, which would satisfy "something moved" while every memo
+	// assertion downstream silently reads zero.
+	after := leafCacheCounters(t)
 	var moved bool
-	for op, v := range leafCacheCounters(t) {
-		if v > before[op] {
+	for _, op := range []string{"hit", "miss", "store"} {
+		if after[op] > before[op] {
 			moved = true
 		}
 	}
-	require.True(t, moved,
-		"the query returned the right answer without touching the leaf cache, so it did not go "+
-			"through the in-memory segment; check WithKeepSegmentsInMemory")
+	require.Truef(t, moved,
+		"the query returned the right answer without touching the memo (disabled +%.0f): either it "+
+			"did not go through the in-memory segment — check WithKeepSegmentsInMemory — or the memo "+
+			"is switched off via %s",
+		after["disabled"]-before["disabled"], roaringsetrange.LeafCacheMaxMemoryEnv)
 }
 
 // Pins the direction easy to miss: delete populates the memo, not just reads
@@ -409,17 +414,9 @@ func seq(from, to uint64) []uint64 {
 	return out
 }
 
-// -----------------------------------------------------------------------------
-// TTL sweep
-//
-// index_objects_ttl.go runs "find up to limit -> delete -> find up to limit ->
-// delete -> ... until no uuids left" against one threshold that never moves,
-// through the same Shard.FindUUIDs -> DocIDsLimited the batch-delete tests
-// above cover. Two things make it the heavier memo participant of the two and
-// worth its own coverage: the predicate is identical on every iteration, which
-// is the admission filter's best case, and the loop is bounded only by
-// exhaustion, so a large sweep re-resolves it many times.
-// -----------------------------------------------------------------------------
+// TTL sweep: index_objects_ttl.go re-resolves one unchanging threshold via
+// FindUUIDs -> DocIDsLimited until exhausted, which stresses the admission
+// memo harder than batch delete (same predicate every iteration, no cap).
 
 const rangeableTTLProp = "inverted-roaringsetrange-ttl-date"
 
@@ -430,21 +427,17 @@ func ttlSweepAt(minutes int) time.Time {
 	return ttlSweepOrigin.Add(time.Duration(minutes) * time.Minute)
 }
 
-// ttlSweepKey is the rangeable key a date lands on. Nanoseconds, because that
-// is what both sides of a date filter use — the analyzer indexes
-// asTime.UnixNano() and extractDateValue queries t.UnixNano(). Get the unit
-// wrong and the threshold sits a million times above every stored row, so the
-// filter matches everything and every assertion below passes for nothing.
+// Nanoseconds, because that's the unit both the analyzer (asTime.UnixNano())
+// and extractDateValue use; milliseconds would put the threshold a million
+// times above every row, matching everything vacuously.
 func ttlSweepKey(minutes int) int64 {
 	return ttlSweepAt(minutes).UnixNano()
 }
 
-// ttlSweepSchema carries what index_objects_ttl.go actually filters on: a date
-// property with a rangeable index and no filterable one. The pairing is the
-// point. getBucketName sends <= to the rangeable bucket before it consults
-// hasFilterableIndex, so unlike Equal/NotEqual this routing cannot be diverted
-// to roaringset by adding a filterable index, and date is the only type the
-// sweep ever uses.
+// A date property with a rangeable index and no filterable one, matching what
+// index_objects_ttl.go actually filters on. getBucketName sends <= to the
+// rangeable bucket before consulting hasFilterableIndex, so unlike
+// Equal/NotEqual this routing can't be diverted by adding a filterable index.
 func ttlSweepSchema() *schema.Schema {
 	vFalse := false
 	vTrue := true
@@ -469,9 +462,8 @@ func ttlSweepSchema() *schema.Schema {
 	}
 }
 
-// newTTLSweepFixture holds docIDs 1..20 at one minute apart, so "<= origin+N"
-// selects exactly docIDs 1..N against a threshold that stays put while the
-// objects under it disappear.
+// docIDs 1..20 sit one minute apart, so "<= origin+N" selects exactly
+// docIDs 1..N against a threshold that stays fixed while rows disappear.
 func newTTLSweepFixture(t *testing.T) (*Searcher, *lsmkv.Bucket) {
 	t.Helper()
 
@@ -509,15 +501,13 @@ func newTTLSweepFixture(t *testing.T) (*Searcher, *lsmkv.Bucket) {
 	return searcher, bucket
 }
 
-// ttlSweepBatchSize is OBJECTS_TTL_BATCH_SIZE's default. The rangeable branch
-// of docBitmap is the one strategy that never receives the limit, so it always
-// resolves the whole expired set and the cap is applied afterwards by
-// LimitedIterator; passing the real default keeps that visible here.
+// OBJECTS_TTL_BATCH_SIZE's default. The rangeable branch of docBitmap ignores
+// the limit and resolves the whole expired set; LimitedIterator applies the
+// cap afterwards, so using the real default keeps that visible.
 const ttlSweepBatchSize = 10_000
 
-// ttlSweepFind is one iteration of the loop: the DocIDsLimited call
-// Shard.FindUUIDs makes, with the sweep's per-shard batch limit rather than
-// batch delete's uncapped 0.
+// Mirrors Shard.FindUUIDs's DocIDsLimited call, but with the sweep's
+// per-shard batch limit instead of batch delete's uncapped 0.
 func ttlSweepFind(t *testing.T, searcher *Searcher, threshold time.Time, limit int) []uint64 {
 	t.Helper()
 
@@ -550,9 +540,9 @@ func ttlFilter(threshold time.Time) *filters.LocalFilter {
 	}
 }
 
-// settleTTLSegment waits out the async MergeMemtableEventually behind the
-// fixture's flush on a predicate none of the tests below assert on, so it
-// neither perturbs their counter deltas nor seeds their admission entry.
+// Waits out the async MergeMemtableEventually behind the fixture's flush,
+// using a predicate the tests never assert on so it doesn't perturb their
+// counters or seed their admission entry.
 func settleTTLSegment(t *testing.T, searcher *Searcher) {
 	t.Helper()
 
@@ -562,6 +552,9 @@ func settleTTLSegment(t *testing.T, searcher *Searcher) {
 	}
 }
 
+// counterDelta reads one process-global registry, so every test below assumes
+// no sibling rangeable test runs concurrently; none in this package calls
+// t.Parallel(), and the exact per-iteration deltas would go flaky if one did.
 func counterDelta(before, after map[string]float64) map[string]float64 {
 	out := map[string]float64{}
 	for op, v := range after {
@@ -570,10 +563,9 @@ func counterDelta(before, after map[string]float64) map[string]float64 {
 	return out
 }
 
-// Test_TTLSweep_RangeableInMemory_ReachesTheMemoisedLeaf establishes the chain
-// no artifact covered: the sweep's date filter really is served by the range
-// cascade over the in-memory segment, so the counter assertions below are not
-// vacuous.
+// Confirms the sweep's date filter is actually served by the range cascade
+// over the in-memory segment, so the counter assertions in the other TTL
+// tests aren't vacuous.
 func Test_TTLSweep_RangeableInMemory_ReachesTheMemoisedLeaf(t *testing.T) {
 	searcher, _ := newTTLSweepFixture(t)
 
@@ -594,10 +586,9 @@ func Test_TTLSweep_RangeableInMemory_ReachesTheMemoisedLeaf(t *testing.T) {
 		"a date property with IndexRangeFilters must route to the rangeable bucket")
 }
 
-// The sweep re-resolves one unchanging predicate, so it walks the admission
-// filter's whole state machine on its own. Pinned per iteration because the
-// natural reading — that the second iteration hits what the first stored — is
-// off by one: first sight only records the key, second sight is what stores.
+// One unchanging predicate walks the admission filter alone. Pinned per
+// iteration because it's off by one from the obvious reading: first sight
+// only records the key, second sight is what stores and admits.
 func Test_TTLSweep_RangeableInMemory_MemoisesFromTheThirdIteration(t *testing.T) {
 	searcher, _ := newTTLSweepFixture(t)
 	settleTTLSegment(t, searcher)
@@ -628,69 +619,135 @@ func Test_TTLSweep_RangeableInMemory_MemoisesFromTheThirdIteration(t *testing.T)
 	assert.Zero(t, deltas[2]["miss"])
 }
 
-// Test_TTLSweep_RangeableInMemory_SeesDeletionsBetweenIterations is the loop's
-// real interleaving: resolve a batch, destroy it, re-resolve the same
-// predicate. Deletions reach the active memtable, which leaves the segment's
-// generation and therefore the memo untouched, so the memo legitimately keeps
-// serving one leaf while the answer has to shrink under it — the memtable
-// layer is the only thing subtracting the rows already gone. Were it ever
-// bypassed the sweep would keep handing back rows it just deleted and
-// findAndDelete would never see the empty batch it stops on.
-func Test_TTLSweep_RangeableInMemory_SeesDeletionsBetweenIterations(t *testing.T) {
-	flushes := []struct {
-		name  string
-		flush bool
-	}{
-		{name: "deletions left in the memtable, memo stays valid", flush: false},
-		{name: "deletions flushed into the planes, memo is invalidated", flush: true},
+// liveUpTo is the oracle's answer: the rows at or below maxDocID this test has
+// inserted and not yet retired, derived from the test's own record rather than
+// from the index it is checking.
+func liveUpTo(live map[uint64]bool, maxDocID uint64) []uint64 {
+	out := []uint64{}
+	for docID := uint64(1); docID <= maxDocID; docID++ {
+		if live[docID] {
+			out = append(out, docID)
+		}
+	}
+	return out
+}
+
+// requireSegmentAbsorbedTheFlush waits out the async MergeMemtableEventually
+// behind FlushAndSwitch. invalidate rising is the only observable that the
+// planes took the write, because the answer is identical either way — which is
+// exactly what makes the two layers hard to tell apart from outside.
+func requireSegmentAbsorbedTheFlush(t *testing.T, searcher *Searcher, threshold time.Time) {
+	t.Helper()
+
+	before := leafCacheCounters(t)["invalidate"]
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		ttlSweepFind(t, searcher, threshold, 0)
+		if leafCacheCounters(t)["invalidate"] > before {
+			return
+		}
+	}
+	t.Fatal("the flush never reached the planes: invalidate never rose, so the segment still " +
+		"holds the pre-flush leaf and only one layer of the composition is populated")
+}
+
+// Test_TTLSweep_RangeableInMemory_EveryIterationIsExact is the invariant behind
+// the sweep's answer being a composition rather than a single lookup: a
+// memoised segment leaf that deliberately does not move, and a memtable layer
+// subtracting the rows already retired from under it.
+//
+// The invariant is exactness at every instant, not convergence — an iteration
+// that omits a live victim under-deletes, and nothing downstream would notice,
+// because the sweep's own stop condition is an empty batch and an under-count
+// looks the same as being finished.
+//
+// The sweep crosses a flush so both layers carry deletions at once: rows
+// retired before it sit in the planes, rows retired after it sit in the
+// memtable, and the memo is serving across both.
+func Test_TTLSweep_RangeableInMemory_EveryIterationIsExact(t *testing.T) {
+	searcher, bucket := newTTLSweepFixture(t)
+	settleTTLSegment(t, searcher)
+
+	const (
+		batch = 2 // small, so the sweep runs well past third sight
+		// A threshold below the fixture's top row, so 16..20 are present but
+		// never expired: a leaf that over-returns is caught as well as one that
+		// omits.
+		thresholdMin = 15
+		flushAfter   = 3
+	)
+
+	live := map[uint64]bool{}
+	for docID := uint64(1); docID <= 20; docID++ {
+		live[docID] = true
 	}
 
-	for _, tt := range flushes {
-		t.Run(tt.name, func(t *testing.T) {
-			searcher, bucket := newTTLSweepFixture(t)
-			settleTTLSegment(t, searcher)
+	threshold := ttlSweepAt(thresholdMin)
+	before := leafCacheCounters(t)
 
-			const batch = 4
-			threshold := ttlSweepAt(12)
-			before := leafCacheCounters(t)
+	var (
+		retired       []uint64
+		hitsPreFlush  float64
+		hitsPostFlush float64
+		flushed       bool
+		iterations    int
+	)
 
-			var swept []uint64
-			iterations := 0
-			for {
-				require.Lessf(t, iterations, 10,
-					"the sweep did not terminate; it kept resolving rows it had already deleted")
-				iterations++
+	for {
+		require.Lessf(t, iterations, 20,
+			"the sweep did not terminate; it kept resolving rows it had already retired")
+		iterations++
 
-				found := ttlSweepFind(t, searcher, threshold, batch)
-				if len(found) == 0 {
-					break // exactly what findAndDelete stops on
-				}
-				require.LessOrEqual(t, len(found), batch)
+		iterBefore := leafCacheCounters(t)
 
-				for _, docID := range found {
-					require.NoError(t, removeRangeable(bucket, ttlSweepKey(int(docID)), docID))
-				}
-				if tt.flush {
-					require.NoError(t, bucket.FlushAndSwitch())
-				}
-				swept = append(swept, found...)
-			}
+		// The untruncated answer is what the invariant is about; the limited
+		// read below is what the sweep actually consumes.
+		full := ttlSweepFind(t, searcher, threshold, 0)
+		require.ElementsMatchf(t, liveUpTo(live, thresholdMin), full,
+			"iteration %d returned a victim set that was already wrong when it was returned, not "+
+				"merely wrong at the end: the memoised leaf and the layer beneath it no longer "+
+				"compose to the current state", iterations)
 
-			require.ElementsMatch(t, seq(1, 12), swept,
-				"the sweep must retire every expired row exactly once")
-			assert.Equal(t, 4, iterations, "12 rows at a batch of 4, then the empty batch that stops it")
+		found := ttlSweepFind(t, searcher, threshold, batch)
+		require.Subsetf(t, full, found, "iteration %d", iterations)
+		require.LessOrEqualf(t, len(found), batch, "iteration %d", iterations)
 
-			after := counterDelta(before, leafCacheCounters(t))
-			if tt.flush {
-				assert.NotZero(t, after["invalidate"],
-					"flushed deletions must have dropped the memoised leaf")
-			} else {
-				assert.NotZerof(t, after["hit"],
-					"no iteration was served from the memo, so this never tested a memoised leaf "+
-						"against deletions underneath it")
-				assert.Zero(t, after["invalidate"],
-					"memtable deletions must not disturb the segment's generation")
-			}
-		})
+		iterDelta := counterDelta(iterBefore, leafCacheCounters(t))
+		if flushed {
+			hitsPostFlush += iterDelta["hit"]
+		} else {
+			hitsPreFlush += iterDelta["hit"]
+		}
+
+		if len(found) == 0 {
+			break // findAndDelete's stop condition
+		}
+
+		for _, docID := range found {
+			require.NoError(t, removeRangeable(bucket, ttlSweepKey(int(docID)), docID))
+			delete(live, docID)
+		}
+		retired = append(retired, found...)
+
+		if iterations == flushAfter {
+			require.NoError(t, bucket.FlushAndSwitch())
+			requireSegmentAbsorbedTheFlush(t, searcher, threshold)
+			flushed = true
+		}
 	}
+
+	require.ElementsMatch(t, seq(1, thresholdMin), retired,
+		"every expired row must be retired exactly once, and no unexpired row at all")
+	require.True(t, flushed, "the sweep never crossed a flush, so only one layer was ever populated")
+
+	assert.NotZero(t, hitsPreFlush,
+		"no iteration before the flush was served from the memo, so a memoised leaf was never "+
+			"held against memtable deletions")
+	assert.NotZero(t, hitsPostFlush,
+		"no iteration after the flush was served from the memo, so the two-layer composition — "+
+			"rows retired earlier in the planes, later ones still in the memtable — was never "+
+			"exercised against a memoised leaf")
+
+	after := counterDelta(before, leafCacheCounters(t))
+	assert.NotZero(t, after["invalidate"], "the mid-sweep flush must have dropped the memoised leaf")
 }
