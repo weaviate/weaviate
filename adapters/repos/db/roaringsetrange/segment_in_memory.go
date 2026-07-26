@@ -57,9 +57,6 @@ func (s *SegmentInMemory) mutateBitmaps(fn func(bitmaps *rangeBitmaps)) {
 }
 
 func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
-	logLeafCacheConfig(logger)
-	logCascadeSeedConfig(logger)
-
 	s := &SegmentInMemory{
 		logger:        logger,
 		bitmapsLock:   entsync.NewReadPreferringRWMutex(),

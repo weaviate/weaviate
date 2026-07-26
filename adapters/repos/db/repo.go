@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
@@ -318,6 +319,11 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
 	}
+
+	// Published here rather than when an in-memory range segment is built,
+	// because the default configuration never builds one and that is exactly
+	// the state an operator cannot otherwise read.
+	roaringsetrange.PublishConfig(config.IndexRangeableInMemory, logger)
 	metricsRegisterer := monitoring.NoopRegisterer
 	if promMetrics != nil && promMetrics.Registerer != nil {
 		metricsRegisterer = promMetrics.Registerer

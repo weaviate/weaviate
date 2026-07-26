@@ -170,7 +170,37 @@ func newRangeableInMemoFixture(t *testing.T) (*Searcher, *lsmkv.Bucket) {
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
+	requireInMemoryRangeablePathIsLive(t, searcher)
 	return searcher, bucket
+}
+
+// requireInMemoryRangeablePathIsLive is the positive control every assertion on
+// the leaf-cache counters needs. probe sits behind Bucket.keepSegmentsInMemory,
+// fed by INDEX_RANGEABLE_IN_MEMORY, which is off by default: with it off the
+// query silently takes readerRoaringSetRangeFromSegments, no counter is ever
+// touched, and "the cache is broken" and "the rig never reached the cache" are
+// the same reading. A gate reading all-zero here has to be able to tell which.
+//
+// So assert both halves: the query returns the answer it must return, and the
+// counters moved because of it.
+func requireInMemoryRangeablePathIsLive(t *testing.T, searcher *Searcher) {
+	t.Helper()
+
+	before := leafCacheCounters(t)
+
+	got := findUUIDsShapedQuery(t, searcher, filters.OperatorGreaterThanEqual, 1)
+	require.Equalf(t, 20, len(got),
+		"the fixture query returned %d of 20 docs, so any counter reading below is vacuous", len(got))
+
+	var moved bool
+	for op, v := range leafCacheCounters(t) {
+		if v > before[op] {
+			moved = true
+		}
+	}
+	require.True(t, moved,
+		"the query returned the right answer without touching the leaf cache, so it did not go "+
+			"through the in-memory segment; check WithKeepSegmentsInMemory")
 }
 
 // Pins the direction easy to miss: delete populates the memo, not just reads

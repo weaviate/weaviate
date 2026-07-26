@@ -80,7 +80,10 @@ var (
 			Help: "Which state " + CascadeSeedDisabledEnv + " left the seeded range cascade in, " +
 				"readable at boot rather than only once a query exercises it. " +
 				"unrecognised means the variable was set to something this build does not parse " +
-				"and seeding stayed on; see the warning logged alongside it.",
+				"and seeding stayed on; see the warning logged alongside it. " +
+				"This reports the switch, not whether the cascade runs at all: " +
+				"lsm_roaringsetrange_leaf_cache_config{state=\"disabled_feature_off\"} tells you " +
+				"whether an in-memory segment exists for it to run in.",
 		}, []string{"state"})
 
 	cascadeSeedOps = promauto.With(monitoring.GetMetrics().Registerer).NewCounterVec(
