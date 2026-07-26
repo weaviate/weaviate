@@ -13,7 +13,6 @@ package roaringset
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"math/bits"
 	"slices"
@@ -339,24 +338,11 @@ func calculateSyncBufferRanges(minRangeP2, maxRangeP2 int) []int {
 	return ranges
 }
 
-// inMemoBufferRangesAndLimits builds the same ladder NewBitmapBufPoolDefault
-// uses, so ValidateBufPoolSizes checks the pool that would actually be built.
+// inMemoBufferRangesAndLimits builds the ladder NewBitmapBufPoolDefault uses.
 func inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize int) ([]int, map[int]int) {
 	maxSyncBufSize := 1 << bufPoolSyncMaxRangeP2
 	return calculateInMemoBufferRangesAndLimits(maxSyncBufSize, bufPoolInMemoMinRangeP2,
 		maxBufSize, maxMemoSize)
-}
-
-// ValidateBufPoolSizes only rejects a pair that leaves the pool with no
-// in-memory class at all; anything else degrades the pool, not the node.
-func ValidateBufPoolSizes(maxBufSize, maxMemoSize int) error {
-	if ranges, _ := inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize); len(ranges) == 0 {
-		return fmt.Errorf("max buffer size %s with a total buffer budget of %s leaves no in-memory "+
-			"buffer class: the max buffer size must be greater than %s and the budget at least %s",
-			humanize.IBytes(uint64(maxBufSize)), humanize.IBytes(uint64(maxMemoSize)),
-			humanize.IBytes(1<<bufPoolSyncMaxRangeP2), humanize.IBytes(1<<bufPoolInMemoMinRangeP2))
-	}
-	return nil
 }
 
 // logDegradedBufPool is the only signal for a degraded pool: the surviving
