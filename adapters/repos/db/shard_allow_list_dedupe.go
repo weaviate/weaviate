@@ -246,9 +246,10 @@ func (b *allowListBuild) handle(bm *sroar.Bitmap) helpers.AllowList {
 // errs towards false, which only costs the dedupe, never correctness.
 //
 // Both legs reach a shard the same way: one shared pointer locally, two
-// independent deserializations remotely, which are not guaranteed to compare
-// equal (e.g. a Date becomes a string on the wire). The two never mix: legs
-// on different replicas land on different shards.
+// independent deserializations remotely. Two deserializations do compare equal,
+// measured on a 4-node rig. Mixing a local tree with a wire one would not (a
+// Date stays a string), but that pair is unreachable, because legs on different
+// replicas land on different nodes and never meet.
 func sameFilter(a, b *filters.LocalFilter) bool {
 	if a == b {
 		return true
