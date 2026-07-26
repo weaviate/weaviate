@@ -127,10 +127,10 @@ func TestCloneHelpersRequestTheGrowthHeadroom(t *testing.T) {
 
 // The clone buffers ask for CloneBufSize, i.e. 1.25x the bound. That headroom
 // is spare capacity in a transient buffer returned to the pool, so it must not
-// reach the cache's byte budget: sroar's InitCloneToBuf trims data to the used
-// length and Clone compacts, so LenInBytes reports content, never capacity. If
-// either stopped holding, the budget would under-count by 25% and the cache
-// would retain more than its configured cap.
+// reach the cache's byte budget: sroar's CloneToBuf and Clone both report
+// LenInBytes over content, never over the capacity they were handed. If that
+// stopped holding, the budget would under-count by 25% and the cache would
+// retain more than its configured cap.
 func TestGrowthHeadroomStaysOutOfTheCacheBudget(t *testing.T) {
 	segment := newCascadeFixture(t, 5)
 	readers, release := segment.Readers(roaringset.NewBitmapBufPoolNoop())

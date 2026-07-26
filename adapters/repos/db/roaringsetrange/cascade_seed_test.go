@@ -14,6 +14,7 @@ package roaringsetrange
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -24,35 +25,68 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func TestParseCascadeSeedDisabled(t *testing.T) {
+func TestParseCascadeSeedEnabled(t *testing.T) {
 	tests := []struct {
 		value      string
-		disabled   bool
+		enabled    bool
 		recognised bool
 	}{
-		{value: "", disabled: false, recognised: true},
-		{value: "true", disabled: true, recognised: true},
-		{value: "TRUE", disabled: true, recognised: true},
-		{value: "on", disabled: true, recognised: true},
-		{value: "enabled", disabled: true, recognised: true},
-		{value: "1", disabled: true, recognised: true},
-		{value: " 1 ", disabled: true, recognised: true},
-		{value: "false", disabled: false, recognised: true},
-		{value: "off", disabled: false, recognised: true},
-		{value: "0", disabled: false, recognised: true},
-		{value: "disabled", disabled: false, recognised: true},
+		{value: "", enabled: true, recognised: true},
+		{value: "true", enabled: true, recognised: true},
+		{value: "TRUE", enabled: true, recognised: true},
+		{value: "on", enabled: true, recognised: true},
+		{value: "enabled", enabled: true, recognised: true},
+		{value: "1", enabled: true, recognised: true},
+		{value: " 1 ", enabled: true, recognised: true},
+		{value: "false", enabled: false, recognised: true},
+		{value: "off", enabled: false, recognised: true},
+		{value: "0", enabled: false, recognised: true},
+		{value: "disabled", enabled: false, recognised: true},
 		// the whole point of the three-way result: these keep seeding on, but
 		// they are reported rather than swallowed
-		{value: "of", disabled: false, recognised: false},
-		{value: "yes", disabled: false, recognised: false},
-		{value: "2", disabled: false, recognised: false},
+		{value: "of", enabled: true, recognised: false},
+		{value: "yes", enabled: true, recognised: false},
+		{value: "2", enabled: true, recognised: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("value=%q", tt.value), func(t *testing.T) {
-			disabled, recognised := parseCascadeSeedDisabled(tt.value)
-			assert.Equal(t, tt.disabled, disabled)
+			enabled, recognised := parseCascadeSeedEnabled(tt.value)
+			assert.Equal(t, tt.enabled, enabled)
 			assert.Equal(t, tt.recognised, recognised)
+		})
+	}
+}
+
+// The variable's own trailing word, used as its value, must mean what the name
+// says. Under a *_DISABLED name it cannot: =disabled parses as falsy, so it
+// reads as "not disabled" and leaves the feature on with no warning.
+func TestCascadeSeedEnvNameMeansWhatItSays(t *testing.T) {
+	tail := CascadeSeedEnabledEnv[strings.LastIndex(CascadeSeedEnabledEnv, "_")+1:]
+	require.Equal(t, "ENABLED", tail, "a *_DISABLED name reintroduces the double negative")
+
+	enabled, recognised := parseCascadeSeedEnabled(strings.ToLower(tail))
+	assert.True(t, recognised)
+	assert.Truef(t, enabled, "%s=%s must engage what the name promises", CascadeSeedEnabledEnv, tail)
+}
+
+// Every value an operator plausibly types to switch seeding off must either
+// take effect or be reported. Silently leaving it on is the failure mode.
+func TestCascadeSeedOffIntentIsNeverSilent(t *testing.T) {
+	offIntent := []string{
+		"off", "OFF", " off ", "false", "False", "0", "disabled", "DISABLED",
+		"no", "n", "none", "never", "nope", "not", "unset", "-1",
+	}
+
+	for _, value := range offIntent {
+		t.Run(fmt.Sprintf("value=%q", value), func(t *testing.T) {
+			enabled, recognised := parseCascadeSeedEnabled(value)
+			if enabled {
+				assert.Falsef(t, recognised,
+					"%s=%q left seeding on and was recognised, so no warning fires and the "+
+						"gauge reads enabled: the operator's intent vanished",
+					CascadeSeedEnabledEnv, value)
+			}
 		})
 	}
 }
@@ -197,21 +231,14 @@ func TestLogCascadeSeedConfigReportsAnUnrecognisedValue(t *testing.T) {
 	logCascadeSeedConfig(logger)
 
 	require.Len(t, hook.Entries, 1)
-	assert.Contains(t, hook.LastEntry().Message, CascadeSeedDisabledEnv)
+	assert.Contains(t, hook.LastEntry().Message, CascadeSeedEnabledEnv)
 	assert.Contains(t, hook.LastEntry().Message, `"of"`)
 }
 
-// TestEmittedSeriesNames pins the exact strings a dashboard or a QA gate greps
-// for. Declaring a Namespace here would prefix these with weaviate_ while the
-// neighbour in the same subsystem, lsm_bitmap_buffers_usage, stays unprefixed —
-// so no single prefix would select all LSM metrics. A gate built to observe the
-// leaf cache matched the unprefixed name, got zero, and came close to reporting
-// that the memo never engaged.
-//
-// Whether DefaultMetricsNamespace should become the convention is a repo-wide
-// migration decision for all ~130 metrics at once, not something to settle in a
-// performance PR. Until then, matching the neighbours is what keeps the
-// subsystem greppable.
+// Pins the emitted series names, prefix included, because a dashboard matching
+// the wrong form reads a silent zero and a silent zero is indistinguishable
+// from a feature that never engaged. Both halves are asserted: without the
+// negative half a half-renamed subsystem passes.
 func TestEmittedSeriesNames(t *testing.T) {
 	families, err := prometheus.DefaultGatherer.Gather()
 	require.NoError(t, err)
@@ -231,23 +258,28 @@ func TestEmittedSeriesNames(t *testing.T) {
 	// is an absence rather than a reading. That is the distinction a gate arming
 	// on these counters needs: "off" must not look like "never hit".
 	wanted := map[string][]string{
-		"lsm_roaringsetrange_leaf_cache_ops_total": {
+		leafCacheOpsName: {
 			"hit", "miss", "store", "rejected", "invalidate", "disabled",
 		},
-		"lsm_roaringsetrange_cascade_seed_total":  {"seeded", "disabled", "no_set_bit"},
-		"lsm_roaringsetrange_cascade_seed_config": {"enabled", "disabled", "unrecognised"},
+		cascadeSeedOpsName:    {"seeded", "disabled", "no_set_bit"},
+		cascadeSeedConfigName: {"enabled", "disabled", "unrecognised"},
+		// The one gauge that reads on the default path, where every other series
+		// in this subsystem is flat. A rename here is invisible to the other
+		// three assertions and takes the default path's only reading with it.
+		leafCacheConfigName: leafCacheStates,
 	}
 
 	for name, children := range wanted {
-		labels, ok := got[name]
-		assert.Truef(t, ok, "%q is not emitted; a dashboard or gate matching it reads a silent zero", name)
-		assert.NotContainsf(t, got, "weaviate_"+name,
-			"%q is prefixed, unlike lsm_bitmap_buffers_usage in the same subsystem", name)
+		series := metricsNamespace + "_" + name
+		labels, ok := got[series]
+		assert.Truef(t, ok, "%q is not emitted; a dashboard or gate matching it reads a silent zero", series)
+		assert.NotContainsf(t, got, name,
+			"%q is emitted unprefixed, so this subsystem is half-renamed", name)
 
 		for _, child := range children {
 			assert.Truef(t, labels[child],
 				"%q has no %q child before any traffic, so a flat series cannot be told from a missing one",
-				name, child)
+				series, child)
 		}
 	}
 }

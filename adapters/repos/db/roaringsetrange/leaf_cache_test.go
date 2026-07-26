@@ -39,9 +39,8 @@ func TestParseLeafCacheMaxMemory(t *testing.T) {
 		{name: "plain bytes", env: "1048576", expected: 1 << 20},
 		{name: "binary unit", env: "16MiB", expected: 16 << 20},
 		{name: "decimal unit", env: "100MB", expected: 100_000_000},
-		// the reason this reports rather than swallows: a doubled unit, a stray
-		// space and a transposed unit are all things an operator actually types,
-		// and every one of them used to look exactly like the variable being unset
+		// a doubled unit, a stray space and a transposed unit are all things an
+		// operator types, and swallowing them makes each one look like unset
 		{name: "garbage", env: "sixteen", expected: DefaultLeafCacheMaxMemory, wantErr: true},
 		{name: "negative", env: "-1", expected: DefaultLeafCacheMaxMemory, wantErr: true},
 		{name: "doubled unit", env: "64MiBB", expected: DefaultLeafCacheMaxMemory, wantErr: true},
@@ -348,10 +347,8 @@ func TestLeafCacheDropDuringClone(t *testing.T) {
 	require.Greater(t, clones.Load(), int64(0), "no entry was ever served, the test would be vacuous")
 }
 
-// The three operator states have to be three readings. Before this counter,
-// a disabled cache and an unexercised one both showed zero hits and zero
-// misses, so a dashboard or a gate arming on them could not tell "off" from
-// "never hit" — and QA has armed gates on exactly these counters.
+// A disabled cache and an unexercised one both leave hits and misses at zero,
+// so only the disabled counter separates "off" from "never hit".
 func TestLeafCacheDisabledIsObservable(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	mt1, mt2, mt3 := createTestMemtables(logger)

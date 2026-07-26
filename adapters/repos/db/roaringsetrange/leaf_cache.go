@@ -88,15 +88,26 @@ func logLeafCacheConfig(logger logrus.FieldLogger) {
 var (
 	leafCacheOps = promauto.With(monitoring.GetMetrics().Registerer).NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "lsm_roaringsetrange_leaf_cache_ops_total",
-			Help: "Range-filter leaf bitmap cache operations. " +
+			Namespace: metricsNamespace,
+			Name:      leafCacheOpsName,
+			Help: "Range-filter leaf bitmap cache operations, summed over every rangeable " +
+				"bucket in the process: there is no class, shard or property dimension, so " +
+				"absolute values aggregate across all of them. " +
 				"hit/(hit+miss) is the hit rate; store counts admitted bitmaps, " +
 				"rejected counts repeat predicates declined because the byte budget is full " +
 				"(a sustained non-zero rate means the budget is too small for the working set), " +
-				"invalidate counts writes to the in-memory segment that dropped the cache, " +
 				"disabled counts lookups that found no cache at all. " +
-				"disabled rising means the cache is off while queries flow; every child flat " +
-				"means it is on with no eligible traffic; hit/miss moving means it is working.",
+				"invalidate is not conserved and its magnitude carries no information: use it " +
+				"as presence or absence only, never as a rate and never as an alert threshold. " +
+				"It counts drop events raised lazily by the next lookup rather than by the " +
+				"write, so a run of writes with no lookup between them raises one and writes " +
+				"against an already-empty cache raise none; flushes coalesce upstream of that " +
+				"too. A non-zero value means invalidation fires, and nothing more. " +
+				"disabled rising means the cache is off while queries flow; hit/miss moving " +
+				"means it is working. Every child flat is ambiguous: only the in-memory range " +
+				"segment reaches these counters, so it reads the same whether " +
+				IndexRangeableInMemoryEnv + " is off — the default — or on with no eligible " +
+				"traffic. " + leafCacheConfigSeries + " separates the two.",
 		}, []string{"operation"})
 
 	// Every child is created here rather than on first increment, so a flat
@@ -261,6 +272,8 @@ func (c *leafCache) admitLocked(key leafKey) bool {
 
 func (c *leafCache) dropLocked(generation uint64) {
 	if len(c.entries) > 0 {
+		// Raised by the lookup that notices, not by the write: several generation
+		// bumps with no lookup between them raise one. Don't read it as a count.
 		leafCacheInvalidation.Inc()
 	}
 	c.entries = nil

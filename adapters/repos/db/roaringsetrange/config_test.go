@@ -29,12 +29,66 @@ func withLeafCacheEnv(t *testing.T, value string, err error, maxBytes int) {
 	prevValue, prevErr, prevMax := leafCacheEnvValue, leafCacheEnvErr, leafCacheMaxMemory
 	prevLeaf := leafCacheLogged.Swap(false)
 	prevSeed := cascadeSeedLogged.Swap(false)
+	prevRangeable := indexRangeableLogged.Swap(false)
 	t.Cleanup(func() {
 		leafCacheEnvValue, leafCacheEnvErr, leafCacheMaxMemory = prevValue, prevErr, prevMax
 		leafCacheLogged.Store(prevLeaf)
 		cascadeSeedLogged.Store(prevSeed)
+		indexRangeableLogged.Store(prevRangeable)
 	})
 	leafCacheEnvValue, leafCacheEnvErr, leafCacheMaxMemory = value, err, maxBytes
+}
+
+// withIndexRangeableEnv swaps the raw feature-flag value for one case.
+func withIndexRangeableEnv(t *testing.T, value string) {
+	t.Helper()
+
+	prev := indexRangeableEnvValue
+	t.Cleanup(func() { indexRangeableEnvValue = prev })
+	indexRangeableEnvValue = value
+}
+
+// entcfg.Enabled recognises only truthy words, so INDEX_RANGEABLE_IN_MEMORY=yes
+// reads exactly like unset: feature off, gauge disabled_feature_off, and until
+// this warning nothing named the value as the reason. Both sibling knobs report
+// a value they could not parse; the one gating the feature must not be the
+// silent one.
+func TestPublishConfigNamesAnUnparsedFeatureFlag(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		wantWarn bool
+	}{
+		{name: "the reported footgun", envValue: "yes", wantWarn: true},
+		{name: "another near miss", envValue: "TRUE_", wantWarn: true},
+		{name: "unset stays quiet", envValue: ""},
+		{name: "a deliberate off stays quiet", envValue: "false"},
+		{name: "a deliberate off, spelled out", envValue: "disabled"},
+		{name: "the value that turned it on stays quiet", envValue: "true"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withLeafCacheEnv(t, "", nil, DefaultLeafCacheMaxMemory)
+			withIndexRangeableEnv(t, tt.envValue)
+
+			logger, hook := test.NewNullLogger()
+			// entcfg.Enabled(tt.envValue) for every case here, which is what
+			// db.New would pass.
+			PublishConfig(tt.envValue == "true", logger)
+			t.Cleanup(func() { PublishConfig(false, nil) })
+
+			if !tt.wantWarn {
+				assert.Empty(t, hook.Entries)
+				return
+			}
+
+			require.Len(t, hook.Entries, 1)
+			assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+			assert.Contains(t, hook.LastEntry().Message, IndexRangeableInMemoryEnv)
+			assert.Contains(t, hook.LastEntry().Message, tt.envValue)
+		})
+	}
 }
 
 // The default configuration leaves INDEX_RANGEABLE_IN_MEMORY off, so no
@@ -100,10 +154,9 @@ func TestPublishConfigCoversAllFourStates(t *testing.T) {
 	t.Cleanup(func() { PublishConfig(false, nil) })
 }
 
-// The warning has to fire on stock configuration. It used to be emitted from
-// NewSegmentInMemory, which never runs when the feature is off, so a mistyped
-// budget produced zero log lines on the path most nodes are on — exactly the
-// indistinguishability the warning exists to remove.
+// The warning has to fire with the feature off, which is where most nodes are:
+// an unparsed budget there is still an operator mistake, and nothing else on
+// that path says so.
 func TestPublishConfigWarnsWithTheFeatureOff(t *testing.T) {
 	withLeafCacheEnv(t, "64MiBB",
 		fmt.Errorf("%s: %q: unhandled size name", LeafCacheMaxMemoryEnv, "64MiBB"),
