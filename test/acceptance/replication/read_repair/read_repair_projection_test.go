@@ -58,10 +58,6 @@ func projectionVector(i int) []float32 {
 // TestReadRepairPreservesProjectedAwayContent pins the regression where read
 // repair overwrote a lagging replica with a search result's projection,
 // destroying properties and the vector outside the query's selection.
-//
-// All three parts of the trigger are load-bearing: an unfiltered read carries a
-// complete object, a wide selection set leaves nothing to destroy, and
-// consistency level ONE short-circuits the repair path before it runs.
 func (suite *ReplicationTestSuite) TestReadRepairPreservesProjectedAwayContent() {
 	t := suite.T()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
@@ -73,7 +69,6 @@ func (suite *ReplicationTestSuite) TestReadRepairPreservesProjectedAwayContent()
 		// aligned with the rest of the package (slot 0).
 		WithText2VecContextionary().
 		// Keeps the lagging replica's divergence from healing via async replication.
-		// Only on|enabled|1|true engage this flag; "disabled" would silently do nothing.
 		WithWeaviateEnv("ASYNC_REPLICATION_DISABLED", "true").
 		Start(ctx)
 	require.Nil(t, err)
