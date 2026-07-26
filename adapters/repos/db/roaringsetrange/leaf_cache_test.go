@@ -12,11 +12,14 @@
 package roaringsetrange
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -27,21 +30,103 @@ func TestParseLeafCacheMaxMemory(t *testing.T) {
 		name     string
 		env      string
 		expected int
+		wantErr  bool
 	}{
 		{name: "unset uses default", env: "", expected: DefaultLeafCacheMaxMemory},
 		{name: "zero disables", env: "0", expected: 0},
 		{name: "plain bytes", env: "1048576", expected: 1 << 20},
 		{name: "binary unit", env: "16MiB", expected: 16 << 20},
 		{name: "decimal unit", env: "100MB", expected: 100_000_000},
-		{name: "garbage falls back to default", env: "sixteen", expected: DefaultLeafCacheMaxMemory},
-		{name: "negative falls back to default", env: "-1", expected: DefaultLeafCacheMaxMemory},
+		// the reason this reports rather than swallows: a doubled unit, a stray
+		// space and a transposed unit are all things an operator actually types,
+		// and every one of them used to look exactly like the variable being unset
+		{name: "garbage", env: "sixteen", expected: DefaultLeafCacheMaxMemory, wantErr: true},
+		{name: "negative", env: "-1", expected: DefaultLeafCacheMaxMemory, wantErr: true},
+		{name: "doubled unit", env: "64MiBB", expected: DefaultLeafCacheMaxMemory, wantErr: true},
+		// humanize tolerates a trailing space but not a leading one
+		{name: "trailing space", env: "64 MiB ", expected: 64 << 20},
+		{name: "leading space", env: " 64MiB", expected: DefaultLeafCacheMaxMemory, wantErr: true},
+		{name: "transposed unit", env: "64iMB", expected: DefaultLeafCacheMaxMemory, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, parseLeafCacheMaxMemory(tt.env))
+			got, err := parseLeafCacheMaxMemory(tt.env)
+			assert.Equal(t, tt.expected, got)
+			if !tt.wantErr {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), LeafCacheMaxMemoryEnv, "the operator cannot act on an unnamed variable")
+			assert.Contains(t, err.Error(), tt.env, "the offending value must be quoted back")
 		})
 	}
+}
+
+// A budget that fell back to the default has to say so. Silence makes a
+// mistyped budget indistinguishable from an unset one, and the operator then
+// believes they configured something they did not get.
+func TestLogLeafCacheConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		envValue  string
+		envErr    error
+		maxBytes  int
+		wantLevel logrus.Level
+		wantIn    []string
+	}{
+		{
+			name:     "unparseable warns and names both the variable and the value",
+			envValue: "64MiBB", envErr: fmt.Errorf("%s: %q: invalid size", LeafCacheMaxMemoryEnv, "64MiBB"),
+			maxBytes:  DefaultLeafCacheMaxMemory,
+			wantLevel: logrus.WarnLevel,
+			wantIn:    []string{LeafCacheMaxMemoryEnv, "64MiBB", "16 MiB"},
+		},
+		{
+			name:     "zero reports the kill switch, which no counter can show",
+			envValue: "0", maxBytes: 0,
+			wantLevel: logrus.InfoLevel,
+			wantIn:    []string{LeafCacheMaxMemoryEnv, "disables"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prevValue, prevErr, prevMax := leafCacheEnvValue, leafCacheEnvErr, leafCacheMaxMemory
+			prevLogged := leafCacheLogged.Swap(false)
+			t.Cleanup(func() {
+				leafCacheEnvValue, leafCacheEnvErr, leafCacheMaxMemory = prevValue, prevErr, prevMax
+				leafCacheLogged.Store(prevLogged)
+			})
+			leafCacheEnvValue, leafCacheEnvErr, leafCacheMaxMemory = tt.envValue, tt.envErr, tt.maxBytes
+
+			logger, hook := test.NewNullLogger()
+			logLeafCacheConfig(logger)
+
+			require.Len(t, hook.Entries, 1)
+			assert.Equal(t, tt.wantLevel, hook.LastEntry().Level)
+			for _, want := range tt.wantIn {
+				assert.Contains(t, hook.LastEntry().Message, want)
+			}
+		})
+	}
+}
+
+// A valid budget stays quiet: a line on every healthy boot trains operators to
+// ignore the one that matters.
+func TestLogLeafCacheConfigStaysQuietWhenValid(t *testing.T) {
+	prevErr, prevMax := leafCacheEnvErr, leafCacheMaxMemory
+	prevLogged := leafCacheLogged.Swap(false)
+	t.Cleanup(func() {
+		leafCacheEnvErr, leafCacheMaxMemory = prevErr, prevMax
+		leafCacheLogged.Store(prevLogged)
+	})
+	leafCacheEnvErr, leafCacheMaxMemory = nil, 32<<20
+
+	logger, hook := test.NewNullLogger()
+	logLeafCacheConfig(logger)
+	assert.Empty(t, hook.Entries)
 }
 
 func TestNewLeafCacheDisabled(t *testing.T) {

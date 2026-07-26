@@ -12,12 +12,15 @@
 package roaringsetrange
 
 import (
+	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/dustin/go-humanize"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -35,26 +38,57 @@ const LeafCacheMaxMemoryEnv = "QUERY_RANGEABLE_LEAF_CACHE_MAX_MEMORY"
 // are 24 bytes, so the whole filter is under 1 KiB and is scanned linearly.
 const leafCacheAdmissions = 32
 
-var leafCacheMaxMemory = parseLeafCacheMaxMemory(os.Getenv(LeafCacheMaxMemoryEnv))
+var (
+	leafCacheEnvValue  = os.Getenv(LeafCacheMaxMemoryEnv)
+	leafCacheEnvErr    error
+	leafCacheMaxMemory int
+	leafCacheLogged    atomic.Bool
+)
+
+func init() {
+	leafCacheMaxMemory, leafCacheEnvErr = parseLeafCacheMaxMemory(leafCacheEnvValue)
+}
 
 // parseLeafCacheMaxMemory falls back to the default rather than failing
-// startup: a typo in an operator's env should not stop a node from serving.
-func parseLeafCacheMaxMemory(v string) int {
+// startup: the memo is an optimisation, so a typo in its budget should not stop
+// a node from serving. It returns the error anyway, because falling back
+// silently makes a mistyped budget indistinguishable from an unset one: the
+// operator gets a default they did not ask for and nothing says why.
+func parseLeafCacheMaxMemory(v string) (int, error) {
 	if v == "" {
-		return DefaultLeafCacheMaxMemory
+		return DefaultLeafCacheMaxMemory, nil
 	}
 	bytes, err := humanize.ParseBytes(v)
 	if err != nil {
-		return DefaultLeafCacheMaxMemory
+		return DefaultLeafCacheMaxMemory, fmt.Errorf("%s: %q: %w", LeafCacheMaxMemoryEnv, v, err)
 	}
-	return int(bytes)
+	return int(bytes), nil
+}
+
+// logLeafCacheConfig reports the memo's budget once per process: loudly when the
+// value was not understood and the default is standing in for it, and at info
+// when it resolves to the kill switch, which is otherwise invisible because a
+// disabled cache never touches a counter.
+func logLeafCacheConfig(logger logrus.FieldLogger) {
+	if logger == nil || !leafCacheLogged.CompareAndSwap(false, true) {
+		return
+	}
+
+	entry := logger.WithField("action", "roaringsetrange_leaf_cache")
+	switch {
+	case leafCacheEnvErr != nil:
+		entry.Warnf("%v, falling back to the default of %s",
+			leafCacheEnvErr, humanize.IBytes(DefaultLeafCacheMaxMemory))
+	case leafCacheMaxMemory <= 0:
+		entry.Infof("%s=%q disables the range-filter leaf cache",
+			LeafCacheMaxMemoryEnv, leafCacheEnvValue)
+	}
 }
 
 var (
 	leafCacheOps = promauto.With(monitoring.GetMetrics().Registerer).NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: monitoring.DefaultMetricsNamespace,
-			Name:      "lsm_roaringsetrange_leaf_cache_ops_total",
+			Name: "lsm_roaringsetrange_leaf_cache_ops_total",
 			Help: "Range-filter leaf bitmap cache operations. " +
 				"hit/(hit+miss) is the hit rate; store counts admitted bitmaps, " +
 				"rejected counts repeat predicates declined because the byte budget is full " +
