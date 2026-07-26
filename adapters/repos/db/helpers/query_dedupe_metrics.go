@@ -28,11 +28,13 @@ const (
 // Per-leg outcomes, counted on the shard. Kept distinct so "legs never
 // overlapped" can't be confused with "legs overlapped but sharing failed".
 const (
-	// AllowListDedupeShared means this leg was handed a reference to a build
-	// another leg was already running.
+	// AllowListDedupeShared means a bitmap changed hands: this leg either
+	// reused a build already in flight, or led one that others took a
+	// reference to.
 	AllowListDedupeShared = "shared"
-	// AllowListDedupeUnshared means this leg led the build and nobody joined it
-	// before it published: dedupe was on, it just did not trigger.
+	// AllowListDedupeUnshared means dedupe was on but nothing was shared: this
+	// leg led a build nobody joined, or led one that produced no shareable
+	// result.
 	AllowListDedupeUnshared = "unshared"
 	// AllowListDedupeFilterMismatch means a leg arrived under a token already in
 	// flight for a different filter, so sharing was refused.
@@ -43,6 +45,9 @@ const (
 	// AllowListDedupeCancelled means the leg's own context expired while it was
 	// waiting on the leader.
 	AllowListDedupeCancelled = "cancelled"
+	// AllowListDedupePanicked means the build panicked, so the leg never
+	// reached an outcome of its own.
+	AllowListDedupePanicked = "panicked"
 )
 
 var (
@@ -74,6 +79,7 @@ func init() {
 		{AllowListDedupeFilterMismatch},
 		{AllowListDedupeLeaderFailed},
 		{AllowListDedupeCancelled},
+		{AllowListDedupePanicked},
 	})
 }
 

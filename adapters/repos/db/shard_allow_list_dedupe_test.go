@@ -112,38 +112,52 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 		leaderFilt *filters.LocalFilter
 		followFilt *filters.LocalFilter
 		wantBuilds int32
-		// wantFollowOutcome is the metric label the follower's call must report.
+		// wantLeaderOutcome / wantFollowOutcome are the labels each call reports.
+		// The leader's is not always "unshared": leading a build that another leg
+		// took a reference to is sharing, and folding the two together would make
+		// "the legs never overlapped" indistinguishable from "dedupe fired".
+		wantLeaderOutcome string
 		wantFollowOutcome string
 	}{
 		{
 			name:      "same token and same filter pointer",
 			leaderTok: "tok", followTok: "tok",
 			leaderFilt: testFilter(100), followFilt: nil, // nil means "reuse leader's"
-			wantBuilds: 1, wantFollowOutcome: helpers.AllowListDedupeShared,
+			wantBuilds:        1,
+			wantLeaderOutcome: helpers.AllowListDedupeShared,
+			wantFollowOutcome: helpers.AllowListDedupeShared,
 		},
 		{
 			name:      "same token and equal filter value",
 			leaderTok: "tok", followTok: "tok",
 			leaderFilt: testFilter(100), followFilt: testFilter(100),
-			wantBuilds: 1, wantFollowOutcome: helpers.AllowListDedupeShared,
+			wantBuilds:        1,
+			wantLeaderOutcome: helpers.AllowListDedupeShared,
+			wantFollowOutcome: helpers.AllowListDedupeShared,
 		},
 		{
 			name:      "same token but different filter",
 			leaderTok: "tok", followTok: "tok",
 			leaderFilt: testFilter(100), followFilt: testFilter(200),
-			wantBuilds: 2, wantFollowOutcome: helpers.AllowListDedupeFilterMismatch,
+			wantBuilds:        2,
+			wantLeaderOutcome: helpers.AllowListDedupeUnshared,
+			wantFollowOutcome: helpers.AllowListDedupeFilterMismatch,
 		},
 		{
 			name:      "different tokens never share",
 			leaderTok: "tok-a", followTok: "tok-b",
 			leaderFilt: testFilter(100), followFilt: testFilter(100),
-			wantBuilds: 2, wantFollowOutcome: helpers.AllowListDedupeUnshared,
+			wantBuilds:        2,
+			wantLeaderOutcome: helpers.AllowListDedupeUnshared,
+			wantFollowOutcome: helpers.AllowListDedupeUnshared,
 		},
 		{
 			name:      "empty token opts out",
 			leaderTok: "", followTok: "",
 			leaderFilt: testFilter(100), followFilt: testFilter(100),
-			wantBuilds: 2, wantFollowOutcome: "",
+			wantBuilds:        2,
+			wantLeaderOutcome: "",
+			wantFollowOutcome: "",
 		},
 	}
 
@@ -163,6 +177,7 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 			var (
 				leaderList, followList helpers.AllowList
 				leaderErr, followErr   error
+				leaderOutcome          string
 				followOutcome          string
 				wg                     sync.WaitGroup
 			)
@@ -170,7 +185,7 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				leaderList, _, leaderErr = d.do(ctx, tt.leaderTok, tt.leaderFilt, builder.build)
+				leaderList, leaderOutcome, leaderErr = d.do(ctx, tt.leaderTok, tt.leaderFilt, builder.build)
 			}()
 
 			// The leader is parked inside build; only then can the follower join it.
@@ -198,7 +213,8 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 			require.NoError(t, followErr)
 			require.NotNil(t, leaderList)
 			require.NotNil(t, followList)
-			assert.Equal(t, tt.wantFollowOutcome, followOutcome)
+			assert.Equal(t, tt.wantLeaderOutcome, leaderOutcome, "leader outcome")
+			assert.Equal(t, tt.wantFollowOutcome, followOutcome, "follower outcome")
 			assert.Equal(t, tt.wantBuilds, builder.builds.Load(), "build count")
 
 			// A shared list is one bitmap behind two independent handles.

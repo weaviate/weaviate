@@ -932,11 +932,23 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 // hybrid's two legs). The result is shared: mutating it (Insert, Truncate)
 // would corrupt peers still reading it.
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
-	list, outcome, err := s.allowListDedupe.do(ctx, helpers.QueryDedupeToken(ctx), filters,
+	token := helpers.QueryDedupeToken(ctx)
+
+	// A panicking build unwinds past the return below, so without this the leg
+	// would vanish from the counters entirely.
+	recorded := false
+	defer func() {
+		if !recorded && token != "" && filters != nil {
+			helpers.RecordAllowListDedupe(helpers.AllowListDedupePanicked)
+		}
+	}()
+
+	list, outcome, err := s.allowListDedupe.do(ctx, token, filters,
 		func(ctx context.Context) (helpers.AllowList, error) {
 			return s.buildAllowListDirect(ctx, filters, addl)
 		})
 	if outcome != "" {
+		recorded = true
 		helpers.RecordAllowListDedupe(outcome)
 		helpers.AnnotateSlowQueryLog(ctx, "filters_allow_list_dedupe", outcome)
 	}

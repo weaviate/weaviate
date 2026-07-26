@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -344,4 +345,122 @@ func TestHybridFilteredConcurrentQueries(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// TestShardAllowListDedupeCountsEachLegOnce drives the real call site, because
+// that is the only place the counters are written. The unit tests call do()
+// directly and therefore cannot see a call site that records a second time — the
+// same shape as the duplicated build this change exists to remove.
+//
+// Two overlapping legs on one shard must move the total by exactly 2, and both
+// must land on "shared": a deduping pair that reported 1 shared and 1 unshared
+// would be indistinguishable from a pair that never overlapped.
+func TestShardAllowListDedupeCountsEachLegOnce(t *testing.T) {
+	repo, _, _, _ := setupDedupeRepo(t)
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+	shard := firstShard(t, idx)
+
+	const metric = "weaviate_filter_allow_list_dedupe_total"
+	filter := dedupeTestFilter()
+	addl := additional.Properties{}
+
+	total := func(m map[string]float64) float64 {
+		var sum float64
+		for _, v := range m {
+			sum += v
+		}
+		return sum
+	}
+
+	t.Run("two overlapping legs", func(t *testing.T) {
+		// The two legs race, so an overlap is likely but not guaranteed. Retry
+		// until one is observed; every attempt still checks the total, which is
+		// what catches an outcome recorded at both ends.
+		const attempts = 50
+		overlapped := false
+
+		for i := 0; i < attempts && !overlapped; i++ {
+			before := gatherCounter(t, metric, "outcome")
+			ctx := helpers.CtxWithQueryDedupeToken(context.Background(),
+				fmt.Sprintf("tok-overlap-%d", i))
+
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			lists := make([]helpers.AllowList, 2)
+			errs := make([]error, 2)
+			for leg := 0; leg < 2; leg++ {
+				wg.Add(1)
+				go func(leg int) {
+					defer wg.Done()
+					<-start
+					lists[leg], errs[leg] = shard.buildAllowList(ctx, filter, addl)
+				}(leg)
+			}
+			close(start)
+			wg.Wait()
+
+			for leg := 0; leg < 2; leg++ {
+				require.NoError(t, errs[leg])
+				require.NotNil(t, lists[leg])
+				lists[leg].Close()
+			}
+
+			after := gatherCounter(t, metric, "outcome")
+			shared := after[helpers.AllowListDedupeShared] - before[helpers.AllowListDedupeShared]
+			unshared := after[helpers.AllowListDedupeUnshared] - before[helpers.AllowListDedupeUnshared]
+
+			require.EqualValues(t, 2, total(after)-total(before),
+				"one query, two legs, one shard: the total must move by exactly 2")
+			require.EqualValues(t, 0,
+				after[helpers.AllowListDedupeFilterMismatch]-before[helpers.AllowListDedupeFilterMismatch])
+
+			// Sharing is symmetric: the leader whose bitmap was taken and the leg
+			// that took it both report it. Exactly one "shared" would mean the
+			// leader is reporting what it is rather than what happened, which
+			// reads identically to a pair that never met.
+			require.NotEqualValues(t, 1, shared,
+				"sharing must be reported by both legs or neither")
+
+			if shared > 0 {
+				overlapped = true
+				assert.EqualValues(t, 2, shared)
+				assert.EqualValues(t, 0, unshared)
+			}
+		}
+
+		require.True(t, overlapped,
+			"no attempt produced an overlap, so the shared/unshared split was never exercised")
+	})
+
+	t.Run("a leg with no token is not counted", func(t *testing.T) {
+		before := gatherCounter(t, metric, "outcome")
+
+		list, err := shard.buildAllowList(context.Background(), filter, addl)
+		require.NoError(t, err)
+		list.Close()
+
+		after := gatherCounter(t, metric, "outcome")
+		assert.EqualValues(t, 0, total(after)-total(before),
+			"a query that was never a dedupe candidate must not move the counters")
+	})
+
+	t.Run("two legs that never overlap both lead", func(t *testing.T) {
+		before := gatherCounter(t, metric, "outcome")
+		ctx := helpers.CtxWithQueryDedupeToken(context.Background(), "tok-sequential")
+
+		for i := 0; i < 2; i++ {
+			list, err := shard.buildAllowList(ctx, filter, addl)
+			require.NoError(t, err)
+			list.Close()
+		}
+
+		after := gatherCounter(t, metric, "outcome")
+		assert.EqualValues(t, 2, total(after)-total(before))
+		assert.EqualValues(t, 2,
+			after[helpers.AllowListDedupeUnshared]-before[helpers.AllowListDedupeUnshared],
+			"sequential legs never meet, so neither can report sharing")
+		assert.EqualValues(t, 0,
+			after[helpers.AllowListDedupeShared]-before[helpers.AllowListDedupeShared])
+	})
 }

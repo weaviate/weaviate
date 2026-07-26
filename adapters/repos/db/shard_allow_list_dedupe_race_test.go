@@ -252,8 +252,13 @@ func TestAllowListDedupeJoinDropStorm(t *testing.T) {
 	assert.Empty(t, d.inFlight)
 }
 
-// TestAllowListDedupeOutcomesAreDistinct pins that each dedupe outcome gets
-// its own counter series, so "off" and "on but never overlapped" don't collapse.
+// TestAllowListDedupeOutcomesAreDistinct pins the outcome each leg reports.
+//
+// Two things are load-bearing here. A leader whose build another leg took a
+// reference to reports "shared", not "unshared" — otherwise a perfectly
+// deduping pair reads 1:1 and is indistinguishable from a pair that never
+// overlapped. And do records nothing itself: the call site is the single
+// writer, so an outcome cannot be counted at both ends.
 func TestAllowListDedupeOutcomesAreDistinct(t *testing.T) {
 	const metric = "weaviate_filter_allow_list_dedupe_total"
 
@@ -263,6 +268,7 @@ func TestAllowListDedupeOutcomesAreDistinct(t *testing.T) {
 		helpers.AllowListDedupeFilterMismatch,
 		helpers.AllowListDedupeLeaderFailed,
 		helpers.AllowListDedupeCancelled,
+		helpers.AllowListDedupePanicked,
 	}
 	before := gatherCounter(t, metric, "outcome")
 	for _, outcome := range want {
@@ -270,95 +276,127 @@ func TestAllowListDedupeOutcomesAreDistinct(t *testing.T) {
 			"series must exist before it is ever incremented, or 'never exercised' reads as 'absent'")
 	}
 
-	// drive runs a leader/follower pair; followerJoins says whether the
-	// follower is expected to land on the leader's entry.
-	drive := func(t *testing.T, followTok string, followFilt *filters.LocalFilter,
-		leaderErr error, cancelFollower, followerJoins bool,
-	) {
-		t.Helper()
-		d := &allowListDedupe{}
-		pool := newBufPoolProbe()
-		gate := make(chan struct{})
-		var started atomic.Int32
+	tests := []struct {
+		name       string
+		followTok  string
+		followFilt *filters.LocalFilter
+		leaderErr  error
+		// cancelFollower expires the follower's own context while it waits.
+		cancelFollower bool
+		// followerJoins says whether the follower lands on the leader's entry.
+		followerJoins bool
+		wantLeader    string
+		wantFollower  string
+	}{
+		{
+			name:      "both legs overlap and one bitmap serves both",
+			followTok: "tok", followFilt: testFilter(1), followerJoins: true,
+			wantLeader: helpers.AllowListDedupeShared, wantFollower: helpers.AllowListDedupeShared,
+		},
+		{
+			name:      "legs never overlap so both lead",
+			followTok: "other", followFilt: testFilter(1),
+			wantLeader: helpers.AllowListDedupeUnshared, wantFollower: helpers.AllowListDedupeUnshared,
+		},
+		{
+			name:      "same token but a different filter",
+			followTok: "tok", followFilt: testFilter(2),
+			wantLeader: helpers.AllowListDedupeUnshared, wantFollower: helpers.AllowListDedupeFilterMismatch,
+		},
+		{
+			name:      "leader publishes nothing shareable",
+			followTok: "tok", followFilt: testFilter(1), followerJoins: true,
+			leaderErr:  errors.New("boom"),
+			wantLeader: helpers.AllowListDedupeUnshared, wantFollower: helpers.AllowListDedupeLeaderFailed,
+		},
+		{
+			name:      "follower gives up while waiting",
+			followTok: "tok", followFilt: testFilter(1), followerJoins: true,
+			cancelFollower: true,
+			// The follower is gone before publish, so nothing was shared.
+			wantLeader: helpers.AllowListDedupeUnshared, wantFollower: helpers.AllowListDedupeCancelled,
+		},
+	}
 
-		gated := func(err error) func(context.Context) (helpers.AllowList, error) {
-			return func(ctx context.Context) (helpers.AllowList, error) {
-				started.Add(1)
-				<-gate
-				if err != nil {
-					return nil, err
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &allowListDedupe{}
+			pool := newBufPoolProbe()
+			gate := make(chan struct{})
+			var started atomic.Int32
+
+			gated := func(err error) func(context.Context) (helpers.AllowList, error) {
+				return func(ctx context.Context) (helpers.AllowList, error) {
+					started.Add(1)
+					<-gate
+					if err != nil {
+						return nil, err
+					}
+					return pool.build(ctx)
 				}
-				return pool.build(ctx)
 			}
-		}
 
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			list, _, err := d.do(context.Background(), "tok", testFilter(1), gated(leaderErr))
-			if err == nil && list != nil {
-				list.Close()
+			var (
+				leaderOutcome, followOutcome string
+				wg                           sync.WaitGroup
+			)
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				list, outcome, err := d.do(context.Background(), "tok", testFilter(1), gated(tt.leaderErr))
+				leaderOutcome = outcome
+				if err == nil && list != nil {
+					list.Close()
+				}
+			}()
+			waitForParticipants(t, d, "tok", 1)
+
+			followCtx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			followDone := make(chan struct{})
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer close(followDone)
+				list, outcome, err := d.do(followCtx, tt.followTok, tt.followFilt, gated(nil))
+				followOutcome = outcome
+				if err == nil && list != nil {
+					list.Close()
+				}
+			}()
+
+			if tt.followerJoins {
+				waitForParticipants(t, d, "tok", 2)
+			} else {
+				// The follower never joins, so wait for its own build instead.
+				require.True(t, awaitStarted(&started, 2, 5*time.Second),
+					"follower did not reach its own build")
 			}
-		}()
-		waitForParticipants(t, d, "tok", 1)
-
-		followCtx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		followDone := make(chan struct{})
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			defer close(followDone)
-			list, _, err := d.do(followCtx, followTok, followFilt, gated(nil))
-			if err == nil && list != nil {
-				list.Close()
+			if tt.cancelFollower {
+				cancel()
+				<-followDone
 			}
-		}()
+			close(gate)
+			wg.Wait()
 
-		if followerJoins {
-			waitForParticipants(t, d, "tok", 2)
-		} else {
-			// The follower never joins, so wait for its own build instead.
-			require.True(t, awaitStarted(&started, 2, 5*time.Second),
-				"follower did not reach its own build")
-		}
-		if cancelFollower {
-			cancel()
-			<-followDone
-		}
-		close(gate)
-		wg.Wait()
+			assert.Equal(t, tt.wantLeader, leaderOutcome, "leader outcome")
+			assert.Equal(t, tt.wantFollower, followOutcome, "follower outcome")
 
-		_, _, doubles, outstanding := pool.stats()
-		assert.Zero(t, doubles)
-		assert.Zero(t, outstanding)
+			_, _, doubles, outstanding := pool.stats()
+			assert.Zero(t, doubles)
+			assert.Zero(t, outstanding)
+		})
 	}
 
-	// shared: leader plus one joiner that gets a reference.
-	drive(t, "tok", testFilter(1), nil, false, true)
-	// unshared: a second leader on its own token that nobody joins.
-	drive(t, "other", testFilter(1), nil, false, false)
-	// filter_mismatch: same token, different filter.
-	drive(t, "tok", testFilter(2), nil, false, false)
-	// leader_failed: the joiner has to build for itself after all.
-	drive(t, "tok", testFilter(1), errors.New("boom"), false, true)
-	// cancelled: the joiner's own context expires while it waits.
-	drive(t, "tok", testFilter(1), nil, true, true)
-
+	// do must not touch the counters. Recording both here and at the call site
+	// is the same shape as the duplicated build this whole change removes, and
+	// it would make every series read exactly twice the truth.
 	after := gatherCounter(t, metric, "outcome")
-	delta := map[string]float64{}
 	for _, outcome := range want {
-		delta[outcome] = after[outcome] - before[outcome]
+		assert.Equal(t, before[outcome], after[outcome],
+			"do recorded %q itself; the call site is the only writer", outcome)
 	}
-
-	assert.Equal(t, map[string]float64{
-		helpers.AllowListDedupeShared:         1,
-		helpers.AllowListDedupeUnshared:       6, // one leader per drive, plus the "other" follower
-		helpers.AllowListDedupeFilterMismatch: 1,
-		helpers.AllowListDedupeLeaderFailed:   1,
-		helpers.AllowListDedupeCancelled:      1,
-	}, delta)
 }
 
 // awaitParticipants polls for n joiners like waitForParticipants, but never
