@@ -87,10 +87,10 @@ var (
 				"whether an in-memory segment exists for it to run in.",
 		}, []string{"state"})
 
-	cascadeSeedOps = promauto.With(monitoring.GetMetrics().Registerer).NewCounterVec(
+	cascadeSeedTotal = promauto.With(monitoring.GetMetrics().Registerer).NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: metricsNamespace,
-			Name:      cascadeSeedOpsName,
+			Name:      cascadeSeedName,
 			Help: "Range-filter cascades by where they started, summed over every rangeable " +
 				"bucket in the process: there is no class, shard or property dimension. " +
 				"seeded means the cascade started from the lowest set bit's plane; " +
@@ -104,9 +104,9 @@ var (
 
 	// Created eagerly so a disabled-and-exercised process is a non-zero counter
 	// rather than an absent series, which is indistinguishable from an idle one.
-	cascadeSeedSeeded   = cascadeSeedOps.WithLabelValues("seeded")
-	cascadeSeedDisabled = cascadeSeedOps.WithLabelValues("disabled")
-	cascadeSeedNoSetBit = cascadeSeedOps.WithLabelValues("no_set_bit")
+	cascadeSeedSeeded   = cascadeSeedTotal.WithLabelValues("seeded")
+	cascadeSeedDisabled = cascadeSeedTotal.WithLabelValues("disabled")
+	cascadeSeedNoSetBit = cascadeSeedTotal.WithLabelValues("no_set_bit")
 )
 
 // observeCascadeSeed records where a cascade started. Cache hits aren't

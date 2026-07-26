@@ -31,7 +31,7 @@ const (
 	leafCacheConfigName   = "lsm_roaringsetrange_leaf_cache_config"
 	leafCacheOpsName      = "lsm_roaringsetrange_leaf_cache_ops_total"
 	cascadeSeedConfigName = "lsm_roaringsetrange_cascade_seed_config"
-	cascadeSeedOpsName    = "lsm_roaringsetrange_cascade_seed_total"
+	cascadeSeedName       = "lsm_roaringsetrange_cascade_seed_total"
 	// Named for the resolution, not the delete: it increments once the filter
 	// resolves, before anything is removed, even if it matched nothing.
 	deleteFilterResolutionsName = "lsm_roaringsetrange_delete_filter_resolutions_total"

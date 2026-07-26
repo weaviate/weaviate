@@ -13,7 +13,13 @@ package roaringsetrange
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strconv"
+	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
@@ -178,4 +184,62 @@ func TestPublishConfigStaysQuietOnAHealthyDefault(t *testing.T) {
 	t.Cleanup(func() { PublishConfig(false, nil) })
 
 	assert.Empty(t, hook.Entries)
+}
+
+// A metric constant's identifier is what a reviewer reads; only its value gets
+// published, and nothing else here checks the two agree. Two of these drifted
+// before this test existed, both named for an _ops series they did not emit.
+func TestMetricNameConstantsMatchTheSeriesTheyHold(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "config.go", nil, 0)
+	require.NoError(t, err)
+
+	checked := map[string]string{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || len(value.Names) != 1 || len(value.Values) != 1 {
+				continue
+			}
+			ident := value.Names[0].Name
+			literal, ok := value.Values[0].(*ast.BasicLit)
+			if !ok || literal.Kind != token.STRING || !strings.HasSuffix(ident, "Name") {
+				continue
+			}
+			series, err := strconv.Unquote(literal.Value)
+			require.NoError(t, err)
+			checked[ident] = series
+		}
+	}
+
+	require.Len(t, checked, 5,
+		"a metric name constant left config.go, which is the one file this test reads")
+
+	for ident, series := range checked {
+		subsystem := strings.TrimPrefix(series, "lsm_roaringsetrange_")
+		require.NotEqualf(t, series, subsystem, "%s=%q is outside this subsystem", ident, series)
+
+		assert.Equalf(t, snakeCase(strings.TrimSuffix(ident, "Name")),
+			strings.TrimSuffix(subsystem, "_total"),
+			"%s publishes %q; a reviewer reading the identifier would grep for something else",
+			ident, metricsNamespace+"_"+series)
+	}
+}
+
+func snakeCase(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			r = unicode.ToLower(r)
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

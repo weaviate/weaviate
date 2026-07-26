@@ -260,7 +260,7 @@ func TestEmittedSeriesNames(t *testing.T) {
 		leafCacheOpsName: {
 			"hit", "miss", "store", "rejected", "invalidate", "disabled",
 		},
-		cascadeSeedOpsName: {"seeded", "disabled", "no_set_bit"},
+		cascadeSeedName: {"seeded", "disabled", "no_set_bit"},
 		deleteFilterResolutionsName: {
 			routedRangeableInMemory, routedRangeableOnDisk, routedNonRangeable,
 		},
