@@ -429,10 +429,7 @@ func TestIterator(t *testing.T) {
 	})
 }
 
-// GetBitmap hands out an exact-sized clone, with none of the growth headroom
-// CloneToBuf adds, because everything downstream of it only removes ids. If
-// that ever stops holding, sroar reallocates off the pooled buffer, and this
-// catches it rather than letting the clone go quietly unpooled.
+// Pins GetBitmap's exact-sized clone: it must never outgrow its pooled buffer.
 func TestBitmapFactoryCloneNeverOutgrowsItsBuffer(t *testing.T) {
 	const ids = uint64(1 << 20)
 
