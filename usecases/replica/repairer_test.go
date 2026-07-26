@@ -31,6 +31,36 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
+// replicasOf is what a replica answers a content read with for the versions of
+// xs it holds.
+func replicasOf(xs ...*storobj.Object) []replica.Replica {
+	rs := make([]replica.Replica, len(xs))
+	for i, x := range xs {
+		rs[i] = repl(x.ID(), x.LastUpdateTimeUnix(), false)
+	}
+	return rs
+}
+
+// expectFetch answers node's single content read with xs, and only accepts
+// exactly ids.
+func expectFetch(f *fakeFactory, node, cls, shard string, ids []strfmt.UUID, xs []replica.Replica) {
+	f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, ids).
+		Return(xs, nil).
+		Once()
+}
+
+// expectFetchAnyOrder answers node's single content read with xs and pins the
+// ids it is asked for. Read repair batches those per replica, so the order they
+// arrive in is not part of the contract.
+func expectFetchAnyOrder(t *testing.T, f *fakeFactory, node, cls, shard string, want []strfmt.UUID, xs []replica.Replica) {
+	f.RClient.EXPECT().FetchObjects(anyVal, node, cls, shard, anyVal).
+		Return(xs, nil).
+		Once().
+		RunFn = func(a mock.Arguments) {
+		require.ElementsMatch(t, want, a[4].([]strfmt.UUID))
+	}
+}
+
 func TestRepairerOneWithALL(t *testing.T) {
 	var (
 		id        = strfmt.UUID("123")
@@ -804,13 +834,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, nil)
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
 			// the caller's own replica wins all three, so it serves the content
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, ids).
-				Return([]replica.Replica{
-					repl(ids[0], 4, false),
-					repl(ids[1], 5, false),
-					repl(ids[2], 6, false),
-				}, nil).
-				Once()
+			expectFetch(f, nodes[0], cls, shard, ids, replicasOf(directR...))
 			// Repair stale replicas
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, anyVal).
 				Return(digestR2, nil).
@@ -916,24 +940,9 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 			// fetch the winning version of every object that has to be written,
 			// from whichever replica won it
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).Return(directR1, nil).
-				Once().
-				RunFn = func(a mock.Arguments) {
-				got := a[4].([]strfmt.UUID)
-				require.ElementsMatch(t, []strfmt.UUID{ids[3]}, got)
-			}
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, anyVal).Return(directR2, nil).
-				Once().
-				RunFn = func(a mock.Arguments) {
-				got := a[4].([]strfmt.UUID)
-				require.ElementsMatch(t, ids[:2], got)
-			}
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[2], cls, shard, anyVal).Return(directR3, nil).
-				Once().
-				RunFn = func(a mock.Arguments) {
-				got := a[4].([]strfmt.UUID)
-				require.ElementsMatch(t, []strfmt.UUID{ids[2], ids[4]}, got)
-			}
+			expectFetchAnyOrder(t, f, nodes[0], cls, shard, []strfmt.UUID{ids[3]}, directR1)
+			expectFetchAnyOrder(t, f, nodes[1], cls, shard, ids[:2], directR2)
+			expectFetchAnyOrder(t, f, nodes[2], cls, shard, []strfmt.UUID{ids[2], ids[4]}, directR3)
 
 			// repair
 			var (
@@ -1081,13 +1090,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
 
 			// the caller's own replica wins all three, so it serves the content
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, ids).
-				Return([]replica.Replica{
-					repl(ids[0], 4, false),
-					repl(ids[1], 5, false),
-					repl(ids[2], 6, false),
-				}, nil).
-				Once()
+			expectFetch(f, nodes[0], cls, shard, ids, replicasOf(xs...))
 			// Repair stale replicas
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, anyVal).
 				Return(directR2, nil).
@@ -1189,13 +1192,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 			// fetch the winning version of every object that has to be written.
 			// nodes[1] holds ids[1] at the winning time already, so it is not asked.
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).
-				Return([]replica.Replica{repl(ids[0], 2, false), repl(ids[1], 3, false)}, nil).
-				Once().
-				RunFn = func(a mock.Arguments) {
-				got := a[4].([]strfmt.UUID)
-				require.ElementsMatch(t, []strfmt.UUID{ids[0], ids[1]}, got)
-			}
+			expectFetchAnyOrder(t, f, nodes[0], cls, shard, ids[:2], replicasOf(xs[:2]...))
 			f.RClient.EXPECT().FetchObjects(anyVal, nodes[2], cls, shard, anyVal).
 				Return(directR3, nil).
 				Once()
@@ -1378,13 +1375,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 			// caller's replica wins ids[0]/ids[1] and serves them; ids[2]'s winner is
 			// a tombstone, so no content is fetched for it.
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).
-				Return([]replica.Replica{repl(ids[0], 2, false), repl(ids[1], 3, false)}, nil).
-				Once().
-				RunFn = func(a mock.Arguments) {
-				got := a[4].([]strfmt.UUID)
-				require.ElementsMatch(t, []strfmt.UUID{ids[0], ids[1]}, got)
-			}
+			expectFetchAnyOrder(t, f, nodes[0], cls, shard, ids[:2], replicasOf(xs[:2]...))
 			var (
 				repairR2 = []types.RepairResponse{
 					{ID: ids[1].String(), UpdateTime: 1},
@@ -1454,13 +1445,8 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 
 			// Quorum (2 of 3) tolerates nodes[1] erroring: nodes[2] is repaired for
 			// ids[0] and ids[2], served from the caller's own replica.
-			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).
-				Return([]replica.Replica{repl(ids[0], 4, false), repl(ids[2], 6, false)}, nil).
-				Once().
-				RunFn = func(a mock.Arguments) {
-				got := a[4].([]strfmt.UUID)
-				require.ElementsMatch(t, []strfmt.UUID{ids[0], ids[2]}, got)
-			}
+			expectFetchAnyOrder(t, f, nodes[0], cls, shard, []strfmt.UUID{ids[0], ids[2]},
+				replicasOf(xs[0], xs[2]))
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[2], cls, shard, anyVal).
 				Return(digestR2, nil).
 				Once().
