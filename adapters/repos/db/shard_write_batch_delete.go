@@ -25,7 +25,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -193,24 +192,30 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	currIdx := 0
 
 	defer func() {
-		fields := logrus.Fields{
-			"took":           time.Since(start).String(),
+		outcome := logrus.Fields{
 			"filter_took":    fetchStart.Sub(start).String(),
 			"docids_found":   it.Len(),
 			"uuids_resolved": currIdx,
 		}
-		details := helpers.ExtractSlowQueryDetails(ctx)
-		maps.Copy(fields, details)
-		logger := logger.WithFields(fields)
 
+		// The annotations the filter left on ctx are a per-operation record, and a
+		// delete-heavy workload makes one call per batch per shard. The reporter
+		// is the bound every other per-query record on this shard already uses:
+		// the slow-log switch, its threshold and its sampling.
+		reported := map[string]any{
+			"collection": s.index.Config.ClassName,
+			"shard":      s.ID(),
+			"tenant":     s.tenant(),
+			"query":      "FindUUIDs",
+			"filters":    filters,
+			"limit":      limit,
+		}
+		maps.Copy(reported, outcome)
+		s.slowQueryReporter.LogIfSlow(ctx, start, reported)
+
+		logger := logger.WithFields(outcome).WithField("took", time.Since(start).String())
 		if err != nil {
 			logger.Debugf("Shard::FindUUIDs failed: %v", err)
-			return
-		}
-		if _, viaRangeCascade := details[roaringsetrange.DocBitmapAnnotation]; viaRangeCascade {
-			// Elevated to Info: the leaf cache can serve this delete an entry
-			// another operation built, and this is the only record of that.
-			logger.Info("Shard::FindUUIDs finished")
 			return
 		}
 		logger.Debug("Shard::FindUUIDs finished")

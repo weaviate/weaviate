@@ -178,13 +178,10 @@ func newRangeableInMemoFixture(t *testing.T) (*Searcher, *lsmkv.Bucket) {
 
 // requireInMemoryRangeablePathIsLive is the positive control every assertion on
 // the leaf-cache counters needs. probe sits behind Bucket.keepSegmentsInMemory,
-// fed by INDEX_RANGEABLE_IN_MEMORY, which is off by default: with it off the
-// query silently takes readerRoaringSetRangeFromSegments, no counter is ever
-// touched, and "the cache is broken" and "the rig never reached the cache" are
-// the same reading. A gate reading all-zero here has to be able to tell which.
-//
-// So assert both halves: the query returns the answer it must return, and the
-// counters moved because of it.
+// so with it off the query takes readerRoaringSetRangeFromSegments and no
+// counter moves — making "the cache is broken" and "the fixture never reached
+// the cache" the same reading. Asserting both halves, the answer and the
+// counters, separates them.
 func requireInMemoryRangeablePathIsLive(t *testing.T, searcher *Searcher) {
 	t.Helper()
 
@@ -261,9 +258,9 @@ func Test_BatchDelete_RangeableInMemory_SharesTheLeafCacheWithSearch(t *testing.
 	})
 }
 
-// Shard.FindUUIDs must install the slow-log sink so this annotation reaches an
-// operator; otherwise a cascade-routed delete leaves only an inexpressive
-// counter, no per-operation record.
+// Covers the producing half only: this package cannot see Shard, so the sink
+// here is one the test installed. Whether FindUUIDs installs one of its own is
+// Test_FindUUIDs_RecordsHowTheFilterResolved in package db.
 func Test_BatchDelete_RangeableInMemory_AnnotatesTheRangeCascade(t *testing.T) {
 	searcher, _ := newRangeableInMemoFixture(t)
 
@@ -339,7 +336,7 @@ func leafCacheCounters(t *testing.T) map[string]float64 {
 
 	out := map[string]float64{}
 	for _, family := range families {
-		if family.GetName() != "lsm_roaringsetrange_leaf_cache_ops_total" {
+		if family.GetName() != "weaviate_lsm_roaringsetrange_leaf_cache_ops_total" {
 			continue
 		}
 		for _, metric := range family.GetMetric() {
