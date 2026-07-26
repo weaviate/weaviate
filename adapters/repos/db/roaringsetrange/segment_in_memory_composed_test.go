@@ -77,6 +77,82 @@ func TestLeafBytesBoundCoversTheSeededLeaf(t *testing.T) {
 		"no leaf outgrew its seed plane, so this fixture cannot show why the seed is not a bound")
 }
 
+// recordingBufPool captures what the clone helpers ask the pool for.
+type recordingBufPool struct {
+	roaringset.BitmapBufPool
+	minCaps []int
+}
+
+func newRecordingBufPool() *recordingBufPool {
+	return &recordingBufPool{BitmapBufPool: roaringset.NewBitmapBufPoolNoop()}
+}
+
+func (p *recordingBufPool) Get(minCap int) ([]byte, func()) {
+	p.minCaps = append(p.minCaps, minCap)
+	return p.BitmapBufPool.Get(minCap)
+}
+
+// The seeded and cache-hit paths size their buffer from a bound wider than the
+// bitmap they clone, so they cannot call CloneToBuf and would silently drop its
+// growth headroom on a raw Get. These are the two hot paths this series adds,
+// so dropping it there leaves headroom on exactly the cold path.
+func TestCloneHelpersRequestTheGrowthHeadroom(t *testing.T) {
+	segment := newCascadeFixture(t, 5)
+	value := cascadeEncodeInt64(101)
+
+	pool := newRecordingBufPool()
+	readers, release := segment.Readers(pool)
+	defer release()
+	reader := readers[0].(*segmentInMemoryReader)
+
+	start := reader.cascadeSeed(value)
+	require.True(t, start.narrowed, "fixture did not seed")
+	wantSeed := roaringset.CloneBufSize(max(start.seed.LenInBytes(), reader.bitmaps[0].LenInBytes()))
+
+	pool.minCaps = nil
+	_, seedRelease := reader.cloneSeed(start.seed)
+	seedRelease()
+	require.Equal(t, []int{wantSeed}, pool.minCaps)
+
+	warmLeafCache(t, reader, value)
+	require.NotZero(t, cachedEntries(segment))
+	cached := segment.leafCache.entries[0].bm
+	wantCached := roaringset.CloneBufSize(max(cached.LenInBytes(), reader.bitmaps[0].LenInBytes()))
+
+	pool.minCaps = nil
+	_, hitRelease := reader.mergeGreaterThanEqual(value, 1)
+	hitRelease()
+	require.Equal(t, []int{wantCached}, pool.minCaps, "the cache hit did not go through cloneCached")
+}
+
+// The clone buffers ask for CloneBufSize, i.e. 1.25x the bound. That headroom
+// is spare capacity in a transient buffer returned to the pool, so it must not
+// reach the cache's byte budget: sroar's InitCloneToBuf trims data to the used
+// length and Clone compacts, so LenInBytes reports content, never capacity. If
+// either stopped holding, the budget would under-count by 25% and the cache
+// would retain more than its configured cap.
+func TestGrowthHeadroomStaysOutOfTheCacheBudget(t *testing.T) {
+	segment := newCascadeFixture(t, 5)
+	readers, release := segment.Readers(roaringset.NewBitmapBufPoolNoop())
+	defer release()
+	reader := readers[0].(*segmentInMemoryReader)
+
+	value := cascadeEncodeInt64(101)
+	warmLeafCache(t, reader, value)
+	require.NotZero(t, cachedEntries(segment))
+
+	bound := reader.leafBytesBound()
+	require.Greater(t, roaringset.CloneBufSize(bound), bound, "the headroom is not applied at all")
+
+	segment.leafCache.lock.Lock()
+	defer segment.leafCache.lock.Unlock()
+	for _, entry := range segment.leafCache.entries {
+		assert.Equal(t, entry.bm.LenInBytes(), entry.bytes, "budget charged something other than the entry")
+		assert.LessOrEqual(t, entry.bytes, bound, "an entry outgrew the bound admission used")
+	}
+	assert.LessOrEqual(t, segment.leafCache.bytes, segment.leafCache.maxBytes)
+}
+
 // A cache hit must serve the seeded cascade's bytes, not the unseeded
 // plane-0 cascade's: the two agree as sets, not byte-for-byte.
 func TestMemoisedLeafIsTheSeededResult(t *testing.T) {

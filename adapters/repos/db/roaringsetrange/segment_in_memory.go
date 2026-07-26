@@ -332,17 +332,21 @@ func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
 }
 
 // cloneSeed buffers from plane 0's size, not the seed's, so later merges keep
-// the same growth headroom as before seeding.
+// the same room as before seeding. CloneBufSize adds the growth headroom a
+// direct Get would drop, which CloneToBuf cannot supply here because the buffer
+// is sized from a bound wider than the bitmap being cloned.
 func (r *segmentInMemoryReader) cloneSeed(seed *sroar.Bitmap) (*sroar.Bitmap, func()) {
-	buf, release := r.bufPool.Get(max(seed.LenInBytes(), r.bitmaps[0].LenInBytes()))
+	buf, release := r.bufPool.Get(
+		roaringset.CloneBufSize(max(seed.LenInBytes(), r.bitmaps[0].LenInBytes())))
 	return seed.CloneToBuf(buf), release
 }
 
 // cloneCached hands out a private copy of a cached leaf, sized to the widest
 // plane rather than the leaf so downstream memtable ORs get the same room the
-// uncached path gives them.
+// uncached path gives them. Same headroom caveat as cloneSeed.
 func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
-	buf, release := r.bufPool.Get(max(bm.LenInBytes(), r.bitmaps[0].LenInBytes()))
+	buf, release := r.bufPool.Get(
+		roaringset.CloneBufSize(max(bm.LenInBytes(), r.bitmaps[0].LenInBytes())))
 	return bm.CloneToBuf(buf), release
 }
 
