@@ -451,9 +451,9 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE"); v != "" {
-		parsed, err := parseResourceString(v)
+		parsed, err := parseResourceEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", v)
 		if err != nil {
-			return fmt.Errorf("parse PERSISTENCE_LSM_MAX_SEGMENT_SIZE: %w", err)
+			return err
 		}
 
 		config.Persistence.LSMMaxSegmentSize = parsed
@@ -478,9 +478,9 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("PERSISTENCE_MIN_MMAP_SIZE"); v != "" {
-		parsed, err := parseResourceString(v)
+		parsed, err := parseResourceEnv("PERSISTENCE_MIN_MMAP_SIZE", v)
 		if err != nil {
-			return fmt.Errorf("parse PERSISTENCE_MIN_MMAP_SIZE: %w", err)
+			return err
 		}
 
 		config.Persistence.MinMMapSize = parsed
@@ -505,9 +505,9 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
-		parsed, err := parseResourceString(v)
+		parsed, err := parseResourceEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", v)
 		if err != nil {
-			return fmt.Errorf("parse PERSISTENCE_MAX_REUSE_WAL_SIZE: %w", err)
+			return err
 		}
 
 		config.Persistence.MaxReuseWalSize = parsed
@@ -524,9 +524,9 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
-		parsed, err := parseResourceString(v)
+		parsed, err := parseResourceEnv("PERSISTENCE_HNSW_MAX_LOG_SIZE", v)
 		if err != nil {
-			return fmt.Errorf("parse PERSISTENCE_HNSW_MAX_LOG_SIZE: %w", err)
+			return err
 		}
 
 		config.Persistence.HNSWMaxLogSize = parsed
@@ -752,9 +752,9 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("BACKUP_MIN_CHUNK_SIZE"); v != "" {
-		parsed, err := parseResourceString(v)
+		parsed, err := parseResourceEnv("BACKUP_MIN_CHUNK_SIZE", v)
 		if err != nil {
-			return fmt.Errorf("parse BACKUP_MIN_CHUNK_SIZE: %w", err)
+			return err
 		}
 
 		config.Backup.MinChunkSize = parsed
@@ -763,9 +763,9 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("BACKUP_CHUNK_TARGET_SIZE"); v != "" {
-		parsed, err := parseResourceString(v)
+		parsed, err := parseResourceEnv("BACKUP_CHUNK_TARGET_SIZE", v)
 		if err != nil {
-			return fmt.Errorf("parse BACKUP_CHUNK_TARGET_SIZE: %w", err)
+			return err
 		}
 
 		config.Backup.ChunkTargetSize = parsed
@@ -774,9 +774,9 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("BACKUP_SPLIT_FILE_SIZE"); v != "" {
-		parsed, err := parseResourceString(v)
+		parsed, err := parseResourceEnv("BACKUP_SPLIT_FILE_SIZE", v)
 		if err != nil {
-			return fmt.Errorf("parse BACKUP_SPLIT_FILE_SIZE: %w", err)
+			return err
 		}
 
 		config.Backup.SplitFileSize = parsed

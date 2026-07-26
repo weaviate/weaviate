@@ -2000,3 +2000,42 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 		})
 	}
 }
+
+// A rejected boot has to diagnose itself from its own message, so every
+// size-valued knob names the variable and the value it refused.
+func TestEnvironmentResourceSizeRejectionsNameTheValue(t *testing.T) {
+	envNames := []string{
+		"PERSISTENCE_LSM_MAX_SEGMENT_SIZE",
+		"PERSISTENCE_MIN_MMAP_SIZE",
+		"PERSISTENCE_MAX_REUSE_WAL_SIZE",
+		"PERSISTENCE_HNSW_MAX_LOG_SIZE",
+		"BACKUP_MIN_CHUNK_SIZE",
+		"BACKUP_CHUNK_TARGET_SIZE",
+		"BACKUP_SPLIT_FILE_SIZE",
+		"QUERY_BITMAP_BUFS_MAX_MEMORY",
+		"QUERY_BITMAP_BUFS_MAX_BUF_SIZE",
+	}
+
+	badValues := []struct {
+		name  string
+		value string
+	}{
+		{name: "not a number", value: "I'm not a number"},
+		{name: "unsupported unit", value: "5GiL"},
+		{name: "overflows int64", value: "10000000TiB"},
+	}
+
+	for _, envName := range envNames {
+		for _, bad := range badValues {
+			t.Run(envName+"/"+bad.name, func(t *testing.T) {
+				t.Setenv(envName, bad.value)
+
+				err := FromEnv(&Config{})
+
+				require.Error(t, err)
+				require.Contains(t, err.Error(), envName)
+				require.Contains(t, err.Error(), bad.value)
+			})
+		}
+	}
+}
