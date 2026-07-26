@@ -15,7 +15,6 @@ import (
 	"context"
 	"reflect"
 	"sync"
-	"sync/atomic"
 
 	"github.com/weaviate/sroar"
 
@@ -29,6 +28,10 @@ import (
 // Coalescing is strictly in-flight: an entry is removed the moment its build
 // publishes, so a leg can never be handed an already-finished, stale bitmap.
 // The zero value is ready to use.
+//
+// Lock order is allowListDedupe.mu before allowListBuild.mu. Nothing takes them
+// the other way round: publish releases the build lock before it touches the
+// map.
 type allowListDedupe struct {
 	mu       sync.Mutex
 	inFlight map[string]*allowListBuild
@@ -41,13 +44,12 @@ type allowListBuild struct {
 	done   chan struct{}
 	filter *filters.LocalFilter
 
-	// refs is taken under allowListDedupe.mu; the leader holds the first
-	// reference until after it publishes, so refs cannot reach zero before
-	// owner is written.
-	refs atomic.Int32
-
-	// owner and bm are written by the leader before done is closed, so any
-	// reader that observes done (or a subsequent zero refs count) sees them.
+	// mu guards the entire ownership state below. The release decision needs the
+	// refcount and the owner together, and returning a pooled buffer twice
+	// aliases one buffer into two later queries, so that pair is read under a
+	// lock rather than left to the evaluation order of an `&&`.
+	mu    sync.Mutex
+	refs  int
 	owner helpers.AllowList
 	bm    *sroar.Bitmap
 }
@@ -55,39 +57,53 @@ type allowListBuild struct {
 // do returns a filter allow list, coalescing callers that share a token and an
 // equal filter into one build. Every failure mode (error, cancellation) falls
 // back to an independent build rather than propagating another caller's outcome.
+//
+// The second return value is the dedupe outcome, empty when the call was never
+// a dedupe candidate.
 func (d *allowListDedupe) do(ctx context.Context, token string, filter *filters.LocalFilter,
 	build func(context.Context) (helpers.AllowList, error),
-) (helpers.AllowList, bool, error) {
+) (helpers.AllowList, string, error) {
+	list, outcome, err := d.run(ctx, token, filter, build)
+	if outcome != "" {
+		helpers.RecordAllowListDedupe(outcome)
+	}
+	return list, outcome, err
+}
+
+func (d *allowListDedupe) run(ctx context.Context, token string, filter *filters.LocalFilter,
+	build func(context.Context) (helpers.AllowList, error),
+) (helpers.AllowList, string, error) {
 	if token == "" || filter == nil {
 		list, err := build(ctx)
-		return list, false, err
+		return list, "", err
 	}
 
 	b, leader := d.join(token, filter)
 	if b == nil {
 		list, err := build(ctx)
-		return list, false, err
+		return list, helpers.AllowListDedupeFilterMismatch, err
 	}
 
 	if leader {
 		list, err := d.lead(ctx, token, b, build)
-		return list, false, err
+		return list, helpers.AllowListDedupeUnshared, err
 	}
 
 	select {
 	case <-b.done:
 	case <-ctx.Done():
 		b.drop()
-		return nil, false, ctx.Err()
+		return nil, helpers.AllowListDedupeCancelled, ctx.Err()
 	}
 
-	if b.owner == nil {
+	owner, bm := b.result()
+	if owner == nil {
 		b.drop()
 		list, err := build(ctx)
-		return list, false, err
+		return list, helpers.AllowListDedupeLeaderFailed, err
 	}
 
-	return b.handle(), true, nil
+	return b.handle(bm), helpers.AllowListDedupeShared, nil
 }
 
 // lead runs the build for a group and always publishes an outcome, so waiters
@@ -119,7 +135,7 @@ func (d *allowListDedupe) lead(ctx context.Context, token string, b *allowListBu
 
 	d.publish(token, b, list, shareable.Bm)
 	published = true
-	return b.handle(), nil
+	return b.handle(shareable.Bm), nil
 }
 
 // join registers a participant for token, returning the entry to wait on and
@@ -135,12 +151,11 @@ func (d *allowListDedupe) join(token string, filter *filters.LocalFilter) (*allo
 		if !sameFilter(existing.filter, filter) {
 			return nil, false
 		}
-		existing.refs.Add(1)
+		existing.retain()
 		return existing, false
 	}
 
-	b := &allowListBuild{done: make(chan struct{}), filter: filter}
-	b.refs.Store(1)
+	b := &allowListBuild{done: make(chan struct{}), filter: filter, refs: 1}
 	if d.inFlight == nil {
 		d.inFlight = make(map[string]*allowListBuild, 1)
 	}
@@ -153,7 +168,9 @@ func (d *allowListDedupe) join(token string, filter *filters.LocalFilter) (*allo
 func (d *allowListDedupe) publish(token string, b *allowListBuild,
 	owner helpers.AllowList, bm *sroar.Bitmap,
 ) {
+	b.mu.Lock()
 	b.owner, b.bm = owner, bm
+	b.mu.Unlock()
 
 	d.mu.Lock()
 	if d.inFlight[token] == b {
@@ -164,18 +181,39 @@ func (d *allowListDedupe) publish(token string, b *allowListBuild,
 	close(b.done)
 }
 
+// retain adds one reference. Callers hold allowListDedupe.mu so that joining an
+// entry and counting the join cannot straddle its publish.
+func (b *allowListBuild) retain() {
+	b.mu.Lock()
+	b.refs++
+	b.mu.Unlock()
+}
+
 func (b *allowListBuild) drop() {
-	if b.refs.Add(-1) == 0 && b.owner != nil {
-		b.owner.Close()
+	b.mu.Lock()
+	b.refs--
+	last, owner := b.refs == 0, b.owner
+	b.mu.Unlock()
+
+	if last && owner != nil {
+		owner.Close()
 	}
+}
+
+// result reports what the build published. A nil owner means it produced
+// nothing shareable.
+func (b *allowListBuild) result() (helpers.AllowList, *sroar.Bitmap) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.owner, b.bm
 }
 
 // handle converts this participant's reference into an AllowList of its own.
 // It returns a *helpers.BitmapAllowList, not a wrapper: the block-max WAND path
 // type-asserts to that concrete type, and a wrapper would silently break it.
-func (b *allowListBuild) handle() helpers.AllowList {
+func (b *allowListBuild) handle(bm *sroar.Bitmap) helpers.AllowList {
 	var once sync.Once
-	return helpers.NewAllowListCloseableFromBitmap(b.bm, func() { once.Do(b.drop) })
+	return helpers.NewAllowListCloseableFromBitmap(bm, func() { once.Do(b.drop) })
 }
 
 // sameFilter reports whether two filter trees resolve to the same doc IDs. It

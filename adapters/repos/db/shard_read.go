@@ -934,12 +934,13 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 // The returned list is read-only for its holder: legs share one bitmap, and
 // mutating it (Insert, Truncate) would corrupt peers still reading it.
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
-	list, shared, err := s.allowListDedupe.do(ctx, helpers.QueryDedupeToken(ctx), filters,
+	list, outcome, err := s.allowListDedupe.do(ctx, helpers.QueryDedupeToken(ctx), filters,
 		func(ctx context.Context) (helpers.AllowList, error) {
 			return s.buildAllowListDirect(ctx, filters, addl)
 		})
-	if shared {
-		helpers.AnnotateSlowQueryLog(ctx, "filters_allow_list_shared", true)
+	if outcome != "" {
+		helpers.RecordAllowListDedupe(outcome)
+		helpers.AnnotateSlowQueryLog(ctx, "filters_allow_list_dedupe", outcome)
 	}
 	return list, err
 }

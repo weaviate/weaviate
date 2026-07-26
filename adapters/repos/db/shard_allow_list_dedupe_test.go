@@ -71,19 +71,37 @@ func testFilter(value int) *filters.LocalFilter {
 
 // waitForParticipants blocks until n callers have joined token's build, so tests
 // can order leader and follower without sleeping.
-func waitForParticipants(t *testing.T, d *allowListDedupe, token string, n int32) {
+func waitForParticipants(t *testing.T, d *allowListDedupe, token string, n int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		d.mu.Lock()
 		b, ok := d.inFlight[token]
 		d.mu.Unlock()
-		if ok && b.refs.Load() >= n {
-			return
+		if ok {
+			b.mu.Lock()
+			refs := b.refs
+			b.mu.Unlock()
+			if refs >= n {
+				return
+			}
 		}
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %d participants on %q", n, token)
+}
+
+// waitForBuilds blocks until n builds have entered the gated builder.
+func waitForBuilds(t *testing.T, b *allowListBuilder, n int32) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if b.builds.Load() >= n {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d builds", n)
 }
 
 func TestAllowListDedupeSharesOneBuild(t *testing.T) {
@@ -94,37 +112,38 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 		leaderFilt *filters.LocalFilter
 		followFilt *filters.LocalFilter
 		wantBuilds int32
-		wantShared bool
+		// wantFollowOutcome is the metric label the follower's call must report.
+		wantFollowOutcome string
 	}{
 		{
 			name:      "same token and same filter pointer",
 			leaderTok: "tok", followTok: "tok",
 			leaderFilt: testFilter(100), followFilt: nil, // nil means "reuse leader's"
-			wantBuilds: 1, wantShared: true,
+			wantBuilds: 1, wantFollowOutcome: helpers.AllowListDedupeShared,
 		},
 		{
 			name:      "same token and equal filter value",
 			leaderTok: "tok", followTok: "tok",
 			leaderFilt: testFilter(100), followFilt: testFilter(100),
-			wantBuilds: 1, wantShared: true,
+			wantBuilds: 1, wantFollowOutcome: helpers.AllowListDedupeShared,
 		},
 		{
 			name:      "same token but different filter",
 			leaderTok: "tok", followTok: "tok",
 			leaderFilt: testFilter(100), followFilt: testFilter(200),
-			wantBuilds: 2, wantShared: false,
+			wantBuilds: 2, wantFollowOutcome: helpers.AllowListDedupeFilterMismatch,
 		},
 		{
 			name:      "different tokens never share",
 			leaderTok: "tok-a", followTok: "tok-b",
 			leaderFilt: testFilter(100), followFilt: testFilter(100),
-			wantBuilds: 2, wantShared: false,
+			wantBuilds: 2, wantFollowOutcome: helpers.AllowListDedupeUnshared,
 		},
 		{
 			name:      "empty token opts out",
 			leaderTok: "", followTok: "",
 			leaderFilt: testFilter(100), followFilt: testFilter(100),
-			wantBuilds: 2, wantShared: false,
+			wantBuilds: 2, wantFollowOutcome: "",
 		},
 	}
 
@@ -139,10 +158,12 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 				followFilt = tt.leaderFilt
 			}
 
+			shared := tt.wantFollowOutcome == helpers.AllowListDedupeShared
+
 			var (
 				leaderList, followList helpers.AllowList
 				leaderErr, followErr   error
-				followShared           bool
+				followOutcome          string
 				wg                     sync.WaitGroup
 			)
 
@@ -160,11 +181,16 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				followList, followShared, followErr = d.do(ctx, tt.followTok, followFilt, builder.build)
+				followList, followOutcome, followErr = d.do(ctx, tt.followTok, followFilt, builder.build)
 			}()
 
-			if tt.wantShared {
+			if shared {
 				waitForParticipants(t, d, tt.followTok, 2)
+			} else {
+				// The follower builds for itself, so hold the gate until it has
+				// started: releasing early would let the leader finish first and
+				// turn the follower into a leader of its own.
+				waitForBuilds(t, builder, tt.wantBuilds)
 			}
 			close(builder.gate)
 			wg.Wait()
@@ -173,13 +199,13 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 			require.NoError(t, followErr)
 			require.NotNil(t, leaderList)
 			require.NotNil(t, followList)
-			assert.Equal(t, tt.wantShared, followShared)
+			assert.Equal(t, tt.wantFollowOutcome, followOutcome)
 			assert.Equal(t, tt.wantBuilds, builder.builds.Load(), "build count")
 
 			// A shared list is one bitmap behind two independent handles.
 			leaderBm := leaderList.(*helpers.BitmapAllowList).Bm
 			followBm := followList.(*helpers.BitmapAllowList).Bm
-			if tt.wantShared {
+			if shared {
 				assert.Same(t, leaderBm, followBm)
 			} else {
 				assert.NotSame(t, leaderBm, followBm)
@@ -189,7 +215,7 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 
 			// Neither leg may free the buffer while the other still holds it.
 			leaderList.Close()
-			if tt.wantShared {
+			if shared {
 				assert.EqualValues(t, 0, builder.releases.Load(),
 					"buffer released while the second leg still held it")
 			}

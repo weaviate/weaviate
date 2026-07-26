@@ -252,9 +252,15 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	// Tag both legs as one query so each shard builds the shared filter allow
-	// list once instead of once per leg.
-	if resultsCount == 2 && params.Filters != nil && !e.hybridFilterDedupeDisabled() {
-		ctx = helpers.CtxWithQueryDedupeToken(ctx, uuid.NewString())
+	// list once instead of once per leg. Both branches are counted: an operator
+	// flipping the kill switch has to be able to see it engage.
+	if resultsCount == 2 && params.Filters != nil {
+		if e.hybridFilterDedupeDisabled() {
+			helpers.RecordQueryDedupeToken(helpers.QueryDedupeTokenDisabled)
+		} else {
+			helpers.RecordQueryDedupeToken(helpers.QueryDedupeTokenMinted)
+			ctx = helpers.CtxWithQueryDedupeToken(ctx, uuid.NewString())
+		}
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(e.logger)

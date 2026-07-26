@@ -144,7 +144,7 @@ func TestShardAllowListDedupeSharesRealBitmap(t *testing.T) {
 	var (
 		leaderList, followList helpers.AllowList
 		leaderErr, followErr   error
-		followShared           bool
+		followOutcome          string
 		wg                     sync.WaitGroup
 	)
 
@@ -158,7 +158,7 @@ func TestShardAllowListDedupeSharesRealBitmap(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		followList, followShared, followErr = shard.allowListDedupe.do(ctx, "tok", filter, gatedBuild)
+		followList, followOutcome, followErr = shard.allowListDedupe.do(ctx, "tok", filter, gatedBuild)
 	}()
 	waitForParticipants(t, &shard.allowListDedupe, "tok", 2)
 
@@ -167,7 +167,7 @@ func TestShardAllowListDedupeSharesRealBitmap(t *testing.T) {
 
 	require.NoError(t, leaderErr)
 	require.NoError(t, followErr)
-	assert.True(t, followShared)
+	assert.Equal(t, helpers.AllowListDedupeShared, followOutcome)
 	assert.Same(t,
 		leaderList.(*helpers.BitmapAllowList).Bm,
 		followList.(*helpers.BitmapAllowList).Bm)

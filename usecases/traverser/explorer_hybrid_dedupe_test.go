@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -158,6 +159,77 @@ func TestHybridMintsOneDedupeTokenPerQuery(t *testing.T) {
 			assert.LessOrEqual(t, len(searcher.sparseToks[0]), helpers.MaxQueryDedupeTokenLen)
 		})
 	}
+}
+
+// TestHybridDedupeKillSwitchIsObservable pins that an operator can confirm the
+// kill switch engaged. Both states carry their own series, and both exist before
+// either is ever incremented, so "off" never reads the same as "no traffic".
+func TestHybridDedupeKillSwitchIsObservable(t *testing.T) {
+	const metric = "weaviate_hybrid_filter_dedupe_tokens_total"
+
+	before := gatherCounter(t, metric, "state")
+	require.Contains(t, before, helpers.QueryDedupeTokenMinted)
+	require.Contains(t, before, helpers.QueryDedupeTokenDisabled)
+
+	run := func(t *testing.T, disabled bool, filter *filters.LocalFilter, alpha float64) {
+		t.Helper()
+		log, _ := test.NewNullLogger()
+		conf := defaultConfig
+		conf.HybridFilterDedupeDisabled = runtime.NewDynamicValue(disabled)
+
+		explorer := NewExplorer(&tokenCapturingSearcher{}, log, getFakeModulesProvider(), nil, conf)
+		explorer.SetSchemaGetter(&fakeSchemaGetter{
+			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
+				{Class: "MyClass", Vectorizer: config.VectorizerModuleNone},
+			}}},
+		})
+
+		_, err := explorer.Hybrid(context.Background(), dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query: "some query", Vector: []float32{1, 2, 3}, Alpha: alpha,
+			},
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+	}
+
+	run(t, false, hybridDedupeFilter(), 0.5)
+	run(t, true, hybridDedupeFilter(), 0.5)
+	run(t, true, hybridDedupeFilter(), 0.5)
+	// Neither state may move for a query that was never a dedupe candidate.
+	run(t, false, nil, 0.5)
+	run(t, false, hybridDedupeFilter(), 1)
+
+	after := gatherCounter(t, metric, "state")
+	assert.EqualValues(t, 1, after[helpers.QueryDedupeTokenMinted]-before[helpers.QueryDedupeTokenMinted])
+	assert.EqualValues(t, 2, after[helpers.QueryDedupeTokenDisabled]-before[helpers.QueryDedupeTokenDisabled])
+}
+
+// gatherCounter reads one counter vector out of the default registry as a
+// label-value to value map, so tests assert on deltas without a production-only
+// accessor.
+func gatherCounter(t *testing.T, name, label string) map[string]float64 {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	out := map[string]float64{}
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, m := range family.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == label {
+					out[l.GetValue()] = m.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+	require.NotEmpty(t, out, "metric %q is not registered", name)
+	return out
 }
 
 func TestHybridTokensAreUniquePerQuery(t *testing.T) {

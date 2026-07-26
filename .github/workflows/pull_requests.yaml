@@ -329,6 +329,17 @@ jobs:
           else
             exit 0
           fi
+  Race-Allow-List-Dedupe:
+    # The unit shards run -race too, but at -count 1. The dedupe refcount fails
+    # by returning a buffer twice, so it gets a gate that repeats.
+    name: race gate (allow-list dedupe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+      - name: Race gate
+        run: ./test/run.sh --race-allow-list-dedupe
   Unit-Tests:
     name: unit tests (${{ matrix.name }})
     runs-on: ubuntu-latest
