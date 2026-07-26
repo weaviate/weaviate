@@ -499,8 +499,7 @@ func newPromBufDisposableMetrics(metrics *monitoring.PrometheusMetrics) *promBuf
 }
 
 func (m *promBufDisposableMetrics) bufCreated(sizeInBytes int) {
-	// same size label the pooled tiers use, so the two are comparable for one
-	// physical request
+	// matches the pooled tiers' size label so the two count the same request
 	ceil := uint64(1)
 	if sizeInBytes > 1 {
 		ceil = 1 << bits.Len64(uint64(sizeInBytes)-1)

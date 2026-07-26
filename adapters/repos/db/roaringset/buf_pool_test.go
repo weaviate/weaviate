@@ -1164,8 +1164,7 @@ func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 	}
 }
 
-// disposable_created is the only series that fires when the in-memory tier is
-// empty, so its size label has to mean the same thing as the pooled tiers'.
+// pins disposable_created's size label to match the pooled tiers' (previously off by up to 4x).
 func TestDisposableBufMetricSizeLabel(t *testing.T) {
 	metrics := monitoring.GetMetrics()
 	m := newPromBufDisposableMetrics(metrics)
