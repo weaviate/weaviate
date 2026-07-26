@@ -57,6 +57,8 @@ func (s *SegmentInMemory) mutateBitmaps(fn func(bitmaps *rangeBitmaps)) {
 }
 
 func NewSegmentInMemory(logger logrus.FieldLogger) *SegmentInMemory {
+	logCascadeSeedConfig(logger)
+
 	s := &SegmentInMemory{
 		logger:        logger,
 		bitmapsLock:   entsync.NewReadPreferringRWMutex(),
@@ -301,11 +303,13 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
-// cascadeStart is where a bit-plane cascade begins: the seed plane and the
-// next bit to merge.
+// cascadeStart is where a bit-plane cascade begins: the seed plane, the next
+// bit to merge, and whether the result is already narrowed below plane 0. An
+// unnarrowed result is unchanged by OR, so those leading merges are skipped.
 type cascadeStart struct {
-	seed    *sroar.Bitmap
-	nextBit int
+	seed     *sroar.Bitmap
+	nextBit  int
+	narrowed bool
 }
 
 // cascadeSeed picks where value's cascade starts: every plane is a subset of
@@ -313,6 +317,9 @@ type cascadeStart struct {
 // 0. Resolved before the cache probe, since a hit skips the cascade and any
 // invariant checked inside it would stop covering cached predicates.
 func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
+	if !cascadeSeedEnabled {
+		return cascadeStart{seed: r.bitmaps[0], nextBit: 1}
+	}
 	if value == 0 {
 		// no set bit, so every plane would be OR-ed into a result that still
 		// equals plane 0: the whole cascade is a no-op
@@ -321,7 +328,7 @@ func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
 
 	bit := bits.TrailingZeros64(value) + 1
 	assertPlaneIsSubsetOfPlaneZero(r.bitmaps, bit)
-	return cascadeStart{seed: r.bitmaps[bit], nextBit: bit + 1}
+	return cascadeStart{seed: r.bitmaps[bit], nextBit: bit + 1, narrowed: true}
 }
 
 // cloneSeed buffers from plane 0's size, not the seed's, so later merges keep
@@ -366,12 +373,15 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*
 
 func (r *segmentInMemoryReader) mergeGreaterThanEqualUncached(value uint64, start cascadeStart, conc int,
 ) (*sroar.Bitmap, func()) {
+	observeCascadeSeed(start)
 	result, release := r.cloneSeed(start.seed)
+	anded := start.narrowed
 
 	for bit := start.nextBit; bit < len(r.bitmaps); bit++ {
 		if value&(1<<(bit-1)) != 0 {
 			result.AndConc(r.bitmaps[bit], conc)
-		} else {
+			anded = true
+		} else if anded {
 			result.OrConc(r.bitmaps[bit], conc)
 		}
 	}
@@ -398,9 +408,14 @@ func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, co
 func (r *segmentInMemoryReader) mergeBetweenUncached(valueMinInc, valueMaxExc uint64,
 	startMin, startMax cascadeStart, conc int,
 ) (*sroar.Bitmap, func()) {
+	observeCascadeSeed(startMin)
+	observeCascadeSeed(startMax)
+
 	resultMin, releaseMin := r.cloneSeed(startMin.seed)
 	resultMax, releaseMax := r.cloneSeed(startMax.seed)
 	defer releaseMax()
+	andedMin := startMin.narrowed
+	andedMax := startMax.narrowed
 
 	// one loop for both cascades: each plane is read once despite the two
 	// starting at different bits
@@ -410,7 +425,8 @@ func (r *segmentInMemoryReader) mergeBetweenUncached(valueMinInc, valueMaxExc ui
 		if bit >= startMin.nextBit {
 			if valueMinInc&b != 0 {
 				resultMin.AndConc(r.bitmaps[bit], conc)
-			} else {
+				andedMin = true
+			} else if andedMin {
 				resultMin.OrConc(r.bitmaps[bit], conc)
 			}
 		}
@@ -418,7 +434,8 @@ func (r *segmentInMemoryReader) mergeBetweenUncached(valueMinInc, valueMaxExc ui
 		if bit >= startMax.nextBit {
 			if valueMaxExc&b != 0 {
 				resultMax.AndConc(r.bitmaps[bit], conc)
-			} else {
+				andedMax = true
+			} else if andedMax {
 				resultMax.OrConc(r.bitmaps[bit], conc)
 			}
 		}

@@ -87,7 +87,7 @@ func TestMemoisedLeafIsTheSeededResult(t *testing.T) {
 
 	value := cascadeEncodeInt64(101)
 	start := reader.cascadeSeed(value)
-	require.NotSame(t, reader.bitmaps[0], start.seed, "fixture did not seed, the assertion below would be vacuous")
+	require.True(t, start.narrowed, "fixture did not seed, the assertion below would be vacuous")
 
 	fresh, freshRelease := reader.mergeGreaterThanEqualUncached(value, start, 1)
 	want := fresh.Clone().ToBuffer()
@@ -99,6 +99,26 @@ func TestMemoisedLeafIsTheSeededResult(t *testing.T) {
 	hit, hitRelease := reader.mergeGreaterThanEqual(value, 1)
 	defer hitRelease()
 	assert.Equal(t, want, hit.Clone().ToBuffer())
+	assert.Equal(t, canonicalBytes(unseededGreaterThanEqual(reader.bitmaps, value, 1)),
+		canonicalBytes(hit))
+}
+
+// A leaf cached while seeding was on must still be correct after the kill
+// switch flips: both cascades compute the same set.
+func TestCachedLeafSurvivesTheKillSwitch(t *testing.T) {
+	segment := newCascadeFixture(t, 6)
+	readers, release := segment.Readers(roaringset.NewBitmapBufPoolNoop())
+	defer release()
+	reader := readers[0].(*segmentInMemoryReader)
+
+	value := cascadeEncodeInt64(7)
+	warmLeafCache(t, reader, value)
+	require.NotZero(t, cachedEntries(segment))
+
+	withCascadeSeedDisabled(t, true)
+
+	hit, hitRelease := reader.mergeGreaterThanEqual(value, 1)
+	defer hitRelease()
 	assert.Equal(t, canonicalBytes(unseededGreaterThanEqual(reader.bitmaps, value, 1)),
 		canonicalBytes(hit))
 }

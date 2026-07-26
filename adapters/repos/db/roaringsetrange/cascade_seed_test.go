@@ -1,0 +1,201 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package roaringsetrange
+
+import (
+	"fmt"
+	"math/rand"
+	"testing"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+)
+
+func TestParseCascadeSeedDisabled(t *testing.T) {
+	tests := []struct {
+		value      string
+		disabled   bool
+		recognised bool
+	}{
+		{value: "", disabled: false, recognised: true},
+		{value: "true", disabled: true, recognised: true},
+		{value: "TRUE", disabled: true, recognised: true},
+		{value: "on", disabled: true, recognised: true},
+		{value: "enabled", disabled: true, recognised: true},
+		{value: "1", disabled: true, recognised: true},
+		{value: " 1 ", disabled: true, recognised: true},
+		{value: "false", disabled: false, recognised: true},
+		{value: "off", disabled: false, recognised: true},
+		{value: "0", disabled: false, recognised: true},
+		{value: "disabled", disabled: false, recognised: true},
+		// the whole point of the three-way result: these keep seeding on, but
+		// they are reported rather than swallowed
+		{value: "of", disabled: false, recognised: false},
+		{value: "yes", disabled: false, recognised: false},
+		{value: "2", disabled: false, recognised: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("value=%q", tt.value), func(t *testing.T) {
+			disabled, recognised := parseCascadeSeedDisabled(tt.value)
+			assert.Equal(t, tt.disabled, disabled)
+			assert.Equal(t, tt.recognised, recognised)
+		})
+	}
+}
+
+// withCascadeSeedDisabled flips the process-wide switch for one test. The knob
+// is read at init, so an env var cannot reach it from here.
+func withCascadeSeedDisabled(t *testing.T, disabled bool) {
+	t.Helper()
+
+	prev := cascadeSeedEnabled
+	cascadeSeedEnabled = !disabled
+	t.Cleanup(func() { cascadeSeedEnabled = prev })
+}
+
+// Engaging the kill switch must reproduce the v1.37 cascade bit-for-bit, not
+// just agree with it on this fixture.
+func TestCascadeSeedKillSwitchRestoresTheShippedCascade(t *testing.T) {
+	withCascadeSeedDisabled(t, true)
+
+	bufPool := roaringset.NewBitmapBufPoolNoop()
+	for seed := int64(0); seed < 8; seed++ {
+		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
+			rng := rand.New(rand.NewSource(seed))
+			seg := newCascadeFixture(t, seed)
+
+			values := append([]uint64{}, cascadeEdgeValues...)
+			for i := 0; i < 10; i++ {
+				values = append(values, cascadeRandomValue(rng))
+			}
+
+			readers, release := seg.Readers(bufPool)
+			defer release()
+			reader := readers[0].(*segmentInMemoryReader)
+
+			for _, value := range values {
+				start := reader.cascadeSeed(value)
+				require.Falsef(t, start.narrowed, "switch is engaged but value=%#016x still seeded", value)
+				require.Same(t, reader.bitmaps[0], start.seed)
+
+				got, gotRelease := reader.mergeGreaterThanEqualUncached(value, start, 1)
+				require.Equalf(t, canonicalBytes(unseededGreaterThanEqual(reader.bitmaps, value, 1)),
+					canonicalBytes(got), "value=%#016x", value)
+				gotRelease()
+
+				startMax := reader.cascadeSeed(value + 1)
+				got, gotRelease = reader.mergeBetweenUncached(value, value+1, start, startMax, 1)
+				require.Equalf(t, canonicalBytes(unseededBetween(reader.bitmaps, value, value+1, 1)),
+					canonicalBytes(got), "value=%#016x", value)
+				gotRelease()
+			}
+		})
+	}
+}
+
+// Disabling seeding must also skip the leading ORs, not just reseed from
+// plane 0, or the "off" path regresses to slower than what it replaces.
+func TestCascadeSeedKillSwitchSkipsLeadingMerges(t *testing.T) {
+	withCascadeSeedDisabled(t, true)
+
+	seg := newCascadeFixture(t, 1)
+	readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
+	defer release()
+	reader := readers[0].(*segmentInMemoryReader)
+
+	// bit 0 clear, so the shipped cascade skips plane 1 entirely
+	start := reader.cascadeSeed(2)
+	require.Equal(t, 1, start.nextBit)
+	require.False(t, start.narrowed)
+}
+
+// The disabled counter must tell "the kill switch is engaged" apart from
+// "nothing ran".
+func TestCascadeSeedCounterDistinguishesDisabledFromUnexercised(t *testing.T) {
+	seg := newCascadeFixture(t, 2)
+	readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
+	defer release()
+	reader := readers[0].(*segmentInMemoryReader)
+
+	value := cascadeEncodeInt64(101)
+
+	seededBefore := testutil.ToFloat64(cascadeSeedSeeded)
+	disabledBefore := testutil.ToFloat64(cascadeSeedDisabled)
+
+	_, rel := reader.mergeGreaterThanEqualUncached(value, reader.cascadeSeed(value), 1)
+	rel()
+	assert.Equal(t, seededBefore+1, testutil.ToFloat64(cascadeSeedSeeded))
+	assert.Equal(t, disabledBefore, testutil.ToFloat64(cascadeSeedDisabled))
+
+	withCascadeSeedDisabled(t, true)
+	_, rel = reader.mergeGreaterThanEqualUncached(value, reader.cascadeSeed(value), 1)
+	rel()
+	assert.Equal(t, seededBefore+1, testutil.ToFloat64(cascadeSeedSeeded))
+	assert.Equal(t, disabledBefore+1, testutil.ToFloat64(cascadeSeedDisabled))
+}
+
+// The gauge must distinguish enabled/disabled/unrecognised at boot, before any
+// query exercises the cascade.
+func TestCascadeSeedConfigGauge(t *testing.T) {
+	prevEnabled, prevUnknown := cascadeSeedEnabled, cascadeSeedEnvUnknown
+	t.Cleanup(func() {
+		cascadeSeedEnabled, cascadeSeedEnvUnknown = prevEnabled, prevUnknown
+		publishCascadeSeedConfig()
+	})
+
+	tests := []struct {
+		enabled bool
+		unknown bool
+		want    string
+	}{
+		{enabled: true, want: "enabled"},
+		{enabled: false, want: "disabled"},
+		{enabled: true, unknown: true, want: "unrecognised"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			cascadeSeedEnabled, cascadeSeedEnvUnknown = tt.enabled, tt.unknown
+			publishCascadeSeedConfig()
+
+			for _, state := range []string{"enabled", "disabled", "unrecognised"} {
+				want := float64(0)
+				if state == tt.want {
+					want = 1
+				}
+				assert.Equalf(t, want, testutil.ToFloat64(cascadeSeedConfig.WithLabelValues(state)),
+					"state=%s", state)
+			}
+		})
+	}
+}
+
+func TestLogCascadeSeedConfigReportsAnUnrecognisedValue(t *testing.T) {
+	prevUnknown, prevValue := cascadeSeedEnvUnknown, cascadeSeedEnvValue
+	cascadeSeedEnvUnknown, cascadeSeedEnvValue = true, "of"
+	t.Cleanup(func() { cascadeSeedEnvUnknown, cascadeSeedEnvValue = prevUnknown, prevValue })
+
+	// the once-guard is package-level, so let this call be the first one
+	prevLogged := cascadeSeedLogged.Swap(false)
+	t.Cleanup(func() { cascadeSeedLogged.Store(prevLogged) })
+
+	logger, hook := test.NewNullLogger()
+	logCascadeSeedConfig(logger)
+
+	require.Len(t, hook.Entries, 1)
+	assert.Contains(t, hook.LastEntry().Message, CascadeSeedDisabledEnv)
+	assert.Contains(t, hook.LastEntry().Message, `"of"`)
+}
