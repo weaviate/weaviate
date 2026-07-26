@@ -49,7 +49,10 @@ func withGrowthHeadroom(lenInBytes int, factor float64) int {
 
 // CloneBufSize mirrors CloneToBuf's headroom for callers that size a clone
 // from a bound wider than its source and so can't call CloneToBuf directly;
-// a raw Get with that size would silently drop the headroom.
+// a raw Get with that size would silently drop the headroom. Its callers are
+// roaringsetrange's cloneCached and cloneSeed, which size from plane 0 rather
+// than from the leaf they clone; both land on separate branches, so there is
+// no caller in this package yet.
 func CloneBufSize(lenInBytes int) int {
 	return withGrowthHeadroom(lenInBytes, bitmapCloneGrowthFactor)
 }

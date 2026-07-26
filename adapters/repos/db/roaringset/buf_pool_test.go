@@ -913,12 +913,14 @@ func TestCloneToBufGrowthHeadroom(t *testing.T) {
 type recordingBufPool struct {
 	lastMinCap int
 	lastCap    int
+	lastBuf    []byte
 }
 
 func (p *recordingBufPool) Get(minCap int) ([]byte, func()) {
 	p.lastMinCap = minCap
 	buf := make([]byte, 0, minCap)
 	p.lastCap = cap(buf)
+	p.lastBuf = buf
 	return buf, func() {}
 }
 
@@ -1097,7 +1099,8 @@ func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 		require.Equal(t, 4*MiB, servedClass(p))
 	})
 
-	t.Run("the whole-shard clone inherits it", func(t *testing.T) {
+	// The one clone that opts out, because nothing downstream of it can grow.
+	t.Run("the whole-shard clone stays in its own class", func(t *testing.T) {
 		p := newPool(t)
 		bmf := NewBitmapFactory(p, func() uint64 { return topOfClassIDs - defaultIdIncrement })
 
@@ -1105,7 +1108,7 @@ func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 		require.Equal(t, topOfClassIDs-defaultIdIncrement, bm.Maximum())
 		release()
 
-		require.Equal(t, 4*MiB, servedClass(p))
+		require.Equal(t, 2*MiB, servedClass(p))
 	})
 }
 

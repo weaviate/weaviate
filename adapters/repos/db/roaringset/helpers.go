@@ -72,6 +72,17 @@ func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter MaxIdGetterFunc) *Bitma
 	}
 }
 
+// cloneExact deliberately skips the clone growth headroom CloneToBuf adds.
+// This clone only ever shrinks — RemoveRange below, then AndNot at the single
+// caller — so headroom buys room nothing can consume, and on a whole-shard
+// bitmap it costs a whole size class on roughly 40% of shard sizes.
+// TestBitmapFactoryCloneNeverOutgrowsItsBuffer pins the shrink-only property;
+// if that ever stops holding, restore CloneToBuf here.
+func (bmf *BitmapFactory) cloneExact() (*sroar.Bitmap, func()) {
+	buf, release := bmf.bufPool.Get(bmf.prefilled.LenInBytes())
+	return bmf.prefilled.CloneToBuf(buf), release
+}
+
 // GetBitmap returns a prefilled bitmap, which is cloned from a shared internal.
 // This method is safe to call concurrently. The purpose behind sharing an
 // internal bitmap, is that a Clone() operation is cheaper than prefilling
@@ -88,7 +99,7 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 
 		// No need to expand, maxId is included
 		if maxId <= prefilledMaxId {
-			return bmf.bufPool.CloneToBuf(bmf.prefilled)
+			return bmf.cloneExact()
 		}
 		return nil, nil
 	}()
@@ -104,14 +115,14 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 			// 2nd check to ensure bitmap wasn't expanded by
 			// concurrent request white waiting for write lock
 			if maxId <= prefilledMaxId {
-				return bmf.bufPool.CloneToBuf(bmf.prefilled)
+				return bmf.cloneExact()
 			}
 
 			// expand bitmap with additional ids
 			prefilledMaxId = maxId + defaultIdIncrement
 			bmf.prefilled.FillUp(prefilledMaxId)
 			bmf.prefilledMaxId = prefilledMaxId
-			return bmf.bufPool.CloneToBuf(bmf.prefilled)
+			return bmf.cloneExact()
 		}()
 	}
 	cloned.RemoveRange(maxId+1, prefilledMaxId+1)
