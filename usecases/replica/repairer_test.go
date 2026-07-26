@@ -803,7 +803,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, nil)
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
-			// Note: FetchObjects is NOT called on nodes[0] (local node) - it already has full data
+			// the caller's own replica wins all three, so it serves the content
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, ids).
+				Return([]replica.Replica{
+					repl(ids[0], 4, false),
+					repl(ids[1], 5, false),
+					repl(ids[2], 6, false),
+				}, nil).
+				Once()
 			// Repair stale replicas
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, anyVal).
 				Return(digestR2, nil).
@@ -892,6 +899,9 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 					repl(ids[0], 2, false),
 					repl(ids[1], 2, false),
 				}
+				directR1 = []replica.Replica{
+					repl(ids[3], 4, false),
+				}
 				directR3 = []replica.Replica{
 					repl(ids[2], 3, false),
 					repl(ids[4], 3, false),
@@ -904,7 +914,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, nil)
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
 
-			// fetch most recent objects from nodes that have higher UpdateTime
+			// fetch the winning version of every object that has to be written,
+			// from whichever replica won it
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).Return(directR1, nil).
+				Once().
+				RunFn = func(a mock.Arguments) {
+				got := a[4].([]strfmt.UUID)
+				require.ElementsMatch(t, []strfmt.UUID{ids[3]}, got)
+			}
 			f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, anyVal).Return(directR2, nil).
 				Once().
 				RunFn = func(a mock.Arguments) {
@@ -1063,7 +1080,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, nil)
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
 
-			// Note: FetchObjects is NOT called on nodes[0] (local node) - it already has full data
+			// the caller's own replica wins all three, so it serves the content
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, ids).
+				Return([]replica.Replica{
+					repl(ids[0], 4, false),
+					repl(ids[1], 5, false),
+					repl(ids[2], 6, false),
+				}, nil).
+				Once()
 			// Repair stale replicas
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, anyVal).
 				Return(directR2, nil).
@@ -1163,9 +1187,15 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				Return(digestR3, nil).
 				Once()
 
-			// fetch most recent objects from nodes that have higher UpdateTime
-			// nodes[2] has ids[2] with UpdateTime 4 (higher than local's 1)
-			// nodes[1] has ids[1] with UpdateTime 3 (same as local's 3, so no fetch needed)
+			// fetch the winning version of every object that has to be written.
+			// nodes[1] holds ids[1] at the winning time already, so it is not asked.
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).
+				Return([]replica.Replica{repl(ids[0], 2, false), repl(ids[1], 3, false)}, nil).
+				Once().
+				RunFn = func(a mock.Arguments) {
+				got := a[4].([]strfmt.UUID)
+				require.ElementsMatch(t, []strfmt.UUID{ids[0], ids[1]}, got)
+			}
 			f.RClient.EXPECT().FetchObjects(anyVal, nodes[2], cls, shard, anyVal).
 				Return(directR3, nil).
 				Once()
@@ -1346,14 +1376,16 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				Return(digestR3, nil).
 				Once()
 
-			// fetch most recent objects from nodes that have higher UpdateTime
-			// nodes[1] has ids[1] with UpdateTime 3 (same as local's 3, so no fetch needed)
-			// nodes[2] has ids[2] with UpdateTime 4 (deleted, higher than local's 1)
-			// However, for deleted objects, if lastDeletionTimes[i] == lastTimes[i].T, FetchObjects is skipped (line 407-408)
-			// Since ids[2] is deleted with UpdateTime 4, and that's the latest, FetchObjects might not be called
-			// But the test failure suggests it should be called. Let me check the test data again.
-			// Actually, the test expects FetchObjects on nodes[1] for ids[1], but that's wrong since UpdateTime is the same.
-			// Let me remove that expectation.
+			// the caller's own replica wins ids[0] and ids[1] and serves their content.
+			// ids[2] is an orphan: the winning version is a tombstone, so there is no
+			// content to fetch for it.
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).
+				Return([]replica.Replica{repl(ids[0], 2, false), repl(ids[1], 3, false)}, nil).
+				Once().
+				RunFn = func(a mock.Arguments) {
+				got := a[4].([]strfmt.UUID)
+				require.ElementsMatch(t, []strfmt.UUID{ids[0], ids[1]}, got)
+			}
 			var (
 				repairR2 = []types.RepairResponse{
 					{ID: ids[1].String(), UpdateTime: 1},
@@ -1421,11 +1453,18 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, errAny)
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
 
-			// Note: FetchObjects is NOT called on nodes[0] (local node) - it already has full data
 			// For ConsistencyLevelQuorum, we only need 2 out of 3 nodes to agree
 			// Local has: ids[0]=4, ids[1]=5, ids[2]=6 (all latest)
 			// nodes[1] has error, nodes[2] has: ids[0]=1, ids[1]=5, ids[2]=3
-			// So we need to repair nodes[2] for ids[0] and ids[2]
+			// So we need to repair nodes[2] for ids[0] and ids[2], and the caller's
+			// own replica serves their content. ids[1] already agrees everywhere.
+			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).
+				Return([]replica.Replica{repl(ids[0], 4, false), repl(ids[2], 6, false)}, nil).
+				Once().
+				RunFn = func(a mock.Arguments) {
+				got := a[4].([]strfmt.UUID)
+				require.ElementsMatch(t, []strfmt.UUID{ids[0], ids[2]}, got)
+			}
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[2], cls, shard, anyVal).
 				Return(digestR2, nil).
 				Once().
@@ -1457,10 +1496,9 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 	}
 }
 
-// Known red: pins that read repair reuses the caller's already projected search
-// result as the payload it writes to a lagging replica, instead of the stored
-// object. Fix direction not decided yet.
-func TestRepairerCheckConsistencyProjectedRepairPayloadKnownRed(t *testing.T) {
+// Pins that read repair writes the stored object to a lagging replica, whatever
+// the search happened to materialise for the caller.
+func TestRepairerCheckConsistencyRepairPayloadIsRefetched(t *testing.T) {
 	var (
 		id    = strfmt.UUID("10")
 		cls   = "C1"
@@ -1555,13 +1593,17 @@ func TestRepairerCheckConsistencyProjectedRepairPayloadKnownRed(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
 				Return(digestR, nil)
 
+			// whichever replica holds the winning version serves the content, over
+			// the network, from disk
+			winner, winnerTime := nodes[0], localTime
 			if tt.remoteTime > localTime {
-				full := []replica.Replica{{
-					ID:     id,
-					Object: newObject(tt.remoteTime, storedProps, storedVector),
-				}}
-				f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, ids).Return(full, nil)
+				winner, winnerTime = nodes[1], tt.remoteTime
 			}
+			full := []replica.Replica{{
+				ID:     id,
+				Object: newObject(winnerTime, storedProps, storedVector),
+			}}
+			f.RClient.EXPECT().FetchObjects(anyVal, winner, cls, shard, ids).Return(full, nil).Once()
 
 			f.RClient.EXPECT().OverwriteObjects(anyVal, tt.repairedNode, cls, shard, anyVal).
 				Return([]types.RepairResponse{}, nil).
@@ -1593,5 +1635,196 @@ func TestRepairerCheckConsistencyProjectedRepairPayloadKnownRed(t *testing.T) {
 					"write, and no later digest comparison can notice, because digests only compare "+
 					"update times.", tt.repairedNode)
 		})
+	}
+}
+
+// A multi-shard MMR query fetches the target vector, uses it, then deletes it
+// from the object again. The result is indistinguishable from an object that
+// never had that vector, so it must not be a source of repair content either.
+func TestRepairerCheckConsistencyMMRStrippedVectorIsRefetched(t *testing.T) {
+	var (
+		id    = strfmt.UUID("10")
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B"}
+		ids   = []strfmt.UUID{id}
+		ctx   = context.Background()
+
+		localTime = int64(2)
+		props     = map[string]interface{}{"num": float64(1)}
+
+		storedVectors = map[string][]float32{
+			"text":  {0.1, 0.2},
+			"image": {0.3, 0.4},
+		}
+		// what MMR leaves behind after ranking on "image" without the user asking for it
+		strippedVectors = map[string][]float32{"text": {0.1, 0.2}}
+
+		f        = newFakeFactory(t, cls, shard, nodes, false)
+		finder   = f.newFinder(nodes[0])
+		digestR  = []types.RepairResponse{{ID: id.String(), UpdateTime: localTime - 1}}
+		mu       sync.Mutex
+		captured []*objects.VObject
+	)
+
+	newObject := func(vectors map[string][]float32) *storobj.Object {
+		named := make(models.Vectors, len(vectors))
+		for target, v := range vectors {
+			named[target] = v
+		}
+		return &storobj.Object{
+			Object: models.Object{
+				ID:                 id,
+				Class:              cls,
+				LastUpdateTimeUnix: localTime,
+				Properties:         props,
+				Vectors:            named,
+			},
+			BelongsToShard: shard,
+			BelongsToNode:  nodes[0],
+			Vectors:        vectors,
+		}
+	}
+
+	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR, nil)
+	f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, ids).
+		Return([]replica.Replica{{ID: id, Object: newObject(storedVectors)}}, nil).Once()
+	f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, anyVal).
+		Return([]types.RepairResponse{}, nil).
+		Once().
+		RunFn = func(a mock.Arguments) {
+		mu.Lock()
+		defer mu.Unlock()
+		captured = append(captured, a[4].([]*objects.VObject)...)
+	}
+
+	xs := []*storobj.Object{newObject(strippedVectors)}
+	require.NoError(t, finder.CheckConsistency(ctx, types.ConsistencyLevelQuorum, xs))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, captured, 1)
+	assert.Equal(t, storedVectors, captured[0].Vectors,
+		"a named vector stripped after MMR must not be dropped from the repair payload")
+}
+
+// Every object in a repaired batch takes its content from whichever replica won,
+// in one fetch per replica, and objects no replica disagrees on are not fetched.
+func TestRepairerCheckConsistencyBatchMixedWinners(t *testing.T) {
+	var (
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B"}
+		ctx   = context.Background()
+
+		// agreed, local wins, local wins, remote wins
+		ids        = []strfmt.UUID{"01", "02", "03", "04"}
+		localTimes = []int64{5, 5, 5, 3}
+		digestR    = []types.RepairResponse{
+			{ID: "01", UpdateTime: 5},
+			{ID: "02", UpdateTime: 3},
+			{ID: "03", UpdateTime: 3},
+			{ID: "04", UpdateTime: 7},
+		}
+
+		f      = newFakeFactory(t, cls, shard, nodes, false)
+		finder = f.newFinder(nodes[0])
+
+		mu        sync.Mutex
+		fetched   = map[string][]strfmt.UUID{}
+		overwrote = map[string][]*objects.VObject{}
+	)
+
+	// the stored object always carries a property the caller's copy does not
+	stored := func(id strfmt.UUID, updateTime int64) *storobj.Object {
+		return &storobj.Object{
+			Object: models.Object{
+				ID:                 id,
+				Class:              cls,
+				LastUpdateTimeUnix: updateTime,
+				Properties:         map[string]interface{}{"body": "stored " + id.String()},
+			},
+			BelongsToShard: shard,
+			BelongsToNode:  nodes[0],
+		}
+	}
+
+	xs := make([]*storobj.Object, len(ids))
+	for i, id := range ids {
+		xs[i] = &storobj.Object{
+			Object: models.Object{
+				ID:                 id,
+				Class:              cls,
+				LastUpdateTimeUnix: localTimes[i],
+				Properties:         map[string]interface{}{},
+			},
+			BelongsToShard: shard,
+			BelongsToNode:  nodes[0],
+		}
+	}
+
+	f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR, nil)
+
+	fetchReply := func(node string) func(mock.Arguments) {
+		return func(a mock.Arguments) {
+			mu.Lock()
+			defer mu.Unlock()
+			fetched[node] = append(fetched[node], a[4].([]strfmt.UUID)...)
+		}
+	}
+	f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, []strfmt.UUID{ids[1], ids[2]}).
+		Return([]replica.Replica{
+			{ID: ids[1], Object: stored(ids[1], 5)},
+			{ID: ids[2], Object: stored(ids[2], 5)},
+		}, nil).
+		Once().
+		RunFn = fetchReply(nodes[0])
+	f.RClient.EXPECT().FetchObjects(anyVal, nodes[1], cls, shard, []strfmt.UUID{ids[3]}).
+		Return([]replica.Replica{{ID: ids[3], Object: stored(ids[3], 7)}}, nil).
+		Once().
+		RunFn = fetchReply(nodes[1])
+
+	overwriteReply := func(node string) func(mock.Arguments) {
+		return func(a mock.Arguments) {
+			mu.Lock()
+			defer mu.Unlock()
+			overwrote[node] = append(overwrote[node], a[4].([]*objects.VObject)...)
+		}
+	}
+	for _, node := range nodes {
+		f.RClient.EXPECT().OverwriteObjects(anyVal, node, cls, shard, anyVal).
+			Return([]types.RepairResponse{}, nil).
+			Once().
+			RunFn = overwriteReply(node)
+	}
+
+	require.NoError(t, finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs))
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	assert.ElementsMatch(t, []strfmt.UUID{ids[1], ids[2]}, fetched[nodes[0]],
+		"the objects the caller's replica wins are fetched from it in one batched read")
+	assert.ElementsMatch(t, []strfmt.UUID{ids[3]}, fetched[nodes[1]],
+		"the object the remote replica wins is fetched from the remote replica")
+
+	got := map[strfmt.UUID]*objects.VObject{}
+	for node, payloads := range overwrote {
+		for _, p := range payloads {
+			got[p.ID] = p
+			assert.NotNil(t, p.LatestObject, "payload for %s on %s carries no object", p.ID, node)
+		}
+	}
+	require.Len(t, got, 3, "ids[0] agrees everywhere and must not be repaired")
+
+	for id, wantTime := range map[strfmt.UUID]int64{ids[1]: 5, ids[2]: 5, ids[3]: 7} {
+		require.Contains(t, got, id)
+		assert.Equal(t, "stored "+id.String(), got[id].LatestObject.Properties.(map[string]interface{})["body"],
+			"the payload for %s must come from the winning replica, not from the caller's search result", id)
+		assert.Equal(t, wantTime, got[id].LastUpdateTimeUnixMilli)
+	}
+
+	for i := range xs {
+		assert.True(t, xs[i].IsConsistent, "object %s should be reported consistent", ids[i])
 	}
 }

@@ -234,7 +234,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for _, part := range clusterObjectByShard(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
-			_, err := f.checkShardConsistency(ctx, l, part)
+			err := f.checkShardConsistency(ctx, l, part)
 			if err != nil {
 				f.log.WithField("op", "check_shard_consistency").
 					WithField("shard", part.Shard).Error(err)
@@ -292,31 +292,28 @@ func (f *Finder) NodeObject(ctx context.Context,
 }
 
 // checkShardConsistency checks consistency for a set of objects belonging to a shard
-// It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
 	l types.ConsistencyLevel,
 	batch ShardPart,
-) ([]*storobj.Object, error) {
+) error {
 	var (
-		c         = NewReadCoordinator[BatchReply](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
-		shard     = batch.Shard
-		data, ids = batch.Extract() // extract from current content
+		c            = NewReadCoordinator[BatchReply](f.router, f.metrics, f.class, batch.Shard, f.getDeletionStrategy(), f.log)
+		shard        = batch.Shard
+		digests, ids = batch.Digests()
 	)
-	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
-		if fullRead { // we already have the content
-			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
-		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
-			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
+	op := func(ctx context.Context, host string, isCallerCopy bool) (BatchReply, error) {
+		if isCallerCopy { // we already know the update times of this copy
+			return BatchReply{Sender: host, IsLocal: true, DigestData: digests}, nil
 		}
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
+		return BatchReply{Sender: host, DigestData: xs}, err
 	}
 
 	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w: %w", ErrReplicas, err)
+		return fmt.Errorf("pull shard: %w: %w", ErrReplicas, err)
 	}
-	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
-	return result.Value, result.Err
+	return <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 }
 
 type ShardDifferenceReader struct {

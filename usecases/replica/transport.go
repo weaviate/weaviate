@@ -155,14 +155,6 @@ func (r *DeleteBatchResponse) FirstError() error {
 	return nil
 }
 
-func fromReplicas(xs []Replica) []*storobj.Object {
-	rs := make([]*storobj.Object, len(xs))
-	for i := range xs {
-		rs[i] = xs[i].Object
-	}
-	return rs
-}
-
 type DigestObjectsInRangeReq struct {
 	InitialUUID strfmt.UUID `json:"initialUUID,omitempty"`
 	FinalUUID   strfmt.UUID `json:"finalUUID,omitempty"`

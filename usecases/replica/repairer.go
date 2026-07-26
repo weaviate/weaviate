@@ -344,13 +344,19 @@ func (r *repairer) repairExist(ctx context.Context,
 	return !resp.Deleted, gr.Wait()
 }
 
-// repairAll repairs objects when reading them ((use in combination with Finder::GetAll)
+// repairBatchPart repairs objects when reading them (use in combination with Finder::GetAll).
+//
+// It reports, per object, whether the winning version is known and every stale
+// replica could be written. The content of every repair payload is fetched from
+// the winning replica: the caller's own copies are search results and may carry
+// only the projected properties and no vector, so writing one back would delete
+// everything the query did not ask for.
 func (r *repairer) repairBatchPart(ctx context.Context,
 	shard string,
 	ids []strfmt.UUID,
 	votes []Vote,
 	contentIdx int,
-) (_ []*storobj.Object, err error) {
+) (_ []bool, err error) {
 	r.metrics.IncReadRepairCount()
 
 	defer func(start time.Time) {
@@ -361,23 +367,21 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	}(time.Now())
 
 	var (
-		result            = make([]*storobj.Object, len(ids)) // final result
+		result            = make([]*storobj.Object, len(ids)) // content to write
+		resolved          = make([]bool, len(ids))            // per object outcome
 		lastTimes         = make([]iTuple, len(ids))          // most recent times
 		lastDeletionTimes = make([]int64, len(ids))           // most recent deletion times
-		ms                = make([]iTuple, 0, len(ids))       // mismatches
+		ms                = make([]iTuple, 0, len(ids))       // objects whose content is needed
 		cl                = r.client
 		nVotes            = len(votes)
-		// The input objects cannot be used for repair because
-		// their attributes might have been filtered out
-		reFetchSet       = make(map[int]struct{})
-		deletionStrategy = r.getDeletionStrategy()
+		deletionStrategy  = r.getDeletionStrategy()
 	)
 
 	// find most recent objects
-	for i, x := range votes[contentIdx].FullData {
-		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime(), Deleted: x.Deleted}
+	for i, x := range votes[contentIdx].DigestData {
+		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime, Deleted: x.Deleted}
 		if x.Deleted {
-			lastDeletionTimes[i] = x.UpdateTime()
+			lastDeletionTimes[i] = x.UpdateTime
 		}
 		votes[contentIdx].Count[i] = nVotes // reuse Count[] to check consistency
 	}
@@ -388,7 +392,6 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				if curTime := lastTimes[j].T; x.UpdateTime > curTime {
 					// input object is not up to date
 					lastTimes[j] = iTuple{S: i, O: j, T: x.UpdateTime}
-					reFetchSet[j] = struct{}{} // we need to fetch this object again
 				}
 
 				lastTimes[j].Deleted = lastTimes[j].Deleted || x.Deleted
@@ -402,17 +405,30 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		}
 	}
 
-	// find missing content (diff)
-	for i, p := range votes[contentIdx].FullData {
+	// An object needs content only if some replica disagrees with the winner and
+	// will therefore be written to. Same condition the repair loop below applies.
+	needsContent := make([]bool, len(ids))
+	for _, vote := range votes {
+		for j := range ids {
+			if vote.UpdateTimeAt(j) != lastTimes[j].T {
+				needsContent[j] = true
+			}
+		}
+	}
+
+	for i := range ids {
 		if lastTimes[i].Deleted && lastDeletionTimes[i] == lastTimes[i].T {
+			// the winner is a tombstone, there is no content to propagate
 			continue
 		}
 
-		if _, ok := reFetchSet[i]; ok {
-			ms = append(ms, lastTimes[i])
-		} else {
-			result[i] = p.Object
+		if !needsContent[i] {
+			// every replica already holds the winning version
+			resolved[i] = true
+			continue
 		}
+
+		ms = append(ms, lastTimes[i])
 	}
 
 	if len(ms) > 0 { // fetch most recent objects
@@ -448,6 +464,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 						votes[rid].Count[idx]--
 					} else {
 						result[idx] = resp[i].Object
+						resolved[idx] = result[idx] != nil
 					}
 				}
 				return nil
@@ -474,13 +491,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			}
 
 			if x.Deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
-				alreadyDeleted := false
-
-				if rid == contentIdx {
-					alreadyDeleted = vote.BatchReply.FullData[j].Deleted
-				} else {
-					alreadyDeleted = vote.BatchReply.DigestData[j].Deleted
-				}
+				alreadyDeleted := vote.DigestData[j].Deleted
 
 				if alreadyDeleted && lastDeletionTimes[j] == vote.UpdateTimeAt(j) {
 					continue
@@ -569,5 +580,5 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		})
 	}
 
-	return result, gr.Wait()
+	return resolved, gr.Wait()
 }

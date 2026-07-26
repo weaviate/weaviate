@@ -23,7 +23,6 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -56,12 +55,11 @@ func TestRepairBatchPartTimeBasedLiveWinnerFailedRefetch(t *testing.T) {
 		logger:              logger,
 	}
 
-	// content live@100, digest B live@150 (winner, refetch fails → result nil), digest C deleted@80 (older delete OR'd in).
-	contentObj := &storobj.Object{MarshallerVersion: 1, Object: models.Object{ID: id, LastUpdateTimeUnix: 100}}
+	// caller's copy live@100, digest B live@150 (winner, refetch fails → result nil), digest C deleted@80 (older delete OR'd in).
 	votes := []Vote{
-		{BatchReply: BatchReply{Sender: "A", FullData: []Replica{{ID: id, Object: contentObj}}}, Count: make([]int, len(ids))},
-		{BatchReply: BatchReply{Sender: "B", IsDigest: true, DigestData: []types.RepairResponse{{ID: id.String(), UpdateTime: 150}}}, Count: make([]int, len(ids))},
-		{BatchReply: BatchReply{Sender: "C", IsDigest: true, DigestData: []types.RepairResponse{{ID: id.String(), UpdateTime: 80, Deleted: true}}}, Count: make([]int, len(ids))},
+		{BatchReply: BatchReply{Sender: "A", IsLocal: true, DigestData: []types.RepairResponse{{ID: id.String(), UpdateTime: 100}}}, Count: make([]int, len(ids))},
+		{BatchReply: BatchReply{Sender: "B", DigestData: []types.RepairResponse{{ID: id.String(), UpdateTime: 150}}}, Count: make([]int, len(ids))},
+		{BatchReply: BatchReply{Sender: "C", DigestData: []types.RepairResponse{{ID: id.String(), UpdateTime: 80, Deleted: true}}}, Count: make([]int, len(ids))},
 	}
 
 	require.NotPanics(t, func() {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -86,14 +87,20 @@ func (b *ShardPart) ObjectIDs() []strfmt.UUID {
 	return xs
 }
 
-func (b *ShardPart) Extract() ([]Replica, []strfmt.UUID) {
-	xs := make([]Replica, len(b.Index))
+// Digests summarizes the copies the caller is already holding, plus their ids,
+// both in Index order.
+//
+// Only the update times are taken from those objects. They are search results:
+// the query may have projected properties away, and they carry a vector only if
+// one was requested, so they are not a valid source of content for read repair.
+func (b *ShardPart) Digests() ([]types.RepairResponse, []strfmt.UUID) {
+	xs := make([]types.RepairResponse, len(b.Index))
 	ys := make([]strfmt.UUID, len(b.Index))
 
 	for i, idx := range b.Index {
 		p := b.Data[idx]
-		xs[i] = Replica{ID: p.ID(), Deleted: false, Object: p}
 		ys[i] = p.ID()
+		xs[i] = types.RepairResponse{ID: ys[i].String(), UpdateTime: p.LastUpdateTimeUnix()}
 	}
 	return xs, ys
 }
