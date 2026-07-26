@@ -301,18 +301,27 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
-// cascadeSeed returns the plane to start the cascade from and the next bit to
-// merge. Every plane is a subset of plane 0, so seeding from the lowest set
-// bit's plane directly skips the whole-shard AND that would otherwise produce
-// it. value 0 has no set bit, so its cascade starts at plane 0 itself.
-func (r *segmentInMemoryReader) cascadeSeed(value uint64) (seed *sroar.Bitmap, nextBit int) {
+// cascadeStart is where a bit-plane cascade begins: the seed plane and the
+// next bit to merge.
+type cascadeStart struct {
+	seed    *sroar.Bitmap
+	nextBit int
+}
+
+// cascadeSeed picks where value's cascade starts: every plane is a subset of
+// plane 0, so the lowest set bit's plane skips a redundant AND against plane
+// 0. Resolved before the cache probe, since a hit skips the cascade and any
+// invariant checked inside it would stop covering cached predicates.
+func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
 	if value == 0 {
-		return r.bitmaps[0], len(r.bitmaps)
+		// no set bit, so every plane would be OR-ed into a result that still
+		// equals plane 0: the whole cascade is a no-op
+		return cascadeStart{seed: r.bitmaps[0], nextBit: len(r.bitmaps)}
 	}
 
 	bit := bits.TrailingZeros64(value) + 1
 	assertPlaneIsSubsetOfPlaneZero(r.bitmaps, bit)
-	return r.bitmaps[bit], bit + 1
+	return cascadeStart{seed: r.bitmaps[bit], nextBit: bit + 1}
 }
 
 // cloneSeed buffers from plane 0's size, not the seed's, so later merges keep
@@ -323,34 +332,43 @@ func (r *segmentInMemoryReader) cloneSeed(seed *sroar.Bitmap) (*sroar.Bitmap, fu
 }
 
 // cloneCached hands out a private copy of a cached leaf, sized to the widest
-// plane rather than the leaf so it keeps the same merge headroom the uncached
-// path gives downstream memtable ORs.
+// plane rather than the leaf so downstream memtable ORs get the same room the
+// uncached path gives them.
 func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
 	buf, release := r.bufPool.Get(max(bm.LenInBytes(), r.bitmaps[0].LenInBytes()))
 	return bm.CloneToBuf(buf), release
 }
 
+// leafBytesBound is what probe charges before the leaf exists: plane 0, since
+// every plane is its subset regardless of where the cascade seeded. Not the
+// seed's own size, since the cascade ORs higher planes in afterward and a leaf
+// can far outgrow its seed; charging from the seed would under-estimate and
+// let store admit entries it then has to reject.
+func (r *segmentInMemoryReader) leafBytesBound() int {
+	return r.bitmaps[0].LenInBytes()
+}
+
 func (r *segmentInMemoryReader) mergeGreaterThanEqual(value uint64, conc int) (*sroar.Bitmap, func()) {
+	start := r.cascadeSeed(value)
 	key := leafKey{kind: leafGreaterThanEqual, valueMin: value}
 
-	// a leaf is a subset of plane 0, so plane 0's size bounds it
-	cached, admit := r.cache.probe(r.generation, key, r.bitmaps[0].LenInBytes())
+	cached, admit := r.cache.probe(r.generation, key, r.leafBytesBound())
 	if cached != nil {
 		return r.cloneCached(cached)
 	}
 
-	result, release := r.mergeGreaterThanEqualUncached(value, conc)
+	result, release := r.mergeGreaterThanEqualUncached(value, start, conc)
 	if admit {
 		r.cache.store(r.generation, key, result.Clone())
 	}
 	return result, release
 }
 
-func (r *segmentInMemoryReader) mergeGreaterThanEqualUncached(value uint64, conc int) (*sroar.Bitmap, func()) {
-	seed, bit := r.cascadeSeed(value)
-	result, release := r.cloneSeed(seed)
+func (r *segmentInMemoryReader) mergeGreaterThanEqualUncached(value uint64, start cascadeStart, conc int,
+) (*sroar.Bitmap, func()) {
+	result, release := r.cloneSeed(start.seed)
 
-	for ; bit < len(r.bitmaps); bit++ {
+	for bit := start.nextBit; bit < len(r.bitmaps); bit++ {
 		if value&(1<<(bit-1)) != 0 {
 			result.AndConc(r.bitmaps[bit], conc)
 		} else {
@@ -361,35 +379,35 @@ func (r *segmentInMemoryReader) mergeGreaterThanEqualUncached(value uint64, conc
 }
 
 func (r *segmentInMemoryReader) mergeBetween(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
+	startMin := r.cascadeSeed(valueMinInc)
+	startMax := r.cascadeSeed(valueMaxExc)
 	key := leafKey{kind: leafBetween, valueMin: valueMinInc, valueMax: valueMaxExc}
 
-	// a leaf is a subset of plane 0, so plane 0's size bounds it
-	cached, admit := r.cache.probe(r.generation, key, r.bitmaps[0].LenInBytes())
+	cached, admit := r.cache.probe(r.generation, key, r.leafBytesBound())
 	if cached != nil {
 		return r.cloneCached(cached)
 	}
 
-	result, release := r.mergeBetweenUncached(valueMinInc, valueMaxExc, conc)
+	result, release := r.mergeBetweenUncached(valueMinInc, valueMaxExc, startMin, startMax, conc)
 	if admit {
 		r.cache.store(r.generation, key, result.Clone())
 	}
 	return result, release
 }
 
-func (r *segmentInMemoryReader) mergeBetweenUncached(valueMinInc, valueMaxExc uint64, conc int) (*sroar.Bitmap, func()) {
-	seedMin, bitMin := r.cascadeSeed(valueMinInc)
-	seedMax, bitMax := r.cascadeSeed(valueMaxExc)
-
-	resultMin, releaseMin := r.cloneSeed(seedMin)
-	resultMax, releaseMax := r.cloneSeed(seedMax)
+func (r *segmentInMemoryReader) mergeBetweenUncached(valueMinInc, valueMaxExc uint64,
+	startMin, startMax cascadeStart, conc int,
+) (*sroar.Bitmap, func()) {
+	resultMin, releaseMin := r.cloneSeed(startMin.seed)
+	resultMax, releaseMax := r.cloneSeed(startMax.seed)
 	defer releaseMax()
 
 	// one loop for both cascades: each plane is read once despite the two
 	// starting at different bits
-	for bit := min(bitMin, bitMax); bit < len(r.bitmaps); bit++ {
+	for bit := min(startMin.nextBit, startMax.nextBit); bit < len(r.bitmaps); bit++ {
 		var b uint64 = 1 << (bit - 1)
 
-		if bit >= bitMin {
+		if bit >= startMin.nextBit {
 			if valueMinInc&b != 0 {
 				resultMin.AndConc(r.bitmaps[bit], conc)
 			} else {
@@ -397,7 +415,7 @@ func (r *segmentInMemoryReader) mergeBetweenUncached(valueMinInc, valueMaxExc ui
 			}
 		}
 
-		if bit >= bitMax {
+		if bit >= startMax.nextBit {
 			if valueMaxExc&b != 0 {
 				resultMax.AndConc(r.bitmaps[bit], conc)
 			} else {
