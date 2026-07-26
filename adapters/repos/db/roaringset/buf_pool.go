@@ -347,11 +347,8 @@ func inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize int) ([]int, map[int]in
 		maxBufSize, maxMemoSize)
 }
 
-// ValidateBufPoolSizes rejects exactly one thing: a pair that leaves the pool
-// with no in-memory size class at all. Everything short of that degrades only
-// the pool, which is an optimisation, so it warns and serves. Gating on the
-// two values relative to each other instead would refuse boots for ladders
-// identical to ones that are allowed through.
+// ValidateBufPoolSizes only rejects a pair that leaves the pool with no
+// in-memory class at all; anything else degrades the pool, not the node.
 func ValidateBufPoolSizes(maxBufSize, maxMemoSize int) error {
 	if ranges, _ := inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize); len(ranges) == 0 {
 		return fmt.Errorf("max buffer size %s with a total buffer budget of %s leaves no in-memory "+
@@ -362,9 +359,8 @@ func ValidateBufPoolSizes(maxBufSize, maxMemoSize int) error {
 	return nil
 }
 
-// logDegradedBufPool is the whole signal for a pool that built fewer classes
-// than asked for. The surviving sync.Pool tier emits no metrics, so without
-// this the state is invisible.
+// logDegradedBufPool is the only signal for a degraded pool: the surviving
+// sync.Pool tier emits no metrics of its own.
 func logDegradedBufPool(logger logrus.FieldLogger, inMemoRanges []int, maxBufSize, maxMemoSize int) {
 	if logger == nil {
 		return

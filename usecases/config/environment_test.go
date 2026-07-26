@@ -1969,8 +1969,7 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			bufSize: "1MiB",
 			expErr:  "leaves no in-memory buffer class",
 		},
-		// Degrade only the pool, so they boot. The two below are the same
-		// ladder either side of MAX_BUF_SIZE == MAX_MEMORY.
+		// These degrade only the pool, not the boot, so no expErr.
 		{
 			name:    "max buf size above the budget",
 			memory:  "4MiB",
@@ -2012,8 +2011,7 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 	}
 }
 
-// A rejected boot has to diagnose itself from its own message, so every
-// size-valued knob names the variable and the value it refused.
+// Every size-valued env var must name itself and its rejected value on error.
 func TestEnvironmentResourceSizeRejectionsNameTheValue(t *testing.T) {
 	envNames := []string{
 		"PERSISTENCE_LSM_MAX_SEGMENT_SIZE",

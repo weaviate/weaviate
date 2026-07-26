@@ -24,7 +24,6 @@ const MaxQueryBitmapBufsSize = 1 << 40
 
 // parseResourceEnv fails loudly, naming the variable and the rejected value,
 // rather than falling back to a default that would silently behave as unset.
-// A boot failure has to diagnose itself from its own log line.
 func parseResourceEnv(envName, value string) (int64, error) {
 	bytes, err := parseResourceString(value)
 	if err != nil {

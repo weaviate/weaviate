@@ -1154,8 +1154,7 @@ func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 			maxMemory:  40 * MiB,
 			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
 		},
-		// The pair whose ladder is identical either side of maxBufSize ==
-		// maxMemory: both boot, so both have to warn the same way.
+		// Same ladder either side of maxBufSize == maxMemory, same warning.
 		{
 			name:       "budget one byte above the max buf size",
 			maxBufSize: 32 * MiB,
@@ -1231,9 +1230,7 @@ func TestDisposableBufMetricSizeLabel(t *testing.T) {
 	})
 }
 
-// The gate has to be a function of the ladder that gets built, not of how the
-// two inputs compare. Configs one byte apart either side of maxBufSize ==
-// maxMemory build the same ladder, so they have to get the same verdict.
+// Pins: configs that build the same ladder must get the same verdict.
 func TestValidateBufPoolSizesGatesOnTheLadderOnly(t *testing.T) {
 	const MiB = 1 << 20
 
