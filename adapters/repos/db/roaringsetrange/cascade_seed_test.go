@@ -216,17 +216,38 @@ func TestEmittedSeriesNames(t *testing.T) {
 	families, err := prometheus.DefaultGatherer.Gather()
 	require.NoError(t, err)
 
-	got := map[string]bool{}
+	got := map[string]map[string]bool{}
 	for _, family := range families {
-		got[family.GetName()] = true
+		labels := map[string]bool{}
+		for _, metric := range family.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				labels[label.GetValue()] = true
+			}
+		}
+		got[family.GetName()] = labels
 	}
 
-	for _, name := range []string{
-		"lsm_roaringsetrange_leaf_cache_ops_total",
-		"lsm_roaringsetrange_cascade_seed_total",
-		"lsm_roaringsetrange_cascade_seed_config",
-	} {
-		assert.Truef(t, got[name], "%q is not emitted; a dashboard or gate matching it reads a silent zero", name)
-		assert.Falsef(t, got["weaviate_"+name], "%q is prefixed, unlike lsm_bitmap_buffers_usage in the same subsystem", name)
+	// Every child has to exist before any traffic reaches it, or a flat series
+	// is an absence rather than a reading. That is the distinction a gate arming
+	// on these counters needs: "off" must not look like "never hit".
+	wanted := map[string][]string{
+		"lsm_roaringsetrange_leaf_cache_ops_total": {
+			"hit", "miss", "store", "rejected", "invalidate", "disabled",
+		},
+		"lsm_roaringsetrange_cascade_seed_total":  {"seeded", "disabled", "no_set_bit"},
+		"lsm_roaringsetrange_cascade_seed_config": {"enabled", "disabled", "unrecognised"},
+	}
+
+	for name, children := range wanted {
+		labels, ok := got[name]
+		assert.Truef(t, ok, "%q is not emitted; a dashboard or gate matching it reads a silent zero", name)
+		assert.NotContainsf(t, got, "weaviate_"+name,
+			"%q is prefixed, unlike lsm_bitmap_buffers_usage in the same subsystem", name)
+
+		for _, child := range children {
+			assert.Truef(t, labels[child],
+				"%q has no %q child before any traffic, so a flat series cannot be told from a missing one",
+				name, child)
+		}
 	}
 }

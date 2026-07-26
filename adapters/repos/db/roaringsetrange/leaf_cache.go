@@ -93,14 +93,21 @@ var (
 				"hit/(hit+miss) is the hit rate; store counts admitted bitmaps, " +
 				"rejected counts repeat predicates declined because the byte budget is full " +
 				"(a sustained non-zero rate means the budget is too small for the working set), " +
-				"invalidate counts writes to the in-memory segment that dropped the cache.",
+				"invalidate counts writes to the in-memory segment that dropped the cache, " +
+				"disabled counts lookups that found no cache at all. " +
+				"disabled rising means the cache is off while queries flow; every child flat " +
+				"means it is on with no eligible traffic; hit/miss moving means it is working.",
 		}, []string{"operation"})
 
+	// Every child is created here rather than on first increment, so a flat
+	// series is a reading and not an absence. Without that, "off" and "never
+	// exercised" are the same observation.
 	leafCacheHits         = leafCacheOps.WithLabelValues("hit")
 	leafCacheMisses       = leafCacheOps.WithLabelValues("miss")
 	leafCacheStores       = leafCacheOps.WithLabelValues("store")
 	leafCacheRejections   = leafCacheOps.WithLabelValues("rejected")
 	leafCacheInvalidation = leafCacheOps.WithLabelValues("invalidate")
+	leafCacheDisabled     = leafCacheOps.WithLabelValues("disabled")
 )
 
 type leafKind uint8
@@ -170,6 +177,9 @@ func newLeafCache(maxBytes int) *leafCache {
 // buffer.
 func (c *leafCache) probe(generation uint64, key leafKey, maxEntryBytes int) (bm *sroar.Bitmap, admit bool) {
 	if c == nil {
+		// counted, because a nil cache otherwise leaves hit and miss both at
+		// zero, which is exactly what an unexercised cache looks like
+		leafCacheDisabled.Inc()
 		return nil, false
 	}
 

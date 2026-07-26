@@ -18,11 +18,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func TestParseLeafCacheMaxMemory(t *testing.T) {
@@ -344,4 +346,37 @@ func TestLeafCacheDropDuringClone(t *testing.T) {
 	wg.Wait()
 
 	require.Greater(t, clones.Load(), int64(0), "no entry was ever served, the test would be vacuous")
+}
+
+// The three operator states have to be three readings. Before this counter,
+// a disabled cache and an unexercised one both showed zero hits and zero
+// misses, so a dashboard or a gate arming on them could not tell "off" from
+// "never hit" — and QA has armed gates on exactly these counters.
+func TestLeafCacheDisabledIsObservable(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	mt1, mt2, mt3 := createTestMemtables(logger)
+
+	seg := newCachedSegment(logger, 0)
+	require.Nil(t, seg.leafCache, "this test is about the nil-cache path")
+
+	seg.MergeMemtableEventually(mt1)
+	seg.MergeMemtableEventually(mt2)
+	seg.MergeMemtableEventually(mt3)
+	waitUntilMemtablesMerged(t, seg)
+
+	before := map[string]float64{
+		"disabled": testutil.ToFloat64(leafCacheDisabled),
+		"hit":      testutil.ToFloat64(leafCacheHits),
+		"miss":     testutil.ToFloat64(leafCacheMisses),
+	}
+
+	for round := 0; round < 3; round++ {
+		query(t, seg, 13, filters.OperatorGreaterThanEqual)
+	}
+
+	assert.Greater(t, testutil.ToFloat64(leafCacheDisabled), before["disabled"],
+		"queries flowed through a disabled cache and nothing recorded it")
+	assert.Equal(t, before["hit"], testutil.ToFloat64(leafCacheHits))
+	assert.Equal(t, before["miss"], testutil.ToFloat64(leafCacheMisses),
+		"a disabled cache must not look like a cache that is missing")
 }
