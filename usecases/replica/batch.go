@@ -87,12 +87,9 @@ func (b *ShardPart) ObjectIDs() []strfmt.UUID {
 	return xs
 }
 
-// Digests summarizes the copies the caller is already holding, plus their ids,
-// both in Index order.
-//
-// Only the update times are taken from those objects. They are search results:
-// the query may have projected properties away, and they carry a vector only if
-// one was requested, so they are not a valid source of content for read repair.
+// Digests returns update times and ids for the caller's own copies, in Index
+// order. These are search results that may lack projected-away properties or
+// a requested vector, so they can never serve as repair content.
 func (b *ShardPart) Digests() ([]types.RepairResponse, []strfmt.UUID) {
 	xs := make([]types.RepairResponse, len(b.Index))
 	ys := make([]strfmt.UUID, len(b.Index))

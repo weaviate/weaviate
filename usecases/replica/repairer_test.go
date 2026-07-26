@@ -1376,9 +1376,8 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				Return(digestR3, nil).
 				Once()
 
-			// the caller's own replica wins ids[0] and ids[1] and serves their content.
-			// ids[2] is an orphan: the winning version is a tombstone, so there is no
-			// content to fetch for it.
+			// caller's replica wins ids[0]/ids[1] and serves them; ids[2]'s winner is
+			// a tombstone, so no content is fetched for it.
 			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).
 				Return([]replica.Replica{repl(ids[0], 2, false), repl(ids[1], 3, false)}, nil).
 				Once().
@@ -1453,11 +1452,8 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, errAny)
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
 
-			// For ConsistencyLevelQuorum, we only need 2 out of 3 nodes to agree
-			// Local has: ids[0]=4, ids[1]=5, ids[2]=6 (all latest)
-			// nodes[1] has error, nodes[2] has: ids[0]=1, ids[1]=5, ids[2]=3
-			// So we need to repair nodes[2] for ids[0] and ids[2], and the caller's
-			// own replica serves their content. ids[1] already agrees everywhere.
+			// Quorum (2 of 3) tolerates nodes[1] erroring: nodes[2] is repaired for
+			// ids[0] and ids[2], served from the caller's own replica.
 			f.RClient.EXPECT().FetchObjects(anyVal, nodes[0], cls, shard, anyVal).
 				Return([]replica.Replica{repl(ids[0], 4, false), repl(ids[2], 6, false)}, nil).
 				Once().
@@ -1496,8 +1492,7 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 	}
 }
 
-// Pins that read repair writes the stored object to a lagging replica, whatever
-// the search happened to materialise for the caller.
+// Pins that repair writes the stored object, never the caller's projected search result.
 func TestRepairerCheckConsistencyRepairPayloadIsRefetched(t *testing.T) {
 	var (
 		id    = strfmt.UUID("10")
@@ -1593,8 +1588,7 @@ func TestRepairerCheckConsistencyRepairPayloadIsRefetched(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
 				Return(digestR, nil)
 
-			// whichever replica holds the winning version serves the content, over
-			// the network, from disk
+			// content is always fetched, even when the caller's own node wins
 			winner, winnerTime := nodes[0], localTime
 			if tt.remoteTime > localTime {
 				winner, winnerTime = nodes[1], tt.remoteTime
@@ -1638,9 +1632,8 @@ func TestRepairerCheckConsistencyRepairPayloadIsRefetched(t *testing.T) {
 	}
 }
 
-// A multi-shard MMR query fetches the target vector, uses it, then deletes it
-// from the object again. The result is indistinguishable from an object that
-// never had that vector, so it must not be a source of repair content either.
+// MMR strips a vector after ranking with it, so the result looks like an
+// object that never had it; that must not become repair content either.
 func TestRepairerCheckConsistencyMMRStrippedVectorIsRefetched(t *testing.T) {
 	var (
 		id    = strfmt.UUID("10")
@@ -1657,7 +1650,7 @@ func TestRepairerCheckConsistencyMMRStrippedVectorIsRefetched(t *testing.T) {
 			"text":  {0.1, 0.2},
 			"image": {0.3, 0.4},
 		}
-		// what MMR leaves behind after ranking on "image" without the user asking for it
+		// left after MMR ranks on "image", which the caller never asked for
 		strippedVectors = map[string][]float32{"text": {0.1, 0.2}}
 
 		f        = newFakeFactory(t, cls, shard, nodes, false)

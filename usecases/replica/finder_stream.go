@@ -271,11 +271,9 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 				sum[i] += n
 			}
 		}
-		// set consistency flag.
-		//
 		// The caller's object is never replaced with the repaired version: the
 		// newer object may not satisfy the filter criteria used to retrieve it.
-		// Read repair has already propagated the latest version to stale replicas.
+		// Read repair has already propagated it to stale replicas.
 		for i, n := range sum {
 			if n == maxCount && resolved[i] {
 				batch.Data[batch.Index[i]].IsConsistent = true
@@ -289,16 +287,13 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 	return resultCh
 }
 
-// BatchReply is a container of the batch received from a replica.
-//
-// It never carries object content. Read repair fetches the content it writes
-// from the winning replica, so that a projected search result can never end up
-// as a repair payload.
+// BatchReply carries only digests, never object content: repair always
+// fetches content fresh from the winning replica, so a projected search
+// result can never become a repair payload.
 type BatchReply struct {
 	// Sender hostname of the Sender
 	Sender string
-	// IsLocal marks the reply describing the copy the caller already holds.
-	// Exactly one reply per batch has it set.
+	// IsLocal marks the reply for the copy the caller already holds (exactly one per batch).
 	IsLocal bool
 	// DigestData holds one digest per requested object, in request order
 	DigestData []types.RepairResponse

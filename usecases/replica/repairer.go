@@ -344,13 +344,10 @@ func (r *repairer) repairExist(ctx context.Context,
 	return !resp.Deleted, gr.Wait()
 }
 
-// repairBatchPart repairs objects when reading them (use in combination with Finder::GetAll).
-//
-// It reports, per object, whether the winning version is known and every stale
-// replica could be written. The content of every repair payload is fetched from
-// the winning replica: the caller's own copies are search results and may carry
-// only the projected properties and no vector, so writing one back would delete
-// everything the query did not ask for.
+// repairBatchPart repairs stale replicas found while reading a batch (used
+// with Finder::GetAll) and reports, per object, whether every replica now
+// matches the winner. Content always comes from the winning replica, never
+// the caller's copy, which may be a partial search result.
 func (r *repairer) repairBatchPart(ctx context.Context,
 	shard string,
 	ids []strfmt.UUID,
