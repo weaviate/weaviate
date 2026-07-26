@@ -45,9 +45,8 @@ type allowListBuild struct {
 	// aliases it into two later queries.
 	mu   sync.Mutex
 	refs int
-	// waiters counts participants that passed the filter check and intend to
-	// consume the result, which refs alone cannot express because join holds a
-	// reference across that check.
+	// waiters counts participants that intend to consume the result; refs alone
+	// can't express that because join holds a reference across the filter check.
 	waiters int
 	owner   helpers.AllowList
 	bm      *sroar.Bitmap
@@ -57,9 +56,8 @@ type allowListBuild struct {
 // falls back to an independent build rather than propagating another caller's
 // outcome.
 //
-// The second return is the dedupe outcome, "" when the call was never a
-// candidate. do does not record it: the caller does, so no outcome is ever
-// counted twice.
+// The second return is the dedupe outcome, "" when never a candidate. do
+// leaves recording it to the caller, so no outcome is counted twice.
 func (d *allowListDedupe) do(ctx context.Context, token string, filter *filters.LocalFilter,
 	build func(context.Context) (helpers.AllowList, error),
 ) (helpers.AllowList, string, error) {
@@ -96,11 +94,9 @@ func (d *allowListDedupe) do(ctx context.Context, token string, filter *filters.
 }
 
 // lead runs the build for a group and always publishes an outcome, so waiters
-// are never left blocked on an entry whose leader has gone.
-//
-// No path here may drop before publishing. That is what keeps the refcount from
-// reaching zero while the entry is still reachable in d.inFlight, which in turn
-// is what lets drop act on its release decision after releasing the lock.
+// are never left blocked on an entry whose leader has gone. No path here may
+// drop before publishing, or the refcount could reach zero while the entry is
+// still reachable via d.inFlight.
 func (d *allowListDedupe) lead(ctx context.Context, token string, b *allowListBuild,
 	build func(context.Context) (helpers.AllowList, error),
 ) (helpers.AllowList, string, error) {
@@ -139,11 +135,8 @@ func (d *allowListDedupe) lead(ctx context.Context, token string, b *allowListBu
 // join registers a participant for token, returning the entry to wait on and
 // whether the caller must lead the build; nil means build without dedupe.
 //
-// The filter comparison runs outside d.mu, which is shard-wide: on a remote
-// shard the two legs arrive as independently deserialized trees, so the
-// reflective path is the normal case rather than the exception. Holding a
-// reference across the comparison is what keeps the entry alive without the
-// lock.
+// The filter comparison runs outside d.mu: a retained reference keeps the
+// entry alive while comparing, without holding the shard-wide lock for it.
 func (d *allowListDedupe) join(token string, filter *filters.LocalFilter) (*allowListBuild, bool) {
 	d.mu.Lock()
 	existing, ok := d.inFlight[token]
@@ -170,9 +163,8 @@ func (d *allowListDedupe) join(token string, filter *filters.LocalFilter) (*allo
 	return existing, false
 }
 
-// publish hands the build's outcome to the waiters and stops new participants
-// from joining it. It reports whether anyone was waiting on the result, which is
-// what separates "dedupe fired" from "the legs never overlapped".
+// publish hands the build's outcome to the waiters, stops new joiners, and
+// reports whether anyone was waiting — the shared/unshared distinction.
 func (d *allowListDedupe) publish(token string, b *allowListBuild,
 	owner helpers.AllowList, bm *sroar.Bitmap,
 ) bool {
@@ -207,9 +199,8 @@ func (b *allowListBuild) admit() {
 	b.mu.Unlock()
 }
 
-// leave releases an admitted participant that ends up not consuming the result.
-// It is the counterpart to admit: a waiter that gives up before publish must not
-// leave the build looking as though it was shared.
+// leave releases an admitted participant that ends up not consuming the
+// result — the counterpart to admit, so giving up early can't look shared.
 func (b *allowListBuild) leave() {
 	b.mu.Lock()
 	b.waiters--
@@ -223,9 +214,8 @@ func (b *allowListBuild) drop() {
 	if b.refs < 0 {
 		b.mu.Unlock()
 		// Unreachable by construction: every participant owes exactly one drop,
-		// and lead publishes before it drops. Getting here means an extra
-		// release was added somewhere, so fail where it happened rather than
-		// leaving the count negative and the bug to surface elsewhere.
+		// and lead publishes before dropping. An extra release means a bug
+		// elsewhere; fail here rather than leave refs negative.
 		panic("allowListBuild: negative reference count")
 	}
 	last, owner := b.refs == 0, b.owner
@@ -255,11 +245,10 @@ func (b *allowListBuild) handle(bm *sroar.Bitmap) helpers.AllowList {
 // sameFilter reports whether two filter trees resolve to the same doc IDs. It
 // errs towards false, which only costs the dedupe, never correctness.
 //
-// Both operands always reach a given shard the same way: one shared pointer when
-// the shard is local, two independent deserializations when it is remote. Mixing
-// the two forms is not guaranteed to compare equal (a Date stays a string on the
-// wire, a GeoRange loses its pointer), but no path produces such a pair, because
-// legs that pick different replicas land on different nodes and never meet.
+// Both legs reach a shard the same way: one shared pointer locally, two
+// independent deserializations remotely, which are not guaranteed to compare
+// equal (e.g. a Date becomes a string on the wire). The two never mix: legs
+// on different replicas land on different shards.
 func sameFilter(a, b *filters.LocalFilter) bool {
 	if a == b {
 		return true

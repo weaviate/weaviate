@@ -28,13 +28,11 @@ const (
 // Per-leg outcomes, counted on the shard. Kept distinct so "legs never
 // overlapped" can't be confused with "legs overlapped but sharing failed".
 const (
-	// AllowListDedupeShared means a bitmap changed hands: this leg either
-	// reused a build already in flight, or led one that others took a
-	// reference to.
+	// AllowListDedupeShared means a bitmap changed hands: this leg reused an
+	// in-flight build, or led one that another leg joined.
 	AllowListDedupeShared = "shared"
 	// AllowListDedupeUnshared means dedupe was on but nothing was shared: this
-	// leg led a build nobody joined, or led one that produced no shareable
-	// result.
+	// leg led a build nobody joined, or one that produced no shareable result.
 	AllowListDedupeUnshared = "unshared"
 	// AllowListDedupeFilterMismatch means a leg arrived under a token already in
 	// flight for a different filter, so sharing was refused.

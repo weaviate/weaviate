@@ -112,10 +112,8 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 		leaderFilt *filters.LocalFilter
 		followFilt *filters.LocalFilter
 		wantBuilds int32
-		// wantLeaderOutcome / wantFollowOutcome are the labels each call reports.
-		// The leader's is not always "unshared": leading a build that another leg
-		// took a reference to is sharing, and folding the two together would make
-		// "the legs never overlapped" indistinguishable from "dedupe fired".
+		// wantLeaderOutcome / wantFollowOutcome are the labels each call must
+		// report; the leader is "shared", not "unshared", when a follower joins it.
 		wantLeaderOutcome string
 		wantFollowOutcome string
 	}{

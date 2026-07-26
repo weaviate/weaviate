@@ -252,13 +252,8 @@ func TestAllowListDedupeJoinDropStorm(t *testing.T) {
 	assert.Empty(t, d.inFlight)
 }
 
-// TestAllowListDedupeOutcomesAreDistinct pins the outcome each leg reports.
-//
-// Two things are load-bearing here. A leader whose build another leg took a
-// reference to reports "shared", not "unshared" — otherwise a perfectly
-// deduping pair reads 1:1 and is indistinguishable from a pair that never
-// overlapped. And do records nothing itself: the call site is the single
-// writer, so an outcome cannot be counted at both ends.
+// TestAllowListDedupeOutcomesAreDistinct pins that every outcome, including a
+// sharing leader, lands in its own series exactly once, never double-counted.
 func TestAllowListDedupeOutcomesAreDistinct(t *testing.T) {
 	const metric = "weaviate_filter_allow_list_dedupe_total"
 
@@ -389,9 +384,8 @@ func TestAllowListDedupeOutcomesAreDistinct(t *testing.T) {
 		})
 	}
 
-	// do must not touch the counters. Recording both here and at the call site
-	// is the same shape as the duplicated build this whole change removes, and
-	// it would make every series read exactly twice the truth.
+	// do must not touch the counters; only the call site records, or every
+	// series would read exactly twice the truth.
 	after := gatherCounter(t, metric, "outcome")
 	for _, outcome := range want {
 		assert.Equal(t, before[outcome], after[outcome],

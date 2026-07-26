@@ -347,14 +347,9 @@ func TestHybridFilteredConcurrentQueries(t *testing.T) {
 	wg.Wait()
 }
 
-// TestShardAllowListDedupeCountsEachLegOnce drives the real call site, because
-// that is the only place the counters are written. The unit tests call do()
-// directly and therefore cannot see a call site that records a second time — the
-// same shape as the duplicated build this change exists to remove.
-//
-// Two overlapping legs on one shard must move the total by exactly 2, and both
-// must land on "shared": a deduping pair that reported 1 shared and 1 unshared
-// would be indistinguishable from a pair that never overlapped.
+// TestShardAllowListDedupeCountsEachLegOnce drives the real call site (do()
+// alone can't see a double-count there) and pins that overlapping legs both
+// land on "shared", counted exactly once each.
 func TestShardAllowListDedupeCountsEachLegOnce(t *testing.T) {
 	repo, _, _, _ := setupDedupeRepo(t)
 	idx := repo.GetIndex("MyClass")
@@ -374,9 +369,8 @@ func TestShardAllowListDedupeCountsEachLegOnce(t *testing.T) {
 	}
 
 	t.Run("two overlapping legs", func(t *testing.T) {
-		// The two legs race, so an overlap is likely but not guaranteed. Retry
-		// until one is observed; every attempt still checks the total, which is
-		// what catches an outcome recorded at both ends.
+		// An overlap is likely but not guaranteed; retry until one lands. Every
+		// attempt still checks the total, which catches a double-count either way.
 		const attempts = 50
 		overlapped := false
 
@@ -415,10 +409,8 @@ func TestShardAllowListDedupeCountsEachLegOnce(t *testing.T) {
 			require.EqualValues(t, 0,
 				after[helpers.AllowListDedupeFilterMismatch]-before[helpers.AllowListDedupeFilterMismatch])
 
-			// Sharing is symmetric: the leader whose bitmap was taken and the leg
-			// that took it both report it. Exactly one "shared" would mean the
-			// leader is reporting what it is rather than what happened, which
-			// reads identically to a pair that never met.
+			// Sharing is symmetric: leader and joiner both report it. Exactly one
+			// "shared" would mean the leader reports what it is, not what happened.
 			require.NotEqualValues(t, 1, shared,
 				"sharing must be reported by both legs or neither")
 

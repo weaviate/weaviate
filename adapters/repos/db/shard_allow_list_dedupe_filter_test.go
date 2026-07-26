@@ -27,10 +27,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// roundTripFilter puts a filter through the real cluster-internal search-params
-// marshalling, the way a remote shard receives one. Both legs of a hybrid query
-// reach a remote shard as two independent deserializations, so this is the shape
-// sameFilter has to work on in every multi-node deployment.
+// roundTripFilter puts a filter through the real cluster-internal marshalling
+// a remote shard receives, producing the independent-deserialization shape
+// sameFilter has to compare correctly.
 func roundTripFilter(t *testing.T, f *filters.LocalFilter) *filters.LocalFilter {
 	t.Helper()
 	payload, err := shared.IndicesPayloads.SearchParams.Marshal(
@@ -51,15 +50,13 @@ func leaf(op filters.Operator, prop string, value *filters.Value) *filters.Local
 	}}
 }
 
-// TestSameFilterSurvivesTheWire is a regression guard, not a bug hunt. The
-// hypothesis that Date and GeoCoordinates would break the reflective comparison
-// after a round trip was measured on a 4-node rig and falsified: filter_mismatch
-// stayed at zero on every shape, on every node. Value.UnmarshalJSON is why — it
-// restores the concrete type behind the interface from Value.Type.
+// TestSameFilterSurvivesTheWire pins that every shape below round-trips to an
+// equal filter. Measured on a 4-node rig: Date and GeoCoordinates were suspected
+// to break the reflective comparison after marshalling and didn't —
+// Value.UnmarshalJSON restores the concrete type from Value.Type.
 //
-// The table exists so a future serialization change cannot quietly undo that and
-// turn the whole feature into a no-op, which would show up only as a rise in the
-// filter_mismatch counter.
+// Kept exhaustive so a future serialization change can't quietly turn dedupe
+// into a no-op, which would only show up as filter_mismatch rising.
 func TestSameFilterSurvivesTheWire(t *testing.T) {
 	geo := func(lat, lon float32) *filters.GeoRange {
 		return &filters.GeoRange{
@@ -122,9 +119,8 @@ func TestSameFilterSurvivesTheWire(t *testing.T) {
 		},
 		{
 			name: "date carrying a monotonic reading and a non-UTC location",
-			// The named suspect: a monotonic clock reading and a *Location neither
-			// survive marshalling. Both legs lose them identically, which is why
-			// this compares equal rather than disabling dedupe.
+			// Monotonic reading and non-UTC *Location don't survive marshalling; both
+			// legs lose them identically, so this still compares equal.
 			build: func() *filters.LocalFilter {
 				return leaf(filters.OperatorGreaterThan, "created", &filters.Value{Value: when.In(time.FixedZone("CEST", 2*3600)), Type: schema.DataTypeDate})
 			},
@@ -243,8 +239,6 @@ func TestSameFilterSurvivesTheWire(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Two legs of one query reaching a remote shard: the coordinator
-			// marshals the same filter twice, the data node unmarshals twice.
 			legA := roundTripFilter(t, tt.build())
 			legB := roundTripFilter(t, tt.build())
 			require.NotNil(t, legA)
