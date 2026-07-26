@@ -18,6 +18,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -945,4 +946,237 @@ func bitmapAbove(src *sroar.Bitmap, containers int) *sroar.Bitmap {
 		}
 	}
 	return bm
+}
+
+func TestValidateBufPoolSizes(t *testing.T) {
+	const (
+		KiB = 1 << 10
+		MiB = 1 << 20
+	)
+
+	// The shipped defaults, as configure_api passes them.
+	const (
+		defaultMaxBufSize = 32 * MiB
+		defaultMaxMemory  = 128 * MiB
+	)
+
+	testCases := []struct {
+		name       string
+		maxBufSize int
+		maxMemory  int
+		expErr     string
+	}{
+		{
+			name:       "shipped defaults",
+			maxBufSize: defaultMaxBufSize,
+			maxMemory:  defaultMaxMemory,
+		},
+		{
+			name:       "smallest usable pair",
+			maxBufSize: 2 * MiB,
+			maxMemory:  2 * MiB,
+		},
+		{
+			name:       "budget covers fewer classes than requested",
+			maxBufSize: 32 * MiB,
+			maxMemory:  40 * MiB,
+		},
+		{
+			name:       "non power of two max buf size",
+			maxBufSize: 3 * MiB,
+			maxMemory:  32 * MiB,
+		},
+		{
+			name:       "max buf size below the sync tier ceiling",
+			maxBufSize: 512 * KiB,
+			maxMemory:  defaultMaxMemory,
+			expErr:     "leaves no in-memory buffer class",
+		},
+		{
+			name:       "max buf size exactly at the sync tier ceiling",
+			maxBufSize: 1 * MiB,
+			maxMemory:  defaultMaxMemory,
+			expErr:     "leaves no in-memory buffer class",
+		},
+		{
+			name:       "budget below the smallest in-memory class",
+			maxBufSize: 2 * MiB,
+			maxMemory:  1 * MiB,
+			expErr:     "exceeds the total buffer budget",
+		},
+		{
+			name:       "budget below the smallest in-memory class, matching buf size",
+			maxBufSize: 1 * MiB,
+			maxMemory:  1 * MiB,
+			expErr:     "leaves no in-memory buffer class",
+		},
+		{
+			name:       "default max buf size against a 1MiB budget",
+			maxBufSize: defaultMaxBufSize,
+			maxMemory:  1 * MiB,
+			expErr:     "exceeds the total buffer budget",
+		},
+		{
+			name:       "max buf size above the budget",
+			maxBufSize: 32 * MiB,
+			maxMemory:  4 * MiB,
+			expErr:     "exceeds the total buffer budget",
+		},
+		{
+			name:       "max buf size one byte above the budget",
+			maxBufSize: 2*MiB + 1,
+			maxMemory:  2 * MiB,
+			expErr:     "exceeds the total buffer budget",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateBufPoolSizes(tc.maxBufSize, tc.maxMemory)
+
+			if tc.expErr != "" {
+				require.ErrorContains(t, err, tc.expErr)
+				return
+			}
+			require.NoError(t, err)
+
+			// Accepting a pair has to mean the pool it builds is usable. Anything
+			// that validates and still has an empty in-memory tier is the silent
+			// truncation this check exists to prevent.
+			logger, _ := test.NewNullLogger()
+			pool, stop := NewBitmapBufPoolDefault(logger, nil, tc.maxBufSize, tc.maxMemory)
+			defer stop()
+			ranged := pool.(*bitmapBufPoolRanged)
+			require.NotEmpty(t, ranged.poolsInMemo)
+			require.Greater(t, ranged.ranges[len(ranged.ranges)-1], 1<<bufPoolSyncMaxRangeP2)
+		})
+	}
+}
+
+// The growth factor applies to every pooled clone at the shipped defaults, so
+// it needs a gate that does not depend on a test double or a non-default knob.
+func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
+	const MiB = 1 << 20
+
+	// Sized to sit in the top 20% of the 2MiB class, where 1.25x moves the
+	// request into the next one. That is the whole behaviour change.
+	const topOfClassIDs = 14_000_000
+
+	newPool := func(t *testing.T) *bitmapBufPoolRanged {
+		logger, _ := test.NewNullLogger()
+		pool, stop := NewBitmapBufPoolDefault(logger, nil, 32*MiB, 128*MiB)
+		t.Cleanup(stop)
+		return pool.(*bitmapBufPoolRanged)
+	}
+
+	// servedClass reports the size class a returned buffer landed in, by
+	// draining the in-memory pools after the buffer was put back.
+	servedClass := func(p *bitmapBufPoolRanged) int {
+		for i, inMemo := range p.poolsInMemo {
+			select {
+			case ptr := <-inMemo.bufsCh:
+				require.Equal(t, p.ranges[p.firstInMemoRngIdx+i], cap(*ptr))
+				return p.ranges[p.firstInMemoRngIdx+i]
+			default:
+			}
+		}
+		return 0
+	}
+
+	src := sroar.Prefill(topOfClassIDs)
+	require.Greater(t, withGrowthHeadroom(src.LenInBytes(), bitmapCloneGrowthFactor), 2*MiB)
+	require.LessOrEqual(t, src.LenInBytes(), 2*MiB)
+
+	t.Run("the production pool clones a class above the source", func(t *testing.T) {
+		p := newPool(t)
+
+		_, put := p.Get(src.LenInBytes())
+		put()
+		require.Equal(t, 2*MiB, servedClass(p))
+
+		_, put = p.CloneToBuf(src)
+		put()
+		require.Equal(t, 4*MiB, servedClass(p))
+	})
+
+	t.Run("the whole-shard clone inherits it", func(t *testing.T) {
+		p := newPool(t)
+		bmf := NewBitmapFactory(p, func() uint64 { return topOfClassIDs - defaultIdIncrement })
+
+		bm, release := bmf.GetBitmap()
+		require.Equal(t, topOfClassIDs-defaultIdIncrement, bm.Maximum())
+		release()
+
+		require.Equal(t, 4*MiB, servedClass(p))
+	})
+}
+
+// A pool built outside config validation, or one whose budget silently drops
+// the largest class asked for, has to say so — the surviving sync.Pool tier
+// emits no metrics, so nothing else would show it.
+func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
+	const (
+		KiB = 1 << 10
+		MiB = 1 << 20
+	)
+
+	testCases := []struct {
+		name       string
+		maxBufSize int
+		maxMemory  int
+		expWarn    string
+	}{
+		{
+			name:       "shipped defaults",
+			maxBufSize: 32 * MiB,
+			maxMemory:  128 * MiB,
+		},
+		{
+			name:       "no in-memory class at all",
+			maxBufSize: 512 * KiB,
+			maxMemory:  128 * MiB,
+			expWarn:    "leaves no in-memory buffer class",
+		},
+		{
+			name:       "budget covers fewer classes than requested",
+			maxBufSize: 32 * MiB,
+			maxMemory:  40 * MiB,
+			expWarn:    "only covers in-memory buffer classes up to 16 MiB",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			_, stop := NewBitmapBufPoolDefault(logger, nil, tc.maxBufSize, tc.maxMemory)
+			defer stop()
+
+			if tc.expWarn == "" {
+				require.Empty(t, hook.AllEntries())
+				return
+			}
+			require.Len(t, hook.AllEntries(), 1)
+			require.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+			require.Contains(t, hook.LastEntry().Message, tc.expWarn)
+		})
+	}
+}
+
+func TestCloneBufSize(t *testing.T) {
+	const MiB = 1 << 20
+
+	// A clone sized from a wider bound than its source has to end up asking for
+	// the same thing CloneToBuf would have asked for at that size.
+	rec := &recordingBufPool{}
+	src := prefilledOfAtLeast(2 * MiB)
+	wider := src.LenInBytes() * 2
+
+	rec.Get(CloneBufSize(wider))
+	viaHelper := rec.lastMinCap
+
+	widerBm := prefilledOfAtLeast(wider)
+	rec.CloneToBuf(widerBm)
+
+	require.Equal(t, CloneBufSize(widerBm.LenInBytes()), rec.lastMinCap)
+	require.Greater(t, viaHelper, wider)
 }

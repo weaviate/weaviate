@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -1878,17 +1879,23 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 		{"unsupported unit", []string{"5GiL"}, 0, true},
 	}
 
+	// The other variable is pinned wide enough that only the bound under test
+	// can reject a value, not the pair check that follows it.
 	envNames := []struct {
-		envName    string
-		defaultVal int
-		read       func(Config) int
+		envName       string
+		defaultVal    int
+		otherEnvName  string
+		otherEnvValue string
+		read          func(Config) int
 	}{
 		{
 			"QUERY_BITMAP_BUFS_MAX_MEMORY", DefaultQueryBitmapBufsMaxMemory,
+			"QUERY_BITMAP_BUFS_MAX_BUF_SIZE", "2MiB",
 			func(c Config) int { return c.QueryBitmapBufsMaxMemory },
 		},
 		{
 			"QUERY_BITMAP_BUFS_MAX_BUF_SIZE", DefaultQueryBitmapBufsMaxBufSize,
+			"QUERY_BITMAP_BUFS_MAX_MEMORY", "1TiB",
 			func(c Config) int { return c.QueryBitmapBufsMaxBufSize },
 		},
 	}
@@ -1896,6 +1903,7 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 	for _, env := range envNames {
 		for _, tt := range tests {
 			t.Run(env.envName+"/"+tt.name, func(t *testing.T) {
+				t.Setenv(env.otherEnvName, env.otherEnvValue)
 				if len(tt.value) == 1 {
 					t.Setenv(env.envName, tt.value[0])
 				}
@@ -1915,5 +1923,81 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 				require.Equal(t, expected, env.read(conf))
 			})
 		}
+	}
+}
+
+// The per-variable bounds accept pairs that build a buffer pool with no
+// in-memory size class at all, which is the silent truncation the bounds were
+// added to prevent, reached through accepted values instead of overflow.
+func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
+	tests := []struct {
+		name    string
+		memory  string
+		bufSize string
+		expErr  string
+	}{
+		{
+			name: "both unset",
+		},
+		{
+			name:    "explicit defaults",
+			memory:  "128MiB",
+			bufSize: "32MiB",
+		},
+		{
+			name:    "smallest usable pair",
+			memory:  "2MiB",
+			bufSize: "2MiB",
+		},
+		{
+			name:   "budget below the smallest in-memory class",
+			memory: "1MiB",
+			expErr: "exceeds the total buffer budget",
+		},
+		{
+			name:    "budget below the smallest in-memory class, matching buf size",
+			memory:  "1MiB",
+			bufSize: "1MiB",
+			expErr:  "leaves no in-memory buffer class",
+		},
+		{
+			name:    "max buf size below the sync tier ceiling",
+			bufSize: "512KiB",
+			expErr:  "leaves no in-memory buffer class",
+		},
+		{
+			name:    "max buf size exactly at the sync tier ceiling",
+			bufSize: "1MiB",
+			expErr:  "leaves no in-memory buffer class",
+		},
+		{
+			name:    "max buf size above the budget",
+			memory:  "4MiB",
+			bufSize: "32MiB",
+			expErr:  "exceeds the total buffer budget",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.memory != "" {
+				t.Setenv("QUERY_BITMAP_BUFS_MAX_MEMORY", tt.memory)
+			}
+			if tt.bufSize != "" {
+				t.Setenv("QUERY_BITMAP_BUFS_MAX_BUF_SIZE", tt.bufSize)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expErr != "" {
+				require.ErrorContains(t, err, tt.expErr)
+				require.ErrorContains(t, err, "QUERY_BITMAP_BUFS_MAX_BUF_SIZE/QUERY_BITMAP_BUFS_MAX_MEMORY")
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, roaringset.ValidateBufPoolSizes(
+				conf.QueryBitmapBufsMaxBufSize, conf.QueryBitmapBufsMaxMemory))
+		})
 	}
 }

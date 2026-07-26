@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -1434,6 +1435,13 @@ func FromEnv(config *Config) error {
 			return err
 		}
 		config.QueryBitmapBufsMaxBufSize = bytes
+	}
+
+	// The two bounds are only meaningful together: pairs that are individually
+	// in range still combine into a pool with no in-memory size class.
+	if err := roaringset.ValidateBufPoolSizes(config.QueryBitmapBufsMaxBufSize,
+		config.QueryBitmapBufsMaxMemory); err != nil {
+		return fmt.Errorf("QUERY_BITMAP_BUFS_MAX_BUF_SIZE/QUERY_BITMAP_BUFS_MAX_MEMORY: %w", err)
 	}
 
 	invertedSorterDisabled := false
