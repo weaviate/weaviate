@@ -1437,8 +1437,8 @@ func FromEnv(config *Config) error {
 		config.QueryBitmapBufsMaxBufSize = bytes
 	}
 
-	// The two bounds are only meaningful together: pairs that are individually
-	// in range still combine into a pool with no in-memory size class.
+	// Valid in isolation, these two can still combine into a pool with no
+	// in-memory size class.
 	if err := roaringset.ValidateBufPoolSizes(config.QueryBitmapBufsMaxBufSize,
 		config.QueryBitmapBufsMaxMemory); err != nil {
 		return fmt.Errorf("QUERY_BITMAP_BUFS_MAX_BUF_SIZE/QUERY_BITMAP_BUFS_MAX_MEMORY: %w", err)

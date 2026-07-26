@@ -22,10 +22,8 @@ import (
 // _MAX_BUF_SIZE: an unbounded value would size channels with ~10^11 slots at boot.
 const MaxQueryBitmapBufsSize = 1 << 40
 
-// parseBitmapBufsSize is the shape a config knob should be parsed in: a value
-// that cannot be honoured names the variable and the value it rejected, and
-// stops the boot. Falling back to the default instead leaves the operator with
-// a knob that reads as set and behaves as unset, and no signal either way.
+// parseBitmapBufsSize fails loudly, naming the variable and rejected value,
+// rather than falling back to a default that would silently behave as unset.
 func parseBitmapBufsSize(envName, value string) (int, error) {
 	bytes, err := parseResourceString(value)
 	if err != nil {

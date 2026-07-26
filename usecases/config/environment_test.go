@@ -1926,9 +1926,8 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 	}
 }
 
-// The per-variable bounds accept pairs that build a buffer pool with no
-// in-memory size class at all, which is the silent truncation the bounds were
-// added to prevent, reached through accepted values instead of overflow.
+// Per-variable bounds still accept pairs that build a pool with no
+// in-memory size class — the silent truncation ValidateBufPoolSizes exists to catch.
 func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 	tests := []struct {
 		name    string
