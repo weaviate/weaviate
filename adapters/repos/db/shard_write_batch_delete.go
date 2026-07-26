@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -22,7 +23,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -171,6 +174,10 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 
 	start := time.Now()
 
+	// This path bypasses buildAllowList, so without its own slow-log sink a
+	// delete's filter annotations have nowhere to land.
+	ctx = helpers.InitSlowQueryDetails(ctx)
+
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
@@ -186,15 +193,24 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	currIdx := 0
 
 	defer func() {
-		logger := logger.WithFields(logrus.Fields{
+		fields := logrus.Fields{
 			"took":           time.Since(start).String(),
 			"filter_took":    fetchStart.Sub(start).String(),
 			"docids_found":   it.Len(),
 			"uuids_resolved": currIdx,
-		})
+		}
+		details := helpers.ExtractSlowQueryDetails(ctx)
+		maps.Copy(fields, details)
+		logger := logger.WithFields(fields)
+
 		if err != nil {
-			// log as debug
-			logger.WithError(err).Debug("Shard::FindUUIDs failed")
+			logger.Debugf("Shard::FindUUIDs failed: %v", err)
+			return
+		}
+		if _, viaRangeCascade := details[roaringsetrange.DocBitmapAnnotation]; viaRangeCascade {
+			// Elevated to Info: the leaf cache can serve this delete an entry
+			// another operation built, and this is the only record of that.
+			logger.Info("Shard::FindUUIDs finished")
 			return
 		}
 		logger.Debug("Shard::FindUUIDs finished")
