@@ -187,6 +187,13 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	}
 	defer allowList.Close()
 
+	// Counted the moment the filter has resolved, not from the defer below: the
+	// uuid loop still returns an error on a cancelled ctx, and a cancellation
+	// there does not change how the filter routed. Cancellations concentrate on
+	// long-running deletes, so gating this on the outcome would under-report
+	// exactly the deletes an operator reads the metric to investigate.
+	roaringsetrange.ObserveDeleteFilterResolution(ctx)
+
 	fetchStart := time.Now()
 	it := allowList.LimitedIterator(limit) // ensures only up to [limit] docIDs will be returned
 	uuids = make([]strfmt.UUID, it.Len())
@@ -197,14 +204,6 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 			"filter_took":    fetchStart.Sub(start).String(),
 			"docids_found":   it.Len(),
 			"uuids_resolved": currIdx,
-		}
-
-		if err == nil {
-			// The slow-log record below is the detail, but it only exists once an
-			// operator turns the slow log on and is sampled after that. This is the
-			// reading available by default.
-			_, viaCascade := helpers.ExtractSlowQueryDetails(ctx)[roaringsetrange.DocBitmapAnnotation]
-			roaringsetrange.ObserveBatchDeleteRouting(viaCascade)
 		}
 
 		// A delete-heavy workload makes one FindUUIDs call per batch per shard, so

@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"testing"
 	"time"
 
@@ -33,32 +34,60 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-const findUUIDsSlowLogProp = "rangeableInt"
+const (
+	findUUIDsSlowLogProp   = "rangeableInt"
+	findUUIDsFilterableInt = "filterableInt"
+	resolutionsSeries      = "weaviate_lsm_roaringsetrange_delete_filter_resolutions_total"
+)
 
 // FindUUIDs bypasses buildAllowList, so it needs its own slow-log sink to
 // record how the filter resolved. Asserting on the emitted record, not a
-// test-installed one, is what catches that sink being removed.
+// test-installed one, is what catches that sink being removed. The literal
+// source values are the contract an operator greps the record for.
 func Test_FindUUIDs_RecordsHowTheFilterResolved(t *testing.T) {
-	ctx := testCtx()
-	shard, hook := newFindUUIDsSlowLogShard(t, ctx)
+	tests := []struct {
+		name              string
+		rangeableInMemory bool
+		wantSource        string
+	}{
+		{name: "the default path", rangeableInMemory: false, wantSource: "disk_segments"},
+		{name: "in-memory range segment", rangeableInMemory: true, wantSource: "in_memory_segment"},
+	}
 
-	uuids, err := shard.FindUUIDs(ctx, rangeableIntFilter(filters.OperatorLessThanEqual, 5), 0)
-	require.NoError(t, err)
-	require.Len(t, uuids, 5, "the filter matched nothing, so any assertion on its record is vacuous")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, hook := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory)
 
-	entry := findSlowQueryEntry(t, hook, "FindUUIDs")
-	require.Contains(t, entry.Data, roaringsetrange.DocBitmapAnnotation,
-		"the range filter's annotation did not reach the record, so FindUUIDs resolved "+
-			"the delete with no sink installed for it to land in")
-	require.NotEmpty(t, entry.Data[roaringsetrange.DocBitmapAnnotation])
+			uuids, err := shard.FindUUIDs(ctx, rangeableIntFilter(filters.OperatorLessThanEqual, 5), 0)
+			require.NoError(t, err)
+			require.Len(t, uuids, 5, "the filter matched nothing, so any assertion on its record is vacuous")
+
+			entry := findSlowQueryEntry(t, hook, "FindUUIDs")
+			require.Contains(t, entry.Data, roaringsetrange.DocBitmapAnnotation,
+				"the range filter's annotation did not reach the record, so FindUUIDs resolved "+
+					"the delete with no sink installed for it to land in")
+
+			reads, ok := entry.Data[roaringsetrange.DocBitmapAnnotation].([]map[string]any)
+			require.Truef(t, ok, "the annotation is %T, so nothing can read the routing out of it",
+				entry.Data[roaringsetrange.DocBitmapAnnotation])
+			require.NotEmpty(t, reads)
+			for _, read := range reads {
+				require.Equal(t, tt.wantSource, read["source"],
+					"the record names a backing the read did not come from")
+			}
+		})
+	}
 }
 
 // The record is per FindUUIDs call, and a delete-heavy or replication-heavy
 // workload makes one call per batch per shard. It has to sit behind the same
-// bound as every other per-query record, not be emitted unconditionally.
+// bound as every other per-query record, not be emitted unconditionally. The
+// bound is at the reporter, above anything the range index does, so the
+// default configuration is enough to exercise it.
 func Test_FindUUIDs_RecordIsBoundedByTheSlowLogSwitch(t *testing.T) {
 	ctx := testCtx()
-	shard, hook := newFindUUIDsSlowLogShard(t, ctx, func(idx *Index) {
+	shard, hook := newFindUUIDsSlowLogShard(t, ctx, false, func(idx *Index) {
 		idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(false)
 	})
 
@@ -71,10 +100,101 @@ func Test_FindUUIDs_RecordIsBoundedByTheSlowLogSwitch(t *testing.T) {
 	}
 }
 
+// The slow-query record above needs QUERY_SLOW_LOG_ENABLED, which is off by
+// default, so the counter is the only reading of the routing a stock
+// deployment has. Both arms run because the label has to name the backing that
+// actually answered: the annotation the record carries is written on both
+// paths, so a label derived from its presence alone reads rangeable_in_memory
+// on the default path, where no in-memory segment and no leaf cache exist.
+func Test_FindUUIDs_CountsWhichBackingResolvedTheFilter(t *testing.T) {
+	tests := []struct {
+		name              string
+		rangeableInMemory bool
+		wantRouted        string
+	}{
+		{name: "the default path", rangeableInMemory: false, wantRouted: "rangeable_on_disk"},
+		{name: "in-memory range segment", rangeableInMemory: true, wantRouted: "rangeable_in_memory"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, hook := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory, func(idx *Index) {
+				idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(false)
+			})
+
+			before := gatheredLabelValues(t, resolutionsSeries)
+			require.NotEmptyf(t, before, "%s is not emitted, so nothing records the routing",
+				resolutionsSeries)
+
+			_, err := shard.FindUUIDs(ctx, rangeableIntFilter(filters.OperatorLessThanEqual, 5), 0)
+			require.NoError(t, err)
+
+			want := maps.Clone(before)
+			want[tt.wantRouted]++
+			require.Equalf(t, want, gatheredLabelValues(t, resolutionsSeries),
+				"the resolution was not counted as %q", tt.wantRouted)
+
+			for _, entry := range hook.AllEntries() {
+				require.NotEqualf(t, "FindUUIDs", entry.Data["query"],
+					"the slow log is off, so this reading has to come from the counter alone: %s",
+					entry.Message)
+			}
+		})
+	}
+}
+
+// The series is named for resolutions because that is where it increments: a
+// filter that matched nothing still traversed the cascade and still cost what
+// the routing label reports, and the delete that follows it removes nothing.
+// A counter named for deletes would have to skip this and would then answer no
+// question about the cascade at all. The non-rangeable arm is here because
+// nothing else exercises that child.
+func Test_FindUUIDs_CountsAResolutionThatMatchedNothing(t *testing.T) {
+	tests := []struct {
+		name       string
+		filter     *filters.LocalFilter
+		wantRouted string
+	}{
+		{
+			name:       "rangeable property",
+			filter:     rangeableIntFilter(filters.OperatorLessThan, 1),
+			wantRouted: "rangeable_on_disk",
+		},
+		{
+			name:       "filterable property",
+			filter:     filterableIntFilter(filters.OperatorEqual, 99),
+			wantRouted: "non_rangeable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, _ := newFindUUIDsSlowLogShard(t, ctx, false)
+
+			before := gatheredLabelValues(t, resolutionsSeries)
+
+			uuids, err := shard.FindUUIDs(ctx, tt.filter, 0)
+			require.NoError(t, err)
+			require.Empty(t, uuids, "the filter matched, so this proves nothing about an empty one")
+
+			want := maps.Clone(before)
+			want[tt.wantRouted]++
+			require.Equalf(t, want, gatheredLabelValues(t, resolutionsSeries),
+				"a resolution that matched nothing went uncounted, so the series counts "+
+					"deletes rather than the resolutions it is named for")
+		})
+	}
+}
+
 // newFindUUIDsSlowLogShard builds a shard with ten objects at rangeableInt ==
 // 1..10; the slow-log threshold is set below any achievable duration so every
 // call reports and the assertion isn't a coin flip on sampling.
-func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, indexOpts ...func(*Index),
+// rangeableInMemory is a parameter rather than a default, so no test can
+// silently inherit the non-default backing.
+func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, rangeableInMemory bool,
+	indexOpts ...func(*Index),
 ) (ShardLike, *test.Hook) {
 	t.Helper()
 
@@ -87,12 +207,17 @@ func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, indexOpts ...fu
 			Name:              findUUIDsSlowLogProp,
 			DataType:          []string{string(schema.DataTypeInt)},
 			IndexRangeFilters: boolPtr(true),
+		}, {
+			Name:              findUUIDsFilterableInt,
+			DataType:          []string{string(schema.DataTypeInt)},
+			IndexFilterable:   boolPtr(true),
+			IndexRangeFilters: boolPtr(false),
 		}},
 	}
 
 	opts := append([]func(*Index){func(idx *Index) {
 		idx.logger = logger
-		idx.Config.IndexRangeableInMemory = true
+		idx.Config.IndexRangeableInMemory = rangeableInMemory
 		idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(true)
 		idx.Config.QuerySlowLogThreshold = configRuntime.NewDynamicValue(time.Nanosecond)
 	}}, indexOpts...)
@@ -104,9 +229,12 @@ func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, indexOpts ...fu
 		require.NoError(t, shard.PutObject(ctx, &storobj.Object{
 			MarshallerVersion: 1,
 			Object: models.Object{
-				ID:         strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i)),
-				Class:      class.Class,
-				Properties: map[string]interface{}{findUUIDsSlowLogProp: float64(i)},
+				ID:    strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i)),
+				Class: class.Class,
+				Properties: map[string]interface{}{
+					findUUIDsSlowLogProp:   float64(i),
+					findUUIDsFilterableInt: float64(i),
+				},
 			},
 		}))
 	}
@@ -116,12 +244,20 @@ func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, indexOpts ...fu
 }
 
 func rangeableIntFilter(operator filters.Operator, value int) *filters.LocalFilter {
+	return findUUIDsIntFilter(findUUIDsSlowLogProp, operator, value)
+}
+
+func filterableIntFilter(operator filters.Operator, value int) *filters.LocalFilter {
+	return findUUIDsIntFilter(findUUIDsFilterableInt, operator, value)
+}
+
+func findUUIDsIntFilter(prop string, operator filters.Operator, value int) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: operator,
 			On: &filters.Path{
 				Class:    schema.ClassName("FindUUIDsSlowLog"),
-				Property: schema.PropertyName(findUUIDsSlowLogProp),
+				Property: schema.PropertyName(prop),
 			},
 			Value: &filters.Value{Value: value, Type: schema.DataTypeInt},
 		},
@@ -138,30 +274,4 @@ func findSlowQueryEntry(t *testing.T, hook *test.Hook, query string) *logrus.Ent
 	}
 	t.Fatalf("no slow-query record for %q; the shard emitted %d entries", query, len(hook.AllEntries()))
 	return nil
-}
-
-// The slow-query record above only exists once QUERY_SLOW_LOG_ENABLED is on,
-// which it is not by default, and is sampled after that. On a stock deployment
-// the counter is the only evidence that a delete was served from the range
-// cascade, so it has to move with the slow log off.
-func Test_FindUUIDs_CountsCascadeRoutingWithTheSlowLogOff(t *testing.T) {
-	ctx := testCtx()
-	shard, hook := newFindUUIDsSlowLogShard(t, ctx, func(idx *Index) {
-		idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(false)
-	})
-
-	before := gatheredLabelValues(t, "weaviate_lsm_roaringsetrange_batch_delete_total")
-
-	_, err := shard.FindUUIDs(ctx, rangeableIntFilter(filters.OperatorLessThanEqual, 5), 0)
-	require.NoError(t, err)
-
-	after := gatheredLabelValues(t, "weaviate_lsm_roaringsetrange_batch_delete_total")
-	require.Equalf(t, before["cascade"]+1, after["cascade"],
-		"a cascade-routed delete left no counter behind, so on stock settings nothing records it")
-	require.Equal(t, before["other"], after["other"], "it was not routed through the cascade")
-
-	for _, entry := range hook.AllEntries() {
-		require.NotEqualf(t, "FindUUIDs", entry.Data["query"],
-			"the slow log is off, so this reading has to come from the counter alone: %s", entry.Message)
-	}
 }

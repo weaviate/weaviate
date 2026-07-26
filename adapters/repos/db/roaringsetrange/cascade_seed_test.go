@@ -260,12 +260,14 @@ func TestEmittedSeriesNames(t *testing.T) {
 		leafCacheOpsName: {
 			"hit", "miss", "store", "rejected", "invalidate", "disabled",
 		},
-		cascadeSeedOpsName:    {"seeded", "disabled", "no_set_bit"},
-		batchDeleteOpsName:    {"cascade", "other"},
+		cascadeSeedOpsName: {"seeded", "disabled", "no_set_bit"},
+		deleteFilterResolutionsName: {
+			routedRangeableInMemory, routedRangeableOnDisk, routedNonRangeable,
+		},
 		cascadeSeedConfigName: {"enabled", "disabled", "unrecognised"},
-		// The one gauge that reads on the default path, where every other series
-		// in this subsystem is flat. A rename here is invisible to the other
-		// three assertions and takes the default path's only reading with it.
+		// The gauge that separates "off" from "idle" for every other entry in
+		// this table. A rename here is invisible to all of them and takes the
+		// default path's only unambiguous reading with it.
 		leafCacheConfigName: leafCacheStates,
 	}
 
