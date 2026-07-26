@@ -18,6 +18,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -1176,4 +1177,34 @@ func TestCloneBufSize(t *testing.T) {
 
 	require.Equal(t, CloneBufSize(widerBm.LenInBytes()), rec.lastMinCap)
 	require.Greater(t, viaHelper, wider)
+}
+
+// The disposable counter is the only one that fires in the degraded state the
+// buffer-pool bounds exist to prevent, so its size label has to line up with
+// the inmemo_* labels for the same request. It rounded an exact power of two up
+// a second time, overstating by 2x-4x.
+func TestSizeClassCeil(t *testing.T) {
+	tests := []struct {
+		sizeInBytes int
+		want        uint64
+		label       string
+	}{
+		{sizeInBytes: 0, want: 1, label: "1 B"},
+		{sizeInBytes: 1, want: 1, label: "1 B"},
+		{sizeInBytes: 2, want: 2, label: "2 B"},
+		{sizeInBytes: 3, want: 4, label: "4 B"},
+		{sizeInBytes: 512, want: 512, label: "512 B"},
+		{sizeInBytes: 513, want: 1024, label: "1.0 KiB"},
+		{sizeInBytes: 1 << 20, want: 1 << 20, label: "1.0 MiB"},
+		{sizeInBytes: (1 << 20) + 1, want: 1 << 21, label: "2.0 MiB"},
+		{sizeInBytes: 1 << 22, want: 1 << 22, label: "4.0 MiB"},
+		{sizeInBytes: 3 << 20, want: 1 << 22, label: "4.0 MiB"},
+	}
+
+	for _, tt := range tests {
+		t.Run(humanize.IBytes(uint64(tt.sizeInBytes)), func(t *testing.T) {
+			require.Equal(t, tt.want, sizeClassCeil(tt.sizeInBytes))
+			require.Equal(t, tt.label, humanize.IBytes(sizeClassCeil(tt.sizeInBytes)))
+		})
+	}
 }

@@ -506,13 +506,18 @@ func newPromBufDisposableMetrics(metrics *monitoring.PrometheusMetrics) *promBuf
 }
 
 func (m *promBufDisposableMetrics) bufCreated(sizeInBytes int) {
-	s := uint64(sizeInBytes)
-	ceil := uint64(1 << bits.Len64(s))
-	if s^ceil != 0 {
-		ceil *= 2
+	m.usageCounter.WithLabelValues(humanize.IBytes(sizeClassCeil(sizeInBytes)), "disposable_created").Inc()
+}
+
+// sizeClassCeil rounds up to a power of two, so a disposable buffer lands on
+// the same size label the pooled tiers use for the same request. Len64(s-1)
+// rather than Len64(s): the latter is already the next power up for an exact
+// power of two, and rounding it again put a 512 B request under 2 KiB.
+func sizeClassCeil(sizeInBytes int) uint64 {
+	if sizeInBytes <= 1 {
+		return 1
 	}
-	size := humanize.IBytes(ceil)
-	m.usageCounter.WithLabelValues(size, "disposable_created").Inc()
+	return 1 << bits.Len64(uint64(sizeInBytes)-1)
 }
 
 type bufDisposableNoopMetrics struct{}
