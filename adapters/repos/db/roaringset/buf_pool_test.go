@@ -18,6 +18,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/dustin/go-humanize"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -1160,4 +1162,49 @@ func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 			require.Contains(t, hook.LastEntry().Message, tc.expWarn)
 		})
 	}
+}
+
+// disposable_created is the only series that fires when the in-memory tier is
+// empty, so its size label has to mean the same thing as the pooled tiers'.
+func TestDisposableBufMetricSizeLabel(t *testing.T) {
+	metrics := monitoring.GetMetrics()
+	m := newPromBufDisposableMetrics(metrics)
+
+	countFor := func(label string) float64 {
+		return testutil.ToFloat64(metrics.LSMBitmapBuffersUsage.WithLabelValues(label, "disposable_created"))
+	}
+
+	testCases := []struct {
+		name     string
+		size     int
+		expLabel string
+	}{
+		{name: "single byte", size: 1, expLabel: "1 B"},
+		{name: "exactly the smallest class", size: 512, expLabel: "512 B"},
+		{name: "one byte above a class", size: 513, expLabel: "1.0 KiB"},
+		{name: "exactly the sync tier ceiling", size: 1 << 20, expLabel: "1.0 MiB"},
+		{name: "exactly the largest in-memory class", size: 1 << 25, expLabel: "32 MiB"},
+		{name: "one byte above the largest class", size: 1<<25 + 1, expLabel: "64 MiB"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := countFor(tc.expLabel)
+			m.bufCreated(tc.size)
+			require.Equal(t, before+1, countFor(tc.expLabel))
+		})
+	}
+
+	t.Run("a request the size of a pooled class carries that class's label", func(t *testing.T) {
+		inMemoRanges, _ := inMemoBufferRangesAndLimits(1<<25, 1<<27)
+		require.NotEmpty(t, inMemoRanges)
+
+		for _, rng := range inMemoRanges {
+			pooledLabel := humanize.IBytes(uint64(rng))
+			before := countFor(pooledLabel)
+			m.bufCreated(rng)
+			require.Equal(t, before+1, countFor(pooledLabel),
+				"disposable label for %d bytes must match the pooled label %q", rng, pooledLabel)
+		}
+	})
 }
