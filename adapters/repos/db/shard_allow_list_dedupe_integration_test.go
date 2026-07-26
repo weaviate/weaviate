@@ -437,23 +437,10 @@ func TestShardAllowListDedupeCountsEachLegOnce(t *testing.T) {
 			"a query that was never a dedupe candidate must not move the counters")
 	})
 
-	// A leg that joins and then gives up before the result is published consumed
-	// nothing, so no share happened. Counting it as one made a cancelled wait
-	// look like a successful dedupe, and cancellation is exactly what an abort
-	// storm produces on purpose: every storm query would have recorded a share
-	// that never occurred.
-	//
-	// The follower's context is cancelled before it starts, so a legitimate share
-	// is impossible by construction and any movement on "shared" is the defect.
-	// A leg that joins and then gives up before the result is published consumed
-	// nothing, so no share happened. Counting it as one made a cancelled wait
-	// read as a successful dedupe, and cancellation is what an abort storm
-	// produces on purpose: every storm query would have recorded a phantom share.
-	//
-	// The leader is driven through the dedupe directly because buildAllowList
-	// offers no way to pause a real build, and without a pause the window is too
-	// narrow to hit reliably. The waiters, which is where the claim lives, go
-	// through the real call site.
+	// Regression: a cancelled follower must not count as a share. The leader
+	// runs through the dedupe directly, not buildAllowList, because there is
+	// no way to pause a real build at the call site and the window to hit
+	// this without a pause is too narrow to be reliable.
 	t.Run("a leg cancelled before publish is not a share", func(t *testing.T) {
 		const deadLegs = 4
 		const token = "tok-cancel"
@@ -511,10 +498,6 @@ func TestShardAllowListDedupeCountsEachLegOnce(t *testing.T) {
 			after[helpers.AllowListDedupeShared]-before[helpers.AllowListDedupeShared],
 			"a leg that gave up before publish consumed no bitmap, so nothing was shared")
 
-		// The leader's own label carries the rest of the claim: it published to
-		// nobody, so it led an unshared build. Reporting "shared" here is the
-		// defect, and it is the direction that inflates the series rather than
-		// deflating it.
 		assert.Equal(t, helpers.AllowListDedupeUnshared, leaderOutcome,
 			"the leader published to an empty audience")
 	})
