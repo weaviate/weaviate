@@ -342,8 +342,10 @@ func (r *segmentInMemoryReader) cloneSeed(seed *sroar.Bitmap) (*sroar.Bitmap, fu
 }
 
 // cloneCached hands out a private copy of a cached leaf, sized to the widest
-// plane rather than the leaf so downstream memtable ORs get the same room the
-// uncached path gives them. Same headroom caveat as cloneSeed.
+// plane rather than the leaf, plus CloneBufSize's growth headroom. Together
+// that is the room the uncached path leaves for downstream memtable ORs; a
+// raw Get on the bare max would drop the headroom on the cache-hit path,
+// which is the hottest path the memo exists to create.
 func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
 	buf, release := r.bufPool.Get(
 		roaringset.CloneBufSize(max(bm.LenInBytes(), r.bitmaps[0].LenInBytes())))
