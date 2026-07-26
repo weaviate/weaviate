@@ -114,9 +114,8 @@ func dedupeBroadFilter() *filters.LocalFilter {
 	}}
 }
 
-// TestShardAllowListDedupeSharesRealBitmap runs coalescing against the real
-// inverted index and pool, where a broken ownership model would corrupt a
-// buffer instead of just miscounting.
+// TestShardAllowListDedupeSharesRealBitmap uses the real inverted index and
+// pool, where a broken ownership model corrupts data instead of miscounting.
 func TestShardAllowListDedupeSharesRealBitmap(t *testing.T) {
 	repo, _, _, _ := setupDedupeRepo(t)
 	idx := repo.GetIndex("MyClass")

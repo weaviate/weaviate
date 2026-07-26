@@ -22,44 +22,36 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-// allowListDedupe lets several legs of one query share one filter allow-list
-// build per shard, keyed by the query's dedupe token.
+// allowListDedupe coalesces concurrent legs of one query into one filter
+// allow-list build per shard, keyed by the dedupe token. Entries live only
+// while their build is in flight, so a stale bitmap is never handed out.
 //
-// Coalescing is strictly in-flight: an entry is removed the moment its build
-// publishes, so a leg can never be handed an already-finished, stale bitmap.
-// The zero value is ready to use.
-//
-// Lock order is allowListDedupe.mu before allowListBuild.mu. Nothing takes them
-// the other way round: publish releases the build lock before it touches the
-// map.
+// Lock order: allowListDedupe.mu before allowListBuild.mu; publish drops the
+// build lock before touching the map.
 type allowListDedupe struct {
 	mu       sync.Mutex
 	inFlight map[string]*allowListBuild
 }
 
-// allowListBuild is one in-flight build with reference-counted ownership of its
-// result: every joiner owes exactly one drop, and the bitmap buffer returns to
-// the pool only on the drop that takes the count to zero.
+// allowListBuild is an in-flight build with reference-counted ownership:
+// every joiner owes one drop, and the buffer returns to the pool only when
+// the count reaches zero.
 type allowListBuild struct {
 	done   chan struct{}
 	filter *filters.LocalFilter
 
-	// mu guards the entire ownership state below. The release decision needs the
-	// refcount and the owner together, and returning a pooled buffer twice
-	// aliases one buffer into two later queries, so that pair is read under a
-	// lock rather than left to the evaluation order of an `&&`.
+	// mu guards refs/owner/bm together: the release decision needs both, and
+	// returning a pooled buffer twice aliases it into two later queries.
 	mu    sync.Mutex
 	refs  int
 	owner helpers.AllowList
 	bm    *sroar.Bitmap
 }
 
-// do returns a filter allow list, coalescing callers that share a token and an
-// equal filter into one build. Every failure mode (error, cancellation) falls
-// back to an independent build rather than propagating another caller's outcome.
-//
-// The second return value is the dedupe outcome, empty when the call was never
-// a dedupe candidate.
+// do coalesces callers sharing a token and filter into one build; any failure
+// falls back to an independent build rather than propagating another
+// caller's outcome. The second return is the dedupe outcome, "" if the call
+// was never a candidate.
 func (d *allowListDedupe) do(ctx context.Context, token string, filter *filters.LocalFilter,
 	build func(context.Context) (helpers.AllowList, error),
 ) (helpers.AllowList, string, error) {
@@ -139,8 +131,7 @@ func (d *allowListDedupe) lead(ctx context.Context, token string, b *allowListBu
 }
 
 // join registers a participant for token, returning the entry to wait on and
-// whether the caller must lead the build. A nil entry means: build without
-// dedupe.
+// whether the caller must lead the build; nil means build without dedupe.
 func (d *allowListDedupe) join(token string, filter *filters.LocalFilter) (*allowListBuild, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -208,9 +199,9 @@ func (b *allowListBuild) result() (helpers.AllowList, *sroar.Bitmap) {
 	return b.owner, b.bm
 }
 
-// handle converts this participant's reference into an AllowList of its own.
-// It returns a *helpers.BitmapAllowList, not a wrapper: the block-max WAND path
-// type-asserts to that concrete type, and a wrapper would silently break it.
+// handle converts this participant's reference into an AllowList. It returns
+// a concrete *helpers.BitmapAllowList, not a wrapper: the block-max WAND path
+// type-asserts to that type, and a wrapper would silently break it.
 func (b *allowListBuild) handle(bm *sroar.Bitmap) helpers.AllowList {
 	var once sync.Once
 	return helpers.NewAllowListCloseableFromBitmap(bm, func() { once.Do(b.drop) })

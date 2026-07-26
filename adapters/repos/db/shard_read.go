@@ -927,12 +927,10 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 	return sortedDocIDs, sortedDists, nil
 }
 
-// buildAllowList resolves filters into an allow list of doc IDs, sharing the
-// build with any concurrent caller on this shard using the same query token
-// and filter (e.g. the two legs of a filtered hybrid query).
-//
-// The returned list is read-only for its holder: legs share one bitmap, and
-// mutating it (Insert, Truncate) would corrupt peers still reading it.
+// buildAllowList resolves filters into an allow list, sharing the build with
+// concurrent callers on this shard that use the same token and filter (e.g.
+// hybrid's two legs). The result is shared: mutating it (Insert, Truncate)
+// would corrupt peers still reading it.
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
 	list, outcome, err := s.allowListDedupe.do(ctx, helpers.QueryDedupeToken(ctx), filters,
 		func(ctx context.Context) (helpers.AllowList, error) {

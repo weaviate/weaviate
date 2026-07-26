@@ -31,14 +31,12 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-// The tests in this file are the race gate for the reference count that decides
-// when a shared allow list returns its buffer. They are meant to be run with
-// -race and -count above 1: the hazard is a buffer returned twice, which
-// corrupts a later unrelated query rather than failing where it happens.
+// This file is the race gate for the refcount that returns a shared allow
+// list's buffer. Run with -race -count>1: a double return corrupts a later,
+// unrelated query instead of failing where it happens.
 
-// bufPoolProbe stands in for the bitmap buffer pool. It records a second return
-// of the same buffer instead of counting it, because that is the failure the
-// refcount exists to prevent: one buffer aliased into two future queries.
+// bufPoolProbe stands in for the bitmap buffer pool, flagging a double return
+// of one buffer, the failure the refcount exists to prevent.
 type bufPoolProbe struct {
 	mu      sync.Mutex
 	held    map[*sroar.Bitmap]bool
@@ -199,9 +197,8 @@ func TestAllowListDedupeRefcountUnderRace(t *testing.T) {
 	}
 }
 
-// TestAllowListDedupeJoinDropStorm hammers one refcount from many goroutines at
-// once. A drop that reads the owner without the ownership lock shows up here,
-// under -race, and nowhere else.
+// TestAllowListDedupeJoinDropStorm hammers one refcount from many goroutines;
+// a drop reading the owner without the lock only shows up here, under -race.
 func TestAllowListDedupeJoinDropStorm(t *testing.T) {
 	const (
 		tokens  = 32
@@ -255,10 +252,8 @@ func TestAllowListDedupeJoinDropStorm(t *testing.T) {
 	assert.Empty(t, d.inFlight)
 }
 
-// TestAllowListDedupeOutcomesAreDistinct pins that the counter can tell the
-// operator states apart. "Off", "on but the legs never overlapped" and "on and
-// shared" must not collapse into one another, and neither must the two ways
-// sharing can fail after a leg has already joined.
+// TestAllowListDedupeOutcomesAreDistinct pins that each dedupe outcome gets
+// its own counter series, so "off" and "on but never overlapped" don't collapse.
 func TestAllowListDedupeOutcomesAreDistinct(t *testing.T) {
 	const metric = "weaviate_filter_allow_list_dedupe_total"
 
@@ -275,9 +270,8 @@ func TestAllowListDedupeOutcomesAreDistinct(t *testing.T) {
 			"series must exist before it is ever incremented, or 'never exercised' reads as 'absent'")
 	}
 
-	// drive runs one leader and one follower against a fresh dedupe. followerJoins
-	// says whether the follower is expected to land on the leader's entry, which
-	// is what decides how the two are ordered.
+	// drive runs a leader/follower pair; followerJoins says whether the
+	// follower is expected to land on the leader's entry.
 	drive := func(t *testing.T, followTok string, followFilt *filters.LocalFilter,
 		leaderErr error, cancelFollower, followerJoins bool,
 	) {
@@ -367,9 +361,8 @@ func TestAllowListDedupeOutcomesAreDistinct(t *testing.T) {
 	}, delta)
 }
 
-// awaitParticipants polls until n callers have joined token's build, reporting
-// whether they arrived. Unlike waitForParticipants it never fails the test: some
-// arms only want the ordering when it is available.
+// awaitParticipants polls for n joiners like waitForParticipants, but never
+// fails the test: some arms only want the ordering when it's available.
 func awaitParticipants(d *allowListDedupe, token string, n int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -400,9 +393,8 @@ func awaitStarted(started *atomic.Int32, n int32, timeout time.Duration) bool {
 	return false
 }
 
-// gatherCounter reads one counter vector out of the default registry as a
-// label-value to value map, so tests assert on deltas without a production-only
-// accessor.
+// gatherCounter reads a counter vector from the default registry as a
+// label->value map, so tests can assert deltas without a prod-only accessor.
 func gatherCounter(t *testing.T, name, label string) map[string]float64 {
 	t.Helper()
 	families, err := prometheus.DefaultGatherer.Gather()

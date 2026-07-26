@@ -13,13 +13,10 @@
 
 package db
 
-// Measures the CPU/latency effect of hybrid filter dedupe: the paired
-// allow-list builds one filtered hybrid query runs per shard.
+// Measures hybrid filter dedupe's CPU/latency effect. Skipped unless
+// DEDUPE_BENCH=1; tune via DEDUPE_BENCH_DOCS/ITERS/CONCURRENCY/REPEATS.
 //
-//	go test -tags integrationTest -run TestFilterDedupeMeasurement -v \
-//	  -timeout 60m ./adapters/repos/db/
-//
-// Set DEDUPE_BENCH=1; tune via DEDUPE_BENCH_DOCS/ITERS/CONCURRENCY/REPEATS.
+//	go test -tags integrationTest -run TestFilterDedupeMeasurement -timeout 60m ./adapters/repos/db/
 
 import (
 	"context"
@@ -61,9 +58,8 @@ func envInt(name string, def int) int {
 	return def
 }
 
-// setupRangeFilterShard builds a shard whose integer property carries a range
-// index, so the filter resolves through the bit-sliced cascade that dominates
-// the production profile rather than a single roaring-set lookup.
+// setupRangeFilterShard builds a shard whose range-indexed property resolves
+// through the bit-sliced cascade that dominates the production profile.
 func setupRangeFilterShard(t *testing.T, docs int) *Shard {
 	t.Helper()
 
@@ -259,9 +255,8 @@ func runLegPairs(t *testing.T, shard *Shard, filter *filters.LocalFilter,
 	}
 }
 
-// runHybridLegs races the real dense and sparse legs as Explorer.Hybrid does,
-// so latency includes work the dedupe doesn't touch and isn't directly
-// comparable to runLegPairs' phase-level numbers.
+// runHybridLegs races the real dense/sparse legs (unlike runLegPairs), so its
+// latency isn't directly comparable to runLegPairs' phase-level numbers.
 func runHybridLegs(t *testing.T, shard *Shard, filter *filters.LocalFilter,
 	iters, concurrency int, dedupe bool,
 ) latencyStats {

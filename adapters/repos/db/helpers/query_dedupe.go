@@ -24,8 +24,8 @@ const QueryDedupeTokenHeader = "X-Query-Dedupe-Token"
 type queryDedupeTokenKey struct{}
 
 // CtxWithQueryDedupeToken tags ctx as one query so shards can coalesce
-// duplicate sub-query work (e.g. hybrid search's dense and sparse legs). An
-// empty or over-long token is ignored, falling back to per-call behaviour.
+// duplicate sub-query work (e.g. hybrid's dense/sparse legs); empty or
+// over-long tokens are ignored.
 func CtxWithQueryDedupeToken(ctx context.Context, token string) context.Context {
 	if token == "" || len(token) > MaxQueryDedupeTokenLen {
 		return ctx

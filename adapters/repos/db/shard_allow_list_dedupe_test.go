@@ -187,9 +187,8 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 			if shared {
 				waitForParticipants(t, d, tt.followTok, 2)
 			} else {
-				// The follower builds for itself, so hold the gate until it has
-				// started: releasing early would let the leader finish first and
-				// turn the follower into a leader of its own.
+				// Hold the gate until the follower starts: releasing early could let
+				// the leader finish first, turning the follower into a leader too.
 				waitForBuilds(t, builder, tt.wantBuilds)
 			}
 			close(builder.gate)

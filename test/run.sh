@@ -283,10 +283,8 @@ function build_mockoidc_docker_image_for_tests() {
   echo_green "MockOIDC Helper image successfully built"
 }
 
-# The hybrid allow-list dedupe shares one bitmap buffer between query legs behind
-# a reference count. Returning that buffer twice corrupts an unrelated later
-# query rather than failing where it happens, so the refcount gets its own gate:
-# -race, and -count above 1 so state carried between runs is visible.
+# The allow-list refcount can return one buffer twice, corrupting a later
+# unrelated query instead of failing where it happens; -race -count>1 catches it.
 function run_race_allow_list_dedupe() {
   go test -race -count 5 -timeout 15m -v \
     -run 'AllowListDedupe' ./adapters/repos/db/ || return 1

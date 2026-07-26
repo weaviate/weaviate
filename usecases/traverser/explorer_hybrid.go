@@ -251,9 +251,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		resultsCount = 2
 	}
 
-	// Tag both legs as one query so each shard builds the shared filter allow
-	// list once instead of once per leg. Both branches are counted: an operator
-	// flipping the kill switch has to be able to see it engage.
+	// Tag both legs as one query so shards build the shared allow list once.
+	// Both branches are counted so a flipped kill switch is observable.
 	if resultsCount == 2 && params.Filters != nil {
 		if e.hybridFilterDedupeDisabled() {
 			helpers.RecordQueryDedupeToken(helpers.QueryDedupeTokenDisabled)

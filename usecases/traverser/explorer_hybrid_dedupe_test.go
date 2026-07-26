@@ -161,9 +161,8 @@ func TestHybridMintsOneDedupeTokenPerQuery(t *testing.T) {
 	}
 }
 
-// TestHybridDedupeKillSwitchIsObservable pins that an operator can confirm the
-// kill switch engaged. Both states carry their own series, and both exist before
-// either is ever incremented, so "off" never reads the same as "no traffic".
+// TestHybridDedupeKillSwitchIsObservable pins that minted/disabled each get
+// their own pre-registered series, so "off" never looks like "no traffic".
 func TestHybridDedupeKillSwitchIsObservable(t *testing.T) {
 	const metric = "weaviate_hybrid_filter_dedupe_tokens_total"
 
@@ -207,9 +206,8 @@ func TestHybridDedupeKillSwitchIsObservable(t *testing.T) {
 	assert.EqualValues(t, 2, after[helpers.QueryDedupeTokenDisabled]-before[helpers.QueryDedupeTokenDisabled])
 }
 
-// gatherCounter reads one counter vector out of the default registry as a
-// label-value to value map, so tests assert on deltas without a production-only
-// accessor.
+// gatherCounter reads a counter vector from the default registry as a
+// label->value map, so tests can assert deltas without a prod-only accessor.
 func gatherCounter(t *testing.T, name, label string) map[string]float64 {
 	t.Helper()
 	families, err := prometheus.DefaultGatherer.Gather()
