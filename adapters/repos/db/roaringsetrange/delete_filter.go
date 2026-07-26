@@ -19,10 +19,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// Label values for deleteFilterResolutions. Each names the backing that
-// answered the filter, which is a fact about the read that happened rather
-// than about how the process is configured, so none of them can tick on a
-// deployment where the thing it names does not exist.
+// Label values for deleteFilterResolutions, named for the backing that
+// answered rather than for how the process is configured.
 const (
 	routedRangeableInMemory = "rangeable_in_memory"
 	routedRangeableOnDisk   = "rangeable_on_disk"
@@ -67,10 +65,9 @@ var (
 	resolvedNonRangeable      = deleteFilterResolutions.WithLabelValues(routedNonRangeable)
 )
 
-// ObserveDeleteFilterResolution records how one delete's filter resolved,
-// reading the annotations the range readers left in ctx. Exported because the
-// delete path lives in package db, for the same reason DocBitmapAnnotation is:
-// a non-query caller has no other way to ask.
+// ObserveDeleteFilterResolution records how one delete's filter resolved.
+// Exported for the same reason DocBitmapAnnotation is: the delete path lives
+// in package db.
 func ObserveDeleteFilterResolution(ctx context.Context) {
 	switch readSourceFromContext(ctx) {
 	case sourceInMemorySegment:

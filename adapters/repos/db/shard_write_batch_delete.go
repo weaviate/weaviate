@@ -187,11 +187,9 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	}
 	defer allowList.Close()
 
-	// Counted the moment the filter has resolved, not from the defer below: the
-	// uuid loop still returns an error on a cancelled ctx, and a cancellation
-	// there does not change how the filter routed. Cancellations concentrate on
-	// long-running deletes, so gating this on the outcome would under-report
-	// exactly the deletes an operator reads the metric to investigate.
+	// Counted here, not gated on the outcome below: a cancelled ctx errors out
+	// of the uuid loop after the filter has already resolved, and cancellations
+	// concentrate on the long-running deletes this metric exists to surface.
 	roaringsetrange.ObserveDeleteFilterResolution(ctx)
 
 	fetchStart := time.Now()

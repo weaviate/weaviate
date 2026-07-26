@@ -265,9 +265,8 @@ func TestEmittedSeriesNames(t *testing.T) {
 			routedRangeableInMemory, routedRangeableOnDisk, routedNonRangeable,
 		},
 		cascadeSeedConfigName: {"enabled", "disabled", "unrecognised"},
-		// The gauge that separates "off" from "idle" for every other entry in
-		// this table. A rename here is invisible to all of them and takes the
-		// default path's only unambiguous reading with it.
+		// The one entry that separates "off" from "idle"; a rename here breaks
+		// that signal for every other row in this table.
 		leafCacheConfigName: leafCacheStates,
 	}
 

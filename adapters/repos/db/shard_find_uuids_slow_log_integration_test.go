@@ -40,10 +40,10 @@ const (
 	resolutionsSeries      = "weaviate_lsm_roaringsetrange_delete_filter_resolutions_total"
 )
 
-// FindUUIDs bypasses buildAllowList, so it needs its own slow-log sink to
-// record how the filter resolved. Asserting on the emitted record, not a
-// test-installed one, is what catches that sink being removed. The literal
-// source values are the contract an operator greps the record for.
+// FindUUIDs bypasses buildAllowList, so it needs its own slow-log sink;
+// asserting on the real record catches that sink being removed. Source
+// values are literals, not imported constants, since they're the
+// operator-facing contract.
 func Test_FindUUIDs_RecordsHowTheFilterResolved(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -80,11 +80,9 @@ func Test_FindUUIDs_RecordsHowTheFilterResolved(t *testing.T) {
 	}
 }
 
-// The record is per FindUUIDs call, and a delete-heavy or replication-heavy
-// workload makes one call per batch per shard. It has to sit behind the same
-// bound as every other per-query record, not be emitted unconditionally. The
-// bound is at the reporter, above anything the range index does, so the
-// default configuration is enough to exercise it.
+// The record must sit behind the same bound as every other per-query record,
+// not fire unconditionally. That bound lives in the reporter, not the range
+// index, so the default backing already exercises it.
 func Test_FindUUIDs_RecordIsBoundedByTheSlowLogSwitch(t *testing.T) {
 	ctx := testCtx()
 	shard, hook := newFindUUIDsSlowLogShard(t, ctx, false, func(idx *Index) {
@@ -100,12 +98,8 @@ func Test_FindUUIDs_RecordIsBoundedByTheSlowLogSwitch(t *testing.T) {
 	}
 }
 
-// The slow-query record above needs QUERY_SLOW_LOG_ENABLED, which is off by
-// default, so the counter is the only reading of the routing a stock
-// deployment has. Both arms run because the label has to name the backing that
-// actually answered: the annotation the record carries is written on both
-// paths, so a label derived from its presence alone reads rangeable_in_memory
-// on the default path, where no in-memory segment and no leaf cache exist.
+// Pins the label to the backing that answered, not to the annotation's mere
+// presence, which both backings write regardless of which one ran.
 func Test_FindUUIDs_CountsWhichBackingResolvedTheFilter(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -144,12 +138,8 @@ func Test_FindUUIDs_CountsWhichBackingResolvedTheFilter(t *testing.T) {
 	}
 }
 
-// The series is named for resolutions because that is where it increments: a
-// filter that matched nothing still traversed the cascade and still cost what
-// the routing label reports, and the delete that follows it removes nothing.
-// A counter named for deletes would have to skip this and would then answer no
-// question about the cascade at all. The non-rangeable arm is here because
-// nothing else exercises that child.
+// Pins that a resolution counts even when it matches nothing, since the
+// series measures resolutions, not deletes.
 func Test_FindUUIDs_CountsAResolutionThatMatchedNothing(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -191,8 +181,8 @@ func Test_FindUUIDs_CountsAResolutionThatMatchedNothing(t *testing.T) {
 // newFindUUIDsSlowLogShard builds a shard with ten objects at rangeableInt ==
 // 1..10; the slow-log threshold is set below any achievable duration so every
 // call reports and the assertion isn't a coin flip on sampling.
-// rangeableInMemory is a parameter rather than a default, so no test can
-// silently inherit the non-default backing.
+// rangeableInMemory is a parameter, not a default, so no test can silently
+// inherit the wrong backing.
 func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, rangeableInMemory bool,
 	indexOpts ...func(*Index),
 ) (ShardLike, *test.Hook) {

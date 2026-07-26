@@ -31,11 +31,8 @@ import (
 // they went through the range index.
 const DocBitmapAnnotation = "build_allow_list_doc_bitmap_rangeable"
 
-// docBitmapSourceField names, inside each DocBitmapAnnotation entry, the
-// backing that answered the read. The leaf cache lives in the in-memory
-// segment and nowhere else, so this is the field that separates a read a
-// memoised leaf could have answered from one that never had the option. The
-// annotation's presence alone does not: both backings write it.
+// docBitmapSourceField names the backing that answered the read; the
+// annotation's presence alone doesn't, since both backings write it.
 const docBitmapSourceField = "source"
 
 const (
@@ -80,8 +77,7 @@ func readerSource(readers []InnerReader) string {
 	return sourceDiskSegments
 }
 
-// readSourceFromContext reports which backing answered the range reads that
-// ran under ctx, and "" when none did.
+// readSourceFromContext returns "" when no range read ran under ctx.
 func readSourceFromContext(ctx context.Context) string {
 	entries, ok := helpers.ExtractSlowQueryDetails(ctx)[DocBitmapAnnotation].([]map[string]any)
 	if !ok {
