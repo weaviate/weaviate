@@ -22,14 +22,18 @@ import (
 // _MAX_BUF_SIZE: an unbounded value would size channels with ~10^11 slots at boot.
 const MaxQueryBitmapBufsSize = 1 << 40
 
+// parseBitmapBufsSize is the shape a config knob should be parsed in: a value
+// that cannot be honoured names the variable and the value it rejected, and
+// stops the boot. Falling back to the default instead leaves the operator with
+// a knob that reads as set and behaves as unset, and no signal either way.
 func parseBitmapBufsSize(envName, value string) (int, error) {
 	bytes, err := parseResourceString(value)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", envName, err)
+		return 0, fmt.Errorf("%s: %q: %w", envName, value, err)
 	}
 	if bytes <= 0 || bytes > MaxQueryBitmapBufsSize {
-		return 0, fmt.Errorf("%s: must be between 1 and %d bytes, got %d",
-			envName, int64(MaxQueryBitmapBufsSize), bytes)
+		return 0, fmt.Errorf("%s: %q must be between 1 and %d bytes, got %d",
+			envName, value, int64(MaxQueryBitmapBufsSize), bytes)
 	}
 	return int(bytes), nil
 }
@@ -73,7 +77,7 @@ func parseResourceString(resource string) (int64, error) {
 	}
 	multiplier, exists := unitMultipliers[unit]
 	if !exists {
-		return 0, fmt.Errorf("invalid or unsupported unit")
+		return 0, fmt.Errorf("invalid or unsupported unit %q", unit)
 	}
 
 	if value > math.MaxInt64/multiplier {
