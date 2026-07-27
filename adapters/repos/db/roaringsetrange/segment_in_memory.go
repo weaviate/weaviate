@@ -276,9 +276,9 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 	return roaringset.BitmapLayer{Additions: gte}, gteRelease
 }
 
-// cascadeStart is where a bit-plane cascade begins: the seed plane, the next
-// bit to merge, and whether the result is already narrowed below plane 0. An
-// unnarrowed result is unchanged by OR, so those leading merges are skipped.
+// cascadeStart is where a bit-plane cascade begins. narrowed reports whether the
+// seed is already below plane 0; until it is, OR-ing a plane is a no-op because
+// every plane is a subset of plane 0, so those leading merges are skipped.
 type cascadeStart struct {
 	seed     *sroar.Bitmap
 	nextBit  int
@@ -287,19 +287,17 @@ type cascadeStart struct {
 
 // cascadeSeed returns where value's cascade starts. Every plane is a subset of
 // plane 0, so seeding from the lowest set bit's plane directly skips the
-// whole-shard AND that would otherwise produce it. With CascadeSeedEnabledEnv
-// switched off the cascade starts at plane 0 and runs exactly as v1.37 ships
-// it.
+// whole-shard AND that would otherwise produce it. Switched off via
+// CascadeSeedEnabledEnv, the cascade starts at plane 0 and runs as v1.37 does.
 func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
 	if !cascadeSeedEnabled {
 		return cascadeStart{seed: r.bitmaps[0], nextBit: 1}
 	}
 	if value == 0 {
-		// Every doc is >= 0, so plane 0 is already the whole answer and there
-		// is nothing left to cascade: nextBit past the last plane leaves the
-		// merge loop with no iterations. The early return is also what keeps
-		// the lowest-set-bit lookup below from indexing past the last plane,
-		// since 0 has no set bit to find.
+		// Every doc is >= 0, so plane 0 is the whole answer, and nextBit past
+		// the last plane leaves the merge loop with no iterations. 0 also has
+		// no set bit, so without this return the lookup below would index past
+		// the last plane.
 		return cascadeStart{seed: r.bitmaps[0], nextBit: len(r.bitmaps)}
 	}
 

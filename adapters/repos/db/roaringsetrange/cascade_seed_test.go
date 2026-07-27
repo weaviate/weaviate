@@ -49,8 +49,7 @@ func TestParseCascadeSeedEnabled(t *testing.T) {
 		{value: "0", enabled: false},
 		{value: "disabled", enabled: false},
 		{value: "DISABLED", enabled: false},
-		// a typo in a perf knob must not take a node out of a cluster, so an
-		// unrecognised value keeps seeding on
+		// unrecognised values fail open
 		{value: "of", enabled: true},
 		{value: "yes", enabled: true},
 		{value: "2", enabled: true},
@@ -63,16 +62,13 @@ func TestParseCascadeSeedEnabled(t *testing.T) {
 	}
 }
 
-// Unset is the configuration that actually ships, so pin it: the optimisation
-// is on by default and the variable exists only to take it away.
 func TestCascadeSeedDefaultsToOn(t *testing.T) {
 	require.True(t, parseCascadeSeedEnabled(""),
 		"unset must leave seeding on, or this PR ships nothing by default")
 }
 
-// The variable's own trailing word, used as its value, must mean what the name
-// says. Under a *_DISABLED name it cannot: =disabled parses as falsy, so it
-// reads as "not disabled" and leaves the feature on with no warning.
+// A *_DISABLED name would be a double negative: =disabled parses as falsy and
+// would leave the feature on with no warning.
 func TestCascadeSeedEnvNameMeansWhatItSays(t *testing.T) {
 	tail := CascadeSeedEnabledEnv[strings.LastIndex(CascadeSeedEnabledEnv, "_")+1:]
 	require.Equal(t, "ENABLED", tail, "a *_DISABLED name reintroduces the double negative")
@@ -81,9 +77,8 @@ func TestCascadeSeedEnvNameMeansWhatItSays(t *testing.T) {
 		"%s=%s must engage what the name promises", CascadeSeedEnabledEnv, tail)
 }
 
-// Every spelling of "off" this build recognises has to take effect. Anything
-// else fails open, which is why the recognised set has to be wide enough to
-// cover what an operator plausibly types under incident pressure.
+// Fail-open means any spelling of "off" not in the recognised set silently
+// leaves seeding on, so the set has to cover what an operator plausibly types.
 func TestCascadeSeedRecognisedOffValuesTakeEffect(t *testing.T) {
 	for _, value := range []string{"off", "OFF", " off ", "false", "False", "0", "disabled", "DISABLED"} {
 		t.Run(fmt.Sprintf("value=%q", value), func(t *testing.T) {
@@ -93,9 +88,8 @@ func TestCascadeSeedRecognisedOffValuesTakeEffect(t *testing.T) {
 	}
 }
 
-// withCascadeSeedEnabled flips the process-wide switch for one test. The knob
-// is read at startup, so an env var cannot reach it from here — the subprocess
-// cases below cover that half.
+// withCascadeSeedEnabled assigns the switch directly: it is read at startup, so
+// an env var cannot reach it from here. The subprocess cases below cover that.
 func withCascadeSeedEnabled(t *testing.T, enabled bool) {
 	t.Helper()
 
@@ -116,8 +110,8 @@ func TestCascadeSeedSelectsTheStartPlane(t *testing.T) {
 		{name: "on/lowest bit", enabled: true, value: 1, wantPlane: 1, wantNextBit: 2, wantNarrow: true},
 		{name: "on/bit 3", enabled: true, value: 8, wantPlane: 4, wantNextBit: 5, wantNarrow: true},
 		{name: "on/highest bit", enabled: true, value: 1 << 63, wantPlane: 64, wantNextBit: 65, wantNarrow: true},
-		// plane 0 is already the whole answer for 0, and nextBit past the last
-		// plane is what keeps the cascade off the end of the array
+		// nextBit past the last plane is what keeps the cascade off the end of
+		// the array
 		{name: "on/no set bit", enabled: true, value: 0, wantPlane: 0, wantNextBit: 65},
 		// off restarts from plane 0 for every value, unnarrowed so the shipped
 		// cascade's leading merges are skipped rather than replayed
@@ -144,12 +138,10 @@ func TestCascadeSeedSelectsTheStartPlane(t *testing.T) {
 	}
 }
 
-// Switching seeding off has to skip the shipped cascade's leading ORs too, not
-// only restart from plane 0, or the rollback path is slower than what it rolls
-// back to. Those ORs are invisible while every plane is a subset of plane 0,
-// because OR-ing a subset changes nothing — so this plants a doc in the higher
-// planes only, which makes a merge that should be skipped observable. The
-// subset guard only covers the seeded cascade, which this test switches off.
+// Off has to skip the shipped cascade's leading ORs too, not only restart from
+// plane 0, or the rollback path is slower than what it rolls back to. Those ORs
+// are invisible while every plane is a subset of plane 0, so this plants a doc
+// in the higher planes only; the subset guard covers only the seeded cascade.
 func TestCascadeSeedOffSkipsTheLeadingMerges(t *testing.T) {
 	withCascadeSeedEnabled(t, false)
 
@@ -182,10 +174,8 @@ func TestCascadeSeedOffSkipsTheLeadingMerges(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 // cascadeMergeBaseDigests are the ordered result IDs stable/v1.37 returns for
-// these fixtures, produced by running cascadeResultDigest against that commit
-// (73d07e09e) rather than against a reimplementation of it. The switch is a
-// rollback lever, so "off" is only worth having if it reproduces these; and
-// seeding is an optimisation, so "on" has to reproduce them too.
+// these fixtures, generated by running cascadeResultDigest against 73d07e09e
+// rather than a reimplementation of it. Both switch states must reproduce them.
 var cascadeMergeBaseDigests = map[string]string{
 	"empty":  "74c0a3dce12dc981285686e5a6b0d9f2f799f81eab94ea7a8898997b379b6e0a",
 	"seed=0": "190c74ba904d530859fde9cc0d6506a55f45a1b17378d2c1f9c4fb39a717bbb4",
@@ -195,7 +185,7 @@ var cascadeMergeBaseDigests = map[string]string{
 }
 
 // cascadeSeedStateEnv tells a child process which switch state it is meant to
-// be in. Set only by the parent below.
+// be in.
 const cascadeSeedStateEnv = "TEST_ROARINGSETRANGE_CASCADE_SEED_STATE"
 
 func TestCascadeMatchesMergeBase(t *testing.T) {
@@ -214,9 +204,8 @@ func TestCascadeMatchesMergeBase(t *testing.T) {
 	}
 }
 
-// The switch is read once at startup, so each state needs a process of its own:
-// this is the only place the env var is exercised end to end rather than by
-// assigning the variable it lands in.
+// The switch is read once at startup, so each state needs its own process. This
+// is the only place the env var itself is exercised end to end.
 func TestCascadeSeedEnvStatesAllMatchTheMergeBase(t *testing.T) {
 	if os.Getenv(cascadeSeedStateEnv) != "" {
 		return // a child: TestCascadeMatchesMergeBase is what it was spawned for
@@ -297,8 +286,8 @@ var cascadeDigestOperators = []filters.Operator{
 	filters.OperatorGreaterThanEqual,
 }
 
-// cascadeDigestValues covers the degenerate seeds — no set bit, the lowest bit,
-// the highest bit, every bit — alongside a deterministic random spread.
+// cascadeDigestValues covers the degenerate seeds alongside a deterministic
+// random spread.
 func cascadeDigestValues() []uint64 {
 	values := append([]uint64{}, cascadeEdgeValues...)
 	rng := rand.New(rand.NewSource(99))
@@ -308,9 +297,8 @@ func cascadeDigestValues() []uint64 {
 	return values
 }
 
-// cascadeResultDigest hashes the ordered doc IDs every read path returns, over
-// every operator and both merge helpers, so one constant pins the whole answer
-// set of a fixture.
+// cascadeResultDigest hashes the ordered doc IDs of every read path, so one
+// constant pins a fixture's whole answer set.
 func cascadeResultDigest(t *testing.T, seg *SegmentInMemory) string {
 	t.Helper()
 
@@ -350,6 +338,6 @@ func digestIDs(h hash.Hash, label string, ids []uint64) {
 	fmt.Fprintln(h)
 }
 
-// cascadeGoldenFixtures is how many seeded fixtures the digest covers, on top
-// of the empty segment.
+// cascadeGoldenFixtures counts the seeded fixtures the digest covers, beyond
+// the empty segment.
 const cascadeGoldenFixtures = 4

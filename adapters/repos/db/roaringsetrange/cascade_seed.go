@@ -16,10 +16,8 @@ import (
 	"strings"
 )
 
-// CascadeSeedEnabledEnv switches the seeded cascade off; unset defaults to on,
-// and it's read once at startup so a change needs a restart. Named positively
-// because a *_DISABLED variable's own trailing word, used as a value, parses
-// as falsy and would leave the feature on.
+// CascadeSeedEnabledEnv switches the seeded cascade off. Unset defaults to on,
+// and it is read once at startup, so a change needs a restart.
 const CascadeSeedEnabledEnv = "QUERY_RANGEABLE_CASCADE_SEED_ENABLED"
 
 var cascadeSeedEnabled = parseCascadeSeedEnabled(os.Getenv(CascadeSeedEnabledEnv))
