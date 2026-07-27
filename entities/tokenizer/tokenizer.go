@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -348,14 +349,46 @@ func tokenizeField(in string, dst []string) []string {
 	return append(dst, strings.TrimFunc(in, unicode.IsSpace))
 }
 
+// appendFieldsFunc is strings.FieldsFunc with an append-style tail: fields are
+// appended to dst instead of a freshly allocated slice, so a batch caller
+// reusing one buffer splits without allocating per value. The span pass is
+// stdlib's — recording indices before materializing substrings measures
+// faster than emitting them inline — with the final make replaced by one Grow.
+func appendFieldsFunc(dst []string, in string, isSep func(rune) bool) []string {
+	type span struct{ start, end int }
+	var spanBuf [32]span
+	spans := spanBuf[:0]
+
+	start := -1
+	for end, r := range in {
+		if isSep(r) {
+			if start >= 0 {
+				spans = append(spans, span{start, end})
+				start = -1
+			}
+		} else if start < 0 {
+			start = end
+		}
+	}
+	if start >= 0 {
+		spans = append(spans, span{start, len(in)})
+	}
+
+	dst = slices.Grow(dst, len(spans))
+	for _, s := range spans {
+		dst = append(dst, in[s.start:s.end])
+	}
+	return dst
+}
+
+func isNotAlphanumeric(r rune) bool {
+	return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+}
+
 // tokenizeWhitespace splits on white spaces, does not alter casing
 // (former DataTypeString/Word)
 func tokenizeWhitespace(in string, dst []string) []string {
-	fields := strings.FieldsFunc(in, unicode.IsSpace)
-	if cap(dst) == 0 {
-		return fields
-	}
-	return append(dst, fields...)
+	return appendFieldsFunc(dst, in, unicode.IsSpace)
 }
 
 // tokenizeLowercase splits on white spaces and lowercases the words
@@ -369,15 +402,8 @@ func tokenizeLowercase(in string, dst []string) []string {
 // tokenizeWord splits on any non-alphanumerical and lowercases the words
 // (former DataTypeText/Word)
 func tokenizeWord(in string, dst []string) []string {
-	fields := strings.FieldsFunc(in, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
-	})
-	if cap(dst) == 0 {
-		lowercase(fields)
-		return fields
-	}
 	prev := len(dst)
-	dst = append(dst, fields...)
+	dst = appendFieldsFunc(dst, in, isNotAlphanumeric)
 	lowercase(dst[prev:])
 	return dst
 }
@@ -385,12 +411,18 @@ func tokenizeWord(in string, dst []string) []string {
 // tokenizetrigram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
 func tokenizetrigram(in string, dst []string) []string {
 	// Strip whitespace and punctuation from the input string
-	inputString := strings.ToLower(strings.Join(strings.FieldsFunc(in, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
-	}), ""))
-	runes := []rune(inputString)
-	for i := 0; i < len(runes)-2; i++ {
-		dst = append(dst, string(runes[i:i+3]))
+	inputString := strings.ToLower(strings.Join(strings.FieldsFunc(in, isNotAlphanumeric), ""))
+	// Byte offset of each rune start, plus a terminator, so a trigram is the
+	// substring inputString[off[i]:off[i+3]] — sliced, not copied, which is
+	// what keeps a trigram batch from allocating once per emitted trigram.
+	var offBuf [128]int
+	offs := offBuf[:0]
+	for i := range inputString {
+		offs = append(offs, i)
+	}
+	offs = append(offs, len(inputString))
+	for i := 0; i+3 < len(offs); i++ {
+		dst = append(dst, inputString[offs[i]:offs[i+3]])
 	}
 	return dst
 }
@@ -478,15 +510,10 @@ func tokenizeKagome(tokenizer *kagomeTokenizer.Tokenizer, mode kagomeTokenizer.T
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
 func tokenizeWordWithWildcards(in string, dst []string) []string {
-	fields := strings.FieldsFunc(in, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '?' && r != '*'
-	})
-	if cap(dst) == 0 {
-		lowercase(fields)
-		return fields
-	}
 	prev := len(dst)
-	dst = append(dst, fields...)
+	dst = appendFieldsFunc(dst, in, func(r rune) bool {
+		return isNotAlphanumeric(r) && r != '?' && r != '*'
+	})
 	lowercase(dst[prev:])
 	return dst
 }
