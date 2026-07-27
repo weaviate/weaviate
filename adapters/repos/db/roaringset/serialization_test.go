@@ -13,6 +13,7 @@ package roaringset
 
 import (
 	"bytes"
+	"encoding/binary"
 	"math"
 	"testing"
 
@@ -215,4 +216,45 @@ func TestSerialization_KeyIndexAndWriteTo(t *testing.T) {
 	assert.False(t, newDeletions.Contains(4))
 	assert.True(t, newDeletions.Contains(5))
 	assert.Equal(t, []byte("my-key"), newSN.PrimaryKey())
+}
+
+// TestDeletionsCloneToBuf_CorruptHeaderStopsAtRegion pins the bounded decode
+// window of the deletions clone: a region whose length indicator is shrunk
+// below what the serialization's own header describes must fail loudly at
+// the region boundary, not silently decode recycled pooled-buffer bytes.
+// Cloning and releasing the intact deletions first primes the recycled
+// buffer's tail with exactly the "missing" bytes, so an unbounded decode
+// would silently reconstruct them.
+func TestDeletionsCloneToBuf_CorruptHeaderStopsAtRegion(t *testing.T) {
+	values := make([]uint64, 64)
+	for i := range values {
+		values[i] = uint64(i * 7)
+	}
+	additions := NewBitmap(1)
+	deletions := NewBitmap(values...)
+
+	sn, err := NewSegmentNode([]byte("key"), additions, deletions)
+	require.NoError(t, err)
+
+	pool := NewBitmapBufPoolRanged(nil, 1<<20, nil, 512, 1024, 4096)
+
+	// positive control + adversarial priming (see godoc)
+	intact, release := sn.DeletionsCloneToBuf(pool)
+	require.NotNil(t, intact)
+	require.Equal(t, deletions.ToArray(), intact.ToArray())
+	release()
+
+	// shrink the deletions region's length indicator (it sits right after
+	// the additions region; see the SegmentNode layout godoc)
+	addLen := binary.LittleEndian.Uint64(sn.data[8:16])
+	delLenOff := 16 + addLen
+	delLen := binary.LittleEndian.Uint64(sn.data[delLenOff : delLenOff+8])
+	require.Greater(t, delLen, uint64(24), "fixture deletions region too small to truncate")
+	binary.LittleEndian.PutUint64(sn.data[delLenOff:delLenOff+8], delLen-16)
+
+	require.Panics(t, func() {
+		bm, release := sn.DeletionsCloneToBuf(pool)
+		defer release()
+		bm.ToArray()
+	}, "a corrupt deletions header must fail at the region boundary, not silently decode recycled buffer bytes")
 }

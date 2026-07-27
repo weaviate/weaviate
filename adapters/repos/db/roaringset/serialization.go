@@ -149,6 +149,10 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 
 // DeletionsCloneToBuf is the deletions counterpart of
 // [*SegmentNode.AdditionsCloneToBuf], with the identical contract.
+//
+// The clone is bounded to the region length: deletions never grow (they are
+// only ever an AndNot operand), and a corrupt header then panics at the
+// region boundary instead of silently decoding recycled buffer bytes.
 func (sn *SegmentNode) DeletionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, func()) {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
@@ -157,7 +161,7 @@ func (sn *SegmentNode) DeletionsCloneToBuf(pool BitmapBufPool) (*sroar.Bitmap, f
 	if len(buf) == 0 {
 		return nil, nil
 	}
-	return pool.CloneBytesToBuf(buf)
+	return pool.CloneBytesToBufBounded(buf)
 }
 
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
