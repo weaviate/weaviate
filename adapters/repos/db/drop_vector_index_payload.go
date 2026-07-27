@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
 // DropVectorIndexNamespace is the distributed-task namespace for dropping a
@@ -70,6 +72,26 @@ func SameTargetSet(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// CompletedUnitShards returns the shards of task's units recorded COMPLETED in
+// the FSM. A unit completion is durable proof that shard was drained and
+// verified, regardless of how the task later ended — so coverage inheritance
+// counts these even from FAILED rounds (one deactivated tenant fails a round;
+// at MT scale discarding the round's finished work would make convergence
+// improbable and re-pay its full re-clean I/O every retry).
+func CompletedUnitShards(task *distributedtask.Task, payload *DropVectorIndexTaskPayload) []string {
+	var shards []string
+	for unitID, unit := range task.Units {
+		if unit == nil || unit.Status != distributedtask.UnitStatusCompleted {
+			continue
+		}
+		if shard, ok := payload.UnitToShard[unitID]; ok {
+			shards = append(shards, shard)
+		}
+	}
+	sort.Strings(shards)
+	return shards
 }
 
 // ShardsNotCovered returns the shards absent from covered, sorted.

@@ -113,6 +113,13 @@ type DropVectorIndexProvider struct {
 	// returns nil.
 	verifiedMu           sync.Mutex
 	verifiedStillDropped map[string]bool // task ID -> every target still marked dropped
+
+	// reconcileNudge pokes the reconcile loop (leader-gated there) when a
+	// round ends with work remaining — a completed round that deferred over
+	// uncovered shards (batch chains), or a failed one (e.g. tenant
+	// deactivated mid-strip). Without it, follow-up rounds idle up to a full
+	// reconcile interval apart. Nil-safe; set once at startup.
+	reconcileNudge func()
 }
 
 // NewDropVectorIndexProvider builds the provider. localNode filters units to the
@@ -159,6 +166,18 @@ func (p *DropVectorIndexProvider) GetLocalTasks() []distributedtask.TaskDescript
 func (p *DropVectorIndexProvider) CleanupTask(desc distributedtask.TaskDescriptor) error {
 	p.evictStillDroppedMemo(desc.ID)
 	return nil
+}
+
+// SetReconcileNudge installs the reconcile-loop wake hook. Must be
+// non-blocking; called from task-completion callbacks.
+func (p *DropVectorIndexProvider) SetReconcileNudge(nudge func()) {
+	p.reconcileNudge = nudge
+}
+
+func (p *DropVectorIndexProvider) nudgeReconcile() {
+	if p.reconcileNudge != nil {
+		p.reconcileNudge()
+	}
 }
 
 func (p *DropVectorIndexProvider) evictStillDroppedMemo(taskID string) {
@@ -549,6 +568,7 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 		}
 		logger.WithField("status", task.Status).
 			Info("drop-vector: task-completion: task did not succeed; edit ops deleted, schema marker left for operator")
+		p.nudgeReconcile()
 		return nil
 	}
 
@@ -600,6 +620,7 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 			WithField("sample", uncovered[:min(len(uncovered), 10)]).
 			Info("drop-vector: task-completion: shards not covered by this task (inactive at enqueue or created since); " +
 				"leaving schema marker — reconciliation re-enqueues once they are active")
+		p.nudgeReconcile()
 		return nil
 	}
 

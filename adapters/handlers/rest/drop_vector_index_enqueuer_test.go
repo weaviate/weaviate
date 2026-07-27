@@ -169,7 +169,7 @@ func TestReconciliationAtStartup_ReadsSchemaAfterProbe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
-		func() bool { return true })
+		func() bool { return true }, nil)
 
 	require.True(t, orderOK, "schema must be read AFTER the DTM readiness probe")
 	require.Equal(t, []string{"A/v1"}, enq.enqueued)
@@ -193,7 +193,7 @@ func TestReconciliation_FollowerSkipsRound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
-		func() bool { return false })
+		func() bool { return false }, nil)
 
 	require.Empty(t, enq.enqueued, "a non-leader must not enqueue")
 }
@@ -438,6 +438,26 @@ func epochTask(t *testing.T, collection, id, epoch string, version uint64,
 	}
 }
 
+// failedEpochTask is epochTask with TaskStatusFailed and explicit per-unit
+// terminal statuses: completedShards' units are COMPLETED, otherShards' are
+// FAILED — the shape a mid-round tenant deactivation leaves behind.
+func failedEpochTask(t *testing.T, collection, id, epoch string, version uint64,
+	completedShards, otherShards []string,
+) *distributedtask.Task {
+	t.Helper()
+	all := append(append([]string{}, completedShards...), otherShards...)
+	task := epochTask(t, collection, id, epoch, version, distributedtask.TaskStatusFailed, all, nil)
+	task.Units = map[string]*distributedtask.Unit{}
+	for i, shard := range all {
+		status := distributedtask.UnitStatusFailed
+		if i < len(completedShards) {
+			status = distributedtask.UnitStatusCompleted
+		}
+		task.Units[fmt.Sprintf("%s__u%d", shard, i)] = &distributedtask.Unit{Status: status}
+	}
+	return task
+}
+
 func corruptRecordTask(id string) *distributedtask.Task {
 	return &distributedtask.Task{
 		Namespace:      db.DropVectorIndexNamespace,
@@ -554,7 +574,29 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			wantUnits:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
 		},
 		{
-			name: "FAILED task contributes nothing",
+			// One deactivation fails a round; its FINISHED work must survive.
+			name: "a FAILED round's COMPLETED units are inherited",
+			tasks: []*distributedtask.Task{
+				failedEpochTask(t, "C", "tf", "E1", 1, []string{"s1"}, []string{"s2"}),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1")},
+			wantEpoch:   "E1",
+			wantCleaned: []string{"s1"},
+			wantUnits:   map[string]string{"s2__n1": "s2", "s3__n1": "s3"},
+		},
+		{
+			name: "a FAILED round's completed units do not cross epochs",
+			tasks: []*distributedtask.Task{
+				failedEpochTask(t, "C", "tf", "E1", 1, []string{"s1"}, nil),
+				epochTask(t, "C", "t2", "E2", 2, fin, []string{"s2"}, nil),
+			},
+			shards:      map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1")},
+			wantEpoch:   "E2",
+			wantCleaned: []string{"s2"},
+			wantUnits:   map[string]string{"s1__n1": "s1", "s3__n1": "s3"},
+		},
+		{
+			name: "a FAILED round with no completed units contributes nothing",
 			tasks: []*distributedtask.Task{
 				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
 				epochTask(t, "C", "t2", "E1", 2, distributedtask.TaskStatusFailed, []string{"s2"}, nil),
@@ -690,4 +732,72 @@ func TestEnqueueDropVectorIndex_CoverageInheritance(t *testing.T) {
 			require.Equal(t, tt.wantUnits, p.UnitToShard)
 		})
 	}
+}
+
+// TestEnqueueDropVectorIndex_BatchesLargeCollections pins the round cap: a
+// collection above maxShardsPerDropRound gets units only for the first
+// (sorted) batch; the rest chains through follow-up rounds via CleanedShards
+// inheritance, and the LAST batch's task still covers everyone for finalize.
+func TestEnqueueDropVectorIndex_BatchesLargeCollections(t *testing.T) {
+	prev := maxShardsPerDropRound
+	maxShardsPerDropRound = 2
+	defer func() { maxShardsPerDropRound = prev }()
+
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{}}
+	state := &fakeShardingState{
+		state: shardingState(true, map[string]sharding.Physical{
+			"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1"), "s4": hot("n1"),
+		}),
+		vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+	}
+	enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	p := decodeEnqueuedPayload(t, cluster)
+	require.Equal(t, map[string]string{"s1__n1": "s1", "s2__n1": "s2"}, p.UnitToShard,
+		"only the first sorted batch is armed this round")
+
+	// Round 2: round 1 completed; inheritance covers its batch, the next
+	// sorted batch is armed.
+	cluster.tasks = map[string][]*distributedtask.Task{
+		db.DropVectorIndexNamespace: {
+			epochTask(t, "C", "t1", p.DropEpochID, 1, distributedtask.TaskStatusFinished, []string{"s1", "s2"}, nil),
+		},
+	}
+	require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+	p2 := decodeEnqueuedPayload(t, cluster)
+	require.Equal(t, p.DropEpochID, p2.DropEpochID, "batches share the drop's epoch")
+	require.Equal(t, []string{"s1", "s2"}, p2.CleanedShards)
+	require.Equal(t, map[string]string{"s3__n1": "s3", "s4__n1": "s4"}, p2.UnitToShard,
+		"the last batch's units plus inherited cleaned shards cover everyone")
+}
+
+// TestReconciliation_NudgeWakesBeforeInterval pins the batch-chain latency
+// fix: a nudge (round ended with work remaining) triggers the next round
+// immediately instead of idling a full reconcile interval.
+func TestReconciliation_NudgeWakesBeforeInterval(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	probed := false
+	enq := &probeRecordingEnqueuer{
+		fakeReconcileEnqueuer: &fakeReconcileEnqueuer{active: map[string]bool{}},
+		probed:                &probed,
+	}
+	orderOK := false
+	lister := orderLister{probed: &probed, orderOK: &orderOK, classes: []*models.Class{
+		{Class: "A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+	}}
+
+	nudge := make(chan struct{}, 1)
+	nudge <- struct{}{}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	// Interval far beyond the ctx timeout: a second round can only come from
+	// the nudge.
+	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
+		func() bool { return true }, nudge)
+
+	require.GreaterOrEqual(t, len(enq.enqueued), 2, "the nudge must trigger a follow-up round within the interval")
 }

@@ -165,6 +165,12 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		return fmt.Errorf("drop-vector enqueue: coverage inheritance for %q: %w", collection, err)
 	}
 	shardOwnership = withoutCleanedShards(shardOwnership, cleaned)
+	shardOwnership, deferredShards := capShardOwnership(shardOwnership, maxShardsPerDropRound)
+	if deferredShards > 0 {
+		e.logInfo(collection, fmt.Sprintf(
+			"drop-vector enqueue: round capped at %d shards, %d deferred to follow-up rounds (coverage chains via cleaned shards)",
+			maxShardsPerDropRound, deferredShards))
+	}
 	if len(shardOwnership) == 0 {
 		// Inherited coverage is always incomplete (a complete chain mints a
 		// fresh epoch with no inheritance), so an emptied ownership map means
@@ -248,11 +254,26 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 	}
 	covered := map[string]struct{}{}
 	for task, p := range matching {
-		if p.DropEpochID != newest.DropEpochID || !task.Status.IsCompleted() {
+		if p.DropEpochID != newest.DropEpochID {
 			continue
 		}
-		for shard := range p.CoveredShards() {
-			covered[shard] = struct{}{}
+		if task.Status.IsCompleted() {
+			for shard := range p.CoveredShards() {
+				covered[shard] = struct{}{}
+			}
+			continue
+		}
+		// A FAILED round still proved something: units recorded COMPLETED were
+		// drained and verified before the round died (one deactivated tenant
+		// fails a whole round — at MT scale, discarding its finished work
+		// would make convergence improbable and re-pay the full re-clean I/O
+		// every retry). Only the units' own shards count; the failed task's
+		// inherited CleanedShards claim is NOT re-counted — its sources are
+		// completed records that contribute directly above.
+		if task.Status == distributedtask.TaskStatusFailed {
+			for _, shard := range db.CompletedUnitShards(task, p) {
+				covered[shard] = struct{}{}
+			}
 		}
 	}
 	// Prune to current shards: deleted tenants would otherwise accumulate in
@@ -269,6 +290,55 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 		return uuid.NewString(), nil, nil
 	}
 	return newest.DropEpochID, cleaned, nil
+}
+
+// maxShardsPerDropRound bounds one cleanup round. Units scale with
+// shards × replicas and ride a single RAFT AddTask entry (payload maps plus a
+// FSM Unit struct each): an unbounded MT collection would put tens of MB on
+// the log — replicated, snapshotted, resident on every node — and arming
+// serializes a memtable flush + sidecar open per shard before the first
+// drain. The remainder chains through follow-up rounds via CleanedShards
+// inheritance; finalize still requires a single task covering everyone,
+// which the LAST batch satisfies (its units plus the inherited cleaned set).
+var maxShardsPerDropRound = 1000 // var: tests shrink it to pin batching
+
+// capShardOwnership deterministically (sorted shard names) keeps at most max
+// DISTINCT shards of the node→shards ownership map, reporting how many shards
+// were deferred to later rounds. A kept shard keeps ALL its replicas — units
+// are per (shard, replica) and a shard's group completes only when every
+// replica's unit does.
+func capShardOwnership(ownership map[string][]string, max int) (map[string][]string, int) {
+	distinct := map[string]struct{}{}
+	for _, shards := range ownership {
+		for _, shard := range shards {
+			distinct[shard] = struct{}{}
+		}
+	}
+	if len(distinct) <= max {
+		return ownership, 0
+	}
+	names := make([]string, 0, len(distinct))
+	for name := range distinct {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	keep := make(map[string]struct{}, max)
+	for _, name := range names[:max] {
+		keep[name] = struct{}{}
+	}
+	capped := make(map[string][]string, len(ownership))
+	for node, shards := range ownership {
+		var kept []string
+		for _, shard := range shards {
+			if _, ok := keep[shard]; ok {
+				kept = append(kept, shard)
+			}
+		}
+		if len(kept) > 0 {
+			capped[node] = kept
+		}
+	}
+	return capped, len(names) - max
 }
 
 // withoutCleanedShards strips already-cleaned shards from the ownership map,
@@ -434,7 +504,7 @@ type schemaLister interface {
 // goroutine.
 func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 	enq dropVectorReconcileClient, logger logrus.FieldLogger, interval time.Duration,
-	isLeader func() bool,
+	isLeader func() bool, nudge <-chan struct{},
 ) {
 	const attempts = 30
 	for i := 0; i < attempts; i++ {
@@ -482,6 +552,10 @@ func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 		case <-ctx.Done():
 			return
 		case <-time.After(interval):
+		case <-nudge:
+			// A round just completed with shards still uncovered (batch chain)
+			// or failed (tenant deactivated mid-strip): follow up now instead
+			// of idling a full interval between rounds.
 		}
 	}
 }

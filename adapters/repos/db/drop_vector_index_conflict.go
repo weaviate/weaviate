@@ -65,7 +65,10 @@ func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks
 	if len(newP.CleanedShards) > 0 {
 		covered := map[string]struct{}{}
 		for _, task := range existingTasks {
-			if !task.Status.IsCompleted() {
+			// Mirrors the enqueuer's inheritance exactly (this guard re-proves
+			// its claims): completed tasks vouch their full CoveredShards; a
+			// FAILED task vouches only the shards of its COMPLETED units.
+			if !task.Status.IsCompleted() && task.Status != distributedtask.TaskStatusFailed {
 				continue
 			}
 			existP, err := decodeDropVectorIndexPayload(task.Payload)
@@ -75,6 +78,12 @@ func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks
 			if !strings.EqualFold(existP.Collection, newP.Collection) ||
 				!SameTargetSet(existP.Targets, newP.Targets) ||
 				existP.DropEpochID != newP.DropEpochID {
+				continue
+			}
+			if task.Status == distributedtask.TaskStatusFailed {
+				for _, shard := range CompletedUnitShards(task, existP) {
+					covered[shard] = struct{}{}
+				}
 				continue
 			}
 			for shard := range existP.CoveredShards() {

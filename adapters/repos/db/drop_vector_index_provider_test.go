@@ -1146,6 +1146,29 @@ func TestCheckConflict_InheritanceSourceGuard(t *testing.T) {
 			},
 		},
 		{
+			name:    "claim provable from a FAILED round's completed units",
+			payload: payload("E1", []string{"s1"}),
+			tasks: []*distributedtask.Task{func() *distributedtask.Task {
+				task := record("t1", "E1", distributedtask.TaskStatusFailed, []string{"s1"}, nil, "v1")
+				task.Units = map[string]*distributedtask.Unit{
+					"s1__u0": {Status: distributedtask.UnitStatusCompleted},
+				}
+				return task
+			}()},
+		},
+		{
+			name:    "a FAILED round's non-completed units do not vouch",
+			payload: payload("E1", []string{"s1"}),
+			tasks: []*distributedtask.Task{func() *distributedtask.Task {
+				task := record("t1", "E1", distributedtask.TaskStatusFailed, []string{"s1"}, nil, "v1")
+				task.Units = map[string]*distributedtask.Unit{
+					"s1__u0": {Status: distributedtask.UnitStatusFailed},
+				}
+				return task
+			}()},
+			wantErr: "no surviving source record",
+		},
+		{
 			name:    "partially provable claim is refused, not trimmed",
 			payload: payload("E1", []string{"s1", "s2"}),
 			tasks:   []*distributedtask.Task{record("t1", "E1", fin, []string{"s1"}, nil, "v1")},
@@ -1430,8 +1453,10 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 		"FAILED records feed no coverage; TTL applies")
 
 	// Marker finalized (entry re-created live): nothing left to protect.
-	p.sharding = &fakeShardingReader{shards: []string{"shard1"},
-		vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}}}
+	p.sharding = &fakeShardingReader{
+		shards:    []string{"shard1"},
+		vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}},
+	}
 	require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil)))
 
 	// Leader unreachable: keep — deletion is the irreversible direction.
