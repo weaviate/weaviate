@@ -14,4 +14,6 @@
 package roaringsetrange
 
 // No-op: too costly for a release query path. See plane_invariant_race_on.go.
-func assertPlaneIsSubsetOfPlaneZero(bitmaps rangeBitmaps, plane int) {}
+// bitmaps is a pointer so that the call stays free even if this body grows;
+// by value it copies the whole plane array on every seeded cascade.
+func assertPlaneIsSubsetOfPlaneZero(bitmaps *rangeBitmaps, plane int) {}

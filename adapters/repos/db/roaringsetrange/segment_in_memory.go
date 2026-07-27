@@ -288,7 +288,7 @@ type cascadeStart struct {
 // cascadeSeed returns where value's cascade starts. Every plane is a subset of
 // plane 0, so seeding from the lowest set bit's plane directly skips the
 // whole-shard AND that would otherwise produce it. Switched off via
-// CascadeSeedEnabledEnv, the cascade starts at plane 0 and runs as v1.37 does.
+// CascadeSeedEnabledEnv, every cascade starts at plane 0 instead.
 func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
 	if !cascadeSeedEnabled {
 		return cascadeStart{seed: r.bitmaps[0], nextBit: 1}
@@ -302,7 +302,7 @@ func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
 	}
 
 	bit := bits.TrailingZeros64(value) + 1
-	assertPlaneIsSubsetOfPlaneZero(r.bitmaps, bit)
+	assertPlaneIsSubsetOfPlaneZero(&r.bitmaps, bit)
 	return cascadeStart{seed: r.bitmaps[bit], nextBit: bit + 1, narrowed: true}
 }
 

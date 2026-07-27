@@ -49,11 +49,26 @@ func parseCascadeSeedEnabled(v string) bool {
 	return enabled
 }
 
-// LogCascadeSeedConfig warns when the switch holds a value it cannot read. The
-// switch is parsed at init, where there is no logger yet, so the warning is
-// emitted from startup instead.
+// LogCascadeSeedConfig states which position the switch is in and warns when it
+// holds a value it cannot read. The switch is parsed at init, where there is no
+// logger yet, so both lines are emitted from startup instead.
 func LogCascadeSeedConfig(logger logrus.FieldLogger) {
+	logCascadeSeedState(logger, cascadeSeedEnabled)
 	logCascadeSeedConfig(logger, os.Getenv(CascadeSeedEnabledEnv))
+}
+
+// logCascadeSeedState takes the value init parsed instead of reading the
+// environment again, so the position an operator reads here is the one the
+// running code is in. It logs on every boot because a switch whose position
+// cannot be read off the log is not a switch anyone can rely on mid-incident.
+func logCascadeSeedState(logger logrus.FieldLogger, enabled bool) {
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+
+	logger.WithField("enabled", enabled).Infof(
+		"%s: range cascade seeding is %s", CascadeSeedEnabledEnv, state)
 }
 
 // An unset switch is the normal case, so only a value that was set and could

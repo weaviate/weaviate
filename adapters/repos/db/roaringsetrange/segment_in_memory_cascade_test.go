@@ -29,12 +29,14 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
-// 32 seeds balance differential coverage against the race-build guard's
-// whole-plane cost per seed (~17s here vs ~2s without them).
+// 32 seeds balance differential coverage against the plane invariant guard,
+// which costs a whole-shard AndNot per seeded cascade under the race build.
 const cascadeSeeds = 32
 
-// cascadeEdgeValues pins the cases where the seed index is degenerate: no set
-// bit at all, the lowest bit, the highest bit, and every bit set.
+// cascadeEdgeValues pins the values that decide how the cascade runs: the
+// lowest set bit picks the plane it starts from, the bits above that one pick
+// the merges that follow. It covers no set bit at all, the lowest bit, the
+// second bit and the highest bit, plus low starts carrying higher bits too.
 var cascadeEdgeValues = []uint64{
 	0,
 	1,
@@ -161,7 +163,8 @@ func TestSeededCascadeLeavesADifferentArena(t *testing.T) {
 	require.NotEqual(t, want.ToBuffer(), got.ToBuffer())
 }
 
-// unseededGreaterThanEqual is mergeGreaterThanEqual exactly as v1.37 ships it.
+// unseededGreaterThanEqual is mergeGreaterThanEqual without seeding, kept as
+// the differential's reference implementation.
 func unseededGreaterThanEqual(bitmaps rangeBitmaps, value uint64, conc int) *sroar.Bitmap {
 	result := bitmaps[0].Clone()
 	ANDed := false
@@ -177,7 +180,8 @@ func unseededGreaterThanEqual(bitmaps rangeBitmaps, value uint64, conc int) *sro
 	return result
 }
 
-// unseededBetween is mergeBetween exactly as v1.37 ships it.
+// unseededBetween is mergeBetween without seeding, kept as the differential's
+// reference implementation.
 func unseededBetween(bitmaps rangeBitmaps, valueMinInc, valueMaxExc uint64, conc int) *sroar.Bitmap {
 	resultMin := bitmaps[0].Clone()
 	resultMax := bitmaps[0].Clone()

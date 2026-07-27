@@ -16,6 +16,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"hash"
 	"math"
 	"math/rand"
@@ -80,6 +83,8 @@ func TestCascadeSeedEnvNameMeansWhatItSays(t *testing.T) {
 
 // Fail-open means any spelling of "off" not in the recognised set silently
 // leaves seeding on, so the set has to cover what an operator plausibly types.
+// The warning hands that set to operators as a plain string that nothing in the
+// parser refers to, so the two are required to still agree here as well.
 func TestCascadeSeedRecognisedOffValuesTakeEffect(t *testing.T) {
 	for _, value := range []string{"off", "OFF", " off ", "false", "False", "0", "disabled", "DISABLED"} {
 		t.Run(fmt.Sprintf("value=%q", value), func(t *testing.T) {
@@ -87,6 +92,58 @@ func TestCascadeSeedRecognisedOffValuesTakeEffect(t *testing.T) {
 				"%s=%q left seeding on, so the operator's intent vanished", CascadeSeedEnabledEnv, value)
 		})
 	}
+
+	require.ElementsMatch(t, parseBoolEnvOffValues(t), strings.Split(cascadeSeedOffValues, ", "),
+		"cascadeSeedOffValues is the list the warning tells an operator to pick from; "+
+			"it no longer matches what parseBoolEnv switches off")
+}
+
+// parseBoolEnvOffValues reads the off case back out of parseBoolEnv rather than
+// restating it. A second hand-written list would pin the two only as of today:
+// an off value added to the parser alone changes neither list, keeps parsing
+// correctly, and leaves only the operator's instructions wrong.
+func parseBoolEnvOffValues(t *testing.T) []string {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), "cascade_seed.go", nil, 0)
+	require.NoError(t, err)
+
+	var values []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		clause, ok := node.(*ast.CaseClause)
+		if !ok || !caseReturnsIdents(clause, "false", "true") {
+			return true
+		}
+		for _, expr := range clause.List {
+			lit, ok := expr.(*ast.BasicLit)
+			require.Truef(t, ok, "parseBoolEnv's off case holds a %T, not a literal", expr)
+			values = append(values, strings.Trim(lit.Value, `"`))
+		}
+		return false
+	})
+
+	require.NotEmpty(t, values,
+		"cascade_seed.go has no case returning (false, true), so this test no longer "+
+			"reads the values parseBoolEnv treats as off")
+	return values
+}
+
+// caseReturnsIdents reports whether the clause's whole body is one return of
+// exactly these identifiers.
+func caseReturnsIdents(clause *ast.CaseClause, idents ...string) bool {
+	if len(clause.Body) != 1 {
+		return false
+	}
+	ret, ok := clause.Body[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != len(idents) {
+		return false
+	}
+	for i, want := range idents {
+		if ident, ok := ret.Results[i].(*ast.Ident); !ok || ident.Name != want {
+			return false
+		}
+	}
+	return true
 }
 
 // Fail-open makes a typo indistinguishable from an unset switch at runtime, so
@@ -148,10 +205,128 @@ func TestLogCascadeSeedConfigReadsTheEnv(t *testing.T) {
 	logger, hook := test.NewNullLogger()
 	LogCascadeSeedConfig(logger)
 
-	require.Len(t, hook.AllEntries(), 1,
+	require.Len(t, entriesAtLevel(hook, logrus.WarnLevel), 1,
 		"LogCascadeSeedConfig did not read %s, so the warning cannot reach production",
 		CascadeSeedEnabledEnv)
-	assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+}
+
+// An operator switching seeding off mid-incident has only the log to tell them
+// it took effect, so the line has to name a position, not merely appear.
+func TestCascadeSeedStateLineNamesThePosition(t *testing.T) {
+	tests := []struct {
+		enabled bool
+		want    string
+	}{
+		{enabled: true, want: "enabled"},
+		{enabled: false, want: "disabled"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			logCascadeSeedState(logger, tt.enabled)
+
+			require.Len(t, hook.AllEntries(), 1)
+			entry := hook.LastEntry()
+			assert.Equal(t, logrus.InfoLevel, entry.Level)
+			assert.Equal(t, tt.enabled, entry.Data["enabled"])
+			assert.Contains(t, entry.Message, CascadeSeedEnabledEnv,
+				"the line must name the variable an operator would change")
+			assert.Contains(t, entry.Message, "seeding is "+tt.want,
+				"the two positions have to read differently, or the line settles nothing")
+		})
+	}
+}
+
+// cascadeSeedLogStateEnv tells a child process which position the startup line
+// is meant to report.
+const cascadeSeedLogStateEnv = "TEST_ROARINGSETRANGE_CASCADE_SEED_LOG_STATE"
+
+// The startup line is only worth anything if it reports the switch init read,
+// and init runs before any test can set an env var, so each value class needs
+// its own process.
+func TestLogCascadeSeedConfigReportsTheEffectiveState(t *testing.T) {
+	if want := os.Getenv(cascadeSeedLogStateEnv); want != "" {
+		requireStateLineMatchesTheSwitch(t, want == "on")
+		return
+	}
+
+	tests := []struct {
+		name     string
+		envValue string
+		set      bool
+		state    string
+	}{
+		{name: "unset", state: "on"},
+		{name: "recognised on", envValue: "on", set: true, state: "on"},
+		{name: "recognised off", envValue: "disabled", set: true, state: "off"},
+		{name: "recognised off/zero", envValue: "0", set: true, state: "off"},
+		{name: "unrecognised", envValue: "yes", set: true, state: "on"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0],
+				"-test.run=^TestLogCascadeSeedConfigReportsTheEffectiveState$",
+				"-test.count=1", "-test.v")
+			cmd.Env = cascadeSeedChildEnv(tt.set, tt.envValue, cascadeSeedLogStateEnv+"="+tt.state)
+			out, err := cmd.CombinedOutput()
+			require.NoErrorf(t, err, "child with %s=%q (set=%v) failed:\n%s",
+				CascadeSeedEnabledEnv, tt.envValue, tt.set, out)
+		})
+	}
+}
+
+// requireStateLineMatchesTheSwitch checks the line against cascadeSeedEnabled
+// itself. A line sourced from a second read of the environment would still
+// agree with the parent's expectation, so only this comparison catches it.
+func requireStateLineMatchesTheSwitch(t *testing.T, wantEnabled bool) {
+	t.Helper()
+
+	require.Equal(t, wantEnabled, cascadeSeedEnabled,
+		"this process did not boot into the position the parent asked for")
+
+	logger, hook := test.NewNullLogger()
+	LogCascadeSeedConfig(logger)
+
+	state := entriesAtLevel(hook, logrus.InfoLevel)
+	require.Len(t, state, 1, "startup must state the switch's position exactly once")
+
+	want := "disabled"
+	if cascadeSeedEnabled {
+		want = "enabled"
+	}
+	assert.Equal(t, cascadeSeedEnabled, state[0].Data["enabled"],
+		"the line reports a position the running code is not in")
+	assert.Contains(t, state[0].Message, "seeding is "+want)
+}
+
+func entriesAtLevel(hook *test.Hook, level logrus.Level) []*logrus.Entry {
+	var entries []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == level {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+// cascadeSeedChildEnv builds a child environment with the switch set to value,
+// or left unset, and every marker this process was handed stripped out.
+func cascadeSeedChildEnv(set bool, value string, extra ...string) []string {
+	env := append([]string{}, extra...)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, CascadeSeedEnabledEnv+"=") ||
+			strings.HasPrefix(kv, cascadeSeedStateEnv+"=") ||
+			strings.HasPrefix(kv, cascadeSeedLogStateEnv+"=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	if set {
+		env = append(env, CascadeSeedEnabledEnv+"="+value)
+	}
+	return env
 }
 
 // withCascadeSeedEnabled assigns the switch directly: it is read at startup, so
@@ -239,9 +414,10 @@ func TestCascadeSeedOffSkipsTheLeadingMerges(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 
-// cascadeMergeBaseDigests are the ordered result IDs stable/v1.37 returns for
-// these fixtures, generated by running cascadeResultDigest against 73d07e09e
-// rather than a reimplementation of it. Both switch states must reproduce them.
+// cascadeMergeBaseDigests are the ordered result IDs the unseeded cascade
+// returns for these fixtures, generated by running cascadeResultDigest at merge
+// base 73d07e09e rather than against a reimplementation of it. Both switch
+// states must reproduce them.
 var cascadeMergeBaseDigests = map[string]string{
 	"empty":  "74c0a3dce12dc981285686e5a6b0d9f2f799f81eab94ea7a8898997b379b6e0a",
 	"seed=0": "190c74ba904d530859fde9cc0d6506a55f45a1b17378d2c1f9c4fb39a717bbb4",
@@ -291,19 +467,8 @@ func TestCascadeSeedEnvStatesAllMatchTheMergeBase(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := []string{cascadeSeedStateEnv + "=" + tt.state}
-			for _, kv := range os.Environ() {
-				if !strings.HasPrefix(kv, CascadeSeedEnabledEnv+"=") &&
-					!strings.HasPrefix(kv, cascadeSeedStateEnv+"=") {
-					env = append(env, kv)
-				}
-			}
-			if tt.set {
-				env = append(env, CascadeSeedEnabledEnv+"="+tt.envValue)
-			}
-
 			cmd := exec.Command(os.Args[0], "-test.run=^TestCascadeMatchesMergeBase$", "-test.count=1", "-test.v")
-			cmd.Env = env
+			cmd.Env = cascadeSeedChildEnv(tt.set, tt.envValue, cascadeSeedStateEnv+"="+tt.state)
 			out, err := cmd.CombinedOutput()
 			require.NoErrorf(t, err, "child with %s=%q (set=%v) failed:\n%s",
 				CascadeSeedEnabledEnv, tt.envValue, tt.set, out)
