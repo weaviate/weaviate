@@ -144,9 +144,9 @@ func PublishConfig(featureEnabled bool, logger logrus.FieldLogger) {
 // as unset with nothing logged. Scoped to naming it here rather than fixing
 // entcfg.Enabled, which every caller in the repo shares.
 //
-// The outcome comes from featureEnabled, never from the value: the config file
-// is parsed before FromEnv and FromEnv only ever switches the flag on, so the
-// string cannot say where the feature ended up.
+// The state comes from featureEnabled, not the value: the config file is parsed
+// before FromEnv and FromEnv only ever switches the flag on, so the string
+// cannot say where the feature ended up.
 func logIndexRangeableConfig(featureEnabled bool, logger logrus.FieldLogger) {
 	if logger == nil || indexRangeableEnvValue == "" ||
 		!indexRangeableLogged.CompareAndSwap(false, true) {
@@ -159,10 +159,9 @@ func logIndexRangeableConfig(featureEnabled bool, logger logrus.FieldLogger) {
 	}
 	entry := logger.WithField("action", "roaringsetrange_index_rangeable_in_memory")
 
-	// parseBoolEnv trims and entcfg.Enabled does not, so " true" reads as an
-	// intent this build understands against a feature that stayed off. Comparing
-	// the intent to the resolved state surfaces that gap instead of hiding it,
-	// which is why the two parsers are allowed to keep disagreeing.
+	// parseBoolEnv trims and entcfg.Enabled does not, so " true" is an intent
+	// this build understands against a feature that stayed off. Comparing intent
+	// to resolved state surfaces that gap rather than hiding it.
 	intent, recognised := parseBoolEnv(indexRangeableEnvValue)
 	switch {
 	case !recognised:

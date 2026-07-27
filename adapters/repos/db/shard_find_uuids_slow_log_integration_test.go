@@ -279,11 +279,8 @@ func Test_FindUUIDs_CountsAResolutionThatMatchedNothing(t *testing.T) {
 	}
 }
 
-// The counter's help names two producers of Shard.FindUUIDs. The batch-delete
-// side is pinned above; this is the object-TTL sweep, whose only route into a
-// resolution is findUUIDsForExpiredObjects. It has to move the child the shard's
-// configuration implies, and the sweep's own date filter is what carries it
-// there.
+// The counter's help names two producers of Shard.FindUUIDs; the batch-delete
+// side is pinned above, this is the object-TTL sweep.
 func Test_TTLSweep_CountsWhichBackingResolvedTheFilter(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -340,8 +337,7 @@ func expectSingleShardReadPlan(t *testing.T, index *Index, shardName string) {
 	}, nil).Maybe()
 }
 
-// expiresAtFilter is shaped like the clause incomingDeleteObjectsExpired builds:
-// less-than-or-equal on a date property.
+// expiresAtFilter is shaped like the clause incomingDeleteObjectsExpired builds.
 func expiresAtFilter(threshold time.Time) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
@@ -380,8 +376,7 @@ func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, rangeableInMemo
 			IndexFilterable:   boolPtr(true),
 			IndexRangeFilters: boolPtr(false),
 		}, {
-			// The TTL sweep filters on a date, so the producer this fixture
-			// stands in for needs one indexed the way the sweep reads it.
+			// The TTL sweep filters on a rangeable date, so the fixture needs one.
 			Name:              findUUIDsExpiresAtProp,
 			DataType:          []string{string(schema.DataTypeDate)},
 			IndexRangeFilters: boolPtr(true),

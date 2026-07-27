@@ -20,9 +20,11 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -184,26 +186,31 @@ func TestCascadeSeedCounterDistinguishesDisabledFromUnexercised(t *testing.T) {
 	assert.Equal(t, disabledBefore+1, testutil.ToFloat64(cascadeSeedDisabled))
 }
 
-// A child that can never move is worse than a missing one: it reads zero on
-// every configuration forever, and a dashboard cannot tell that from an idle
-// process. The names are pinned elsewhere; this drives the production entry
-// point over every operator in both switch states and requires each live child
+// A child no path moves reads zero forever, which a dashboard cannot tell from
+// an idle process. The names are pinned elsewhere; this drives the production
+// entry point behind every counter the subsystem owns and requires each child
 // to have moved at least once.
-func TestCascadeSeedCounterHasNoChildThatCannotMove(t *testing.T) {
-	operators := []filters.Operator{
-		filters.OperatorEqual,
-		filters.OperatorNotEqual,
-		filters.OperatorLessThan,
-		filters.OperatorLessThanEqual,
-		filters.OperatorGreaterThan,
-		filters.OperatorGreaterThanEqual,
+func TestEveryCounterChildHasAPathThatMovesIt(t *testing.T) {
+	before := counterChildren(t)
+	require.NotEmpty(t, before, "no counter children are exported, so this asserts nothing")
+
+	driveCascadeSeed(t)
+	driveLeafCache(t)
+	driveDeleteFilterResolutions(t)
+
+	for child, count := range counterChildren(t) {
+		assert.Greaterf(t, count, before[child],
+			"%s did not move while this test drove the cascade, the leaf cache and the "+
+				"delete-filter resolution, so no path here reaches it", child)
 	}
+}
 
-	before := cascadeSeedChildren(t)
-	require.NotEmpty(t, before, "the counter emits no children, so this asserts nothing")
+// driveCascadeSeed reads every operator in both switch states. A fixture per
+// state: a leaf memoised under one setting would be served back under the other
+// and skip the cascade that is being counted.
+func driveCascadeSeed(t *testing.T) {
+	t.Helper()
 
-	// A fixture per state: a leaf memoised under one setting would be served
-	// back under the other and skip the cascade that is being counted.
 	for seed, disabled := range []bool{false, true} {
 		withCascadeSeedDisabled(t, disabled)
 
@@ -211,7 +218,7 @@ func TestCascadeSeedCounterHasNoChildThatCannotMove(t *testing.T) {
 		readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
 		reader := readers[0].(*segmentInMemoryReader)
 
-		for _, operator := range operators {
+		for _, operator := range cacheTestOperators {
 			for _, value := range cascadeEdgeValues {
 				_, releaseBm, err := reader.Read(context.Background(), value, operator)
 				require.NoError(t, err)
@@ -220,19 +227,128 @@ func TestCascadeSeedCounterHasNoChildThatCannotMove(t *testing.T) {
 		}
 		release()
 	}
-
-	after := cascadeSeedChildren(t)
-	for outcome, count := range after {
-		assert.Greaterf(t, count, before[outcome],
-			"%s{outcome=%q} did not move once over every operator in both switch states, so no "+
-				"configuration can make it non-zero and its flat line means nothing",
-			metricsNamespace+"_"+cascadeSeedName, outcome)
-	}
 }
 
-// cascadeSeedChildren reads the children the counter actually exports, so one
-// that is declared and never reached is caught rather than only one misspelt.
-func cascadeSeedChildren(t *testing.T) map[string]float64 {
+// driveLeafCache reaches each cache outcome on a budget of its own, so none of
+// them rides on whatever the process-wide one happens to be.
+func driveLeafCache(t *testing.T) {
+	t.Helper()
+
+	logger, _ := test.NewNullLogger()
+	const predicate = 13
+
+	// first sight misses, second admits and stores, third hits
+	roomy := newLeafCacheFixture(t, logger, 1<<20)
+	for round := 0; round < 3; round++ {
+		query(t, roomy, predicate, filters.OperatorGreaterThanEqual)
+	}
+	require.Equal(t, 1, cachedEntries(roomy))
+
+	// only a merged memtable bumps the generation, and the drop is then raised by
+	// the next lookup rather than by the merge
+	mt := NewMemtable(logger)
+	mt.Insert(31, []uint64{131})
+	roomy.MergeMemtableEventually(mt)
+	waitUntilMemtablesMerged(t, roomy)
+	query(t, roomy, predicate, filters.OperatorGreaterThanEqual)
+
+	// a budget too small for the leaf declines it once the predicate repeats
+	tight := newLeafCacheFixture(t, logger, 1)
+	query(t, tight, predicate, filters.OperatorGreaterThanEqual)
+	query(t, tight, predicate, filters.OperatorGreaterThanEqual)
+
+	// and the kill switch leaves no cache to probe at all
+	query(t, newLeafCacheFixture(t, logger, 0), predicate, filters.OperatorGreaterThanEqual)
+}
+
+func newLeafCacheFixture(t *testing.T, logger logrus.FieldLogger, maxBytes int) *SegmentInMemory {
+	t.Helper()
+
+	seg := newCachedSegment(logger, maxBytes)
+	mt1, mt2, mt3 := createTestMemtables(logger)
+	seg.MergeMemtableEventually(mt1)
+	seg.MergeMemtableEventually(mt2)
+	seg.MergeMemtableEventually(mt3)
+	waitUntilMemtablesMerged(t, seg)
+	return seg
+}
+
+// driveDeleteFilterResolutions routes one resolution to each child. The reader
+// set is what picks the child, so each is reached by reading through it rather
+// than by writing the annotation the delete path reads.
+func driveDeleteFilterResolutions(t *testing.T) {
+	t.Helper()
+
+	logger, _ := test.NewNullLogger()
+	mt1, mt2, _ := createTestMemtables(logger)
+
+	seg := NewSegmentInMemory(logger)
+	seg.MergeMemtableEventually(mt1)
+	waitUntilMemtablesMerged(t, seg)
+	readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
+
+	inMemory := NewCombinedReader(readers, release, 1, logger)
+	defer inMemory.Close()
+	memtableOnly := NewCombinedReader([]InnerReader{NewMemtableReader(mt2)}, func() {}, 1, logger)
+	defer memtableOnly.Close()
+
+	for _, reader := range []*CombinedReader{inMemory, memtableOnly} {
+		ctx := helpers.InitSlowQueryDetails(context.Background())
+		_, releaseBm, err := reader.Read(ctx, 13, filters.OperatorGreaterThanEqual)
+		require.NoError(t, err)
+		releaseBm()
+		ObserveDeleteFilterResolution(ctx)
+	}
+
+	// no range read ran under this context at all
+	ObserveDeleteFilterResolution(context.Background())
+}
+
+// cascadeSeedDisabled absorbs every unnarrowed start, so the name only stays
+// honest while no read path hands cascadeSeed a 0. The guard above catches a
+// child that never moves, not one that moves under the wrong label, so this
+// pins that direction.
+func TestCascadeSeedDisabledStaysFlatWhileSeedingIsOn(t *testing.T) {
+	withCascadeSeedDisabled(t, false)
+
+	rng := rand.New(rand.NewSource(7))
+	values := append([]uint64{}, cascadeEdgeValues...)
+	for i := 0; i < 64; i++ {
+		values = append(values, cascadeRandomValue(rng))
+	}
+
+	seededBefore := testutil.ToFloat64(cascadeSeedSeeded)
+	disabledBefore := testutil.ToFloat64(cascadeSeedDisabled)
+
+	for seed := int64(0); seed < 2; seed++ {
+		seg := newCascadeFixture(t, seed)
+		// no memo, or a hit would skip the cascade this is counting
+		seg.leafCache = nil
+
+		readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
+		reader := readers[0].(*segmentInMemoryReader)
+
+		for _, operator := range cacheTestOperators {
+			for _, value := range values {
+				_, releaseBm, err := reader.Read(context.Background(), value, operator)
+				require.NoError(t, err)
+				releaseBm()
+			}
+		}
+		release()
+	}
+
+	require.Greater(t, testutil.ToFloat64(cascadeSeedSeeded), seededBefore,
+		"no cascade ran, so this asserts nothing")
+	assert.Equal(t, disabledBefore, testutil.ToFloat64(cascadeSeedDisabled),
+		"a read path reached cascadeSeed with 0 while seeding was on, so the disabled "+
+			"child now counts cascades the switch never disabled")
+}
+
+// counterChildren reads the children this subsystem's counters actually export,
+// so one that is declared and never reached is caught rather than only one
+// misspelt.
+func counterChildren(t *testing.T) map[string]float64 {
 	t.Helper()
 
 	families, err := prometheus.DefaultGatherer.Gather()
@@ -240,14 +356,16 @@ func cascadeSeedChildren(t *testing.T) map[string]float64 {
 
 	children := map[string]float64{}
 	for _, family := range families {
-		if family.GetName() != metricsNamespace+"_"+cascadeSeedName {
+		if !strings.HasPrefix(family.GetName(), metricsNamespace+"_lsm_roaringsetrange_") {
 			continue
 		}
 		for _, metric := range family.GetMetric() {
+			if metric.Counter == nil {
+				continue
+			}
 			for _, label := range metric.GetLabel() {
-				if label.GetName() == "outcome" {
-					children[label.GetValue()] = metric.GetCounter().GetValue()
-				}
+				children[fmt.Sprintf("%s{%s=%q}", family.GetName(), label.GetName(),
+					label.GetValue())] = metric.GetCounter().GetValue()
 			}
 		}
 	}

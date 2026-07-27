@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/dustin/go-humanize"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -95,10 +96,16 @@ var (
 				"bucket in the process: there is no class, shard or property dimension. " +
 				"seeded means the cascade started from the lowest set bit's plane; " +
 				"disabled means " + CascadeSeedEnabledEnv + " switched seeding off and it " +
-				"started from plane 0. Only the in-memory range segment reaches these counters, " +
-				"so both read zero when " + IndexRangeableInMemoryEnv + " is off and when " +
-				"it is on with no range filters running: read " + cascadeSeedConfigSeries +
-				" for the switch, and these for the traffic.",
+				"started from plane 0. These count cascades, not queries: a leaf served from " +
+				"the memo runs no cascade and lands on neither child, so on a repeating " +
+				"workload that fits the " + LeafCacheMaxMemoryEnv + " budget — " +
+				humanize.IBytes(DefaultLeafCacheMaxMemory) + " by default, so this is the stock " +
+				"case — both go flat while range filters keep flowing. Only the in-memory range " +
+				"segment reaches them at all, so both also read zero when " +
+				IndexRangeableInMemoryEnv + " is off and when it is on with no range filters " +
+				"running. Read " + cascadeSeedConfigSeries + " for the switch, " +
+				leafCacheOpsSeries + " for whether the memo is absorbing the traffic, and these " +
+				"for the cascades that actually ran.",
 		}, []string{"outcome"})
 
 	// Created eagerly so a disabled-and-exercised process is a non-zero counter
@@ -108,10 +115,11 @@ var (
 )
 
 // observeCascadeSeed records where a cascade started. Cache hits aren't
-// counted: no cascade runs for them. Two outcomes and not three, because
-// cascadeSeed leaves an enabled cascade unnarrowed only for value 0, and no
-// read path delivers 0: each operator either returns before the merge or adds
-// one first. So an unnarrowed start means the switch is off.
+// counted: no cascade runs for them. An unnarrowed start means the switch is
+// off: cascadeSeed only leaves an enabled cascade unnarrowed for value 0, which
+// no read path delivers. That is what keeps the disabled label honest, so it is
+// pinned by TestCascadeSeedDisabledStaysFlatWhileSeedingIsOn rather than left
+// to hold by convention.
 func observeCascadeSeed(start cascadeStart) {
 	if start.narrowed {
 		cascadeSeedSeeded.Inc()

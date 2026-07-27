@@ -98,10 +98,15 @@ var (
 				"disabled counts lookups that found no cache at all. " +
 				"invalidate is not conserved and its magnitude carries no information: use it " +
 				"as presence or absence only, never as a rate and never as an alert threshold. " +
-				"It counts drop events raised lazily by the next lookup rather than by the " +
-				"write, so a run of writes with no lookup between them raises one and writes " +
-				"against an already-empty cache raise none; flushes coalesce upstream of that " +
-				"too. A non-zero value means invalidation fires, and nothing more. " +
+				"What raises one is a memtable flush merged into the in-memory range segment, " +
+				"not a write: an insert or a delete never drops an entry on its own, and the " +
+				"flush cycle skips a bucket whose commitlog has not grown past " +
+				"PERSISTENCE_MAX_REUSE_WAL_SIZE (4 KiB by default), so on a low-write process " +
+				"no amount of elapsed time produces one and this child reads zero forever while " +
+				"the cache works. The drop is then raised by the next lookup rather than by the " +
+				"flush, so several flushes with no lookup between them raise one and a flush " +
+				"against an already-empty cache raises none. A non-zero value means invalidation " +
+				"fires, and nothing more; zero says nothing at all. " +
 				"disabled rising means the cache is off while queries flow; hit/miss moving " +
 				"means it is working. Every child flat is ambiguous: only the in-memory range " +
 				"segment reaches these counters, so it reads the same whether " +
@@ -271,8 +276,8 @@ func (c *leafCache) admitLocked(key leafKey) bool {
 
 func (c *leafCache) dropLocked(generation uint64) {
 	if len(c.entries) > 0 {
-		// Raised by the lookup that notices, not by the write: several generation
-		// bumps with no lookup between them raise one. Don't read it as a count.
+		// Raised by the lookup that notices, not by the flush that bumped the
+		// generation, so several bumps with no lookup between them raise one.
 		leafCacheInvalidation.Inc()
 	}
 	c.entries = nil

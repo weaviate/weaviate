@@ -59,12 +59,18 @@ var (
 				"It counts resolutions, not deletes. The increment fires once the filter has " +
 				"resolved, before anything is removed, so a resolution matching zero objects " +
 				"counts and so does one whose delete is then cancelled having removed nothing. " +
-				"Both producers reach it, a batch delete and the object-TTL sweep, and a delete " +
-				"fanned out across replicas resolves once per shard on every node that serves " +
-				"it. No count of deleted objects and no count of user requests can be derived " +
-				"from it. A filter that failed to resolve is not counted at all. The matching " +
-				"slow-query record carries the per-operation detail but exists only once " +
-				"QUERY_SLOW_LOG_ENABLED is on, and is sampled after that.",
+				"Both producers reach it, a batch delete and the object-TTL sweep, and a " +
+				"replicated delete resolves once per shard on each replica its consistency " +
+				"level actually reads from, which is fewer than all of them below ALL. " +
+				"The two producers are not independent, though: both reach it through the same " +
+				"shard-level filter resolution (Shard.FindUUIDs), which is the only place this " +
+				"counter is incremented, so it cannot tell them apart and a change in it cannot " +
+				"be attributed to either. No count of deleted objects and no count of user " +
+				"requests can be derived from it, and a filter that failed to resolve is not " +
+				"counted at all. The matching slow-query record carries the per-operation " +
+				"detail but exists only once QUERY_SLOW_LOG_ENABLED is on; with it on, every " +
+				"resolution over the slow-query threshold is recorded and the rest are sampled " +
+				"at 1%.",
 		}, []string{"routed"})
 
 	// Created eagerly so every child reads zero on a process that has never

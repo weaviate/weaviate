@@ -18,7 +18,7 @@ import "fmt"
 // assertPlaneIsSubsetOfPlaneZero guards the invariant the seeded cascade
 // depends on: if a plane escapes plane 0, results are silently wrong with no
 // panic or log. The check is a whole-shard AndNot, so it only runs in race
-// builds, i.e. every test binary.
+// builds.
 func assertPlaneIsSubsetOfPlaneZero(bitmaps rangeBitmaps, plane int) {
 	outside := bitmaps[plane].Clone()
 	outside.AndNot(bitmaps[0])

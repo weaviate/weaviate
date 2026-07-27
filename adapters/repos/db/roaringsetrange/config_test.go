@@ -94,9 +94,7 @@ func TestPublishConfigNamesAnUnparsedFeatureFlag(t *testing.T) {
 	}
 }
 
-// The env value alone cannot say where the feature ended up: the config file is
-// parsed before FromEnv, and FromEnv only ever switches the feature on. So the
-// warning has to name the state that resolved, in both directions.
+// The warning must name the resolved state, not the env value, in both directions.
 func TestPublishConfigWarnsAboutTheStateThatResolved(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -115,9 +113,8 @@ func TestPublishConfigWarnsAboutTheStateThatResolved(t *testing.T) {
 			wantMessage: "the in-memory range segment is off",
 		},
 		{
-			// entcfg.Enabled decides this knob and does not trim, so this reads
-			// as unset and the feature stays off. parseBoolEnv does trim, so the
-			// warning built to catch exactly this typo used to stay silent.
+			// entcfg.Enabled decides this knob and does not trim, so the value
+			// reads as unset and the feature stays off.
 			name:     "a leading space the deciding parser does not trim",
 			envValue: " true", feature: false,
 			wantMessage: "the in-memory range segment is off",
@@ -261,9 +258,8 @@ func TestMetricNameConstantsMatchTheSeriesTheyHold(t *testing.T) {
 			ident, metricsNamespace+"_"+series)
 	}
 
-	// The source values are as operator-facing as the label values: they land in
-	// the slow-query record, so they get the same guard rather than a literal
-	// pinned one tier away.
+	// The source values land in the slow-query record, so they are as
+	// operator-facing as the label values and get the same guard.
 	values := []struct {
 		file   string
 		prefix string
