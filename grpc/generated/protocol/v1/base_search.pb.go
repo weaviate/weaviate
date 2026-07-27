@@ -81,9 +81,7 @@ const (
 	SearchOperatorOptions_OPERATOR_UNSPECIFIED SearchOperatorOptions_Operator = 0
 	SearchOperatorOptions_OPERATOR_OR          SearchOperatorOptions_Operator = 1
 	SearchOperatorOptions_OPERATOR_AND         SearchOperatorOptions_Operator = 2
-	// All tokens must match, but may be spread across the searched properties
-	// rather than all within a single one. Fails unless every searched property
-	// shares the same tokenization and analyzer settings.
+	// Fails unless every searched property shares the same tokenization and analyzer settings.
 	SearchOperatorOptions_OPERATOR_AND_CROSS SearchOperatorOptions_Operator = 3
 )
 
