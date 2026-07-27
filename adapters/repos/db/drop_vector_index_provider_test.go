@@ -1414,6 +1414,34 @@ func TestCheckVectorConfigRemoval_GatesOnFinished(t *testing.T) {
 	})
 }
 
+// TestShouldRetainCompletedTask pins the TTL-retention contract: completed
+// drop records are the coverage chain's only memory and must outlive the TTL
+// while their marker is pending — expiring them forces a fresh-epoch full
+// re-clean every TTL, forever, when a tenant never reactivates. Once the
+// marker is gone (or for records that feed nothing) the TTL applies.
+func TestShouldRetainCompletedTask(t *testing.T) {
+	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	// Default fakeShardingReader class: v1 still marked dropped.
+
+	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil)),
+		"marker pending: the completed record must survive the TTL")
+	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusSwapping, nil)))
+	require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFailed, nil)),
+		"FAILED records feed no coverage; TTL applies")
+
+	// Marker finalized (entry re-created live): nothing left to protect.
+	p.sharding = &fakeShardingReader{shards: []string{"shard1"},
+		vectorCfg: map[string]models.VectorConfig{"v1": {VectorIndexType: "hnsw"}}}
+	require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil)))
+
+	// Leader unreachable: keep — deletion is the irreversible direction.
+	p.sharding = &fakeShardingReader{shards: []string{"shard1"}, err: errors.New("no leader")}
+	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFinished, nil)))
+
+	corrupt := corruptDropTask("bad", distributedtask.TaskStatusFinished)
+	require.False(t, p.ShouldRetainCompletedTask(corrupt), "unparseable records cannot feed inheritance")
+}
+
 // TestCheckTenantMutation_NeverBlocks pins the decoupling contract: tenant
 // lifecycle is independent of in-flight drop cleanups. A mid-strip
 // deactivation fails that unit and the next reconcile round re-covers the

@@ -434,6 +434,7 @@ type schemaLister interface {
 // goroutine.
 func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 	enq dropVectorReconcileClient, logger logrus.FieldLogger, interval time.Duration,
+	isLeader func() bool,
 ) {
 	const attempts = 30
 	for i := 0; i < attempts; i++ {
@@ -465,6 +466,13 @@ func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 					logger.Errorf("drop-vector reconcile: round panicked (loop continues): %v", r)
 				}
 			}()
+			// Leader-only: every node runs this loop, but a round submits full
+			// unit maps — N nodes racing the same marker append N-1 losing
+			// multi-MB payloads to the RAFT log before CheckConflict rejects
+			// them at apply. Followers stay warm and take over on election.
+			if isLeader != nil && !isLeader() {
+				return
+			}
 			sch := lister.GetSchemaSkipAuth()
 			if sch.Objects != nil && len(sch.Objects.Classes) > 0 {
 				reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)

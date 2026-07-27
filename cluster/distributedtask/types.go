@@ -46,6 +46,16 @@ type CollectionExtractor func(payload []byte) (collection string, ok bool)
 // Same determinism contract as [CollectionExtractor].
 type TargetExtractor func(payload []byte) (collection string, targets []string, ok bool)
 
+// CompletedTaskRetainer is an optional interface a [Provider] implements to
+// veto the TTL cleanup of a terminal task whose record is still load-bearing.
+// Consulted on the proposal side only (the scheduler's cleanup phase), so it
+// need not be deterministic; the FSM's CleanUpTask stays unchanged. Vetoed
+// records are re-evaluated every tick — return false once the record stops
+// mattering, or it lives forever.
+type CompletedTaskRetainer interface {
+	ShouldRetainCompletedTask(task *Task) bool
+}
+
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error

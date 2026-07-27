@@ -168,10 +168,34 @@ func TestReconciliationAtStartup_ReadsSchemaAfterProbe(t *testing.T) {
 	// One round: the loop exits via ctx after the first pass.
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour)
+	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
+		func() bool { return true })
 
 	require.True(t, orderOK, "schema must be read AFTER the DTM readiness probe")
 	require.Equal(t, []string{"A/v1"}, enq.enqueued)
+}
+
+// TestReconciliation_FollowerSkipsRound pins the leader gate: every node runs
+// the loop, but only the leader may submit — a follower's round would append a
+// losing full-unit-map payload to the RAFT log before CheckConflict rejects it.
+func TestReconciliation_FollowerSkipsRound(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	probed := false
+	enq := &probeRecordingEnqueuer{
+		fakeReconcileEnqueuer: &fakeReconcileEnqueuer{active: map[string]bool{}},
+		probed:                &probed,
+	}
+	orderOK := false
+	lister := orderLister{probed: &probed, orderOK: &orderOK, classes: []*models.Class{
+		{Class: "A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	runDropVectorIndexReconciliation(ctx, lister, enq, logger, time.Hour,
+		func() bool { return false })
+
+	require.Empty(t, enq.enqueued, "a non-leader must not enqueue")
 }
 
 type fakeClusterDropClient struct {

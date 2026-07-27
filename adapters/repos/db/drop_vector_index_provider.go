@@ -407,6 +407,31 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 	}
 }
 
+// ShouldRetainCompletedTask implements distributedtask.CompletedTaskRetainer:
+// a completed (SWAPPING/FINISHED) drop record is the coverage chain's only
+// memory. While its marker still stands (finalize deferred over inactive
+// tenants), expiring the record erases the chain — the next reconcile round
+// then mints a fresh epoch and re-cleans the whole collection, and with a
+// permanently inactive (e.g. offloaded) tenant that would repeat every TTL,
+// forever. Retain until the marker leaves the schema; a re-drop's
+// marker-introduction purge deletes these records anyway. FAILED/CANCELLED
+// records feed nothing and are never retained. A leader-read failure retains
+// (deletion is the irreversible direction; re-evaluated next tick).
+func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtask.Task) bool {
+	if !task.Status.IsCompleted() {
+		return false
+	}
+	payload, err := decodeDropVectorIndexPayload(task.Payload)
+	if err != nil {
+		return false // unparseable records cannot feed coverage inheritance
+	}
+	stillDropped, err := p.targetsStillDropped(payload)
+	if err != nil {
+		return true
+	}
+	return stillDropped
+}
+
 // shardLocallyLoaded reports whether the shard is currently loaded on this
 // node. Diagnostic only (enriches a unit-failure reason); errors read as
 // "loaded" so a listing blip cannot mislabel a real drain failure.

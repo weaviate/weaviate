@@ -13,6 +13,8 @@ package lsmkv
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -97,4 +99,36 @@ func TestNewBucket_FailsWhenSidecarLocked(t *testing.T) {
 	_, err := newInterlockTestBucket(t, dir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "still locked by a previous instance")
+}
+
+// TestSegmentEditOps_SidecarRemovedWithLastOp pins that deleting the last op
+// deletes the sidecar file: a one-time drop must not leave a permanent
+// fd + mmap on every tenant shard (openIfExists would reopen it on every
+// shard load and cleanup pass, forever). A later op re-creates it.
+func TestSegmentEditOps_SidecarRemovedWithLastOp(t *testing.T) {
+	dir := t.TempDir()
+	ops := newSegmentEditOps(dir, "TestClass")
+	sidecar := filepath.Join(dir, segmentEditOpsFileName)
+
+	require.NoError(t, ops.RegisterOp("op1", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	require.NoError(t, ops.RegisterOp("op2", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 2}))
+	_, err := os.Stat(sidecar)
+	require.NoError(t, err, "sidecar exists while ops exist")
+
+	require.NoError(t, ops.DeleteOp("op1"))
+	_, err = os.Stat(sidecar)
+	require.NoError(t, err, "sidecar stays while another op remains")
+
+	require.NoError(t, ops.DeleteOp("op2"))
+	_, err = os.Stat(sidecar)
+	require.ErrorIs(t, err, os.ErrNotExist, "last op deleted => sidecar file removed")
+
+	pending, err := ops.Pending("op1")
+	require.NoError(t, err)
+	require.Empty(t, pending, "reads on a removed sidecar are clean no-ops")
+
+	require.NoError(t, ops.RegisterOp("op3", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 3}))
+	_, err = os.Stat(sidecar)
+	require.NoError(t, err, "a later op re-creates the sidecar")
+	require.NoError(t, ops.Close())
 }

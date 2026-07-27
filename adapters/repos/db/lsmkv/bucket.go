@@ -451,6 +451,14 @@ func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	if !b.HasEditOps() {
 		return fmt.Errorf("edit ops not enabled for this bucket")
 	}
+	// Hold flushAndSwitchMu across [flag check -> flush -> snapshot]:
+	// Shutdown sets shuttingDown and then passes a barrier on this mutex, so
+	// either this registration observed the flag and refused, or it completes
+	// its flush AND snapshot before the shutdown proceeds — a shutdown flush
+	// can never land between our flush and our snapshot (a segment outside
+	// the pending set is exactly the resurrection this guard exists to stop).
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
 	if b.shuttingDown.Load() {
 		// Arming against a closing bucket is unsound: the flush + segment
 		// snapshot race the dismantling, and an empty or partial snapshot
@@ -465,7 +473,7 @@ func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	if snapshotted {
 		return nil
 	}
-	if err := b.FlushAndSwitch(); err != nil {
+	if err := b.flushAndSwitchLocked(); err != nil {
 		return fmt.Errorf("flush before edit-op snapshot: %w", err)
 	}
 	return b.disk.registerEditOpAndSnapshot(opID, desc)
@@ -1763,6 +1771,12 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 
 func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	b.shuttingDown.Store(true)
+	// Barrier: any RegisterEditOp that passed the flag check holds
+	// flushAndSwitchMu until its snapshot is durable — wait it out, so no
+	// arm is mid-flight once the teardown below starts. Later arms see the
+	// flag and refuse.
+	b.flushAndSwitchMu.Lock()
+	b.flushAndSwitchMu.Unlock() //nolint:staticcheck // empty critical section IS the barrier
 	// Drain all in-flight read pins first (see the lifetimeLock doc); the
 	// heartbeat makes a wedged drain diagnosable.
 	drained := make(chan struct{})
@@ -2026,6 +2040,13 @@ func (b *Bucket) FlushAndSwitch() error {
 	b.flushAndSwitchMu.Lock()
 	defer b.flushAndSwitchMu.Unlock()
 
+	return b.flushAndSwitchLocked()
+}
+
+// flushAndSwitchLocked is FlushAndSwitch's body; the caller must hold
+// flushAndSwitchMu (RegisterEditOp holds it across flush + snapshot so a
+// concurrent Shutdown cannot interleave between them).
+func (b *Bucket) flushAndSwitchLocked() error {
 	before := time.Now()
 	var err error
 
