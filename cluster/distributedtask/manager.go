@@ -377,7 +377,11 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 		}
 		for taskID, task := range tasksByID {
 			c, ok := extractor(task.Payload)
-			if !ok || c != collection {
+			// EqualFold, matching PurgeTasksForCollectionTargets and every
+			// payload consumer: collection names are case-insensitive
+			// identifiers, and a byte-exact cascade would leak a case-twin
+			// record past DELETE_CLASS.
+			if !ok || !strings.EqualFold(c, collection) {
 				continue
 			}
 			delete(tasksByID, taskID)

@@ -576,7 +576,9 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 // refuses). The S19 rolling-upgrade gate (#11901) MUST consume this constant
 // to fence marker introductions until every node runs at least this version —
 // it exists so the release dependency is code-visible, not PR-description
-// prose.
+// prose. NOTE for the gate implementation: builds carry pre-release suffixes
+// ("1.39.0-rc.0"), and under semver rc.0 < 1.39.0 — the comparison must be
+// pre-release-tolerant or a homogeneous rc cluster would wrongly refuse.
 const DropVectorMarkerPurgeMinVersion = "1.39.0"
 
 func introducedDroppedVectorConfigs(prev, next *models.Class) []string {

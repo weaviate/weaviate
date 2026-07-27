@@ -261,7 +261,11 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+	// Collections (data+metadata), matching DeleteClassPropertyIndex: dropping
+	// a vector index irreversibly rewrites every object in the collection
+	// (vectors stripped cluster-wide), not metadata only — a metadata-only
+	// principal must not be able to trigger it.
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
 		return err
 	}
 

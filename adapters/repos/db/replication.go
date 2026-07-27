@@ -479,6 +479,12 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 		if ok {
 			if err := shard.Shutdown(ctx); err != nil {
 				if !errors.Is(err, errAlreadyShutdown) {
+					// Restore the still-live shard (see shardStillAlive):
+					// leaving it orphaned outside the map lets a later
+					// (re)load double-open the same directory.
+					if shardStillAlive(shard) {
+						i.shards.Store(shardName, shard)
+					}
 					return err
 				}
 			}

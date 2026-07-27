@@ -790,6 +790,10 @@ func TestReconciliation_NudgeWakesBeforeInterval(t *testing.T) {
 		{Class: "A", VectorConfig: map[string]models.VectorConfig{"v1": dropped()}},
 	}}
 
+	prevDelay := dropVectorNudgeDelay
+	dropVectorNudgeDelay = time.Millisecond
+	defer func() { dropVectorNudgeDelay = prevDelay }()
+
 	nudge := make(chan struct{}, 1)
 	nudge <- struct{}{}
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -800,4 +804,74 @@ func TestReconciliation_NudgeWakesBeforeInterval(t *testing.T) {
 		func() bool { return true }, nudge)
 
 	require.GreaterOrEqual(t, len(enq.enqueued), 2, "the nudge must trigger a follow-up round within the interval")
+}
+
+// TestEnqueuerGuardConsistency pins the two implementations of the
+// inheritance rule against each other: whatever coverage claim the enqueuer
+// composes, the AddTask-apply guard (CheckConflict's TOCTOU re-proof over the
+// same records) must accept. The rule lives in epochAndInheritedCoverage AND
+// in the guard; nothing else ties them together, and silent drift would
+// reject every follow-up round (livelock) or accept unprovable claims.
+func TestEnqueuerGuardConsistency(t *testing.T) {
+	hot := func(nodes ...string) sharding.Physical {
+		return sharding.Physical{Status: models.TenantActivityStatusHOT, BelongsToNodes: nodes}
+	}
+	fin := distributedtask.TaskStatusFinished
+
+	scenarios := []struct {
+		name   string
+		tasks  []*distributedtask.Task
+		shards map[string]sharding.Physical
+	}{
+		{
+			name:   "completed record chain",
+			tasks:  []*distributedtask.Task{epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil)},
+			shards: map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1")},
+		},
+		{
+			name: "chain with inherited cleaned set",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
+				epochTask(t, "C", "t2", "E1", 2, fin, []string{"s2"}, []string{"s1"}),
+			},
+			shards: map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1")},
+		},
+		{
+			name: "failed round with completed units",
+			tasks: []*distributedtask.Task{
+				failedEpochTask(t, "C", "tf", "E1", 1, []string{"s1"}, []string{"s2"}),
+			},
+			shards: map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1")},
+		},
+		{
+			name: "mixed completed records and failed-round units",
+			tasks: []*distributedtask.Task{
+				epochTask(t, "C", "t1", "E1", 1, fin, []string{"s1"}, nil),
+				failedEpochTask(t, "C", "tf", "E1", 2, []string{"s2"}, []string{"s3"}),
+			},
+			shards: map[string]sharding.Physical{"s1": hot("n1"), "s2": hot("n1"), "s3": hot("n1"), "s4": hot("n1")},
+		},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			cluster := &fakeClusterDropClient{tasks: map[string][]*distributedtask.Task{
+				db.DropVectorIndexNamespace: sc.tasks,
+			}}
+			state := &fakeShardingState{
+				state:     shardingState(true, sc.shards),
+				vectorCfg: map[string]models.VectorConfig{"v1": dropped()},
+			}
+			enq := &dropVectorIndexEnqueuer{clusterService: cluster, schemaState: state}
+			require.NoError(t, enq.EnqueueDropVectorIndex(context.Background(), "C", []string{"v1"}))
+			payload := decodeEnqueuedPayload(t, cluster)
+
+			// Re-prove the enqueuer's claim exactly as the raft apply would.
+			logger, _ := test.NewNullLogger()
+			provider := db.NewDropVectorIndexProvider(nil, nil, nil, logger, "n1", context.Background())
+			enc, err := json.Marshal(payload)
+			require.NoError(t, err)
+			require.NoError(t, provider.CheckConflict(enc, sc.tasks),
+				"the guard must accept every claim the enqueuer composes")
+		})
+	}
 }

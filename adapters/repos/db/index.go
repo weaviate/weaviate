@@ -2971,6 +2971,12 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 
 	if err := shardLike.Shutdown(ctx); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
+			// Restore the still-live shard (see shardStillAlive): leaving it
+			// orphaned outside the map lets a later (re)load double-open the
+			// same directory.
+			if shardStillAlive(shardLike) {
+				i.shards.Store(shardName, shardLike)
+			}
 			return errors.Wrapf(err, "shutdown shard %q", shardName)
 		}
 		return errors.Wrapf(errAlreadyShutdown, "shutdown shard %q", shardName)

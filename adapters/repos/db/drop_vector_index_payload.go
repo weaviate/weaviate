@@ -50,6 +50,12 @@ type DropVectorIndexTaskPayload struct {
 	// same-target tasks), so one completed task's CoveredShards is the epoch's
 	// total coverage as of its enqueue. Finalize and the removal gate rely on
 	// this and read a single task — they never union across records.
+	//
+	// Size: deliberately uncapped — one name per shard, no per-replica or
+	// per-node blowup, so a later round of a 100k-tenant drop carries ~2 MB
+	// here (vs tens of MB the uncapped unit maps would have cost; those are
+	// bounded by maxShardsPerDropRound). Capping it would break the
+	// single-task invariant above and with it finalize.
 	CleanedShards []string `json:"cleanedShards,omitempty"`
 }
 

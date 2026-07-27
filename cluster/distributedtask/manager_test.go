@@ -1931,6 +1931,27 @@ func TestManager_PurgeTasksForCollectionTargets(t *testing.T) {
 	require.Contains(t, h.manager.tasks["nil-extractor"], "nil-ns")
 }
 
+// TestManager_DeleteTasksForCollection_CaseInsensitive pins the cascade's
+// matcher: collection names are case-insensitive identifiers everywhere else
+// (purge, enqueuer, conflict guard) — a byte-exact cascade would leak a
+// case-twin record past DELETE_CLASS.
+func TestManager_DeleteTasksForCollection_CaseInsensitive(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	h.manager.RegisterCollectionExtractor("ns", func(payload []byte) (string, bool) {
+		return string(payload), true
+	})
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns",
+		Id:                    "twin",
+		Payload:               []byte("fOO"),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"u1"},
+	}), 1))
+
+	removed := h.manager.DeleteTasksForCollection("Foo")
+	require.Len(t, removed, 1, "a case-twin record must be cascaded")
+}
+
 func TestManager_DeleteTasksForCollection(t *testing.T) {
 	// Conservative: ("", false) on parse error keeps the cascade from
 	// matching when the payload is not the expected shape.

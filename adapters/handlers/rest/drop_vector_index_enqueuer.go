@@ -302,6 +302,11 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 // which the LAST batch satisfies (its units plus the inherited cleaned set).
 var maxShardsPerDropRound = 1000 // var: tests shrink it to pin batching
 
+// dropVectorNudgeDelay spaces a nudge-triggered round past the finishing
+// task's SWAPPING→FINISHED ack window (normally well under a second); var so
+// tests can shrink it.
+var dropVectorNudgeDelay = 3 * time.Second
+
 // capShardOwnership deterministically (sorted shard names) keeps at most max
 // DISTINCT shards of the node→shards ownership map, reporting how many shards
 // were deferred to later rounds. A kept shard keeps ALL its replicas — units
@@ -553,9 +558,18 @@ func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 			return
 		case <-time.After(interval):
 		case <-nudge:
-			// A round just completed with shards still uncovered (batch chain)
-			// or failed (tenant deactivated mid-strip): follow up now instead
-			// of idling a full interval between rounds.
+			// A round just ended with shards still uncovered (batch chain) or
+			// failed (tenant deactivated mid-strip): follow up now instead of
+			// idling a full interval. The nudge fires from OnTaskCompleted,
+			// i.e. while the task is usually still SWAPPING (the scheduler
+			// finalizes AFTER the completion callbacks) — an immediate round
+			// would see it as active, skip the marker, and waste the nudge.
+			// Wait out the ack window first.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(dropVectorNudgeDelay):
+			}
 		}
 	}
 }

@@ -347,6 +347,12 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	}
 	if err := shardLike.Shutdown(ctx); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
+			// Restore the still-live shard (see shardStillAlive): leaving it
+			// orphaned outside the map lets a later (re)load double-open the
+			// same directory.
+			if shardStillAlive(shardLike) {
+				idx.shards.Store(shard, shardLike)
+			}
 			return errors.Wrapf(err, "shutdown shard %q", shard)
 		}
 		idx.logger.WithField("shard", shardLike.Name()).Debug("was already shut or dropped")
