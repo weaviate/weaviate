@@ -359,8 +359,17 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	// only set after the encoder is initialized and persisted — atomically,
 	// unlike muveraEncoder.Dimensions() — so a non-zero value guarantees the
 	// encoder is ready without racing a concurrent first insert.
+	//
+	// dims == 0 does NOT imply the collection is empty: on a replica whose
+	// vector index has not yet processed its first replicated write (async
+	// indexing queue, or a sub-ALL consistency write that has not arrived),
+	// dims is transiently 0 while the object store already has data.
+	// Returning an error here fails the whole client query when the
+	// coordinator picks such a replica. Return empty results instead — the
+	// same graceful degradation the single-vector path applies when its
+	// quantizer is not initialized yet.
 	if atomic.LoadUint32(&h.dims) == 0 {
-		return nil, nil, ErrMuveraNotInitialized
+		return nil, nil, nil
 	}
 
 	// cosine requires normalized tokens for both the FDE encoding and the

@@ -290,23 +290,56 @@ func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 // return a clean error. Before the guard, EncodeQuery ran on the
 // uninitialized muvera encoder (nil projection matrices) and panicked with
 // "index out of range [0] with length 0".
-func TestSearchByMultiVectorOnEmptyCollection(t *testing.T) {
+// A multi-vector search while dims == 0 must return empty results, not an
+// error, and must not panic (EncodeQuery on the uninitialized encoder
+// dereferences nil projection matrices). dims == 0 covers two states that
+// callers cannot distinguish: a genuinely empty collection, and — the
+// regression this pins — a healthy replica whose vector index has not yet
+// processed its first replicated write (async indexing queue, or a
+// sub-ALL-consistency write that has not arrived). An error here fails the
+// whole client query whenever the coordinator picks such a replica; empty
+// results match the single-vector path's behavior in the identical state.
+func TestSearchByMultiVectorOnUninitializedIndex(t *testing.T) {
 	tf := createMuveraHFreshIndex(t)
 	probe := [][]float32{{0.1, 0.2, 0.3, 0.4}}
 
-	t.Run("search errors cleanly before first insert", func(t *testing.T) {
-		_, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 3, nil)
-		require.ErrorIs(t, err, ErrMuveraNotInitialized)
+	t.Run("search returns empty before first indexed write", func(t *testing.T) {
+		ids, dists, err := tf.Index.SearchByMultiVector(t.Context(), probe, 3, nil)
+		require.NoError(t, err)
+		require.Empty(t, ids)
+		require.Empty(t, dists)
 	})
 
-	t.Run("distance search errors cleanly before first insert", func(t *testing.T) {
-		_, _, err := tf.Index.SearchByMultiVectorDistance(t.Context(), probe, 0.5, 100, nil)
-		require.ErrorIs(t, err, ErrMuveraNotInitialized)
+	t.Run("distance search returns empty before first indexed write", func(t *testing.T) {
+		ids, dists, err := tf.Index.SearchByMultiVectorDistance(t.Context(), probe, 0.5, 100, nil)
+		require.NoError(t, err)
+		require.Empty(t, ids)
+		require.Empty(t, dists)
 	})
 
 	t.Run("search works after first insert", func(t *testing.T) {
 		addMultiVectorToIndex(t, &tf, 0, [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}})
 		ids, _, err := tf.Index.SearchByMultiVector(t.Context(), probe, 3, nil)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{0}, ids)
+	})
+
+	t.Run("concurrent first insert and search never error", func(t *testing.T) {
+		// the replica race in miniature: searches racing the very first
+		// AddMulti must see either empty results or real results — never
+		// an error, never a panic
+		tf2 := createMuveraHFreshIndex(t)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			addMultiVectorToIndex(t, &tf2, 0, [][]float32{{0.1, 0.2, 0.3, 0.4}, {0.5, 0.6, 0.7, 0.8}})
+		}()
+		for i := 0; i < 100; i++ {
+			_, _, err := tf2.Index.SearchByMultiVector(t.Context(), probe, 3, nil)
+			require.NoError(t, err)
+		}
+		<-done
+		ids, _, err := tf2.Index.SearchByMultiVector(t.Context(), probe, 3, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{0}, ids)
 	})
