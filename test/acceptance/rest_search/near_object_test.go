@@ -45,8 +45,8 @@ const (
 	// stored with only the "first" named vector
 	sketch2ID = strfmt.UUID("dd44bbee-ca5f-4db7-a412-5fc6a2300006")
 
-	chart1ID  = strfmt.UUID("dd44bbee-ca5f-4db7-a412-5fc6a2300007")
-	ledger1ID = strfmt.UUID("dd44bbee-ca5f-4db7-a412-5fc6a2300008")
+	chart1ID   = strfmt.UUID("dd44bbee-ca5f-4db7-a412-5fc6a2300007")
+	logbook1ID = strfmt.UUID("dd44bbee-ca5f-4db7-a412-5fc6a2300008")
 
 	// well-formed but matching no object
 	ghostID = strfmt.UUID("dd44bbee-ca5f-4db7-a412-5fc6a2399999")
@@ -105,8 +105,8 @@ func TestRESTSearchNearObject(t *testing.T) {
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
 		},
 	}
-	ledgerClass := &models.Class{
-		Class:      "Ledger",
+	logbookClass := &models.Class{
+		Class:      "Logbook",
 		Vectorizer: "none",
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
@@ -114,7 +114,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 
-	classes := []*models.Class{poemClass, sketchClass, chartClass, ledgerClass}
+	classes := []*models.Class{poemClass, sketchClass, chartClass, logbookClass}
 	for _, class := range classes {
 		helper.CreateClass(t, class)
 	}
@@ -123,7 +123,7 @@ func TestRESTSearchNearObject(t *testing.T) {
 			helper.DeleteClass(t, class.Class)
 		}
 	}()
-	helper.CreateTenants(t, "Ledger", []*models.Tenant{{Name: "tenantA"}})
+	helper.CreateTenants(t, "Logbook", []*models.Tenant{{Name: "tenantA"}})
 
 	helper.CreateObjectsBatch(t, []*models.Object{
 		{
@@ -173,11 +173,11 @@ func TestRESTSearchNearObject(t *testing.T) {
 			Properties: map[string]interface{}{"title": "l2 chart"},
 		},
 		{
-			ID:         ledger1ID,
-			Class:      "Ledger",
+			ID:         logbook1ID,
+			Class:      "Logbook",
 			Tenant:     "tenantA",
 			Vector:     models.C11yVector{1, 0},
-			Properties: map[string]interface{}{"title": "travel ledger"},
+			Properties: map[string]interface{}{"title": "travel logbook"},
 		},
 	})
 
@@ -352,21 +352,21 @@ func TestRESTSearchNearObject(t *testing.T) {
 	})
 
 	t.Run("multi-tenancy statuses", func(t *testing.T) {
-		status, out := postNearObject(t, "Ledger", map[string]interface{}{
-			"id":     ledger1ID.String(),
+		status, out := postNearObject(t, "Logbook", map[string]interface{}{
+			"id":     logbook1ID.String(),
 			"tenant": "tenantA",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
 		require.Len(t, results(t, out), 1)
 
-		status, out = postNearObject(t, "Ledger", map[string]interface{}{
-			"id":     ledger1ID.String(),
+		status, out = postNearObject(t, "Logbook", map[string]interface{}{
+			"id":     logbook1ID.String(),
 			"tenant": "ghostTenant",
 		})
 		require.Equal(t, http.StatusNotFound, status, "unknown tenant: %v", out)
 
-		status, out = postNearObject(t, "Ledger", map[string]interface{}{
-			"id": ledger1ID.String(),
+		status, out = postNearObject(t, "Logbook", map[string]interface{}{
+			"id": logbook1ID.String(),
 		})
 		require.Equal(t, http.StatusUnprocessableEntity, status, "missing tenant: %v", out)
 

@@ -652,12 +652,13 @@ func assertQueryPropertiesParsing(t *testing.T,
 }
 
 // assertSharedFieldsFlow drives the SearchCommon fields through one
-// endpoint's builder and asserts they land in dto.GetParams.
-func assertSharedFieldsFlow(t *testing.T,
+// endpoint's builder and asserts they land in dto.GetParams. requiredFields
+// is the search type's own required body fragment, e.g. `"query":"space"`.
+func assertSharedFieldsFlow(t *testing.T, requiredFields string,
 	build func(*testing.T, *models.Class, string) (*fakeSearcher, *APIError),
 ) {
 	searcher, apiErr := build(t, movieClass(),
-		`{"query":"space","limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM",`+
+		`{`+requiredFields+`,"limit":3,"offset":6,"autoLimit":2,"consistencyLevel":"QUORUM",`+
 			`"where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980},`+
 			`"returnProperties":["title"]}`)
 	require.Nil(t, apiErr)
@@ -753,7 +754,7 @@ func TestBm25NeedsNoVectorizer(t *testing.T) {
 // the shared parsers for bm25 exactly as they do for near-text.
 func TestBm25SharedFields(t *testing.T) {
 	t.Run("shared parsers flow through", func(t *testing.T) {
-		assertSharedFieldsFlow(t, buildBm25)
+		assertSharedFieldsFlow(t, `"query":"space"`, buildBm25)
 	})
 
 	t.Run("near-text-only fields are unknown fields and ignored", func(t *testing.T) {
@@ -991,20 +992,7 @@ func TestNearObjectReturnMetadata(t *testing.T) {
 // through the shared parsers for near-object exactly as for the other
 // search types.
 func TestNearObjectSharedFields(t *testing.T) {
-	t.Run("pagination, consistency, where, properties", func(t *testing.T) {
-		searcher, apiErr := buildNearObject(t, movieClass(), fmt.Sprintf(
-			`{"id":%q,"limit":3,"offset":6,"consistencyLevel":"ALL",`+
-				`"where":{"path":["year"],"operator":"GreaterThanEqual","valueInt":1980},`+
-				`"returnProperties":["title"]}`, nearObjectSourceID))
-		require.Nil(t, apiErr)
-		assert.Equal(t, 3, searcher.lastParams.Pagination.Limit)
-		assert.Equal(t, 6, searcher.lastParams.Pagination.Offset)
-		require.NotNil(t, searcher.lastParams.ReplicationProperties)
-		assert.Equal(t, "ALL", searcher.lastParams.ReplicationProperties.ConsistencyLevel)
-		require.NotNil(t, searcher.lastParams.Filters)
-		require.Len(t, searcher.lastParams.Properties, 1)
-		assert.Equal(t, "title", searcher.lastParams.Properties[0].Name)
-	})
+	assertSharedFieldsFlow(t, fmt.Sprintf(`"id":%q`, nearObjectSourceID), buildNearObject)
 }
 
 // decodeHybridModel unmarshals a JSON body into the typed hybrid request
@@ -1313,7 +1301,7 @@ func TestHybridReturnMetadata(t *testing.T) {
 }
 
 func TestHybridSharedFields(t *testing.T) {
-	assertSharedFieldsFlow(t, buildHybrid)
+	assertSharedFieldsFlow(t, `"query":"space"`, buildHybrid)
 }
 
 func TestParseConsistencyLevel(t *testing.T) {
