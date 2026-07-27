@@ -66,8 +66,7 @@ var (
 )
 
 // ObserveDeleteFilterResolution records how one delete's filter resolved.
-// Exported for the same reason DocBitmapAnnotation is: the delete path lives
-// in package db.
+// Exported because the delete path lives in package db.
 func ObserveDeleteFilterResolution(ctx context.Context) {
 	switch readSourceFromContext(ctx) {
 	case sourceInMemorySegment:

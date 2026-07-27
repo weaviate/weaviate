@@ -1126,7 +1126,7 @@ func TestCloneBufSize(t *testing.T) {
 	require.Greater(t, viaHelper, wider)
 }
 
-// pins disposable_created's size label to match the pooled tiers' (previously off by up to 4x).
+// pins disposable_created's size label to the same class the pooled tiers report.
 func TestDisposableBufMetricSizeLabel(t *testing.T) {
 	metrics := monitoring.GetMetrics()
 	m := newPromBufDisposableMetrics(metrics)

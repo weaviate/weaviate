@@ -1948,9 +1948,8 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			memory:  "2MiB",
 			bufSize: "2MiB",
 		},
-		// These build no in-memory class at all. Measured on a real node: the
-		// pool serves correct results with every buffer above 1MiB allocated
-		// per request instead of pooled.
+		// These build no in-memory class at all: the pool still serves correct
+		// results, with every buffer above 1MiB allocated per request.
 		{
 			name:    "budget below the smallest in-memory class, matching buf size",
 			memory:  "1MiB",
@@ -1981,9 +1980,8 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			bufSize: "33554433",
 		},
 		// One variable set and the other left at its default is the ordinary
-		// operator action. No released version validates the pair, so these are
-		// live configs upgrading in; refusing them is a crash loop on a node
-		// that was serving a minute earlier.
+		// operator action, and such configs are already live in the field.
+		// Refusing them turns an upgrade into a crash loop.
 		{
 			name:   "budget lowered to 8MiB, max buf size left at its default",
 			memory: "8MiB",

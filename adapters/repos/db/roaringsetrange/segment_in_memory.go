@@ -340,10 +340,9 @@ func (r *segmentInMemoryReader) cloneSeed(seed *sroar.Bitmap) (*sroar.Bitmap, fu
 }
 
 // cloneCached hands out a private copy of a cached leaf, sized to the widest
-// plane rather than the leaf, plus CloneBufSize's growth headroom. Together
-// that is the room the uncached path leaves for downstream memtable ORs; a
-// raw Get on the bare max would drop the headroom on the cache-hit path,
-// which is the hottest path the memo exists to create.
+// plane rather than the leaf, plus CloneBufSize's growth headroom. That is the
+// room the uncached path leaves for downstream memtable ORs; a raw Get on the
+// bare max would drop it.
 func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, func()) {
 	buf, release := r.bufPool.Get(
 		roaringset.CloneBufSize(max(bm.LenInBytes(), r.bitmaps[0].LenInBytes())))
@@ -351,10 +350,9 @@ func (r *segmentInMemoryReader) cloneCached(bm *sroar.Bitmap) (*sroar.Bitmap, fu
 }
 
 // leafBytesBound is what probe charges before the leaf exists: plane 0, since
-// every plane is its subset regardless of where the cascade seeded. Not the
-// seed's own size, since the cascade ORs higher planes in afterward and a leaf
-// can far outgrow its seed; charging from the seed would under-estimate and
-// let store admit entries it then has to reject.
+// every plane is its subset regardless of where the cascade seeded. Charging
+// the seed instead would under-estimate, because the cascade ORs higher planes
+// back in and a leaf can far outgrow its seed.
 func (r *segmentInMemoryReader) leafBytesBound() int {
 	return r.bitmaps[0].LenInBytes()
 }

@@ -13,8 +13,7 @@ package roaringset
 
 // CloneBufSize mirrors CloneToBuf's growth headroom for callers that size a
 // clone from a bound wider than its source and so cannot call CloneToBuf: a
-// raw Get with that size silently drops the headroom. It lives beside its
-// callers rather than with the pool because it has no other use.
+// raw Get with that size silently drops the headroom.
 func CloneBufSize(lenInBytes int) int {
 	return withGrowthHeadroom(lenInBytes, bitmapCloneGrowthFactor)
 }

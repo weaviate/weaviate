@@ -27,8 +27,8 @@ import (
 )
 
 // DocBitmapAnnotation is the slow-query-log key the range cascade writes
-// under. Exported so non-query callers can tell from their own log whether
-// they went through the range index.
+// under. Exported for the tests in packages db and inverted that assert on the
+// record; the delete path reads it in-package via readSourceFromContext.
 const DocBitmapAnnotation = "build_allow_list_doc_bitmap_rangeable"
 
 // docBitmapSourceField names the backing that answered the read; the

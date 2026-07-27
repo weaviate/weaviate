@@ -24,8 +24,8 @@ import (
 )
 
 // Docs/threshold mirror a realistic large shard: high cardinality, ~97.5%
-// match rate. Kept buildable unchanged against v1.37 so this same benchmark
-// gives the pre-change baseline.
+// match rate. Kept buildable against v1.37 so the same benchmark measures an
+// unseeded cascade.
 var (
 	cascadeBenchDocs      = flag.Int("cascadebench.docs", 24_100_000, "documents in the synthetic shard")
 	cascadeBenchThreshold = flag.Int64("cascadebench.threshold", 101, "range predicate threshold")

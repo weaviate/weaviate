@@ -51,9 +51,8 @@ func init() {
 
 // parseLeafCacheMaxMemory falls back to the default rather than failing
 // startup: the memo is an optimisation, so a typo in its budget should not stop
-// a node from serving. It returns the error anyway, because falling back
-// silently makes a mistyped budget indistinguishable from an unset one: the
-// operator gets a default they did not ask for and nothing says why.
+// a node from serving. It returns the error anyway, or a mistyped budget is
+// indistinguishable from an unset one.
 func parseLeafCacheMaxMemory(v string) (int, error) {
 	if v == "" {
 		return DefaultLeafCacheMaxMemory, nil

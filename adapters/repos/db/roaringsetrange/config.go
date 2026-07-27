@@ -96,8 +96,9 @@ var leafCacheConfig = promauto.With(monitoring.GetMetrics().Registerer).NewGauge
 			"enabled means nothing is switched off, so a cache is built for each in-memory " +
 			"segment as one appears. This reports the switches, not whether any cache is " +
 			"live: it reads enabled from boot, before a collection exists to hold a segment. " +
-			"Read it before the _ops_total counters, which are the liveness reading: on the " +
-			"default path they stay flat for the same reason an idle cache does.",
+			"Read it before " + leafCacheOpsSeries + " and " + metricsNamespace + "_" +
+			cascadeSeedName + ", which are the liveness reading: on the default path they " +
+			"stay flat for the same reason an idle cache does.",
 	}, []string{"state"})
 
 // Children exist from process start, so a scrape landing before db.New reads
@@ -110,13 +111,9 @@ func init() {
 }
 
 // PublishConfig records how this process is configured for the in-memory range
-// segment, and warns about any value it could not parse.
-//
-// It takes the feature flag and runs at startup rather than from
-// NewSegmentInMemory, because the default configuration never constructs an
-// in-memory segment. On that path every per-segment counter stays flat for the
-// same reason an idle cache does, so without this the state most deployments
-// are in is the one state nothing reports.
+// segment, and warns about any value it could not parse. It takes the feature
+// flag rather than reading it off a segment, because on the default path no
+// segment is ever constructed.
 func PublishConfig(featureEnabled bool, logger logrus.FieldLogger) {
 	for _, state := range leafCacheStates {
 		leafCacheConfig.WithLabelValues(state).Set(0)

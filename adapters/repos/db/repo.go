@@ -321,8 +321,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	}
 
 	// Published here rather than when an in-memory range segment is built,
-	// because the default configuration never builds one and that is exactly
-	// the state an operator cannot otherwise read.
+	// because the default configuration never builds one.
 	roaringsetrange.PublishConfig(config.IndexRangeableInMemory, logger)
 	metricsRegisterer := monitoring.NoopRegisterer
 	if promMetrics != nil && promMetrics.Registerer != nil {

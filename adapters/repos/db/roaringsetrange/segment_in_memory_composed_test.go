@@ -94,8 +94,8 @@ func (p *recordingBufPool) Get(minCap int) ([]byte, func()) {
 
 // The seeded and cache-hit paths size their buffer from a bound wider than the
 // bitmap they clone, so they cannot call CloneToBuf and would silently drop its
-// growth headroom on a raw Get. These are the two hot paths this series adds,
-// so dropping it there leaves headroom on exactly the cold path.
+// growth headroom on a raw Get. Those are the hot paths, so dropping it there
+// leaves headroom on exactly the cold one.
 func TestCloneHelpersRequestTheGrowthHeadroom(t *testing.T) {
 	segment := newCascadeFixture(t, 5)
 	value := cascadeEncodeInt64(101)

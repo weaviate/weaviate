@@ -55,7 +55,7 @@ func withIndexRangeableEnv(t *testing.T, value string) {
 }
 
 // entcfg.Enabled only recognises truthy words, so an unparseable value like
-// "yes" silently reads as unset/off; pins that it now warns instead.
+// "yes" reads as unset/off; pins that it warns instead of staying silent.
 func TestPublishConfigNamesAnUnparsedFeatureFlag(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -94,11 +94,10 @@ func TestPublishConfigNamesAnUnparsedFeatureFlag(t *testing.T) {
 	}
 }
 
-// The default configuration leaves INDEX_RANGEABLE_IN_MEMORY off, so no
-// in-memory segment and no cache is ever built and every per-segment counter
-// stays flat — identical to a live cache with no eligible traffic. That is the
-// state most deployments are in, and it was the one state that could not be
-// read. Four states, four readings.
+// The default configuration leaves INDEX_RANGEABLE_IN_MEMORY off, so every
+// per-segment counter stays flat — identical to a live cache with no eligible
+// traffic. Only this gauge separates the two, so all four of its states need a
+// reading.
 func TestPublishConfigCoversAllFourStates(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -186,9 +185,8 @@ func TestPublishConfigStaysQuietOnAHealthyDefault(t *testing.T) {
 	assert.Empty(t, hook.Entries)
 }
 
-// A metric constant's identifier is what a reviewer reads; only its value gets
-// published, and nothing else here checks the two agree. Two of these drifted
-// before this test existed, both named for an _ops series they did not emit.
+// Only the constant's value is published, so an identifier naming a different
+// series drifts unnoticed.
 func TestMetricNameConstantsMatchTheSeriesTheyHold(t *testing.T) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "config.go", nil, 0)
