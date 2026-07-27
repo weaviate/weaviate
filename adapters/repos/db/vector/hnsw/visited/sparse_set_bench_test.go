@@ -38,6 +38,10 @@ func BenchmarkSparseSet_FreshSet(b *testing.B) {
 		size   int
 		visits int
 	}{
+		// NewPool's startup size (cache.InitialSize + 500): everything fits
+		// in one segment, so a fresh set must only pay one segment's worth
+		// of slab.
+		{"1500-ids_100-visits", 1_500, 100},
 		{"1M-ids_2k-visits", 1_000_000, 2_000},
 		{"10M-ids_5k-visits", 10_000_000, 5_000},
 		{"100M-ids_5k-visits", 100_000_000, 5_000},

@@ -21,36 +21,41 @@ type segment struct {
 	words []uint64
 }
 
-// slabSegments is how many segments' worth of words each slab allocation
-// holds: 64KiB at the production collisionRate of 4096.
-const slabSegments = 128
+// maxSlabSegments caps how many segments' worth of words a single slab
+// allocation holds: 64KiB at the production collisionRate of 4096.
+const maxSlabSegments = 128
 
 type segmentedBitSet struct {
-	segments    []segment
-	slab        []uint64
-	wordsPerSeg int
+	segments     []segment
+	slab         []uint64
+	wordsPerSeg  int
+	nextSlabSegs int
 }
 
 func newSegmentedBitSet(segCount, collisionRate int) *segmentedBitSet {
 	return &segmentedBitSet{
-		segments:    make([]segment, segCount),
-		wordsPerSeg: (collisionRate + 63) >> 6,
+		segments:     make([]segment, segCount),
+		wordsPerSeg:  (collisionRate + 63) >> 6,
+		nextSlabSegs: 1,
 	}
 }
 
 // allocSegment hands out one segment's worth of words, carved from a shared
-// slab so that activating thousands of segments costs one allocation per
-// slabSegments instead of one (plus interface boxing) each, and keeps the
-// segments of a query contiguous in memory. The returned words are always
-// zeroed: fresh slabs come zeroed from make, and previously handed-out
-// segments are cleared by Reset before their cb bit can be observed unset
-// again. The three-index slice caps each segment at wordsPerSeg so an
-// accidental append cannot bleed into the neighboring segment.
+// slab so that activating thousands of segments costs one allocation per slab
+// instead of one (plus interface boxing) each, and keeps the segments of a
+// query contiguous in memory. Slabs grow geometrically from a single segment
+// up to maxSlabSegments: a set that only ever activates one segment (small
+// index, small tenant shard) pays exactly one segment's worth of memory,
+// while large sets reach the full slab size within a handful of refills.
+// The returned words are always zeroed: fresh slabs come zeroed from make,
+// and previously handed-out segments are cleared by Reset before their cb bit
+// can be observed unset again. The three-index slice caps each segment at
+// wordsPerSeg so an accidental append cannot bleed into the neighboring
+// segment.
 func (b *segmentedBitSet) allocSegment() []uint64 {
 	if len(b.slab) < b.wordsPerSeg {
-		// Small sets never need more than len(segments) segments in total,
-		// so cap the slab to avoid over-allocating for tiny indexes.
-		b.slab = make([]uint64, min(slabSegments, len(b.segments))*b.wordsPerSeg)
+		b.slab = make([]uint64, b.nextSlabSegs*b.wordsPerSeg)
+		b.nextSlabSegs = min(b.nextSlabSegs*2, maxSlabSegments)
 	}
 	words := b.slab[:b.wordsPerSeg:b.wordsPerSeg]
 	b.slab = b.slab[b.wordsPerSeg:]

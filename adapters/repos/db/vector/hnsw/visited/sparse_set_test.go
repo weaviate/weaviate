@@ -246,10 +246,10 @@ func TestSegmentedBitSet_AllocSegment(t *testing.T) {
 			name:          "multiple slab refills",
 			segCount:      1024,
 			collisionRate: 4096,
-			allocs:        3*slabSegments + 5,
+			allocs:        3*maxSlabSegments + 5,
 		},
 		{
-			name:          "small set capped below slabSegments",
+			name:          "small set",
 			segCount:      64,
 			collisionRate: 64,
 			allocs:        64,
@@ -296,10 +296,40 @@ func TestSegmentedBitSet_AllocSegment(t *testing.T) {
 	}
 }
 
+func TestSegmentedBitSet_SlabGrowsGeometrically(t *testing.T) {
+	// A production-shaped set: NewPool creates sets with size 1500 at
+	// collisionRate 4096, which aligns segCount up to 64. The slab must not
+	// be sized from that aligned count: the first activation of a small
+	// index has to cost exactly one segment's worth of words.
+	b := newSegmentedBitSet(64, 4096)
+
+	// Expected slab leftover (in segments) after each allocation, given
+	// chunks of 1, 2, 4, 8 segments.
+	wantLeftover := []int{0, 1, 0, 3, 2, 1, 0, 7}
+	for i, want := range wantLeftover {
+		b.allocSegment()
+		if got := len(b.slab) / b.wordsPerSeg; got != want {
+			t.Fatalf("after alloc %d: expected %d leftover segments in slab, got %d", i+1, want, got)
+		}
+	}
+
+	if b.nextSlabSegs != 16 {
+		t.Fatalf("expected nextSlabSegs=16 after 4 refills, got %d", b.nextSlabSegs)
+	}
+
+	// Doubling must cap at maxSlabSegments.
+	for i := 0; i < 3*maxSlabSegments; i++ {
+		b.allocSegment()
+	}
+	if b.nextSlabSegs != maxSlabSegments {
+		t.Fatalf("expected nextSlabSegs capped at %d, got %d", maxSlabSegments, b.nextSlabSegs)
+	}
+}
+
 func TestSparseSet_DenseVisitsAcrossManySlabs(t *testing.T) {
 	const collisionRate = 64
-	// Enough segments to force several slab refills (> 3*slabSegments).
-	const segments = 3*slabSegments + 17
+	// Enough segments to force several slab refills (> 3*maxSlabSegments).
+	const segments = 3*maxSlabSegments + 17
 	const maxNode = segments * collisionRate
 
 	s := NewSparseSet(maxNode, collisionRate)
