@@ -70,8 +70,8 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 // shard map (under the caller's shardCreateLock): a failed close usually
 // means "still in use" — leaving the live instance out of the map would let
 // a later (re)load double-open the same directory. Deep teardown failures
-// never reach here: the retry's idempotent short-circuit surfaces them as
-// Shutdown()==nil, so those shards drop from the map and re-init fresh.
+// never restore: the shard is already marked shut (shardStillAlive false) and
+// the sticky teardownErr keeps the failure visible on every retry.
 func restoreShardIfStillAlive(shards *shardMap, name string, shard ShardLike) bool {
 	if !shardStillAlive(shard) {
 		return false
@@ -106,9 +106,22 @@ func restoreShardIfStillAlive(shards *shardMap, name string, shard ShardLike) bo
 func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutdownLock.Lock()
 	defer s.shutdownLock.Unlock()
+	defer func() {
+		// A teardown that fails AFTER the shut mark must stay visible: the
+		// idempotent short-circuit below would otherwise convert the retry
+		// into a silent nil, callers would treat the partially-torn shard as
+		// cleanly closed, and its still-open buckets (whose registry entries
+		// never cleared) would fail every future re-init of the tenant.
+		if err != nil && s.shut.Load() && s.teardownErr == nil {
+			s.teardownErr = err
+		}
+	}()
 
 	if s.shut.Load() {
 		s.shutdownRequested.Store(false)
+		if s.teardownErr != nil {
+			return fmt.Errorf("previous shutdown attempt failed mid-teardown: %w", s.teardownErr)
+		}
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is already shut down", s.name)

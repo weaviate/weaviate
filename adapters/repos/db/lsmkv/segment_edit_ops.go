@@ -761,13 +761,18 @@ func (s *SegmentEditOps) DeleteOp(opID string) error {
 // Caller must hold s.mu. Best-effort: on failure the sidecar merely lingers,
 // which is the pre-existing behavior.
 func (s *SegmentEditOps) closeAndRemoveLocked() {
-	if err := s.db.Close(); err != nil {
+	err := s.db.Close()
+	// Nil unconditionally: keeping a handle whose Close errored would wedge
+	// the sidecar for the shard's remaining lifetime (every open-check treats
+	// non-nil as usable). Re-opening after a failed close at worst trips the
+	// bolt flock timeout, which is retryable.
+	s.db = nil
+	if err != nil {
 		if s.logger != nil {
-			s.logger.Warnf("close empty segment edit ops db: %v", err)
+			s.logger.Warnf("close empty segment edit ops db (file kept): %v", err)
 		}
 		return
 	}
-	s.db = nil
 	if err := os.Remove(filepath.Join(s.dir, segmentEditOpsFileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		if s.logger != nil {
 			s.logger.Warnf("remove empty segment edit ops db: %v", err)

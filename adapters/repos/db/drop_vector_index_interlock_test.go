@@ -138,3 +138,24 @@ func TestVerifiedStillDroppedMemoIsBounded(t *testing.T) {
 	defer p.verifiedMu.Unlock()
 	require.LessOrEqual(t, len(p.verifiedStillDropped), maxVerifiedStillDroppedEntries)
 }
+
+// TestPerformShutdown_TeardownErrorSticks pins that a teardown failure after
+// the shut mark stays visible: without the sticky error, the idempotent
+// short-circuit converts the retry into a silent nil and callers treat the
+// partially-torn shard (open buckets, uncleared registry entries) as cleanly
+// closed.
+func TestPerformShutdown_TeardownErrorSticks(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	s := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
+	s.shut.Store(true)
+	s.teardownErr = errors.New("boom: bucket close failed")
+
+	err := s.Shutdown(context.Background())
+	require.Error(t, err, "a swallowed teardown failure must resurface, not read as success")
+	require.Contains(t, err.Error(), "boom")
+
+	// A cleanly shut shard keeps the idempotent nil.
+	clean := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
+	clean.shut.Store(true)
+	require.NoError(t, clean.Shutdown(context.Background()))
+}

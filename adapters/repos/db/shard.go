@@ -470,6 +470,10 @@ type Shard struct {
 
 	// indicates whether shard is shut down or dropped (or ongoing)
 	shut atomic.Bool
+	// teardownErr records a teardown failure that happened AFTER shut was
+	// marked (guarded by shutdownLock); performShutdown's idempotent branch
+	// re-surfaces it instead of swallowing it into a silent nil.
+	teardownErr error
 	// indicates whether shard in being used at the moment (e.g. write request)
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
