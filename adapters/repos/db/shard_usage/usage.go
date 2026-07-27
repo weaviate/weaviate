@@ -293,7 +293,7 @@ func CalculateNonLSMStorage(path, shardName string) (uint64, uint64, error) {
 		return 0, 0, err
 	}
 
-	// Add sizes of all files in the shard root directory
+	// Add sizes of the shard root's files, skipping our own usage cache
 	for name, size := range files {
 		if name == usageFileName {
 			continue
