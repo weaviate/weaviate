@@ -30,7 +30,7 @@ import (
 )
 
 // 32 seeds balance differential coverage against the race-build guard's
-// whole-plane cost per seed (~17s here vs ~2s unseeded).
+// whole-plane cost per seed (~17s here vs ~2s without them).
 const cascadeSeeds = 32
 
 // cascadeEdgeValues pins the cases where the seed index is degenerate: no set
@@ -157,8 +157,7 @@ func TestSeededCascadeLeavesADifferentArena(t *testing.T) {
 	require.NotEqual(t, want.ToBuffer(), got.ToBuffer())
 }
 
-// unseededGreaterThanEqual is mergeGreaterThanEqual exactly as v1.37 ships it:
-// clone plane 0, then let the cascade AND the first set bit's plane away.
+// unseededGreaterThanEqual is mergeGreaterThanEqual exactly as v1.37 ships it.
 func unseededGreaterThanEqual(bitmaps rangeBitmaps, value uint64, conc int) *sroar.Bitmap {
 	result := bitmaps[0].Clone()
 	ANDed := false
