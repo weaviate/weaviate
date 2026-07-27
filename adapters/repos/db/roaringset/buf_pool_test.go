@@ -856,8 +856,7 @@ func TestValidateBufferRanges(t *testing.T) {
 func TestCloneToBufGrowthHeadroom(t *testing.T) {
 	const MiB = 1 << 20
 
-	// hands back a buffer of exactly the requested capacity, so the test sees
-	// the raw request instead of a ladder's rounded-up size class.
+	// exact-capacity buffers, so the test sees the raw request, not a rounded-up class.
 	newRecording := func() (*recordingBufPool, BitmapBufPool) {
 		p := &recordingBufPool{}
 		return p, p
@@ -952,13 +951,12 @@ func bitmapAbove(src *sroar.Bitmap, containers int) *sroar.Bitmap {
 	return bm
 }
 
-// Gates growth headroom against the shipped defaults, not a test double or a
-// non-default knob.
+// Gates growth headroom against the shipped defaults, not a test double.
 func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 	const MiB = 1 << 20
 
-	// Sized to sit in the top 20% of the 2MiB class, where 1.25x moves the
-	// request into the next one. That is the whole behaviour change.
+	// Sits in the top 20% of the 2MiB class, where 1.25x moves the request into
+	// the next one.
 	const topOfClassIDs = 14_000_000
 
 	newPool := func(t *testing.T) *bitmapBufPoolRanged {
@@ -968,8 +966,7 @@ func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 		return pool.(*bitmapBufPoolRanged)
 	}
 
-	// servedClass reports the size class a returned buffer landed in, by
-	// draining the in-memory pools after the buffer was put back.
+	// servedClass reports which size class a put-back buffer landed in.
 	servedClass := func(p *bitmapBufPoolRanged) int {
 		for i, inMemo := range p.poolsInMemo {
 			select {
@@ -1011,8 +1008,8 @@ func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 	})
 }
 
-// The warning is the whole signal for a pool that built fewer classes than
-// asked for, or none at all: nothing else surfaces either state.
+// The warning is the only signal that the pool built fewer classes than asked
+// for, or none at all.
 func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 	const (
 		KiB = 1 << 10
@@ -1055,9 +1052,8 @@ func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 			maxMemory:  32 * MiB,
 			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
 		},
-		// One variable set and the other left at its default. These build a
-		// pool rather than refusing a boot, so the warning is the only thing
-		// telling an operator which classes they gave up.
+		// One variable set, the other at its default: these degrade the pool
+		// instead of refusing the boot, so the warning is all the operator gets.
 		{
 			name:       "budget lowered to 8MiB, max buf size left at its default",
 			maxBufSize: 32 * MiB,

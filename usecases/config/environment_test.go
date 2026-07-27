@@ -1878,8 +1878,7 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 		{"unsupported unit", []string{"5GiL"}, 0, true},
 	}
 
-	// The other variable is pinned wide enough that only the bound under test
-	// can reject a value, not the pair check that follows it.
+	// The other variable is pinned wide enough that it can never be the one rejecting.
 	envNames := []struct {
 		envName       string
 		defaultVal    int
@@ -1925,10 +1924,9 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 	}
 }
 
-// No pair of these two refuses a boot. A pair that affords fewer in-memory
-// size classes than asked for, or none at all, degrades the buffer pool, which
-// is an optimisation; the pool warns and serves. Only the per-variable bounds
-// reject, and TestEnvironmentQueryBitmapBufsSizes covers those.
+// No pair of these two refuses a boot. A pair that affords fewer in-memory size
+// classes than asked for, or none at all, degrades the buffer pool, which is an
+// optimisation; it warns and serves. Only the per-variable bounds reject.
 func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1948,9 +1946,8 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			memory:  "2MiB",
 			bufSize: "2MiB",
 		},
-		// These build no in-memory class at all. Measured on a real node: the
-		// pool serves correct results with every buffer above 1MiB allocated
-		// per request instead of pooled.
+		// These build no in-memory class at all. Measured on a real node: correct
+		// results, with every buffer above 1MiB allocated per request, not pooled.
 		{
 			name:    "budget below the smallest in-memory class, matching buf size",
 			memory:  "1MiB",
@@ -1980,10 +1977,9 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			memory:  "33554432",
 			bufSize: "33554433",
 		},
-		// One variable set and the other left at its default is the ordinary
-		// operator action. No released version validates the pair, so these are
-		// live configs upgrading in; refusing them is a crash loop on a node
-		// that was serving a minute earlier.
+		// One variable set, the other left at its default, is the ordinary operator
+		// action. No released version validates the pair, so these are live configs
+		// upgrading in: refusing them is a crash loop on a node that was serving.
 		{
 			name:   "budget lowered to 8MiB, max buf size left at its default",
 			memory: "8MiB",

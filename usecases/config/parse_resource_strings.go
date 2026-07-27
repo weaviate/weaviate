@@ -22,8 +22,6 @@ import (
 // _MAX_BUF_SIZE: an unbounded value would size channels with ~10^11 slots at boot.
 const MaxQueryBitmapBufsSize = 1 << 40
 
-// parseResourceEnv fails loudly, naming the variable and the rejected value,
-// rather than falling back to a default that would silently behave as unset.
 func parseResourceEnv(envName, value string) (int64, error) {
 	bytes, err := parseResourceString(value)
 	if err != nil {
