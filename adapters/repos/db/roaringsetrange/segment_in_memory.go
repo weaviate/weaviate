@@ -279,7 +279,9 @@ func (r *segmentInMemoryReader) readGreaterThanEqual(value uint64, conc int) (ro
 // cascadeSeed returns the plane to start the cascade from and the next bit to
 // merge. Every plane is a subset of plane 0, so seeding from the lowest set
 // bit's plane directly skips the whole-shard AND that would otherwise produce
-// it. value 0 has no set bit, so its cascade starts at plane 0 itself.
+// it. value 0 has no set bit, so its cascade starts at plane 0 itself; without
+// that early return the lowest-set-bit lookup would index past the last plane
+// and panic.
 func (r *segmentInMemoryReader) cascadeSeed(value uint64) (seed *sroar.Bitmap, nextBit int) {
 	if value == 0 {
 		return r.bitmaps[0], len(r.bitmaps)
