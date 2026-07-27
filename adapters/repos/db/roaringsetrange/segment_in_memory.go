@@ -306,8 +306,8 @@ func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
 	return cascadeStart{seed: r.bitmaps[bit], nextBit: bit + 1, narrowed: true}
 }
 
-// cloneSeed buffers from plane 0's size, not the seed's, so later merges keep
-// the same growth headroom as before seeding.
+// cloneSeed floors the buffer at plane 0's size, so a seed smaller than plane 0
+// still leaves later merges the growth headroom they had before seeding.
 func (r *segmentInMemoryReader) cloneSeed(seed *sroar.Bitmap) (*sroar.Bitmap, func()) {
 	buf, release := r.bufPool.Get(max(seed.LenInBytes(), r.bitmaps[0].LenInBytes()))
 	return seed.CloneToBuf(buf), release

@@ -277,14 +277,23 @@ func TestLogCascadeSeedConfigReportsTheEffectiveState(t *testing.T) {
 	}
 }
 
-// requireStateLineMatchesTheSwitch checks the line against cascadeSeedEnabled
-// itself. A line sourced from a second read of the environment would still
-// agree with the parent's expectation, so only this comparison catches it.
+// requireStateLineMatchesTheSwitch moves the env var to the opposite position
+// once init has already read it, so the two candidate sources disagree: the
+// line has to report where this process booted, not what the variable says now.
+// Without that move both sources answer the same and the check proves nothing.
 func requireStateLineMatchesTheSwitch(t *testing.T, wantEnabled bool) {
 	t.Helper()
 
 	require.Equal(t, wantEnabled, cascadeSeedEnabled,
 		"this process did not boot into the position the parent asked for")
+
+	moved := "on"
+	if wantEnabled {
+		moved = "off"
+	}
+	t.Setenv(CascadeSeedEnabledEnv, moved)
+	require.NotEqual(t, wantEnabled, parseCascadeSeedEnabled(os.Getenv(CascadeSeedEnabledEnv)),
+		"the env var still parses to the boot position, so a re-read would pass either way")
 
 	logger, hook := test.NewNullLogger()
 	LogCascadeSeedConfig(logger)
@@ -293,11 +302,12 @@ func requireStateLineMatchesTheSwitch(t *testing.T, wantEnabled bool) {
 	require.Len(t, state, 1, "startup must state the switch's position exactly once")
 
 	want := "disabled"
-	if cascadeSeedEnabled {
+	if wantEnabled {
 		want = "enabled"
 	}
-	assert.Equal(t, cascadeSeedEnabled, state[0].Data["enabled"],
-		"the line reports a position the running code is not in")
+	assert.Equal(t, wantEnabled, state[0].Data["enabled"],
+		"the line reports what %s holds now, not the position this process booted into",
+		CascadeSeedEnabledEnv)
 	assert.Contains(t, state[0].Message, "seeding is "+want)
 }
 
@@ -330,7 +340,7 @@ func cascadeSeedChildEnv(set bool, value string, extra ...string) []string {
 }
 
 // withCascadeSeedEnabled assigns the switch directly: it is read at startup, so
-// an env var cannot reach it from here. The subprocess cases below cover that.
+// an env var cannot reach it from here. The subprocess tests cover that path.
 func withCascadeSeedEnabled(t *testing.T, enabled bool) {
 	t.Helper()
 
@@ -447,7 +457,8 @@ func TestCascadeMatchesMergeBase(t *testing.T) {
 }
 
 // The switch is read once at startup, so each state needs its own process. This
-// is the only place the env var itself is exercised end to end.
+// drives the env var itself, not the direct assignment withCascadeSeedEnabled
+// makes.
 func TestCascadeSeedEnvStatesAllMatchTheMergeBase(t *testing.T) {
 	if os.Getenv(cascadeSeedStateEnv) != "" {
 		return // a child: TestCascadeMatchesMergeBase is what it was spawned for
