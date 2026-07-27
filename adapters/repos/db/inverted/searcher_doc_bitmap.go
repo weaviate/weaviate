@@ -244,8 +244,16 @@ func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
 // containsAnyAccumulatorMinKeys gates the ContainsAny fold: below this many
 // keys the plain incremental Or fold is used — an Accumulator's staging
 // blocks and finalize scan are not worth setting up to union a handful of
-// rows. Package var so benchmarks can sweep it.
-var containsAnyAccumulatorMinKeys = 16
+// rows. Package var so benchmarks can sweep it
+// (BenchmarkDocIDs_ContainsAnyAccumulatorGate).
+//
+// The measured crossover is shape-dependent: Go-level, the Accumulator wins
+// from ~16 keys when the result doc IDs are clustered and from ~64-100 when
+// they are spread across the ID space; server-level QA sweeps under
+// concurrent load place it higher (~512). 256 is the conservative middle
+// until those measurements are reconciled — the large-N folds this path
+// exists for sit far above it either way.
+var containsAnyAccumulatorMinKeys = 256
 
 // docBitmapContainsBatch folds every key in pv.containsValues into a single
 // docBitmap under one consistent view of b: a dense Accumulator fold for
@@ -279,9 +287,17 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBu
 	var err error
 	switch pv.operator {
 	case filters.ContainsAll:
-		acc, accRelease, err = foldContainsAllIncremental(ctx, b, view, pv.containsValues, maxConc)
+		acc, accRelease, err = foldContainsIncremental(ctx, b, view, pv.containsValues, filters.ContainsAll, maxConc)
 	case filters.ContainsAny, filters.ContainsNone:
-		acc, accRelease, err = foldContainsAnyAccumulator(ctx, b, view, pv.containsValues, maxConc)
+		// ContainsNone folds the same union as ContainsAny; the deny flag is
+		// applied to the result, not the fold. Below
+		// containsAnyAccumulatorMinKeys keys the Accumulator's staging setup
+		// and finalize scan are not worth it — union incrementally instead.
+		if len(pv.containsValues) < containsAnyAccumulatorMinKeys {
+			acc, accRelease, err = foldContainsIncremental(ctx, b, view, pv.containsValues, filters.ContainsAny, maxConc)
+		} else {
+			acc, accRelease, err = foldContainsAnyAccumulator(ctx, b, view, pv.containsValues, maxConc)
+		}
 	default:
 		// defensive: a non-Contains operator must never pick a fold — a
 		// silent union here would return plausible but wrong results
@@ -311,17 +327,9 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBu
 // single-doc row) with O(1) bit deposits, and bounds peak memory at the
 // staging blocks (proportional to the doc-ID spread of the result, not to
 // the number of keys) plus a single row in flight.
-//
-// Unions of fewer than containsAnyAccumulatorMinKeys keys use the
-// incremental Or fold instead — the staging setup and finalize scan are not
-// worth it there.
 func foldContainsAnyAccumulator(ctx context.Context, b containsBatchBucket,
 	view lsmkv.BucketConsistentView, keys [][]byte, maxConc int,
 ) (*sroar.Bitmap, func(), error) {
-	if len(keys) < containsAnyAccumulatorMinKeys {
-		return foldContainsAnyIncremental(ctx, b, view, keys, maxConc)
-	}
-
 	acc := sroar.NewAccumulator()
 	for _, key := range keys {
 		if err := ctxExpired(ctx); err != nil {
@@ -339,11 +347,19 @@ func foldContainsAnyAccumulator(ctx context.Context, b containsBatchBucket,
 	return acc.Bitmap(), noopRelease, nil
 }
 
-// foldContainsAnyIncremental unions rows one key at a time. Only used for
-// small key counts, where builder staging is not worth its setup; the
-// swap-for-efficiency Or keeps the accumulator the larger operand.
-func foldContainsAnyIncremental(ctx context.Context, b containsBatchBucket,
-	view lsmkv.BucketConsistentView, keys [][]byte, maxConc int,
+// foldContainsIncremental merges rows one key at a time under op: union for
+// ContainsAny (used below containsAnyAccumulatorMinKeys keys, where the
+// Accumulator's staging is not worth its setup), intersection for
+// ContainsAll. The swap-for-efficiency merge keeps the cheaper operand shape.
+//
+// ContainsAll additionally stops as soon as the intersection is empty: no
+// remaining key can change an empty result (the intersection only shrinks),
+// so this only skips reads that cannot matter, never the result. On
+// disjoint-ish data the early exit reads a handful of keys, which no
+// batch-read grouping can beat — hence ContainsAll deliberately has no
+// accumulator path.
+func foldContainsIncremental(ctx context.Context, b containsBatchBucket,
+	view lsmkv.BucketConsistentView, keys [][]byte, op filters.Operator, maxConc int,
 ) (*sroar.Bitmap, func(), error) {
 	var acc *sroar.Bitmap
 	accRelease := noopRelease
@@ -362,50 +378,13 @@ func foldContainsAnyIncremental(ctx context.Context, b containsBatchBucket,
 		if acc == nil {
 			acc, accRelease = bm, release
 		} else {
-			acc, accRelease, err = mergeAllowlistBitmaps(filters.ContainsAny, maxConc, acc, accRelease, bm, release)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-	}
-	// keys is non-empty (docBitmapContainsBatch returns early otherwise) and
-	// the first iteration always adopts its fetched bitmap, so acc is non-nil.
-	return acc, accRelease, nil
-}
-
-// foldContainsAllIncremental intersects rows one key at a time, stopping as
-// soon as the intersection is empty: no remaining key can change an empty
-// result (the intersection only shrinks), so this only skips reads that
-// cannot matter, never the result. On disjoint-ish data the early exit reads
-// a handful of keys, which no batch-read grouping can beat — hence
-// ContainsAll deliberately does not use an accumulator path.
-func foldContainsAllIncremental(ctx context.Context, b containsBatchBucket,
-	view lsmkv.BucketConsistentView, keys [][]byte, maxConc int,
-) (*sroar.Bitmap, func(), error) {
-	var acc *sroar.Bitmap
-	accRelease := noopRelease
-	for _, key := range keys {
-		if err := ctxExpired(ctx); err != nil {
-			accRelease()
-			return nil, nil, err
-		}
-
-		bm, release, err := b.RoaringSetGetFromView(ctx, view, key)
-		if err != nil {
-			accRelease()
-			return nil, nil, fmt.Errorf("read row: %w", err)
-		}
-
-		if acc == nil {
-			acc, accRelease = bm, release
-		} else {
-			acc, accRelease, err = mergeAllowlistBitmaps(filters.ContainsAll, maxConc, acc, accRelease, bm, release)
+			acc, accRelease, err = mergeAllowlistBitmaps(op, maxConc, acc, accRelease, bm, release)
 			if err != nil {
 				return nil, nil, err
 			}
 		}
 
-		if acc.IsEmpty() {
+		if op == filters.ContainsAll && acc.IsEmpty() {
 			break
 		}
 	}

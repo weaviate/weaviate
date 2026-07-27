@@ -156,6 +156,68 @@ const benchCorpusSize = 300_000
 
 var benchSizes = []int{100, 1_000, 10_000, 100_000}
 
+// clusteredValues picks `size` values whose docIDs are consecutive, so the
+// whole result lands in one or two 64K containers — the Accumulator's
+// best-case staging shape. sampleValues (strided) is the opposite extreme:
+// every doc in its own 64K range, one staging block per doc.
+func (f *containsFixture) clusteredValues(size int) []string {
+	start := f.numDocs / 2
+	values := make([]string, 0, size)
+	for i := start; i < start+size && i < f.numDocs; i++ {
+		values = append(values, benchValue(i))
+	}
+	return values
+}
+
+// BenchmarkDocIDs_ContainsAnyAccumulatorGate sweeps the
+// containsAnyAccumulatorMinKeys crossover: the same DocIDs call at small key
+// counts with the gate forced to always-accumulator vs always-incremental,
+// over both result-spread extremes. Run:
+//
+//	go test -tags integrationTest -run '^$' -bench 'AccumulatorGate' \
+//	    -benchmem -count 6 ./adapters/repos/db/inverted/ | tee gate.txt
+func BenchmarkDocIDs_ContainsAnyAccumulatorGate(b *testing.B) {
+	f := newContainsFixture(b, benchCorpusSize)
+	ctx := context.Background()
+	oldGate := containsAnyAccumulatorMinKeys
+	defer func() { containsAnyAccumulatorMinKeys = oldGate }()
+
+	shapes := []struct {
+		name   string
+		values func(size int) []string
+	}{
+		{"spread", func(size int) []string { v, _ := f.sampleValues(size); return v }},
+		{"clustered", f.clusteredValues},
+	}
+	modes := []struct {
+		name string
+		gate int
+	}{
+		{"incremental", int(^uint(0) >> 1)}, // MaxInt: fold never uses the Accumulator
+		{"accumulator", 2},                  // every batched fold uses the Accumulator
+	}
+
+	for _, shape := range shapes {
+		for _, size := range []int{2, 4, 8, 16, 32, 64, 128, 256, 512, 1024} {
+			values := shape.values(size)
+			filter := containsFilter(filters.ContainsAny, values)
+			for _, mode := range modes {
+				b.Run(fmt.Sprintf("%s/N=%04d/%s", shape.name, size, mode.name), func(b *testing.B) {
+					containsAnyAccumulatorMinKeys = mode.gate
+					b.ReportAllocs()
+					for i := 0; i < b.N; i++ {
+						al, err := f.searcher.DocIDs(ctx, filter, additional.Properties{}, className)
+						if err != nil {
+							b.Fatal(err)
+						}
+						al.Close()
+					}
+				})
+			}
+		}
+	}
+}
+
 func BenchmarkDocIDs_ContainsAny(b *testing.B) {
 	f := newContainsFixture(b, benchCorpusSize)
 	ctx := context.Background()

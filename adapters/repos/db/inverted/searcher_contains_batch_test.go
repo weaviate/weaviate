@@ -183,11 +183,14 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctx := helpers.InitSlowQueryDetails(ctx)
 			pv, err := s.extractContains(ctx, containsPath(tt.prop),
 				tt.propType, tt.value, tt.operator, f.class)
 			require.NoError(t, err)
 			require.NotNil(t, pv)
 			require.Nil(t, pv.children, "eligible shape must resolve batched, not desugared")
+			require.Empty(t, extractContainsDesugaredReason(t, ctx),
+				"an eligible shape must not annotate a desugar reason")
 			require.Equal(t, tt.operator, pv.operator)
 			require.Equal(t, tt.prop, pv.prop)
 			require.True(t, pv.hasFilterableIndex)
@@ -204,69 +207,89 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 	s := f.searcher
 	ctx := context.Background()
 
-	// Every row must NOT resolve through the batched path. Rows with
-	// wantErr expect the desugared continuation to fail on its own terms
-	// (which also proves the gate declined: a wrongly-accepted shape would
-	// have succeeded with containsValues instead of erroring).
+	// Every row must NOT resolve through the batched path and must surface
+	// its decline reason in the slow-query details. Rows with wantErr expect
+	// the desugared continuation to fail on its own terms (which also proves
+	// the gate declined: a wrongly-accepted shape would have succeeded with
+	// containsValues instead of erroring); the annotation is written before
+	// the failure, so the reason is asserted on those rows too.
 	tests := []struct {
-		name     string
-		path     *filters.Path
-		propType schema.DataType
-		value    interface{}
-		operator filters.Operator
-		setup    func(t *testing.T)
-		wantErr  bool
+		name       string
+		path       *filters.Path
+		propType   schema.DataType
+		value      interface{}
+		operator   filters.Operator
+		setup      func(t *testing.T)
+		wantErr    bool
+		wantReason string
 	}{
 		{
 			name:     "nested path",
 			path:     &filters.Path{Property: "addresses", Child: &filters.Path{Property: "city"}},
 			propType: schema.DataTypeText, value: []string{"a", "b"}, operator: filters.ContainsAny,
-			wantErr: true, // fixture class has no "addresses" property
+			wantErr:    true, // fixture class has no "addresses" property
+			wantReason: containsDeclineMultiSegmentPath,
 		},
 		{
 			name: "internal prop",
 			path: containsPath(filters.InternalPropID), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantReason: containsDeclineInternalProperty,
 		},
 		{
-			name: "property length meta-filter",
+			name: "property length meta-filter, suffix spelling",
 			path: containsPath("prop-int" + filters.InternalPropertyLength), propType: schema.DataTypeInt,
 			value: []int{1, 2}, operator: filters.ContainsAny,
 			wantErr: true, // fixture class does not index property lengths
+			// the suffix spelling is not a schema property name, so the
+			// classifier declines it one check later than len()
+			wantReason: containsDeclinePropertyNotFound,
+		},
+		{
+			name: "property length meta-filter, len() spelling",
+			path: containsPath("len(prop-int)"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantReason: containsDeclineLengthFilter,
 		},
 		{
 			name: "property not found",
 			path: containsPath("prop-does-not-exist"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
-			wantErr: true,
+			wantErr:    true,
+			wantReason: containsDeclinePropertyNotFound,
 		},
 		{
 			name: "nested object property",
 			path: containsPath("prop-nested"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
-			wantErr: true, // nested filtering preview gate is off in tests
+			wantErr:    true, // nested filtering preview gate is off in tests
+			wantReason: containsDeclineNestedObjectProperty,
 		},
 		{
 			name: "ref prop",
 			path: containsPath("prop-ref"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
-			wantErr: true, // desugared leaf rejects text values on a reference
+			wantErr:    true, // desugared leaf rejects text values on a reference
+			wantReason: containsDeclineReferenceProperty,
 		},
 		{
 			name: "geo prop",
 			path: containsPath("prop-geo"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
-			wantErr: true, // desugared leaf rejects text values on a geo prop
+			wantErr:    true, // desugared leaf rejects text values on a geo prop
+			wantReason: containsDeclineGeoProperty,
 		},
 		{
 			name: "non-FIELD tokenization WORD",
 			path: containsPath("prop-text-word"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantReason: containsDeclineTokenizationNotField,
 		},
 		{
 			name: "non-FIELD tokenization WHITESPACE",
 			path: containsPath("prop-text-whitespace"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantReason: containsDeclineTokenizationNotField,
 		},
 		{
 			name: "fallback to searchable",
@@ -276,33 +299,39 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 				f.fallback = true
 				t.Cleanup(func() { f.fallback = false })
 			},
+			wantReason: containsDeclineFallbackToSearchable,
 		},
 		{
 			name: "IndexFilterable false",
 			path: containsPath("prop-not-filterable"), propType: schema.DataTypeInt,
 			value: []int{1, 2}, operator: filters.ContainsAny,
-			wantErr: true, // int props have no searchable fallback; the leaf demands the filterable index
+			wantErr:    true, // int props have no searchable fallback; the leaf demands the filterable index
+			wantReason: containsDeclineNoFilterableIndex,
 		},
 		{
 			name: "bucket strategy not roaringset",
 			path: containsPath("prop-nonroaringset"), propType: schema.DataTypeInt,
 			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantReason: containsDeclineNoRoaringSetBucket,
 		},
 		{
 			name: "bucket not created",
 			path: containsPath("prop-no-bucket"), propType: schema.DataTypeInt,
 			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantReason: containsDeclineNoRoaringSetBucket,
 		},
 		{
 			name: "N=0 values",
 			path: containsPath("prop-int"), propType: schema.DataTypeInt,
 			value: []int{}, operator: filters.ContainsAny,
-			wantErr: true, // the desugared path rejects an empty value set
+			wantErr:    true, // the desugared path rejects an empty value set
+			wantReason: containsDeclineFewerThanTwoValues,
 		},
 		{
 			name: "N=1 value",
 			path: containsPath("prop-int"), propType: schema.DataTypeInt,
 			value: []int{1}, operator: filters.ContainsAny,
+			wantReason: containsDeclineFewerThanTwoValues,
 		},
 		// array value types must decline: the desugared per-value leaf
 		// extractors error on them, so accepting them in the gate would
@@ -311,13 +340,15 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			name: "array value type text",
 			path: containsPath("prop-text-field"), propType: schema.DataTypeTextArray,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
-			wantErr: true,
+			wantErr:    true,
+			wantReason: containsDeclineValueTypeMismatch,
 		},
 		{
 			name: "array value type int",
 			path: containsPath("prop-int"), propType: schema.DataTypeIntArray,
 			value: []int{1, 2}, operator: filters.ContainsAny,
-			wantErr: true,
+			wantErr:    true,
+			wantReason: containsDeclineValueTypeMismatch,
 		},
 	}
 
@@ -326,8 +357,11 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(t)
 			}
+			ctx := helpers.InitSlowQueryDetails(ctx)
 			pv, err := s.extractContains(ctx, tt.path, tt.propType,
 				tt.value, tt.operator, f.class)
+			require.Equal(t, tt.wantReason, extractContainsDesugaredReason(t, ctx),
+				"decline reason must be surfaced in the slow-query details")
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -337,6 +371,24 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			require.Nil(t, pv.containsValues, "shape must not resolve through the batched path")
 		})
 	}
+}
+
+// extractContainsDesugaredReason returns the reason of the single
+// "contains_desugared" slow-query annotation in ctx, or "" if none was
+// written.
+func extractContainsDesugaredReason(t *testing.T, ctx context.Context) string {
+	t.Helper()
+	details := helpers.ExtractSlowQueryDetails(ctx)
+	entry, ok := details["contains_desugared"]
+	if !ok {
+		return ""
+	}
+	entries, ok := entry.([]map[string]any)
+	require.True(t, ok, "contains_desugared must hold []map[string]any, got %T", entry)
+	require.Len(t, entries, 1)
+	reason, ok := entries[0]["reason"].(string)
+	require.True(t, ok)
+	return reason
 }
 
 func TestExtractContainsBatch_EncodingErrorIsEligibleButFails(t *testing.T) {
@@ -399,9 +451,11 @@ func TestExtractContainsBatch_KillSwitch(t *testing.T) {
 
 	t.Setenv(entcfg.EnvDisableBatchedContains, "true")
 
+	ctx = helpers.InitSlowQueryDetails(ctx)
 	pv, err := s.extractContains(ctx, containsPath("prop-int"), schema.DataTypeInt,
 		[]int{1, 2, 3}, filters.ContainsAny, f.class)
 	require.NoError(t, err)
 	require.Nil(t, pv.containsValues)
 	require.NotEmpty(t, pv.children, "with the kill switch on, Contains must desugar per value")
+	require.Equal(t, containsDeclineDisabledByEnv, extractContainsDesugaredReason(t, ctx))
 }

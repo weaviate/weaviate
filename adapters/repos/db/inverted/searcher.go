@@ -999,6 +999,28 @@ const (
 	containsBatchPrimitive
 )
 
+// containsDecline* are the reasons surfaced in the "contains_desugared"
+// slow-query annotation when classifyContainsBatch (or the value-count gate
+// in extractContains) routes a Contains filter through the desugared
+// per-value path instead of the batched fold.
+const (
+	containsDeclineNonContainsOperator  = "non-contains-operator"
+	containsDeclineDisabledByEnv        = "disabled-by-env"
+	containsDeclineMultiSegmentPath     = "multi-segment-path"
+	containsDeclineInternalProperty     = "internal-property"
+	containsDeclineLengthFilter         = "length-filter"
+	containsDeclinePropertyNotFound     = "property-not-found"
+	containsDeclineNestedObjectProperty = "nested-object-property"
+	containsDeclineReferenceProperty    = "reference-property"
+	containsDeclineGeoProperty          = "geo-property"
+	containsDeclineNoFilterableIndex    = "no-filterable-index"
+	containsDeclineNoRoaringSetBucket   = "no-roaringset-bucket"
+	containsDeclineValueTypeMismatch    = "value-type-mismatch"
+	containsDeclineTokenizationNotField = "tokenization-not-field"
+	containsDeclineFallbackToSearchable = "fallback-to-searchable"
+	containsDeclineFewerThanTwoValues   = "fewer-than-two-values"
+)
+
 // classifyContainsBatch runs every shape check for the batched flat
 // ContainsAny/ContainsAll/ContainsNone fast path and reconciles the property with the
 // filter's value type, in one place: flat single-property path, no
@@ -1008,6 +1030,10 @@ const (
 // searcher, and the desugared per-value leaf extractors error on array value
 // types — batching them would succeed where the fallback path errors).
 //
+// On decline it returns containsNotBatchable plus a containsDecline* reason,
+// which desugaredContains surfaces in the slow-query details; on success the
+// reason is empty.
+//
 // The checks must classify the property exactly as the desugared per-value
 // path (buildPropValuePair's dispatch) would classify each Equal leaf:
 // batching is only safe when every leaf would have been a plain 1-key
@@ -1015,75 +1041,78 @@ const (
 // end-to-end.
 func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.DataType,
 	operator filters.Operator, class *models.Class,
-) (*models.Property, containsBatchType) {
+) (*models.Property, containsBatchType, string) {
 	if !operator.IsContains() {
-		return nil, containsNotBatchable
+		return nil, containsNotBatchable, containsDeclineNonContainsOperator
 	}
 	if entcfg.BatchedContainsDisabled() {
-		return nil, containsNotBatchable
+		return nil, containsNotBatchable, containsDeclineDisabledByEnv
 	}
 
 	props := path.Slice()
 	if len(props) != 1 {
-		return nil, containsNotBatchable
+		return nil, containsNotBatchable, containsDeclineMultiSegmentPath
 	}
 
 	propName := filnested.RootPropName(props[0])
 	if s.onInternalProp(propName) {
-		return nil, containsNotBatchable
+		return nil, containsNotBatchable, containsDeclineInternalProperty
 	}
 	if _, ok := schema.IsPropertyLength(propName, 0); ok {
-		return nil, containsNotBatchable
+		return nil, containsNotBatchable, containsDeclineLengthFilter
 	}
 
 	property, err := schema.GetPropertyByName(class, propName)
 	if err != nil {
 		// the desugared per-value path raises the identical "property not
 		// found" error; no need to duplicate it here
-		return nil, containsNotBatchable
+		return nil, containsNotBatchable, containsDeclinePropertyNotFound
 	}
 	if _, ok := schema.AsNested(property.DataType); ok {
-		return nil, containsNotBatchable
+		return nil, containsNotBatchable, containsDeclineNestedObjectProperty
 	}
-	if s.onRefProp(property) || s.onGeoProp(property) {
-		return nil, containsNotBatchable
+	if s.onRefProp(property) {
+		return nil, containsNotBatchable, containsDeclineReferenceProperty
+	}
+	if s.onGeoProp(property) {
+		return nil, containsNotBatchable, containsDeclineGeoProperty
 	}
 	if !HasFilterableIndex(property) {
-		return nil, containsNotBatchable
+		return nil, containsNotBatchable, containsDeclineNoFilterableIndex
 	}
 
 	b := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
 	if b == nil || b.Strategy() != lsmkv.StrategyRoaringSet {
-		return nil, containsNotBatchable
+		return nil, containsNotBatchable, containsDeclineNoRoaringSetBucket
 	}
 
 	switch {
 	case s.onUUIDProp(property):
 		if propType != schema.DataTypeText {
-			return nil, containsNotBatchable
+			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
 		}
-		return property, containsBatchUUID
+		return property, containsBatchUUID, ""
 	case s.onTokenizableProp(property):
 		if propType != schema.DataTypeText {
-			return nil, containsNotBatchable
+			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
 		}
 		// tokenizeField always produces exactly one token (a TrimFunc of the
 		// input, never zero, never more than one), so FIELD is provably a
 		// 1-value-to-1-key tokenization; any other tokenization can turn one
 		// value into zero or several tokens and must desugar.
 		if ResolveTokenization(s.tokResolver, property.Name, property.Tokenization) != models.PropertyTokenizationField {
-			return nil, containsNotBatchable
+			return nil, containsNotBatchable, containsDeclineTokenizationNotField
 		}
 		if s.isFallbackToSearchable() {
-			return nil, containsNotBatchable
+			return nil, containsNotBatchable, containsDeclineFallbackToSearchable
 		}
-		return property, containsBatchTextField
+		return property, containsBatchTextField, ""
 	default:
 		switch propType {
 		case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-			return property, containsBatchPrimitive
+			return property, containsBatchPrimitive, ""
 		default:
-			return nil, containsNotBatchable
+			return nil, containsNotBatchable, containsDeclineValueTypeMismatch
 		}
 	}
 }
@@ -1211,7 +1240,12 @@ func (s *Searcher) extractContains(ctx context.Context,
 	path *filters.Path, propType schema.DataType, value interface{},
 	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	property, batchType := s.classifyContainsBatch(path, propType, operator, class)
+	property, batchType, declineReason := s.classifyContainsBatch(path, propType, operator, class)
+	if declineReason == "" {
+		// the classifier approved the shape; if the filter still desugars in
+		// the arms below, the value count is the only remaining cause
+		declineReason = containsDeclineFewerThanTwoValues
+	}
 
 	switch propType {
 	case schema.DataTypeText, schema.DataTypeTextArray:
@@ -1229,7 +1263,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 				// containsNotBatchable: desugar below
 			}
 		}
-		return s.desugaredContains(ctx, operator, class, getContainsOperands(propType, path, values))
+		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
 
 	case schema.DataTypeInt, schema.DataTypeIntArray:
 		values, err := s.extractIntArray(value)
@@ -1239,7 +1273,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 		if batchType == containsBatchPrimitive && len(values) >= 2 {
 			return s.batchedContainsInt(property, operator, class, values)
 		}
-		return s.desugaredContains(ctx, operator, class, getContainsOperands(propType, path, values))
+		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
 
 	case schema.DataTypeNumber, schema.DataTypeNumberArray:
 		values, err := s.extractFloat64Array(value)
@@ -1249,7 +1283,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 		if batchType == containsBatchPrimitive && len(values) >= 2 {
 			return s.batchedContainsNumber(property, operator, class, values)
 		}
-		return s.desugaredContains(ctx, operator, class, getContainsOperands(propType, path, values))
+		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
 
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
 		values, err := s.extractBoolArray(value)
@@ -1259,7 +1293,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 		if batchType == containsBatchPrimitive && len(values) >= 2 {
 			return s.batchedContainsBool(property, operator, class, values)
 		}
-		return s.desugaredContains(ctx, operator, class, getContainsOperands(propType, path, values))
+		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
 
 	case schema.DataTypeDate, schema.DataTypeDateArray:
 		values, err := s.extractStringArray(value)
@@ -1269,7 +1303,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 		if batchType == containsBatchPrimitive && len(values) >= 2 {
 			return s.batchedContainsDate(property, operator, class, values)
 		}
-		return s.desugaredContains(ctx, operator, class, getContainsOperands(propType, path, values))
+		return s.desugaredContains(ctx, operator, class, path, getContainsOperands(propType, path, values), declineReason)
 
 	default:
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
@@ -1298,9 +1332,21 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 
 // desugaredContains resolves the filter through the per-value path: one
 // Equal leaf per operand, combined under the operator.
+//
+// declineReason is the containsDecline* reason the filter did not take the
+// batched path (extractContains guarantees it is always set); it is surfaced
+// in the slow-query details so an operator can see why a Contains filter
+// desugared.
 func (s *Searcher) desugaredContains(ctx context.Context, operator filters.Operator,
-	class *models.Class, operands []filters.Clause,
+	class *models.Class, path *filters.Path, operands []filters.Clause, declineReason string,
 ) (*propValuePair, error) {
+	helpers.AnnotateSlowQueryLogAppend(ctx, "contains_desugared", map[string]any{
+		"prop":       string(path.Property),
+		"operator":   operator.Name(),
+		"reason":     declineReason,
+		"num_values": len(operands),
+	})
+
 	children, err := s.extractPropValuePairs(ctx, operands, operator, schema.ClassName(class.Class))
 	if err != nil {
 		return nil, err
