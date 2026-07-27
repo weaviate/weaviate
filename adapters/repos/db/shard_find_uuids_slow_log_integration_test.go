@@ -25,10 +25,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -40,8 +42,15 @@ import (
 const (
 	findUUIDsSlowLogProp   = "rangeableInt"
 	findUUIDsFilterableInt = "filterableInt"
+	findUUIDsExpiresAtProp = "expiresAt"
 	resolutionsSeries      = "weaviate_lsm_roaringsetrange_delete_filter_resolutions_total"
 )
+
+// findUUIDsExpiresAt spaces the fixture's TTL property one minute apart, so a
+// threshold picks a known number of rows.
+func findUUIDsExpiresAt(minute int) time.Time {
+	return time.Date(2026, 1, 1, 0, minute, 0, 0, time.UTC)
+}
 
 // FindUUIDs bypasses buildAllowList, so it needs its own slow-log sink;
 // asserting on the real record catches that sink being removed. Source
@@ -60,7 +69,7 @@ func Test_FindUUIDs_RecordsHowTheFilterResolved(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := testCtx()
-			shard, hook := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory)
+			shard, _, hook := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory)
 
 			uuids, err := shard.FindUUIDs(ctx, rangeableIntFilter(filters.OperatorLessThanEqual, 5), 0)
 			require.NoError(t, err)
@@ -88,7 +97,7 @@ func Test_FindUUIDs_RecordsHowTheFilterResolved(t *testing.T) {
 // index, so the default backing already exercises it.
 func Test_FindUUIDs_RecordIsBoundedByTheSlowLogSwitch(t *testing.T) {
 	ctx := testCtx()
-	shard, hook := newFindUUIDsSlowLogShard(t, ctx, false, func(idx *Index) {
+	shard, _, hook := newFindUUIDsSlowLogShard(t, ctx, false, func(idx *Index) {
 		idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(false)
 	})
 
@@ -116,7 +125,7 @@ func Test_FindUUIDs_CountsWhichBackingResolvedTheFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := testCtx()
-			shard, hook := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory, func(idx *Index) {
+			shard, _, hook := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory, func(idx *Index) {
 				idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(false)
 			})
 
@@ -178,7 +187,7 @@ func Test_FindUUIDs_CountsTheSameChildOnAnUnflushedCollection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := testCtx()
-			shard, _ := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory, func(idx *Index) {
+			shard, _, _ := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory, func(idx *Index) {
 				idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(false)
 			})
 
@@ -253,7 +262,7 @@ func Test_FindUUIDs_CountsAResolutionThatMatchedNothing(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := testCtx()
-			shard, _ := newFindUUIDsSlowLogShard(t, ctx, false)
+			shard, _, _ := newFindUUIDsSlowLogShard(t, ctx, false)
 
 			before := gatheredLabelValues(t, resolutionsSeries)
 
@@ -270,6 +279,82 @@ func Test_FindUUIDs_CountsAResolutionThatMatchedNothing(t *testing.T) {
 	}
 }
 
+// The counter's help names two producers of Shard.FindUUIDs. The batch-delete
+// side is pinned above; this is the object-TTL sweep, whose only route into a
+// resolution is findUUIDsForExpiredObjects. It has to move the child the shard's
+// configuration implies, and the sweep's own date filter is what carries it
+// there.
+func Test_TTLSweep_CountsWhichBackingResolvedTheFilter(t *testing.T) {
+	tests := []struct {
+		name              string
+		rangeableInMemory bool
+		wantRouted        string
+	}{
+		{name: "the default path", rangeableInMemory: false, wantRouted: "rangeable_no_in_memory_segment"},
+		{name: "in-memory range segment", rangeableInMemory: true, wantRouted: "rangeable_in_memory"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, index, _ := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory, func(idx *Index) {
+				idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(false)
+			})
+			expectSingleShardReadPlan(t, index, shard.Name())
+
+			before := gatheredLabelValues(t, resolutionsSeries)
+			require.NotEmptyf(t, before, "%s is not emitted, so nothing records the routing",
+				resolutionsSeries)
+
+			shards2uuids, err := index.findUUIDsForExpiredObjects(ctx,
+				expiresAtFilter(findUUIDsExpiresAt(5)), "", defaultConsistency(), 0)
+			require.NoError(t, err)
+
+			found := 0
+			for _, uuids := range shards2uuids {
+				found += len(uuids)
+			}
+			require.Equal(t, 5, found,
+				"the sweep found nothing to expire, so any assertion on its routing is vacuous")
+
+			want := maps.Clone(before)
+			want[tt.wantRouted]++
+			require.Equalf(t, want, gatheredLabelValues(t, resolutionsSeries),
+				"the sweep's resolution was not counted as %q", tt.wantRouted)
+		})
+	}
+}
+
+// expectSingleShardReadPlan teaches the fixture's router the one call the
+// index-level fan-out makes that the shard-level tests never reach.
+func expectSingleShardReadPlan(t *testing.T, index *Index, shardName string) {
+	t.Helper()
+
+	router, ok := index.router.(*types.MockRouter)
+	require.True(t, ok, "the fixture no longer carries a mock router")
+
+	router.EXPECT().BuildReadRoutingPlan(mock.Anything).Return(types.ReadRoutingPlan{
+		ReplicaSet: types.ReadReplicaSet{
+			Replicas: []types.Replica{{NodeName: "node1", ShardName: shardName, HostAddr: "127.0.0.1"}},
+		},
+	}, nil).Maybe()
+}
+
+// expiresAtFilter is shaped like the clause incomingDeleteObjectsExpired builds:
+// less-than-or-equal on a date property.
+func expiresAtFilter(threshold time.Time) *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorLessThanEqual,
+			On: &filters.Path{
+				Class:    schema.ClassName("FindUUIDsSlowLog"),
+				Property: schema.PropertyName(findUUIDsExpiresAtProp),
+			},
+			Value: &filters.Value{Value: threshold, Type: schema.DataTypeDate},
+		},
+	}
+}
+
 // newFindUUIDsSlowLogShard builds a shard with ten objects at rangeableInt ==
 // 1..10; the slow-log threshold is set below any achievable duration so every
 // call reports and the assertion isn't a coin flip on sampling.
@@ -277,7 +362,7 @@ func Test_FindUUIDs_CountsAResolutionThatMatchedNothing(t *testing.T) {
 // inherit the wrong backing.
 func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, rangeableInMemory bool,
 	indexOpts ...func(*Index),
-) (ShardLike, *test.Hook) {
+) (ShardLike, *Index, *test.Hook) {
 	t.Helper()
 
 	logger, hook := test.NewNullLogger()
@@ -294,6 +379,12 @@ func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, rangeableInMemo
 			DataType:          []string{string(schema.DataTypeInt)},
 			IndexFilterable:   boolPtr(true),
 			IndexRangeFilters: boolPtr(false),
+		}, {
+			// The TTL sweep filters on a date, so the producer this fixture
+			// stands in for needs one indexed the way the sweep reads it.
+			Name:              findUUIDsExpiresAtProp,
+			DataType:          []string{string(schema.DataTypeDate)},
+			IndexRangeFilters: boolPtr(true),
 		}},
 	}
 
@@ -304,7 +395,7 @@ func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, rangeableInMemo
 		idx.Config.QuerySlowLogThreshold = configRuntime.NewDynamicValue(time.Nanosecond)
 	}}, indexOpts...)
 
-	shard, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shard, index := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false, opts...)
 
 	for i := 1; i <= 10; i++ {
@@ -316,13 +407,14 @@ func newFindUUIDsSlowLogShard(t *testing.T, ctx context.Context, rangeableInMemo
 				Properties: map[string]interface{}{
 					findUUIDsSlowLogProp:   float64(i),
 					findUUIDsFilterableInt: float64(i),
+					findUUIDsExpiresAtProp: findUUIDsExpiresAt(i).Format(time.RFC3339),
 				},
 			},
 		}))
 	}
 	hook.Reset()
 
-	return shard, hook
+	return shard, index, hook
 }
 
 func rangeableIntFilter(operator filters.Operator, value int) *filters.LocalFilter {

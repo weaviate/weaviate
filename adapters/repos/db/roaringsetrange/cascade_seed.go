@@ -95,9 +95,8 @@ var (
 				"bucket in the process: there is no class, shard or property dimension. " +
 				"seeded means the cascade started from the lowest set bit's plane; " +
 				"disabled means " + CascadeSeedEnabledEnv + " switched seeding off and it " +
-				"started from plane 0; no_set_bit means the value had none and the cascade " +
-				"was a no-op. Only the in-memory range segment reaches these counters, so all " +
-				"three read zero both when " + IndexRangeableInMemoryEnv + " is off and when " +
+				"started from plane 0. Only the in-memory range segment reaches these counters, " +
+				"so both read zero when " + IndexRangeableInMemoryEnv + " is off and when " +
 				"it is on with no range filters running: read " + cascadeSeedConfigSeries +
 				" for the switch, and these for the traffic.",
 		}, []string{"outcome"})
@@ -106,20 +105,19 @@ var (
 	// rather than an absent series, which is indistinguishable from an idle one.
 	cascadeSeedSeeded   = cascadeSeedTotal.WithLabelValues("seeded")
 	cascadeSeedDisabled = cascadeSeedTotal.WithLabelValues("disabled")
-	cascadeSeedNoSetBit = cascadeSeedTotal.WithLabelValues("no_set_bit")
 )
 
 // observeCascadeSeed records where a cascade started. Cache hits aren't
-// counted: no cascade runs for them.
+// counted: no cascade runs for them. Two outcomes and not three, because
+// cascadeSeed leaves an enabled cascade unnarrowed only for value 0, and no
+// read path delivers 0: each operator either returns before the merge or adds
+// one first. So an unnarrowed start means the switch is off.
 func observeCascadeSeed(start cascadeStart) {
-	switch {
-	case start.narrowed:
+	if start.narrowed {
 		cascadeSeedSeeded.Inc()
-	case !cascadeSeedEnabled:
-		cascadeSeedDisabled.Inc()
-	default:
-		cascadeSeedNoSetBit.Inc()
+		return
 	}
+	cascadeSeedDisabled.Inc()
 }
 
 // logCascadeSeedConfig logs the seeding configuration once per process, so an

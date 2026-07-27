@@ -12,6 +12,7 @@
 package roaringsetrange
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func TestParseCascadeSeedEnabled(t *testing.T) {
@@ -182,6 +184,76 @@ func TestCascadeSeedCounterDistinguishesDisabledFromUnexercised(t *testing.T) {
 	assert.Equal(t, disabledBefore+1, testutil.ToFloat64(cascadeSeedDisabled))
 }
 
+// A child that can never move is worse than a missing one: it reads zero on
+// every configuration forever, and a dashboard cannot tell that from an idle
+// process. The names are pinned elsewhere; this drives the production entry
+// point over every operator in both switch states and requires each live child
+// to have moved at least once.
+func TestCascadeSeedCounterHasNoChildThatCannotMove(t *testing.T) {
+	operators := []filters.Operator{
+		filters.OperatorEqual,
+		filters.OperatorNotEqual,
+		filters.OperatorLessThan,
+		filters.OperatorLessThanEqual,
+		filters.OperatorGreaterThan,
+		filters.OperatorGreaterThanEqual,
+	}
+
+	before := cascadeSeedChildren(t)
+	require.NotEmpty(t, before, "the counter emits no children, so this asserts nothing")
+
+	// A fixture per state: a leaf memoised under one setting would be served
+	// back under the other and skip the cascade that is being counted.
+	for seed, disabled := range []bool{false, true} {
+		withCascadeSeedDisabled(t, disabled)
+
+		seg := newCascadeFixture(t, int64(seed))
+		readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
+		reader := readers[0].(*segmentInMemoryReader)
+
+		for _, operator := range operators {
+			for _, value := range cascadeEdgeValues {
+				_, releaseBm, err := reader.Read(context.Background(), value, operator)
+				require.NoError(t, err)
+				releaseBm()
+			}
+		}
+		release()
+	}
+
+	after := cascadeSeedChildren(t)
+	for outcome, count := range after {
+		assert.Greaterf(t, count, before[outcome],
+			"%s{outcome=%q} did not move once over every operator in both switch states, so no "+
+				"configuration can make it non-zero and its flat line means nothing",
+			metricsNamespace+"_"+cascadeSeedName, outcome)
+	}
+}
+
+// cascadeSeedChildren reads the children the counter actually exports, so one
+// that is declared and never reached is caught rather than only one misspelt.
+func cascadeSeedChildren(t *testing.T) map[string]float64 {
+	t.Helper()
+
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	children := map[string]float64{}
+	for _, family := range families {
+		if family.GetName() != metricsNamespace+"_"+cascadeSeedName {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == "outcome" {
+					children[label.GetValue()] = metric.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+	return children
+}
+
 // The gauge must distinguish enabled/disabled/unrecognised at boot, before any
 // query exercises the cascade.
 func TestCascadeSeedConfigGauge(t *testing.T) {
@@ -260,7 +332,7 @@ func TestEmittedSeriesNames(t *testing.T) {
 		leafCacheOpsName: {
 			"hit", "miss", "store", "rejected", "invalidate", "disabled",
 		},
-		cascadeSeedName: {"seeded", "disabled", "no_set_bit"},
+		cascadeSeedName: {"seeded", "disabled"},
 		// Literals, like every other row: a constant here would follow a rename
 		// of the label value and leave the dashboard-facing string unpinned.
 		deleteFilterResolutionsName: {

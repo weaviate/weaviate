@@ -319,8 +319,9 @@ func (r *segmentInMemoryReader) cascadeSeed(value uint64) cascadeStart {
 		return cascadeStart{seed: r.bitmaps[0], nextBit: 1}
 	}
 	if value == 0 {
-		// no set bit, so every plane would be OR-ed into a result that still
-		// equals plane 0: the whole cascade is a no-op
+		// No operator delivers 0 — each returns before the merge or adds one
+		// first — but TrailingZeros64(0) would index past the planes, so the
+		// guard stays. With no set bit the whole cascade is a no-op anyway.
 		return cascadeStart{seed: r.bitmaps[0], nextBit: len(r.bitmaps)}
 	}
 

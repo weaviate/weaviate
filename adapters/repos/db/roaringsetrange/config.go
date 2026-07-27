@@ -134,7 +134,7 @@ func PublishConfig(featureEnabled bool, logger logrus.FieldLogger) {
 	// cannot parse is an operator mistake worth naming even where it is inert,
 	// and an operator who sets one of these has already decided the feature
 	// matters to them.
-	logIndexRangeableConfig(logger)
+	logIndexRangeableConfig(featureEnabled, logger)
 	logLeafCacheConfig(logger)
 	logCascadeSeedConfig(logger)
 }
@@ -143,15 +143,33 @@ func PublishConfig(featureEnabled bool, logger logrus.FieldLogger) {
 // entcfg.Enabled recognises only truthy words, so an unparseable value reads
 // as unset with nothing logged. Scoped to naming it here rather than fixing
 // entcfg.Enabled, which every caller in the repo shares.
-func logIndexRangeableConfig(logger logrus.FieldLogger) {
+//
+// The outcome comes from featureEnabled, never from the value: the config file
+// is parsed before FromEnv and FromEnv only ever switches the flag on, so the
+// string cannot say where the feature ended up.
+func logIndexRangeableConfig(featureEnabled bool, logger logrus.FieldLogger) {
 	if logger == nil || indexRangeableEnvValue == "" ||
 		!indexRangeableLogged.CompareAndSwap(false, true) {
 		return
 	}
 
-	if _, recognised := parseBoolEnv(indexRangeableEnvValue); !recognised {
-		logger.WithField("action", "roaringsetrange_index_rangeable_in_memory").
-			Warnf("%s=%q is not a recognised boolean, the in-memory range segment stays off",
-				IndexRangeableInMemoryEnv, indexRangeableEnvValue)
+	state := "off"
+	if featureEnabled {
+		state = "on"
+	}
+	entry := logger.WithField("action", "roaringsetrange_index_rangeable_in_memory")
+
+	// parseBoolEnv trims and entcfg.Enabled does not, so " true" reads as an
+	// intent this build understands against a feature that stayed off. Comparing
+	// the intent to the resolved state surfaces that gap instead of hiding it,
+	// which is why the two parsers are allowed to keep disagreeing.
+	intent, recognised := parseBoolEnv(indexRangeableEnvValue)
+	switch {
+	case !recognised:
+		entry.Warnf("%s=%q is not a recognised boolean and was dropped, the in-memory range segment is %s",
+			IndexRangeableInMemoryEnv, indexRangeableEnvValue, state)
+	case intent != featureEnabled:
+		entry.Warnf("%s=%q did not take effect, the in-memory range segment is %s",
+			IndexRangeableInMemoryEnv, indexRangeableEnvValue, state)
 	}
 }

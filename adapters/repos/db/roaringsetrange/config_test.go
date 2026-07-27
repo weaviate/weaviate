@@ -94,6 +94,61 @@ func TestPublishConfigNamesAnUnparsedFeatureFlag(t *testing.T) {
 	}
 }
 
+// The env value alone cannot say where the feature ended up: the config file is
+// parsed before FromEnv, and FromEnv only ever switches the feature on. So the
+// warning has to name the state that resolved, in both directions.
+func TestPublishConfigWarnsAboutTheStateThatResolved(t *testing.T) {
+	tests := []struct {
+		name        string
+		envValue    string
+		feature     bool
+		wantMessage string
+	}{
+		{
+			name:     "unparsed value, with a config file that turned it on",
+			envValue: "yes", feature: true,
+			wantMessage: "the in-memory range segment is on",
+		},
+		{
+			name:     "unparsed value, with nothing else turning it on",
+			envValue: "yes", feature: false,
+			wantMessage: "the in-memory range segment is off",
+		},
+		{
+			// entcfg.Enabled decides this knob and does not trim, so this reads
+			// as unset and the feature stays off. parseBoolEnv does trim, so the
+			// warning built to catch exactly this typo used to stay silent.
+			name:     "a leading space the deciding parser does not trim",
+			envValue: " true", feature: false,
+			wantMessage: "the in-memory range segment is off",
+		},
+		{
+			// FromEnv never clears the flag, so an off asked for here cannot
+			// undo a config file that turned it on.
+			name:     "an off the environment cannot deliver",
+			envValue: "false", feature: true,
+			wantMessage: "the in-memory range segment is on",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withLeafCacheEnv(t, "", nil, DefaultLeafCacheMaxMemory)
+			withIndexRangeableEnv(t, tt.envValue)
+
+			logger, hook := test.NewNullLogger()
+			PublishConfig(tt.feature, logger)
+			t.Cleanup(func() { PublishConfig(false, nil) })
+
+			require.Len(t, hook.Entries, 1)
+			assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+			assert.Contains(t, hook.LastEntry().Message, IndexRangeableInMemoryEnv)
+			assert.Contains(t, hook.LastEntry().Message, tt.envValue)
+			assert.Contains(t, hook.LastEntry().Message, tt.wantMessage)
+		})
+	}
+}
+
 // The default configuration leaves INDEX_RANGEABLE_IN_MEMORY off, so every
 // per-segment counter stays flat — identical to a live cache with no eligible
 // traffic. Only this gauge separates the two, so all four of its states need a
@@ -186,7 +241,7 @@ func TestPublishConfigStaysQuietOnAHealthyDefault(t *testing.T) {
 }
 
 // Only the constant's value is published, so an identifier naming a different
-// series or a different label value drifts unnoticed. Both halves of the
+// series, label value or record field drifts unnoticed. Both halves of the
 // operator-facing contract are checked here, or half a rename still passes.
 func TestMetricNameConstantsMatchTheSeriesTheyHold(t *testing.T) {
 	checked := stringConstants(t, "config.go", func(ident string) bool {
@@ -206,17 +261,31 @@ func TestMetricNameConstantsMatchTheSeriesTheyHold(t *testing.T) {
 			ident, metricsNamespace+"_"+series)
 	}
 
-	routed := stringConstants(t, "delete_filter.go", func(ident string) bool {
-		return strings.HasPrefix(ident, "routed")
-	})
+	// The source values are as operator-facing as the label values: they land in
+	// the slow-query record, so they get the same guard rather than a literal
+	// pinned one tier away.
+	values := []struct {
+		file   string
+		prefix string
+		want   int
+	}{
+		{file: "delete_filter.go", prefix: "routed", want: 3},
+		{file: "reader.go", prefix: "source", want: 2},
+	}
 
-	require.Len(t, routed, 3,
-		"a routed label constant left delete_filter.go, which is the one file this test reads")
+	for _, tt := range values {
+		constants := stringConstants(t, tt.file, func(ident string) bool {
+			return strings.HasPrefix(ident, tt.prefix)
+		})
 
-	for ident, value := range routed {
-		assert.Equalf(t, snakeCase(strings.TrimPrefix(ident, "routed")), value,
-			"%s publishes %q; a dashboard written from the identifier would match nothing",
-			ident, value)
+		require.Lenf(t, constants, tt.want,
+			"a %s constant left %s, which is the one file this test reads", tt.prefix, tt.file)
+
+		for ident, value := range constants {
+			assert.Equalf(t, snakeCase(strings.TrimPrefix(ident, tt.prefix)), value,
+				"%s publishes %q; a dashboard or a record read from the identifier would match nothing",
+				ident, value)
+		}
 	}
 }
 
