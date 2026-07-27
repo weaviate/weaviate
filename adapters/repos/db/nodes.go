@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -126,15 +127,15 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 ) *models.NodeStats {
 	var objectCount, shardCount int64
 	if className == "" {
-		db.indexLock.RLock()
-		defer db.indexLock.RUnlock()
-		for name, idx := range db.indices {
+		// Scanning every shard takes far too long to do under indexLock, so
+		// iterate a copy of the index map instead.
+		for name, idx := range db.copyIndices() {
 			if idx == nil {
 				db.logger.WithField("action", "local_node_status_for_all").
 					Warningf("no resource found for index %q", name)
 				continue
 			}
-			objects, shards := idx.getShardsNodeStatus(ctx, status, shardName)
+			objects, shards := scanIndexShards(ctx, idx, status, shardName)
 			objectCount, shardCount = objectCount+objects, shardCount+shards
 		}
 		return &models.NodeStats{
@@ -142,17 +143,36 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 			ShardCount:  shardCount,
 		}
 	}
+
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		db.logger.WithField("action", "local_node_status_for_class").
 			Warningf("no index found for class %q", className)
 		return nil
 	}
-	objectCount, shardCount = idx.getShardsNodeStatus(ctx, status, shardName)
+	objectCount, shardCount = scanIndexShards(ctx, idx, status, shardName)
 	return &models.NodeStats{
 		ObjectCount: objectCount,
 		ShardCount:  shardCount,
 	}
+}
+
+// scanIndexShards collects the shard statuses of one index, holding it against
+// a concurrent drop or shutdown for the duration of the scan. Returns zeroes
+// once the index is closed.
+func scanIndexShards(ctx context.Context, idx *Index,
+	status *[]*models.NodeShardStatus, shardName string,
+) (objectCount, shardCount int64) {
+	idx.dropIndex.RLock()
+	defer idx.dropIndex.RUnlock()
+
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
+	if idx.closed {
+		return 0, 0
+	}
+
+	return idx.getShardsNodeStatus(ctx, status, shardName)
 }
 
 func (db *DB) localNodeBatchStats() *models.BatchStats {
@@ -206,7 +226,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 
 		objectCount, err := shard.ObjectCountAsync(ctx)
 		if err != nil {
-			i.logger.Warnf("error while getting object count for shard %s: %w", shard.Name(), err)
+			i.logger.Warnf("error while getting object count for shard %s: %v", shard.Name(), err)
 		}
 
 		totalCount += int64(objectCount)
@@ -222,16 +242,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			return nil
 		})
 
-		var compressed bool
-		_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
-			compressed = compressed || index.Compressed()
-			return nil
-		})
-
 		numberOfReplicas, replicationFactor := getShardReplicationDetails(i, shard.Name())
-		if err != nil {
-			i.logger.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
-		}
 
 		shardStatus := &models.NodeShardStatus{
 			Name:                   name,
@@ -256,12 +267,16 @@ func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {
 	var numberOfReplicas int64
 	var replicationFactor int64
 	class := i.Config.ClassName.String()
-	err := i.schemaReader.Read(class, true, func(class *models.Class, state *sharding.State) error {
+	// A class or shard that has left the schema keeps its local index or shard
+	// for a moment. Neither lookup can start succeeding by waiting, so both fail
+	// immediately instead of letting the schema reader retry once per shard.
+	err := i.schemaReader.Read(class, false, func(class *models.Class, state *sharding.State) error {
 		var err error
 		replicationFactor = state.ReplicationFactor
 		numberOfReplicas, err = state.NumberOfReplicas(shardName)
 		if err != nil {
-			return fmt.Errorf("unable to retrieve number of replicas for class %s: %w", class.Class, err)
+			return backoff.Permanent(
+				fmt.Errorf("unable to retrieve number of replicas for class %s: %w", class.Class, err))
 		}
 		return nil
 	})

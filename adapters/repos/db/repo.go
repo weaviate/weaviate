@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -255,14 +256,7 @@ func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 		total += db.localShardsToLoad(className)
 	}
 
-	db.indexLock.RLock()
-	indices := make([]*Index, 0, len(db.indices))
-	for _, idx := range db.indices {
-		indices = append(indices, idx)
-	}
-	db.indexLock.RUnlock()
-
-	for _, idx := range indices {
+	for _, idx := range db.copyIndices() {
 		_ = idx.ForEachShard(func(_ string, shard ShardLike) error {
 			if _, ok := shard.(*LazyLoadShard); ok {
 				total--
@@ -522,6 +516,18 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	}, utils.NewBackoff())
 
 	return index
+}
+
+// copyIndices returns a copy of the index map, so long-running scans can iterate
+// it without holding indexLock. A writer waiting on indexLock blocks every index
+// lookup on the node, including the ones the schema apply loop needs.
+func (db *DB) copyIndices() map[string]*Index {
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+
+	indices := make(map[string]*Index, len(db.indices))
+	maps.Copy(indices, db.indices)
+	return indices
 }
 
 // GetLocalShardNames returns the names of all shards local to this node for

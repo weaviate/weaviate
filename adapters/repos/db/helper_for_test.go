@@ -561,3 +561,20 @@ func invertedConfig() *models.InvertedIndexConfig {
 		UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 	}
 }
+
+// newTestIndex builds an index holding the given shards. A background closingCtx
+// keeps ForEachShard from short-circuiting.
+func newTestIndex(logger logrus.FieldLogger, className string,
+	reader schemaUC.SchemaReader, shards map[string]ShardLike,
+) *Index {
+	idx := &Index{
+		Config:       IndexConfig{ClassName: schema.ClassName(className)},
+		logger:       logger,
+		schemaReader: reader,
+		closingCtx:   context.Background(),
+	}
+	for name, shard := range shards {
+		idx.shards.Store(name, shard)
+	}
+	return idx
+}

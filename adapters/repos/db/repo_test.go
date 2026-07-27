@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -85,17 +84,8 @@ func TestDB_scanStartupProgress(t *testing.T) {
 		return s
 	}
 
-	// indexWith builds a db.indices entry holding the given shards. A background
-	// closingCtx keeps ForEachShard from short-circuiting.
 	indexWith := func(logger logrus.FieldLogger, className string, shards map[string]ShardLike) map[string]*Index {
-		idx := &Index{
-			Config:     IndexConfig{ClassName: schema.ClassName(className)},
-			logger:     logger,
-			closingCtx: context.Background(),
-		}
-		for name, shard := range shards {
-			idx.shards.Store(name, shard)
-		}
+		idx := newTestIndex(logger, className, nil, shards)
 		return map[string]*Index{idx.ID(): idx}
 	}
 
