@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
@@ -98,6 +100,70 @@ func CompletedUnitShards(task *distributedtask.Task, payload *DropVectorIndexTas
 	}
 	sort.Strings(shards)
 	return shards
+}
+
+// ActiveDropCovers reports whether an ACTIVE drop task in tasks covers
+// targetVector (exact case) on collection (case-insensitive). The shared
+// predicate for "is this drop still running" across the REST enqueuer and the
+// reconcile loop; unparseable payloads are skipped fail-open with a warning.
+func ActiveDropCovers(tasks []*distributedtask.Task, collection, targetVector string, logger logrus.FieldLogger) bool {
+	for _, task := range tasks {
+		if !task.Status.IsActive() {
+			continue
+		}
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			if logger != nil {
+				logger.WithField("task", task.ID).
+					Warnf("drop-vector has-active-drop: skipping active task with unparseable payload: %v", err)
+			}
+			continue
+		}
+		if !strings.EqualFold(p.Collection, collection) {
+			continue
+		}
+		for _, t := range p.Targets {
+			if t == targetVector {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// EpochCoveredShards unions the shards proven cleaned for one drop epoch over
+// the given records: a completed (SWAPPING/FINISHED) matching task vouches its
+// full CoveredShards; a FAILED one vouches only its COMPLETED units. THE single
+// implementation of the inheritance rule — the enqueuer composes claims with it
+// and the AddTask-apply guard re-proves them with it (see
+// TestEnqueuerGuardConsistency). Unparseable records are skipped (fail-open,
+// deterministic).
+func EpochCoveredShards(tasks []*distributedtask.Task, collection string, targets []string, epoch string) map[string]struct{} {
+	covered := map[string]struct{}{}
+	for _, task := range tasks {
+		if !task.Status.IsCompleted() && task.Status != distributedtask.TaskStatusFailed {
+			continue
+		}
+		p, err := decodeDropVectorIndexPayload(task.Payload)
+		if err != nil {
+			continue
+		}
+		if !strings.EqualFold(p.Collection, collection) ||
+			!SameTargetSet(p.Targets, targets) ||
+			p.DropEpochID != epoch {
+			continue
+		}
+		if task.Status == distributedtask.TaskStatusFailed {
+			for _, shard := range CompletedUnitShards(task, p) {
+				covered[shard] = struct{}{}
+			}
+			continue
+		}
+		for shard := range p.CoveredShards() {
+			covered[shard] = struct{}{}
+		}
+	}
+	return covered
 }
 
 // ShardsNotCovered returns the shards absent from covered, sorted.

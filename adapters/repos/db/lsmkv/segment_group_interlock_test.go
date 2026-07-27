@@ -132,3 +132,24 @@ func TestSegmentEditOps_SidecarRemovedWithLastOp(t *testing.T) {
 	require.NoError(t, err, "a later op re-creates the sidecar")
 	require.NoError(t, ops.Close())
 }
+
+// TestRecover_SweepOfLastOpRemovesSidecar pins that the load-time orphan
+// sweep (which deletes ops via Reconcile's own transaction, not DeleteOp)
+// still ends with the empty sidecar file removed — otherwise the fd/mmap
+// leak DeleteOp's cleanup targets survives via the more common path.
+func TestRecover_SweepOfLastOpRemovesSidecar(t *testing.T) {
+	dir := t.TempDir()
+	ops := newSegmentEditOps(dir, "TestClass")
+	sidecar := filepath.Join(dir, segmentEditOpsFileName)
+
+	require.NoError(t, ops.RegisterOp("orphan", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+	_, err := os.Stat(sidecar)
+	require.NoError(t, err)
+
+	// No live task for the op: the sweep removes it during Recover.
+	noneLive := func() map[string]struct{} { return map[string]struct{}{} }
+	require.NoError(t, ops.Recover(nil, noneLive, noneLive))
+
+	_, err = os.Stat(sidecar)
+	require.ErrorIs(t, err, os.ErrNotExist, "sweeping the last op must also remove the sidecar file")
+}

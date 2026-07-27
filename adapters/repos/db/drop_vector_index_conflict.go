@@ -63,33 +63,7 @@ func (p *DropVectorIndexProvider) CheckConflict(newPayload []byte, existingTasks
 	// enqueuer's inheritance. Deterministic across nodes; a rejected enqueue
 	// is retried by reconciliation, which derives coverage afresh.
 	if len(newP.CleanedShards) > 0 {
-		covered := map[string]struct{}{}
-		for _, task := range existingTasks {
-			// Mirrors the enqueuer's inheritance exactly (this guard re-proves
-			// its claims): completed tasks vouch their full CoveredShards; a
-			// FAILED task vouches only the shards of its COMPLETED units.
-			if !task.Status.IsCompleted() && task.Status != distributedtask.TaskStatusFailed {
-				continue
-			}
-			existP, err := decodeDropVectorIndexPayload(task.Payload)
-			if err != nil {
-				continue // same deterministic fail-open skip as above
-			}
-			if !strings.EqualFold(existP.Collection, newP.Collection) ||
-				!SameTargetSet(existP.Targets, newP.Targets) ||
-				existP.DropEpochID != newP.DropEpochID {
-				continue
-			}
-			if task.Status == distributedtask.TaskStatusFailed {
-				for _, shard := range CompletedUnitShards(task, existP) {
-					covered[shard] = struct{}{}
-				}
-				continue
-			}
-			for shard := range existP.CoveredShards() {
-				covered[shard] = struct{}{}
-			}
-		}
+		covered := EpochCoveredShards(existingTasks, newP.Collection, newP.Targets, newP.DropEpochID)
 		if missing := ShardsNotCovered(newP.CleanedShards, covered); len(missing) > 0 {
 			return fmt.Errorf(
 				"drop-vector task claims %d cleaned shards with no surviving source record for epoch %q on %s "+

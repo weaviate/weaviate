@@ -105,10 +105,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 	// after this (see newSegmentGroup) then re-pends them all.
 	sidecarHasOps := false
 	if sg.editOps != nil {
-		ops, opsErr := sg.editOps.LoadOps()
+		hasOps, opsErr := sg.editOps.HasOps()
 		switch {
 		case opsErr == nil:
-			sidecarHasOps = len(ops) > 0
+			sidecarHasOps = hasOps
 		case errors2.Is(opsErr, bolterrors.ErrTimeout):
 			// Still flocked by a previous instance — same hard-fail as the
 			// sidecar recovery in newSegmentGroup: loading blind is how a

@@ -62,6 +62,12 @@ func (f *fakeReconcileEnqueuer) ListDistributedTasks(ctx context.Context) (map[s
 	return map[string][]*distributedtask.Task{db.DropVectorIndexNamespace: tasks}, nil
 }
 
+func (f *fakeReconcileEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Context, collection string,
+	targets []string, _ map[string][]*distributedtask.Task,
+) error {
+	return f.EnqueueDropVectorIndex(ctx, collection, targets)
+}
+
 func (f *fakeReconcileEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
 	for _, t := range targets {
 		f.enqueued = append(f.enqueued, collection+"/"+t)

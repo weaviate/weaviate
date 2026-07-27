@@ -101,32 +101,28 @@ func (e *dropVectorIndexEnqueuer) HasActiveDrop(ctx context.Context, collection,
 func activeDropCovers(tasks map[string][]*distributedtask.Task, collection, targetVector string,
 	logger logrus.FieldLogger,
 ) bool {
-	for _, task := range tasks[db.DropVectorIndexNamespace] {
-		if !task.Status.IsActive() {
-			continue
-		}
-		p, err := db.DecodeDropVectorIndexTaskPayload(task.Payload)
-		if err != nil {
-			warnSkippedPayload(logger, "has-active-drop", task.ID, err)
-			continue
-		}
-		if !strings.EqualFold(p.Collection, collection) {
-			continue
-		}
-		for _, t := range p.Targets {
-			// Exact match: target vector names are case-sensitive identifiers.
-			if t == targetVector {
-				return true
-			}
-		}
-	}
-	return false
+	return db.ActiveDropCovers(tasks[db.DropVectorIndexNamespace], collection, targetVector, logger)
 }
 
 // EnqueueDropVectorIndex submits a fresh cleanup task with one unit per
 // (shard, replica) grouped by shard. Shards already cleaned by this drop's
 // earlier tasks get no unit.
 func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error {
+	tasks, err := e.clusterService.ListDistributedTasks(ctx)
+	if err != nil {
+		return fmt.Errorf("drop-vector enqueue: list tasks for %q: %w", collection, err)
+	}
+	return e.EnqueueDropVectorIndexWithTasks(ctx, collection, targets, tasks)
+}
+
+// EnqueueDropVectorIndexWithTasks is EnqueueDropVectorIndex against an
+// already-fetched task list, so the reconcile loop pays ONE ListDistributedTasks
+// per round instead of one per marker. A slightly stale list is safe: the
+// AddTask-apply guard (CheckConflict) re-proves the coverage claim against the
+// FSM's live records, and any rejection is retried by the next round.
+func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Context, collection string,
+	targets []string, tasks map[string][]*distributedtask.Task,
+) error {
 	// Re-validate against the leader-consistent class: the marker commit and this
 	// enqueue are not atomic, and reconciliation may run off a stale local schema
 	// snapshot. A target that is no longer marked dropped (class deleted and
@@ -160,7 +156,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 		return fmt.Errorf("drop-vector enqueue: no shards for collection %q", collection)
 	}
 
-	epoch, cleaned, err := e.epochAndInheritedCoverage(ctx, collection, targets, state)
+	epoch, cleaned, err := e.epochAndInheritedCoverage(collection, targets, state, tasks)
 	if err != nil {
 		return fmt.Errorf("drop-vector enqueue: coverage inheritance for %q: %w", collection, err)
 	}
@@ -223,13 +219,10 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndex(ctx context.Context, co
 // marker they don't belong to: introducing a marker purges the previous
 // drop's records in the same raft apply (schema FSM marker-introduction
 // purge). Do not weaken that purge without revisiting this function.
-func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
+func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(
 	collection string, targets []string, state *sharding.State,
+	tasks map[string][]*distributedtask.Task,
 ) (string, []string, error) {
-	tasks, err := e.clusterService.ListDistributedTasks(ctx)
-	if err != nil {
-		return "", nil, err
-	}
 	// The newest matching task (raft-assigned Version: monotonic and
 	// deterministic, unlike node wall clocks) names the candidate epoch.
 	var newest *db.DropVectorIndexTaskPayload
@@ -252,30 +245,12 @@ func (e *dropVectorIndexEnqueuer) epochAndInheritedCoverage(ctx context.Context,
 	if newest == nil || newest.DropEpochID == "" {
 		return uuid.NewString(), nil, nil
 	}
-	covered := map[string]struct{}{}
-	for task, p := range matching {
-		if p.DropEpochID != newest.DropEpochID {
-			continue
-		}
-		if task.Status.IsCompleted() {
-			for shard := range p.CoveredShards() {
-				covered[shard] = struct{}{}
-			}
-			continue
-		}
-		// A FAILED round still proved something: units recorded COMPLETED were
-		// drained and verified before the round died (one deactivated tenant
-		// fails a whole round — at MT scale, discarding its finished work
-		// would make convergence improbable and re-pay the full re-clean I/O
-		// every retry). Only the units' own shards count; the failed task's
-		// inherited CleanedShards claim is NOT re-counted — its sources are
-		// completed records that contribute directly above.
-		if task.Status == distributedtask.TaskStatusFailed {
-			for _, shard := range db.CompletedUnitShards(task, p) {
-				covered[shard] = struct{}{}
-			}
-		}
-	}
+	// One shared implementation with the AddTask-apply guard that re-proves
+	// these claims (db.EpochCoveredShards): completed tasks vouch their full
+	// CoveredShards; a FAILED round vouches only its COMPLETED units — a
+	// deactivated tenant fails a whole round, and discarding its finished
+	// work would make MT-scale convergence improbable.
+	covered := db.EpochCoveredShards(tasks[db.DropVectorIndexNamespace], collection, targets, newest.DropEpochID)
 	// Prune to current shards: deleted tenants would otherwise accumulate in
 	// every subsequent payload forever.
 	cleaned := make([]string, 0, len(covered))
@@ -463,7 +438,8 @@ var _ schema.DropVectorIndexEnqueuer = (*dropVectorIndexEnqueuer)(nil)
 // task list is fetched once per round and shared across every marker check.
 type dropVectorReconcileClient interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
-	EnqueueDropVectorIndex(ctx context.Context, collection string, targets []string) error
+	EnqueueDropVectorIndexWithTasks(ctx context.Context, collection string, targets []string,
+		tasks map[string][]*distributedtask.Task) error
 }
 
 // reconcileDroppedVectorIndexes enqueues cleanup for every "none" marker with no
@@ -489,7 +465,7 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 			if activeDropCovers(tasks, class.Class, name, logger) {
 				continue
 			}
-			if err := enq.EnqueueDropVectorIndex(ctx, class.Class, []string{name}); err != nil {
+			if err := enq.EnqueueDropVectorIndexWithTasks(ctx, class.Class, []string{name}, tasks); err != nil {
 				logger.WithField("collection", class.Class).WithField("vector", name).
 					Warnf("drop-vector reconcile: enqueue failed: %v", err)
 			}

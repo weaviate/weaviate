@@ -477,6 +477,21 @@ func (s *SegmentEditOps) HasPendingSnapshot(opID string) (bool, error) {
 	return exists, nil
 }
 
+// HasOps reports whether any op is registered, without decoding or sorting
+// (the WAL-recovery probe only needs a boolean; Recover re-reads the full set
+// moments later).
+func (s *SegmentEditOps) HasOps() (bool, error) {
+	has := false
+	if err := s.withReadTx(func(tx *bolt.Tx) error {
+		k, _ := tx.Bucket(editOpsBucketOperations).Cursor().First()
+		has = k != nil
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	return has, nil
+}
+
 // LoadOps returns all active operations sorted by CreatedAt (ties broken by ID)
 // so transformers are applied in a deterministic order.
 func (s *SegmentEditOps) LoadOps() ([]ActiveOp, error) {
@@ -778,6 +793,8 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh 
 		return err
 	}
 	if len(ops) == 0 {
+		// A sidecar that exists with zero ops is a pure fd/mmap liability.
+		s.removeSidecarIfEmpty()
 		return nil
 	}
 
@@ -814,7 +831,33 @@ func (s *SegmentEditOps) Recover(segIDs []string, resolveLive, resolveLiveFresh 
 			return err
 		}
 	}
+	// Reconcile's orphan sweep deletes ops in its own transaction, bypassing
+	// DeleteOp's remove-when-empty — re-check here so a load-time sweep of the
+	// last op doesn't leave an empty sidecar open forever.
+	s.removeSidecarIfEmpty()
 	return nil
+}
+
+// removeSidecarIfEmpty deletes the sidecar file when no ops remain (see
+// DeleteOp); best-effort, errors only mean the file lingers.
+func (s *SegmentEditOps) removeSidecarIfEmpty() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ok, err := s.openIfExistsLocked()
+	if err != nil || !ok {
+		return
+	}
+	empty := false
+	if err := s.db.View(func(tx *bolt.Tx) error {
+		k, _ := tx.Bucket(editOpsBucketOperations).Cursor().First()
+		empty = k == nil
+		return nil
+	}); err != nil {
+		return
+	}
+	if empty {
+		s.closeAndRemoveLocked()
+	}
 }
 
 // editOpsOrphanSweepInterval rate-limits the cleanup-cycle orphan sweep's
