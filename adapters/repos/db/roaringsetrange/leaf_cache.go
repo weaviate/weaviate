@@ -14,10 +14,12 @@ package roaringsetrange
 import (
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/dustin/go-humanize"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -35,19 +37,43 @@ const LeafCacheMaxMemoryEnv = "QUERY_RANGEABLE_LEAF_CACHE_MAX_MEMORY"
 // are 24 bytes, so the whole filter is under 1 KiB and is scanned linearly.
 const leafCacheAdmissions = 32
 
-var leafCacheMaxMemory = parseLeafCacheMaxMemory(os.Getenv(LeafCacheMaxMemoryEnv))
+var (
+	leafCacheEnvValue                   = os.Getenv(LeafCacheMaxMemoryEnv)
+	leafCacheMaxMemory, leafCacheEnvErr = parseLeafCacheMaxMemory(leafCacheEnvValue)
+
+	// leafCacheEnvWarned holds the warning to one line per process: the only
+	// caller builds a segment, which happens once per rangeable property per
+	// shard.
+	leafCacheEnvWarned atomic.Bool
+)
 
 // parseLeafCacheMaxMemory falls back to the default rather than failing
 // startup: a typo in an operator's env should not stop a node from serving.
-func parseLeafCacheMaxMemory(v string) int {
+// It returns the error anyway, or a mistyped budget is indistinguishable from
+// an unset one and the operator never learns their setting was dropped.
+func parseLeafCacheMaxMemory(v string) (int, error) {
 	if v == "" {
-		return DefaultLeafCacheMaxMemory
+		return DefaultLeafCacheMaxMemory, nil
 	}
 	bytes, err := humanize.ParseBytes(v)
 	if err != nil {
-		return DefaultLeafCacheMaxMemory
+		return DefaultLeafCacheMaxMemory, err
 	}
-	return int(bytes)
+	return int(bytes), nil
+}
+
+// logLeafCacheConfig reports a budget that was asked for and ignored. A value
+// that parsed, and an unset one, say nothing.
+func logLeafCacheConfig(logger logrus.FieldLogger) {
+	if logger == nil || leafCacheEnvErr == nil {
+		return
+	}
+	if !leafCacheEnvWarned.CompareAndSwap(false, true) {
+		return
+	}
+	logger.WithError(leafCacheEnvErr).WithField("value", leafCacheEnvValue).
+		Warnf("failed to parse %s, using default of %s",
+			LeafCacheMaxMemoryEnv, humanize.IBytes(DefaultLeafCacheMaxMemory))
 }
 
 var (

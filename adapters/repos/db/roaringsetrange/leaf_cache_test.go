@@ -17,6 +17,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dustin/go-humanize"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -27,21 +30,103 @@ func TestParseLeafCacheMaxMemory(t *testing.T) {
 		name     string
 		env      string
 		expected int
+		wantErr  bool
 	}{
 		{name: "unset uses default", env: "", expected: DefaultLeafCacheMaxMemory},
 		{name: "zero disables", env: "0", expected: 0},
 		{name: "plain bytes", env: "1048576", expected: 1 << 20},
 		{name: "binary unit", env: "16MiB", expected: 16 << 20},
 		{name: "decimal unit", env: "100MB", expected: 100_000_000},
-		{name: "garbage falls back to default", env: "sixteen", expected: DefaultLeafCacheMaxMemory},
-		{name: "negative falls back to default", env: "-1", expected: DefaultLeafCacheMaxMemory},
+		{name: "garbage falls back to default", env: "sixteen", expected: DefaultLeafCacheMaxMemory, wantErr: true},
+		{name: "negative falls back to default", env: "-1", expected: DefaultLeafCacheMaxMemory, wantErr: true},
+		{name: "doubled unit falls back to default", env: "64MiBB", expected: DefaultLeafCacheMaxMemory, wantErr: true},
+		{name: "transposed unit falls back to default", env: "64iMB", expected: DefaultLeafCacheMaxMemory, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, parseLeafCacheMaxMemory(tt.env))
+			got, err := parseLeafCacheMaxMemory(tt.env)
+			assert.Equal(t, tt.expected, got)
+			if tt.wantErr {
+				assert.Error(t, err, "a budget that cannot be parsed must be reported, not swallowed")
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
+}
+
+// withLeafCacheEnv restages the package-level budget the way a process that
+// booted with env would see it, and re-arms the once-guard so each case starts
+// from an unwarned process.
+func withLeafCacheEnv(t *testing.T, env string) {
+	t.Helper()
+
+	prevValue, prevMax, prevErr := leafCacheEnvValue, leafCacheMaxMemory, leafCacheEnvErr
+	t.Cleanup(func() {
+		leafCacheEnvValue, leafCacheMaxMemory, leafCacheEnvErr = prevValue, prevMax, prevErr
+		leafCacheEnvWarned.Store(false)
+	})
+
+	leafCacheEnvValue = env
+	leafCacheMaxMemory, leafCacheEnvErr = parseLeafCacheMaxMemory(env)
+	leafCacheEnvWarned.Store(false)
+}
+
+// TestLeafCacheBudgetIsLoudWhenIgnored covers the signal an operator gets when
+// their budget is dropped. The silent cases carry the information: a warning
+// that fires for a good value tells nobody anything.
+func TestLeafCacheBudgetIsLoudWhenIgnored(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      string
+		wantWarn bool
+	}{
+		{name: "unparseable warns", env: "sixtyfour", wantWarn: true},
+		{name: "doubled unit warns", env: "64MiBB", wantWarn: true},
+		{name: "parseable is silent", env: "64MiB"},
+		{name: "zero kill switch is silent", env: "0"},
+		{name: "unset is silent", env: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withLeafCacheEnv(t, tt.env)
+
+			logger, hook := test.NewNullLogger()
+			// the real production call site, reached per segment
+			NewSegmentInMemory(logger)
+
+			if !tt.wantWarn {
+				assert.Empty(t, hook.AllEntries(),
+					"a budget that was honoured must not log")
+				return
+			}
+
+			require.Len(t, hook.AllEntries(), 1)
+			entry := hook.LastEntry()
+			assert.Equal(t, logrus.WarnLevel, entry.Level)
+			assert.Contains(t, entry.Message, LeafCacheMaxMemoryEnv,
+				"the operator must be able to tell which setting was dropped")
+			assert.Contains(t, entry.Message, humanize.IBytes(DefaultLeafCacheMaxMemory),
+				"the message must name the budget actually in force")
+			assert.Equal(t, tt.env, entry.Data["value"],
+				"the rejected value must be echoed back")
+			assert.NotNil(t, entry.Data[logrus.ErrorKey])
+		})
+	}
+}
+
+func TestLeafCacheBudgetWarnsOncePerProcess(t *testing.T) {
+	withLeafCacheEnv(t, "sixtyfour")
+
+	logger, hook := test.NewNullLogger()
+	for range 3 {
+		NewSegmentInMemory(logger)
+	}
+
+	assert.Len(t, hook.AllEntries(), 1,
+		"one segment per rangeable property per shard would flood the log")
 }
 
 func TestNewLeafCacheDisabled(t *testing.T) {
