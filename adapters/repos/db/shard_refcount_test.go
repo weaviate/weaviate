@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"strings"
 	"testing"
@@ -25,6 +26,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -130,11 +133,43 @@ func batchDeleteErr(objs objects.BatchSimpleObjects, err error) error {
 	return errors.Join(errs...)
 }
 
+// putTestObject stores an object under a fixed id, so a later step can read it
+// back or corrupt it.
+func putTestObject(t *testing.T, shard *Shard, className, id string) *storobj.Object {
+	t.Helper()
+
+	obj := testObject(className)
+	obj.Object.ID = strfmt.UUID(id)
+	require.NoError(t, shard.PutObject(t.Context(), obj))
+	return obj
+}
+
+// corruptStoredObject replaces an object's stored value with one that cannot be
+// decoded, so reading it back fails.
+func corruptStoredObject(t *testing.T, shard *Shard, obj *storobj.Object) {
+	t.Helper()
+
+	key, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
+	require.NoError(t, err)
+	docID := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docID, obj.DocID)
+	// marshaller version 2 does not exist, so decoding fails
+	require.NoError(t, shard.Store().Bucket(helpers.ObjectsBucketLSM).
+		Put(key, []byte{2}, lsmkv.WithSecondaryKey(
+			helpers.ObjectsBucketLSMDocIDSecondaryIndex, docID)))
+}
+
 // TestShardRefCountArity asserts that every data-path operation releases the
 // shard exactly as often as it acquired it, locally and forwarded to a peer. A
 // positive counter blocks unloading; an extra release shows up as logged misuse.
 func TestShardRefCountArity(t *testing.T) {
 	className := "RefCountArity"
+
+	const (
+		blockedShard        = "blocked-shard"
+		readableObjectID    = "11111111-1111-1111-1111-111111111111"
+		undecodableObjectID = "22222222-2222-2222-2222-222222222222"
+	)
 
 	tests := []struct {
 		name   string
@@ -145,42 +180,68 @@ func TestShardRefCountArity(t *testing.T) {
 		// wantErrContains is set where both branches fail, so only the error text
 		// tells them apart.
 		wantErrContains string
-		run             func(t *testing.T, idx *Index, shardName string) error
+		// setup prepares the index or the shard before the operation runs.
+		setup func(t *testing.T, idx *Index, shard *Shard)
+		run   func(t *testing.T, idx *Index, shard *Shard) error
 	}{
 		{
 			name: "putObjectBatch local",
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				return errors.Join(idx.putObjectBatch(t.Context(),
 					[]*storobj.Object{testObject(className)}, nil, 0)...)
 			},
 		},
 		{
 			name: "putObjectBatch forwarded", remote: true, wantErr: true,
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				return errors.Join(idx.putObjectBatch(t.Context(),
 					[]*storobj.Object{testObject(className)}, nil, 0)...)
 			},
 		},
 		{
 			name: "batchDeleteObjects local",
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				return batchDeleteErr(idx.batchDeleteObjects(t.Context(),
-					map[string][]strfmt.UUID{shardName: {strfmt.UUID(uuid.NewString())}},
+					map[string][]strfmt.UUID{shard.name: {strfmt.UUID(uuid.NewString())}},
 					time.Now(), false, nil, 0, ""))
 			},
 		},
 		{
 			name: "batchDeleteObjects forwarded", remote: true, wantErr: true,
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				return batchDeleteErr(idx.batchDeleteObjects(t.Context(),
-					map[string][]strfmt.UUID{shardName: {strfmt.UUID(uuid.NewString())}},
+					map[string][]strfmt.UUID{shard.name: {strfmt.UUID(uuid.NewString())}},
 					time.Now(), false, nil, 0, ""))
+			},
+		},
+		{
+			// only the group whose shard may not be initialized fails, and the
+			// group that acquired a shard still has to release it
+			name: "batchDeleteObjects partial group failure", wantErr: true,
+			setup: func(t *testing.T, idx *Index, shard *Shard) {
+				idx.backupProtectedShards.Store(blockedShard, struct{}{})
+			},
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
+				objs, err := idx.batchDeleteObjects(t.Context(), map[string][]strfmt.UUID{
+					shard.name:   {strfmt.UUID(uuid.NewString())},
+					blockedShard: {strfmt.UUID(uuid.NewString())},
+				}, time.Now(), false, nil, 0, "")
+				require.NoError(t, err)
+
+				failed := 0
+				for _, obj := range objs {
+					if obj.Err != nil {
+						failed++
+					}
+				}
+				require.Equal(t, 1, failed, "only the blocked group may fail")
+				return batchDeleteErr(objs, nil)
 			},
 		},
 		{
 			// the referenced source object does not exist, so the shard rejects the write
 			name: "AddReferencesBatch local", wantErr: true, wantErrContains: "ref batch",
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				return errors.Join(idx.AddReferencesBatch(t.Context(), objects.BatchReferences{{
 					From: &crossref.RefSource{TargetID: strfmt.UUID(uuid.NewString())},
 					To:   &crossref.Ref{TargetID: strfmt.UUID(uuid.NewString())},
@@ -190,7 +251,7 @@ func TestShardRefCountArity(t *testing.T) {
 		{
 			name: "AddReferencesBatch forwarded", remote: true, wantErr: true,
 			wantErrContains: "resolve node name",
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				return errors.Join(idx.AddReferencesBatch(t.Context(), objects.BatchReferences{{
 					From: &crossref.RefSource{TargetID: strfmt.UUID(uuid.NewString())},
 					To:   &crossref.Ref{TargetID: strfmt.UUID(uuid.NewString())},
@@ -201,7 +262,7 @@ func TestShardRefCountArity(t *testing.T) {
 			// objectVectorSearch looks the shard up itself instead of going through
 			// withShardOrRemote
 			name: "objectVectorSearch local",
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				_, _, err := idx.objectVectorSearch(t.Context(), []models.Vector{[]float32{1, 2, 3}},
 					[]string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, "", nil, nil, nil)
 				return err
@@ -209,7 +270,7 @@ func TestShardRefCountArity(t *testing.T) {
 		},
 		{
 			name: "objectVectorSearch forwarded", remote: true, wantErr: true,
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				_, _, err := idx.objectVectorSearch(t.Context(), []models.Vector{[]float32{1, 2, 3}},
 					[]string{""}, 0, 10, nil, nil, nil, additional.Properties{}, nil, "", nil, nil, nil)
 				return err
@@ -217,15 +278,37 @@ func TestShardRefCountArity(t *testing.T) {
 		},
 		{
 			name: "multiObjectByID local",
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			setup: func(t *testing.T, idx *Index, shard *Shard) {
+				putTestObject(t, shard, className, readableObjectID)
+			},
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
+				found, err := idx.multiObjectByID(t.Context(),
+					[]multi.Identifier{{ID: readableObjectID, ClassName: className}}, "")
+				if err != nil {
+					return err
+				}
+				require.Len(t, found, 1)
+				require.Equal(t, strfmt.UUID(readableObjectID), found[0].ID())
+				return nil
+			},
+		},
+		{
+			// a failed local read has to surface; returning the objects collected
+			// so far with a nil error reports a partial result as a complete one
+			name: "multiObjectByID local read error", wantErr: true,
+			setup: func(t *testing.T, idx *Index, shard *Shard) {
+				corruptStoredObject(t, shard,
+					putTestObject(t, shard, className, undecodableObjectID))
+			},
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				_, err := idx.multiObjectByID(t.Context(),
-					[]multi.Identifier{{ID: uuid.NewString(), ClassName: className}}, "")
+					[]multi.Identifier{{ID: undecodableObjectID, ClassName: className}}, "")
 				return err
 			},
 		},
 		{
 			name: "multiObjectByID forwarded", remote: true, wantErr: true,
-			run: func(t *testing.T, idx *Index, shardName string) error {
+			run: func(t *testing.T, idx *Index, shard *Shard) error {
 				_, err := idx.multiObjectByID(t.Context(),
 					[]multi.Identifier{{ID: uuid.NewString(), ClassName: className}}, "")
 				return err
@@ -240,9 +323,12 @@ func TestShardRefCountArity(t *testing.T) {
 			if test.remote {
 				forwardToRemote(t, idx, className, shard.name)
 			}
+			if test.setup != nil {
+				test.setup(t, idx, shard)
+			}
 
 			for i := 0; i < 3; i++ {
-				err := test.run(t, idx, shard.name)
+				err := test.run(t, idx, shard)
 				if test.wantErr {
 					require.Error(t, err, "the exercised branch must be the one under test")
 				} else {
@@ -422,36 +508,6 @@ func TestWithShardOrRemoteRunsOneArm(t *testing.T) {
 			require.Empty(t, releaseMisuse(hook), "no branch may release twice")
 		})
 	}
-}
-
-// TestBatchDeleteReleasesShardOnPartialGroupFailure asserts that a batch split
-// over several shards releases the reference of the group that acquired one and
-// reports the failure of the group that could not be looked up.
-func TestBatchDeleteReleasesShardOnPartialGroupFailure(t *testing.T) {
-	const blockedShard = "blocked-shard"
-
-	idx, shard := refCountTestIndex(t, "RefCountPartialBatch")
-	hook := releaseMisuseHook(t, idx)
-
-	// the shard is not loaded and may not be initialized, so its group fails the lookup
-	idx.backupProtectedShards.Store(blockedShard, struct{}{})
-
-	objs, err := idx.batchDeleteObjects(t.Context(), map[string][]strfmt.UUID{
-		shard.name:   {strfmt.UUID(uuid.NewString())},
-		blockedShard: {strfmt.UUID(uuid.NewString())},
-	}, time.Now(), false, nil, 0, "")
-	require.NoError(t, err)
-
-	failed := 0
-	for _, obj := range objs {
-		if obj.Err != nil {
-			failed++
-		}
-	}
-	require.Equal(t, 1, failed, "only the blocked group may fail, and its failure must be reported")
-	require.Equal(t, int64(0), shard.inUseCounter.Load(),
-		"the group that acquired the shard must release it")
-	require.Empty(t, releaseMisuse(hook), "no group may release twice")
 }
 
 // TestShardLookupReleasesReplacedReference asserts that getShardForWrite and
