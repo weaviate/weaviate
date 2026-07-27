@@ -1000,7 +1000,7 @@ const (
 )
 
 // classifyContainsBatch runs every shape check for the batched flat
-// ContainsAny/ContainsAll fast path and reconciles the property with the
+// ContainsAny/ContainsAll/ContainsNone fast path and reconciles the property with the
 // filter's value type, in one place: flat single-property path, no
 // internal/length/nested/ref/geo shape, filterable index backed by an actual
 // roaringset bucket, and a base value type matching the property (the
@@ -1016,7 +1016,7 @@ const (
 func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.DataType,
 	operator filters.Operator, class *models.Class,
 ) (*models.Property, containsBatchType) {
-	if operator != filters.ContainsAny && operator != filters.ContainsAll {
+	if !operator.IsContains() {
 		return nil, containsNotBatchable
 	}
 	if entcfg.BatchedContainsDisabled() {

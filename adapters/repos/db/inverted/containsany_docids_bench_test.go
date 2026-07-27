@@ -210,8 +210,9 @@ func (f *containsFixture) resolveDocIDs(t *testing.T, ctx context.Context, filte
 
 // equalCompoundFilter builds the compound the desugared path would produce
 // for the same values: OperatorEqual leaves under Or (ContainsAny) / And
-// (ContainsAll). The batch gate only intercepts Contains clauses, so
-// resolving this compound always exercises the per-value path.
+// (ContainsAll) / Not-of-Or (ContainsNone). The batch gate only intercepts
+// Contains clauses, so resolving this compound always exercises the per-value
+// path.
 func equalCompoundFilter(op filters.Operator, values []string) *filters.LocalFilter {
 	compound := filters.OperatorOr
 	if op == filters.ContainsAll {
@@ -225,9 +226,11 @@ func equalCompoundFilter(op filters.Operator, values []string) *filters.LocalFil
 			Value:    &filters.Value{Value: v, Type: schema.DataTypeText},
 		}
 	}
-	return &filters.LocalFilter{
-		Root: &filters.Clause{Operator: compound, Operands: operands},
+	root := &filters.Clause{Operator: compound, Operands: operands}
+	if op == filters.ContainsNone {
+		root = &filters.Clause{Operator: filters.OperatorNot, Operands: []filters.Clause{*root}}
 	}
+	return &filters.LocalFilter{Root: root}
 }
 
 // TestDocIDs_BatchedMatchesDesugared is the differential gate for the batched
@@ -256,7 +259,7 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 		{"absent values", []string{"absent_1", "absent_2", benchValue(5)}},
 	}
 
-	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll} {
+	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
 		for _, tc := range cases {
 			t.Run(op.Name()+"/"+tc.name, func(t *testing.T) {
 				batched := f.resolveDocIDs(t, ctx, containsFilter(op, tc.values))
@@ -320,6 +323,26 @@ func TestDocIDs_ContainsCorrectness(t *testing.T) {
 				require.True(t, al.IsEmpty(),
 					"ContainsAll over %d strictly-unique values must be empty", size)
 			}
+		})
+		t.Run(fmt.Sprintf("ContainsNone_N=%d", size), func(t *testing.T) {
+			// The deny list inverts against the BitmapFactory universe,
+			// which is [0, maxDocID] inclusive with the fixture's
+			// maxDocID = numDocs+1. Expected: the exact complement of the
+			// sampled docIDs within that universe.
+			sampledSet := make(map[uint64]struct{}, len(wantAny))
+			for _, id := range wantAny {
+				sampledSet[id] = struct{}{}
+			}
+			maxDocID := uint64(f.numDocs + 1)
+			wantNone := make([]uint64, 0, maxDocID+1-uint64(len(wantAny)))
+			for id := uint64(0); id <= maxDocID; id++ {
+				if _, ok := sampledSet[id]; !ok {
+					wantNone = append(wantNone, id)
+				}
+			}
+
+			got := f.resolveDocIDs(t, ctx, containsFilter(filters.ContainsNone, values))
+			require.Equal(t, wantNone, got)
 		})
 	}
 }

@@ -143,6 +143,76 @@ func TestDocBitmapContainsBatch_ContainsAnyFold(t *testing.T) {
 		"every key must be read for ContainsAny, absent key included")
 }
 
+// TestDocBitmapContainsBatch_UnsupportedOperator pins the defensive default
+// arm of the fold dispatch: a propValuePair that carries pre-encoded keys but
+// a non-Contains operator must error instead of silently running the union
+// fold and returning plausible but wrong results. Its sibling backstop, the
+// routing check in resolveDocIDs, is pinned by
+// TestResolveDocIDs_ContainsKeysRequireContainsOperator.
+func TestDocBitmapContainsBatch_UnsupportedOperator(t *testing.T) {
+	ctx := context.Background()
+	spy := buildContainsBatchBucket(t, ctx, map[string][]uint64{
+		"present-a": {1, 2, 3},
+	})
+
+	pv := &propValuePair{
+		operator:       filters.OperatorEqual,
+		containsValues: [][]byte{[]byte("present-a"), []byte("present-b")},
+	}
+
+	s := &Searcher{}
+	dbm, err := s.docBitmapContainsBatch(ctx, spy, pv)
+	require.ErrorContains(t, err, "unsupported operator")
+	require.Nil(t, dbm.docIDs)
+	require.Empty(t, spy.reads, "no key may be read for an unsupported operator")
+}
+
+func TestResolveDocIDs_ContainsKeysRequireContainsOperator(t *testing.T) {
+	pv := &propValuePair{
+		operator:       filters.OperatorEqual,
+		containsValues: [][]byte{[]byte("a"), []byte("b")},
+	}
+	_, err := pv.resolveDocIDs(context.Background(), &Searcher{}, 0)
+	require.ErrorContains(t, err, "non-contains operator")
+}
+
+// TestDocBitmapContainsBatch_ContainsNoneFold pins ContainsNone as
+// NOT(ContainsAny): the docIDs are the same union the ContainsAny fold
+// produces, with isDenyList set so downstream merges and the final
+// universe inversion treat it as a negation.
+func TestDocBitmapContainsBatch_ContainsNoneFold(t *testing.T) {
+	ctx := context.Background()
+	spy := buildContainsBatchBucket(t, ctx, map[string][]uint64{
+		"present-a": {1, 2, 3},
+		"present-b": {3, 4, 5},
+	})
+
+	pv := &propValuePair{
+		operator:       filters.ContainsNone,
+		containsValues: [][]byte{[]byte("present-a"), []byte("missing"), []byte("present-b")},
+	}
+
+	s := &Searcher{}
+	dbm, err := s.docBitmapContainsBatch(ctx, spy, pv)
+	require.NoError(t, err)
+	defer dbm.release()
+
+	require.Equal(t, []uint64{1, 2, 3, 4, 5}, dbm.docIDs.ToArray(),
+		"ContainsNone folds the same union as ContainsAny")
+	require.True(t, dbm.IsDenyList())
+	require.Equal(t, []string{"present-a", "missing", "present-b"}, spy.reads)
+
+	t.Run("empty key set is an empty deny list", func(t *testing.T) {
+		empty := &propValuePair{operator: filters.ContainsNone}
+		dbm, err := s.docBitmapContainsBatch(ctx, spy, empty)
+		require.NoError(t, err)
+		defer dbm.release()
+		require.True(t, dbm.docIDs.IsEmpty())
+		require.True(t, dbm.IsDenyList(),
+			"NOT over an empty union must deny nothing, i.e. match everything")
+	})
+}
+
 // Same fold as above but forced through the Accumulator path, which the
 // containsAnyAccumulatorMinKeys gate would otherwise route to the incremental
 // fold at this key count.

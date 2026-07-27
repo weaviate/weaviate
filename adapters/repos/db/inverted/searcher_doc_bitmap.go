@@ -249,15 +249,24 @@ var containsAnyAccumulatorMinKeys = 16
 
 // docBitmapContainsBatch folds every key in pv.containsValues into a single
 // docBitmap under one consistent view of b: a dense Accumulator fold for
-// ContainsAny, an incremental intersection with empty-result early exit for
-// ContainsAll. Every per-key fetch is an OperatorEqual read on a roaringset
-// bucket, so it is always an allowlist (never a denylist), which is why both
-// folds can skip mergeBitmapsAndOrWithDenyList's deny-list algebra entirely.
+// ContainsAny and ContainsNone, an incremental intersection with empty-result
+// early exit for ContainsAll. Every per-key fetch is an OperatorEqual read on
+// a roaringset bucket, so it is always an allowlist (never a denylist), which
+// is why all folds can skip mergeBitmapsAndOrWithDenyList's deny-list algebra
+// entirely.
+//
+// ContainsNone is NOT(ContainsAny): it computes the same union and marks the
+// result a deny list, exactly as the desugared NOT(OR(Equal...)) tree does in
+// resolveDocIDsNot. The flag composes through AND/OR merges and is inverted
+// against the universe once at the top of Searcher.docIDs.
 func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBucket,
 	pv *propValuePair,
 ) (docBitmap, error) {
+	isDenyList := pv.operator == filters.ContainsNone
 	if len(pv.containsValues) == 0 {
-		return newDocBitmap(), nil
+		dbm := newDocBitmap()
+		dbm.isDenyList = isDenyList
+		return dbm, nil
 	}
 
 	before := time.Now()
@@ -268,10 +277,15 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBu
 	var acc *sroar.Bitmap
 	var accRelease func()
 	var err error
-	if pv.operator == filters.ContainsAny {
-		acc, accRelease, err = foldContainsAnyAccumulator(ctx, b, view, pv.containsValues, maxConc)
-	} else {
+	switch pv.operator {
+	case filters.ContainsAll:
 		acc, accRelease, err = foldContainsAllIncremental(ctx, b, view, pv.containsValues, maxConc)
+	case filters.ContainsAny, filters.ContainsNone:
+		acc, accRelease, err = foldContainsAnyAccumulator(ctx, b, view, pv.containsValues, maxConc)
+	default:
+		// defensive: a non-Contains operator must never pick a fold — a
+		// silent union here would return plausible but wrong results
+		return docBitmap{}, fmt.Errorf("unsupported operator %q for batched contains", pv.operator.Name())
 	}
 	if err != nil {
 		return docBitmap{}, err
@@ -286,7 +300,7 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBu
 		"strategy":       lsmkv.StrategyRoaringSet,
 		"batched_values": len(pv.containsValues),
 	})
-	return docBitmap{docIDs: acc, release: accRelease}, nil
+	return docBitmap{docIDs: acc, release: accRelease, isDenyList: isDenyList}, nil
 }
 
 // foldContainsAnyAccumulator unions the rows of all keys through a

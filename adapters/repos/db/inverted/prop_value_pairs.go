@@ -45,9 +45,10 @@ type propValuePair struct {
 	Class              *models.Class // The schema
 
 	// containsValues holds pre-encoded on-disk keys for a flat, single-property
-	// Contains(Any|All) filter. When non-nil, resolveDocIDs routes to
+	// Contains(Any|All|None) filter. When non-nil, resolveDocIDs routes to
 	// fetchContainsBatch instead of the children-based dispatch below;
-	// operator distinguishes ContainsAny (OR-fold) from ContainsAll (AND-fold).
+	// operator selects the fold: ContainsAll intersects, ContainsAny unions,
+	// ContainsNone unions and marks the result a deny list.
 	containsValues [][]byte
 }
 
@@ -64,6 +65,9 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 	}
 
 	if pv.containsValues != nil {
+		if !pv.operator.IsContains() {
+			return nil, fmt.Errorf("pre-encoded contains keys with non-contains operator %q", pv.operator.Name())
+		}
 		return pv.fetchContainsBatch(ctx, s)
 	}
 
@@ -352,7 +356,7 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 	return pv.readFromBucket(ctx, s, limit)
 }
 
-// fetchContainsBatch resolves a batched Contains(Any|All) filter whose keys
+// fetchContainsBatch resolves a batched Contains(Any|All|None) filter whose keys
 // were already encoded into pv.containsValues, folding every key's bitmap
 // through docBitmapContainsBatch under a single consistent view.
 func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (*docBitmap, error) {

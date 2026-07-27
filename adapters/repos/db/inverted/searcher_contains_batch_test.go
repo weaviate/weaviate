@@ -169,6 +169,8 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		{"text FIELD", "prop-text-field", schema.DataTypeText, filters.ContainsAll, textValues, 3, textKey},
 		{"text FIELD []interface{}", "prop-text-field", schema.DataTypeText, filters.ContainsAll, []interface{}{"alpha", "beta", "gamma"}, 3, textKey},
 		{"int", "prop-int", schema.DataTypeInt, filters.ContainsAny, intValues, 3, intKey},
+		{"int ContainsNone", "prop-int", schema.DataTypeInt, filters.ContainsNone, intValues, 3, intKey},
+		{"text FIELD ContainsNone", "prop-text-field", schema.DataTypeText, filters.ContainsNone, textValues, 3, textKey},
 		// the API layers unmarshal numeric values as float64
 		{"int []interface{}", "prop-int", schema.DataTypeInt, filters.ContainsAny, []interface{}{float64(1), float64(2), float64(3)}, 3, intKey},
 		{"number", "prop-number", schema.DataTypeNumber, filters.ContainsAny, numberValues, 3, numberKey},
@@ -215,11 +217,6 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 		setup    func(t *testing.T)
 		wantErr  bool
 	}{
-		{
-			name: "ContainsNone is out of scope",
-			path: containsPath("prop-int"), propType: schema.DataTypeInt,
-			value: []int{1, 2}, operator: filters.ContainsNone,
-		},
 		{
 			name:     "nested path",
 			path:     &filters.Path{Property: "addresses", Child: &filters.Path{Property: "city"}},
