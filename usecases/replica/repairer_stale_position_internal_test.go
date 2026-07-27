@@ -36,16 +36,14 @@ const (
 	stalePeer
 )
 
-// Read repair has to close the same divergence whether the replica that is
-// behind is the one serving the read or a peer. contentIdx marks the reply for
-// the copy the caller already holds, and it is the only reply lastTimes is
-// seeded from, so where the stale replica sits relative to it is an axis of its
-// own, independent of digest arrival order.
+// Read repair must close the same divergence whether the stale replica serves
+// the read or is a peer: lastTimes seeds only from contentIdx's reply, so the
+// stale replica's position is an axis of its own, independent of digest order.
 //
-// Convergence here is both halves: the rounds stop doing work, and the replica
-// that was behind reached the winning version. A round that writes nothing also
-// stops doing work while leaving the replicas divergent forever, so the first
-// half alone is satisfied by repair doing nothing at all.
+// Both halves of convergence are asserted: the rounds stop doing work, and the
+// replica that was behind reached the winner. A round that writes nothing also
+// stops doing work, so on the write axis alone a repair that leaves the
+// replicas divergent forever is indistinguishable from one that succeeded.
 func TestRepairBatchPartConvergesWhereverTheStaleReplicaSits(t *testing.T) {
 	const (
 		shard      = "S1"

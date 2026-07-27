@@ -188,9 +188,8 @@ func (c *fakeReplicas) newRepairer(t *testing.T) *repairer {
 	}
 }
 
-// Pins weaviate/0-weaviate-issues#385: repeated read repair over an unchanging
-// three-tier divergence (stale live content, tombstone, newer live winner) must
-// terminate rather than re-fetch the same objects on every read.
+// Pins weaviate/0-weaviate-issues#385: repeated repair over an unchanging
+// three-tier divergence must converge, not re-fetch content every read.
 func TestRepairBatchPartConverges(t *testing.T) {
 	const (
 		shard      = "S1"
@@ -287,9 +286,8 @@ func TestRepairBatchPartConverges(t *testing.T) {
 	}
 }
 
-// Pins the data-loss half of weaviate/0-weaviate-issues#385: under
-// DeleteOnConflict a tombstone that lost the race to a newer write must not be
-// propagated, or the winner is destroyed everywhere with no copy to heal from.
+// Pins the data-loss half of weaviate/0-weaviate-issues#385: DeleteOnConflict
+// must not let an older tombstone destroy a newer live winner with no copy left to heal from.
 func TestRepairBatchPartDeleteOnConflictKeepsNewerLiveObject(t *testing.T) {
 	const (
 		shard = "S1"
@@ -325,12 +323,10 @@ func TestRepairBatchPartDeleteOnConflictKeepsNewerLiveObject(t *testing.T) {
 	}
 }
 
-// Pins the mirror image of TestRepairBatchPartDeleteOnConflictKeepsNewerLiveObject:
-// when the tombstone is the newest version, no strategy may resurrect the object
-// from an older live replica, and the outcome must not depend on digest arrival
-// order. Update times are millisecond resolution, so the tie row (a delete and a
-// write in the same millisecond) is an ordinary event, and it is the only place
-// where the fold has to break the tie in favour of the tombstone.
+// Mirror of TestRepairBatchPartDeleteOnConflictKeepsNewerLiveObject: the
+// newest tombstone must never be resurrected, for any strategy or digest
+// arrival order. Millisecond resolution makes update-time ties ordinary,
+// so this also covers the row where the tie favours the tombstone.
 func TestRepairBatchPartNewestTombstoneIsNotResurrected(t *testing.T) {
 	const (
 		shard = "S1"

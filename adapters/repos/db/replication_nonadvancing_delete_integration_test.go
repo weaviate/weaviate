@@ -27,11 +27,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// Read repair in usecases/replica/repairer.go repairs a replica that is still live at the
-// winning tombstone's own time by sending a delete whose stale time and deletion time are
-// both that same time. Should the receiver ever start requiring a delete to advance the
-// update time, that repair would be refused on every read and repeat forever instead of
-// converging, so the acceptance below is load-bearing for it.
+// Pins that OverwriteObjects accepts a delete whose time does not advance the
+// update time: read repair (usecases/replica/repairer.go) sends exactly that
+// when healing a replica still live at the tombstone's own time, and refusing
+// it would leave that repair looping on every read instead of converging.
 func TestOverwriteObjectsAcceptsNonAdvancingDelete(t *testing.T) {
 	ctx := testCtx()
 

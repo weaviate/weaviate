@@ -419,10 +419,9 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	}
 
 	// An object needs content only if some replica disagrees with the winner and
-	// will therefore be written to. Same condition the repair loop below applies,
-	// including its skip of a replica whose tombstone the strategy will not
-	// overrule: that replica disagrees on every read, and counting it here would
-	// fetch content no write ever consumes.
+	// will therefore be written to (same condition as the repair loop below).
+	// This also skips a replica whose tombstone won't be overruled: it always
+	// disagrees, so counting it would fetch content no write ever consumes.
 	needsContent := make([]bool, len(ids))
 	for _, vote := range votes {
 		for j := range ids {

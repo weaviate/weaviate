@@ -25,8 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// Pins weaviate/0-weaviate-issues#385: an object must not be reported consistent
-// while a replica still holds a tombstone the strategy refuses to overrule.
+// Pins weaviate/0-weaviate-issues#385: don't report consistent while a replica still holds an unresolved tombstone.
 func TestReadBatchPartIsConsistentThreeTier(t *testing.T) {
 	const (
 		shard = "S1"
