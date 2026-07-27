@@ -294,6 +294,40 @@ func TestAddProperty_ColdShardLoadFailureDoesNotPanic(t *testing.T) {
 	}
 }
 
+// preventShutdown must return a callable release even when the load it triggers
+// fails, so a caller can defer the release before checking the error.
+func TestLazyLoadShard_PreventShutdownAlwaysReturnsRelease(t *testing.T) {
+	cases := []struct {
+		name      string
+		loadFails bool
+	}{
+		{name: "load succeeds"},
+		{name: "load fails", loadFails: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newAddPropertyLazyFixture(t, "PreventShutdownRelease", singleShardState())
+
+			for name, shard := range f.coldShards(t) {
+				if tc.loadFails {
+					shard.memMonitor = failingAllocChecker{}
+				}
+
+				release, err := shard.preventShutdown()
+				require.NotNil(t, release, "release for shard %q must never be nil", name)
+				if tc.loadFails {
+					require.Error(t, err)
+					require.False(t, shard.isLoaded(), "shard %q must remain unloaded", name)
+				} else {
+					require.NoError(t, err)
+				}
+				release()
+			}
+		})
+	}
+}
+
 // Resuming maintenance cycles after a backup must not force-load cold shards:
 // an unloaded shard has no running cycles to resume.
 func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
