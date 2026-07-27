@@ -249,7 +249,14 @@ func (h *Handler) NearObject(ctx context.Context, principal *models.Principal,
 	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
 		return h.buildNearObjectParams(class, className, body, getClass, principal)
 	}
-	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+	payload, apiErr := h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+	if apiErr != nil && apiErr.Status == http.StatusBadGateway {
+		// near-object calls no embedding provider, so it declares no 502. The
+		// explorer wraps every source-object failure in ErrQueryVectorization,
+		// so whatever statusFromError did not type lands on the 502 arm.
+		apiErr.Status = http.StatusInternalServerError
+	}
+	return payload, apiErr
 }
 
 // Hybrid executes a hybrid (keyword + vector) search over collection,
@@ -310,9 +317,10 @@ const errClassNotFoundMarker = "could not find class"
 // errors.Is/As. This relies on the wrap chain staying %w/Wrapf (never
 // %v/%s), or the typed matches silently degrade to 500.
 //
-// ORDERING: ErrNoVectorizerModule (422), ErrSourceObjectNotFound (400) and
-// ErrSourceObjectNoVector (422) must precede ErrQueryVectorization (502) —
-// each arrives wrapped inside the latter.
+// ORDERING: ErrNoVectorizerModule (422), ErrSourceObjectNotFound (400),
+// ErrSourceObjectNoVector (422) and ErrDirtyReadOfDeletedObject (400) must
+// precede ErrQueryVectorization (502) — each arrives wrapped inside the
+// latter.
 func statusFromError(err error) *APIError {
 	var forbidden autherrs.Forbidden
 	if errors.As(err, &forbidden) {
@@ -344,6 +352,10 @@ func statusFromError(err error) *APIError {
 		// near-object: the object exists but its stored vectors cannot
 		// anchor this search (must stay above ErrQueryVectorization)
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	case errors.As(err, &objects.ErrDirtyReadOfDeletedObject{}):
+		// near-object: the source object is mid-delete across replicas, which
+		// every other read path treats as gone (usecases/objects head, merge)
+		return &APIError{Status: http.StatusBadRequest, Err: err}
 	case errors.As(err, &enterrors.ErrCertaintyIncompatible{}):
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &inverted.MissingIndexError{}):
