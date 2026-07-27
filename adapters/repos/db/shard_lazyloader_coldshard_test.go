@@ -328,6 +328,23 @@ func TestLazyLoadShard_PreventShutdownAlwaysReturnsRelease(t *testing.T) {
 	}
 }
 
+// A failed shard init must name the shard and the index: the errors raised
+// while initializing carry no such context of their own, and the caller may be
+// one branch of a multi-shard fan-out.
+func TestGetOrInitShard_InitFailureNamesShard(t *testing.T) {
+	f := newAddPropertyLazyFixture(t, "InitFailureContext", singleShardState())
+	f.index.allocChecker = failingAllocChecker{}
+
+	shard, release, err := f.index.getOrInitShard(testCtx(), "uninitialized-shard")
+	require.NotNil(t, release)
+	defer release()
+	require.Nil(t, shard)
+
+	require.ErrorContains(t, err, `init local shard "uninitialized-shard"`)
+	require.ErrorContains(t, err, f.index.ID())
+	require.ErrorContains(t, err, "memory pressure")
+}
+
 // Resuming maintenance cycles after a backup must not force-load cold shards:
 // an unloaded shard has no running cycles to resume.
 func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
