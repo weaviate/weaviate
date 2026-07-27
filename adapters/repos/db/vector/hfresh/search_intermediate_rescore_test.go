@@ -194,28 +194,7 @@ func TestIntermediateRescoreSkipsMissingFDE(t *testing.T) {
 // single-vector pipeline does not change: the stage lives exclusively in
 // searchByFDE (multivector), and flipping the seam must not alter results.
 func TestSingleVectorPathUnaffectedByIntermediateRescore(t *testing.T) {
-	const (
-		nDocs = 300
-		dim   = 32
-	)
-	tf := createHFreshIndex(t)
-	stored := make(map[uint64][]float32, nDocs)
-	tf.Index.vectorForID = func(_ context.Context, id uint64) ([]float32, error) {
-		return stored[id], nil
-	}
-	rng := rand.New(rand.NewSource(42))
-	for i := 0; i < nDocs; i++ {
-		vec := make([]float32, dim)
-		for j := range vec {
-			vec[j] = rng.Float32()
-		}
-		stored[uint64(i)] = vec
-		addVectorToIndex(t, &tf, uint64(i), vec)
-	}
-	probe := make([]float32, dim)
-	for j := range probe {
-		probe[j] = rng.Float32()
-	}
+	tf, probe := populateRandomSingleVectorIndex(t, 300, 32, 42)
 
 	tf.Index.disableIntermediateRescore = false
 	on, onD, err := tf.Index.SearchByVector(context.Background(), probe, 20, nil)

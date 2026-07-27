@@ -239,27 +239,7 @@ func TestSearchLimitNotCappedByRescoreLimit(t *testing.T) {
 	}
 
 	t.Run("single vector path", func(t *testing.T) {
-		tf := createHFreshIndex(t)
-		// the non-muvera path rescores against the original vectors, which
-		// the shard normally provides via VectorForIDThunk
-		stored := make(map[uint64][]float32, nDocs)
-		tf.Index.vectorForID = func(_ context.Context, id uint64) ([]float32, error) {
-			return stored[id], nil
-		}
-		rng := rand.New(rand.NewSource(42))
-		for i := 0; i < nDocs; i++ {
-			vec := make([]float32, dim)
-			for j := range vec {
-				vec[j] = rng.Float32()
-			}
-			stored[uint64(i)] = vec
-			addVectorToIndex(t, &tf, uint64(i), vec)
-		}
-
-		probe := make([]float32, dim)
-		for j := range probe {
-			probe[j] = rng.Float32()
-		}
+		tf, probe := populateRandomSingleVectorIndex(t, nDocs, dim, 42)
 		for _, limit := range limits {
 			ids, dists, err := tf.Index.SearchByVector(t.Context(), probe, limit, nil)
 			require.NoError(t, err)

@@ -89,24 +89,9 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 
 	q := NewResultSet(rescoreLimit)
 
-	// compute the max distance to filter out candidates that are too far away
-	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
-
-	// filter out candidates that are too far away or have no vectors
-	selectedCentroids = make([]uint64, 0, candidateCentroidNum)
-	for i := 0; i < len(centroids.data) && len(selectedCentroids) < candidateCentroidNum; i++ {
-		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
-			continue
-		}
-		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if count == 0 {
-			continue
-		}
-
-		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
+	selectedCentroids, err = h.selectCentroids(ctx, centroids, candidateCentroidNum)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// read all the selected postings
@@ -422,6 +407,30 @@ func (h *HFresh) muveraSearchBudgets(k int) (routingBudget, rerankBudget int) {
 	return max(k, searchProbe), max(k, rescoreLimit)
 }
 
+// selectCentroids filters a centroid search result down to the candidates
+// worth scanning: it drops centroids beyond MaxDistanceRatio of the best
+// match (when past the pruning floor) and centroids whose posting is empty,
+// keeping at most budget survivors in ranked order.
+func (h *HFresh) selectCentroids(ctx context.Context, centroids *ResultSet, budget int) ([]uint64, error) {
+	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
+
+	selected := make([]uint64, 0, budget)
+	for i := 0; i < len(centroids.data) && len(selected) < budget; i++ {
+		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
+			continue
+		}
+		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		if count == 0 {
+			continue
+		}
+		selected = append(selected, centroids.data[i].ID)
+	}
+	return selected, nil
+}
+
 // searchByFDE performs FDE-based search with explicitly decoupled budgets.
 //
 // Parameters:
@@ -465,20 +474,9 @@ func (h *HFresh) searchByFDE(
 	}
 
 	// Step 2: Filter centroids by distance and posting existence
-	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
-	selectedCentroids := make([]uint64, 0, routingBudget)
-	for i := 0; i < len(centroids.data) && len(selectedCentroids) < routingBudget; i++ {
-		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
-			continue
-		}
-		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		if count == 0 {
-			continue
-		}
-		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
+	selectedCentroids, err := h.selectCentroids(ctx, centroids, routingBudget)
+	if err != nil {
+		return nil, err
 	}
 
 	// Step 3: Scan postings from selected centroids

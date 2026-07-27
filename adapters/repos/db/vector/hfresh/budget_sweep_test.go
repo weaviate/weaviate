@@ -146,21 +146,10 @@ func (ih *InstrumentedHFresh) searchByFDEInstrumented(
 		return nil, nil
 	}
 
-	// Filter centroids
-	maxDist := centroids.data[0].Distance * h.config.MaxDistanceRatio
-	selectedCentroids := make([]uint64, 0, routingBudget)
-	for i := 0; i < len(centroids.data) && len(selectedCentroids) < routingBudget; i++ {
-		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
-			continue
-		}
-		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		if count == 0 {
-			continue
-		}
-		selectedCentroids = append(selectedCentroids, centroids.data[i].ID)
+	// Filter centroids (same production step as searchByFDE)
+	selectedCentroids, err := h.selectCentroids(ctx, centroids, routingBudget)
+	if err != nil {
+		return nil, err
 	}
 
 	ih.mu.Lock()

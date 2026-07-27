@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"math/rand"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -266,4 +267,31 @@ func addMultiVectorToIndex(t *testing.T, tf *TestHFresh, docID uint64, vectors [
 	}
 	err := tf.Index.AddMulti(t.Context(), docID, vectors)
 	require.NoError(t, err)
+}
+
+// populateRandomSingleVectorIndex creates a non-muvera index, fills it with
+// nDocs seeded random vectors, wires vectorForID to serve them (the rescore
+// step reads originals from the shard in production), and returns a probe
+// vector drawn from the same stream.
+func populateRandomSingleVectorIndex(t *testing.T, nDocs, dim int, seed int64) (TestHFresh, []float32) {
+	t.Helper()
+	tf := createHFreshIndex(t)
+	stored := make(map[uint64][]float32, nDocs)
+	tf.Index.vectorForID = func(_ context.Context, id uint64) ([]float32, error) {
+		return stored[id], nil
+	}
+	rng := rand.New(rand.NewSource(seed))
+	for i := 0; i < nDocs; i++ {
+		vec := make([]float32, dim)
+		for j := range vec {
+			vec[j] = rng.Float32()
+		}
+		stored[uint64(i)] = vec
+		addVectorToIndex(t, &tf, uint64(i), vec)
+	}
+	probe := make([]float32, dim)
+	for j := range probe {
+		probe[j] = rng.Float32()
+	}
+	return tf, probe
 }
