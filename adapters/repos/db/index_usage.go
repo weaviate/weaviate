@@ -397,6 +397,18 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	}
 	lsmPath := shardPathLSM(i.path(), shardName)
 
+	// Opening the dimensions bucket materialises files (a bloom filter) inside the
+	// tree the sizes below are taken from, so it has to happen first. Otherwise the
+	// first report for a shard is smaller than every later one by that amount.
+	targetVectors := make([]string, 0, len(vectorConfigs))
+	for targetVector := range vectorConfigs {
+		targetVectors = append(targetVectors, targetVector)
+	}
+	dimensionalitiesAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, targetVectors)
+	if err != nil {
+		return nil, err
+	}
+
 	_, directories, err := diskio.GetFileWithSizes(lsmPath)
 	if err != nil {
 		return nil, err
@@ -424,16 +436,6 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	}
 
 	// Get named vector data for cold shards from schema configuration
-	targetVectors := make([]string, 0, len(vectorConfigs))
-	for targetVector := range vectorConfigs {
-		targetVectors = append(targetVectors, targetVector)
-	}
-	// open the dimensions bucket once for all target vectors
-	dimensionalitiesAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, targetVectors)
-	if err != nil {
-		return nil, err
-	}
-
 	var namedVectors types.VectorsUsage
 	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
