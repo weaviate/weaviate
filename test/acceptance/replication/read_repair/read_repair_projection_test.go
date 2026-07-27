@@ -88,8 +88,11 @@ func (suite *ReplicationTestSuite) TestReadRepairPreservesProjectedAwayContent()
 	// projected copy is the caller's copy the repair path sees.
 	readerURI := func() string { return compose.ContainerURI(1) }
 	laggingURI := func() string { return compose.ContainerURI(3) }
-	laggingNode := docker.Weaviate2
-	t.Logf("reader node (stays up): %s at %s", docker.Weaviate0, readerURI())
+	// ?node_name= wants the cluster node name, which is not the container name:
+	// CLUSTER_HOSTNAME is node1..node3 while the containers are weaviate,
+	// weaviate2 and weaviate3.
+	laggingNode := "node3"
+	t.Logf("reader node (stays up): %s at %s", "node1", readerURI())
 	t.Logf("lagging node (stopped during rewrite): %s at %s", laggingNode, laggingURI())
 
 	helper.SetupClient(readerURI())
@@ -126,7 +129,7 @@ func (suite *ReplicationTestSuite) TestReadRepairPreservesProjectedAwayContent()
 		common.CreateObjectsCL(t, readerURI(), batch, types.ConsistencyLevelAll)
 
 		// Confirm full replication before treating later state as a divergence.
-		for _, nodeName := range []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2} {
+		for _, nodeName := range []string{"node1", "node2", "node3"} {
 			for i, id := range projectionRepairIDs {
 				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					obj, err := common.GetObjectFromNodeWithVector(t, readerURI(), className, id, nodeName)
@@ -232,8 +235,8 @@ func (suite *ReplicationTestSuite) TestReadRepairPreservesProjectedAwayContent()
 			uri  string
 			name string
 		}{
-			{compose.ContainerURI(1), docker.Weaviate0},
-			{compose.ContainerURI(2), docker.Weaviate1},
+			{compose.ContainerURI(1), "node1"},
+			{compose.ContainerURI(2), "node2"},
 		} {
 			for i := 0; i < rewrittenCount; i++ {
 				obj, err := common.GetObjectFromNodeWithVector(t, node.uri, className,
