@@ -65,6 +65,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -1277,6 +1278,8 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 		"action":              "startup",
 		"auto_schema_enabled": serverConfig.Config.AutoSchema.Enabled,
 	}).Infof("auto schema enabled setting is set to \"%v\"", serverConfig.Config.AutoSchema.Enabled)
+
+	roaringsetrange.LogCascadeSeedConfig(logger.WithField("action", "startup"))
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("config loaded")

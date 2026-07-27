@@ -14,6 +14,8 @@ package roaringsetrange
 import (
 	"os"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // CascadeSeedEnabledEnv switches the seeded cascade off. Unset defaults to on,
@@ -46,3 +48,31 @@ func parseCascadeSeedEnabled(v string) bool {
 	}
 	return enabled
 }
+
+// LogCascadeSeedConfig warns when the switch holds a value it cannot read. The
+// switch is parsed at init, where there is no logger yet, so the warning is
+// emitted from startup instead.
+func LogCascadeSeedConfig(logger logrus.FieldLogger) {
+	logCascadeSeedConfig(logger, os.Getenv(CascadeSeedEnabledEnv))
+}
+
+// An unset switch is the normal case, so only a value that was set and could
+// not be read is worth a line. Warning on every boot would train operators to
+// scroll past the one boot where it matters.
+func logCascadeSeedConfig(logger logrus.FieldLogger, v string) {
+	if strings.TrimSpace(v) == "" {
+		return
+	}
+	if _, recognised := parseBoolEnv(v); recognised {
+		return
+	}
+
+	logger.WithField("value", v).Warnf(
+		"%s value not recognized, cascade seeding remains enabled; "+
+			"set it to one of %s to switch seeding off",
+		CascadeSeedEnabledEnv, cascadeSeedOffValues)
+}
+
+// cascadeSeedOffValues spells the off values out in the warning itself, so an
+// operator reading it mid-incident does not have to find this file.
+const cascadeSeedOffValues = "off, disabled, 0, false"

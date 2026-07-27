@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,6 +87,71 @@ func TestCascadeSeedRecognisedOffValuesTakeEffect(t *testing.T) {
 				"%s=%q left seeding on, so the operator's intent vanished", CascadeSeedEnabledEnv, value)
 		})
 	}
+}
+
+// Fail-open makes a typo indistinguishable from an unset switch at runtime, so
+// the warning is the only thing telling an operator their off did not land.
+func TestCascadeSeedConfigWarning(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		wantEnabled bool
+		wantWarning bool
+	}{
+		{name: "unset", value: "", wantEnabled: true},
+		{name: "blank", value: "   ", wantEnabled: true},
+		{name: "recognised off", value: "false", wantEnabled: false},
+		{name: "recognised off/spelling", value: "disabled", wantEnabled: false},
+		{name: "recognised off/padded", value: " OFF ", wantEnabled: false},
+		{name: "recognised on", value: "true", wantEnabled: true},
+		{name: "recognised on/spelling", value: "1", wantEnabled: true},
+		{name: "unrecognised/no", value: "no", wantEnabled: true, wantWarning: true},
+		{name: "unrecognised/yes", value: "yes", wantEnabled: true, wantWarning: true},
+		{name: "unrecognised/typo", value: "flase", wantEnabled: true, wantWarning: true},
+		{name: "unrecognised/garbage", value: "2", wantEnabled: true, wantWarning: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+
+			logCascadeSeedConfig(logger, tt.value)
+
+			assert.Equal(t, tt.wantEnabled, parseCascadeSeedEnabled(tt.value),
+				"the warning must not change what the value does")
+
+			if !tt.wantWarning {
+				assert.Empty(t, hook.AllEntries(),
+					"a warning here fires on every boot and so carries no information")
+				return
+			}
+
+			require.Len(t, hook.AllEntries(), 1)
+			entry := hook.LastEntry()
+			assert.Equal(t, logrus.WarnLevel, entry.Level)
+			assert.Equal(t, tt.value, entry.Data["value"],
+				"the warning must carry the value received, or a typo stays invisible")
+			assert.Contains(t, entry.Message, CascadeSeedEnabledEnv,
+				"the warning must name the variable an operator has to fix")
+			assert.Contains(t, entry.Message, "seeding remains enabled",
+				"the warning must state the effective behaviour, not just that parsing failed")
+		})
+	}
+}
+
+// The exported entry point is what production calls, so it has to read the same
+// variable the switch itself is parsed from.
+func TestLogCascadeSeedConfigReadsTheEnv(t *testing.T) {
+	t.Setenv(CascadeSeedEnabledEnv, "no")
+
+	logger, hook := test.NewNullLogger()
+	LogCascadeSeedConfig(logger)
+
+	require.Len(t, hook.AllEntries(), 1,
+		"LogCascadeSeedConfig did not read %s, so the warning cannot reach production",
+		CascadeSeedEnabledEnv)
+	assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
 }
 
 // withCascadeSeedEnabled assigns the switch directly: it is read at startup, so
