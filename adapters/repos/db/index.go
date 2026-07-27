@@ -1309,8 +1309,8 @@ func (i *Index) getShardForRead(
 
 // withShardOrRemote runs local against shardName, or remote when this node has no
 // shard to use. The remote call can resolve back to this node, which is what loads a
-// shard that is not loaded here yet. On error neither arm runs; the reference is
-// released on every path.
+// shard that is not loaded here yet. A failed shard lookup runs neither arm; an arm's
+// own error is returned as is. The reference is released on every path.
 func (i *Index) withShardOrRemote(ctx context.Context, tenantName, shardName string,
 	operation localShardOperation, schemaVersion uint64,
 	local func(shard ShardLike) error, remote func() error,
