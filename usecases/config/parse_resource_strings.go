@@ -30,22 +30,28 @@ func parseResourceEnv(envName, value string) (int64, error) {
 // MaxQueryBitmapBufsMemory is a coarse, deliberately conservative stand-in for a
 // bound on what the buffer pool actually allocates, not a statement about how
 // much memory is sensible to give it. The budget sizes one channel slot per
-// pooled buffer it affords, so math.MaxInt64 builds classes of ~1.4e11 slots,
-// ~5.3TB of backing array, before the pool holds a single buffer. The real
-// cliff is deep in math.MaxInt64 territory rather than here: 1024TiB still only
-// reaches ~661MiB of slots. Everything between this ceiling and that cliff is
-// refused for want of a bound on the derived allocation, which is tracked
-// separately. It applies to the budget alone; see parseBitmapBufsSize.
+// pooled buffer it affords. At the default QUERY_BITMAP_BUFS_MAX_BUF_SIZE of
+// 32MiB, math.MaxInt64 builds 709362340502 slots across all classes, ~5.16TiB
+// of backing array, before the pool holds a single buffer. The real cliff is
+// deep in math.MaxInt64 territory rather than here: at that same 32MiB, 1024TiB
+// still only reaches ~661MiB of slots. Both figures assume that buffer size and
+// grow as it shrinks: at 1MiB+1, the smallest one that builds an in-memory
+// class, they are ~64TiB and ~8GiB. Everything between this ceiling and that
+// cliff is refused for want of a bound on the derived allocation, which is
+// tracked separately. It applies to the budget alone; see parseBitmapBufsSize.
 const MaxQueryBitmapBufsMemory = 1 << 40
 
 // parseBitmapBufsSize accepts any byte count, 0 included: a size that affords no
 // in-memory class leaves the buffer pool its sync tiers, which warns and serves,
-// so it degrades the pool rather than the node. No ceiling applies here.
-// QUERY_BITMAP_BUFS_MAX_BUF_SIZE cannot drive the allocation on its own: a
-// larger one enumerates more classes, and the budget breaks that enumeration as
-// soon as the classes stop fitting, so it yields more classes of a smaller
-// limit each, never one that explodes. Only the unlimited sentinel is refused,
-// because math.MaxInt64 is not a buffer size.
+// so it degrades the pool rather than the node. No ceiling applies here because
+// the budget bounds the allocation whatever this size is: the slots allocated
+// come to at most the budget divided by the smallest class built, so they peak
+// in the small direction, just above the 1MiB sync ceiling, not the large one.
+// At 1MiB+1 with the budget at its 1TiB ceiling that is 1048575 slots, ~8MiB of
+// backing array. A larger size only enumerates more classes, and the budget
+// breaks that enumeration as soon as they stop fitting, so it yields more
+// classes of a smaller limit each, never one that explodes. Only the unlimited
+// sentinel is refused, because math.MaxInt64 is not a buffer size.
 func parseBitmapBufsSize(envName, value string) (int, error) {
 	bytes, err := parseResourceEnv(envName, value)
 	if err != nil {
