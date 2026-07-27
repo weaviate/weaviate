@@ -1856,40 +1856,78 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 }
 
 func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
-	tests := []struct {
-		name        string
-		value       []string
-		expected    int
-		expectedErr bool
-	}{
-		{"not given", []string{}, 0, false},
-		{"plain bytes", []string{"2097152"}, 2097152, false},
-		{"with unit", []string{"2GiB"}, 2 << 30, false},
-		{"at the ceiling", []string{"1TiB"}, MaxQueryBitmapBufsSize, false},
-		// math.MaxInt64 buffers would build channels with ~1.4e11 slots.
-		{"unlimited", []string{"unlimited"}, 0, true},
-		{"nolimit", []string{"nolimit"}, 0, true},
-		// 10_000_000 * 2^40 wraps int64 negative before the bounds are seen.
-		{"overflows int64", []string{"10000000TiB"}, 0, true},
-		{"above the ceiling", []string{"2TiB"}, 0, true},
-		{"zero", []string{"0"}, 0, true},
-		{"negative", []string{"-1"}, 0, true},
-		{"not parsable", []string{"I'm not a number"}, 0, true},
-		{"unsupported unit", []string{"5GiL"}, 0, true},
+	// The two are validated asymmetrically, so every value is asserted per
+	// variable. A value that refuses on both would pass against a symmetric
+	// implementation and prove nothing about which number carries the ceiling.
+	type testCase struct {
+		name string
+		// value is a one-element slice so a row can leave the variable unset.
+		value      []string
+		expected   int
+		memoErr    bool
+		bufSizeErr bool
+	}
+
+	tests := []testCase{
+		{name: "not given", value: []string{}},
+		{name: "one byte", value: []string{"1"}, expected: 1},
+		{name: "plain bytes", value: []string{"2097152"}, expected: 2097152},
+		{name: "with unit", value: []string{"2GiB"}, expected: 2 << 30},
+		{name: "at the ceiling", value: []string{"1TiB"}, expected: 1 << 40},
+		// Affords no in-memory class, by two different routes: the budget
+		// breaks the enumeration on the first class, the max buf size never
+		// clears the sync tier ceiling. Both leave a sync-only pool that warns
+		// and serves, which is what 512KiB and 1MiB already get.
+		{name: "zero", value: []string{"0"}, expected: 0},
+		{name: "zero with unit", value: []string{"0B"}, expected: 0},
+		// Past the budget ceiling, which is a conservative stand-in rather than
+		// a real allocation bound, so the budget refuses them. None of them is
+		// anywhere near an allocation that cannot be made, and on the max buf
+		// size they cannot drive one at all, so that side accepts.
+		{
+			name: "one byte past the ceiling", value: []string{"1099511627777"},
+			expected: 1<<40 + 1, memoErr: true,
+		},
+		{name: "2TiB", value: []string{"2TiB"}, expected: 2 << 40, memoErr: true},
+		// The example in parseResourceString's own doc comment.
+		{name: "43TiB", value: []string{"43TiB"}, expected: 43 << 40, memoErr: true},
+		{name: "1024TiB", value: []string{"1024TiB"}, expected: 1024 << 40, memoErr: true},
+		// math.MaxInt64 is not a size. As a budget it builds classes of ~1.4e11
+		// slots, ~5.3TB, before the pool holds a single buffer.
+		{name: "unlimited", value: []string{"unlimited"}, memoErr: true, bufSizeErr: true},
+		{name: "nolimit", value: []string{"nolimit"}, memoErr: true, bufSizeErr: true},
+		// 10_000_000 * 2^40 wraps int64 negative.
+		{
+			name: "overflows int64", value: []string{"10000000TiB"},
+			memoErr: true, bufSizeErr: true,
+		},
+		// Refused on both trees: the digit scanner reads "-" as the start of a
+		// unit, so the number is empty. Not this branch's doing.
+		{name: "negative", value: []string{"-1"}, memoErr: true, bufSizeErr: true},
+		{
+			name: "not parsable", value: []string{"I'm not a number"},
+			memoErr: true, bufSizeErr: true,
+		},
+		{name: "unsupported unit", value: []string{"5GiL"}, memoErr: true, bufSizeErr: true},
 	}
 
 	envNames := []struct {
 		envName    string
 		defaultVal int
+		expErr     func(testCase) bool
 		read       func(Config) int
 	}{
 		{
-			"QUERY_BITMAP_BUFS_MAX_MEMORY", DefaultQueryBitmapBufsMaxMemory,
-			func(c Config) int { return c.QueryBitmapBufsMaxMemory },
+			envName:    "QUERY_BITMAP_BUFS_MAX_MEMORY",
+			defaultVal: DefaultQueryBitmapBufsMaxMemory,
+			expErr:     func(tc testCase) bool { return tc.memoErr },
+			read:       func(c Config) int { return c.QueryBitmapBufsMaxMemory },
 		},
 		{
-			"QUERY_BITMAP_BUFS_MAX_BUF_SIZE", DefaultQueryBitmapBufsMaxBufSize,
-			func(c Config) int { return c.QueryBitmapBufsMaxBufSize },
+			envName:    "QUERY_BITMAP_BUFS_MAX_BUF_SIZE",
+			defaultVal: DefaultQueryBitmapBufsMaxBufSize,
+			expErr:     func(tc testCase) bool { return tc.bufSizeErr },
+			read:       func(c Config) int { return c.QueryBitmapBufsMaxBufSize },
 		},
 	}
 
@@ -1902,7 +1940,7 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 				conf := Config{}
 				err := FromEnv(&conf)
 
-				if tt.expectedErr {
+				if env.expErr(tt) {
 					require.Error(t, err)
 					require.Contains(t, err.Error(), env.envName)
 					return
@@ -1920,7 +1958,8 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 
 // No pair of these two refuses a boot. A pair that affords fewer in-memory size
 // classes than asked for, or none at all, degrades the buffer pool, which is an
-// optimisation; it warns and serves. Only the per-variable bounds reject.
+// optimisation; it warns and serves. Only the per-variable bounds reject, and
+// TestEnvironmentQueryBitmapBufsSizes covers those.
 func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 	tests := []struct {
 		name    string

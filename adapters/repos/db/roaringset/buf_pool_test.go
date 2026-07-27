@@ -14,6 +14,7 @@ package roaringset
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -1155,5 +1156,87 @@ func TestDisposableBufMetricSizeLabel(t *testing.T) {
 			require.Equal(t, before+1, countFor(pooledLabel),
 				"disposable label for %d bytes must match the pooled label %q", rng, pooledLabel)
 		}
+	})
+}
+
+// Pins the ladder an unconfigured node builds. The bounds on the two env vars
+// have changed shape more than once, and none of that may move this.
+func TestDefaultBufPoolLadderIsPinned(t *testing.T) {
+	const MiB = 1 << 20
+
+	logger, _ := test.NewNullLogger()
+	pool, stop := NewBitmapBufPoolDefault(logger, nil, 32*MiB, 128*MiB)
+	defer stop()
+
+	ranged := pool.(*bitmapBufPoolRanged)
+	require.Equal(t, 12, ranged.firstInMemoRngIdx)
+
+	inMemo := map[int]int{}
+	for _, p := range ranged.poolsInMemo {
+		inMemo[p.cap] = p.limit
+	}
+	require.Equal(t, map[int]int{
+		2 * MiB: 4, 4 * MiB: 2, 8 * MiB: 2, 16 * MiB: 2, 32 * MiB: 2,
+	}, inMemo)
+}
+
+// Why the ceiling sits on the budget alone. The budget scales the limit of every
+// class, so it scales the slots allocated at boot. A larger max buf size only
+// enumerates more classes, and the budget breaks that enumeration as soon as
+// they stop fitting, so the limits shrink as the classes multiply. No max buf
+// size drives the allocation on its own.
+func TestBufPoolAllocationScalesWithTheBudgetOnly(t *testing.T) {
+	const (
+		MiB = 1 << 20
+		TiB = 1 << 40
+
+		defaultMaxBufSize = 32 * MiB
+		defaultMaxMemory  = 128 * MiB
+	)
+
+	slotsFor := func(maxBufSize, maxMemoSize int) int {
+		ranges, limits := calculateInMemoBufferRangesAndLimits(1<<bufPoolSyncMaxRangeP2,
+			bufPoolInMemoMinRangeP2, maxBufSize, maxMemoSize)
+		slots := 0
+		for _, rng := range ranges {
+			slots += limits[rng]
+		}
+		return slots
+	}
+
+	t.Run("max buf size cannot scale the allocation", func(t *testing.T) {
+		// Every one of these is refused today by a ceiling that protects
+		// nothing on this variable.
+		for _, maxBufSize := range []int{
+			1 * TiB, 1*TiB + 1, 2 * TiB, 43 * TiB, 1024 * TiB, math.MaxInt64,
+		} {
+			slots := slotsFor(maxBufSize, defaultMaxMemory)
+			require.LessOrEqual(t, slots, 16,
+				"max buf size %d must not scale the boot allocation", maxBufSize)
+		}
+	})
+
+	t.Run("budget scales the allocation", func(t *testing.T) {
+		testCases := []struct {
+			name      string
+			maxMemory int
+			expSlots  int
+		}{
+			{"default", defaultMaxMemory, 12},
+			{"1TiB, at the ceiling", 1 * TiB, 84565},
+			{"1024TiB", 1024 * TiB, 86592085},
+			{"math.MaxInt64", math.MaxInt64, 709362340502},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				require.Equal(t, tc.expSlots, slotsFor(defaultMaxBufSize, tc.maxMemory))
+			})
+		}
+	})
+
+	t.Run("either at zero builds no in-memory class", func(t *testing.T) {
+		require.Zero(t, slotsFor(0, defaultMaxMemory))
+		require.Zero(t, slotsFor(defaultMaxBufSize, 0))
 	})
 }

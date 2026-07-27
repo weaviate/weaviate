@@ -1419,7 +1419,7 @@ func FromEnv(config *Config) error {
 	envName := "QUERY_BITMAP_BUFS_MAX_MEMORY"
 	config.QueryBitmapBufsMaxMemory = DefaultQueryBitmapBufsMaxMemory
 	if v := os.Getenv(envName); v != "" {
-		bytes, err := parseBitmapBufsSize(envName, v)
+		bytes, err := parseBitmapBufsMemory(envName, v)
 		if err != nil {
 			return err
 		}

@@ -18,10 +18,6 @@ import (
 	"strings"
 )
 
-// MaxQueryBitmapBufsSize caps QUERY_BITMAP_BUFS_MAX_MEMORY and
-// _MAX_BUF_SIZE: an unbounded value would size channels with ~10^11 slots at boot.
-const MaxQueryBitmapBufsSize = 1 << 40
-
 // parseResourceEnv rejects rather than defaulting, which would silently behave as unset.
 func parseResourceEnv(envName, value string) (int64, error) {
 	bytes, err := parseResourceString(value)
@@ -31,16 +27,48 @@ func parseResourceEnv(envName, value string) (int64, error) {
 	return bytes, nil
 }
 
+// MaxQueryBitmapBufsMemory is a coarse, deliberately conservative stand-in for a
+// bound on what the buffer pool actually allocates, not a statement about how
+// much memory is sensible to give it. The budget sizes one channel slot per
+// pooled buffer it affords, so math.MaxInt64 builds classes of ~1.4e11 slots,
+// ~5.3TB of backing array, before the pool holds a single buffer. The real
+// cliff is deep in math.MaxInt64 territory rather than here: 1024TiB still only
+// reaches ~661MiB of slots. Everything between this ceiling and that cliff is
+// refused for want of a bound on the derived allocation, which is tracked
+// separately. It applies to the budget alone; see parseBitmapBufsSize.
+const MaxQueryBitmapBufsMemory = 1 << 40
+
+// parseBitmapBufsSize accepts any byte count, 0 included: a size that affords no
+// in-memory class leaves the buffer pool its sync tiers, which warns and serves,
+// so it degrades the pool rather than the node. No ceiling applies here.
+// QUERY_BITMAP_BUFS_MAX_BUF_SIZE cannot drive the allocation on its own: a
+// larger one enumerates more classes, and the budget breaks that enumeration as
+// soon as the classes stop fitting, so it yields more classes of a smaller
+// limit each, never one that explodes. Only the unlimited sentinel is refused,
+// because math.MaxInt64 is not a buffer size.
 func parseBitmapBufsSize(envName, value string) (int, error) {
 	bytes, err := parseResourceEnv(envName, value)
 	if err != nil {
 		return 0, err
 	}
-	if bytes <= 0 || bytes > MaxQueryBitmapBufsSize {
-		return 0, fmt.Errorf("%s: %q must be between 1 and %d bytes, got %d",
-			envName, value, int64(MaxQueryBitmapBufsSize), bytes)
+	if bytes == math.MaxInt64 {
+		return 0, fmt.Errorf("%s: %q is not a size: this variable sizes a buffer pool, "+
+			"so give a byte count such as 128MiB", envName, value)
 	}
 	return int(bytes), nil
+}
+
+// parseBitmapBufsMemory adds the budget-only ceiling to parseBitmapBufsSize.
+func parseBitmapBufsMemory(envName, value string) (int, error) {
+	bytes, err := parseBitmapBufsSize(envName, value)
+	if err != nil {
+		return 0, err
+	}
+	if bytes > MaxQueryBitmapBufsMemory {
+		return 0, fmt.Errorf("%s: %q must be at most %d bytes, got %d",
+			envName, value, int64(MaxQueryBitmapBufsMemory), bytes)
+	}
+	return bytes, nil
 }
 
 // parseResourceString takes a string like "1024", "1KiB", "43TiB" and converts it to an integer number of bytes.
