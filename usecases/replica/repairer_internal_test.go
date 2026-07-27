@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -162,6 +163,49 @@ func TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch(t *testing.T) {
 			require.Equal(t, liveTime, got.StaleUpdateTime)
 		})
 	}
+}
+
+// TestRepairBatchPartDeleteOnConflictSkipsContentFetch pins that an object
+// whose only pending write is a delete is not read from any replica first.
+func TestRepairBatchPartDeleteOnConflictSkipsContentFetch(t *testing.T) {
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+	ids := []strfmt.UUID{id}
+
+	var fetches atomic.Int32
+	rc := NewMockRClient(t)
+	rc.EXPECT().FetchObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(context.Context, string, string, string, []strfmt.UUID) ([]Replica, error) {
+			fetches.Add(1)
+			return nil, nil
+		}).Maybe()
+	rc.EXPECT().OverwriteObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, nil).Maybe()
+
+	metrics, err := NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+
+	r := &repairer{
+		class:               "C1",
+		getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyDeleteOnConflict },
+		client:              NewFinderClient(rc),
+		metrics:             metrics,
+		logger:              logger,
+	}
+
+	votes := []Vote{
+		{BatchReply: BatchReply{Sender: "A", IsLocal: true, DigestData: []types.RepairResponse{
+			{ID: id.String(), UpdateTime: 100},
+		}}, Count: make([]int, len(ids))},
+		{BatchReply: BatchReply{Sender: "B", DigestData: []types.RepairResponse{
+			{ID: id.String(), UpdateTime: 80, Deleted: true},
+		}}, Count: make([]int, len(ids))},
+	}
+
+	resolved, err := r.repairBatchPart(context.Background(), "S1", ids, votes, 0)
+	require.NoError(t, err)
+	require.Equal(t, []bool{true}, resolved, "the winning outcome is a delete, known from the digests alone")
+	require.Zero(t, fetches.Load(), "a delete carries no content, so nothing needs reading")
 }
 
 // TestRepairBatchPartWithoutCallerCopy pins that a missing caller copy is

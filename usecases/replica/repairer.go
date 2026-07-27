@@ -434,9 +434,17 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			continue
 		}
 
-		if lastTimes[i].Deleted && !resolvesDeleteConflicts(deletionStrategy) {
-			// nothing will be written for this object; fetching it would be wasted
-			continue
+		if lastTimes[i].Deleted {
+			if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+				// a tombstone anywhere deletes the live winner, so the pending
+				// write is a delete and the winning outcome is already known
+				resolved[i] = true
+				continue
+			}
+			if deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+				// the conflict is not resolved, so nothing is written
+				continue
+			}
 		}
 
 		ms = append(ms, lastTimes[i])
@@ -630,11 +638,4 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		return resolved, err
 	}
 	return resolved, errors.Join(errors.Join(fetchErrs...), errors.Join(writeErrs...))
-}
-
-// resolvesDeleteConflicts reports whether strategy writes anything once a
-// replica holds a tombstone; keep in sync with the repair loop's Deleted branches.
-func resolvesDeleteConflicts(strategy string) bool {
-	return strategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
-		strategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict
 }
