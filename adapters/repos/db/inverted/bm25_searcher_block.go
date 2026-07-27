@@ -93,10 +93,21 @@ func (b *BM25Searcher) wandBlock(
 	tokenizationTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
+
+	// generateQueryTermsAndStats already rejected the operator if the searched
+	// properties disagree on tokenization, so a non-empty term list here is the
+	// shared queryTerms/index space the merge needs.
+	crossPropAnd := len(stats.crossPropQueryTerms) > 0
+
 	for tokenization, propNames := range stats.propNamesByTokenization {
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
 			queryTerms, duplicateBoosts := stats.queryTermsByTokenization[tokenization], stats.duplicateBoostsByTokenization[tokenization]
+			if crossPropAnd {
+				// Every group tokenizes the query to the same terms but not
+				// necessarily in the same order, and the merge keys on term index.
+				queryTerms, duplicateBoosts = stats.crossPropQueryTerms, stats.crossPropDuplicateBoosts
+			}
 			duplicateBoostsByTerm := make(map[string]int, len(duplicateBoosts))
 			for i, term := range queryTerms {
 				duplicateBoostsByTerm[term] = duplicateBoosts[i]
@@ -161,29 +172,6 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, false, fmt.Errorf("after createBlockTerm: %w", ctx.Err())
 	}
 
-	// Cross-property AND needs one shared queryTerms/index space to merge terms by
-	// query-term index, which only holds when a single tokenization group covers
-	// every searched property.
-	crossPropAnd := false
-	var crossPropQueryTerms []string
-	if params.SearchOperator == common_filters.SearchOperatorAndCross {
-		nonEmptyGroups := 0
-		var groupKey string
-		for tok, propNames := range stats.propNamesByTokenization {
-			if len(propNames) > 0 {
-				nonEmptyGroups++
-				groupKey = tok
-			}
-		}
-		if nonEmptyGroups > 1 {
-			return nil, nil, false, fmt.Errorf("%s requires all searched properties to share the same tokenization and analyzer settings", common_filters.SearchOperatorAndCross)
-		}
-		if nonEmptyGroups == 1 && len(stats.queryTermsByTokenization[groupKey]) > 0 {
-			crossPropAnd = true
-			crossPropQueryTerms = stats.queryTermsByTokenization[groupKey]
-		}
-	}
-
 	// For unlimited queries, inflate the limit to the total candidate count so the
 	// top-K heap can hold every match.
 	unlimited := limit == 0
@@ -202,7 +190,7 @@ func (b *BM25Searcher) wandBlock(
 	// The cross-property pass produces the final global top-K in one shot, so it
 	// uses the true limit and skips combineResults' per-property merge.
 	if crossPropAnd {
-		objects, scores, err := b.wandBlockCrossPropAnd(ctx, allResults, crossPropQueryTerms, stats.averagePropLength, limit, params, additional)
+		objects, scores, err := b.wandBlockCrossPropAnd(ctx, allResults, stats.crossPropQueryTerms, stats.averagePropLength, limit, params, additional)
 		return objects, scores, false, err
 	}
 

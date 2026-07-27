@@ -436,3 +436,105 @@ func TestBM25FCrossPropertyAndMixedTokenizationFails(t *testing.T) {
 	require.Nil(t, err)
 	require.Len(t, resOr, 1, "OR should match since each property holds at least one query token")
 }
+
+// The old WAND path used to answer mixed-tokenization cross-property AND with a
+// threshold taken from the smallest tokenization group instead of rejecting it,
+// so the same query succeeded or failed depending on the bucket strategy.
+func TestBM25FCrossPropertyAndMixedTokenizationFailsNonInverted(t *testing.T) {
+	config.DefaultUsingBlockMaxWAND = false
+
+	logger := logrus.New()
+	repo, schemaGetter := newBM25BlockTestRepo(t, logger)
+	defer repo.Shutdown(context.Background())
+
+	searchProps := setupMixedTokenizationClass(t, repo, schemaGetter, logger)
+	idx := repo.GetIndex("MixedTokClass")
+	require.NotNil(t, idx)
+
+	kwrCross := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: "unrelated journey", SearchOperator: common_filters.SearchOperatorAndCross}
+	_, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrCross, nil, nil, additional.Properties{}, nil, "", 0, searchProps)
+	require.ErrorContains(t, err, "tokenization")
+}
+
+// setupSharedAnalyzerClass builds two searched properties that share a tokenization
+// and an analyzer configuration but carry ASCIIFoldIgnore, which gives each of them
+// its own tokenization key even though both tokenize the query identically.
+func setupSharedAnalyzerClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger) []string {
+	vFalse := false
+	vTrue := true
+
+	analyzer := func() *models.TextAnalyzerConfig {
+		return &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"ø"}}
+	}
+
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(1.2, 0.75, "none"),
+		Class:               "SharedAnalyzerClass",
+		Properties: []*models.Property{
+			{
+				Name:            "titleFold",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				TextAnalyzer:    analyzer(),
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
+			},
+			{
+				Name:            "descFold",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				TextAnalyzer:    analyzer(),
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
+			},
+		},
+	}
+
+	props := make([]string, len(class.Properties))
+	for i, prop := range class.Properties {
+		props[i] = prop.Name
+	}
+	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+
+	migrator := NewMigrator(repo, logger, "node1")
+	migrator.AddClass(context.Background(), class)
+
+	objects := []map[string]interface{}{
+		// only doc 0 covers both query tokens, and only across the two properties
+		{"titleFold": "An unrelated title", "descFold": "the journey continues"},
+		{"titleFold": "An unrelated title", "descFold": "nothing to see"},
+		{"titleFold": "A plain title", "descFold": "the journey continues"},
+	}
+	for i, data := range objects {
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+		obj := &models.Object{Class: "SharedAnalyzerClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
+		require.Nil(t, repo.PutObject(context.Background(), obj, []float32{1, 3, 5, 0.4}, nil, nil, nil, 0))
+	}
+
+	return props
+}
+
+// Properties are keyed per property once they carry custom analyzer settings, so
+// counting tokenization keys rejected searches whose properties do agree.
+func TestBM25FCrossPropertyAndSharedAnalyzerConfig(t *testing.T) {
+	for _, blockMax := range []bool{true, false} {
+		t.Run(fmt.Sprintf("blockmax=%v", blockMax), func(t *testing.T) {
+			config.DefaultUsingBlockMaxWAND = blockMax
+
+			logger := logrus.New()
+			repo, schemaGetter := newBM25BlockTestRepo(t, logger)
+			defer repo.Shutdown(context.Background())
+
+			searchProps := setupSharedAnalyzerClass(t, repo, schemaGetter, logger)
+			idx := repo.GetIndex("SharedAnalyzerClass")
+			require.NotNil(t, idx)
+
+			kwrCross := &searchparams.KeywordRanking{Type: "bm25", Properties: searchProps, Query: "unrelated journey", SearchOperator: common_filters.SearchOperatorAndCross}
+			res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrCross, nil, nil, additional.Properties{}, nil, "", 0, searchProps)
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			require.Equal(t, uint64(0), res[0].DocID)
+		})
+	}
+}
