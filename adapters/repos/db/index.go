@@ -1307,10 +1307,9 @@ func (i *Index) getShardForRead(
 	return shard, release, nil
 }
 
-// withShardOrRemote runs local against shardName, or remote when this node has no
-// shard to use. The remote call can resolve back to this node, which is what loads a
-// shard that is not loaded here yet. A failed shard lookup runs neither arm; an arm's
-// own error is returned as is. The reference is released on every path.
+// withShardOrRemote runs local when this node has a usable shard for shardName,
+// otherwise remote. A failed lookup runs neither and returns its error. The shard
+// reference is held for the whole local call and released on every path.
 func (i *Index) withShardOrRemote(ctx context.Context, tenantName, shardName string,
 	operation localShardOperation, schemaVersion uint64,
 	local func(shard ShardLike) error, remote func() error,
@@ -2075,8 +2074,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		return nil
 	}
 	localSeach := func(shardName string) error {
-		// Falls back to a remote search when there is no usable local shard; that
-		// forward is also what initializes the shard after tenant reactivation.
+		// The read lookup initializes the shard after a tenant reactivation; a plain
+		// GetShard would not.
 		return i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
 			func(shard ShardLike) error {
 				localCtx := helpers.InitSlowQueryDetails(ctx)
