@@ -100,7 +100,7 @@ var (
 				"the memo runs no cascade and lands on neither child, so on a repeating " +
 				"workload that fits the " + LeafCacheMaxMemoryEnv + " budget — " +
 				humanize.IBytes(DefaultLeafCacheMaxMemory) + " by default, so this is the stock " +
-				"case — both go flat while range filters keep flowing. Only the in-memory range " +
+				"case — both stay flat while range filters keep flowing. Only the in-memory range " +
 				"segment reaches them at all, so both also read zero when " +
 				IndexRangeableInMemoryEnv + " is off and when it is on with no range filters " +
 				"running. Read " + cascadeSeedConfigSeries + " for the switch, " +
