@@ -22,6 +22,8 @@ import (
 
 // TestPlaneInvariantGuardFires: a plane holding a doc absent from plane 0 must panic.
 func TestPlaneInvariantGuardFires(t *testing.T) {
+	withCascadeSeedEnabled(t, true)
+
 	seg := newCascadeFixture(t, 3)
 	seg.bitmaps[1].Set(1 << 30)
 

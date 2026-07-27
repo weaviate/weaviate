@@ -62,6 +62,8 @@ func TestPlanesStaySubsetsOfPlaneZero(t *testing.T) {
 }
 
 func TestSeededCascadeMatchesUnseededCascade(t *testing.T) {
+	withCascadeSeedEnabled(t, true)
+
 	bufPool := roaringset.NewBitmapBufPoolNoop()
 	operators := []filters.Operator{
 		filters.OperatorEqual,
@@ -143,6 +145,8 @@ func canonicalBytes(bm *sroar.Bitmap) []byte {
 // sroar's flat arena places containers at different offsets depending on the
 // cascade's start plane, so raw ToBuffer() differs even when the sets match.
 func TestSeededCascadeLeavesADifferentArena(t *testing.T) {
+	withCascadeSeedEnabled(t, true)
+
 	seg := newCascadeFixture(t, 7)
 	readers, release := seg.Readers(roaringset.NewBitmapBufPoolNoop())
 	defer release()
