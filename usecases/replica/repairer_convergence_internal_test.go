@@ -425,8 +425,32 @@ func TestRepairBatchPartNewestTombstoneIsNotResurrected(t *testing.T) {
 				c.put("B", id, tTombstone, true)
 				c.put("C", id, tc.cLive, false)
 
+				vs := c.votes(order, ids)
+
+				// The tie rows are the only ones that reach the "live at the
+				// winning tombstone's own time" half of the repair condition.
+				// Replica times are set directly above rather than produced by a
+				// write, so nothing about when an object write advances its
+				// timestamp can quietly dissolve the tie; assert it anyway, because
+				// a row that stops tying still passes on final state alone.
+				if tc.cLive == tTombstone {
+					var tombstone, liveAtTie bool
+					for _, v := range vs {
+						if v.UpdateTimeAt(0) != tTombstone {
+							continue
+						}
+						if v.DeletedAt(0) {
+							tombstone = true
+						} else {
+							liveAtTie = true
+						}
+					}
+					require.True(t, tombstone && liveAtTie,
+						"fixture no longer ties a live replica with the winning tombstone, so the condition under test is unreachable")
+				}
+
 				r := c.newRepairer(t)
-				_, err := r.repairBatchPart(ctx, shard, ids, c.votes(order, ids), 0)
+				_, err := r.repairBatchPart(ctx, shard, ids, vs, 0)
 				require.NoError(t, err)
 
 				got := map[string]replicaObj{}
