@@ -84,7 +84,7 @@ func NewFinder(className string,
 	l logrus.FieldLogger,
 	getDeletionStrategy func() string,
 ) *Finder {
-	cl := FinderClient{client}
+	cl := FinderClient{cl: client, log: l}
 	return &Finder{
 		router:       router,
 		nodeResolver: nodeResolver,

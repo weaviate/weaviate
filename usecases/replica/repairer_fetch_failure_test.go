@@ -13,15 +13,18 @@ package replica_test
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -201,31 +204,43 @@ func TestRepairBatchFetchFromWinnerFails(t *testing.T) {
 	}
 }
 
+// fullReadIDs returns n deterministic uuids for driving FullReads.
+func fullReadIDs(n int) []strfmt.UUID {
+	ids := make([]strfmt.UUID, n)
+	for i := range ids {
+		ids[i] = strfmt.UUID(uuid.NewSHA1(uuid.Nil, []byte(strconv.Itoa(i))).String())
+	}
+	return ids
+}
+
 // TestFullReadsChunksIDs pins that FullReads splits large id lists into
 // bounded chunks instead of one unbounded request.
 func TestFullReadsChunksIDs(t *testing.T) {
+	const chunkSize = replica.MaxFullReadIDsPerRequest
 	tests := []struct {
 		total      int
 		wantChunks []int
 	}{
 		{total: 1, wantChunks: []int{1}},
-		{total: 64, wantChunks: []int{64}},
-		{total: 65, wantChunks: []int{64, 1}},
-		{total: 200, wantChunks: []int{64, 64, 64, 8}},
+		{total: chunkSize, wantChunks: []int{chunkSize}},
+		{total: chunkSize + 1, wantChunks: []int{chunkSize, 1}},
+		{total: 3*chunkSize + 8, wantChunks: []int{chunkSize, chunkSize, chunkSize, 8}},
 	}
 
 	for _, tt := range tests {
 		t.Run(strconv.Itoa(tt.total), func(t *testing.T) {
-			ids := make([]strfmt.UUID, tt.total)
-			for i := range ids {
-				ids[i] = strfmt.UUID(uuid.NewSHA1(uuid.Nil, []byte(strconv.Itoa(i))).String())
-			}
+			ids := fullReadIDs(tt.total)
 
 			rc := replica.NewMockRClient(t)
-			var got []int
+			var (
+				mu  sync.Mutex
+				got []int
+			)
 			rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal).
 				RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID) ([]replica.Replica, error) {
+					mu.Lock()
 					got = append(got, len(chunk))
+					mu.Unlock()
 					rs := make([]replica.Replica, len(chunk))
 					for i, id := range chunk {
 						rs[i] = repl(id, 1, false)
@@ -233,9 +248,11 @@ func TestFullReadsChunksIDs(t *testing.T) {
 					return rs, nil
 				})
 
-			rs, err := replica.NewFinderClient(rc).FullReads(context.Background(), "B", "C1", "S1", ids)
+			logger, _ := test.NewNullLogger()
+			rs, err := replica.NewFinderClient(rc, logger).FullReads(context.Background(), "B", "C1", "S1", ids)
 			require.NoError(t, err)
-			require.Equal(t, tt.wantChunks, got)
+			// chunks are fetched concurrently, so only the multiset is deterministic
+			require.ElementsMatch(t, tt.wantChunks, got)
 
 			require.Len(t, rs, tt.total)
 			for i := range rs {
@@ -243,6 +260,107 @@ func TestFullReadsChunksIDs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFullReadsFetchesChunksConcurrently pins the bounded fan-out: the barrier
+// releases only once the full in-flight cap of requests is simultaneously in
+// flight, so a serial implementation times out here and an unbounded one
+// overshoots the peak.
+func TestFullReadsFetchesChunksConcurrently(t *testing.T) {
+	const inFlightCap = replica.MaxConcurrentFullReadRequests
+	ids := fullReadIDs((inFlightCap + 4) * replica.MaxFullReadIDsPerRequest)
+
+	var (
+		inFlight atomic.Int64
+		peak     atomic.Int64
+		arrivals atomic.Int64
+		release  = make(chan struct{})
+	)
+
+	rc := replica.NewMockRClient(t)
+	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal).
+		RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID) ([]replica.Replica, error) {
+			n := inFlight.Add(1)
+			defer inFlight.Add(-1)
+			for {
+				p := peak.Load()
+				if n <= p || peak.CompareAndSwap(p, n) {
+					break
+				}
+			}
+			if arrivals.Add(1) == inFlightCap {
+				close(release)
+			}
+			select {
+			case <-release:
+			case <-time.After(10 * time.Second):
+				return nil, fmt.Errorf("never saw %d requests in flight: chunks are being fetched serially", inFlightCap)
+			}
+			rs := make([]replica.Replica, len(chunk))
+			for i, id := range chunk {
+				rs[i] = repl(id, 1, false)
+			}
+			return rs, nil
+		})
+
+	logger, _ := test.NewNullLogger()
+	rs, err := replica.NewFinderClient(rc, logger).FullReads(context.Background(), "B", "C1", "S1", ids)
+	require.NoError(t, err)
+	require.EqualValues(t, inFlightCap, peak.Load(), "in-flight requests must reach and never exceed the cap")
+	require.Len(t, rs, len(ids))
+	for i := range rs {
+		require.Equal(t, ids[i], rs[i].ID, "responses must stay in request order across concurrent chunks")
+	}
+}
+
+// TestFullReadsFailedChunkFailsTheRead pins that one failed chunk fails the
+// whole read instead of returning a partial result the repairer would trust.
+func TestFullReadsFailedChunkFailsTheRead(t *testing.T) {
+	ids := fullReadIDs(2 * replica.MaxFullReadIDsPerRequest)
+
+	rc := replica.NewMockRClient(t)
+	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal).
+		RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID) ([]replica.Replica, error) {
+			if chunk[0] == ids[replica.MaxFullReadIDsPerRequest] {
+				return nil, errAny
+			}
+			rs := make([]replica.Replica, len(chunk))
+			for i, id := range chunk {
+				rs[i] = repl(id, 1, false)
+			}
+			return rs, nil
+		})
+
+	logger, _ := test.NewNullLogger()
+	rs, err := replica.NewFinderClient(rc, logger).FullReads(context.Background(), "B", "C1", "S1", ids)
+	require.ErrorIs(t, err, errAny)
+	require.Nil(t, rs)
+}
+
+// TestFullReadsRejectsMisalignedLaterChunk pins that the ID alignment check
+// reports absolute indices for chunks past the first.
+func TestFullReadsRejectsMisalignedLaterChunk(t *testing.T) {
+	ids := fullReadIDs(replica.MaxFullReadIDsPerRequest + 1)
+	other := strfmt.UUID("99999999-9999-4999-8999-999999999999")
+
+	rc := replica.NewMockRClient(t)
+	rc.EXPECT().FetchObjects(anyVal, "B", "C1", "S1", anyVal).
+		RunAndReturn(func(_ context.Context, _, _, _ string, chunk []strfmt.UUID) ([]replica.Replica, error) {
+			rs := make([]replica.Replica, len(chunk))
+			for i, id := range chunk {
+				rs[i] = repl(id, 1, false)
+			}
+			if len(chunk) == 1 { // the second chunk, holding the one trailing id
+				rs[0] = repl(other, 1, false)
+			}
+			return rs, nil
+		})
+
+	logger, _ := test.NewNullLogger()
+	rs, err := replica.NewFinderClient(rc, logger).FullReads(context.Background(), "B", "C1", "S1", ids)
+	require.ErrorContains(t, err,
+		fmt.Sprintf("object %d is %q", replica.MaxFullReadIDsPerRequest, other))
+	require.Nil(t, rs)
 }
 
 // TestRepairBatchThreeDistinctWinners pins that per-replica fetch

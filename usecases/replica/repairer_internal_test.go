@@ -54,7 +54,7 @@ func TestRepairBatchPartTimeBasedLiveWinnerFailedRefetch(t *testing.T) {
 	r := &repairer{
 		class:               class,
 		getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyTimeBasedResolution },
-		client:              NewFinderClient(rc),
+		client:              NewFinderClient(rc, logger),
 		metrics:             metrics,
 		logger:              logger,
 	}
@@ -133,7 +133,7 @@ func TestRepairBatchPartDeleteOnConflictSurvivesFailedFetch(t *testing.T) {
 			r := &repairer{
 				class:               class,
 				getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyDeleteOnConflict },
-				client:              NewFinderClient(rc),
+				client:              NewFinderClient(rc, logger),
 				metrics:             metrics,
 				logger:              logger,
 			}
@@ -188,7 +188,7 @@ func TestRepairBatchPartDeleteOnConflictSkipsContentFetch(t *testing.T) {
 	r := &repairer{
 		class:               "C1",
 		getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyDeleteOnConflict },
-		client:              NewFinderClient(rc),
+		client:              NewFinderClient(rc, logger),
 		metrics:             metrics,
 		logger:              logger,
 	}
@@ -221,7 +221,7 @@ func TestRepairBatchPartWithoutCallerCopy(t *testing.T) {
 	r := &repairer{
 		class:               "C1",
 		getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyNoAutomatedResolution },
-		client:              NewFinderClient(NewMockRClient(t)),
+		client:              NewFinderClient(NewMockRClient(t), logger),
 		metrics:             metrics,
 		logger:              logger,
 	}
