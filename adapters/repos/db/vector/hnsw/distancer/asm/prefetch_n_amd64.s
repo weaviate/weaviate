@@ -12,7 +12,7 @@
 #include "textflag.h"
 
 // func PrefetchN(addr uintptr, n int)
-// Issues PREFETCHT0 hints for ceil(n/64) cache lines starting at addr,
+// Issues PREFETCHT1 hints for ceil(n/64) cache lines starting at addr,
 // looping inside assembly so the caller pays one CALL for the whole range
 // instead of one per line. n must be > 0.
 // (A 128B stride relying on the L2 spatial prefetcher to complete line
@@ -23,7 +23,7 @@ TEXT ·PrefetchN(SB), NOSPLIT, $0-16
 	MOVQ n+8(FP), CX
 
 loop:
-	PREFETCHT0 (AX)
+	PREFETCHT1 (AX)
 	ADDQ       $64, AX
 	SUBQ       $64, CX
 	JGT        loop
