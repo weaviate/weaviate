@@ -25,19 +25,9 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestIndex_UsageForCollection_IsIdempotent pins an observer effect: calculating
-// a cold shard's usage wrote files into the very directories it measures, so a
-// second calculation of unchanged data reported a bigger shard than the first.
-// Two sources, both counted:
-//
-//   - the usage cache the calculation itself saves into the shard root
-//   - the bloom filter materialised when the dimensions bucket is opened
-//
-// The inflated figure is then saved back into the cache and served from there
-// on every later report, so a single recalculation permanently overstated the
-// shard. This surfaced as `acceptance large (python)` failures in
-// test_usage.py, where hot and cold reports differed by exactly the size of the
-// cache file.
+// TestIndex_UsageForCollection_IsIdempotent pins an observer effect: the cold usage
+// calculation wrote files into the directories it measures (its own cache, and the
+// bloom filter from opening the dimensions bucket), inflating every recalculation.
 func TestIndex_UsageForCollection_IsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	tenantName := "test-tenant"
@@ -45,7 +35,7 @@ func TestIndex_UsageForCollection_IsIdempotent(t *testing.T) {
 	index := setupPopulatedLazyIndex(ctx, t)
 	t.Cleanup(func() { _ = index.Shutdown(ctx) })
 
-	// drop the shard from the in-memory map so usage takes the cold path
+	// force the cold path
 	index.shards.LoadAndDelete(tenantName)
 
 	vectorConfigs := map[string]models.VectorConfig{
@@ -59,9 +49,8 @@ func TestIndex_UsageForCollection_IsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, first.Shards, 1)
 
-	// A cache hit would trivially return the same numbers and hide the effect.
-	// Make the second call recompute, which is what a concurrent report or a
-	// cache left behind by an older UsageDiskVersion does.
+	// A cache hit would hide the effect; recomputing is what a concurrent report or
+	// a cache from an older UsageDiskVersion hits in production.
 	cachePath := filepath.Join(index.path(), tenantName, "usage.json.tmp")
 	stale, err := os.ReadFile(cachePath)
 	require.NoError(t, err, "cold usage calculation must have written its cache")

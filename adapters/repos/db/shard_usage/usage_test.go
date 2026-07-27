@@ -434,18 +434,14 @@ func TestCalculateNonLSMStorage_HFreshOneLevelDeep(t *testing.T) {
 	assert.Equal(t, uint64(0), otherNonLSMFoldersStorageSize, "no other storage expected")
 }
 
-// TestCalculateNonLSMStorage_ExcludesUsageCacheFile pins a self-reference that made
-// cold shard usage non-idempotent: SaveComputedUsageData writes its cache into the
-// shard root, and CalculateNonLSMStorage adds up every file it finds there. The same
-// shard with the same data therefore reported a larger size once a usage calculation
-// had run before, which surfaced as hot and cold reports disagreeing by exactly the
-// size of the cache file.
+// TestCalculateNonLSMStorage_ExcludesUsageCacheFile pins a self-reference: SaveComputedUsageData
+// writes its cache into the shard root that CalculateNonLSMStorage sums, so the same unchanged
+// shard reported a larger size once a usage calculation had run.
 func TestCalculateNonLSMStorage_ExcludesUsageCacheFile(t *testing.T) {
 	dirName := t.TempDir()
 	shardPath := filepath.Join(dirName, "shard1")
 	require.NoError(t, os.MkdirAll(shardPath, 0o777))
 
-	// files a real shard root holds next to lsm/ and the commitlog directories
 	rootFiles := map[string]int{"proplengths": 169, "indexcount": 8, "version": 2}
 	expected := uint64(0)
 	for name, size := range rootFiles {

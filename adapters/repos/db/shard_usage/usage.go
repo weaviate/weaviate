@@ -44,9 +44,8 @@ func shardPathDimensionsLSM(indexPath, shardName string) string {
 	return path.Join(shardPathLSM(indexPath, shardName), helpers.DimensionsBucketLSM)
 }
 
-// usageFileName lives in the shard root, which is also the directory whose
-// files CalculateNonLSMStorage adds up. It must therefore be excluded there,
-// otherwise the reported size depends on whether a usage calculation ran before.
+// usageFileName lives in the shard root that CalculateNonLSMStorage sums, so it
+// must be excluded there or the reported size grows once usage has been calculated.
 const usageFileName = "usage.json.tmp"
 
 func usageTmpFilePath(indexPath, shardName string) string {

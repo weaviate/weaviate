@@ -397,9 +397,8 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	}
 	lsmPath := shardPathLSM(i.path(), shardName)
 
-	// Opening the dimensions bucket materialises files (a bloom filter) inside the
-	// tree the sizes below are taken from, so it has to happen first. Otherwise the
-	// first report for a shard is smaller than every later one by that amount.
+	// Opening the dimensions bucket materialises a bloom filter inside the tree
+	// measured below, so it has to happen before the sizes are taken.
 	targetVectors := make([]string, 0, len(vectorConfigs))
 	for targetVector := range vectorConfigs {
 		targetVectors = append(targetVectors, targetVector)
