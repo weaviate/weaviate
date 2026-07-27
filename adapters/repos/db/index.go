@@ -3562,6 +3562,15 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 		f := func() {
 			defer wg.Done()
 
+			// Without this the panic skips the send below, and the caller reads the
+			// remaining shards' deletions as the complete result.
+			defer func() {
+				if r := recover(); r != nil {
+					ch <- result{failedDeletes(uuids, fmt.Errorf("an unexpected error occurred: %v", r))}
+					panic(r) // re-panic so GoWrapper still logs the full stack
+				}
+			}()
+
 			var objs objects.BatchSimpleObjects
 			if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
@@ -3579,9 +3588,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 						return nil
 					})
 				if err != nil {
-					objs = objects.BatchSimpleObjects{
-						objects.BatchSimpleObject{Err: err},
-					}
+					objs = failedDeletes(uuids, err)
 				}
 			}
 
@@ -3599,6 +3606,17 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 	}
 
 	return out, nil
+}
+
+// failedDeletes reports err for every id of a shard group, so a group that could
+// not run is reported with as many results as one that did. A result without an
+// id is counted as a single failure and cannot be encoded into a gRPC reply.
+func failedDeletes(ids []strfmt.UUID, err error) objects.BatchSimpleObjects {
+	out := make(objects.BatchSimpleObjects, len(ids))
+	for i, id := range ids {
+		out[i] = objects.BatchSimpleObject{UUID: id, Err: err}
+	}
+	return out
 }
 
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
