@@ -952,118 +952,6 @@ func bitmapAbove(src *sroar.Bitmap, containers int) *sroar.Bitmap {
 	return bm
 }
 
-func TestValidateBufPoolSizes(t *testing.T) {
-	const (
-		KiB = 1 << 10
-		MiB = 1 << 20
-	)
-
-	// The shipped defaults, as configure_api passes them.
-	const (
-		defaultMaxBufSize = 32 * MiB
-		defaultMaxMemory  = 128 * MiB
-	)
-
-	testCases := []struct {
-		name       string
-		maxBufSize int
-		maxMemory  int
-		expErr     string
-	}{
-		{
-			name:       "shipped defaults",
-			maxBufSize: defaultMaxBufSize,
-			maxMemory:  defaultMaxMemory,
-		},
-		{
-			name:       "smallest usable pair",
-			maxBufSize: 2 * MiB,
-			maxMemory:  2 * MiB,
-		},
-		{
-			name:       "budget covers fewer classes than requested",
-			maxBufSize: 32 * MiB,
-			maxMemory:  40 * MiB,
-		},
-		{
-			name:       "non power of two max buf size",
-			maxBufSize: 3 * MiB,
-			maxMemory:  32 * MiB,
-		},
-		{
-			name:       "max buf size below the sync tier ceiling",
-			maxBufSize: 512 * KiB,
-			maxMemory:  defaultMaxMemory,
-			expErr:     "leaves no in-memory buffer class",
-		},
-		{
-			name:       "max buf size exactly at the sync tier ceiling",
-			maxBufSize: 1 * MiB,
-			maxMemory:  defaultMaxMemory,
-			expErr:     "leaves no in-memory buffer class",
-		},
-		{
-			name:       "budget below the smallest in-memory class",
-			maxBufSize: 2 * MiB,
-			maxMemory:  1 * MiB,
-			expErr:     "leaves no in-memory buffer class",
-		},
-		{
-			name:       "budget below the smallest in-memory class, matching buf size",
-			maxBufSize: 1 * MiB,
-			maxMemory:  1 * MiB,
-			expErr:     "leaves no in-memory buffer class",
-		},
-		{
-			name:       "default max buf size against a 1MiB budget",
-			maxBufSize: defaultMaxBufSize,
-			maxMemory:  1 * MiB,
-			expErr:     "leaves no in-memory buffer class",
-		},
-		// Degrade the pool, not the node, so they serve.
-		{
-			name:       "max buf size above the budget",
-			maxBufSize: 32 * MiB,
-			maxMemory:  4 * MiB,
-		},
-		{
-			name:       "max buf size one byte above the budget",
-			maxBufSize: 2*MiB + 1,
-			maxMemory:  2 * MiB,
-		},
-		{
-			name:       "budget one byte above the max buf size",
-			maxBufSize: 32 * MiB,
-			maxMemory:  32*MiB + 1,
-		},
-		{
-			name:       "max buf size one byte above the budget, at 32MiB",
-			maxBufSize: 32*MiB + 1,
-			maxMemory:  32 * MiB,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := ValidateBufPoolSizes(tc.maxBufSize, tc.maxMemory)
-
-			if tc.expErr != "" {
-				require.ErrorContains(t, err, tc.expErr)
-				return
-			}
-			require.NoError(t, err)
-
-			// An accepted pair must build a pool with a non-empty in-memory tier.
-			logger, _ := test.NewNullLogger()
-			pool, stop := NewBitmapBufPoolDefault(logger, nil, tc.maxBufSize, tc.maxMemory)
-			defer stop()
-			ranged := pool.(*bitmapBufPoolRanged)
-			require.NotEmpty(t, ranged.poolsInMemo)
-			require.Greater(t, ranged.ranges[len(ranged.ranges)-1], 1<<bufPoolSyncMaxRangeP2)
-		})
-	}
-}
-
 // Gates growth headroom against the shipped defaults, not a test double or a
 // non-default knob.
 func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
@@ -1123,8 +1011,8 @@ func TestDefaultConfigAppliesCloneGrowthHeadroom(t *testing.T) {
 	})
 }
 
-// Warns when a pool skips config validation, or a budget silently drops the
-// largest requested class — nothing else surfaces it.
+// The warning is the whole signal for a pool that built fewer classes than
+// asked for, or none at all: nothing else surfaces either state.
 func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 	const (
 		KiB = 1 << 10
@@ -1166,6 +1054,39 @@ func TestBufPoolWarnsOnDegradedLadder(t *testing.T) {
 			maxBufSize: 32*MiB + 1,
 			maxMemory:  32 * MiB,
 			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB]",
+		},
+		// One variable set and the other left at its default. These build a
+		// pool rather than refusing a boot, so the warning is the only thing
+		// telling an operator which classes they gave up.
+		{
+			name:       "budget lowered to 8MiB, max buf size left at its default",
+			maxBufSize: 32 * MiB,
+			maxMemory:  8 * MiB,
+			expWarn:    "[2.0 MiB 4.0 MiB]",
+		},
+		{
+			name:       "budget lowered to 2MiB, max buf size left at its default",
+			maxBufSize: 32 * MiB,
+			maxMemory:  2 * MiB,
+			expWarn:    "[2.0 MiB]",
+		},
+		{
+			name:       "budget lowered to 1MiB, max buf size left at its default",
+			maxBufSize: 32 * MiB,
+			maxMemory:  1 * MiB,
+			expWarn:    "builds no in-memory bitmap buffer class at all",
+		},
+		{
+			name:       "max buf size raised to 256MiB, budget left at its default",
+			maxBufSize: 256 * MiB,
+			maxMemory:  128 * MiB,
+			expWarn:    "[2.0 MiB 4.0 MiB 8.0 MiB 16 MiB 32 MiB 64 MiB]",
+		},
+		{
+			name:       "max buf size lowered to the sync tier ceiling, budget left at its default",
+			maxBufSize: 1 * MiB,
+			maxMemory:  128 * MiB,
+			expWarn:    "builds no in-memory bitmap buffer class at all",
 		},
 	}
 
@@ -1228,37 +1149,4 @@ func TestDisposableBufMetricSizeLabel(t *testing.T) {
 				"disposable label for %d bytes must match the pooled label %q", rng, pooledLabel)
 		}
 	})
-}
-
-// Pins: configs that build the same ladder must get the same verdict.
-func TestValidateBufPoolSizesGatesOnTheLadderOnly(t *testing.T) {
-	const MiB = 1 << 20
-
-	testCases := []struct {
-		name string
-		a, b struct{ maxBufSize, maxMemory int }
-	}{
-		{
-			name: "one byte either side at 32MiB",
-			a:    struct{ maxBufSize, maxMemory int }{32 * MiB, 32*MiB + 1},
-			b:    struct{ maxBufSize, maxMemory int }{32*MiB + 1, 32 * MiB},
-		},
-		{
-			name: "one byte either side at 2MiB",
-			a:    struct{ maxBufSize, maxMemory int }{2 * MiB, 2*MiB + 1},
-			b:    struct{ maxBufSize, maxMemory int }{2*MiB + 1, 2 * MiB},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			ladderA, _ := inMemoBufferRangesAndLimits(tc.a.maxBufSize, tc.a.maxMemory)
-			ladderB, _ := inMemoBufferRangesAndLimits(tc.b.maxBufSize, tc.b.maxMemory)
-			require.Equal(t, ladderA, ladderB, "precondition: the two configs must build the same ladder")
-			require.NotEmpty(t, ladderA)
-
-			require.NoError(t, ValidateBufPoolSizes(tc.a.maxBufSize, tc.a.maxMemory))
-			require.NoError(t, ValidateBufPoolSizes(tc.b.maxBufSize, tc.b.maxMemory))
-		})
-	}
 }

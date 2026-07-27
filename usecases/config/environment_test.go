@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -1926,14 +1925,15 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 	}
 }
 
-// Per-variable bounds still accept pairs that build a pool with no
-// in-memory size class — the silent truncation ValidateBufPoolSizes exists to catch.
+// No pair of these two refuses a boot. A pair that affords fewer in-memory
+// size classes than asked for, or none at all, degrades the buffer pool, which
+// is an optimisation; the pool warns and serves. Only the per-variable bounds
+// reject, and TestEnvironmentQueryBitmapBufsSizes covers those.
 func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 	tests := []struct {
 		name    string
 		memory  string
 		bufSize string
-		expErr  string
 	}{
 		{
 			name: "both unset",
@@ -1948,28 +1948,23 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			memory:  "2MiB",
 			bufSize: "2MiB",
 		},
-		{
-			name:   "budget below the smallest in-memory class",
-			memory: "1MiB",
-			expErr: "leaves no in-memory buffer class",
-		},
+		// These build no in-memory class at all. Measured on a real node: the
+		// pool serves correct results with every buffer above 1MiB allocated
+		// per request instead of pooled.
 		{
 			name:    "budget below the smallest in-memory class, matching buf size",
 			memory:  "1MiB",
 			bufSize: "1MiB",
-			expErr:  "leaves no in-memory buffer class",
 		},
 		{
 			name:    "max buf size below the sync tier ceiling",
 			bufSize: "512KiB",
-			expErr:  "leaves no in-memory buffer class",
 		},
 		{
 			name:    "max buf size exactly at the sync tier ceiling",
 			bufSize: "1MiB",
-			expErr:  "leaves no in-memory buffer class",
 		},
-		// These degrade only the pool, not the boot, so no expErr.
+		// These build a ladder shorter than the max buf size asked for.
 		{
 			name:    "max buf size above the budget",
 			memory:  "4MiB",
@@ -1985,6 +1980,30 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			memory:  "33554432",
 			bufSize: "33554433",
 		},
+		// One variable set and the other left at its default is the ordinary
+		// operator action. No released version validates the pair, so these are
+		// live configs upgrading in; refusing them is a crash loop on a node
+		// that was serving a minute earlier.
+		{
+			name:   "budget lowered to 8MiB, max buf size left at its default",
+			memory: "8MiB",
+		},
+		{
+			name:   "budget lowered to 2MiB, max buf size left at its default",
+			memory: "2MiB",
+		},
+		{
+			name:   "budget lowered to 1MiB, max buf size left at its default",
+			memory: "1MiB",
+		},
+		{
+			name:    "max buf size raised to 256MiB, budget left at its default",
+			bufSize: "256MiB",
+		},
+		{
+			name:    "max buf size lowered to 512KiB, budget left at its default",
+			bufSize: "512KiB",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1997,16 +2016,7 @@ func TestEnvironmentQueryBitmapBufsPairs(t *testing.T) {
 			}
 
 			conf := Config{}
-			err := FromEnv(&conf)
-
-			if tt.expErr != "" {
-				require.ErrorContains(t, err, tt.expErr)
-				require.ErrorContains(t, err, "QUERY_BITMAP_BUFS_MAX_BUF_SIZE/QUERY_BITMAP_BUFS_MAX_MEMORY")
-				return
-			}
-			require.NoError(t, err)
-			require.NoError(t, roaringset.ValidateBufPoolSizes(
-				conf.QueryBitmapBufsMaxBufSize, conf.QueryBitmapBufsMaxMemory))
+			require.NoError(t, FromEnv(&conf))
 		})
 	}
 }
