@@ -20,7 +20,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/entities/multi"
 )
 
@@ -34,20 +33,17 @@ func TestMultiObjectByIDLocalReadError(t *testing.T) {
 		name string
 		// corrupt reports whether the stored object is replaced by an
 		// undecodable value before it is read back.
-		corrupt   bool
-		wantErr   bool
-		wantFound bool
+		corrupt bool
+		wantErr bool
 	}{
-		{name: "readable object", corrupt: false, wantErr: false, wantFound: true},
-		{name: "undecodable object", corrupt: true, wantErr: true, wantFound: false},
+		{name: "readable object"},
+		{name: "undecodable object", corrupt: true, wantErr: true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := t.Context()
-			shard, idx := testShard(t, ctx, className, func(i *Index) {
-				i.shardResolver = resolver.NewShardResolver(className, false, i.getSchema)
-			})
+			idx, shard := refCountTestIndex(t, className)
 
 			obj := testObject(className)
 			require.NoError(t, shard.PutObject(ctx, obj))
@@ -72,10 +68,8 @@ func TestMultiObjectByIDLocalReadError(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Len(t, found, 1)
-			if test.wantFound {
-				require.NotNil(t, found[0])
-				require.Equal(t, obj.ID(), found[0].ID())
-			}
+			require.NotNil(t, found[0])
+			require.Equal(t, obj.ID(), found[0].ID())
 		})
 	}
 }

@@ -198,6 +198,8 @@ func TestShardRefCountArity(t *testing.T) {
 			},
 		},
 		{
+			// objectVectorSearch looks the shard up itself instead of going through
+			// withShardOrRemote
 			name: "objectVectorSearch local",
 			run: func(t *testing.T, idx *Index, shardName string) error {
 				_, _, err := idx.objectVectorSearch(t.Context(), []models.Vector{[]float32{1, 2, 3}},
@@ -307,6 +309,117 @@ func TestShardRefCountSchemaWaitFailure(t *testing.T) {
 			require.Error(t, test.run(t, idx, strfmt.UUID(uuid.NewString())))
 			require.Equal(t, int64(0), shard.inUseCounter.Load(),
 				"a failed schema wait must still release the shard")
+		})
+	}
+}
+
+// TestWithShardOrRemoteRunsOneArm asserts that withShardOrRemote runs exactly
+// one arm — local when it has a usable shard, remote when it has not, neither
+// when the lookup fails — passing on its error and always releasing the shard.
+func TestWithShardOrRemoteRunsOneArm(t *testing.T) {
+	className := "WithShardOrRemote"
+	const schemaVersion = uint64(7)
+
+	errArm := errors.New("arm failed")
+	const localPanic, remotePanic = "local arm panicked", "remote arm panicked"
+
+	tests := []struct {
+		name string
+		// forwarded points the router at a peer, so there is no usable local shard
+		forwarded bool
+		// failSchemaWait makes the lookup fail before it can pick a branch
+		failSchemaWait bool
+		// failArm makes the branch that runs return errArm
+		failArm bool
+		// wantPanic makes the branch that runs panic with this value
+		wantPanic  string
+		operation  localShardOperation
+		wantLocal  bool
+		wantRemote bool
+	}{
+		{name: "local read", operation: localShardOperationRead, wantLocal: true},
+		{name: "local write", operation: localShardOperationWrite, wantLocal: true},
+		{name: "forwarded read", forwarded: true, operation: localShardOperationRead, wantRemote: true},
+		{name: "forwarded write", forwarded: true, operation: localShardOperationWrite, wantRemote: true},
+		{name: "failed lookup", failSchemaWait: true, operation: localShardOperationWrite},
+		{name: "failing local arm", failArm: true, operation: localShardOperationWrite, wantLocal: true},
+		{
+			name: "failing remote arm", forwarded: true, failArm: true,
+			operation: localShardOperationWrite, wantRemote: true,
+		},
+		{
+			name: "panicking local arm", wantPanic: localPanic,
+			operation: localShardOperationWrite, wantLocal: true,
+		},
+		{
+			name: "panicking remote arm", forwarded: true, wantPanic: remotePanic,
+			operation: localShardOperationWrite, wantRemote: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			idx, shard := refCountTestIndex(t, className)
+			hook := releaseMisuseHook(t, idx)
+			if test.forwarded {
+				forwardToRemote(t, idx, className, shard.name)
+			}
+
+			var version uint64
+			if test.failSchemaWait {
+				version = schemaVersion
+				schemaReader := idx.schemaReader.(*schemaUC.MockSchemaReader)
+				schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).
+					Return(context.Canceled).Once()
+			}
+
+			armErr := error(nil)
+			if test.failArm {
+				armErr = errArm
+			}
+
+			var ranLocal, ranRemote bool
+			var err error
+			run := func() {
+				err = idx.withShardOrRemote(t.Context(), "", shard.name, test.operation, version,
+					func(got ShardLike) error {
+						ranLocal = true
+						require.NotNil(t, got, "the local arm must never be handed a nil shard")
+						require.Positive(t, shard.inUseCounter.Load(),
+							"the shard must stay referenced for as long as the arm runs")
+						if test.wantPanic != "" {
+							panic(localPanic)
+						}
+						return armErr
+					},
+					func() error {
+						ranRemote = true
+						if test.wantPanic != "" {
+							panic(remotePanic)
+						}
+						return armErr
+					})
+			}
+
+			switch {
+			case test.wantPanic != "":
+				require.PanicsWithValue(t, test.wantPanic, run,
+					"the panic must come from the arm under test")
+			case test.failArm:
+				run()
+				require.ErrorIs(t, err, errArm, "the arm's error must reach the caller")
+			case test.failSchemaWait:
+				run()
+				require.Error(t, err)
+			default:
+				run()
+				require.NoError(t, err)
+			}
+			require.Equal(t, test.wantLocal, ranLocal, "local arm")
+			require.Equal(t, test.wantRemote, ranRemote, "remote arm")
+			require.Equal(t, int64(0), shard.inUseCounter.Load(),
+				"every branch must release the shard reference")
+			require.Empty(t, releaseMisuse(hook), "no branch may release twice")
 		})
 	}
 }
