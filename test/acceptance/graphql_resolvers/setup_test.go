@@ -717,13 +717,30 @@ func addTestDataDuplicatesClass(t *testing.T) {
 	}
 }
 
+// ransomNoteCount is the exact size of the RansomNote corpus, not a round
+// number picked for convenience. local_aggregate_test.go asserts the
+// unfiltered Aggregate count equals it and uses it as the upper bound on two
+// distance-cut counts; shrinking it also thins the pinned anchor's
+// neighbourhood, which the nearObject and nearVector cases need to stay above
+// their limit threshold. Resizing therefore breaks tests in two other files,
+// so the batching below derives from this constant instead of restating it.
+const ransomNoteCount = 500
+
 func addTestDataRansomNotes(t *testing.T) {
 	const (
 		noteLengthMin = 4
 		noteLengthMax = 1024
 
 		batchSize  = 10
-		numBatches = 50
+		numBatches = ransomNoteCount / batchSize
+	)
+
+	// Refuses to compile unless the batching produces exactly ransomNoteCount
+	// objects, so a re-batch cannot silently shrink the corpus out from under
+	// local_aggregate_test.go.
+	const (
+		_ = uint(batchSize*numBatches - ransomNoteCount)
+		_ = uint(ransomNoteCount - batchSize*numBatches)
 	)
 
 	className := "RansomNote"
