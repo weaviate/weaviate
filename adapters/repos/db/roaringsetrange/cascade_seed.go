@@ -51,7 +51,7 @@ func parseCascadeSeedEnabled(v string) bool {
 
 // LogCascadeSeedConfig states which position the switch is in and warns when it
 // holds a value it cannot read. The switch is parsed at init, where there is no
-// logger yet, so both lines are emitted from startup instead.
+// logger yet, so both checks run from here at startup instead.
 func LogCascadeSeedConfig(logger logrus.FieldLogger) {
 	logCascadeSeedState(logger, cascadeSeedEnabled)
 	logCascadeSeedConfig(logger, os.Getenv(CascadeSeedEnabledEnv))

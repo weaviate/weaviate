@@ -51,7 +51,7 @@ var cascadeEdgeValues = []uint64{
 
 // cascadeEncodeInt64 mirrors entities/inverted.LexicographicallySortableInt64
 // read back as a big-endian uint64: the sign bit is flipped, so a non-negative
-// predicate always sets bit 63 and plane 64 ends up a copy of plane 0.
+// predicate always sets bit 63.
 func cascadeEncodeInt64(v int64) uint64 { return uint64(v ^ math.MinInt64) }
 
 func TestPlanesStaySubsetsOfPlaneZero(t *testing.T) {
