@@ -741,6 +741,14 @@ func addTestDataRansomNotes(t *testing.T) {
 			}
 		}
 
+		// One note is pinned so the nearObject cases have a fixed anchor to
+		// search from. Its vector is set explicitly rather than vectorized, so
+		// it does not move with the random contents.
+		if i == 0 {
+			batch[0].ID = ransomNoteAnchorID
+			batch[0].Vector = ransomNoteAnchorVector
+		}
+
 		createObjectsBatch(t, batch)
 	}
 
