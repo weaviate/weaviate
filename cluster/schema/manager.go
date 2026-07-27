@@ -509,6 +509,13 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
 				removed, err := s.distributedTaskManager.PurgeTasksForCollectionTargets(meta.Class.Class, introduced)
 				if errors.Is(err, distributedtask.ErrTaskStillActiveForTargets) {
+					// Operator signal: normally a ms-scale SWAPPING window, but a
+					// node that died holding its post-completion ack wedges the
+					// task (and this refusal) until DeleteClass — repeated lines
+					// here for the same class are that wedge, not retry noise.
+					s.log.WithField("class", meta.Class.Class).
+						WithField("targets", introduced).
+						Warnf("drop-vector marker introduction refused; previous drop still completing: %v", err)
 					return fmt.Errorf("%w: a previous drop of %v on %q is still completing; retry: %w",
 						ErrBadRequest, introduced, meta.Class.Class, err)
 				} else if err != nil {

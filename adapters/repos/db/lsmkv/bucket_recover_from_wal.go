@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bufio"
 	"context"
+	errors2 "errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	bolterrors "go.etcd.io/bbolt/errors"
 
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -104,10 +106,23 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 	sidecarHasOps := false
 	if sg.editOps != nil {
 		ops, opsErr := sg.editOps.LoadOps()
-		if opsErr != nil {
+		switch {
+		case opsErr == nil:
+			sidecarHasOps = len(ops) > 0
+		case errors2.Is(opsErr, bolterrors.ErrTimeout):
+			// Still flocked by a previous instance — same hard-fail as the
+			// sidecar recovery in newSegmentGroup: loading blind is how a
+			// completed drop's data got resurrected.
 			return errors.Wrap(opsErr, "probe edit-ops sidecar before WAL recovery")
+		default:
+			// Torn/corrupt-but-unlocked sidecar: mirror recoverEditOps's
+			// policy — never brick the shard over drop-progress bookkeeping.
+			// Fail-safe direction: assume ops exist, so every WAL flushes to
+			// segments (only the keep-last-WAL optimization is lost).
+			b.logger.WithField("path", b.dir).
+				Warnf("probe edit-ops sidecar before WAL recovery failed; flushing all WALs as a precaution: %v", opsErr)
+			sidecarHasOps = true
 		}
-		sidecarHasOps = len(ops) > 0
 	}
 
 	// recover from each log
