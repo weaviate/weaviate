@@ -1878,22 +1878,17 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 		{"unsupported unit", []string{"5GiL"}, 0, true},
 	}
 
-	// The other variable is pinned wide enough that it can never be the one rejecting.
 	envNames := []struct {
-		envName       string
-		defaultVal    int
-		otherEnvName  string
-		otherEnvValue string
-		read          func(Config) int
+		envName    string
+		defaultVal int
+		read       func(Config) int
 	}{
 		{
 			"QUERY_BITMAP_BUFS_MAX_MEMORY", DefaultQueryBitmapBufsMaxMemory,
-			"QUERY_BITMAP_BUFS_MAX_BUF_SIZE", "2MiB",
 			func(c Config) int { return c.QueryBitmapBufsMaxMemory },
 		},
 		{
 			"QUERY_BITMAP_BUFS_MAX_BUF_SIZE", DefaultQueryBitmapBufsMaxBufSize,
-			"QUERY_BITMAP_BUFS_MAX_MEMORY", "1TiB",
 			func(c Config) int { return c.QueryBitmapBufsMaxBufSize },
 		},
 	}
@@ -1901,7 +1896,6 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 	for _, env := range envNames {
 		for _, tt := range tests {
 			t.Run(env.envName+"/"+tt.name, func(t *testing.T) {
-				t.Setenv(env.otherEnvName, env.otherEnvValue)
 				if len(tt.value) == 1 {
 					t.Setenv(env.envName, tt.value[0])
 				}

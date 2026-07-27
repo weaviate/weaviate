@@ -56,10 +56,11 @@ func NewBitmapBufPoolDefault(logger logrus.FieldLogger, metrics *monitoring.Prom
 	inMemoMaxBufSize int, maxMemoSizeForBufs int,
 ) (pool BitmapBufPool, close func()) {
 	syncRanges := calculateSyncBufferRanges(bufPoolSyncMinRangeP2, bufPoolSyncMaxRangeP2)
-	inMemoRanges, inMemoBufsLimits := inMemoBufferRangesAndLimits(inMemoMaxBufSize, maxMemoSizeForBufs)
+	syncMaxBufSize := syncRanges[len(syncRanges)-1]
+	inMemoRanges, inMemoBufsLimits := calculateInMemoBufferRangesAndLimits(syncMaxBufSize,
+		bufPoolInMemoMinRangeP2, inMemoMaxBufSize, maxMemoSizeForBufs)
 	logDegradedBufPool(logger, inMemoRanges, inMemoMaxBufSize, maxMemoSizeForBufs)
 
-	syncMaxBufSize := syncRanges[len(syncRanges)-1]
 	allRanges := syncRanges
 	if len(inMemoRanges) > 0 {
 		allRanges = append(allRanges, inMemoRanges...)
@@ -336,13 +337,6 @@ func calculateSyncBufferRanges(minRangeP2, maxRangeP2 int) []int {
 		ranges[i] = 1 << (i + minRangeP2)
 	}
 	return ranges
-}
-
-// inMemoBufferRangesAndLimits builds the ladder NewBitmapBufPoolDefault uses.
-func inMemoBufferRangesAndLimits(maxBufSize, maxMemoSize int) ([]int, map[int]int) {
-	maxSyncBufSize := 1 << bufPoolSyncMaxRangeP2
-	return calculateInMemoBufferRangesAndLimits(maxSyncBufSize, bufPoolInMemoMinRangeP2,
-		maxBufSize, maxMemoSize)
 }
 
 // logDegradedBufPool is the only signal for a degraded pool: the surviving

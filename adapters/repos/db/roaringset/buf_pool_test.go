@@ -856,6 +856,14 @@ func TestValidateBufferRanges(t *testing.T) {
 func TestCloneToBufGrowthHeadroom(t *testing.T) {
 	const MiB = 1 << 20
 
+	// Headroom is pinned to literals rather than recomputed through
+	// withGrowthHeadroom, which would only assert that it equals itself.
+	const (
+		srcLenInBytes = 2_103_328 // what prefilledOfAtLeast(2*MiB) produces
+		srcAt125      = 2_629_160 // ceil(srcLenInBytes * 1.25)
+		srcAt200      = 4_206_656 // srcLenInBytes * 2
+	)
+
 	// exact-capacity buffers, so the test sees the raw request, not a rounded-up class.
 	newRecording := func() (*recordingBufPool, BitmapBufPool) {
 		p := &recordingBufPool{}
@@ -869,7 +877,8 @@ func TestCloneToBufGrowthHeadroom(t *testing.T) {
 		cloned, put := pool.CloneToBuf(src)
 		defer put()
 
-		require.Equal(t, withGrowthHeadroom(src.LenInBytes(), bitmapCloneGrowthFactor), rec.lastMinCap)
+		require.Equal(t, srcLenInBytes, src.LenInBytes())
+		require.Equal(t, srcAt125, rec.lastMinCap)
 		require.Greater(t, rec.lastMinCap, src.LenInBytes())
 		require.Equal(t, src.GetCardinality(), cloned.GetCardinality())
 	})
@@ -890,14 +899,15 @@ func TestCloneToBufGrowthHeadroom(t *testing.T) {
 	t.Run("factor wrapper does not stack with the clone factor", func(t *testing.T) {
 		rec, base := newRecording()
 		src := prefilledOfAtLeast(2 * MiB)
+		require.Equal(t, srcLenInBytes, src.LenInBytes())
 
 		// below the clone factor: the clone factor wins
 		NewBitmapBufPoolFactorWrapper(base, 1.1).CloneToBuf(src)
-		require.Equal(t, withGrowthHeadroom(src.LenInBytes(), bitmapCloneGrowthFactor), rec.lastMinCap)
+		require.Equal(t, srcAt125, rec.lastMinCap)
 
 		// above it: the wrapper's own factor wins, and is not multiplied by it
 		NewBitmapBufPoolFactorWrapper(base, 2.0).CloneToBuf(src)
-		require.Equal(t, withGrowthHeadroom(src.LenInBytes(), 2.0), rec.lastMinCap)
+		require.Equal(t, srcAt200, rec.lastMinCap)
 	})
 
 	t.Run("Get is untouched", func(t *testing.T) {
@@ -1134,7 +1144,8 @@ func TestDisposableBufMetricSizeLabel(t *testing.T) {
 	}
 
 	t.Run("a request the size of a pooled class carries that class's label", func(t *testing.T) {
-		inMemoRanges, _ := inMemoBufferRangesAndLimits(1<<25, 1<<27)
+		inMemoRanges, _ := calculateInMemoBufferRangesAndLimits(1<<bufPoolSyncMaxRangeP2,
+			bufPoolInMemoMinRangeP2, 1<<25, 1<<27)
 		require.NotEmpty(t, inMemoRanges)
 
 		for _, rng := range inMemoRanges {

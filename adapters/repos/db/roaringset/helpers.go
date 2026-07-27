@@ -74,7 +74,8 @@ func NewBitmapFactory(bufPool BitmapBufPool, maxIdGetter MaxIdGetterFunc) *Bitma
 
 // cloneExact skips CloneToBuf's growth headroom: this clone only ever shrinks
 // (RemoveRange below, then AndNot at its single caller), so headroom buys
-// nothing. TestBitmapFactoryCloneNeverOutgrowsItsBuffer pins that.
+// nothing. TestBitmapFactoryCloneNeverOutgrowsItsBuffer pins that; if it stops
+// holding, restore CloneToBuf.
 func (bmf *BitmapFactory) cloneExact() (*sroar.Bitmap, func()) {
 	buf, release := bmf.bufPool.Get(bmf.prefilled.LenInBytes())
 	return bmf.prefilled.CloneToBuf(buf), release
