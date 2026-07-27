@@ -14,8 +14,11 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
@@ -73,4 +76,65 @@ func TestPollUntilEmpty_ShardGoneFailsFast(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "consecutive errors")
 	require.Equal(t, maxConsecutivePollErrors, reads2)
+}
+
+// TestShutdown_FailedInUseResetsRequestFlag pins the restore-composability
+// fix: a Shutdown that fails "still in use" must clear shutdownRequested —
+// otherwise the shard the caller restores to the map is a zombie (every
+// guarded op returns errShutdownInProgress) and refCountSub self-completes
+// the shutdown in the background the moment refs drain, leaving a silently
+// dead shard behind a trusted map hit.
+func TestShutdown_FailedInUseResetsRequestFlag(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	s := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
+	s.inUseCounter.Add(1) // an in-flight guarded op
+
+	err := s.Shutdown(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "still in use")
+
+	require.False(t, s.shutdownRequested.Load(),
+		"a failed shutdown must clear the request flag or the restored shard is unusable")
+	release, err := s.preventShutdown()
+	require.NoError(t, err, "guarded ops must work on a restored shard")
+	release()
+
+	// And the deferred ref-drain shutdown is disarmed: draining the ref must
+	// NOT self-complete the aborted shutdown.
+	s.refCountSub()
+	require.False(t, s.shut.Load(), "refCountSub must not self-shut a shard whose shutdown was aborted")
+}
+
+// TestRestoreShardIfStillAlive pins the shared restore helper used by every
+// failed-shutdown site (UpdateTenants cold path, ShutdownShard,
+// UnloadLocalShard, IncomingReinitShard).
+func TestRestoreShardIfStillAlive(t *testing.T) {
+	var m shardMap
+
+	live := &Shard{}
+	require.True(t, restoreShardIfStillAlive(&m, "s1", live))
+	got := m.Load("s1")
+	require.NotNil(t, got)
+
+	shut := &Shard{}
+	shut.shut.Store(true)
+	require.False(t, restoreShardIfStillAlive(&m, "s2", shut),
+		"a shard past the shut mark must not be re-served")
+	require.Nil(t, m.Load("s2"))
+}
+
+// TestVerifiedStillDroppedMemoIsBounded pins the leak fix: DeleteClass during
+// an active drop cascade-deletes the task, OnTaskCompleted never fires, and
+// without the cap each such cycle would leak a memo entry for the process
+// lifetime.
+func TestVerifiedStillDroppedMemoIsBounded(t *testing.T) {
+	p := newTestDropProvider(&fakeShards{}, &fakeFinalizer{}, newFakeRecorder())
+	for i := 0; i < maxVerifiedStillDroppedEntries+50; i++ {
+		task := dropTask(distributedtask.TaskStatusFinished, nil)
+		task.ID = fmt.Sprintf("t-%d", i)
+		require.NoError(t, p.OnGroupCompleted(task, "tenant1", []string{"u1"}))
+	}
+	p.verifiedMu.Lock()
+	defer p.verifiedMu.Unlock()
+	require.LessOrEqual(t, len(p.verifiedStillDropped), maxVerifiedStillDroppedEntries)
 }

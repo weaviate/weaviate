@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -47,13 +48,36 @@ func shardStillAlive(s ShardLike) bool {
 
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.shutdownRequested.Store(true)
-	return backoff.Retry(func() error {
+	err = backoff.Retry(func() error {
 		// this retry to make sure it's retried in case
 		// the performShutdown() returned shard still in use
 		return s.performShutdown(ctx)
 	}, backoff.WithContext(backoff.WithMaxRetries(
 		// this will try with max 2 seconds could be configurable later on
 		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+	if err != nil && !errors.Is(err, errAlreadyShutdown) {
+		// Aborted shutdown: clear the request flag, or the shard callers
+		// restore (restoreShardIfStillAlive) stays gated by preventShutdown
+		// and refCountSub self-completes the shutdown once refs drain. If
+		// that deferred shutdown wins the race, the shard is marked shut and
+		// shardStillAlive refuses the restore.
+		s.shutdownRequested.Store(false)
+	}
+	return err
+}
+
+// restoreShardIfStillAlive puts a shard whose Shutdown failed back into the
+// shard map (under the caller's shardCreateLock): a failed close usually
+// means "still in use" — leaving the live instance out of the map would let
+// a later (re)load double-open the same directory. Deep teardown failures
+// never reach here: the retry's idempotent short-circuit surfaces them as
+// Shutdown()==nil, so those shards drop from the map and re-init fresh.
+func restoreShardIfStillAlive(shards *shardMap, name string, shard ShardLike) bool {
+	if !shardStillAlive(shard) {
+		return false
+	}
+	shards.Store(name, shard)
+	return true
 }
 
 /*

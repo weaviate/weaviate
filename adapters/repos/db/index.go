@@ -2929,14 +2929,20 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Load(shardName); shard != nil {
-		if mustLoad {
-			lazyShard, ok := shard.(*LazyLoadShard)
-			if ok {
-				return lazyShard.Load(ctx)
+		// Never trust a map hit on a shard that already shut down (e.g. the
+		// deferred ref-drain shutdown) — re-initialize fresh instead of
+		// leaving the tenant serving errAlreadyShutdown forever.
+		if !shardStillAlive(shard) {
+			i.shards.LoadAndDelete(shardName)
+		} else {
+			if mustLoad {
+				lazyShard, ok := shard.(*LazyLoadShard)
+				if ok {
+					return lazyShard.Load(ctx)
+				}
 			}
+			return nil
 		}
-
-		return nil
 	}
 
 	if _, protected := i.backupProtectedShards.Load(shardName); protected {
@@ -2971,12 +2977,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 
 	if err := shardLike.Shutdown(ctx); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
-			// Restore the still-live shard (see shardStillAlive): leaving it
-			// orphaned outside the map lets a later (re)load double-open the
-			// same directory.
-			if shardStillAlive(shardLike) {
-				i.shards.Store(shardName, shardLike)
-			}
+			restoreShardIfStillAlive(&i.shards, shardName, shardLike)
 			return errors.Wrapf(err, "shutdown shard %q", shardName)
 		}
 		return errors.Wrapf(errAlreadyShutdown, "shutdown shard %q", shardName)

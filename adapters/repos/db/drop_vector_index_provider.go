@@ -33,6 +33,10 @@ import (
 // drains it.
 const defaultDropVectorPollInterval = 30 * time.Second
 
+// maxVerifiedStillDroppedEntries bounds the OnGroupCompleted verify memo; see
+// memoizedTargetsStillDropped's eviction comment.
+const maxVerifiedStillDroppedEntries = 512
+
 // maxConsecutivePollErrors tolerates transient pending-read blips before failing
 // the unit, so a momentary I/O error doesn't flip the whole task to FAILED.
 const maxConsecutivePollErrors = 3
@@ -734,6 +738,15 @@ func (p *DropVectorIndexProvider) memoizedTargetsStillDropped(
 	func() {
 		p.verifiedMu.Lock()
 		defer p.verifiedMu.Unlock()
+		// Bounded: OnTaskCompleted never fires for tasks cascade-deleted by
+		// DeleteClass mid-drop, so uncapped entries would leak per cycle.
+		// Evicting arbitrarily is safe — a miss costs one leader re-read.
+		if len(p.verifiedStillDropped) >= maxVerifiedStillDroppedEntries {
+			for id := range p.verifiedStillDropped {
+				delete(p.verifiedStillDropped, id)
+				break
+			}
+		}
 		p.verifiedStillDropped[task.ID] = stillDropped
 	}()
 	return stillDropped, nil

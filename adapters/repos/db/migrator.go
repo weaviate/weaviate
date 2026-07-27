@@ -347,12 +347,7 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	}
 	if err := shardLike.Shutdown(ctx); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
-			// Restore the still-live shard (see shardStillAlive): leaving it
-			// orphaned outside the map lets a later (re)load double-open the
-			// same directory.
-			if shardStillAlive(shardLike) {
-				idx.shards.Store(shard, shardLike)
-			}
+			restoreShardIfStillAlive(&idx.shards, shard, shardLike)
 			return errors.Wrapf(err, "shutdown shard %q", shard)
 		}
 		idx.logger.WithField("shard", shardLike.Name()).Debug("was already shut or dropped")
@@ -725,17 +720,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
-						// Lifecycle fence: a shard whose shutdown failed (typically
-						// "still in use" — performShutdown refuses before marking the
-						// shard shut) is fully alive. Leaving it out of the map would
-						// orphan the running instance, and a later reactivation would
-						// build a SECOND instance over the same directory (double-open
-						// corruption; observed as sidecar flock timeouts). Restore it
-						// under the still-held shardCreateLock: the tenant stays
-						// loaded locally and the failed transition is retryable.
-						if shardStillAlive(shard) {
-							idx.shards.Store(name, shard)
-						}
+						restoreShardIfStillAlive(&idx.shards, name, shard)
 						idx.logger.
 							WithField("action", "shard_shutdown").
 							WithField("shard", shard.ID()).
