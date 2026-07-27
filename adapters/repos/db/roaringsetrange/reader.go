@@ -31,13 +31,17 @@ import (
 // record; the delete path reads it in-package via readSourceFromContext.
 const DocBitmapAnnotation = "build_allow_list_doc_bitmap_rangeable"
 
-// docBitmapSourceField names the backing that answered the read; the
-// annotation's presence alone doesn't, since both backings write it.
+// docBitmapSourceField names which readers answered; the annotation's presence
+// alone doesn't, since both reader sets write it.
 const docBitmapSourceField = "source"
 
+// Both values are facts about the reader set. The second names the absence of
+// the in-memory segment rather than a backing, because the readers it stands
+// for are the bucket's memtable plus however many range segments happen to be
+// on disk, and that count is zero until the first flush.
 const (
-	sourceInMemorySegment = "in_memory_segment"
-	sourceDiskSegments    = "disk_segments"
+	sourceInMemorySegment   = "in_memory_segment"
+	sourceNoInMemorySegment = "no_in_memory_segment"
 )
 
 type InnerReader interface {
@@ -74,7 +78,7 @@ func readerSource(readers []InnerReader) string {
 			return sourceInMemorySegment
 		}
 	}
-	return sourceDiskSegments
+	return sourceNoInMemorySegment
 }
 
 // readSourceFromContext returns "" when no range read ran under ctx.

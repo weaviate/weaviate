@@ -17,6 +17,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -50,7 +53,7 @@ func Test_FindUUIDs_RecordsHowTheFilterResolved(t *testing.T) {
 		rangeableInMemory bool
 		wantSource        string
 	}{
-		{name: "the default path", rangeableInMemory: false, wantSource: "disk_segments"},
+		{name: "the default path", rangeableInMemory: false, wantSource: "no_in_memory_segment"},
 		{name: "in-memory range segment", rangeableInMemory: true, wantSource: "in_memory_segment"},
 	}
 
@@ -74,7 +77,7 @@ func Test_FindUUIDs_RecordsHowTheFilterResolved(t *testing.T) {
 			require.NotEmpty(t, reads)
 			for _, read := range reads {
 				require.Equal(t, tt.wantSource, read["source"],
-					"the record names a backing the read did not come from")
+					"the record names readers the read did not use")
 			}
 		})
 	}
@@ -98,15 +101,15 @@ func Test_FindUUIDs_RecordIsBoundedByTheSlowLogSwitch(t *testing.T) {
 	}
 }
 
-// Pins the label to the backing that answered, not to the annotation's mere
-// presence, which both backings write regardless of which one ran.
+// Pins the label to the readers that answered, not to the annotation's mere
+// presence, which both reader sets write regardless of which one ran.
 func Test_FindUUIDs_CountsWhichBackingResolvedTheFilter(t *testing.T) {
 	tests := []struct {
 		name              string
 		rangeableInMemory bool
 		wantRouted        string
 	}{
-		{name: "the default path", rangeableInMemory: false, wantRouted: "rangeable_on_disk"},
+		{name: "the default path", rangeableInMemory: false, wantRouted: "rangeable_no_in_memory_segment"},
 		{name: "in-memory range segment", rangeableInMemory: true, wantRouted: "rangeable_in_memory"},
 	}
 
@@ -138,6 +141,95 @@ func Test_FindUUIDs_CountsWhichBackingResolvedTheFilter(t *testing.T) {
 	}
 }
 
+// Flushed-versus-unflushed is orthogonal to IndexRangeableInMemory, so it needs
+// its own axis: a collection that has never flushed has no range segment on
+// disk and is answered from the memtable alone, which is the state of every
+// collection until its first flush. A label naming disk segments is false
+// there, and this is what says so rather than leaving it to the help text.
+func Test_FindUUIDs_CountsTheSameChildOnAnUnflushedCollection(t *testing.T) {
+	tests := []struct {
+		name              string
+		rangeableInMemory bool
+		flush             bool
+		wantRouted        string
+	}{
+		{
+			name:       "default path, nothing flushed",
+			wantRouted: "rangeable_no_in_memory_segment",
+		},
+		{
+			name:       "default path, flushed",
+			flush:      true,
+			wantRouted: "rangeable_no_in_memory_segment",
+		},
+		{
+			name:              "in-memory range segment, nothing flushed",
+			rangeableInMemory: true,
+			wantRouted:        "rangeable_in_memory",
+		},
+		{
+			name:              "in-memory range segment, flushed",
+			rangeableInMemory: true,
+			flush:             true,
+			wantRouted:        "rangeable_in_memory",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, _ := newFindUUIDsSlowLogShard(t, ctx, tt.rangeableInMemory, func(idx *Index) {
+				idx.Config.QuerySlowLogEnabled = configRuntime.NewDynamicValue(false)
+			})
+
+			if tt.flush {
+				require.NoError(t, shard.Store().FlushMemtables(ctx))
+			}
+
+			segments := rangeableDiskSegments(t, shard)
+			if tt.flush {
+				require.NotZero(t, segments,
+					"the flush left no range segment on disk, so this case reads the same backing as the unflushed one")
+			} else {
+				require.Zerof(t, segments,
+					"%d range segments are on disk, so this case does not read an unflushed collection", segments)
+				require.NotContainsf(t, tt.wantRouted, "disk",
+					"%q names disk segments and none were read", tt.wantRouted)
+			}
+
+			before := gatheredLabelValues(t, resolutionsSeries)
+
+			uuids, err := shard.FindUUIDs(ctx, rangeableIntFilter(filters.OperatorLessThanEqual, 5), 0)
+			require.NoError(t, err)
+			require.Len(t, uuids, 5, "the filter matched nothing, so any assertion on its routing is vacuous")
+
+			want := maps.Clone(before)
+			want[tt.wantRouted]++
+			require.Equalf(t, want, gatheredLabelValues(t, resolutionsSeries),
+				"the resolution was not counted as %q", tt.wantRouted)
+		})
+	}
+}
+
+// rangeableDiskSegments counts the range segments the property has on disk,
+// which is what makes the flushed axis a measurement rather than an assumption.
+func rangeableDiskSegments(t *testing.T, shard ShardLike) int {
+	t.Helper()
+
+	dir := filepath.Join(shard.pathLSM(),
+		helpers.BucketRangeableFromPropNameLSM(findUUIDsSlowLogProp))
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+
+	count := 0
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".db" {
+			count++
+		}
+	}
+	return count
+}
+
 // Pins that a resolution counts even when it matches nothing, since the
 // series measures resolutions, not deletes.
 func Test_FindUUIDs_CountsAResolutionThatMatchedNothing(t *testing.T) {
@@ -149,7 +241,7 @@ func Test_FindUUIDs_CountsAResolutionThatMatchedNothing(t *testing.T) {
 		{
 			name:       "rangeable property",
 			filter:     rangeableIntFilter(filters.OperatorLessThan, 1),
-			wantRouted: "rangeable_on_disk",
+			wantRouted: "rangeable_no_in_memory_segment",
 		},
 		{
 			name:       "filterable property",

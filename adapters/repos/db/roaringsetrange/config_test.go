@@ -186,33 +186,12 @@ func TestPublishConfigStaysQuietOnAHealthyDefault(t *testing.T) {
 }
 
 // Only the constant's value is published, so an identifier naming a different
-// series drifts unnoticed.
+// series or a different label value drifts unnoticed. Both halves of the
+// operator-facing contract are checked here, or half a rename still passes.
 func TestMetricNameConstantsMatchTheSeriesTheyHold(t *testing.T) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "config.go", nil, 0)
-	require.NoError(t, err)
-
-	checked := map[string]string{}
-	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.CONST {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			value, ok := spec.(*ast.ValueSpec)
-			if !ok || len(value.Names) != 1 || len(value.Values) != 1 {
-				continue
-			}
-			ident := value.Names[0].Name
-			literal, ok := value.Values[0].(*ast.BasicLit)
-			if !ok || literal.Kind != token.STRING || !strings.HasSuffix(ident, "Name") {
-				continue
-			}
-			series, err := strconv.Unquote(literal.Value)
-			require.NoError(t, err)
-			checked[ident] = series
-		}
-	}
+	checked := stringConstants(t, "config.go", func(ident string) bool {
+		return strings.HasSuffix(ident, "Name")
+	})
 
 	require.Len(t, checked, 5,
 		"a metric name constant left config.go, which is the one file this test reads")
@@ -226,6 +205,53 @@ func TestMetricNameConstantsMatchTheSeriesTheyHold(t *testing.T) {
 			"%s publishes %q; a reviewer reading the identifier would grep for something else",
 			ident, metricsNamespace+"_"+series)
 	}
+
+	routed := stringConstants(t, "delete_filter.go", func(ident string) bool {
+		return strings.HasPrefix(ident, "routed")
+	})
+
+	require.Len(t, routed, 3,
+		"a routed label constant left delete_filter.go, which is the one file this test reads")
+
+	for ident, value := range routed {
+		assert.Equalf(t, snakeCase(strings.TrimPrefix(ident, "routed")), value,
+			"%s publishes %q; a dashboard written from the identifier would match nothing",
+			ident, value)
+	}
+}
+
+// stringConstants returns the string constants of one file whose identifier
+// keep reports, so a rename that touches the identifier without the value, or
+// the value without the identifier, is visible to the caller.
+func stringConstants(t *testing.T, filename string, keep func(ident string) bool) map[string]string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filename, nil, 0)
+	require.NoError(t, err)
+
+	found := map[string]string{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || len(value.Names) != 1 || len(value.Values) != 1 {
+				continue
+			}
+			ident := value.Names[0].Name
+			literal, ok := value.Values[0].(*ast.BasicLit)
+			if !ok || literal.Kind != token.STRING || !keep(ident) {
+				continue
+			}
+			unquoted, err := strconv.Unquote(literal.Value)
+			require.NoError(t, err)
+			found[ident] = unquoted
+		}
+	}
+	return found
 }
 
 func snakeCase(s string) string {

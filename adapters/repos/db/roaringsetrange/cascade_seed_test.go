@@ -261,8 +261,10 @@ func TestEmittedSeriesNames(t *testing.T) {
 			"hit", "miss", "store", "rejected", "invalidate", "disabled",
 		},
 		cascadeSeedName: {"seeded", "disabled", "no_set_bit"},
+		// Literals, like every other row: a constant here would follow a rename
+		// of the label value and leave the dashboard-facing string unpinned.
 		deleteFilterResolutionsName: {
-			routedRangeableInMemory, routedRangeableOnDisk, routedNonRangeable,
+			"rangeable_in_memory", "rangeable_no_in_memory_segment", "non_rangeable",
 		},
 		cascadeSeedConfigName: {"enabled", "disabled", "unrecognised"},
 		// The one entry that separates "off" from "idle"; a rename here breaks
