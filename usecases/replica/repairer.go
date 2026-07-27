@@ -522,10 +522,6 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 		for j, x := range lastTimes {
 			deleted := x.Deleted && lastDeletionTimes[j] == x.T
-			if !deleted && result[j] == nil {
-				// latest object could not be fetched
-				continue
-			}
 
 			if x.Deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 				alreadyDeleted := vote.DigestData[j].Deleted
@@ -548,6 +544,12 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 			if x.Deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
 				// note: conflict is not resolved
+				continue
+			}
+
+			if !deleted && result[j] == nil {
+				// only a write carrying content needs the winning object, and it
+				// could not be fetched
 				continue
 			}
 
