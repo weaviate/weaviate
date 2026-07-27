@@ -83,8 +83,9 @@ func (suite *ReplicationTestSuite) TestReadRepairPreservesProjectedAwayContent()
 		}
 	}()
 
-	// Funcs, not vars: restarting a container remaps its published port. The
-	// reader must stay up, since repair only overwrites via the winning local copy.
+	// Funcs, not vars: restarting a container remaps its published port. Only
+	// the lagging node is stopped; the reader coordinates every request, so its
+	// projected copy is the caller's copy the repair path sees.
 	readerURI := func() string { return compose.ContainerURI(1) }
 	laggingURI := func() string { return compose.ContainerURI(3) }
 	laggingNode := docker.Weaviate2

@@ -311,7 +311,7 @@ const maxFullReadIDsPerRequest = 64
 // FullReads reads the current version of each id from host, one entry per
 // requested id in request order. A response that does not line up with the
 // request is rejected rather than returned: callers index it positionally, so
-// a misaligned entry would apply one object's content to another id.
+// a mispair would repair the wrong object.
 func (fc FinderClient) FullReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID,
