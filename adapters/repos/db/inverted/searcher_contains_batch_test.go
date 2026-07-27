@@ -181,11 +181,11 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pv, eligible, err := s.extractContainsBatch(ctx, containsPath(tt.prop),
+			pv, err := s.extractContains(ctx, containsPath(tt.prop),
 				tt.propType, tt.value, tt.operator, f.class)
 			require.NoError(t, err)
-			require.True(t, eligible)
 			require.NotNil(t, pv)
+			require.Nil(t, pv.children, "eligible shape must resolve batched, not desugared")
 			require.Equal(t, tt.operator, pv.operator)
 			require.Equal(t, tt.prop, pv.prop)
 			require.True(t, pv.hasFilterableIndex)
@@ -202,6 +202,10 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 	s := f.searcher
 	ctx := context.Background()
 
+	// Every row must NOT resolve through the batched path. Rows with
+	// wantErr expect the desugared continuation to fail on its own terms
+	// (which also proves the gate declined: a wrongly-accepted shape would
+	// have succeeded with containsValues instead of erroring).
 	tests := []struct {
 		name     string
 		path     *filters.Path
@@ -209,6 +213,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 		value    interface{}
 		operator filters.Operator
 		setup    func(t *testing.T)
+		wantErr  bool
 	}{
 		{
 			name: "ContainsNone is out of scope",
@@ -219,6 +224,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			name:     "nested path",
 			path:     &filters.Path{Property: "addresses", Child: &filters.Path{Property: "city"}},
 			propType: schema.DataTypeText, value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantErr: true, // fixture class has no "addresses" property
 		},
 		{
 			name: "internal prop",
@@ -229,26 +235,31 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			name: "property length meta-filter",
 			path: containsPath("prop-int" + filters.InternalPropertyLength), propType: schema.DataTypeInt,
 			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantErr: true, // fixture class does not index property lengths
 		},
 		{
 			name: "property not found",
 			path: containsPath("prop-does-not-exist"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantErr: true,
 		},
 		{
 			name: "nested object property",
 			path: containsPath("prop-nested"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantErr: true, // nested filtering preview gate is off in tests
 		},
 		{
 			name: "ref prop",
 			path: containsPath("prop-ref"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantErr: true, // desugared leaf rejects text values on a reference
 		},
 		{
 			name: "geo prop",
 			path: containsPath("prop-geo"), propType: schema.DataTypeText,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantErr: true, // desugared leaf rejects text values on a geo prop
 		},
 		{
 			name: "non-FIELD tokenization WORD",
@@ -273,6 +284,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			name: "IndexFilterable false",
 			path: containsPath("prop-not-filterable"), propType: schema.DataTypeInt,
 			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantErr: true, // int props have no searchable fallback; the leaf demands the filterable index
 		},
 		{
 			name: "bucket strategy not roaringset",
@@ -288,6 +300,7 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			name: "N=0 values",
 			path: containsPath("prop-int"), propType: schema.DataTypeInt,
 			value: []int{}, operator: filters.ContainsAny,
+			wantErr: true, // the desugared path rejects an empty value set
 		},
 		{
 			name: "N=1 value",
@@ -295,17 +308,19 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			value: []int{1}, operator: filters.ContainsAny,
 		},
 		// array value types must decline: the desugared per-value leaf
-		// extractors error on them, so accepting them here would succeed
-		// where the fallback path errors
+		// extractors error on them, so accepting them in the gate would
+		// succeed where the fallback path errors
 		{
 			name: "array value type text",
 			path: containsPath("prop-text-field"), propType: schema.DataTypeTextArray,
 			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantErr: true,
 		},
 		{
 			name: "array value type int",
 			path: containsPath("prop-int"), propType: schema.DataTypeIntArray,
 			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantErr: true,
 		},
 	}
 
@@ -314,11 +329,15 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(t)
 			}
-			pv, eligible, err := s.extractContainsBatch(ctx, tt.path, tt.propType,
+			pv, err := s.extractContains(ctx, tt.path, tt.propType,
 				tt.value, tt.operator, f.class)
-			require.False(t, eligible)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
-			require.Nil(t, pv)
+			require.NotNil(t, pv)
+			require.Nil(t, pv.containsValues, "shape must not resolve through the batched path")
 		})
 	}
 }
@@ -332,10 +351,11 @@ func TestExtractContainsBatch_EncodingErrorIsEligibleButFails(t *testing.T) {
 		"11111111-1111-1111-1111-111111111111",
 		"not-a-valid-uuid",
 	}
-	pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-uuid"),
+	pv, err := s.extractContains(ctx, containsPath("prop-uuid"),
 		schema.DataTypeText, values, filters.ContainsAny, f.class)
-	require.True(t, eligible)
 	require.Error(t, err)
+	require.ErrorContains(t, err, "extract contains values",
+		"the matched shape must fail in the gate, not fall through to desugar")
 	require.Nil(t, pv)
 }
 
@@ -382,13 +402,7 @@ func TestExtractContainsBatch_KillSwitch(t *testing.T) {
 
 	t.Setenv(entcfg.EnvDisableBatchedContains, "true")
 
-	pv, eligible, err := s.extractContainsBatch(ctx, containsPath("prop-int"),
-		schema.DataTypeInt, []int{1, 2, 3}, filters.ContainsAny, f.class)
-	require.False(t, eligible)
-	require.NoError(t, err)
-	require.Nil(t, pv)
-
-	pv, err = s.extractContains(ctx, containsPath("prop-int"), schema.DataTypeInt,
+	pv, err := s.extractContains(ctx, containsPath("prop-int"), schema.DataTypeInt,
 		[]int{1, 2, 3}, filters.ContainsAny, f.class)
 	require.NoError(t, err)
 	require.Nil(t, pv.containsValues)
