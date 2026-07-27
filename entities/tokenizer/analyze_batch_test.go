@@ -15,11 +15,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type fakeStopwords map[string]struct{}
@@ -46,6 +44,10 @@ func assertBatchMatchesPerValue(t *testing.T, got *AnalyzedBatch, values []strin
 // tokenization × stopword × folding combination, the batch result must equal
 // Analyze called per value. A pipeline change applied to one entry point but
 // not the other turns this red.
+//
+// Named coverage gap: AnalyzeBatch's uint32 offset-overflow error is
+// untested — triggering it takes a batch of over 4B tokens, and making the
+// limit injectable would add a test-only seam to production code.
 func TestAnalyzeBatchEquivalence(t *testing.T) {
 	className := "EquivClass"
 	// deliberately awkward inputs: plain multiword, mixed case + punctuation,
@@ -83,7 +85,8 @@ func TestAnalyzeBatchEquivalence(t *testing.T) {
 		for swName, sw := range stopwordVariants {
 			for prepName, prepared := range analyzerVariants {
 				t.Run(fmt.Sprintf("%s/%s/%s", tok, swName, prepName), func(t *testing.T) {
-					got := AnalyzeBatch(values, tok, className, prepared, sw)
+					got, err := AnalyzeBatch(values, tok, className, prepared, sw)
+					require.NoError(t, err)
 					assertBatchMatchesPerValue(t, got, values, tok, className, prepared, sw)
 				})
 			}
@@ -118,7 +121,8 @@ func TestAnalyzeBatchEquivalenceCustomKagome(t *testing.T) {
 			}()
 
 			values := []string{"Weaviate Semi Technologies", "We Aviate", ""}
-			got := AnalyzeBatch(values, tt.tokenization, className, nil, nil)
+			got, err := AnalyzeBatch(values, tt.tokenization, className, nil, nil)
+			require.NoError(t, err)
 			assertBatchMatchesPerValue(t, got, values, tt.tokenization, className, nil, nil)
 
 			require.Zero(t, len(ApacTokenizerThrottle),
@@ -148,7 +152,8 @@ func TestAnalyzeBatchEquivalenceThrottledGseCh(t *testing.T) {
 
 	require.Zero(t, len(ApacTokenizerThrottle), "throttle must be empty before the batch")
 
-	got := AnalyzeBatch(values, models.PropertyTokenizationGseCh, "C", nil, nil)
+	got, err := AnalyzeBatch(values, models.PropertyTokenizationGseCh, "C", nil, nil)
+	require.NoError(t, err)
 	assertBatchMatchesPerValue(t, got, values, models.PropertyTokenizationGseCh, "C", nil, nil)
 
 	require.Zero(t, len(ApacTokenizerThrottle), "batch must release its throttle slot")
@@ -159,41 +164,46 @@ func TestAnalyzeBatchEquivalenceThrottledGseCh(t *testing.T) {
 // tokenization's label — not one observation per value, and nothing under
 // any other label.
 func TestAnalyzeBatchMetricsOncePerBatch(t *testing.T) {
-	countFor := func(label string) float64 {
-		return testutil.ToFloat64(monitoring.GetMetrics().TokenCount.WithLabelValues(label))
-	}
-
-	fieldBefore := countFor(models.PropertyTokenizationField)
-	out := AnalyzeBatch([]string{" a ", "b", " c "}, models.PropertyTokenizationField, "C", nil, nil)
+	fieldBefore := tokenCount(models.PropertyTokenizationField)
+	fieldObsBefore := tokensPerRequestObservations(t, models.PropertyTokenizationField)
+	out, err := AnalyzeBatch([]string{" a ", "b", " c "}, models.PropertyTokenizationField, "C", nil, nil)
+	require.NoError(t, err)
 	require.Equal(t, 3, out.Len())
-	require.Equal(t, fieldBefore+3, countFor(models.PropertyTokenizationField),
+	require.Equal(t, fieldBefore+3, tokenCount(models.PropertyTokenizationField),
 		"batch of 3 FIELD values must add exactly 3 tokens under field")
+	require.Equal(t, fieldObsBefore+1, tokensPerRequestObservations(t, models.PropertyTokenizationField),
+		"batch of 3 values must add exactly one TokenCountPerRequest observation, not one per value")
 
-	wordBefore := countFor(models.PropertyTokenizationWord)
-	AnalyzeBatch([]string{"one two", "three"}, models.PropertyTokenizationWord, "C", nil, nil)
-	require.Equal(t, wordBefore+3, countFor(models.PropertyTokenizationWord),
+	wordBefore := tokenCount(models.PropertyTokenizationWord)
+	_, err = AnalyzeBatch([]string{"one two", "three"}, models.PropertyTokenizationWord, "C", nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, wordBefore+3, tokenCount(models.PropertyTokenizationWord),
 		"batch token count is the summed indexed count")
 
 	// empty batch records nothing
-	fieldBefore = countFor(models.PropertyTokenizationField)
-	out = AnalyzeBatch(nil, models.PropertyTokenizationField, "C", nil, nil)
+	fieldBefore = tokenCount(models.PropertyTokenizationField)
+	fieldObsBefore = tokensPerRequestObservations(t, models.PropertyTokenizationField)
+	out, err = AnalyzeBatch(nil, models.PropertyTokenizationField, "C", nil, nil)
+	require.NoError(t, err)
 	require.Zero(t, out.Len())
-	require.Equal(t, fieldBefore, countFor(models.PropertyTokenizationField))
+	require.Equal(t, fieldBefore, tokenCount(models.PropertyTokenizationField))
+	require.Equal(t, fieldObsBefore, tokensPerRequestObservations(t, models.PropertyTokenizationField))
 }
 
 // TestAnalyzeBatchUnknownTokenization pins guard parity with the per-value
 // path: an unknown tokenization yields empty results for every value and
 // records nothing (no metric series under a bogus label).
 func TestAnalyzeBatchUnknownTokenization(t *testing.T) {
-	out := AnalyzeBatch([]string{"a", "b"}, "no-such-tokenization", "C", nil, nil)
+	out, err := AnalyzeBatch([]string{"a", "b"}, "no-such-tokenization", "C", nil, nil)
+	require.NoError(t, err)
 	require.Equal(t, 2, out.Len())
 	assert.Empty(t, out.Tokens(0))
 	assert.Empty(t, out.Tokens(1))
 	for _, v := range []string{"a", "b"} {
 		assert.Empty(t, Analyze(v, "no-such-tokenization", "C", nil, nil).Query)
 	}
-	count := testutil.ToFloat64(monitoring.GetMetrics().TokenCount.WithLabelValues("no-such-tokenization"))
-	assert.Zero(t, count, "unknown tokenization must not record metrics")
+	assert.Zero(t, tokenCount("no-such-tokenization"),
+		"unknown tokenization must not record metrics")
 }
 
 // TestAnalyzeBatchStopwordFilteredValue pins the shape contract the searcher
@@ -201,8 +211,9 @@ func TestAnalyzeBatchUnknownTokenization(t *testing.T) {
 // index (not a shifted or missing entry).
 func TestAnalyzeBatchStopwordFilteredValue(t *testing.T) {
 	sw := fakeStopwords{"the": {}}
-	out := AnalyzeBatch([]string{"keep", "the", "also-keep"},
+	out, err := AnalyzeBatch([]string{"keep", "the", "also-keep"},
 		models.PropertyTokenizationField, "C", nil, sw)
+	require.NoError(t, err)
 	require.Equal(t, 3, out.Len())
 	assert.Equal(t, []string{"keep"}, append([]string{}, out.Tokens(0)...))
 	assert.Empty(t, out.Tokens(1))
@@ -214,8 +225,9 @@ func TestAnalyzeBatchStopwordFilteredValue(t *testing.T) {
 // breaking out of All stops the iteration; views cannot clobber their
 // neighbors through the shared backing array.
 func TestAnalyzedBatchAccessors(t *testing.T) {
-	out := AnalyzeBatch([]string{"one two", "", "three four five"},
+	out, err := AnalyzeBatch([]string{"one two", "", "three four five"},
 		models.PropertyTokenizationWhitespace, "C", nil, nil)
+	require.NoError(t, err)
 	require.Equal(t, 3, out.Len())
 
 	t.Run("All matches Tokens, in order", func(t *testing.T) {

@@ -70,12 +70,16 @@ func init() {
 	customTokenizers = sync.Map{}
 }
 
+// acquireThrottleSlot blocks for an ApacTokenizerThrottle slot and returns
+// its release: defer acquireThrottleSlot()().
+func acquireThrottleSlot() func() {
+	ApacTokenizerThrottle <- struct{}{}
+	return func() { <-ApacTokenizerThrottle }
+}
+
 // throttleCapacity computes the ApacTokenizerThrottle capacity from the
-// TOKENIZER_CONCURRENCY_COUNT env value. Non-numeric values and values below
-// 1 are rejected with a warning and fall back to runtime.GOMAXPROCS(0), like
-// an unset variable: a capacity-0 channel would deadlock the first
-// tokenization (an acquire with no holder to ever release it), and make
-// panics on a negative capacity.
+// TOKENIZER_CONCURRENCY_COUNT env value. Values below 1 or non-numeric fall
+// back to GOMAXPROCS with a warning (capacity 0 would deadlock, negative panics).
 func throttleCapacity(envValue string) int {
 	fallback := runtime.GOMAXPROCS(0)
 	if envValue == "" {
@@ -171,19 +175,15 @@ func init_gse_ch() error {
 	return nil
 }
 
-// boundTokenizerMetrics holds the prometheus handles for one tokenization
-// label, resolved once. WithLabelValues performs a registry lookup (label
-// hashing plus a locked map access) on every call; hot paths tokenize once
-// per value, so the handles are bound once per label and cached instead.
+// boundTokenizerMetrics caches one tokenization label's prometheus handles:
+// WithLabelValues does a registry lookup per call, too costly per value.
 type boundTokenizerMetrics struct {
 	duration         prometheus.Observer
 	tokenCount       prometheus.Counter
 	tokensPerRequest prometheus.Observer
 }
 
-// record writes one tokenization's worth of metrics: n tokens produced over
-// dur. The single home for the metric triplet, shared by the per-value and
-// batch recorders.
+// record writes one tokenization's worth of metrics: n tokens produced over dur.
 func (m *boundTokenizerMetrics) record(dur time.Duration, n int) {
 	m.duration.Observe(dur.Seconds())
 	m.tokenCount.Add(float64(n))
@@ -196,11 +196,8 @@ func metricsFor(label string) *boundTokenizerMetrics {
 	if m, ok := boundMetricsByLabel.Load(label); ok {
 		return m.(*boundTokenizerMetrics)
 	}
-	// Cold path: first call for this label (or a concurrent first-call race).
-	// LoadOrStore evaluates its value argument eagerly, so a losing racer
-	// builds a second struct — harmless: WithLabelValues is idempotent (both
-	// structs wrap the identical prometheus children), the loser is garbage,
-	// and this runs at most a handful of times per process.
+	// LoadOrStore evaluates eagerly, so a losing racer builds a second struct —
+	// harmless, both wrap the identical prometheus children
 	mon := monitoring.GetMetrics()
 	m, _ := boundMetricsByLabel.LoadOrStore(label, &boundTokenizerMetrics{
 		duration:         mon.TokenizerDuration.WithLabelValues(label),
@@ -211,12 +208,9 @@ func metricsFor(label string) *boundTokenizerMetrics {
 }
 
 // timed runs tokenize on in (appending to dst) and records duration and
-// token counts under label. All tokenization metrics are recorded here or at
-// a batch's per-batch equivalent — the tokenizeXxx kernels contain pure
-// logic. The recorded count is the appended delta, so it stays correct for
-// any dst. Callers that bypass a tokenizer's dispatch guard (disabled
-// tokenizer, nil kagome instance) must return before timed so early-outs
-// stay unrecorded.
+// token counts under label — the tokenize functions themselves record
+// nothing. The count is the appended delta. Guard early-outs must return
+// before timed to stay unrecorded.
 func timed(label string, in string, dst []string, tokenize func(string, []string) []string) []string {
 	start := time.Now()
 	ret := tokenize(in, dst)
@@ -224,16 +218,10 @@ func timed(label string, in string, dst []string, tokenize func(string, []string
 	return ret
 }
 
-// resolveTokenizer performs tokenization dispatch once: it maps a
-// tokenization (and, for the kagome tokenizations, the class's custom
-// user-dictionary tokenizer) to its append-style kernel, so batch callers
-// pay the switch, guard checks, and custom-tokenizer lookup once instead of
-// per value.
-//
-// fn == nil means the tokenization is unknown or its tokenizer is
-// unavailable (disabled gse, uninitialized kagome); callers emit empty
-// results. throttled reports that ApacTokenizerThrottle must be held around
-// kernel invocations.
+// resolveTokenizer maps a tokenization (and, for kagome, the class's custom
+// user-dictionary tokenizer) to its append-style tokenize function, so batch callers pay
+// dispatch once. fn == nil means unknown tokenization or unavailable tokenizer;
+// throttled reports that ApacTokenizerThrottle must be held around calls.
 func resolveTokenizer(tokenization string, class string) (fn func(string, []string) []string, throttled bool) {
 	switch tokenization {
 	case models.PropertyTokenizationWord:
@@ -302,11 +290,9 @@ func tokenizeWithClass(tokenization string, in string, class string) []string {
 		return []string{}
 	}
 	if throttled {
-		ApacTokenizerThrottle <- struct{}{}
-		defer func() { <-ApacTokenizerThrottle }()
+		defer acquireThrottleSlot()()
 	}
-	// seeding dst with an empty (zero-byte, non-nil) slice keeps the public
-	// contract of a non-nil result even when no tokens are appended
+	// empty non-nil seed keeps the public contract of a non-nil result
 	return timed(tokenization, in, []string{}, fn)
 }
 
@@ -333,14 +319,11 @@ func appendNonEmpty(dst []string, terms []string) []string {
 	return dst
 }
 
-// Tokenizer kernels share one append-style signature,
-// func(in string, dst []string) []string: tokens are appended to dst and the
-// grown slice returned. Batch callers reuse one buffer across many values so
-// per-value token materialization costs nothing; single-value callers seed
-// dst with an empty slice (a zero-byte allocation) and get a freshly
-// allocated, never-nil result. Kernels whose splitter already
-// produces a ready-made slice return it directly when dst has no capacity,
-// sparing single-value callers the extra append copy.
+// The tokenize functions share one append-style signature: tokens are
+// appended to dst and the grown slice returned. Batch callers reuse one
+// buffer across values; single-value callers seed dst with an empty slice
+// and get a never-nil result. When dst has no capacity, the split-based
+// functions return the splitter's slice directly to spare the append copy.
 
 // tokenizeField trims white spaces; the whole trimmed input is the one and
 // only token (former DataTypeString/Field)
@@ -397,9 +380,6 @@ func tokenizetrigram(in string, dst []string) []string {
 
 // tokenizeGSE uses the gse tokenizer to tokenize Japanese
 func tokenizeGSE(in string, dst []string) []string {
-	if !UseGse {
-		return dst
-	}
 	gseLock.Lock()
 	defer gseLock.Unlock()
 	return appendNonEmpty(dst, gseTokenizer.CutAll(in))
@@ -407,9 +387,6 @@ func tokenizeGSE(in string, dst []string) []string {
 
 // tokenizeGseCh uses the gse tokenizer to tokenize Chinese
 func tokenizeGseCh(in string, dst []string) []string {
-	if !UseGseCh {
-		return dst
-	}
 	gseLock.Lock()
 	defer gseLock.Unlock()
 	return appendNonEmpty(dst, gseTokenizerCh.CutAll(in))
@@ -501,11 +478,10 @@ func tokenizetrigramWithWildcards(in string, dst []string) []string {
 	return dst
 }
 
-func lowercase(terms []string) []string {
+func lowercase(terms []string) {
 	for i := range terms {
 		terms[i] = strings.ToLower(terms[i])
 	}
-	return terms
 }
 
 func TokenizeAndCountDuplicatesForClass(tokenization string, in string, class string) ([]string, []int) {

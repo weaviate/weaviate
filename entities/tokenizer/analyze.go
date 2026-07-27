@@ -12,7 +12,9 @@
 package tokenizer
 
 import (
+	"fmt"
 	"iter"
+	"math"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -60,9 +62,7 @@ func (p *PreparedAnalyzer) foldText(text string) string {
 }
 
 // filterStopwords appends the tokens that are not stopwords to dst; a nil
-// detector keeps every token. It is the one stopword-filter implementation —
-// Analyze and AnalyzeBatch both run fold → tokenize → filterStopwords,
-// differing only in buffer strategy.
+// detector keeps every token.
 func filterStopwords(dst []string, tokens []string, stopwords StopwordDetector) []string {
 	for _, token := range tokens {
 		if stopwords != nil && stopwords.IsStopword(token) {
@@ -93,19 +93,14 @@ func Analyze(
 	}
 }
 
-// AnalyzedBatch holds the per-value query tokens produced by AnalyzeBatch.
-// It is backed by two flat arrays — every token in value order plus one end
-// offset per value — so a large batch avoids the per-value result allocation
-// of calling Analyze in a loop (the shared backing buffers grow amortized);
-// per-value views are computed on access, never stored.
-//
-// All views returned by Tokens and All alias the shared backing array and
-// must be treated as read-only.
+// AnalyzedBatch holds the per-value query tokens produced by AnalyzeBatch,
+// backed by two flat arrays: every token in value order plus one end offset
+// per value. All views returned by Tokens and All alias the shared backing
+// array and must be treated as read-only.
 type AnalyzedBatch struct {
 	flat []string
 	// ends[i] is the end offset of value i's tokens in flat (value i's
-	// tokens are flat[ends[i-1]:ends[i]]). uint32 caps a batch at 4B tokens,
-	// far beyond any request size.
+	// tokens are flat[ends[i-1]:ends[i]]).
 	ends []uint32
 }
 
@@ -115,15 +110,15 @@ func (b *AnalyzedBatch) Len() int {
 }
 
 // Tokens returns value i's query tokens; the result is empty when value i
-// was entirely stopword-filtered (or the tokenization was unknown).
+// was entirely stopword-filtered (or the tokenization was unknown). Tokens
+// panics if i is not in [0, Len()).
 func (b *AnalyzedBatch) Tokens(i int) []string {
 	start := uint32(0)
 	if i > 0 {
 		start = b.ends[i-1]
 	}
 	end := b.ends[i]
-	// full slice expression: a caller appending to one value's view cannot
-	// clobber its neighbor's tokens in the shared backing array
+	// three-index slice: appending to a view cannot clobber the next value's tokens
 	return b.flat[start:end:end]
 }
 
@@ -142,57 +137,42 @@ func (b *AnalyzedBatch) All() iter.Seq2[int, []string] {
 }
 
 // AnalyzeBatch analyzes each value independently — the batch equivalent of
-// calling Analyze per value and collecting each result's Query — but records
-// tokenizer metrics once for the whole batch (one duration observation, the
-// summed pre-stopword token count) and reuses buffers across values, so the
-// per-value cost is the tokenization itself rather than metric and
-// allocation scaffolding. The whole batch counts as a single
-// TokenCountPerRequest observation with the summed token count, where the
-// per-value path observes once per value.
-//
-// Offsets are uint32: a single batch must stay under 4B tokens, which any
-// request-bounded caller does by orders of magnitude; exceeding it silently
-// corrupts per-value views.
-//
-// Per-value Indexed is intentionally not exposed: materializing it would
-// force a per-value allocation, defeating the batch — callers needing
-// Indexed should use Analyze.
+// calling Analyze per value and collecting each result's Query — but reuses
+// buffers across values and records tokenizer metrics once for the whole
+// batch (one duration observation, one TokenCountPerRequest observation with
+// the summed pre-stopword count). Offsets are uint32: a batch producing more
+// than math.MaxUint32 tokens fails with an error. Per-value Indexed is not
+// exposed; callers needing it should use Analyze.
 func AnalyzeBatch(
 	values []string,
 	tokenization string,
 	className string,
 	prepared *PreparedAnalyzer,
 	stopwords StopwordDetector,
-) *AnalyzedBatch {
+) (*AnalyzedBatch, error) {
 	batch := &AnalyzedBatch{ends: make([]uint32, len(values))}
 	if len(values) == 0 {
-		return batch
+		return batch, nil
 	}
 
-	// dispatch once for the whole batch; fn == nil (unknown tokenization or
-	// unavailable tokenizer) leaves every value's tokens empty (all end
-	// offsets zero) and records no metrics, matching the per-value path's
-	// guard early-outs
+	// fn == nil (unknown tokenization or unavailable tokenizer) leaves every
+	// value's tokens empty and records no metrics, like the per-value path
 	fn, throttled := resolveTokenizer(tokenization, className)
 	if fn == nil {
-		return batch
+		return batch, nil
 	}
 
 	totalTokens := 0
 	flat := make([]string, 0, len(values))
 	var scratch []string // one value's raw tokens, reused across the batch
-	// busy is the in-slot analysis time, excluding waits on re-acquiring the
-	// throttle between chunks — the same semantics as the per-value path,
-	// which acquires before its duration window starts.
+	// in-slot analysis time only, excluding waits on re-acquiring the throttle
+	// between chunks — matching what the per-value path measures
 	var busy time.Duration
 
-	// processChunk analyzes values[from:to] under one throttle acquisition
-	// (when the tokenization is throttled at all), released panic-safe via
-	// defer.
-	processChunk := func(from, to int) {
+	// processChunk analyzes values[from:to] under one throttle acquisition.
+	processChunk := func(from, to int) error {
 		if throttled {
-			ApacTokenizerThrottle <- struct{}{}
-			defer func() { <-ApacTokenizerThrottle }()
+			defer acquireThrottleSlot()()
 		}
 		chunkStart := time.Now()
 		defer func() { busy += time.Since(chunkStart) }()
@@ -202,33 +182,33 @@ func AnalyzeBatch(
 			flat = filterStopwords(flat, scratch, stopwords)
 			batch.ends[i] = uint32(len(flat))
 		}
+		if uint64(len(flat)) > math.MaxUint32 {
+			return fmt.Errorf("batch produced %d tokens, above the uint32 offset limit %d", len(flat), uint32(math.MaxUint32))
+		}
+		return nil
 	}
 
-	// An unthrottled batch runs as a single chunk. A throttled one yields its
-	// slot every throttledBatchChunk values, so concurrent large batches
-	// cannot hold every throttle slot for their whole duration and starve
-	// single-value tokenizations — waiters get in between chunks.
+	// a throttled batch yields its slot every throttledBatchChunk values so it
+	// cannot starve concurrent single-value tokenizations; unthrottled runs whole
 	chunk := len(values)
 	if throttled {
 		chunk = throttledBatchChunk
 	}
 	for from := 0; from < len(values); from += chunk {
-		processChunk(from, min(from+chunk, len(values)))
+		if err := processChunk(from, min(from+chunk, len(values))); err != nil {
+			return nil, err
+		}
 	}
 	batch.flat = flat
 
-	// One record for the whole batch, under the same label the per-value path
-	// uses. As in Analyze, the token count is the indexed (pre-stopword)
-	// count; the duration is the summed in-slot analysis time.
+	// one record for the whole batch, under the same label the per-value path uses
 	metricsFor(tokenization).record(busy, totalTokens)
-	return batch
+	return batch, nil
 }
 
 // throttledBatchChunk bounds how many values a batch analyzes per
-// ApacTokenizerThrottle acquisition. Throttled kernels cost roughly 0.1-1ms
-// per value, so 16 keeps the worst-case slot hold in the low milliseconds
-// for waiting single-value tokenizations, while the ~µs acquire/release cost
-// per chunk stays negligible.
+// ApacTokenizerThrottle acquisition: throttled tokenizers cost ~0.1-1ms per
+// value, so 16 keeps the worst-case slot hold in the low milliseconds.
 const throttledBatchChunk = 16
 
 // AnalyzeAndCountDuplicates is like Analyze but also deduplicates tokens and
