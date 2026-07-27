@@ -45,9 +45,10 @@ var (
 	// check with errors.Is.
 	ErrNotFound = errors.New("namespace not found")
 
-	// ErrNamespaceDeleting is returned when a create-like operation targets
-	// a namespace that exists but is currently being torn down. Distinct
-	// from ErrAlreadyExists so REST can render a different conflict message.
+	// ErrNamespaceDeleting is returned when a create-like operation, or a
+	// shard decision, targets a namespace that exists but is currently being
+	// torn down. Distinct from ErrAlreadyExists so REST can render a
+	// different conflict message.
 	ErrNamespaceDeleting = errors.New("namespace is being deleted")
 
 	// ErrNamespaceGone is returned by apply-time checks when a namespace
@@ -132,9 +133,9 @@ func isKnownState(s cmd.NamespaceState) bool {
 	return known
 }
 
-// Exister exposes read-only access to namespace state. Callers that need to
-// know whether a namespace is usable go through [RequireActive] rather than
-// comparing State themselves.
+// Exister exposes read-only access to namespace state. Rather than comparing
+// State themselves, callers go through [RequireActive], or through
+// [ShardsShouldBeOpen] / [RequireShardLoadable] to decide about a shard.
 type Exister interface {
 	GetNamespace(name string) (cmd.Namespace, bool)
 }
