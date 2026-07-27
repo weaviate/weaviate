@@ -88,7 +88,7 @@ func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, &FakeNodeResolver{},
 		&FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
