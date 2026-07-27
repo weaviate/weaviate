@@ -344,15 +344,20 @@ func (r *repairer) repairExist(ctx context.Context,
 	return !resp.Deleted, gr.Wait()
 }
 
-// repairBatchPart repairs stale replicas found while reading a batch (used
-// with Finder::GetAll). Content comes from the winning replica, never the
-// caller's copy, which may be a partial search result.
+// repairBatchPart brings the replicas that disagree about any of ids up to the
+// most recent version. Repair content is fetched from the replica holding that
+// version; the caller's copy contributes only its update times, because it may
+// be a projected search result. A write carrying no content, such as a delete,
+// is never held up by a fetch.
 //
-// resolved[i] is false when the winning content could not be fetched, or the
-// deletion strategy left the conflict unresolved. It does not claim the writes
-// landed: the caller combines it with the vote counts, which the write path
-// decrements on failure. A non-nil error names which objects were left stale;
-// it is not a read failure.
+// contentIdx must index the vote carrying the caller's copy, and every vote must
+// hold one digest and one count per id, in ids order.
+//
+// resolved[i] reports that the winning version of ids[i] is known, whether it
+// was fetched, already agreed on by every replica, or a delete needing no
+// content. It does not report that the repair writes landed: an object left in
+// doubt is marked instead by decrementing its Count entry on one of the votes.
+// The returned error names the replicas and objects left stale.
 func (r *repairer) repairBatchPart(ctx context.Context,
 	shard string,
 	ids []strfmt.UUID,
