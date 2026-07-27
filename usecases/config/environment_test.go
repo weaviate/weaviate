@@ -1892,8 +1892,9 @@ func TestEnvironmentQueryBitmapBufsSizes(t *testing.T) {
 		// The example in parseResourceString's own doc comment.
 		{name: "43TiB", value: []string{"43TiB"}, expected: 43 << 40, memoErr: true},
 		{name: "1024TiB", value: []string{"1024TiB"}, expected: 1024 << 40, memoErr: true},
-		// math.MaxInt64 is not a size. As a budget it builds classes of ~1.4e11
-		// slots, ~5.3TB, before the pool holds a single buffer.
+		// math.MaxInt64 is not a size. As a budget at the default 32MiB buffer
+		// size it builds 709362340502 slots, ~5.16TiB, before the pool holds a
+		// single buffer.
 		{name: "unlimited", value: []string{"unlimited"}, memoErr: true, bufSizeErr: true},
 		{name: "nolimit", value: []string{"nolimit"}, memoErr: true, bufSizeErr: true},
 		// 10_000_000 * 2^40 wraps int64 negative.
