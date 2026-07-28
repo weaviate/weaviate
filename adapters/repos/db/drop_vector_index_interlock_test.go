@@ -78,31 +78,43 @@ func TestPollUntilEmpty_ShardGoneFailsFast(t *testing.T) {
 	require.Equal(t, maxConsecutivePollErrors, reads2)
 }
 
-// TestShutdown_FailedInUseResetsRequestFlag pins the restore-composability
-// fix: a Shutdown that fails "still in use" must clear shutdownRequested —
-// otherwise the shard the caller restores to the map is a zombie (every
-// guarded op returns errShutdownInProgress) and refCountSub self-completes
-// the shutdown in the background the moment refs drain, leaving a silently
-// dead shard behind a trusted map hit.
-func TestShutdown_FailedInUseResetsRequestFlag(t *testing.T) {
+// TestShutdown_RequestFlagAfterFailure pins the two failure contracts of the
+// request flag:
+//   - still-in-use: the flag STAYS armed — pending refs exist by definition,
+//     and the last release completing the shutdown is the designed
+//     eventual-shutdown contract (integration-pinned by
+//     TestShardShutdownWhenIdleEventually); guarded ops refuse meanwhile.
+//   - any other abort (e.g. a teardown that already failed): the flag is
+//     cleared — there may be no pending release left to complete it, and a
+//     restored shard would otherwise be a zombie behind a trusted map hit.
+func TestShutdown_RequestFlagAfterFailure(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	s := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
-	s.inUseCounter.Add(1) // an in-flight guarded op
 
-	err := s.Shutdown(context.Background())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "still in use")
+	t.Run("still in use keeps the deferred shutdown armed", func(t *testing.T) {
+		s := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
+		s.inUseCounter.Add(1) // an in-flight guarded op
 
-	require.False(t, s.shutdownRequested.Load(),
-		"a failed shutdown must clear the request flag or the restored shard is unusable")
-	release, err := s.preventShutdown()
-	require.NoError(t, err, "guarded ops must work on a restored shard")
-	release()
+		err := s.Shutdown(context.Background())
+		require.ErrorIs(t, err, errShardStillInUse)
+		require.True(t, s.shutdownRequested.Load(),
+			"pending refs complete the shutdown on release; the flag must stay armed")
+		_, err = s.preventShutdown()
+		require.ErrorIs(t, err, errShutdownInProgress,
+			"new guarded ops are refused while the drain is pending")
+	})
 
-	// And the deferred ref-drain shutdown is disarmed: draining the ref must
-	// NOT self-complete the aborted shutdown.
-	s.refCountSub()
-	require.False(t, s.shut.Load(), "refCountSub must not self-shut a shard whose shutdown was aborted")
+	t.Run("non-in-use abort clears the flag", func(t *testing.T) {
+		s := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
+		s.shut.Store(true)
+		s.teardownErr = errors.New("bucket close failed")
+		s.shutdownRequested.Store(true)
+
+		err := s.Shutdown(context.Background())
+		require.Error(t, err)
+		require.NotErrorIs(t, err, errShardStillInUse)
+		require.False(t, s.shutdownRequested.Load(),
+			"an abort with no pending release must disarm the deferred shutdown")
+	})
 }
 
 // TestRestoreShardIfStillAlive pins the shared restore helper used by every

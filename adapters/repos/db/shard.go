@@ -65,6 +65,7 @@ const IdLockPoolSize uint64 = 1024
 var (
 	errAlreadyShutdown    = errors.New("already shut or dropped")
 	errShutdownInProgress = errors.New("shard shutdown in progress")
+	errShardStillInUse    = errors.New("shard still in use")
 )
 
 type ShardLike interface {

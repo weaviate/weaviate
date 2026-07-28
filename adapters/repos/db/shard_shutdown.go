@@ -73,12 +73,17 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	}, backoff.WithContext(backoff.WithMaxRetries(
 		// this will try with max 2 seconds could be configurable later on
 		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
-	if err != nil && !errors.Is(err, errAlreadyShutdown) {
+	if err != nil && !errors.Is(err, errAlreadyShutdown) && !errors.Is(err, errShardStillInUse) {
 		// Aborted shutdown: clear the request flag, or the shard callers
 		// restore (restoreShardIfStillAlive) stays gated by preventShutdown
 		// and refCountSub self-completes the shutdown once refs drain. If
 		// that deferred shutdown wins the race, the shard is marked shut and
 		// shardStillAlive refuses the restore.
+		//
+		// Still-in-use is the one abort that must KEEP the flag: pending
+		// refs exist by definition, and the last release completing the
+		// shutdown is the designed eventual-shutdown contract
+		// (TestShardShutdownWhenIdleEventually pins it).
 		s.shutdownRequested.Store(false)
 	}
 	return err
@@ -150,7 +155,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is still in use", s.name)
-		return fmt.Errorf("shard %q is still in use", s.name)
+		return fmt.Errorf("shard %q: %w", s.name, errShardStillInUse)
 	}
 	s.shut.Store(true)
 	s.shutdownRequested.Store(false)
