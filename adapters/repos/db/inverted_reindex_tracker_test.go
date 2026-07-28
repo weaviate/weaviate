@@ -228,8 +228,58 @@ func TestFileReindexTracker_createFileExclusiveAndReadable(t *testing.T) {
 	require.WithinDuration(t, started, got, time.Second)
 }
 
+// Pins: createFile routes sentinels through the durable writer, so the
+// sentinel's parent dir is fsynced. Same technique as
+// TestFileReindexTracker_InitFsyncsNewParentLevels: a successful fsync leaves
+// no trace, so it is observed through its failure on an unreadable parent.
+func TestFileReindexTracker_createFileFsyncsParentDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-based test cannot run as root")
+	}
+
+	tr := newTestReindexTracker(t)
+	require.NoError(t, os.Chmod(tr.config.migrationPath, 0o311))
+	t.Cleanup(func() { _ = os.Chmod(tr.config.migrationPath, 0o777) })
+
+	err := tr.markSwapped()
+
+	// The sentinel landed, so the error can only come from the parent fsync.
+	require.True(t, tr.IsSwapped(), "createFile must write the sentinel before fsyncing")
+	require.Error(t, err, "createFile must propagate the parent dir fsync failure")
+	require.ErrorIs(t, err, fs.ErrPermission)
+
+	var pathErr *fs.PathError
+	require.ErrorAs(t, err, &pathErr)
+	require.Equal(t, tr.config.migrationPath, pathErr.Path)
+}
+
+// Pins: removeFile fsyncs the parent dir after the unlink, so a removed
+// sentinel cannot reappear after a crash and re-run an applied phase.
+func TestFileReindexTracker_removeFileFsyncsParentDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-based test cannot run as root")
+	}
+
+	tr := newTestReindexTracker(t)
+	require.NoError(t, tr.markSwapped())
+	require.NoError(t, os.Chmod(tr.config.migrationPath, 0o311))
+	t.Cleanup(func() { _ = os.Chmod(tr.config.migrationPath, 0o777) })
+
+	err := tr.unmarkSwapped()
+
+	// The unlink went through, so the error can only come from the fsync.
+	require.False(t, tr.IsSwapped(), "removeFile must unlink before fsyncing")
+	require.Error(t, err, "removeFile must propagate the parent dir fsync failure")
+	require.ErrorIs(t, err, fs.ErrPermission)
+
+	var pathErr *fs.PathError
+	require.ErrorAs(t, err, &pathErr)
+	require.Equal(t, tr.config.migrationPath, pathErr.Path)
+}
+
 // Pins: removal clears the sentinel, and removing an absent file is a no-op.
-func TestFileReindexTracker_removeFileDurable(t *testing.T) {
+// The durability of that removal is covered by removeFileFsyncsParentDir.
+func TestFileReindexTracker_removeFileClearsSentinel(t *testing.T) {
 	tr := newTestReindexTracker(t)
 
 	require.NoError(t, tr.markReindexed())

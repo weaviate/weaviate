@@ -12,6 +12,7 @@
 package diskio
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,6 +69,36 @@ func TestWriteFileSync(t *testing.T) {
 	t.Run("missing parent directory returns an error", func(t *testing.T) {
 		path := tempPath(t, "nope", "sentinel.mig")
 		require.Error(t, WriteFileSync(path, nil, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600))
+	})
+
+	// Every case above passes against a plain OpenFile+write+close, because
+	// content read back through the page cache looks identical whether or not
+	// anything was fsynced. The parent-dir fsync is observable through its
+	// failure: Fsync opens the dir O_RDONLY, so a write+execute-only dir lets
+	// the write itself through and fails only on that final step.
+	t.Run("parent directory fsync failure is propagated", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("permission-based test cannot run as root")
+		}
+
+		dir := t.TempDir()
+		path := filepath.Join(dir, "sentinel.mig")
+		require.NoError(t, os.Chmod(dir, 0o311))
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o777) })
+
+		err := WriteFileSync(path, []byte("hello"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+
+		// The content landed, so the error can only come from the parent fsync.
+		got, readErr := os.ReadFile(path)
+		require.NoError(t, readErr)
+		require.Equal(t, "hello", string(got))
+
+		require.Error(t, err, "the parent dir fsync must be propagated, not swallowed")
+		require.ErrorIs(t, err, fs.ErrPermission)
+
+		var pathErr *fs.PathError
+		require.ErrorAs(t, err, &pathErr)
+		require.Equal(t, dir, pathErr.Path, "the fsync must target the parent dir")
 	})
 }
 
