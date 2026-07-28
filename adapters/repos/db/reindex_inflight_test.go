@@ -120,7 +120,7 @@ func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
 		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
 	}
 
-	err := idx.refuseIfReindexInFlight("ABC123")
+	err := idx.refuseIfReindexInFlight("ABC123", idx.newReindexGate())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
@@ -138,7 +138,7 @@ func TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask(t *testing.T) {
 		db:     db,
 		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
 	}
-	require.NoError(t, idx.refuseIfReindexInFlight("ABC123"))
+	require.NoError(t, idx.refuseIfReindexInFlight("ABC123", idx.newReindexGate()))
 }
 
 // TestRefuseIfReindexInFlight_DbNilIsConservative pins that an Index
@@ -146,7 +146,7 @@ func TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask(t *testing.T) {
 // proceed unchecked.
 func TestRefuseIfReindexInFlight_DbNilIsConservative(t *testing.T) {
 	idx := &Index{Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")}}
-	err := idx.refuseIfReindexInFlight("ABC123")
+	err := idx.refuseIfReindexInFlight("ABC123", idx.newReindexGate())
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.True(t, strings.Contains(err.Error(), "startup window"))

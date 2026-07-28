@@ -17,12 +17,15 @@ package db
 // markers, so the answer is cluster-wide-consistent.
 type ShardReindexActivityLookup func(collection, shardName string) bool
 
-// ShardReindexActivityLookupBuilder returns a fresh snapshot.
+// ShardReindexActivityLookupBuilder returns a fresh snapshot. Building
+// one costs a cluster-wide ListDistributedTasks RAFT query, so the backup
+// gate resolves it once per precheck via [reindexGate] and reuses the
+// resulting lookup for every shard.
 type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
 
 // SetShardReindexActivityLookup installs the builder used by the backup
-// gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
-// precheck to obtain a fresh DTM snapshot.
+// gate ([reindexGate.anyLiveReindexForShard]). The builder is invoked
+// once per backup precheck to obtain a fresh DTM snapshot.
 //
 // Calls before installation default to "no live reindex" with a one-time
 // WARN: production HTTP gates on bootstrap completion (the lookup is

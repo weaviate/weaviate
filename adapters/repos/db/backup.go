@@ -65,6 +65,12 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
+	// One gate for the whole precheck. Its activity lookup costs a
+	// cluster-wide ListDistributedTasks RAFT query, and the no-short-circuit
+	// policy above means every shard of every class is visited even once the
+	// backup is already doomed — resolving the lookup per shard made an
+	// ordinary precheck N round trips against the leader.
+	gate := db.newReindexGate()
 	var errs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
@@ -83,7 +89,7 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 			continue
 		}
 		for _, shardName := range shards {
-			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
+			if err := idx.refuseIfReindexInFlight(shardName, gate); err != nil {
 				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
 			}
 		}
@@ -418,7 +424,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
-	if err := i.refuseIfReindexInFlight(name); err != nil {
+	if err := i.refuseIfReindexInFlight(name, i.newReindexGate()); err != nil {
 		return err
 	}
 
@@ -585,7 +591,7 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
-	if err := i.refuseIfReindexInFlight(name); err != nil {
+	if err := i.refuseIfReindexInFlight(name, i.newReindexGate()); err != nil {
 		return err
 	}
 
