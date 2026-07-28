@@ -87,7 +87,7 @@ func TestAuthZBatchRefAuthZCalls(t *testing.T) {
 	require.NotNil(t, res.Payload)
 
 	authZlogs := ls.GetAuthzLogs(t)
-	require.LessOrEqual(t, len(authZlogs), 4)
+	require.LessOrEqual(t, len(authZlogs), 4, "unexpected authz calls: %v", authZlogs)
 }
 
 func TestAuthZBatchRefAuthZTenantFiltering(t *testing.T) {
