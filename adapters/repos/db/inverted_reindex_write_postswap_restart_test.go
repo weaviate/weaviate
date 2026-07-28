@@ -147,98 +147,156 @@ func TestReindexPostSwapPreFlip_RepeatedRestartsInWindow(t *testing.T) {
 // its record live, and enable-searchable on the same property is then accepted
 // and swaps alongside it. Both windows must stay covered across a restart, and
 // the first flip to land must retire only its own record.
+//
+// That flip reaches this shard by one of two routes and has to land the same
+// way on both. [ReindexProvider.OnTaskCompleted] applies it here if the shard
+// is up. If the shard was down when the flip committed, nothing ran here and
+// the next restart has only the live schema flag to go on, which leaves
+// [livePendingFlips] to retire the record — and only that route ever hands
+// the filter a property whose two records sit one landed flag apart.
+//
+// The DELETE leg is what makes the surviving record set observable: a record
+// that retired with its flip stops shielding its bucket from the
+// nonexistent-property-index sweep, and one whose flip is still pending keeps
+// shielding.
 func TestReindexPostSwapPreFlip_BothIndexTypesPendingOnOneProp(t *testing.T) {
 	const propName = "title"
-	ctx := testCtx()
-	className := "PostSwapPreFlipBoth_" + uuid.NewString()[:8]
-	class := newNoIndexTestClass(className, []string{propName})
+	vTrue, vFalse := true, false
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	shardName := shard.Name()
-	filterableBucketPath := filepath.Join(shardPathLSM(idx.path(), shardName),
-		helpers.BucketFromPropNameLSM(propName))
-
-	var live *Shard
-	t.Cleanup(func() {
-		if live != nil {
-			live.Shutdown(ctx)
-		}
-	})
-
-	restart := func(t *testing.T, when string) *Shard {
-		t.Helper()
-		shd, err := idx.initShard(ctx, shardName, class, nil, true, true)
-		require.NoErrorf(t, err, "%s: restart must succeed", when)
-		idx.shards.Store(shardName, shd)
-		live = shd.(*Shard)
-		return live
+	tests := []struct {
+		name        string
+		classPrefix string
+		// applyFlipLocally is the per-shard half of OnTaskCompleted. Nil for
+		// a shard that was down when the flip committed: there the live
+		// schema flag is the only trace of it the next restart can see.
+		applyFlipLocally func(s *Shard, idx *Index)
+	}{
+		{
+			name:        "flip applied on this shard",
+			classPrefix: "PostSwapPreFlipBothHook",
+			applyFlipLocally: func(s *Shard, idx *Index) {
+				s.ClearForceIndexOverlay(propName, "searchable")
+				dropPendingFlipRecords(s.pathLSM(), []string{propName}, "searchable", idx.logger)
+			},
+		},
+		{
+			name:        "flip committed while this shard was down",
+			classPrefix: "PostSwapPreFlipBothDown",
+		},
 	}
 
-	// requireIndexed asserts an in-window write reaches each named bucket.
-	requireIndexed := func(t *testing.T, s *Shard, token, when string, filterable, searchable bool) {
-		t.Helper()
-		require.NoErrorf(t, s.PutObject(ctx, objWithTitle(className, uuid.NewString(), token)),
-			"%s: in-window insert must not error", when)
-		if filterable {
-			fp := fingerprintRoaringSetBucket(t, s.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
-			require.NotEmptyf(t, fp[token],
-				"weaviate/0-weaviate-issues#319 (%s): the insert must reach the swapped canonical "+
-					"filterable bucket while its flip is still pending; got %v", when, fp)
-		}
-		if searchable {
-			fp := fingerprintInvertedBucket(t, s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
-			require.NotEmptyf(t, fp[token],
-				"weaviate/0-weaviate-issues#319 (%s): the insert must reach the swapped canonical "+
-					"searchable bucket; got %v", when, fp)
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := tc.classPrefix + "_" + uuid.NewString()[:8]
+			class := newNoIndexTestClass(className, []string{propName})
+
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			shardName := shard.Name()
+			lsmPath := shardPathLSM(idx.path(), shardName)
+			filterableBucketPath := filepath.Join(lsmPath, helpers.BucketFromPropNameLSM(propName))
+			searchableBucketPath := filepath.Join(lsmPath, helpers.BucketSearchableFromPropNameLSM(propName))
+
+			live := shard
+			t.Cleanup(func() {
+				if live != nil {
+					live.Shutdown(ctx)
+				}
+			})
+
+			// restart cycles the shard through the production init path and
+			// republishes it as live.
+			restart := func(t *testing.T, when string) {
+				t.Helper()
+				require.NoErrorf(t, live.Shutdown(ctx), "%s: shutdown before the restart", when)
+				live = nil
+				shd, err := idx.initShard(ctx, shardName, class, nil, true, true)
+				require.NoErrorf(t, err, "%s: restart must succeed", when)
+				idx.shards.Store(shardName, shd)
+				live = shd.(*Shard)
+			}
+
+			// requireIndexed asserts an in-window write reaches each named bucket.
+			requireIndexed := func(t *testing.T, s *Shard, token, when string, filterable, searchable bool) {
+				t.Helper()
+				require.NoErrorf(t, s.PutObject(ctx, objWithTitle(className, uuid.NewString(), token)),
+					"%s: in-window insert must not error", when)
+				if filterable {
+					fp := fingerprintRoaringSetBucket(t, s.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
+					require.NotEmptyf(t, fp[token],
+						"weaviate/0-weaviate-issues#319 (%s): the insert must reach the swapped canonical "+
+							"filterable bucket while its flip is still pending; got %v", when, fp)
+				}
+				if searchable {
+					fp := fingerprintInvertedBucket(t, s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
+					require.NotEmptyf(t, fp[token],
+						"weaviate/0-weaviate-issues#319 (%s): the insert must reach the swapped canonical "+
+							"searchable bucket; got %v", when, fp)
+				}
+			}
+
+			require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "alpha")))
+
+			driveEnableFilterableToPostSwapWindow(t, shard, idx, className, propName)
+			driveEnableSearchableToPostSwapWindow(t, shard, idx, className, propName,
+				models.PropertyTokenizationWord)
+
+			// Arming the second window must not disarm the first.
+			requireIndexed(t, shard, "beforerestart", "both pending, before restart", true, true)
+
+			restart(t, "both pending")
+			require.NotNil(t, live.store.Bucket(helpers.BucketFromPropNameLSM(propName)),
+				"canonical filterable bucket must be loaded after the restart")
+			require.NotNil(t, live.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)),
+				"canonical searchable bucket must be loaded after the restart")
+			require.NotEmpty(t, fingerprintRoaringSetBucket(t,
+				live.store.Bucket(helpers.BucketFromPropNameLSM(propName)))["alpha"],
+				"filterable backfill must survive the restart")
+			require.NotEmpty(t, fingerprintInvertedBucket(t,
+				live.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))["alpha"],
+				"searchable backfill must survive the restart")
+			requireIndexed(t, live, "afterrestart", "both pending, after restart", true, true)
+
+			// The searchable flip lands first. The filterable window is still
+			// open, so its overlay has to stay armed through the flip.
+			class.Properties[0].IndexSearchable = &vTrue
+			if tc.applyFlipLocally != nil {
+				tc.applyFlipLocally(live, idx)
+			}
+			requireIndexed(t, live, "aftersearchflip", "searchable flipped, filterable pending", true, true)
+
+			restart(t, "searchable flipped")
+			require.DirExists(t, filterableBucketPath,
+				"weaviate/0-weaviate-issues#319: retiring the searchable record must not expose the "+
+					"still-unflipped filterable bucket to the nonexistent-index sweep; its sidecars are gone")
+			require.NotNil(t, live.store.Bucket(helpers.BucketFromPropNameLSM(propName)),
+				"the still-pending filterable bucket must still be loaded")
+			require.NotEmpty(t, fingerprintRoaringSetBucket(t,
+				live.store.Bucket(helpers.BucketFromPropNameLSM(propName)))["alpha"],
+				"filterable backfill must survive the searchable flip plus a restart")
+			requireIndexed(t, live, "afterflipandrestart", "searchable flipped, after restart", true, true)
+
+			// DELETE the searchable index the flip just handed over. Nothing
+			// but the record set stands between the sweep and either bucket
+			// now, so this is where a record that outlived its own flip
+			// becomes visible.
+			class.Properties[0].IndexSearchable = &vFalse
+
+			restart(t, "searchable index deleted")
+			require.NoDirExists(t, searchableBucketPath,
+				"weaviate/0-weaviate-issues#319: the searchable record retires with the flip that owns "+
+					"it, so a later DELETE of that index must be free to sweep its bucket; a record still "+
+					"shielding it here outlived its migration and leaks the bucket permanently")
+			require.DirExists(t, filterableBucketPath,
+				"the filterable flip is still pending, so the searchable DELETE must leave its bucket alone")
+			requireIndexed(t, live, "afterdelete", "searchable deleted, filterable pending", true, false)
+			require.NotEmpty(t, fingerprintRoaringSetBucket(t,
+				live.store.Bucket(helpers.BucketFromPropNameLSM(propName)))["alpha"],
+				"filterable backfill must survive the searchable DELETE")
+		})
 	}
-
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "alpha")))
-
-	driveEnableFilterableToPostSwapWindow(t, shard, idx, className, propName)
-	driveEnableSearchableToPostSwapWindow(t, shard, idx, className, propName,
-		models.PropertyTokenizationWord)
-
-	// Arming the second window must not disarm the first.
-	requireIndexed(t, shard, "beforerestart", "both pending, before restart", true, true)
-	require.NoError(t, shard.Shutdown(ctx))
-
-	live = restart(t, "both pending")
-	require.NotNil(t, live.store.Bucket(helpers.BucketFromPropNameLSM(propName)),
-		"canonical filterable bucket must be loaded after the restart")
-	require.NotNil(t, live.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)),
-		"canonical searchable bucket must be loaded after the restart")
-	require.NotEmpty(t, fingerprintRoaringSetBucket(t,
-		live.store.Bucket(helpers.BucketFromPropNameLSM(propName)))["alpha"],
-		"filterable backfill must survive the restart")
-	require.NotEmpty(t, fingerprintInvertedBucket(t,
-		live.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))["alpha"],
-		"searchable backfill must survive the restart")
-	requireIndexed(t, live, "afterrestart", "both pending, after restart", true, true)
-
-	// The searchable flip lands first, exactly as OnTaskCompleted applies it:
-	// live schema flag, overlay clear and record retirement, all scoped to
-	// searchable. The filterable window is still open.
-	vTrue := true
-	class.Properties[0].IndexSearchable = &vTrue
-	live.ClearForceIndexOverlay(propName, "searchable")
-	dropPendingFlipRecords(live.pathLSM(), []string{propName}, "searchable", idx.logger)
-	requireIndexed(t, live, "aftersearchflip", "searchable flipped, filterable pending", true, true)
-	require.NoError(t, live.Shutdown(ctx))
-	live = nil
-
-	live = restart(t, "searchable flipped")
-	require.DirExists(t, filterableBucketPath,
-		"weaviate/0-weaviate-issues#319: retiring the searchable record must not expose the "+
-			"still-unflipped filterable bucket to the nonexistent-index sweep; its sidecars are gone")
-	require.NotNil(t, live.store.Bucket(helpers.BucketFromPropNameLSM(propName)),
-		"the still-pending filterable bucket must still be loaded")
-	require.NotEmpty(t, fingerprintRoaringSetBucket(t,
-		live.store.Bucket(helpers.BucketFromPropNameLSM(propName)))["alpha"],
-		"filterable backfill must survive the searchable flip plus a restart")
-	requireIndexed(t, live, "afterflipandrestart", "searchable flipped, after restart", true, true)
 }
 
 // TestReindexPostSwapPreFlip_UnreadableMarker_KeepsBucket pins the failure
