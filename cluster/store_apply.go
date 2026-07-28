@@ -303,11 +303,7 @@ func (st *Store) Apply(l *raft.Log) any {
 			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
 		}
 
-	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD:
-		f = func() {
-			ret.Error = st.schemaManager.SyncShard(&cmd, schemaOnly)
-		}
-
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD: //nolint:staticcheck // deliberate use of the deprecated tombstone type
 	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
 			// A role can't be upserted into a namespace that's gone or being
@@ -515,6 +511,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.RecordPreparationCompleteAck(&cmd)
 		}
+	case api.ApplyRequest_TYPE_CLUSTER_ID_SET:
+		f = func() {
+			ret.Error = st.applyClusterIDSet(&cmd)
+		}
 
 	default:
 		// A command introduced by a newer app version. Log and no-op rather than
@@ -541,4 +541,17 @@ func (st *Store) Apply(l *raft.Log) any {
 	wg.Wait()
 
 	return ret
+}
+
+// applyClusterIDSet applies a TYPE_CLUSTER_ID_SET log entry, set-once.
+func (st *Store) applyClusterIDSet(cmd *api.ApplyRequest) error {
+	req := &api.SetClusterIDRequest{}
+	if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("unmarshal cluster-id set command: %w", err)
+	}
+	if req.ClusterId == "" {
+		return fmt.Errorf("empty cluster_id in cluster-id set command")
+	}
+	st.setClusterID(req.ClusterId)
+	return nil
 }

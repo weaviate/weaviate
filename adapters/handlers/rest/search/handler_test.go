@@ -861,10 +861,11 @@ func TestNearObjectHandlerHappyPath(t *testing.T) {
 }
 
 // TestNearObjectSourceObjectErrorMapping builds the source-object errors via
-// their real producer types and the real explorer wrap chain (the explorer
-// wraps every vector-resolution failure in ErrQueryVectorization): the typed
+// their real producer types, replicating the explorer's wrap chain (it wraps
+// every vector-resolution failure in ErrQueryVectorization): the typed
 // matches must win over the 502 mapping, or an unknown id would surface as
-// an embedding-provider failure.
+// an embedding-provider failure. near-object declares no 502 at all, so an
+// untyped failure has to come out as the declared 500.
 func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -896,6 +897,28 @@ func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 						fmt.Errorf("vector not found for target: title_vec")))),
 				"explorer: get class: vectorize search vector"),
 			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			// replicated delete conflict on the source object: usecases/replica
+			// mints this inside the fetch the explorer then wraps
+			name: "source object caught in a replicated delete conflict",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w", objects.NewErrDirtyReadOfDeletedObject(
+						fmt.Errorf("consistency level %q: conflict: object exists or was deleted", "QUORUM")))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// anything the mapping does not type (a shard read failure, a
+			// timeout) must not leave near-object's declared status set
+			name: "untyped source-object failure",
+			err: pkgerrors.Wrapf(
+				enterrors.NewErrQueryVectorization(
+					fmt.Errorf("nearObject params: %w",
+						fmt.Errorf("get local object: shard=abc: read: connection reset"))),
+				"explorer: get class: vectorize search vector"),
+			wantStatus: http.StatusInternalServerError,
 		},
 	}
 	for _, tt := range tests {

@@ -46,6 +46,9 @@ var lifecycleSentinels = map[string]error{
 var managementOnlySentinels = map[string]error{
 	"ErrBadRequest":    ErrBadRequest,    // names nothing, and the detail is the point
 	"ErrAlreadyExists": ErrAlreadyExists, // only the namespace-creation apply path produces it
+	// Only a caller sending a nonzero expected index can trigger it, and the
+	// operator needs the moved index to decide whether to retry.
+	"ErrStateChangedConcurrently": ErrStateChangedConcurrently,
 }
 
 // errorConstructors are the calls that build a sentinel. A var assigned one
@@ -130,6 +133,7 @@ func TestPublicMessage(t *testing.T) {
 		{name: "unrecognized error keeps its detail", err: errors.New("disk on fire")},
 		{name: "management-only bad request", err: ErrBadRequest},
 		{name: "management-only already exists", err: ErrAlreadyExists},
+		{name: "management-only state changed concurrently", err: ErrStateChangedConcurrently},
 	}
 
 	for _, tc := range tests {

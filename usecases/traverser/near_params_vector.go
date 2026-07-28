@@ -255,11 +255,9 @@ func (v *nearParamsVector) findMultiVector(ctx context.Context, className string
 	}
 }
 
-// classFindVector resolves the stored vector of the object a near-object
-// search anchors at. Failures carry typed errors (messages unchanged) so API
-// handlers can classify them: ErrSourceObjectNotFound when the object does
-// not exist, ErrSourceObjectNoVector when it exists but has no usable vector
-// for the request.
+// classFindVector resolves the stored vector a near-object search anchors at.
+// Failures are typed for API status mapping: ErrSourceObjectNotFound (no such
+// object), ErrSourceObjectNoVector (no usable vector for the request).
 func (v *nearParamsVector) classFindVector(ctx context.Context, className string,
 	id strfmt.UUID, tenant, targetVector string,
 ) ([]float32, string, error) {
@@ -306,8 +304,7 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 }
 
 // TODO:colbert try to unify
-// Failures carry the same typed errors as classFindVector (messages
-// unchanged) so API handlers can classify them.
+// Failures carry the same typed errors as classFindVector.
 func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className string,
 	id strfmt.UUID, tenant, targetVector string,
 ) ([][]float32, string, error) {

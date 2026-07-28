@@ -996,6 +996,7 @@ func Test_casbinSegmentConfinement(t *testing.T) {
 		{"data tenant", CasbinData("Movies", "t|*", "*"), "data/collections/Movies/shards/tX/objects/oX", "roles/admin"},
 		{"collection", CasbinSchema("A|*", "#"), "schema/collections/AX/shards/#", "roles/admin"},
 		{"aliases alias", CasbinAliases("Movies", "a|*"), "aliases/collections/Movies/aliases/aX", "roles/admin"},
+		{"namespaces", CasbinNamespaces("z|*"), "namespaces/zztop", "roles/admin"},
 	}
 	for _, tt := range crossDomain {
 		t.Run("alternation confined to its domain: "+tt.name, func(t *testing.T) {
@@ -1035,6 +1036,20 @@ func Test_casbinSegmentRoundTrip(t *testing.T) {
 		perm, err := permission(dataPolicy, true)
 		require.NoError(t, err)
 		require.Equal(t, "o|x", *perm.Data.Object)
+	})
+
+	// The namespace target carries the confinement group on write and must be
+	// stripped on read-back.
+	t.Run("namespace", func(t *testing.T) {
+		in := &models.Permission{
+			Action:     authorization.String(authorization.ManageNamespaces),
+			Namespaces: &models.PermissionNamespaces{Namespace: authorization.String("z|x")},
+		}
+		pol, err := policy(in)
+		require.NoError(t, err)
+		perm, err := permission([]string{"", pol.Resource, pol.Verb, pol.Domain}, true)
+		require.NoError(t, err)
+		require.Equal(t, "z|x", *perm.Namespaces.Namespace)
 	})
 }
 

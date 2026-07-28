@@ -78,6 +78,12 @@ var (
 	// ErrNamespaceResuming is returned when an operation targets a namespace
 	// that is resuming.
 	ErrNamespaceResuming = errors.New("namespace is resuming")
+
+	// ErrStateChangedConcurrently is returned by ChangeState when the stored
+	// StateChangeIndex no longer matches the one the caller read before
+	// proposing, meaning another state change applied in between. Callers
+	// re-read and decide again rather than retrying blindly.
+	ErrStateChangedConcurrently = errors.New("namespace state changed concurrently")
 )
 
 // reservedNames are refused at Create time. Kept as a package variable (not a
@@ -154,14 +160,19 @@ func NewController(logger logrus.FieldLogger) *Controller {
 	}
 }
 
-// Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
-// input's State and StateChangeIndex are ignored, so a caller cannot choose
-// either. HomeNodes must contain exactly one non-empty entry — downstream
-// placement and counters rely on that invariant.
-// Returns [ErrBadRequest] for invalid names or HomeNodes,
+// Create inserts a namespace in the [cmd.NamespaceStateActive] state,
+// recording index — the RAFT log index of the create command — as its
+// StateChangeIndex. The input's State and StateChangeIndex are ignored, so a
+// caller cannot choose either. HomeNodes must contain exactly one non-empty
+// entry — downstream placement and counters rely on that invariant.
+// Returns [ErrBadRequest] for invalid names, HomeNodes, or a zero index,
 // [ErrAlreadyExists] when the name maps to an active namespace, and
 // [ErrNamespaceDeleting] when the name is currently being torn down.
-func (c *Controller) Create(ns cmd.Namespace) error {
+func (c *Controller) Create(ns cmd.Namespace, index uint64) error {
+	// Storing 0 would make StateChangeIndex indistinguishable from unknown.
+	if index == 0 {
+		return fmt.Errorf("%w: create index must not be 0", ErrBadRequest)
+	}
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -180,7 +191,7 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 	}
 
 	ns.State = cmd.NamespaceStateActive
-	ns.StateChangeIndex = 0
+	ns.StateChangeIndex = index
 	c.namespaces[ns.Name] = &ns
 	return nil
 }
@@ -210,15 +221,37 @@ func (c *Controller) Update(ns cmd.Namespace) error {
 	return nil
 }
 
-// ChangeState transitions a namespace into target and records raftIndex as
-// the index of that flip. Pass the RAFT log index of the applied command,
-// never a command policy version. Same-state transitions are idempotent,
-// return nil, and leave the recorded index alone, so re-applying a command
-// cannot advance it. Returns [ErrBadRequest] when target is not a recognized
-// state, [ErrNotFound] when the namespace does not exist, and
-// [ErrInvalidStateTransition] when the transition is forbidden (e.g.
-// deleting back to active).
-func (c *Controller) ChangeState(name string, target cmd.NamespaceState, raftIndex uint64) error {
+// StateChange carries the two RAFT indexes a state flip needs: one is
+// written, the other is compared. Named fields rather than two uint64
+// parameters, which a caller could swap without the compiler noticing.
+type StateChange struct {
+	// AppliedIndex is this apply's RAFT log index. A successful flip stores
+	// it as the namespace's new StateChangeIndex.
+	AppliedIndex uint64
+	// ExpectedIndex is the StateChangeIndex the flip requires the namespace
+	// to still be at. 0 skips the check.
+	ExpectedIndex uint64
+}
+
+// ChangeState transitions a namespace into target and records sc.AppliedIndex
+// as the index of that flip. Same-state transitions are idempotent and leave
+// the recorded index alone.
+//
+// A nonzero sc.ExpectedIndex makes the flip conditional: refused with
+// [ErrStateChangedConcurrently] unless the stored StateChangeIndex still
+// matches, which stops a re-proposed command from undoing a later flip. It is
+// checked after the same-state short-circuit, so re-applying a committed
+// command still returns nil.
+//
+// Returns [ErrBadRequest] when target is unknown or sc.AppliedIndex is 0,
+// [ErrNotFound] for a missing namespace, and [ErrInvalidStateTransition] for a
+// forbidden transition.
+func (c *Controller) ChangeState(name string, target cmd.NamespaceState, sc StateChange) error {
+	// A stored 0 reads back as "unknown", so the next conditional flip would
+	// propose with no precondition at all.
+	if sc.AppliedIndex == 0 {
+		return fmt.Errorf("%w: applied index must not be 0", ErrBadRequest)
+	}
 	if !isKnownState(target) {
 		return fmt.Errorf("%w: unknown namespace state %q", ErrBadRequest, target)
 	}
@@ -232,12 +265,16 @@ func (c *Controller) ChangeState(name string, target cmd.NamespaceState, raftInd
 	if ns.State == target {
 		return nil
 	}
+	if sc.ExpectedIndex != 0 && ns.StateChangeIndex != sc.ExpectedIndex {
+		return fmt.Errorf("%w: %q moved to index %d, expected %d",
+			ErrStateChangedConcurrently, name, ns.StateChangeIndex, sc.ExpectedIndex)
+	}
 	if _, legal := stateTransitions[ns.State][target]; !legal {
 		return fmt.Errorf("%w: %q is %s, cannot transition to %s",
 			ErrInvalidStateTransition, name, ns.State, target)
 	}
 	ns.State = target
-	ns.StateChangeIndex = raftIndex
+	ns.StateChangeIndex = sc.AppliedIndex
 	return nil
 }
 
