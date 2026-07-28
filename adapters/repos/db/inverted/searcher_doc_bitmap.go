@@ -204,6 +204,114 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 	return out, nil
 }
 
+// containsBatchBucket is the minimal surface docBitmapContainsBatch needs
+// from a roaringset bucket; *lsmkv.Bucket satisfies it.
+type containsBatchBucket interface {
+	GetConsistentView() lsmkv.BucketConsistentView
+	RoaringSetGetFromView(ctx context.Context, view lsmkv.BucketConsistentView, key []byte) (*sroar.Bitmap, func(), error)
+}
+
+// mergeAllowlistBitmaps folds b into a under op (ContainsAny -> union,
+// ContainsAll -> intersection) and returns the result bitmap plus its release,
+// releasing whichever operand does not become the result. Both operands must be
+// allowlists, so it needs none of mergeBitmapsAndOrWithDenyList's deny-list
+// algebra — but it mirrors that function's swap-for-efficiency: union the
+// smaller bitmap into the larger, intersect the larger into the smaller, to
+// minimize container operations. NumContainers is an O(1) header read.
+func mergeAllowlistBitmaps(op filters.Operator, maxConc int,
+	a *sroar.Bitmap, aRelease func(), b *sroar.Bitmap, bRelease func(),
+) (*sroar.Bitmap, func(), error) {
+	switch op {
+	case filters.ContainsAny:
+		if a.NumContainers() < b.NumContainers() {
+			a, aRelease, b, bRelease = b, bRelease, a, aRelease
+		}
+		a.OrConc(b, maxConc)
+	case filters.ContainsAll:
+		if a.NumContainers() > b.NumContainers() {
+			a, aRelease, b, bRelease = b, bRelease, a, aRelease
+		}
+		a.AndConc(b, maxConc)
+	default:
+		aRelease()
+		bRelease()
+		return nil, nil, fmt.Errorf("unsupported operator %q for batched contains", op.Name())
+	}
+	bRelease()
+	return a, aRelease, nil
+}
+
+// docBitmapContainsBatch folds every key in pv.containsValues into a single
+// docBitmap under one consistent view of b, using the OR-fold for
+// ContainsAny and the AND-fold for ContainsAll. Every per-key fetch is an
+// OperatorEqual read on a roaringset bucket, so it is always an allowlist
+// (never a denylist), which is why mergeAllowlistBitmaps can skip the
+// deny-list algebra entirely.
+func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBucket,
+	pv *propValuePair,
+) (docBitmap, error) {
+	if len(pv.containsValues) == 0 {
+		return newDocBitmap(), nil
+	}
+
+	before := time.Now()
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+	maxConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
+
+	// Every value is an Equal leaf, so every fetched bitmap is an allowlist,
+	// never a deny list. Fold the raw bitmaps directly into one accumulator (Or
+	// for ContainsAny, And for ContainsAll), releasing each after folding. This
+	// skips both the per-value docBitmap wrapper and the deny-list algebra of
+	// mergeBitmapsAndOrWithDenyList (unnecessary here, as no operand is a deny
+	// list). The first fetched bitmap becomes the accumulator and is mutated in
+	// place by subsequent folds, exactly as the previous per-value merge did.
+	var acc *sroar.Bitmap
+	accRelease := noopRelease
+	for _, key := range pv.containsValues {
+		if err := ctxExpired(ctx); err != nil {
+			accRelease()
+			return docBitmap{}, err
+		}
+
+		bm, release, err := b.RoaringSetGetFromView(ctx, view, key)
+		if err != nil {
+			accRelease()
+			return docBitmap{}, fmt.Errorf("read row: %w", err)
+		}
+
+		if acc == nil {
+			acc, accRelease = bm, release
+		} else {
+			acc, accRelease, err = mergeAllowlistBitmaps(pv.operator, maxConc, acc, accRelease, bm, release)
+			if err != nil {
+				return docBitmap{}, err
+			}
+		}
+
+		// ContainsAll: once the intersection is empty no remaining key can change
+		// the result, so stop early (ContainsAny's union only grows, never
+		// shrinks). Every fetched bitmap is an allowlist, so this only skips
+		// reads that cannot matter, never the result.
+		if pv.operator == filters.ContainsAll && acc.IsEmpty() {
+			break
+		}
+	}
+	// containsValues is non-empty (checked above) and each iteration adopts or
+	// folds a fetched bitmap, so acc is non-nil here.
+	took := time.Since(before)
+	helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap", map[string]any{
+		"prop":           pv.prop,
+		"operator":       pv.operator,
+		"took":           took,
+		"took_string":    took.String(),
+		"count":          acc.GetCardinality(),
+		"strategy":       lsmkv.StrategyRoaringSet,
+		"batched_values": len(pv.containsValues),
+	})
+	return docBitmap{docIDs: acc, release: accRelease}, nil
+}
+
 func (s *Searcher) docBitmapGeo(ctx context.Context, pv *propValuePair) (docBitmap, error) {
 	out := newDocBitmap()
 	propIndex, ok := s.propIndices.ByProp(pv.prop)

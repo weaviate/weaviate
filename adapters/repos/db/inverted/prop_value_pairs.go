@@ -43,6 +43,12 @@ type propValuePair struct {
 	hasRangeableIndex  bool
 	nested             nestedInfo
 	Class              *models.Class // The schema
+
+	// containsValues holds pre-encoded on-disk keys for a flat, single-property
+	// Contains(Any|All) filter. When non-nil, resolveDocIDs routes to
+	// fetchContainsBatch instead of the children-based dispatch below;
+	// operator distinguishes ContainsAny (OR-fold) from ContainsAll (AND-fold).
+	containsValues [][]byte
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
@@ -55,6 +61,10 @@ func newPropValuePair(class *models.Class) (*propValuePair, error) {
 func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	if err := ctxExpired(ctx); err != nil {
 		return nil, err
+	}
+
+	if pv.containsValues != nil {
+		return pv.fetchContainsBatch(ctx, s)
 	}
 
 	// Correlated nested AND created during extraction: all children target the
@@ -340,6 +350,23 @@ func mergeDocIDs(operator filters.Operator, dbms []*docBitmap, maxConc int) []*d
 // fetchDocIDs resolves a value filter on a flat (non-nested) property.
 func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	return pv.readFromBucket(ctx, s, limit)
+}
+
+// fetchContainsBatch resolves a batched Contains(Any|All) filter whose keys
+// were already encoded into pv.containsValues, folding every key's bitmap
+// through docBitmapContainsBatch under a single consistent view.
+func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (*docBitmap, error) {
+	bucketName := pv.getBucketName()
+	b := s.store.Bucket(bucketName)
+	if b == nil {
+		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
+	}
+
+	dbm, err := s.docBitmapContainsBatch(ctx, b, pv)
+	if err != nil {
+		return nil, err
+	}
+	return &dbm, nil
 }
 
 // readFromBucket is the shared low-level implementation for all fetch methods.
