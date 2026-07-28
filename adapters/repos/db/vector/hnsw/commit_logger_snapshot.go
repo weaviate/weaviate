@@ -1293,13 +1293,16 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 	if bodySize <= 0 || bodySize%snapshotBlockSize != 0 {
 		return fmt.Errorf("snapshot body of %d bytes is not a whole number of %d byte blocks", bodySize, snapshotBlockSize)
 	}
+	blockCount := bodySize / snapshotBlockSize
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(l.logger, context.Background())
 	eg.SetLimit(snapshotConcurrency)
 
 	ch := make(chan int, snapshotConcurrency)
 
-	for i := 0; i < snapshotConcurrency; i++ {
+	// every worker holds a whole block, so starting more workers than there are
+	// blocks costs a block-sized buffer each and reads nothing
+	for i := 0; i < min(snapshotConcurrency, blockCount); i++ {
 		eg.Go(func() error {
 			buf := make([]byte, snapshotBlockSize)
 			var b [8]byte

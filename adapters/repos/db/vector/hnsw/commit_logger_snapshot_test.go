@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -1532,6 +1533,37 @@ func snapshotStateWithNodes(t *testing.T, size, levelOffset int) *Deserializatio
 		state.Nodes[i] = &vertex{id: uint64(i), level: (i + levelOffset) % 6, connections: c}
 	}
 	return state
+}
+
+// TestReadSnapshotBufferAllocation pins that a snapshot read allocates a block
+// buffer for each block it actually reads, not one per reader goroutine.
+func TestReadSnapshotBufferAllocation(t *testing.T) {
+	const size = 10
+
+	dir := t.TempDir()
+	id := "test"
+	cl := createTestCommitLoggerForSnapshots(t, dir, id)
+	cl.snapshotBlockSize = blockSize // production size, so this small state is one block
+
+	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+	require.NoError(t, cl.writeSnapshot(snapshotStateWithNodes(t, size, 0), snapshotPath))
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	restored, err := cl.readStateFrom(snapshotPath)
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+
+	for i := 0; i < size; i++ {
+		require.NotNilf(t, restored.Nodes[i], "node %d must survive the round-trip", i)
+	}
+
+	// one block, so one buffer; the bound is two because TotalAlloc also counts
+	// whatever else the process allocates
+	allocated := after.TotalAlloc - before.TotalAlloc
+	require.Lessf(t, allocated, uint64(2*blockSize),
+		"reading a single-block snapshot allocated %d bytes; one buffer per reader goroutine would be %d",
+		allocated, snapshotConcurrency*blockSize)
 }
 
 // TestReadSnapshotRejectsTruncatedBody pins that a truncated body fails instead
