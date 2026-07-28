@@ -149,6 +149,11 @@ type diskIndex interface {
 	// Get return lsmkv.NotFound in case no node can be found
 	Get(key []byte) (segmentindex.Node, error)
 
+	// GetOffsets returns only the payload position (start, end) of the matching
+	// node without materializing its key. Prefer it on hot read paths that only
+	// need the offsets and never read Node.Key.
+	GetOffsets(key []byte) (start, end uint64, err error)
+
 	// Seek returns lsmkv.NotFound in case the seek value is larger than
 	// the highest value in the collection, otherwise it returns the next highest
 	// value (or the exact value if present)

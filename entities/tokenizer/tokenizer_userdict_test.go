@@ -22,6 +22,20 @@ import (
 
 func ptr(s string) *string { return &s }
 
+// jaCustomDict returns a Japanese-only user-dictionary config (the KR
+// counterpart is generateReplacementModel).
+func jaCustomDict() *models.TokenizerUserDictConfig {
+	return &models.TokenizerUserDictConfig{
+		Tokenizer: models.PropertyTokenizationKagomeJa,
+		Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{
+			{
+				Source: ptr("Weaviate"),
+				Target: ptr("We Aviate"),
+			},
+		},
+	}
+}
+
 func generateReplacementModel() *models.TokenizerUserDictConfig {
 	return &models.TokenizerUserDictConfig{
 		Tokenizer: models.PropertyTokenizationKagomeKr,
@@ -84,15 +98,7 @@ func TestKagomeUserTokenizerForClass(t *testing.T) {
 // made from a guarded goroutine so an unbalanced throttle surfaces as a test
 // failure instead of a suite timeout.
 func TestKagomeUserTokenizerForClassBalancesThrottle(t *testing.T) {
-	jaDict := &models.TokenizerUserDictConfig{
-		Tokenizer: models.PropertyTokenizationKagomeJa,
-		Replacements: []*models.TokenizerUserDictConfigReplacementsItems0{
-			{
-				Source: ptr("Weaviate"),
-				Target: ptr("We Aviate"),
-			},
-		},
-	}
+	jaDict := jaCustomDict()
 
 	tests := []struct {
 		name         string
