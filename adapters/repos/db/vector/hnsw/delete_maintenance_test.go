@@ -34,7 +34,12 @@ import (
 type failingCommitLogger struct {
 	NoopCommitLogger
 	failOnReplaceLinks bool
+	shutdownErr        error
 	mu                 sync.Mutex
+}
+
+func (f *failingCommitLogger) Shutdown(ctx context.Context) error {
+	return f.shutdownErr
 }
 
 func (f *failingCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
