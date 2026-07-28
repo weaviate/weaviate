@@ -224,10 +224,11 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 		return nil, err
 	}
 
-	atomic.AddInt64(&s.count, 1)
-
 	if vec != nil {
 		s.shardedLocks.Lock(id)
+		if s.cache[id] == nil {
+			atomic.AddInt64(&s.count, 1)
+		}
 		s.cache[id] = vec
 		s.shardedLocks.Unlock(id)
 	}
@@ -340,8 +341,12 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 		// it here keeps the common case as cheap as before the cache became
 		// lazy: one stripe lock, no maintenanceLock traffic.
 		if int(id) < len(s.cache) {
+			// count tracks occupied slots, not calls; replaceIfFull wipes the
+			// cache when count reaches maxSize, so overwrites must not inflate it.
+			if s.cache[id] == nil {
+				atomic.AddInt64(&s.count, 1)
+			}
 			s.cache[id] = vec
-			atomic.AddInt64(&s.count, 1)
 			s.shardedLocks.Unlock(id)
 			return
 		}
@@ -350,6 +355,27 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 		// slow path: the cache doesn't cover id yet — preloaders (e.g. the
 		// HNSW insert path) don't grow the cache themselves. Grow guarantees
 		// coverage of id, so the next iteration stores.
+		s.Grow(id)
+	}
+}
+
+// PreloadIfAbsent writes vec only when the slot is empty, so it cannot clobber a
+// newer vector written concurrently. Reports whether it stored the vector.
+func (s *shardedLockCache[T]) PreloadIfAbsent(id uint64, vec []T) bool {
+	for {
+		s.shardedLocks.Lock(id)
+		if int(id) < len(s.cache) {
+			if s.cache[id] != nil {
+				s.shardedLocks.Unlock(id)
+				return false
+			}
+			atomic.AddInt64(&s.count, 1)
+			s.cache[id] = vec
+			s.shardedLocks.Unlock(id)
+			return true
+		}
+		s.shardedLocks.Unlock(id)
+
 		s.Grow(id)
 	}
 }
@@ -795,6 +821,10 @@ func (s *shardedMultipleLockCache[T]) PreloadPassage(id uint64, docID uint64, re
 }
 
 func (s *shardedMultipleLockCache[T]) Preload(docID uint64, vec []T) {
+	panic("not implemented")
+}
+
+func (s *shardedMultipleLockCache[T]) PreloadIfAbsent(docID uint64, vec []T) bool {
 	panic("not implemented")
 }
 
