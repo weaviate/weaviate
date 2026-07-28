@@ -13,6 +13,7 @@ package roaringset
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/bits"
 	"slices"
@@ -51,7 +52,8 @@ type BitmapBufPool interface {
 	// buffer, so a warm accumulator building into pooled memory allocates
 	// nothing. The returned bitmap owns the buffer's full capacity: it can
 	// grow in place and migrates to the heap past that (same contract as
-	// CloneToBuf). Release via put; the accumulator stays reusable.
+	// CloneToBuf). Release via put; the accumulator stays reusable. acc must
+	// be non-nil (unlike CloneToBuf's nil tolerance, it panics).
 	AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func())
 }
 
@@ -63,8 +65,9 @@ func cloneToBuf(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, pu
 
 // src must be a valid, non-empty sroar serialization (even length, >= 8
 // bytes): shorter input yields a bitmap not backed by the pooled buffer, and
-// odd-length input panics inside sroar.
+// odd-length input — always corruption, the format is []uint16-based — panics.
 func cloneBytesToBuf(pool BitmapBufPool, src []byte) (cloned *sroar.Bitmap, put func()) {
+	requireEvenLength(src)
 	buf, bm, put := pool.getWithBitmap(len(src))
 	buf = buf[:len(src)]
 	copy(buf, src)
@@ -76,11 +79,22 @@ func cloneBytesToBuf(pool BitmapBufPool, src []byte) (cloned *sroar.Bitmap, put 
 // clamped to len(src), so the "unlimited" init cannot reach the pooled
 // buffer's recycled tail.
 func cloneBytesToBufBounded(pool BitmapBufPool, src []byte) (cloned *sroar.Bitmap, put func()) {
+	requireEvenLength(src)
 	buf, bm, put := pool.getWithBitmap(len(src))
 	buf = buf[:len(src):len(src)]
 	copy(buf, src)
 	sroar.InitFromBufferUnlimited(bm, buf)
 	return bm, put
+}
+
+// requireEvenLength rejects odd-length serializations — always corruption,
+// since sroar serializes []uint16 — with a recoverable panic. Reaching
+// sroar's own even-length assert instead would log.Fatal the whole process
+// on one corrupt segment region.
+func requireEvenLength(src []byte) {
+	if len(src)%2 != 0 {
+		panic(fmt.Sprintf("roaringset: corrupt serialized bitmap: odd length %d", len(src)))
+	}
 }
 
 func accumulatorToBuf(pool BitmapBufPool, acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
@@ -230,7 +244,8 @@ func (p *bitmapBufPoolRanged) getWithBitmap(minCap int) (buf []byte, bm *sroar.B
 		}
 	}
 	// Oversized buffers are not pooled; their Bitmap struct is a one-off for
-	// the same reason.
+	// the same reason (wasted on plain Get, but negligible next to the
+	// oversized buffer itself).
 	p.disposableMetrics.bufCreated(minCap)
 	return make([]byte, 0, minCap), &sroar.Bitmap{}, func() {}
 }

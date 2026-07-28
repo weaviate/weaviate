@@ -315,6 +315,64 @@ func TestBucket_RoaringSetGetFromView_MatchesRoaringSetGet(t *testing.T) {
 	view.ReleaseView()
 }
 
+// TestBucket_RoaringSetGetFromView_SurvivesFlushAndSwitch pins the view
+// stability that justifies the caller-held-view API: reads through a view
+// taken before a FlushAndSwitch must keep resolving without error (the
+// flushed-away memtable stays readable through the held reference) and keep
+// returning the pre-switch state — writes landing in the new active memtable
+// must stay invisible. A fresh RoaringSetGet sees the post-switch write,
+// proving the view pinned state rather than the two paths coincidentally
+// agreeing.
+// (A view is not a write snapshot: writes before the switch go to the old
+// active memtable the view references, so only post-switch invisibility is
+// asserted.)
+func TestBucket_RoaringSetGetFromView_SurvivesFlushAndSwitch(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet),
+		WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Shutdown(context.Background())) })
+
+	b.SetMemtableThreshold(1e9) // flush only via the explicit switch below
+
+	key := []byte("key")
+
+	// one disk segment plus unflushed state in the active memtable, so the
+	// view references both layer kinds when taken
+	require.NoError(t, b.RoaringSetAddList(key, []uint64{1, 2, 3}))
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.RoaringSetAddList(key, []uint64{4}))
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	before, releaseBefore, err := b.RoaringSetGetFromView(ctx, view, key)
+	require.NoError(t, err)
+	arrBefore := append([]uint64(nil), before.ToArray()...)
+	releaseBefore()
+	require.Equal(t, []uint64{1, 2, 3, 4}, arrBefore)
+
+	// flush the memtable the view references, then write past the view
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.RoaringSetAddList(key, []uint64{5}))
+
+	after, releaseAfter, err := b.RoaringSetGetFromView(ctx, view, key)
+	require.NoError(t, err)
+	require.Equal(t, arrBefore, after.ToArray(),
+		"view read must keep returning the pre-switch state")
+	releaseAfter()
+
+	fresh, releaseFresh, err := b.RoaringSetGet(ctx, key)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1, 2, 3, 4, 5}, fresh.ToArray(),
+		"a fresh read must see the post-switch write the view cannot")
+	releaseFresh()
+}
+
 // TestBucket_RoaringSetGetFromView_WrongStrategy pins the strategy guard: a
 // view read on a non-roaringset bucket must error before touching the view
 // at all (a zero view makes that observable — reaching the memtable read

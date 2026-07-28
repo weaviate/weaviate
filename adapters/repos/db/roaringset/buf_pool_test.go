@@ -1076,6 +1076,11 @@ func TestAccumulatorToBuf(t *testing.T) {
 		require.True(t, bm.IsEmpty())
 	})
 
+	t.Run("nil accumulator panics, as documented", func(t *testing.T) {
+		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+		require.Panics(t, func() { pool.AccumulatorToBuf(nil) })
+	})
+
 	t.Run("reuses the pooled entry's struct, allocates nothing warm", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
 		acc := newAcc()
@@ -1106,4 +1111,29 @@ func TestAccumulatorToBuf(t *testing.T) {
 		require.Equal(t, ids, bm2.ToArray(),
 			"reused entry must reflect only the fresh union, not the grown bitmap")
 	})
+}
+
+// TestCloneBytesToBuf_OddLengthPanics pins the corrupt-input guard: an
+// odd-length src — always corruption, sroar serializations are []uint16-based
+// — must fail with a recoverable panic naming the length. Without the guard
+// the input reaches sroar's even-length assert, a log.Fatal that kills the
+// whole process over one corrupt segment region.
+func TestCloneBytesToBuf_OddLengthPanics(t *testing.T) {
+	pool := NewBitmapBufPoolNoop()
+
+	methods := []struct {
+		name  string
+		clone func(src []byte) (*sroar.Bitmap, func())
+	}{
+		{"CloneBytesToBuf", pool.CloneBytesToBuf},
+		{"CloneBytesToBufBounded", pool.CloneBytesToBufBounded},
+	}
+
+	for _, m := range methods {
+		t.Run(m.name, func(t *testing.T) {
+			require.PanicsWithValue(t,
+				"roaringset: corrupt serialized bitmap: odd length 9",
+				func() { m.clone(make([]byte, 9)) })
+		})
+	}
 }
