@@ -1,7 +1,6 @@
 package pkg
 
-// Known-bad input for tools/linter_go_routines.sh: a bare go statement instead
-// of the entities/errors wrapper.
+// Known-bad: bare go statement instead of the entities/errors wrapper.
 func Violation() {
 	go doWork()
 }

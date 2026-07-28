@@ -9,12 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package lintercheck holds positive controls for the repo's custom linters.
-//
-// Every custom linter is silent and exits 0 when it finds nothing, so a green
-// "custom checks" job is indistinguishable from a linter that has quietly
-// stopped matching. These tests assert on every CI run that each linter still
-// fires on a known-bad input, and still passes a known-good one.
+// Package lintercheck holds positive controls for the repo's custom linters:
+// each one exits 0 silently on no match, so these tests assert it still fires
+// on known-bad input and still passes known-good input.
 package lintercheck
 
 import (
@@ -71,8 +68,8 @@ func TestTreeWalkingLintersFireOnKnownViolations(t *testing.T) {
 			badPath:      "pkg/waitgroup_violation.go",
 			cleanFixture: "waitgroup_clean.go.txt",
 			cleanPath:    "pkg/waitgroup_clean.go",
-			// This linter's whole diagnostic is file:line: line, so naming the
-			// file is the assertion; a line number would break on fixture edits.
+			// Diagnostic is file:line; asserting just the filename avoids breaking
+			// when the fixture's line numbers shift.
 			wantOutput: "waitgroup_violation.go:",
 		},
 	}
@@ -108,21 +105,17 @@ func TestTreeWalkingLintersFireOnKnownViolations(t *testing.T) {
 }
 
 func TestHiddenUnicodeLinterFiresOnKnownViolation(t *testing.T) {
-	// The control itself is shell rather than Go so the security-lint composite
-	// action can run it for the client repos that pin the action by SHA and have
-	// no Go toolchain. This keeps it wired into the Go suite as well.
+	// Shell, not Go, so the security-lint composite action can also run it for
+	// client repos that pin it by SHA and have no Go toolchain.
 	script := filepath.Join(repoRoot(t), ".github", "actions", "security-lint", "selfcheck.sh")
 	if code, out := runLinter(t, t.TempDir(), script); code != 0 {
 		t.Fatalf("POSITIVE CONTROL FAILED: %s exited %d.\n%s", script, code, out)
 	}
 }
 
-// stageFixture copies a fixture into a throwaway git repo and returns its root.
-//
-// The tree-walking linters enumerate files with `git ls-files`, so they cannot
-// be pointed at a fixture path: they scan whatever git repo the working
-// directory belongs to. Staging in a throwaway repo is what keeps the
-// known-bad files from tripping the real lint pass over this repo.
+// stageFixture stages a fixture in a throwaway git repo. The linters run
+// `git ls-files` on whatever repo they're invoked from, so testdata/ fixtures
+// would otherwise also trip the real lint pass over this repo.
 func stageFixture(t *testing.T, fixture, stagedPath string) string {
 	t.Helper()
 
@@ -170,9 +163,8 @@ func runLinter(t *testing.T, dir, script string) (int, string) {
 	return cmd.ProcessState.ExitCode(), string(out)
 }
 
-// hermeticEnv drops the developer's and the runner's git config, which can
-// otherwise change which files `git ls-files` reports and make the throwaway
-// repo behave differently on a laptop than in CI.
+// hermeticEnv drops the developer's and runner's git config so `git ls-files`
+// behaves the same in the throwaway repo on a laptop as it does in CI.
 func hermeticEnv() []string {
 	return append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 }

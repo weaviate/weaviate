@@ -14,8 +14,8 @@ inputs:
 runs:
   using: composite
   steps:
-    # The scan below reports success identically whether the diff is clean or
-    # the scanner has stopped matching. This proves it still fires first.
+    # A green scan below doesn't prove it's working: it exits 0 the same way on
+    # a clean diff and on a scanner that stopped matching. This checks the latter.
     - name: Positive control for the hidden Unicode scanner
       shell: bash
       run: bash "$GITHUB_ACTION_PATH/selfcheck.sh"

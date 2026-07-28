@@ -2,8 +2,7 @@ package pkg
 
 import "golang.org/x/sync/errgroup"
 
-// Known-bad input for tools/linter_error_groups.sh: a direct errgroup use
-// outside the one allow-listed wrapper file.
+// Known-bad: direct errgroup use outside the allow-listed wrapper file.
 func Violation() error {
 	var g errgroup.Group
 	g.Go(func() error { return nil })

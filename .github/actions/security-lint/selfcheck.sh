@@ -1,14 +1,8 @@
 #!/usr/bin/env bash
-# Positive control for linter_hidden_unicode.sh.
-#
-# The linter prints "No hidden Unicode characters detected." and exits 0 both
-# when a diff is genuinely clean and when the scanner has stopped matching
-# altogether, so a green PR Security Lint proves nothing on its own. This feeds
-# the linter a known-bad diff and fails unless it fires and names the character.
-#
-# It runs as the first step of the composite action so every consumer of that
-# action, including the client repos that pin it by SHA and have no Go
-# toolchain, re-proves the scanner on every run.
+# Positive control for linter_hidden_unicode.sh: it exits 0 both on a clean
+# diff and when the scanner has stopped matching, so a green PR Security Lint
+# proves nothing on its own. Shell, not Go, so client repos that pin this
+# action by SHA and have no Go toolchain still re-run it.
 
 set -euo pipefail
 

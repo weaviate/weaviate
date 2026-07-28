@@ -39,10 +39,8 @@ jobs:
         with:
           go-version: '1.26'
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      # Each linter below is silent and exits 0 when it finds nothing, so those
-      # steps going green does not distinguish a clean tree from a linter that
-      # has stopped matching. This proves each one still fires on a known-bad
-      # fixture before we trust the steps that follow.
+      # Each linter below exits 0 silently on no match, so green alone doesn't
+      # prove it still works. This checks each one still fires.
       - name: linter positive controls
         run: go test ./tools/lintercheck/...
       - name: Error groups checks
