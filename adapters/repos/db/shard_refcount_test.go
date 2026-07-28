@@ -338,7 +338,7 @@ func TestShardRefCountArity(t *testing.T) {
 					require.ErrorContains(t, err, test.wantErrContains,
 						"the failure must be the one the exercised branch produces")
 				}
-				require.Equalf(t, int64(0), shard.inUseCounter.Load(),
+				require.Equalf(t, uint64(0), shard.lifecycle.inUse(),
 					"after %d operation(s) every acquire must have exactly one release", i+1)
 				require.Emptyf(t, releaseMisuse(hook),
 					"after %d operation(s) no call site may release twice", i+1)
@@ -393,7 +393,7 @@ func TestShardRefCountSchemaWaitFailure(t *testing.T) {
 				Return(context.Canceled).Once()
 
 			require.Error(t, test.run(t, idx, strfmt.UUID(uuid.NewString())))
-			require.Equal(t, int64(0), shard.inUseCounter.Load(),
+			require.Equal(t, uint64(0), shard.lifecycle.inUse(),
 				"a failed schema wait must still release the shard")
 		})
 	}
@@ -471,7 +471,7 @@ func TestWithShardOrRemoteRunsOneArm(t *testing.T) {
 					func(got ShardLike) error {
 						ranLocal = true
 						require.NotNil(t, got, "the local arm must never be handed a nil shard")
-						require.Positive(t, shard.inUseCounter.Load(),
+						require.Positive(t, shard.lifecycle.inUse(),
 							"the shard must stay referenced for as long as the arm runs")
 						if test.wantPanic != "" {
 							panic(localPanic)
@@ -503,7 +503,7 @@ func TestWithShardOrRemoteRunsOneArm(t *testing.T) {
 			}
 			require.Equal(t, test.wantLocal, ranLocal, "local arm")
 			require.Equal(t, test.wantRemote, ranRemote, "remote arm")
-			require.Equal(t, int64(0), shard.inUseCounter.Load(),
+			require.Equal(t, uint64(0), shard.lifecycle.inUse(),
 				"every branch must release the shard reference")
 			require.Empty(t, releaseMisuse(hook), "no branch may release twice")
 		})
@@ -558,9 +558,9 @@ func TestShardLookupReleasesReplacedReference(t *testing.T) {
 			// lookup initialize one
 			release, err := shard.preventShutdown()
 			require.NoError(t, err)
-			require.Equal(t, int64(1), shard.inUseCounter.Load())
+			require.Equal(t, uint64(1), shard.lifecycle.inUse())
 
-			wantInUse := int64(1)
+			wantInUse := uint64(1)
 			if test.blockInit {
 				idx.shards.LoadAndDelete(shard.name)
 				idx.backupProtectedShards.Store(shard.name, struct{}{})
@@ -576,11 +576,11 @@ func TestShardLookupReleasesReplacedReference(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, got, "the shard must be initialized")
 			}
-			require.Equal(t, wantInUse, shard.inUseCounter.Load(),
+			require.Equal(t, wantInUse, shard.lifecycle.inUse(),
 				"the reference that is not handed back must be released")
 
 			gotRelease()
-			require.Equal(t, int64(0), shard.inUseCounter.Load())
+			require.Equal(t, uint64(0), shard.lifecycle.inUse())
 			require.Empty(t, releaseMisuse(hook), "no reference may be released twice")
 		})
 	}
@@ -596,7 +596,7 @@ func TestPreventShutdownReleaseIsIdempotent(t *testing.T) {
 
 	release, err := shard.preventShutdown()
 	require.NoError(t, err)
-	require.Equal(t, int64(1), shard.inUseCounter.Load())
+	require.Equal(t, uint64(1), shard.lifecycle.inUse())
 
 	release()
 	require.Empty(t, releaseMisuse(hook), "one release per acquire is not a misuse")
@@ -604,7 +604,7 @@ func TestPreventShutdownReleaseIsIdempotent(t *testing.T) {
 	release()
 	release()
 
-	require.Equal(t, int64(0), shard.inUseCounter.Load())
+	require.Equal(t, uint64(0), shard.lifecycle.inUse())
 	entries := releaseMisuse(hook)
 	require.Len(t, entries, 2, "each extra release must be reported")
 	for _, entry := range entries {

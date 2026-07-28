@@ -24,7 +24,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -35,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -468,12 +468,8 @@ type Shard struct {
 	// nil if there is no configured dynamic vector index
 	dynamicVectorIndexDB *bbolt.DB
 
-	// indicates whether shard is shut down or dropped (or ongoing)
-	shut atomic.Bool
-	// indicates whether shard in being used at the moment (e.g. write request)
-	inUseCounter atomic.Int64
-	// allows concurrent shut read/write
-	shutdownLock *sync.RWMutex
+	// teardown phase plus the number of in-flight users
+	lifecycle shardLifecycle
 
 	shutCtx       context.Context
 	shutCtxCancel context.CancelCauseFunc
@@ -491,9 +487,6 @@ type Shard struct {
 	searchableBlockmaxPropNamesLock *sync.Mutex
 
 	usingBlockMaxWAND bool
-
-	// shutdownRequested marks shard as requested for shutdown
-	shutdownRequested atomic.Bool
 
 	HFreshEnabled bool
 

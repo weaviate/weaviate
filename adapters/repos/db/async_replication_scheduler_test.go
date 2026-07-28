@@ -606,9 +606,8 @@ func TestRebuildHashtreeEnableFailureRearmsNeedsRebuild(t *testing.T) {
 	// Index with nil scheduler → enableAsyncReplication returns an error immediately.
 	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
 	s := &Shard{
-		class:        &models.Class{Class: "TestClass"},
-		index:        idx,
-		shutdownLock: new(sync.RWMutex),
+		class: &models.Class{Class: "TestClass"},
+		index: idx,
 		// hashtree is nil → disableAsyncReplication is a no-op (idempotent).
 	}
 
@@ -956,9 +955,8 @@ func TestRebuildHashtreeCancelledContext(t *testing.T) {
 
 	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
 	s := &Shard{
-		class:        &models.Class{Class: "TestClass"},
-		index:        idx,
-		shutdownLock: new(sync.RWMutex),
+		class: &models.Class{Class: "TestClass"},
+		index: idx,
 	}
 
 	require.False(t, s.asyncRepNeedsRebuild.Load(), "precondition: rebuild not needed yet")
@@ -972,44 +970,46 @@ func TestRebuildHashtreeCancelledContext(t *testing.T) {
 		"asyncRepNeedsRebuild must not be set when context is already cancelled at entry")
 }
 
-// TestRebuildHashtreeSkipsWhileShutdownHoldsLock verifies rebuildHashtree blocks on shutdownLock while performShutdown holds the write lock, then skips the re-enable once s.shut is set under it.
-func TestRebuildHashtreeSkipsWhileShutdownHoldsLock(t *testing.T) {
-	sched := newSchedulerForUnitTest(t)
+// TestRebuildHashtreeSkipsOncePhaseLeavesLive verifies rebuildHashtree bails out
+// for every non-live phase. The barrier used to be shutdownLock, which made it
+// block; the refcount makes it skip.
+func TestRebuildHashtreeSkipsOncePhaseLeavesLive(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		phase shardPhase
+	}{
+		{name: "unload requested", phase: shardUnloading},
+		{name: "drop requested", phase: shardDropping},
+		{name: "already torn down", phase: shardClosed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newSchedulerForUnitTest(t)
 
-	idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
-	s := &Shard{
-		class:        &models.Class{Class: "TestClass"},
-		index:        idx,
-		shutdownLock: new(sync.RWMutex),
+			idx := &Index{Config: IndexConfig{ClassName: "TestClass"}}
+			s := &Shard{
+				class: &models.Class{Class: "TestClass"},
+				index: idx,
+			}
+			s.lifecycle.state.Store(packShardState(tc.phase, 0))
+
+			done := make(chan struct{})
+			go func() {
+				sched.rebuildHashtree(s)
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("rebuildHashtree blocked instead of skipping")
+			}
+
+			assert.False(t, s.asyncRepNeedsRebuild.Load(),
+				"skip path must not reach enableAsyncReplication")
+			assert.Zero(t, s.lifecycle.inUse(),
+				"a skipped rebuild must not leave a reference behind")
+		})
 	}
-
-	// Simulate performShutdown in progress: hold the write lock across the teardown.
-	s.shutdownLock.Lock()
-
-	done := make(chan struct{})
-	go func() {
-		sched.rebuildHashtree(s)
-		close(done)
-	}()
-
-	// rebuildHashtree must block on shutdownLock.RLock() while shutdown holds the write lock.
-	select {
-	case <-done:
-		t.Fatal("rebuildHashtree proceeded while performShutdown held shutdownLock")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	// performShutdown sets s.shut under the write lock, then releases.
-	s.shut.Store(true)
-	s.shutdownLock.Unlock()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("rebuildHashtree did not return after shutdown released the lock")
-	}
-
-	assert.False(t, s.asyncRepNeedsRebuild.Load(), "skip path must not reach enableAsyncReplication")
 }
 
 // TestRegisterAfterCloseReturnsErrSchedulerClosed verifies that Register returns

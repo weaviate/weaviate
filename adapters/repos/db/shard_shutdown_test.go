@@ -57,9 +57,8 @@ func TestShardShutdownWhenIdle(t *testing.T) {
 	require.NotNil(t, sameShard)
 	require.NotNil(t, release2)
 
-	// sanity check, no flags marked
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, false)
+	// sanity check, shard fully in service
+	requireShardPhase(t, shard, shardLive)
 
 	// release shard 2x
 	release1()
@@ -68,8 +67,7 @@ func TestShardShutdownWhenIdle(t *testing.T) {
 	// shutdown succeeds, shard idle
 	err = shard.Shutdown(context.Background())
 	require.NoError(t, err)
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, true)
+	requireShardPhase(t, shard, shardClosed)
 }
 
 func TestShardShutdownWhenIdleEventually(t *testing.T) {
@@ -95,15 +93,13 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 	require.NotNil(t, sameShard)
 	require.NotNil(t, release2)
 
-	// sanity check, no flags marked
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, false)
+	// sanity check, shard fully in service
+	requireShardPhase(t, shard, shardLive)
 
 	// shutdown fails, shard in use 2x
 	err = shard.Shutdown(context.Background())
 	require.ErrorContains(t, err, "still in use")
-	requireShardShutdownRequested(t, shard, true)
-	requireShardShut(t, shard, false)
+	requireShardPhase(t, shard, shardUnloading)
 
 	// getting shard fails, shutdown in progress
 	sameShardAgain, _, err := index.GetShard(context.Background(), shardName)
@@ -114,15 +110,13 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 	release1()
 
 	// shutdown still in progress, shard in use 1x
-	requireShardShutdownRequested(t, shard, true)
-	requireShardShut(t, shard, false)
+	requireShardPhase(t, shard, shardUnloading)
 
 	// release shard 1x
 	release2()
 
 	// shutdown eventually completed, shard idle
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, true)
+	requireShardPhase(t, shard, shardClosed)
 
 	// getting shard fails, shutdown completed
 	sameShardYetAgain, _, err := index.GetShard(context.Background(), shardName)
@@ -213,18 +207,9 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 	return index, cleanup
 }
 
-func requireShardShutdownRequested(t *testing.T, shard ShardLike, expected bool) {
-	if expected {
-		require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
-	} else {
-		require.False(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should not be marked for shut down")
-	}
-}
-
-func requireShardShut(t *testing.T, shard ShardLike, expected bool) {
-	if expected {
-		require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should be marked as shut down")
-	} else {
-		require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down")
-	}
+// requireShardPhase replaces the former requireShardShutdownRequested /
+// requireShardShut pair, two booleans that only ever held three combinations.
+func requireShardPhase(t *testing.T, shard ShardLike, expected shardPhase) {
+	t.Helper()
+	require.Equal(t, expected, shard.(*LazyLoadShard).shard.lifecycle.phase())
 }

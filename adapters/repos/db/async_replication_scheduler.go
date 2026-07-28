@@ -1496,18 +1496,15 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	// Wait for any cycle dispatched between our Done() and the disable below.
 	s.asyncRepWg.Wait()
 
-	// Serialize disable→enable against performShutdown (holds shutdownLock.Lock()
-	// across store teardown): enable either finishes before shutdown or is skipped.
-	s.shutdownLock.RLock()
-	defer s.shutdownLock.RUnlock()
-
-	if s.shut.Load() {
+	// serialize disable→enable against teardown
+	release, err := s.preventShutdown()
+	if err != nil {
 		return
 	}
+	defer release()
 
 	// disableAsyncReplication is fsync-free (it never persists the live tree on
-	// the runtime path), so it is safe to hold across the shutdownLock.RLock
-	// region below.
+	// the runtime path), so it is safe to hold across the reference.
 	if err := s.disableAsyncReplication(sched.ctx); err != nil {
 		if sched.logger != nil {
 			sched.logger.
@@ -1555,12 +1552,11 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	s.asyncRepRebuildFailures.Store(0)
 	s.asyncRepRebuildBackoffUntil.Store(0)
 
-	// If Close() fired during enableAsyncReplication, or performShutdown set
-	// s.shut between the entry-time check and now, the enable touched a store
-	// being torn down or registered against a cancelled scheduler. Disable to
-	// clean up; disableAsyncReplication does no disk I/O so this is bounded
-	// by the Deregister round-trip.
-	if sched.ctx.Err() != nil || s.shut.Load() {
+	// If Close() fired during enableAsyncReplication, or a teardown was requested
+	// since the entry check, the enable registered against a cancelled scheduler
+	// or a shard on its way out. Disable to clean up; that does no disk I/O, so
+	// it is bounded by the Deregister round-trip.
+	if sched.ctx.Err() != nil || s.lifecycle.phase() != shardLive {
 		if err := s.disableAsyncReplication(sched.ctx); err != nil {
 			s.index.logger.WithField("action", "async_replication_rebuild").Error(err)
 		}
