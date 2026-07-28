@@ -1638,6 +1638,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 					concreteShard.ClearTokenizationOverlay(propName)
 					concreteShard.ClearForceIndexOverlay(propName)
 				}
+				// The durable twin of the force-index overlay goes with it,
+				// or the next restart re-arms a window that has closed.
+				dropPendingFlipRecords(concreteShard.pathLSM(), payload.Properties, logger)
 				return nil
 			})
 		}

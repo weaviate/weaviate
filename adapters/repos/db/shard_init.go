@@ -52,7 +52,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
 	}
 
-	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class); err != nil {
+	// An enable-* migration that already swapped this shard's bucket, but
+	// whose schema flip has not landed, leaves a canonical bucket for a
+	// property the schema still calls unindexed — indistinguishable from a
+	// deleted index unless the pending migrations are read first. Removing
+	// it would destroy the only copy of the migrated data.
+	pendingFlips := newPendingFlipLookup(
+		scanPendingFlips(shardPathLSM(index.path(), shardName), index.logger))
+	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class, pendingFlips); err != nil {
 		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
 	}
 
@@ -159,7 +166,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// Finalize any completed migrations whose directory renames were deferred
 	// from a runtime swap. This must run before bucket loading (initNonVector)
 	// so that buckets are found at their canonical directory names.
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	finalized := FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+
+	// Re-arm the force-index overlay for every enable-* migration that
+	// swapped without its schema flip landing yet. Both bucket loading below
+	// and every write accepted from NotifyReady onwards key off it — the
+	// in-memory overlay armed by the migration itself did not survive the
+	// restart. See [Shard.resolvePendingFlips].
+	s.resolvePendingFlips(finalized.Promoted, class)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
 	// migration's target property as "not locally ready" on this shard.

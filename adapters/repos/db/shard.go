@@ -978,6 +978,22 @@ func (s *Shard) SetForceIndexOverlay(propName string, overlay inverted.PropertyO
 	s.forceIndexOverlay[propName] = overlay
 }
 
+// forcedIndexOverlay returns the force-index-overlay entry for propName.
+// Used by bucket loading, which needs the same "treat as indexed" answer the
+// analyzer gets: the migration's canonical bucket has to be open before any
+// write is accepted.
+//
+// Unlike [Shard.SnapshotForceIndexOverlay] this does not consult the live
+// schema, because the caller has no property to compare against; a stale
+// entry only costs an extra open bucket, and the snapshot's backstop still
+// keeps analysis honest.
+func (s *Shard) forcedIndexOverlay(propName string) (inverted.PropertyOverlay, bool) {
+	s.forceIndexOverlayMu.RLock()
+	defer s.forceIndexOverlayMu.RUnlock()
+	overlay, ok := s.forceIndexOverlay[propName]
+	return overlay, ok
+}
+
 // ClearForceIndexOverlay removes any force-index-overlay entry for propName.
 // Idempotent — called by OnTaskCompleted once flipSemanticMigrationSchema has
 // applied locally, and by the all-failed cleanup path.

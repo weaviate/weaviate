@@ -89,7 +89,13 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
-		if !inverted.HasAnyInvertedIndex(prop) {
+		// A property whose enable-* migration swapped but whose schema flag
+		// has not flipped yet is indexed on this shard, even though the live
+		// schema says otherwise. Its value bucket holds the migrated data,
+		// and writes to it emit null/length entries too — see
+		// [Shard.ensureNullLengthBucketsForMigration].
+		_, forced := s.forcedIndexOverlay(prop.Name)
+		if !inverted.HasAnyInvertedIndex(prop) && !forced {
 			continue
 		}
 
@@ -472,7 +478,12 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return err
 	}
 
-	if inverted.HasFilterableIndex(prop) {
+	// Same gate as the analyzer's: a forced overlay means the migration
+	// already swapped this bucket, so it exists and is authoritative
+	// regardless of the pre-flip schema flag.
+	forced, _ := s.forcedIndexOverlay(prop.Name)
+
+	if inverted.HasFilterableIndex(prop) || forced.ForceFilterable {
 		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
 			return s.initGeoProp(prop)
 		}
@@ -494,7 +505,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 	}
 
-	if inverted.HasSearchableIndex(prop) {
+	if inverted.HasSearchableIndex(prop) || forced.ForceSearchable {
 		strategy := lsmkv.DefaultSearchableStrategy(s.usingBlockMaxWAND)
 		searchableBucketOpts := makeBucketOptions(strategy)
 
@@ -512,7 +523,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 	}
 
-	if inverted.HasRangeableIndex(prop) {
+	if inverted.HasRangeableIndex(prop) || forced.ForceRangeable {
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketRangeableFromPropNameLSM(prop.Name),
 			makeBucketOptions(lsmkv.StrategyRoaringSetRange)...,

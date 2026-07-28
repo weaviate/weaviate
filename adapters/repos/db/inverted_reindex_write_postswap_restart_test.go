@@ -21,17 +21,11 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost: RED pin for the
-// weaviate/0-weaviate-issues#319 restart residual (see t.Skip for details).
+// TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost pins
+// weaviate/0-weaviate-issues#319 across a restart: the shard must re-open the
+// promoted canonical bucket and re-arm the force-index overlay from the
+// on-disk migration state, even though the live schema flag is still false.
 func TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost(t *testing.T) {
-	t.Skip("RED pin for weaviate/0-weaviate-issues#319 restart residual: a node restart inside " +
-		"the post-swap pre-flip window loses the in-memory force-index overlay, does not re-load the " +
-		"promoted canonical bucket (initPropertyBuckets keys on the pre-flip schema), and no durable " +
-		"local state re-arms either before the shard accepts writes — convergence depends entirely on " +
-		"the DTM replay re-running the migration. Needs a durable flip-pending marker; see the " +
-		"pre-commit staging design (weaviate/0-weaviate-issues#220, weaviate/weaviate#11995). " +
-		"Un-skip when that lands — the assertions below then go green.")
-
 	const propName = "title"
 	ctx := testCtx()
 	className := "PostSwapPreFlipRestart_" + uuid.NewString()[:8]
@@ -67,4 +61,79 @@ func TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost(t *testing.T) {
 	require.NotEmptyf(t, fp["resttoken"],
 		"weaviate/0-weaviate-issues#319 restart residual: an insert after a restart inside the "+
 			"post-swap pre-flip window must reach the migrated canonical bucket; got %v", fp)
+}
+
+// TestReindexPostSwapPreFlip_RepeatedRestartsInWindow pins the second-restart
+// hazard. By then the migrated data sits at its canonical bucket name while
+// the schema still calls the property unindexed — the exact shape the
+// nonexistent-index sweep deletes on sight, and the sidecars it was built
+// from are gone, so the deletion is unrecoverable.
+func TestReindexPostSwapPreFlip_RepeatedRestartsInWindow(t *testing.T) {
+	const propName = "title"
+	restartTokens := []string{"resttokena", "resttokenb"}
+
+	tests := []struct {
+		name        string
+		target      postSwapPreFlipTarget
+		classPrefix string
+	}{
+		{
+			name:        "enable-filterable",
+			target:      filterableTarget(),
+			classPrefix: "PostSwapPreFlipEfRestarts",
+		},
+		{
+			name:        "enable-searchable",
+			target:      searchableTarget(),
+			classPrefix: "PostSwapPreFlipEsRestarts",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := tc.classPrefix + "_" + uuid.NewString()[:8]
+			class := newNoIndexTestClass(className, []string{propName})
+
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			shardName := shard.Name()
+
+			var live *Shard
+			t.Cleanup(func() {
+				if live != nil {
+					live.Shutdown(ctx)
+				}
+			})
+
+			require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "alpha")))
+			tc.target.drive(t, shard, idx, className, propName)
+			require.NoError(t, shard.Shutdown(ctx))
+
+			for i, token := range restartTokens {
+				shd, err := idx.initShard(ctx, shardName, class, nil, true, true)
+				require.NoErrorf(t, err, "restart %d must succeed", i+1)
+				live = shd.(*Shard)
+				idx.shards.Store(shardName, shd)
+
+				bucket := tc.target.bucket(live, propName)
+				require.NotNilf(t, bucket,
+					"restart %d: canonical %s bucket must be loaded", i+1, tc.target.label)
+				require.NotEmptyf(t, tc.target.fingerprint(t, bucket)["alpha"],
+					"restart %d: backfilled data must survive a restart inside the "+
+						"post-swap pre-flip window", i+1)
+
+				require.NoErrorf(t, live.PutObject(ctx, objWithTitle(className, uuid.NewString(), token)),
+					"restart %d: in-window insert must not error", i+1)
+				fp := tc.target.fingerprint(t, bucket)
+				require.NotEmptyf(t, fp[token],
+					"weaviate/0-weaviate-issues#319: after restart %d inside the post-swap pre-flip "+
+						"window an insert must reach the migrated canonical %s bucket; got %v",
+					i+1, tc.target.label, fp)
+
+				require.NoError(t, live.Shutdown(ctx))
+				live = nil
+			}
+		})
+	}
 }

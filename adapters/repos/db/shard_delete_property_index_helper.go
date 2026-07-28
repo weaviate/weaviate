@@ -30,16 +30,22 @@ func newPropertyDeleteIndexHelper() *propertyDeleteIndexHelper {
 // for nonexistent property indexes which may be left on disk in two cases:
 // - tenant was inactive during drop property index operation hence their property buckets may still exist on disk
 // - an error occurred during update property operation and most probably property buckets haven't been removed
+//
+// pendingFlips shields the third case, which looks identical on disk but must
+// be kept: an enable-* migration that swapped its bucket before the schema
+// flip landed (weaviate/0-weaviate-issues#319). That bucket holds the only
+// copy of the migrated data, and the sidecars it was built from are already
+// gone, so removing it here is unrecoverable.
 func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropertyIndexes(
-	indexPath, shardName string, class *models.Class,
+	indexPath, shardName string, class *models.Class, pendingFlips pendingFlipLookup,
 ) error {
 	for _, prop := range class.Properties {
-		if p.isPropertyIndexRemoved(prop.IndexFilterable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)) {
+		if p.isPropertyIndexRemoved(prop.IndexFilterable) && !pendingFlips.has(prop.Name, "filterable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for filterable index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
 		}
-		if p.isPropertyIndexRemoved(prop.IndexSearchable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)) {
+		if p.isPropertyIndexRemoved(prop.IndexSearchable) && !pendingFlips.has(prop.Name, "searchable") && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for searchable index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
