@@ -42,36 +42,54 @@ func TestNewBaseHttpClient(t *testing.T) {
 		conn.Close()
 	}
 
+	// poolConn leaves a connection to the server in the client's idle pool, which
+	// the next request reuses. Only a request sent on a pooled connection is
+	// resent.
+	poolConn := func(t *testing.T, client *http.Client, url string) {
+		res, err := post(t, client, url)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		_, err = io.Copy(io.Discard, res.Body)
+		require.NoError(t, err)
+	}
+
 	t.Run("retries a dropped connection", func(t *testing.T) {
 		var requests atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if requests.Add(1) == 1 {
+			if requests.Add(1) == 2 {
 				dropConn(t, w, r)
 				return
 			}
 			w.Write([]byte("second attempt"))
 		}))
 		defer server.Close()
+		client := NewBaseHttpClient(30 * time.Second)
+		poolConn(t, client, server.URL)
 
-		res, err := post(t, NewBaseHttpClient(30*time.Second), server.URL)
+		res, err := post(t, client, server.URL)
 
 		require.NoError(t, err)
 		defer res.Body.Close()
 		body, err := io.ReadAll(res.Body)
 		require.NoError(t, err)
 		assert.Equal(t, "second attempt", string(body))
-		assert.Equal(t, int32(2), requests.Load())
+		assert.Equal(t, int32(3), requests.Load())
 	})
 
-	t.Run("gives up once the retry budget is spent", func(t *testing.T) {
+	t.Run("stops resending once the connection is freshly dialed", func(t *testing.T) {
 		var requests atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			requests.Add(1)
+			if requests.Add(1) == 1 {
+				w.Write([]byte("pooling the connection"))
+				return
+			}
 			dropConn(t, w, r)
 		}))
 		defer server.Close()
+		client := NewBaseHttpClient(30 * time.Second)
+		poolConn(t, client, server.URL)
 
-		res, err := post(t, NewBaseHttpClient(30*time.Second), server.URL)
+		res, err := post(t, client, server.URL)
 		if res != nil {
 			defer res.Body.Close()
 		}

@@ -20,8 +20,8 @@ import (
 )
 
 // NewBaseHttpClient creates an http.Client that does not follow redirects and
-// resends a request whose connection broke before a response arrived, so an
-// origin may see the same request more than once. The timeout lives in the
+// resends a request whose pooled connection broke before a response arrived, so
+// an origin may see the same request more than once. The timeout lives in the
 // transport, not http.Client.Timeout, so replacing Transport also removes it.
 // When MODULES_VALIDATE_BASE_URL is enabled it also installs a dial guard
 // rejecting internal addresses — the network-layer SSRF backstop covering every

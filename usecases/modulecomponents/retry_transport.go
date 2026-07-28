@@ -16,20 +16,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
+	"net/http/httptrace"
+	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// retryDelays holds the pause before each retry, so its length is the number of
-// retries. The first retry runs immediately: the broken connection is already
-// out of the pool.
-var retryDelays = []time.Duration{0, 100 * time.Millisecond}
+// retryDelays holds the base pause before each retry, so its length is the
+// number of retries.
+var retryDelays = []time.Duration{50 * time.Millisecond, 250 * time.Millisecond}
 
-// retryTransport resends a request whose connection broke before any response
-// arrived. net/http resends a POST only when none of its bytes reached the wire,
-// so a server closing a pooled connection mid-request fails the call. A resent
-// request may be processed twice by the origin.
+// retryTransport resends a request whose pooled connection broke before any
+// response arrived. net/http resends a POST only when none of its bytes reached
+// the wire, so a server closing a pooled connection mid-request fails the call.
+// A resent request may be processed twice by the origin.
 //
 // timeout covers all attempts and the response body read. http.Client.Timeout
 // cannot be used: with a wrapped transport it cancels through Request.Cancel, so
@@ -59,9 +63,20 @@ func (t *retryTransport) roundTripWithRetries(req *http.Request) (*http.Response
 
 	attempt := req
 	for i := 0; ; i++ {
-		res, err := t.base.RoundTrip(attempt)
-		if err == nil || !canResend || !isBrokenConnError(err) {
-			return res, err
+		if i > 0 {
+			monitoring.GetMetrics().ModuleExternalRequestResends.Inc()
+		}
+
+		var reusedConn atomic.Bool
+		res, err := t.base.RoundTrip(withConnReuseTrace(attempt, &reusedConn))
+		if err == nil {
+			return res, nil
+		}
+		// Only a request sent on a pooled connection is resent: a server closing
+		// a connection it considered idle cannot have processed it, while a break
+		// on a freshly dialed one may mean the origin already took the request.
+		if !canResend || !reusedConn.Load() || !isBrokenConnError(err) {
+			return nil, err
 		}
 		if i >= len(retryDelays) {
 			// Without the count a caller cannot tell the request was resent.
@@ -70,7 +85,7 @@ func (t *retryTransport) roundTripWithRetries(req *http.Request) (*http.Response
 
 		// A deadline landing in the pause is what ended the call, not the
 		// connection error before it.
-		if waitErr := waitBeforeRetry(req.Context(), retryDelays[i]); waitErr != nil {
+		if waitErr := waitBeforeRetry(req.Context(), jittered(retryDelays[i])); waitErr != nil {
 			return nil, waitErr
 		}
 
@@ -86,6 +101,23 @@ func (t *retryTransport) roundTripWithRetries(req *http.Request) (*http.Response
 	}
 }
 
+// withConnReuseTrace returns req set up to record whether it goes out on a
+// pooled connection. GotConn does not fire when no connection could be
+// obtained, leaving reused false.
+func withConnReuseTrace(req *http.Request, reused *atomic.Bool) *http.Request {
+	trace := &httptrace.ClientTrace{
+		GotConn: func(info httptrace.GotConnInfo) { reused.Store(info.Reused) },
+	}
+	return req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+}
+
+// jittered spreads out resends of connections that broke at the same moment, as
+// an inference service being restarted closes all of its pooled connections at
+// once.
+func jittered(delay time.Duration) time.Duration {
+	return delay + rand.N(delay)
+}
+
 // isBrokenConnError reports whether the connection died before a response could
 // be read. net/http wraps these, hence errors.Is.
 func isBrokenConnError(err error) bool {
@@ -98,9 +130,6 @@ func isBrokenConnError(err error) bool {
 func waitBeforeRetry(ctx context.Context, delay time.Duration) error {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	if delay == 0 {
-		return nil
 	}
 
 	timer := time.NewTimer(delay)
