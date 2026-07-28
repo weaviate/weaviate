@@ -67,6 +67,10 @@ func (p *BitmapBufPoolTrackingForTests) CloneBytesToBufBounded(src []byte) (clon
 	return cloneBytesToBufBounded(p, src)
 }
 
+func (p *BitmapBufPoolTrackingForTests) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	return accumulatorToBuf(p, acc)
+}
+
 // Outstanding returns the number of buffers that have been allocated but not
 // yet released. A non-zero value at the end of a test indicates a leak.
 func (p *BitmapBufPoolTrackingForTests) Outstanding() int64 {

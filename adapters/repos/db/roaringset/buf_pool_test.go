@@ -1038,3 +1038,72 @@ func TestPooledBitmapStructReuse(t *testing.T) {
 		assert.Zero(t, allocs, "pooled clone must reuse both buffer and Bitmap struct")
 	})
 }
+
+func TestAccumulatorToBuf(t *testing.T) {
+	ids := []uint64{1, 2, 3, 70_000, 200_000}
+	newAcc := func() *sroar.Accumulator {
+		acc := sroar.NewAccumulator()
+		bm := sroar.NewBitmap()
+		bm.SetMany(ids)
+		acc.Or(bm)
+		return acc
+	}
+
+	pools := []struct {
+		name string
+		pool BitmapBufPool
+	}{
+		{"noop", NewBitmapBufPoolNoop()},
+		{"ranged channel-backed", NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)},
+		{"ranged sync.Pool-backed", NewBitmapBufPoolRanged(nil, 1<<20, nil, 512, 1024)},
+		{"factor wrapper", NewBitmapBufPoolFactorWrapper(NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024), 1.5)},
+		{"tracking", NewBitmapBufPoolTrackingForTests()},
+	}
+	for _, tc := range pools {
+		t.Run(tc.name, func(t *testing.T) {
+			acc := newAcc()
+			bm, put := tc.pool.AccumulatorToBuf(acc)
+			require.Equal(t, acc.Bitmap().ToArray(), bm.ToArray())
+			put()
+		})
+	}
+
+	t.Run("empty accumulator yields an empty bitmap", func(t *testing.T) {
+		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+		bm, put := pool.AccumulatorToBuf(sroar.NewAccumulator())
+		defer put()
+		require.NotNil(t, bm)
+		require.True(t, bm.IsEmpty())
+	})
+
+	t.Run("reuses the pooled entry's struct, allocates nothing warm", func(t *testing.T) {
+		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+		acc := newAcc()
+		bm1, put1 := pool.AccumulatorToBuf(acc)
+		put1()
+		bm2, put2 := pool.AccumulatorToBuf(acc)
+		assert.Same(t, bm1, bm2, "the pooled entry's embedded Bitmap must be reused, not reallocated")
+		put2()
+
+		allocs := testing.AllocsPerRun(100, func() {
+			bm, put := pool.AccumulatorToBuf(acc)
+			_ = bm.GetCardinality()
+			put()
+		})
+		assert.Zero(t, allocs, "warm materialization must reuse both buffer and Bitmap struct")
+	})
+
+	t.Run("growth past the buffer cannot corrupt the next checkout", func(t *testing.T) {
+		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
+		acc := newAcc()
+		bm1, put1 := pool.AccumulatorToBuf(acc)
+		for i := uint64(0); i < 100_000; i += 7 {
+			bm1.Set(i)
+		}
+		put1()
+		bm2, put2 := pool.AccumulatorToBuf(acc)
+		defer put2()
+		require.Equal(t, ids, bm2.ToArray(),
+			"reused entry must reflect only the fresh union, not the grown bitmap")
+	})
+}

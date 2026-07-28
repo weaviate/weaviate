@@ -47,6 +47,12 @@ type BitmapBufPool interface {
 	// decoding recycled buffer bytes. Use for bitmaps never mutated after
 	// cloning (e.g. a segment node's deletions).
 	CloneBytesToBufBounded(src []byte) (cloned *sroar.Bitmap, put func())
+	// AccumulatorToBuf materializes the accumulator's union into a pooled
+	// buffer, so a warm accumulator building into pooled memory allocates
+	// nothing. The returned bitmap owns the buffer's full capacity: it can
+	// grow in place and migrates to the heap past that (same contract as
+	// CloneToBuf). Release via put; the accumulator stays reusable.
+	AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func())
 }
 
 func cloneToBuf(pool BitmapBufPool, src *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
@@ -74,6 +80,15 @@ func cloneBytesToBufBounded(pool BitmapBufPool, src []byte) (cloned *sroar.Bitma
 	buf = buf[:len(src):len(src)]
 	copy(buf, src)
 	sroar.InitFromBufferUnlimited(bm, buf)
+	return bm, put
+}
+
+func accumulatorToBuf(pool BitmapBufPool, acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	bm = acc.InitBitmapToBuf(func(sizeBytes int) (*sroar.Bitmap, []byte) {
+		buf, dst, p := pool.getWithBitmap(sizeBytes)
+		put = p
+		return dst, buf
+	})
 	return bm, put
 }
 
@@ -133,6 +148,10 @@ func (p *bitmapBufPoolNoop) CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, p
 
 func (p *bitmapBufPoolNoop) CloneBytesToBufBounded(src []byte) (cloned *sroar.Bitmap, put func()) {
 	return cloneBytesToBufBounded(p, src)
+}
+
+func (p *bitmapBufPoolNoop) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	return accumulatorToBuf(p, acc)
 }
 
 // -----------------------------------------------------------------------------
@@ -228,6 +247,10 @@ func (p *bitmapBufPoolRanged) CloneBytesToBufBounded(src []byte) (cloned *sroar.
 	return cloneBytesToBufBounded(p, src)
 }
 
+func (p *bitmapBufPoolRanged) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	return accumulatorToBuf(p, acc)
+}
+
 func (p *bitmapBufPoolRanged) cleanup(n int) map[int]int {
 	cleaned := map[int]int{}
 	for i := p.firstInMemoRngIdx; i < len(p.ranges); i++ {
@@ -286,6 +309,10 @@ func (p *bitmapBufPoolFactorWrapper) CloneBytesToBuf(src []byte) (cloned *sroar.
 
 func (p *bitmapBufPoolFactorWrapper) CloneBytesToBufBounded(src []byte) (cloned *sroar.Bitmap, put func()) {
 	return cloneBytesToBufBounded(p, src)
+}
+
+func (p *bitmapBufPoolFactorWrapper) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	return accumulatorToBuf(p, acc)
 }
 
 // -----------------------------------------------------------------------------
