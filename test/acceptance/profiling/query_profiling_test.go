@@ -356,8 +356,7 @@ func TestQueryProfiling(t *testing.T) {
 		}
 	})
 
-	// A query that matches nothing still visited every shard, so it still has a profile
-	// worth reading — that is usually exactly the query you are trying to explain.
+	// A query that matches nothing still visited every shard, so its profile is still worth reading.
 	t.Run("profile survives an empty result set", func(t *testing.T) {
 		// No object has num > 1000; objects are numbered 0..29.
 		matchNothing := &pb.Filters{

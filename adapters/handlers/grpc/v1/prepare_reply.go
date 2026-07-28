@@ -106,9 +106,8 @@ func (r *Replier) Search(ctx context.Context, res []interface{}, start time.Time
 	return out, nil
 }
 
-// extractQueryProfile builds the [pb.QueryProfile] for the reply. It reads the profile
-// from ctx rather than from the returned objects because the profile describes the query,
-// not any object: a query that matched nothing still profiled every shard it visited.
+// extractQueryProfile reads from ctx, not the returned objects: a query that matched
+// nothing still profiled every shard it visited.
 func (r *Replier) extractQueryProfile(ctx context.Context) *pb.QueryProfile {
 	queryProfiles := helpers.ExtractQueryProfiles(ctx)
 	if len(queryProfiles) == 0 {

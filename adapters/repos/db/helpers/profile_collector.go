@@ -171,11 +171,10 @@ func AddRemoteQueryProfiles(ctx context.Context, queryProfiles []ShardQueryProfi
 	}()
 }
 
-// AttachQueryProfileToResults serves GraphQL only, whose "queryProfile" field lives on the
-// per-object _additional map; results[0] is picked because the profile is per-query and
-// would otherwise be repeated on every object. GraphQL has no query-level slot, so a query
-// that matched nothing reports no profile there. gRPC does not go through this path: it
-// reads the profile from the context, which survives an empty result set.
+// AttachQueryProfileToResults serves GraphQL only: "queryProfile" lives on the per-object
+// _additional map, so results[0] carries it rather than repeating it on every object.
+// GraphQL has no query-level slot, so an empty result set legitimately reports no profile
+// here (gRPC reads it from the context instead, unaffected by an empty result set).
 func AttachQueryProfileToResults(ctx context.Context, results search.Results) search.Results {
 	queryProfiles := ExtractQueryProfiles(ctx)
 	if len(queryProfiles) == 0 || len(results) == 0 {
