@@ -63,7 +63,7 @@ UPDATE_LOOP:
 		case cmd.RBACLatestCommandPolicyVersion:
 			break UPDATE_LOOP
 		default:
-			continue
+			return nil, fmt.Errorf("unsupported RBAC command version %d, was this log written by a newer Weaviate?", req.Version)
 		}
 		req.Version += 1
 	}
@@ -161,7 +161,7 @@ UPDATE_LOOP:
 		case cmd.RBACLatestCommandPolicyVersion:
 			break UPDATE_LOOP
 		default:
-			continue
+			return nil, fmt.Errorf("unsupported RBAC command version %d, was this log written by a newer Weaviate?", req.Version)
 		}
 		req.Version += 1
 	}

@@ -108,7 +108,7 @@ func (pv *propValuePair) fetchNestedDocIDs(ctx context.Context, s *Searcher) (*d
 // quantifiers ship, the closest universal-style query remains
 // `<prop> IS NULL` (IsNull on the array property itself, rule 1
 // above — "no <prop> at all" at the root scope).
-func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
+func (pv *propValuePair) fetchNestedIsNull(ctx context.Context, s *Searcher) (*docBitmap, error) {
 	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
 	if metaBucket == nil {
 		return nil, errors.Errorf("nested IsNull: meta bucket for %q not found — is it indexed?", pv.prop)
@@ -118,11 +118,11 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 	isNullTrue := len(pv.value) > 0 && pv.value[0] == 0x01
 
 	// Read operand: positions where the field exists at pv.nested.relPath.
-	operandRaw, operandRel, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
+	operandRaw, operandRel, err := metaBucket.RoaringSetGet(ctx, invnested.ExistsKey(pv.nested.relPath))
 	if err != nil {
 		return nil, fmt.Errorf("nested IsNull: read exists key for %q: %w", pv.prop, err)
 	}
-	operand, err := pv.restrictByNestedIdx(s, &docBitmap{docIDs: operandRaw, release: operandRel})
+	operand, err := pv.restrictByNestedIdx(ctx, s, &docBitmap{docIDs: operandRaw, release: operandRel})
 	if err != nil {
 		return nil, err
 	}
@@ -150,11 +150,11 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 		return nil, err
 	}
 
-	universeRaw, universeRel, err := metaBucket.RoaringSetGet(invnested.ExistsKey(lca))
+	universeRaw, universeRel, err := metaBucket.RoaringSetGet(ctx, invnested.ExistsKey(lca))
 	if err != nil {
 		return nil, fmt.Errorf("nested IsNull: read exists key for LCA %q: %w", lca, err)
 	}
-	universe, err := pv.restrictByNestedIdx(s, &docBitmap{docIDs: universeRaw, release: universeRel})
+	universe, err := pv.restrictByNestedIdx(ctx, s, &docBitmap{docIDs: universeRaw, release: universeRel})
 	if err != nil {
 		return nil, err
 	}
@@ -197,11 +197,11 @@ func (pv *propValuePair) fetchNestedContainsNone(ctx context.Context, s *Searche
 	}
 	defer operandRel()
 
-	universeRaw, universeRel, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
+	universeRaw, universeRel, err := metaBucket.RoaringSetGet(ctx, invnested.ExistsKey(pv.nested.relPath))
 	if err != nil {
 		return nil, fmt.Errorf("nested ContainsNone: read exists key for %q: %w", pv.nested.relPath, err)
 	}
-	universe, err := pv.restrictByNestedIdx(s, &docBitmap{docIDs: universeRaw, release: universeRel})
+	universe, err := pv.restrictByNestedIdx(ctx, s, &docBitmap{docIDs: universeRaw, release: universeRel})
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +362,7 @@ func (pv *propValuePair) fetchNestedPositions(ctx context.Context, s *Searcher) 
 	if err != nil {
 		return nil, err
 	}
-	raw, err = pv.restrictByNestedIdx(s, raw)
+	raw, err = pv.restrictByNestedIdx(ctx, s, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +373,7 @@ func (pv *propValuePair) fetchNestedPositions(ctx context.Context, s *Searcher) 
 	// fetchNestedExistsPositions or AndNot panic, raw and universe are
 	// released on unwind.
 	defer raw.release()
-	universe, universeRel, err := pv.fetchNestedExistsPositions(s)
+	universe, universeRel, err := pv.fetchNestedExistsPositions(ctx, s)
 	if err != nil {
 		return nil, fmt.Errorf("materialize NotEqual at LCA for %q: %w", pv.nested.relPath, err)
 	}
@@ -390,7 +390,7 @@ func (pv *propValuePair) fetchNestedPositions(ctx context.Context, s *Searcher) 
 // Returns the (potentially swapped) accumulator on success. On error the
 // accumulator is released internally and nil is returned.
 // No-op when arrayIndices is empty.
-func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *docBitmap) (*docBitmap, error) {
+func (pv *propValuePair) restrictByNestedIdx(ctx context.Context, s *Searcher, positions *docBitmap) (*docBitmap, error) {
 	if len(pv.nested.arrayIndices) == 0 {
 		return positions, nil
 	}
@@ -408,14 +408,15 @@ func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *docBitmap) 
 	if metaBucket == nil {
 		return nil, fmt.Errorf("nested [N] filter: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	var keyBuf [invnested.IdxKeySize]byte
 	for _, ai := range pv.nested.arrayIndices {
-		positionsIdx, release, err := metaBucket.RoaringSetGet(invnested.IdxKeyToBuf(ai.RelPath, ai.Index, keyBuf[:]))
+		positionsIdx, release, err := metaBucket.RoaringSetGet(ctx, invnested.IdxKeyToBuf(ai.RelPath, ai.Index, keyBuf[:]))
 		if err != nil {
 			return nil, fmt.Errorf("nested [N] filter: read idx key for %q[%d]: %w", ai.RelPath, ai.Index, err)
 		}
 		dbmIdx := &docBitmap{docIDs: positionsIdx, release: release}
-		positions = mergeBitmapsAndOrWithDenyList(positions, dbmIdx, filters.OperatorAnd)
+		positions = mergeBitmapsAndOrWithDenyList(positions, dbmIdx, filters.OperatorAnd, mergeConc)
 	}
 	succeeded = true
 	return positions, nil
@@ -428,12 +429,12 @@ func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *docBitmap) 
 // If the filter carries arr[N] constraints (e.g. "cars[1].make IS NULL"),
 // restrictByNestedIdx is applied so that only the specified element's positions
 // are returned.
-func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap, func(), error) {
+func (pv *propValuePair) fetchNestedExistsPositions(ctx context.Context, s *Searcher) (*sroar.Bitmap, func(), error) {
 	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
 	if metaBucket == nil {
 		return nil, nil, fmt.Errorf("nested IsNull: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
-	positions, release, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
+	positions, release, err := metaBucket.RoaringSetGet(ctx, invnested.ExistsKey(pv.nested.relPath))
 	if err != nil {
 		return nil, nil, fmt.Errorf("nested IsNull: read exists key for %q: %w", pv.prop, err)
 	}
@@ -442,7 +443,7 @@ func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap,
 	}
 	// Restrict to the specific array element(s) indicated by arr[N] constraints.
 	dbm := &docBitmap{docIDs: positions, release: release}
-	restricted, err := pv.restrictByNestedIdx(s, dbm)
+	restricted, err := pv.restrictByNestedIdx(ctx, s, dbm)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -514,12 +515,13 @@ func (pv *propValuePair) resolveMultiGroupDocIDLevelAnd(ctx context.Context, s *
 			dbm.release()
 		}
 	}()
+	mergeConc := concurrency.BudgetFromCtxCapped(ctx, concurrency.SROAR_MERGE)
 	for _, group := range groups[1:] {
 		groupDbm, err := pv.resolveNestedSubtreeGroup(ctx, s, group)
 		if err != nil {
 			return nil, err
 		}
-		dbm = mergeBitmapsAndOrWithDenyList(dbm, groupDbm, filters.OperatorAnd)
+		dbm = mergeBitmapsAndOrWithDenyList(dbm, groupDbm, filters.OperatorAnd, mergeConc)
 	}
 	succeeded = true
 	return dbm, nil

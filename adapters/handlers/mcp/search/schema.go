@@ -30,7 +30,7 @@ type QueryHybridArgs struct {
 	TargetProperties []string       `json:"target_properties,omitempty" jsonschema_description:"Properties to perform BM25 keyword search on. If not specified, searches all text properties"`
 	ReturnProperties []string       `json:"return_properties,omitempty" jsonschema_description:"Properties to return in the result"`
 	ReturnMetadata   []string       `json:"return_metadata,omitempty" jsonschema_description:"Metadata to return (e.g., 'id', 'vector', 'distance', 'score', 'creationTimeUnix', 'lastUpdateTimeUnix')"`
-	Filters          map[string]any `json:"filters,omitempty" jsonschema:"-"`
+	Filters          map[string]any `json:"filters,omitempty"`
 }
 
 // Response types
@@ -48,6 +48,7 @@ func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig, m
 		mcp.WithDescription(internal.GetDescription(configs, toolName,
 			"Performs hybrid search (vector + keyword) for data in a collection.")),
 		mcp.WithInputSchema[QueryHybridArgs](),
+		withHybridFilterSchema(),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),

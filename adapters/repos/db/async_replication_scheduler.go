@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	defaultAsyncReplicationSchedulerWorkers        = 10
+	defaultAsyncReplicationSchedulerWorkers        = 1
 	defaultAsyncReplicationHashtreeInitConcurrency = 100
 	maxMaxWorkers                                  = 100
 
@@ -83,6 +83,21 @@ type asyncSchedulerEntry struct {
 	// is pushed onto the heap. Entries with the same nextRunAt are served in
 	// the order they were enqueued (FIFO within a tie).
 	seq uint64
+	// true while a dispatch's asyncRepWg.Add(1) awaits its Done(); the CAS winner
+	// owns it. Assumes at most one outstanding dispatch per entry.
+	pendingDone atomic.Bool
+}
+
+// tryOwnDone takes ownership of the pending Done(); false when already owned.
+func (e *asyncSchedulerEntry) tryOwnDone() bool {
+	return e.pendingDone.CompareAndSwap(true, false)
+}
+
+// settleDone settles the pending Done() unless a worker already owns the cycle.
+func (e *asyncSchedulerEntry) settleDone() {
+	if e.tryOwnDone() {
+		e.shard.asyncRepWg.Done()
+	}
 }
 
 // asyncSchedulerHeap is a min-heap ordered by nextRunAt with FIFO tie-breaking
@@ -772,7 +787,7 @@ func (sched *AsyncReplicationScheduler) dispatcher() {
 	defer timer.Stop()
 	// Sole drain mechanism for workCh. Workers exit promptly on ctx.Done()
 	// without competing for items; the dispatcher is the only producer so
-	// anything left here on exit gets its Add(1) balanced by Done().
+	// anything left here on exit gets its still-pending Add(1) settled by Done().
 	defer sched.drainWorkChOnExit()
 
 	resetTimer := func() {
@@ -876,7 +891,7 @@ func (sched *AsyncReplicationScheduler) effectiveBatchSize() int {
 // could not be dispatched, re-queuing it with a fresh seq. mu must be held.
 func (sched *AsyncReplicationScheduler) rollbackReservedLocked(entry *asyncSchedulerEntry) {
 	entry.inFlight = false
-	entry.shard.asyncRepWg.Done()
+	entry.settleDone()
 	entry.seq = sched.nextSeq
 	sched.nextSeq++
 	heap.Push(&sched.h, entry)
@@ -935,6 +950,7 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 			// Diverging shard: ship as a standalone singleton so its descent runs on
 			// any free worker. Clear descendDirect only on a successful send.
 			entry.shard.asyncRepWg.Add(1)
+			entry.pendingDone.Store(true)
 			entry.inFlight = true
 			heap.Pop(&sched.h)
 			if sched.trySendBatchLocked([]*asyncSchedulerEntry{entry}) {
@@ -950,6 +966,7 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 
 		// Add(1) before send so Deregister+asyncRepWg.Wait() catches the cycle; pop to advance.
 		entry.shard.asyncRepWg.Add(1)
+		entry.pendingDone.Store(true)
 		entry.inFlight = true
 		heap.Pop(&sched.h)
 
@@ -1067,9 +1084,9 @@ func (sched *AsyncReplicationScheduler) onAddLocked(s *Shard) {
 	sched.metrics.setQueueDepth(len(sched.h))
 }
 
-// onRemoveLocked removes a shard from the registry (and heap if not in-flight).
-// If in-flight, the worker's eventual result will be discarded by onResultLocked
-// (entry no longer in sched.entries). mu must be held.
+// onRemoveLocked removes a shard from the registry/heap and settles Done()s
+// still pending on queued batches so asyncRepWg.Wait() can't be pinned by them;
+// a worker that already owns the cycle keeps its Done(). mu must be held.
 func (sched *AsyncReplicationScheduler) onRemoveLocked(s *Shard) {
 	entry, ok := sched.entries[s]
 	if !ok {
@@ -1077,14 +1094,16 @@ func (sched *AsyncReplicationScheduler) onRemoveLocked(s *Shard) {
 	}
 	delete(sched.entries, s)
 	sched.metrics.decShardsRegistered()
-	if !entry.inFlight {
+	if entry.heapIdx >= 0 {
 		heap.Remove(&sched.h, entry.heapIdx)
 	}
+	entry.settleDone()
+	entry.inFlight = false
 	sched.metrics.setQueueDepth(len(sched.h))
 }
 
-// drainWorkChOnExit empties workCh after the dispatcher returned, balancing each
-// reserved entry's Add(1). Single non-blocking pass suffices (sole producer).
+// drainWorkChOnExit empties workCh after the dispatcher returned, settling each
+// still-unowned Done. Single non-blocking pass suffices (sole producer).
 func (sched *AsyncReplicationScheduler) drainWorkChOnExit() {
 	for {
 		select {
@@ -1094,7 +1113,7 @@ func (sched *AsyncReplicationScheduler) drainWorkChOnExit() {
 			}
 			for _, entry := range *bp {
 				entry.inFlight = false
-				entry.shard.asyncRepWg.Done()
+				entry.settleDone()
 			}
 		default:
 			return
@@ -1259,6 +1278,16 @@ func (sched *AsyncReplicationScheduler) runBatch(bp *[]*asyncSchedulerEntry, scr
 		*bp = (*bp)[:0]
 		sched.batchPool.Put(bp)
 	}()
+
+	// Own each entry's Done before touching any shard; already-settled
+	// (deregistered) entries are dropped without a run, Done, or result.
+	kept := batch[:0]
+	for _, entry := range batch {
+		if entry.tryOwnDone() {
+			kept = append(kept, entry)
+		}
+	}
+	batch = kept
 
 	if len(batch) <= 1 {
 		if len(batch) == 1 {

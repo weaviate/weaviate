@@ -131,6 +131,12 @@ func (t *noopTicker) CycleExecuted(executed bool) {
 
 // ===== Intervals =====
 
+// CycleIntervals yields the delay before a callback's next run: Get reports it,
+// Reset and Advance update it after a run (Reset on work done, Advance on an idle
+// run). None may panic — the scheduler calls Get while rescheduling on the ticker
+// goroutine, outside the callback's recover scope, so a panic there kills the
+// scheduler goroutine. Each instance serves one registration and must not be
+// shared across registrations.
 type CycleIntervals interface {
 	Get() time.Duration
 	Reset()

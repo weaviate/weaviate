@@ -345,6 +345,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// serialize on the same per-(collection, property) mutex. See
 	// the field godoc on state.State for the race this closes.
 	appState.ReindexSubmitLocks = state.NewReindexSubmitLocks()
+	// ReindexDeleteMarkers lets GET /indexes suppress the post-DELETE
+	// finalize-window bleed; recorded by the DELETE handler, read by the
+	// GET-indexes handler. See the field godoc on state.State.
+	appState.ReindexDeleteMarkers = state.NewReindexDeleteMarkers()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -1160,7 +1164,7 @@ func initReindexAndDistributedTasks(
 	dropVectorEnqueuer *dropVectorIndexEnqueuer,
 ) {
 	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.Logger,
+		repo, appState.SchemaManager, appState.ClusterService.Raft, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
@@ -1171,6 +1175,12 @@ func initReindexAndDistributedTasks(
 	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 	providers[db.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	// Read-repair for the v1.38→v1.39 stamp-migration residual; see
+	// [db.ReindexProvider.RunSearchableBlockmaxRepair].
+	enterrors.GoWrapper(func() {
+		reindexProvider.RunSearchableBlockmaxRepair(serverShutdownCtx)
+	}, appState.Logger)
 
 	// Drop-vector-index distributed-task provider. Added to the providers map so the
 	// conflict/schema-mutation detector loops below auto-register it.
@@ -1189,6 +1199,11 @@ func initReindexAndDistributedTasks(
 			serverShutdownCtx, appState.SchemaManager, dropVectorEnqueuer, appState.Logger,
 			dropVectorReconcileInterval)
 	}, appState.Logger)
+
+	if appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL == 0 {
+		appState.Logger.WithField("env", "DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS").
+			Warn("TTL=0 GCs FINISHED reindex tasks immediately; unsafe during a rolling upgrade until every node is on the stamp version")
+	}
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -1440,9 +1455,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
-	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer, appState.Logger)
+	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ReindexDeleteMarkers, appState.ServerConfig.Config.Namespaces.Enabled)
 	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
@@ -1454,6 +1469,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
 	setupGraphQLHandlers(api, appState, appState.SchemaManager, appState.ServerConfig.Config.DisableGraphQL,
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
+	setupSearchHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
@@ -1471,6 +1487,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		getTelemetryURL(appState),
 		appState.ServerConfig.Config.TelemetryPushInterval,
 		telemetryEnabled(appState),
+		telemetry.Config{
+			ConsumerURL:          getTelemetryURL(appState),
+			PushInterval:         appState.ServerConfig.Config.TelemetryPushInterval,
+			Enabled:              telemetryEnabled(appState),
+			NodeID:               appState.ServerConfig.Config.Cluster.Hostname,
+			AsyncIndexingEnabled: appState.ServerConfig.Config.AsyncIndexingEnabled,
+			ClusterID:            appState.ClusterService.ClusterID,
+		},
 	)
 
 	var grpcInstrument []grpc.ServerOption
@@ -1567,8 +1591,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
-		// gracefully stop gRPC server
-		grpcServer.GracefulStop()
+		// stop the gRPC server gracefully, but cap the wait so a stuck
+		// request can't block shutdown.
+		grpcStopped := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			grpcServer.GracefulStop()
+			close(grpcStopped)
+		}, appState.Logger)
+		select {
+		case <-grpcStopped:
+		case <-time.After(20 * time.Second):
+			appState.Logger.Warn("grpc graceful stop timed out, forcing stop")
+			grpcServer.Stop()
+		}
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
@@ -1737,6 +1772,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	}
 
 	serverConfig.Config.Cluster.RaftBootstrapExpect = serverConfig.Config.Raft.BootstrapExpect
+	serverConfig.Config.Cluster.RaftBootstrapTimeout = serverConfig.Config.Raft.BootstrapTimeout
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
@@ -2707,9 +2743,11 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
+		registered.BackupMaxIndividualFiles = appState.ServerConfig.Config.Backup.MaxIndividualFiles
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
 		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL
+		registered.ExperimentalRESTSearchEnabled = appState.ServerConfig.Config.ExperimentalRESTSearchEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

@@ -603,6 +603,11 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 	db.dropping.Store(id, index)
 	defer db.dropping.Delete(id)
 
+	// abort in-flight usage scans so the dropIndex write lock below is not
+	// blocked behind an hours-long reader while db.indexLock is held
+	index.signalDropRequested()
+
+	// drop index
 	db.indexLock.Lock()
 	delete(db.indices, id)
 	db.indexLock.Unlock()

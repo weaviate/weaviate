@@ -12,7 +12,9 @@
 package rbac
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/config"
 
@@ -22,6 +24,57 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
+
+// TestMigration_UnsupportedFutureVersion pins that a command carrying a version
+// newer than this binary knows about returns an error instead of spinning
+// forever. Such an entry can reach the RAFT FSM apply loop on a rollback or a
+// mixed-version rolling upgrade; an infinite loop there would stall startup
+// replay with one core pegged and no diagnostics.
+func TestMigration_UnsupportedFutureVersion(t *testing.T) {
+	futureVersions := []int{
+		cmd.RBACLatestCommandPolicyVersion + 1,
+		cmd.RBACLatestCommandPolicyVersion + 5,
+	}
+
+	migrations := []struct {
+		name string
+		run  func(version int) error
+	}{
+		{
+			name: "upsert",
+			run: func(version int) error {
+				_, err := migrateUpsertRolesPermissions(&cmd.CreateRolesRequest{
+					Version: version, Roles: map[string][]authorization.Policy{},
+				})
+				return err
+			},
+		},
+		{
+			name: "remove",
+			run: func(version int) error {
+				_, err := migrateRemovePermissions(&cmd.RemovePermissionsRequest{Version: version})
+				return err
+			},
+		},
+	}
+
+	for _, m := range migrations {
+		for _, v := range futureVersions {
+			t.Run(fmt.Sprintf("%s/version=%d", m.name, v), func(t *testing.T) {
+				done := make(chan error, 1)
+				go func() { done <- m.run(v) }()
+
+				select {
+				case err := <-done:
+					require.Error(t, err)
+					require.ErrorContains(t, err, "unsupported RBAC command version")
+				case <-time.After(2 * time.Second):
+					t.Fatal("migration did not return: infinite loop on unknown version")
+				}
+			})
+		}
+	}
+}
 
 func TestMigrationsUpsert(t *testing.T) {
 	tests := []struct {

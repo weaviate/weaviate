@@ -178,6 +178,48 @@ func TestCompactionCleanupBothSegmentsPresentUpgrade(t *testing.T) {
 	}
 }
 
+// TestSegmentGroupInit_RemovesStrayTempFiles pins the recovery-loop behavior
+// that a segment sidecar .tmp left behind by a crash during a compaction/cleanup
+// switch (e.g. a precomputed segment-X.bloom.tmp) is removed on init, while a
+// .tmp not belonging to a segment is left untouched.
+func TestSegmentGroupInit_RemovesStrayTempFiles(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		file    string
+		removed bool
+	}{
+		{name: "stray bloom tmp", file: "segment-1700000000000000000.bloom.tmp", removed: true},
+		{name: "stray cna tmp", file: "segment-1700000000000000000.cna.tmp", removed: true},
+		{name: "stray metadata tmp", file: "segment-1700000000000000000.metadata.tmp", removed: true},
+		{name: "stray secondary bloom tmp", file: "segment-1700000000000000000.secondary.0.bloom.tmp", removed: true},
+		{name: "non-segment tmp preserved", file: "something-else.tmp", removed: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tt.file)
+			require.NoError(t, os.WriteFile(path, []byte("x"), 0o644))
+
+			b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithUseBloomFilter(false), WithStrategy(StrategyReplace))
+			require.NoError(t, err)
+			defer b.Shutdown(ctx)
+
+			_, statErr := os.Stat(path)
+			if tt.removed {
+				require.True(t, os.IsNotExist(statErr), "expected %q to be removed on init", tt.file)
+			} else {
+				require.NoError(t, statErr, "expected %q to be preserved", tt.file)
+			}
+		})
+	}
+}
+
 func copyFile(t *testing.T, src, dest string) {
 	t.Helper()
 	target, err := os.Create(dest)

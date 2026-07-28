@@ -520,7 +520,7 @@ func (t *fileReindexTracker) GetStatusStrings() (status string, message string, 
 	if !t.IsStarted() {
 		status = "not started"
 		message = "reindexing not started"
-		action = "use PUT /v1/schema/{collection}/indexes/{property} API to trigger reindex"
+		action = "use PUT /v1/schema/{collection}/properties/{property}/index/{indexType} API to trigger reindex"
 		if t.HasStartCondition() {
 			message = "reindexing will start on next restart"
 			action = "restart"

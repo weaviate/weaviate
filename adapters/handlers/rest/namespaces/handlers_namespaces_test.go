@@ -23,13 +23,14 @@ import (
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/sirupsen/logrus"
+	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	nsops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/namespaces"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -65,8 +66,9 @@ func (m *mockRaft) ChangeNamespaceState(ctx context.Context, name string, target
 	return uint64(args.Int(0)), args.Error(1)
 }
 
-func (m *mockRaft) DeleteUsersInNamespace(ctx context.Context, name string) error {
-	return m.Called(ctx, name).Error(0)
+func (m *mockRaft) ChangeNamespaceStateIfUnchanged(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error) {
+	args := m.Called(ctx, name, target)
+	return uint64(args.Int(0)), args.Error(1)
 }
 
 func (m *mockRaft) GetNamespaces(names ...string) ([]cmd.Namespace, error) {
@@ -95,7 +97,6 @@ func newHandler(t *testing.T) (*namespaceHandler, *authorization.MockAuthorizer,
 		enabled:    true,
 		authorizer: authorizer,
 		raft:       raft,
-		logger:     logrus.New(),
 	}, authorizer, raft
 }
 
@@ -150,6 +151,22 @@ func TestHandlers_Forbidden(t *testing.T) {
 			},
 			wantTyped: &nsops.DeleteNamespaceForbidden{},
 		},
+		{
+			name:   "suspend",
+			action: authorization.UPDATE,
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			},
+			wantTyped: &nsops.SuspendNamespaceForbidden{},
+		},
+		{
+			name:   "resume",
+			action: authorization.UPDATE,
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.resumeNamespace(nsops.ResumeNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			},
+			wantTyped: &nsops.ResumeNamespaceForbidden{},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -203,6 +220,22 @@ func TestHandlers_InvalidNameRejected(t *testing.T) {
 			},
 			wantTyped: &nsops.DeleteNamespaceUnprocessableEntity{},
 		},
+		{
+			name:   "suspend",
+			action: authorization.UPDATE,
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "BadName", HTTPRequest: req}, principal)
+			},
+			wantTyped: &nsops.SuspendNamespaceUnprocessableEntity{},
+		},
+		{
+			name:   "resume",
+			action: authorization.UPDATE,
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.resumeNamespace(nsops.ResumeNamespaceParams{NamespaceID: "BadName", HTTPRequest: req}, principal)
+			},
+			wantTyped: &nsops.ResumeNamespaceUnprocessableEntity{},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -244,11 +277,8 @@ func TestCreateNamespace_UnprocessableEntity(t *testing.T) {
 	}
 }
 
-// TestCreateNamespace_Conflict checks that create returns 409 in two
-// cases: when the name belongs to an active namespace, and when the name
-// belongs to one that is still being deleted. Both map to the same
-// response type, so the test also asserts each carries its own distinct
-// message so clients can tell the two situations apart.
+// TestCreateNamespace_Conflict checks the 409 paths: an existing name and a
+// namespace mid-deletion both return Conflict with a distinguishing message.
 func TestCreateNamespace_Conflict(t *testing.T) {
 	principal := &models.Principal{}
 	cases := []struct {
@@ -262,7 +292,7 @@ func TestCreateNamespace_Conflict(t *testing.T) {
 			wantSubstr: "already exists",
 		},
 		{
-			name:       "is being deleted",
+			name:       "being deleted",
 			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, "customer1"),
 			wantSubstr: "being deleted",
 		},
@@ -283,6 +313,57 @@ func TestCreateNamespace_Conflict(t *testing.T) {
 	}
 }
 
+// TestCreateNamespace_LifecycleErrorsReturn422 checks that the namespace
+// lifecycle sentinels render 422 with a message that distinguishes them.
+func TestCreateNamespace_LifecycleErrorsReturn422(t *testing.T) {
+	principal := &models.Principal{}
+	cases := []struct {
+		name       string
+		raftErr    error
+		wantSubstr string
+	}{
+		{
+			name:       "namespace suspended",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceSuspended, "customer1"),
+			wantSubstr: "suspended",
+		},
+		{
+			name:       "collection suspended",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrCollectionSuspended, "customer1"),
+			wantSubstr: "suspended",
+		},
+		{
+			name:       "namespace still has resources",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceNotEmpty, "customer1"),
+			wantSubstr: "owned resources",
+		},
+		{
+			name:       "namespace in invalid state",
+			raftErr:    fmt.Errorf("%w: %q", usecasesNamespaces.ErrInvalidState, "customer1"),
+			wantSubstr: "invalid state",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, authz, raft := newHandler(t)
+			authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
+			raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1"}).Return(nil, 0, tc.raftErr)
+
+			res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			parsed, ok := res.(*nsops.CreateNamespaceUnprocessableEntity)
+			require.True(t, ok, "expected 422, got %T", res)
+			require.NotNil(t, parsed.Payload)
+			require.Len(t, parsed.Payload.Error, 1)
+			assert.Contains(t, parsed.Payload.Error[0].Message, tc.wantSubstr)
+			// This API is excluded from namespaces.PublicMessage: its callers
+			// hold manage_namespaces, so the body keeps the name. The neutral
+			// copy also contains tc.wantSubstr, so only this assertion catches
+			// a cleanup that wires PublicMessage in here.
+			assert.Contains(t, parsed.Payload.Error[0].Message, "customer1")
+		})
+	}
+}
+
 // TestCreateNamespace_RaftErrorMapping covers how AddNamespace errors map to
 // HTTP status codes for the non-conflict cases: ErrBadRequest → 422 (defense
 // in depth when an invalid name slips past handler validation) and untyped
@@ -297,6 +378,13 @@ func TestCreateNamespace_RaftErrorMapping(t *testing.T) {
 		{
 			name:      "ErrBadRequest → 422",
 			raftErr:   fmt.Errorf("%w: bad payload", usecasesNamespaces.ErrBadRequest),
+			wantTyped: &nsops.CreateNamespaceUnprocessableEntity{},
+		},
+		{
+			// Picked up through the trailing HTTPStatusForNamespaceErr
+			// fall-through, which admits exactly status 422.
+			name:      "ErrInvalidStateTransition → 422",
+			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrInvalidStateTransition, "customer1"),
 			wantTyped: &nsops.CreateNamespaceUnprocessableEntity{},
 		},
 		{
@@ -444,9 +532,28 @@ func TestUpdateNamespace_RaftErrorMapping(t *testing.T) {
 			wantTyped: &nsops.UpdateNamespaceNotFound{},
 		},
 		{
-			name:      "ErrNamespaceDeleting → 409",
+			// Picked up through the trailing HTTPStatusForNamespaceErr
+			// fall-through, which admits exactly status 422.
+			name:      "ErrInvalidStateTransition → 422",
+			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrInvalidStateTransition, "customer1"),
+			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
+		},
+		{
+			// No retry can succeed: cleanup removes the namespace, so a
+			// later update 404s.
+			name:      "ErrNamespaceDeleting → 422",
 			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, "customer1"),
-			wantTyped: &nsops.UpdateNamespaceConflict{},
+			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
+		},
+		{
+			name:      "ErrNamespaceSuspended → 422",
+			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceSuspended, "customer1"),
+			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
+		},
+		{
+			name:      "ErrCollectionSuspended → 422",
+			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrCollectionSuspended, "customer1"),
+			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
 		},
 		{
 			name:      "ErrBadRequest → 422",
@@ -581,6 +688,8 @@ func TestGetNamespace_OK(t *testing.T) {
 	}{
 		{name: "active is surfaced", nsState: cmd.NamespaceStateActive, wantState: string(cmd.NamespaceStateActive)},
 		{name: "deleting is surfaced", nsState: cmd.NamespaceStateDeleting, wantState: string(cmd.NamespaceStateDeleting)},
+		{name: "suspended is surfaced", nsState: cmd.NamespaceStateSuspended, wantState: string(cmd.NamespaceStateSuspended)},
+		{name: "resuming is surfaced", nsState: cmd.NamespaceStateResuming, wantState: string(cmd.NamespaceStateResuming)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -603,21 +712,15 @@ func TestGetNamespace_OK(t *testing.T) {
 // deleteNamespace
 // -----------------------------------------------------------------------------
 
-// TestDeleteNamespace_TwoPhase exercises the two-phase delete: each case
-// configures the ChangeNamespaceState and (optionally) DeleteUsersInNamespace
-// mocks and asserts the expected typed HTTP response. The happy path also
-// covers the idempotent recall: deleting → deleting returns nil, the user
-// drain is a no-op, and the handler returns 202 again.
-func TestDeleteNamespace_TwoPhase(t *testing.T) {
+// TestDeleteNamespace flips the namespace to deleting and asserts the typed
+// HTTP response. The auth guard invalidates the namespace's keys, so the
+// handler issues no user drain; the cleanup tick reclaims the rows.
+func TestDeleteNamespace(t *testing.T) {
 	principal := &models.Principal{}
 	cases := []struct {
 		name           string
 		changeStateErr error
-		// When the test exercises the user-drain step, drainErr is set.
-		// callDrain controls whether the mock expectation is registered.
-		callDrain bool
-		drainErr  error
-		wantTyped any
+		wantTyped      any
 	}{
 		{
 			name:           "ChangeNamespaceState returns ErrNotFound → 404",
@@ -630,19 +733,7 @@ func TestDeleteNamespace_TwoPhase(t *testing.T) {
 			wantTyped:      &nsops.DeleteNamespaceInternalServerError{},
 		},
 		{
-			name:      "DeleteUsersInNamespace untyped error → 500",
-			callDrain: true,
-			drainErr:  errors.New("dynusers boom"),
-			wantTyped: &nsops.DeleteNamespaceInternalServerError{},
-		},
-		{
 			name:      "happy path returns 202",
-			callDrain: true,
-			wantTyped: &nsops.DeleteNamespaceAccepted{},
-		},
-		{
-			name:      "idempotent re-call returns 202",
-			callDrain: true,
 			wantTyped: &nsops.DeleteNamespaceAccepted{},
 		},
 	}
@@ -651,12 +742,10 @@ func TestDeleteNamespace_TwoPhase(t *testing.T) {
 			h, authz, raft := newHandler(t)
 			authz.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Namespaces("customer1")[0]).Return(nil)
 			raft.On("ChangeNamespaceState", mock.Anything, "customer1", cmd.NamespaceStateDeleting).Return(0, tc.changeStateErr)
-			if tc.callDrain {
-				raft.On("DeleteUsersInNamespace", mock.Anything, "customer1").Return(tc.drainErr)
-			}
 
 			res := h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 			assert.IsType(t, tc.wantTyped, res)
+			raft.AssertNotCalled(t, "DeleteUsersInNamespace")
 		})
 	}
 }
@@ -807,6 +896,18 @@ func TestHandlers_Disabled(t *testing.T) {
 				return h.listNamespaces(nsops.ListNamespacesParams{HTTPRequest: req}, principal)
 			},
 		},
+		{
+			name: "suspend",
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			},
+		},
+		{
+			name: "resume",
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.resumeNamespace(nsops.ResumeNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -824,4 +925,140 @@ func TestHandlers_Disabled(t *testing.T) {
 			assert.Contains(t, body.Error[0].Message, "namespaces are not enabled")
 		})
 	}
+}
+
+// -----------------------------------------------------------------------------
+// suspendNamespace / resumeNamespace
+// -----------------------------------------------------------------------------
+
+func TestStatusForChangeStateErr(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "not found", err: usecasesNamespaces.ErrNotFound, want: http.StatusNotFound},
+		{name: "lost the race", err: usecasesNamespaces.ErrStateChangedConcurrently, want: http.StatusConflict},
+		{name: "illegal transition", err: usecasesNamespaces.ErrInvalidStateTransition, want: http.StatusUnprocessableEntity},
+		{name: "forwarded not-leader", err: types.ErrNotLeader, want: http.StatusServiceUnavailable},
+		{name: "forwarded leader-not-found", err: types.ErrLeaderNotFound, want: http.StatusServiceUnavailable},
+		{name: "leader-local not-leader", err: raft.ErrNotLeader, want: http.StatusServiceUnavailable},
+		{name: "leader-local leadership-lost", err: raft.ErrLeadershipLost, want: http.StatusServiceUnavailable},
+		{name: "unclassified", err: errors.New("disk on fire"), want: http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, statusForChangeStateErr(tc.err))
+			// The apply path wraps sentinels with the namespace name.
+			assert.Equal(t, tc.want, statusForChangeStateErr(fmt.Errorf("apply: %w", tc.err)),
+				"a wrapped sentinel must classify the same")
+		})
+	}
+}
+
+// TestSuspendResume_ApplyOutcomes pins the status and body each apply outcome
+// renders, on both endpoints. The namespace's *current* state is not modelled
+// here — the mock returns whatever the row asks for — so the from-state
+// matrix (idempotent re-suspend, aborting an in-flight resume, deleting being
+// terminal) lives at the controller, in TestController_ChangeState.
+func TestSuspendResume_ApplyOutcomes(t *testing.T) {
+	principal := &models.Principal{Username: "ops-1"}
+	noLeaderErr := fmt.Errorf("%w, can not resolve nodes [node-7:8300]", types.ErrLeaderNotFound)
+	cases := []struct {
+		name           string
+		changeStateErr error
+		wantCode       int
+		wantInBody     string
+	}{
+		{name: "applied", wantCode: http.StatusAccepted},
+		{
+			name:           "illegal transition",
+			changeStateErr: usecasesNamespaces.ErrInvalidStateTransition,
+			wantCode:       http.StatusUnprocessableEntity,
+			wantInBody:     "invalid namespace state transition",
+		},
+		{
+			name:           "missing namespace",
+			changeStateErr: usecasesNamespaces.ErrNotFound,
+			wantCode:       http.StatusNotFound,
+			wantInBody:     `namespace \"customer1\" not found`,
+		},
+		{
+			name:           "lost a concurrent flip",
+			changeStateErr: usecasesNamespaces.ErrStateChangedConcurrently,
+			wantCode:       http.StatusConflict,
+			wantInBody:     "namespace state changed concurrently",
+		},
+		{
+			name:           "no leader",
+			changeStateErr: noLeaderErr,
+			wantCode:       http.StatusServiceUnavailable,
+			wantInBody:     "changing namespace state",
+		},
+		{
+			name:           "unclassified failure",
+			changeStateErr: errors.New("boom"),
+			wantCode:       http.StatusInternalServerError,
+			wantInBody:     "changing namespace state",
+		},
+	}
+	for _, tc := range cases {
+		for _, endpoint := range []string{"suspend", "resume"} {
+			t.Run(endpoint+"/"+tc.name, func(t *testing.T) {
+				h, authz, raftMock := newHandler(t)
+				authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
+
+				wantTarget := cmd.NamespaceStateActive
+				if endpoint == "suspend" {
+					wantTarget = cmd.NamespaceStateSuspended
+				}
+				raftMock.On("ChangeNamespaceStateIfUnchanged", mock.Anything, "customer1", wantTarget).
+					Return(0, tc.changeStateErr)
+
+				var res middleware.Responder
+				if endpoint == "suspend" {
+					res = h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+				} else {
+					res = h.resumeNamespace(nsops.ResumeNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+				}
+
+				rec := httptest.NewRecorder()
+				res.WriteResponse(rec, runtime.JSONProducer())
+				assert.Equal(t, tc.wantCode, rec.Code)
+
+				if tc.wantCode == http.StatusAccepted {
+					assert.Empty(t, rec.Body.String(), "an accepted flip returns no body")
+					return
+				}
+				assert.Contains(t, rec.Body.String(), tc.wantInBody)
+			})
+		}
+	}
+}
+
+// A denied or invalid request must not reach RAFT: the mock has no
+// ChangeNamespaceStateIfUnchanged expectation, so any apply call fails the test.
+func TestSuspendResume_NoApplyBeforeValidation(t *testing.T) {
+	principal := &models.Principal{Username: "ops-1"}
+
+	t.Run("forbidden", func(t *testing.T) {
+		h, authz, _ := newHandler(t)
+		authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).
+			Return(authzerrors.NewForbidden(principal, authorization.UPDATE, authorization.Namespaces("customer1")...))
+
+		res := h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+		rec := httptest.NewRecorder()
+		res.WriteResponse(rec, runtime.JSONProducer())
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	})
+
+	t.Run("invalid name", func(t *testing.T) {
+		h, authz, _ := newHandler(t)
+		authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("BadName")[0]).Return(nil)
+
+		res := h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "BadName", HTTPRequest: req}, principal)
+		rec := httptest.NewRecorder()
+		res.WriteResponse(rec, runtime.JSONProducer())
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	})
 }

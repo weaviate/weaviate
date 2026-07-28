@@ -38,11 +38,11 @@ import (
 // setup_test.go; the same MinIO bucket also backs export.
 const s3Backend = "s3"
 
-// waitBackupCreated issues root's backup-create for a class, retrying only
-// the coordinator's "already in progress" 422 — the transient rejection while
-// another backup (e.g. from a parallel test in this package) is in flight.
-// That precheck rejects before any staging, so the same ID is safe to resend.
-// Any other error, including any other 422, fails the test immediately.
+// waitBackupCreated issues root's backup-create for a class, retrying only the
+// coordinator's "already in progress" 422. The coordinator runs one backup at a
+// time cluster-wide, so a parallel test's backup makes create reject with that
+// message. The 422 rejects before any staging, so the same ID is safe to
+// resend. Any other error, including any other 422, fails the test immediately.
 func waitBackupCreated(t *testing.T, className, backupID string) *backups.BackupsCreateOK {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
