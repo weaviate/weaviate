@@ -135,6 +135,12 @@ func TestQueryAdmissionRefFilterSingleGrant(t *testing.T) {
 	}
 	close(stop)
 
+	// The upper bound below is only meaningful once we know the sampler actually
+	// saw grants: an absent or renamed gauge reads as 0, which would satisfy the
+	// bound without the queries having been admitted at all.
+	require.Positive(t, peak.Load(),
+		"expected the ref-filter queries to hold admission grants (inflight > 0)")
+
 	// (c) One grant per query: peak in-flight grants must not exceed the number
 	// of concurrent queries. A value above numQueries means a query held both a
 	// parent and a fresh child grant, i.e. the nested search did not inherit.
