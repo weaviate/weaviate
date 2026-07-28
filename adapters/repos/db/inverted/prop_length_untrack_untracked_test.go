@@ -160,11 +160,12 @@ func TestNewJsonShardMetaData_ClampsInheritedCorruption(t *testing.T) {
 func TestNewJsonShardMetaData_NullMapDoesNotFailTheLoad(t *testing.T) {
 	tests := []struct {
 		name, raw string
+		wantNaN   bool
 	}{
-		{"null counts against a corrupt sum", `{"BucketedData":{},"SumData":{"title":-12},"CountData":null}`},
-		{"null sums against a corrupt count", `{"BucketedData":{},"SumData":null,"CountData":{"title":-2}}`},
-		{"null counts against a healthy sum", `{"BucketedData":{},"SumData":{"title":50},"CountData":null}`},
-		{"both null", `{"BucketedData":{},"SumData":null,"CountData":null}`},
+		{"null counts against a corrupt sum", `{"BucketedData":{},"SumData":{"title":-12},"CountData":null}`, true},
+		{"null sums against a corrupt count", `{"BucketedData":{},"SumData":null,"CountData":{"title":-2}}`, true},
+		{"null counts against a healthy sum", `{"BucketedData":{},"SumData":{"title":50},"CountData":null}`, true},
+		{"both null", `{"BucketedData":{},"SumData":null,"CountData":null}`, false},
 	}
 
 	for _, tt := range tests {
@@ -179,7 +180,31 @@ func TestNewJsonShardMetaData_NullMapDoesNotFailTheLoad(t *testing.T) {
 
 			mean, err := tracker.PropertyMean("title")
 			require.NoError(t, err)
-			require.False(t, mean < 0, "a repaired tally must never yield a negative mean length")
+			if tt.wantNaN {
+				require.True(t, math.IsNaN(float64(mean)),
+					"a repaired tally must read as absent; NaN < 0 is false, so a >= 0 check would accept +Inf and a stale value alike")
+			}
+
+			// Surviving the load is not the fix. The recover path returns before
+			// the flush, so a repair that computes but never reaches disk leaves
+			// the next restart in the same state -- which was the whole defect.
+			onDisk, err := os.ReadFile(trackerPath)
+			require.NoError(t, err)
+			var reread ShardMetaData
+			require.NoError(t, json.Unmarshal(onDisk, &reread))
+			require.NotNil(t, reread.CountData, "the repair must reach disk, or every restart re-enters the same state")
+			require.NotNil(t, reread.SumData, "the repair must reach disk, or every restart re-enters the same state")
+
+			logger2, hook2 := test.NewNullLogger()
+			_, err = NewJsonShardMetaData(trackerPath, logger2)
+			require.NoError(t, err)
+			warns := 0
+			for _, e := range hook2.AllEntries() {
+				if e.Level == logrus.WarnLevel {
+					warns++
+				}
+			}
+			require.Equal(t, 0, warns, "a reload of the repaired file must be clean: a warning here means the repair did not persist")
 		})
 	}
 }
