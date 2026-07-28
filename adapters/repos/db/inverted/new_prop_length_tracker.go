@@ -40,6 +40,10 @@ type JsonShardMetaData struct {
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
 	closed           bool
+	// Properties already reported as over-subtracted. The condition persists
+	// once reached -- every later untrack re-enters it -- so an unlatched log
+	// is one line per delete for the life of the shard.
+	warnedTallies map[string]struct{}
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -151,8 +155,25 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if t.data == nil {
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
+	t.clampCorruptTallies()
 	t.Flush()
 	return t, nil
+}
+
+// clampCorruptTallies repairs tallies that were already impossible on disk.
+// Without it a shard inherits them silently: sum=-12 over count=-2 divides to a
+// perfectly plausible 6.0, so neither the searcher's validity check nor the
+// untrack clamp ever sees anything wrong.
+func (t *JsonShardMetaData) clampCorruptTallies() {
+	for prop, count := range t.data.CountData {
+		if count > 0 && t.data.SumData[prop] >= 0 {
+			continue
+		}
+		t.logger.Warnf("prop length tally for %q loaded impossible (sum=%d count=%d); resetting to empty",
+			prop, t.data.SumData[prop], count)
+		t.data.CountData[prop] = 0
+		t.data.SumData[prop] = 0
+	}
 }
 
 func (t *JsonShardMetaData) Clear() {
@@ -262,7 +283,12 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 	// Collapsing to the empty tally is the one state a consumer recognises as
 	// absent. This contains the damage; backfilling the tally is the fix.
 	if t.data.CountData[propName] <= 0 {
-		if t.data.SumData[propName] != 0 || t.data.CountData[propName] < 0 {
+		if _, warned := t.warnedTallies[propName]; !warned &&
+			(t.data.SumData[propName] != 0 || t.data.CountData[propName] < 0) {
+			if t.warnedTallies == nil {
+				t.warnedTallies = make(map[string]struct{}, 1)
+			}
+			t.warnedTallies[propName] = struct{}{}
 			t.logger.Warnf(
 				"prop length tally for %q went non-positive (sum=%d count=%d); "+
 					"objects predating enable-* are untracked but still subtracted. Resetting to empty",

@@ -96,10 +96,9 @@ type pendingFlipLookup map[pendingFlipKey]struct{}
 // (weaviate/0-weaviate-issues#438).
 //
 // One field, deliberately: a separate "did we scan" flag could be set without
-// the records it claims to summarise, which spells the pre-fix behaviour in
-// fewer characters than the constructor.
+// the records it claims to summarise, and the two would then disagree.
 type pendingFlipShield struct {
-	flips *pendingFlipLookup
+	flips pendingFlipLookup
 }
 
 // newPendingFlipShield is the only way to say "the scan ran", so an empty
@@ -109,7 +108,7 @@ func newPendingFlipShield(flips []PendingFlip) pendingFlipShield {
 	for _, f := range flips {
 		out[f.key()] = struct{}{}
 	}
-	return pendingFlipShield{flips: &out}
+	return pendingFlipShield{flips: out}
 }
 
 // protects reports whether the bucket for (propName, indexType) must be kept.
@@ -117,7 +116,7 @@ func (s pendingFlipShield) protects(propName, indexType string) bool {
 	if s.flips == nil {
 		return true
 	}
-	_, ok := (*s.flips)[pendingFlipKey{prop: propName, indexType: indexType}]
+	_, ok := s.flips[pendingFlipKey{prop: propName, indexType: indexType}]
 	return ok
 }
 

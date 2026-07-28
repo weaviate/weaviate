@@ -12,10 +12,13 @@
 package inverted
 
 import (
+	"encoding/json"
 	"math"
+	"os"
 	"path"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
@@ -64,4 +67,51 @@ func TestUnTrackProperty_ObjectsPredatingTheTallyReadAsAbsent(t *testing.T) {
 	healthyMean, err := tracker.PropertyMean(healthy)
 	require.NoError(t, err)
 	require.InDelta(t, 10.0, float64(healthyMean), 0.001)
+}
+
+// The over-subtracted condition persists: once reached, every later untrack
+// re-enters it. An unlatched warning is therefore one line per delete for the
+// life of the shard, which buries the one occurrence an operator needs.
+func TestUnTrackProperty_WarnsOncePerProperty(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	tracker, err := NewJsonShardMetaData(path.Join(t.TempDir(), "proplengths"), logger)
+	require.NoError(t, err)
+
+	require.NoError(t, tracker.TrackProperty("title", 8))
+	for range 20 {
+		require.NoError(t, tracker.UnTrackProperty("title", 6))
+	}
+
+	warns := 0
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.WarnLevel {
+			warns++
+		}
+	}
+	require.Equal(t, 1, warns, "20 untracks past an empty tally must report once, not once per call")
+}
+
+// A tally can arrive already impossible from an older binary. sum=-12 over
+// count=-2 divides to a plausible 6.0, so nothing downstream can tell it is
+// broken -- it has to be caught at load.
+func TestNewJsonShardMetaData_ClampsInheritedCorruption(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	trackerPath := path.Join(t.TempDir(), "proplengths")
+
+	corrupt := &ShardMetaData{
+		BucketedData: map[string]map[int]int{"title": {}},
+		SumData:      map[string]int{"title": -12},
+		CountData:    map[string]int{"title": -2},
+	}
+	raw, err := json.Marshal(corrupt)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(trackerPath, raw, 0o644))
+
+	tracker, err := NewJsonShardMetaData(trackerPath, logger)
+	require.NoError(t, err)
+
+	mean, err := tracker.PropertyMean("title")
+	require.NoError(t, err)
+	require.True(t, math.IsNaN(float64(mean)),
+		"-12/-2 reads as a plausible 6.0; an inherited impossible tally must read as absent instead")
 }
