@@ -470,13 +470,15 @@ func TestPartialChunkRecovery(t *testing.T) {
 			// open the queue again
 			// this should not return an error
 			q = makeQueueWith(t, s, e, 500, tmpDir)
+
+			err = q.Pause(t.Context())
 			require.NoError(t, err)
 
-			s.RegisterQueue(q)
-			q.Pause(t.Context())
-
-			// manually promote a partial chunk to a full chunk
+			// manually promote a partial chunk to a full chunk, holding the
+			// queue lock like every production caller of Promote does
+			q.m.Lock()
 			err = q.w.Promote()
+			q.m.Unlock()
 			require.NoError(t, err)
 
 			batch, err := q.DequeueBatch()

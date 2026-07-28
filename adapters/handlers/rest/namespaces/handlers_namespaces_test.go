@@ -23,13 +23,14 @@ import (
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/sirupsen/logrus"
+	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	nsops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/namespaces"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -65,6 +66,11 @@ func (m *mockRaft) ChangeNamespaceState(ctx context.Context, name string, target
 	return uint64(args.Int(0)), args.Error(1)
 }
 
+func (m *mockRaft) ChangeNamespaceStateIfUnchanged(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error) {
+	args := m.Called(ctx, name, target)
+	return uint64(args.Int(0)), args.Error(1)
+}
+
 func (m *mockRaft) GetNamespaces(names ...string) ([]cmd.Namespace, error) {
 	// Convert variadic to []interface{} for Called.
 	args := make([]interface{}, len(names))
@@ -91,7 +97,6 @@ func newHandler(t *testing.T) (*namespaceHandler, *authorization.MockAuthorizer,
 		enabled:    true,
 		authorizer: authorizer,
 		raft:       raft,
-		logger:     logrus.New(),
 	}, authorizer, raft
 }
 
@@ -146,6 +151,22 @@ func TestHandlers_Forbidden(t *testing.T) {
 			},
 			wantTyped: &nsops.DeleteNamespaceForbidden{},
 		},
+		{
+			name:   "suspend",
+			action: authorization.UPDATE,
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			},
+			wantTyped: &nsops.SuspendNamespaceForbidden{},
+		},
+		{
+			name:   "resume",
+			action: authorization.UPDATE,
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.resumeNamespace(nsops.ResumeNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			},
+			wantTyped: &nsops.ResumeNamespaceForbidden{},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -198,6 +219,22 @@ func TestHandlers_InvalidNameRejected(t *testing.T) {
 				return h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "BadName", HTTPRequest: req}, principal)
 			},
 			wantTyped: &nsops.DeleteNamespaceUnprocessableEntity{},
+		},
+		{
+			name:   "suspend",
+			action: authorization.UPDATE,
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "BadName", HTTPRequest: req}, principal)
+			},
+			wantTyped: &nsops.SuspendNamespaceUnprocessableEntity{},
+		},
+		{
+			name:   "resume",
+			action: authorization.UPDATE,
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.resumeNamespace(nsops.ResumeNamespaceParams{NamespaceID: "BadName", HTTPRequest: req}, principal)
+			},
+			wantTyped: &nsops.ResumeNamespaceUnprocessableEntity{},
 		},
 	}
 	for _, tc := range cases {
@@ -344,6 +381,13 @@ func TestCreateNamespace_RaftErrorMapping(t *testing.T) {
 			wantTyped: &nsops.CreateNamespaceUnprocessableEntity{},
 		},
 		{
+			// Picked up through the trailing HTTPStatusForNamespaceErr
+			// fall-through, which admits exactly status 422.
+			name:      "ErrInvalidStateTransition → 422",
+			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrInvalidStateTransition, "customer1"),
+			wantTyped: &nsops.CreateNamespaceUnprocessableEntity{},
+		},
+		{
 			name:      "untyped error → 500",
 			raftErr:   errors.New("raft boom"),
 			wantTyped: &nsops.CreateNamespaceInternalServerError{},
@@ -486,6 +530,13 @@ func TestUpdateNamespace_RaftErrorMapping(t *testing.T) {
 			name:      "ErrNotFound → 404",
 			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrNotFound, "customer1"),
 			wantTyped: &nsops.UpdateNamespaceNotFound{},
+		},
+		{
+			// Picked up through the trailing HTTPStatusForNamespaceErr
+			// fall-through, which admits exactly status 422.
+			name:      "ErrInvalidStateTransition → 422",
+			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrInvalidStateTransition, "customer1"),
+			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
 		},
 		{
 			// No retry can succeed: cleanup removes the namespace, so a
@@ -637,6 +688,8 @@ func TestGetNamespace_OK(t *testing.T) {
 	}{
 		{name: "active is surfaced", nsState: cmd.NamespaceStateActive, wantState: string(cmd.NamespaceStateActive)},
 		{name: "deleting is surfaced", nsState: cmd.NamespaceStateDeleting, wantState: string(cmd.NamespaceStateDeleting)},
+		{name: "suspended is surfaced", nsState: cmd.NamespaceStateSuspended, wantState: string(cmd.NamespaceStateSuspended)},
+		{name: "resuming is surfaced", nsState: cmd.NamespaceStateResuming, wantState: string(cmd.NamespaceStateResuming)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -843,6 +896,18 @@ func TestHandlers_Disabled(t *testing.T) {
 				return h.listNamespaces(nsops.ListNamespacesParams{HTTPRequest: req}, principal)
 			},
 		},
+		{
+			name: "suspend",
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			},
+		},
+		{
+			name: "resume",
+			invoke: func(h *namespaceHandler) middleware.Responder {
+				return h.resumeNamespace(nsops.ResumeNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -860,4 +925,140 @@ func TestHandlers_Disabled(t *testing.T) {
 			assert.Contains(t, body.Error[0].Message, "namespaces are not enabled")
 		})
 	}
+}
+
+// -----------------------------------------------------------------------------
+// suspendNamespace / resumeNamespace
+// -----------------------------------------------------------------------------
+
+func TestStatusForChangeStateErr(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "not found", err: usecasesNamespaces.ErrNotFound, want: http.StatusNotFound},
+		{name: "lost the race", err: usecasesNamespaces.ErrStateChangedConcurrently, want: http.StatusConflict},
+		{name: "illegal transition", err: usecasesNamespaces.ErrInvalidStateTransition, want: http.StatusUnprocessableEntity},
+		{name: "forwarded not-leader", err: types.ErrNotLeader, want: http.StatusServiceUnavailable},
+		{name: "forwarded leader-not-found", err: types.ErrLeaderNotFound, want: http.StatusServiceUnavailable},
+		{name: "leader-local not-leader", err: raft.ErrNotLeader, want: http.StatusServiceUnavailable},
+		{name: "leader-local leadership-lost", err: raft.ErrLeadershipLost, want: http.StatusServiceUnavailable},
+		{name: "unclassified", err: errors.New("disk on fire"), want: http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, statusForChangeStateErr(tc.err))
+			// The apply path wraps sentinels with the namespace name.
+			assert.Equal(t, tc.want, statusForChangeStateErr(fmt.Errorf("apply: %w", tc.err)),
+				"a wrapped sentinel must classify the same")
+		})
+	}
+}
+
+// TestSuspendResume_ApplyOutcomes pins the status and body each apply outcome
+// renders, on both endpoints. The namespace's *current* state is not modelled
+// here — the mock returns whatever the row asks for — so the from-state
+// matrix (idempotent re-suspend, aborting an in-flight resume, deleting being
+// terminal) lives at the controller, in TestController_ChangeState.
+func TestSuspendResume_ApplyOutcomes(t *testing.T) {
+	principal := &models.Principal{Username: "ops-1"}
+	noLeaderErr := fmt.Errorf("%w, can not resolve nodes [node-7:8300]", types.ErrLeaderNotFound)
+	cases := []struct {
+		name           string
+		changeStateErr error
+		wantCode       int
+		wantInBody     string
+	}{
+		{name: "applied", wantCode: http.StatusAccepted},
+		{
+			name:           "illegal transition",
+			changeStateErr: usecasesNamespaces.ErrInvalidStateTransition,
+			wantCode:       http.StatusUnprocessableEntity,
+			wantInBody:     "invalid namespace state transition",
+		},
+		{
+			name:           "missing namespace",
+			changeStateErr: usecasesNamespaces.ErrNotFound,
+			wantCode:       http.StatusNotFound,
+			wantInBody:     `namespace \"customer1\" not found`,
+		},
+		{
+			name:           "lost a concurrent flip",
+			changeStateErr: usecasesNamespaces.ErrStateChangedConcurrently,
+			wantCode:       http.StatusConflict,
+			wantInBody:     "namespace state changed concurrently",
+		},
+		{
+			name:           "no leader",
+			changeStateErr: noLeaderErr,
+			wantCode:       http.StatusServiceUnavailable,
+			wantInBody:     "changing namespace state",
+		},
+		{
+			name:           "unclassified failure",
+			changeStateErr: errors.New("boom"),
+			wantCode:       http.StatusInternalServerError,
+			wantInBody:     "changing namespace state",
+		},
+	}
+	for _, tc := range cases {
+		for _, endpoint := range []string{"suspend", "resume"} {
+			t.Run(endpoint+"/"+tc.name, func(t *testing.T) {
+				h, authz, raftMock := newHandler(t)
+				authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
+
+				wantTarget := cmd.NamespaceStateActive
+				if endpoint == "suspend" {
+					wantTarget = cmd.NamespaceStateSuspended
+				}
+				raftMock.On("ChangeNamespaceStateIfUnchanged", mock.Anything, "customer1", wantTarget).
+					Return(0, tc.changeStateErr)
+
+				var res middleware.Responder
+				if endpoint == "suspend" {
+					res = h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+				} else {
+					res = h.resumeNamespace(nsops.ResumeNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+				}
+
+				rec := httptest.NewRecorder()
+				res.WriteResponse(rec, runtime.JSONProducer())
+				assert.Equal(t, tc.wantCode, rec.Code)
+
+				if tc.wantCode == http.StatusAccepted {
+					assert.Empty(t, rec.Body.String(), "an accepted flip returns no body")
+					return
+				}
+				assert.Contains(t, rec.Body.String(), tc.wantInBody)
+			})
+		}
+	}
+}
+
+// A denied or invalid request must not reach RAFT: the mock has no
+// ChangeNamespaceStateIfUnchanged expectation, so any apply call fails the test.
+func TestSuspendResume_NoApplyBeforeValidation(t *testing.T) {
+	principal := &models.Principal{Username: "ops-1"}
+
+	t.Run("forbidden", func(t *testing.T) {
+		h, authz, _ := newHandler(t)
+		authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).
+			Return(authzerrors.NewForbidden(principal, authorization.UPDATE, authorization.Namespaces("customer1")...))
+
+		res := h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
+		rec := httptest.NewRecorder()
+		res.WriteResponse(rec, runtime.JSONProducer())
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	})
+
+	t.Run("invalid name", func(t *testing.T) {
+		h, authz, _ := newHandler(t)
+		authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("BadName")[0]).Return(nil)
+
+		res := h.suspendNamespace(nsops.SuspendNamespaceParams{NamespaceID: "BadName", HTTPRequest: req}, principal)
+		rec := httptest.NewRecorder()
+		res.WriteResponse(rec, runtime.JSONProducer())
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	})
 }

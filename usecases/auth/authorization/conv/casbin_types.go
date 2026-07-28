@@ -265,7 +265,7 @@ func CasbinNamespaces(name string) string {
 	if name == "" {
 		name = "*"
 	}
-	name = strings.ReplaceAll(name, "*", ".*")
+	name = casbinSegment(name)
 	return fmt.Sprintf("%s/%s", authorization.NamespacesDomain, name)
 }
 
@@ -580,8 +580,9 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 	case authorization.McpDomain:
 		// do nothing
 	case authorization.NamespacesDomain:
+		namespace := unwrapCasbinSegment(splits[1])
 		permission.Namespaces = &models.PermissionNamespaces{
-			Namespace: &splits[1],
+			Namespace: &namespace,
 		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups

@@ -21,12 +21,12 @@ import (
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/sirupsen/logrus"
 
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	nsops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/namespaces"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
@@ -38,6 +38,7 @@ type NamespaceRaftGetter interface {
 	AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespace, uint64, error)
 	UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error)
 	ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
+	ChangeNamespaceStateIfUnchanged(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
 	GetNamespaces(names ...string) ([]cmd.Namespace, error)
 	StorageCandidates() []string
 }
@@ -46,7 +47,6 @@ type namespaceHandler struct {
 	enabled    bool
 	authorizer authorization.Authorizer
 	raft       NamespaceRaftGetter
-	logger     logrus.FieldLogger
 }
 
 // errNamespacesDisabled is returned by every handler when the namespaces
@@ -62,13 +62,11 @@ func SetupHandlers(
 	api *operations.WeaviateAPI,
 	raft NamespaceRaftGetter,
 	authorizer authorization.Authorizer,
-	logger logrus.FieldLogger,
 ) {
 	h := &namespaceHandler{
 		enabled:    enabled,
 		authorizer: authorizer,
 		raft:       raft,
-		logger:     logger,
 	}
 
 	api.NamespacesCreateNamespaceHandler = nsops.CreateNamespaceHandlerFunc(h.createNamespace)
@@ -76,6 +74,8 @@ func SetupHandlers(
 	api.NamespacesDeleteNamespaceHandler = nsops.DeleteNamespaceHandlerFunc(h.deleteNamespace)
 	api.NamespacesGetNamespaceHandler = nsops.GetNamespaceHandlerFunc(h.getNamespace)
 	api.NamespacesListNamespacesHandler = nsops.ListNamespacesHandlerFunc(h.listNamespaces)
+	api.NamespacesSuspendNamespaceHandler = nsops.SuspendNamespaceHandlerFunc(h.suspendNamespace)
+	api.NamespacesResumeNamespaceHandler = nsops.ResumeNamespaceHandlerFunc(h.resumeNamespace)
 }
 
 // disabledResponder returns a 404 with an ErrorResponse body when the
@@ -279,6 +279,100 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 	}
 
 	return nsops.NewDeleteNamespaceAccepted()
+}
+
+func (h *namespaceHandler) suspendNamespace(params nsops.SuspendNamespaceParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled {
+		return disabledResponder()
+	}
+
+	status, err := h.changeState(params.HTTPRequest.Context(), principal, params.NamespaceID, cmd.NamespaceStateSuspended)
+	body := cerrors.ErrPayloadFromSingleErr(principal, err)
+	switch status {
+	case http.StatusAccepted:
+		return nsops.NewSuspendNamespaceAccepted()
+	case http.StatusForbidden:
+		return nsops.NewSuspendNamespaceForbidden().WithPayload(body)
+	case http.StatusNotFound:
+		return nsops.NewSuspendNamespaceNotFound().WithPayload(body)
+	case http.StatusConflict:
+		return nsops.NewSuspendNamespaceConflict().WithPayload(body)
+	case http.StatusUnprocessableEntity:
+		return nsops.NewSuspendNamespaceUnprocessableEntity().WithPayload(body)
+	case http.StatusServiceUnavailable:
+		return nsops.NewSuspendNamespaceServiceUnavailable().WithPayload(body)
+	default:
+		return nsops.NewSuspendNamespaceInternalServerError().WithPayload(body)
+	}
+}
+
+func (h *namespaceHandler) resumeNamespace(params nsops.ResumeNamespaceParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled {
+		return disabledResponder()
+	}
+
+	status, err := h.changeState(params.HTTPRequest.Context(), principal, params.NamespaceID, cmd.NamespaceStateActive)
+	body := cerrors.ErrPayloadFromSingleErr(principal, err)
+	switch status {
+	case http.StatusAccepted:
+		return nsops.NewResumeNamespaceAccepted()
+	case http.StatusForbidden:
+		return nsops.NewResumeNamespaceForbidden().WithPayload(body)
+	case http.StatusNotFound:
+		return nsops.NewResumeNamespaceNotFound().WithPayload(body)
+	case http.StatusConflict:
+		return nsops.NewResumeNamespaceConflict().WithPayload(body)
+	case http.StatusUnprocessableEntity:
+		return nsops.NewResumeNamespaceUnprocessableEntity().WithPayload(body)
+	case http.StatusServiceUnavailable:
+		return nsops.NewResumeNamespaceServiceUnavailable().WithPayload(body)
+	default:
+		return nsops.NewResumeNamespaceInternalServerError().WithPayload(body)
+	}
+}
+
+// changeState authorizes, validates and applies a namespace state change,
+// returning the HTTP status its caller should render and the error to put in
+// the body. Both endpoints are the same flow with a different target state.
+func (h *namespaceHandler) changeState(
+	ctx context.Context, principal *models.Principal, name string, target cmd.NamespaceState,
+) (int, error) {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Namespaces(name)...); err != nil {
+		return http.StatusForbidden, err
+	}
+	if err := usecasesNamespaces.ValidateName(name); err != nil {
+		return http.StatusUnprocessableEntity, err
+	}
+
+	// Conditional because suspend and resume undo each other: an Execute
+	// retry must not revert a flip another operator was already told applied.
+	if _, err := h.raft.ChangeNamespaceStateIfUnchanged(ctx, name, target); err != nil {
+		status := statusForChangeStateErr(err)
+		if status == http.StatusNotFound {
+			return status, fmt.Errorf("namespace %q not found", name)
+		}
+		return status, fmt.Errorf("changing namespace state: %w", err)
+	}
+
+	return http.StatusAccepted, nil
+}
+
+// statusForChangeStateErr maps an apply failure to its REST status. The 404,
+// 409 and leadership 503 are classified here rather than through the shared
+// namespace-status helper, which does not cover them.
+func statusForChangeStateErr(err error) int {
+	switch {
+	case errors.Is(err, usecasesNamespaces.ErrNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, usecasesNamespaces.ErrStateChangedConcurrently):
+		return http.StatusConflict
+	case errors.Is(err, usecasesNamespaces.ErrInvalidStateTransition):
+		return http.StatusUnprocessableEntity
+	case types.IsNoLeader(err):
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 // listNamespaces never returns 403. Callers without any applicable

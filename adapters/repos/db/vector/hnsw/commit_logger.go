@@ -135,11 +135,12 @@ func (l *hnswCommitLogger) InitMaintenance() {
 }
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
-	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
+	// plain concatenation avoids fmt.Sprintf churn on this hot maintenance path
+	return commitLogDirectory(rootPath, indexName) + "/" + fileName
 }
 
 func commitLogDirectory(rootPath, name string) string {
-	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
+	return rootPath + "/" + name + ".hnsw.commitlog.d"
 }
 
 func getLatestCommitFileOrCreate(rootPath, name string, fs common.FS) (common.File, error) {
@@ -227,9 +228,10 @@ func getCommitFiles(rootPath, id string, createdAfter int64, fs common.FS) ([]os
 }
 
 func commitLogFileNames(rootPath, id string, files []os.DirEntry) []string {
+	dir := commitLogDirectory(rootPath, id)
 	out := make([]string, len(files))
 	for i, file := range files {
-		out[i] = commitLogFileName(rootPath, id, file.Name())
+		out[i] = dir + "/" + file.Name()
 	}
 	return out
 }

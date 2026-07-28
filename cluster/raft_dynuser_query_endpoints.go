@@ -50,16 +50,7 @@ func (s *Raft) GetUsers(userIds ...string) (map[string]apikey.UserView, error) {
 		if u == nil {
 			continue
 		}
-		out[id] = apikey.UserView{
-			Id:                 u.Id,
-			Active:             u.Active,
-			InternalIdentifier: u.InternalIdentifier,
-			ApiKeyFirstLetters: u.ApiKeyFirstLetters,
-			CreatedAt:          u.CreatedAt,
-			LastUsedAt:         u.LastUsedAt,
-			ImportedWithKey:    u.ImportedWithKey,
-			Namespace:          u.Namespace,
-		}
+		out[id] = *u
 	}
 	return out, nil
 }
