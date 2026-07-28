@@ -1063,6 +1063,7 @@ func TestAccumulatorToBuf(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			acc := newAcc()
 			bm, put := tc.pool.AccumulatorToBuf(acc)
+			require.NotNil(t, put, "put must always be callable")
 			require.Equal(t, acc.Bitmap().ToArray(), bm.ToArray())
 			put()
 		})
@@ -1071,6 +1072,7 @@ func TestAccumulatorToBuf(t *testing.T) {
 	t.Run("empty accumulator yields an empty bitmap", func(t *testing.T) {
 		pool := NewBitmapBufPoolRanged(nil, 0, nil, 512, 1024)
 		bm, put := pool.AccumulatorToBuf(sroar.NewAccumulator())
+		require.NotNil(t, put, "put must always be callable")
 		defer put()
 		require.NotNil(t, bm)
 		require.True(t, bm.IsEmpty())

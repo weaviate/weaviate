@@ -98,6 +98,9 @@ func requireEvenLength(src []byte) {
 }
 
 func accumulatorToBuf(pool BitmapBufPool, acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
+	// noop default so put stays callable even if a future sroar version
+	// short-circuits without invoking the allocation callback
+	put = func() {}
 	bm = acc.InitBitmapToBuf(func(sizeBytes int) (*sroar.Bitmap, []byte) {
 		buf, dst, p := pool.getWithBitmap(sizeBytes)
 		put = p
