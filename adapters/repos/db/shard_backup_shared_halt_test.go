@@ -294,6 +294,12 @@ func TestShard_SharedHaltSealsLateVectors(t *testing.T) {
 	baseline.Vector = []float32{1, 0, 0}
 	require.NoError(t, s.PutObject(ctx, baseline))
 
+	// Commit-log file names are unix seconds, so a switch within the same second
+	// as the file it is switching away from reopens that same path in append mode
+	// and the file stays active, hence unlisted. Both halts need their own second
+	// or the baseline is unlisted too and stops being a usable control.
+	time.Sleep(commitLogNameGranularity)
+
 	require.NoError(t, s.HaltForTransfer(ctx, false, 0))
 	t.Cleanup(func() {
 		for s.haltForTransferCount > 0 {
@@ -301,10 +307,7 @@ func TestShard_SharedHaltSealsLateVectors(t *testing.T) {
 		}
 	})
 
-	// Commit-log file names are unix seconds, so a switch within the same second
-	// as the previous one reopens the same path in append mode and the late
-	// write's file stays the active — and therefore unlisted — one.
-	time.Sleep(1100 * time.Millisecond)
+	time.Sleep(commitLogNameGranularity)
 
 	late := testObject(className)
 	late.Vector = []float32{0, 1, 0}
@@ -401,6 +404,9 @@ func docIDOf(t *testing.T, s *Shard, id strfmt.UUID) uint64 {
 	require.NotNil(t, obj)
 	return obj.DocID
 }
+
+// hnswCommitLogger names new files with fmt.Sprintf("%d", time.Now().Unix()).
+const commitLogNameGranularity = 1100 * time.Millisecond
 
 type sharedHaltNoopBucketView struct{}
 
