@@ -1515,8 +1515,17 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 		return nil, ErrTargetVectorNotFound{TargetVector: targetVector}
 	}
 
-	rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
+	// offset comes from the on-disk offsets map: a corrupt value would slice past
+	// the buffer in the reads below, panicking inside whatever is decoding
+	vecStart := pos + uint64(offset)
+	if vecStart+byteops.Uint16Len > uint64(len(rw.Buffer)) {
+		return nil, fmt.Errorf("target vector %q offset %d out of bounds", targetVector, offset)
+	}
+	rw.MoveBufferToAbsolutePosition(vecStart)
 	vecLen := rw.ReadUint16()
+	if vecStart+byteops.Uint16Len+uint64(vecLen)*byteops.Uint32Len > uint64(len(rw.Buffer)) {
+		return nil, fmt.Errorf("target vector %q length %d exceeds buffer", targetVector, vecLen)
+	}
 
 	var out []float32
 	if cap(buffer) >= int(vecLen) {
