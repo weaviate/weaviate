@@ -355,4 +355,87 @@ func TestQueryProfiling(t *testing.T) {
 				"filtered search should include filter timing for shard %s", shard.Name)
 		}
 	})
+
+	// A query that matches nothing still visited every shard, so it still has a profile
+	// worth reading — that is usually exactly the query you are trying to explain.
+	t.Run("profile survives an empty result set", func(t *testing.T) {
+		// No object has num > 1000; objects are numbered 0..29.
+		matchNothing := &pb.Filters{
+			Operator:  pb.Filters_OPERATOR_GREATER_THAN,
+			TestValue: &pb.Filters_ValueInt{ValueInt: 1000},
+			Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "num"}},
+		}
+		nearVector := &pb.NearVector{
+			Vectors: []*pb.Vectors{{
+				VectorBytes: vecBytes,
+				Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
+			}},
+		}
+
+		tests := []struct {
+			name    string
+			request *pb.SearchRequest
+		}{
+			{
+				name: "vector",
+				request: &pb.SearchRequest{
+					NearVector: nearVector,
+					Filters:    matchNothing,
+				},
+			},
+			{
+				name: "keyword",
+				request: &pb.SearchRequest{
+					Bm25Search: &pb.BM25{Query: "hello world document", Properties: []string{"text"}},
+					Filters:    matchNothing,
+				},
+			},
+			{
+				name: "hybrid",
+				request: &pb.SearchRequest{
+					HybridSearch: &pb.Hybrid{
+						Query:      "hello world document",
+						Alpha:      0.5,
+						Properties: []string{"text"},
+						NearVector: nearVector,
+					},
+					Filters: matchNothing,
+				},
+			},
+			{
+				name: "groupBy",
+				request: &pb.SearchRequest{
+					NearVector: nearVector,
+					Filters:    matchNothing,
+					GroupBy:    &pb.GroupBy{Path: []string{"category"}, NumberOfGroups: 3, ObjectsPerGroup: 2},
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				req := tt.request
+				req.Collection = className
+				req.Metadata = &pb.MetadataRequest{Uuid: true, QueryProfile: true}
+				req.Uses_127Api = true
+
+				resp, err := grpcClient.Search(ctx, req)
+				require.NoError(t, err)
+				require.Empty(t, resp.Results, "filter should match nothing")
+				require.Empty(t, resp.GroupByResults, "filter should match nothing")
+
+				require.NotNil(t, resp.QueryProfile,
+					"profile must survive a query that matched no objects")
+				require.NotEmpty(t, resp.QueryProfile.Shards)
+				for _, shard := range resp.QueryProfile.Shards {
+					assert.NotEmpty(t, shard.Name)
+					assert.NotEmpty(t, shard.Node)
+					for searchType, sp := range shard.Searches {
+						assert.NotEmpty(t, sp.Details["total_took"],
+							"shard %s search %s should report timing", shard.Name, searchType)
+					}
+				}
+			})
+		}
+	})
 }
