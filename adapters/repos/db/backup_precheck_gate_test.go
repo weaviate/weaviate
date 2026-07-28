@@ -31,9 +31,8 @@ import (
 )
 
 // newPrecheckGateTestDB assembles a DB whose Backupable precheck walks
-// collections × shardsPerCollection local shards. The shards exist only in
-// the sharding state — the precheck never touches disk, so shard count is
-// free and the invocation-count assertions below need no real cluster.
+// collections × shardsPerCollection local shards, backed only by sharding
+// state (no disk), so scaling shard count in tests is free.
 func newPrecheckGateTestDB(t *testing.T, collections, shardsPerCollection int) (*DB, []string) {
 	t.Helper()
 
@@ -171,16 +170,14 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 	}
 }
 
-// TestBackupable_AllShardsJudgedAgainstOneSnapshot pins that every shard in
-// one precheck is judged against the same DTM snapshot, not one taken fresh
-// per shard.
+// TestBackupable_AllShardsJudgedAgainstOneSnapshot pins that every shard
+// in one precheck is judged against the same DTM snapshot.
 func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	db, classes := newPrecheckGateTestDB(t, 1, 4)
 
 	var builds atomic.Int64
 	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
-		// Alternates per build, standing in for a DTM snapshot that
-		// changes between two queries issued moments apart.
+		// Alternates per build, standing in for a DTM snapshot that changes across queries.
 		live := builds.Add(1)%2 == 1
 		return func(string, string) bool { return live }
 	})

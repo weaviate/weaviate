@@ -17,10 +17,9 @@ package db
 // markers, so the answer is cluster-wide-consistent.
 type ShardReindexActivityLookup func(collection, shardName string) bool
 
-// ShardReindexActivityLookupBuilder returns a fresh snapshot. Building
-// one costs a cluster-wide ListDistributedTasks RAFT query, so the backup
-// gate resolves it once per precheck via [reindexGate] and reuses the
-// resulting lookup for every shard.
+// ShardReindexActivityLookupBuilder returns a fresh snapshot. Building one
+// costs a cluster-wide ListDistributedTasks RAFT query, so [reindexGate]
+// resolves it once per precheck and reuses the result across shards.
 type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
 
 // SetShardReindexActivityLookup installs the builder used by the backup

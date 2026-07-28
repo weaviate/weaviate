@@ -65,9 +65,8 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
-	// Built once and reused below: the no-short-circuit policy above means
-	// every shard is visited, so resolving per-shard would multiply the
-	// gate's RAFT query by shard count.
+	// Built once and reused: since the loop above never short-circuits,
+	// per-shard resolution would multiply the gate's RAFT query by shard count.
 	gate := db.newReindexGate()
 	var errs []error
 	for _, c := range classes {

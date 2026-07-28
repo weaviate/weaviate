@@ -29,11 +29,10 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
-// reindexGate holds the backup-gate lookups resolved once per precheck
-// and reused for every shard. Building the activity lookup costs a
+// reindexGate resolves the backup-gate lookups once per precheck, lazily,
+// and reuses them for every shard. Building the activity lookup costs a
 // cluster-wide RAFT query; resolving it per shard instead of once turned
 // an ordinary precheck into thousands of queries on a multi-tenant node.
-// Resolution is lazy: a precheck that never reaches a shard issues none.
 type reindexGate struct {
 	activityBuilder ShardReindexActivityLookupBuilder
 	cleanupBuilder  CleanupInProgressLookupBuilder
@@ -44,9 +43,8 @@ type reindexGate struct {
 	cleanup  CleanupInProgressLookup
 }
 
-// newReindexGate captures the currently installed lookup builders. The
-// builders are read under the audit lock; the lookups themselves are built
-// on first use by [reindexGate.resolve].
+// newReindexGate captures the installed lookup builders under the audit
+// lock; the lookups themselves are built lazily by [reindexGate.resolve].
 func (db *DB) newReindexGate() *reindexGate {
 	db.reindexAuditMu.RLock()
 	defer db.reindexAuditMu.RUnlock()
@@ -57,10 +55,9 @@ func (db *DB) newReindexGate() *reindexGate {
 	}
 }
 
-// newReindexGate builds the gate for the single-shard backup paths. An
-// Index without its DB back-reference yields an empty gate: the nil-db
-// branch of [Index.refuseIfReindexInFlight] refuses before the gate is
-// ever consulted.
+// newReindexGate builds the gate for single-shard backup paths. An Index
+// without its DB back-reference yields an empty gate — safe, since the
+// nil-db branch of [Index.refuseIfReindexInFlight] refuses before use.
 func (i *Index) newReindexGate() *reindexGate {
 	if i.db == nil {
 		return &reindexGate{}
@@ -68,14 +65,9 @@ func (i *Index) newReindexGate() *reindexGate {
 	return i.db.newReindexGate()
 }
 
-// resolve builds both lookups, at most once per gate.
-//
-// Default to "no live reindex" when the activity builder is unwired (with
-// a one-time WARN). The original conservative default (refuse) was correct
-// in isolation but broke every module-test fixture that spins up Weaviate
-// without going through the post-bootstrap install path; production HTTP
-// gates on bootstrap completion so the unwired window is unreachable by
-// external traffic.
+// resolve builds both lookups, at most once per gate. Defaults to "no
+// live reindex" (logged once via WARN) when the activity builder is
+// unwired — see [DB.SetShardReindexActivityLookup] for why fail-open.
 func (g *reindexGate) resolve() {
 	g.once.Do(func() {
 		if g.activityBuilder == nil {
@@ -106,9 +98,8 @@ func (g *reindexGate) resolve() {
 	})
 }
 
-// anyLiveReindexForShard answers the cluster-wide question: does the
-// resolved DTM snapshot have any LIVE reindex task targeting
-// (collection, shardName)?
+// anyLiveReindexForShard reports whether the resolved DTM snapshot has a
+// LIVE reindex task targeting (collection, shardName).
 //
 // Replaces the prior filesystem-marker check, which only saw this node
 // and lagged DTM's actual state. The lookup builder is installed by
@@ -153,9 +144,8 @@ func (g *reindexGate) logRefusal(collection, shardName, reason, msg string) {
 }
 
 // AnyLiveReindexForShard is the single-shard convenience form of
-// [reindexGate.anyLiveReindexForShard]: it resolves its own gate, so it
-// costs one cluster-wide DTM query. Callers checking more than one shard
-// must build a gate once and reuse it instead.
+// [reindexGate.anyLiveReindexForShard], costing one DTM query per call.
+// Multi-shard callers should build and reuse a gate instead.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	return db.newReindexGate().anyLiveReindexForShard(collection, shardName)
 }
