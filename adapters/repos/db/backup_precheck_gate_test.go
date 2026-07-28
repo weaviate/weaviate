@@ -78,6 +78,10 @@ func newPrecheckGateTestDB(t *testing.T, collections, shardsPerCollection int) (
 
 // TestBackupable_BuildsReindexLookupOncePerPrecheck pins that one precheck
 // builds each lookup exactly once, regardless of shard count.
+//
+// Build count is the assertable property here: each build costs a
+// cluster-wide RAFT query, so counting builds needs no scale to be
+// meaningful. Three shards pin the same invariant as three thousand.
 func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 	tests := []struct {
 		name                string
