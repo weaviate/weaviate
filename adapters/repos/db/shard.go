@@ -126,6 +126,7 @@ type ShardLike interface {
 	ConvertQueue(targetVector string) error
 	FillQueue(targetVector string, from uint64) error
 	Shutdown(context.Context) error // Shutdown the shard
+	// preventShutdown blocks shutdown until release is called; release is never nil, including on error.
 	preventShutdown() (release func(), err error)
 
 	// TODO tests only
