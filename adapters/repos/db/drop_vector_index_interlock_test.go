@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -101,6 +102,22 @@ func TestShutdown_RequestFlagAfterFailure(t *testing.T) {
 		_, err = s.preventShutdown()
 		require.ErrorIs(t, err, errShutdownInProgress,
 			"new guarded ops are refused while the drain is pending")
+	})
+
+	t.Run("ctx cancellation while in use keeps the flag armed", func(t *testing.T) {
+		// backoff returns ctx.Err() and swallows the still-in-use attempt
+		// error; the pending refs still exist, so the deferred completion
+		// must stay armed.
+		s := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
+		s.inUseCounter.Add(1)
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+
+		err := s.Shutdown(ctx)
+		require.Error(t, err)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.True(t, s.shutdownRequested.Load(),
+			"a cancelled wait on an in-use shard is still the in-use case; disarming it strands the deferred shutdown")
 	})
 
 	t.Run("non-in-use abort clears the flag", func(t *testing.T) {

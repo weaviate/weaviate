@@ -228,3 +228,45 @@ func requireShardShut(t *testing.T, shard ShardLike, expected bool) {
 		require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down")
 	}
 }
+
+// TestShardReinitAfterDeferredShutdown pins the write-path reactivation belt:
+// once the deferred ref-drain shutdown COMPLETES, the map still holds the shut
+// instance — the read path keeps surfacing errAlreadyShutdown (the
+// eventual-shutdown contract above), but getOrInitShard must evict the
+// known-shut entry and re-initialize instead of pinning the tenant on
+// errAlreadyShutdown until restart.
+func TestShardReinitAfterDeferredShutdown(t *testing.T) {
+	dirName := t.TempDir()
+	index, cleanup := initIndexAndPopulate(t, dirName)
+	defer cleanup()
+
+	var shardName string
+	index.shards.Range(func(name string, _ ShardLike) error {
+		shardName = name
+		return nil
+	})
+
+	_, release, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
+
+	shard := index.shards.Load(shardName)
+	require.ErrorContains(t, shard.Shutdown(context.Background()), "still in use")
+	release() // deferred completion fires here
+
+	requireShardShut(t, shard, true)
+
+	// Read path: terminal error, per the eventual-shutdown contract.
+	_, _, err = index.GetShard(context.Background(), shardName)
+	require.ErrorIs(t, err, errAlreadyShutdown)
+
+	// Write path: evict + re-init, fresh usable shard.
+	fresh, freshRelease, err := index.getOrInitShard(context.Background(), shardName)
+	require.NoError(t, err, "a known-shut map entry must be re-initialized, not served terminally")
+	require.NotNil(t, fresh)
+	freshRelease()
+
+	// And the read path works again through the fresh instance.
+	_, release2, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
+	release2()
+}

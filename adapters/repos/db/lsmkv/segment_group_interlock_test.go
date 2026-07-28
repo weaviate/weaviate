@@ -209,3 +209,27 @@ func TestBucketReinit_RefusedWhileLeakedOpenThenHealsAfterClose(t *testing.T) {
 	require.Equal(t, []byte("v1"), v)
 	require.NoError(t, reinit.Shutdown(context.Background()))
 }
+
+// TestBucketShutdown_KeepsRegistryClaimOnFailure pins the release side of the
+// claim-before-touch contract: a FAILED teardown may leave open handles, so
+// it must keep the registry claim (re-open refused up front), and only a
+// completed teardown frees the slot.
+func TestBucketShutdown_KeepsRegistryClaimOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	bucket, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.Error(t, bucket.Shutdown(cancelled), "teardown with a dead ctx must fail")
+
+	_, err = newInterlockTestBucket(t, dir)
+	require.ErrorIs(t, err, ErrBucketAlreadyRegistered,
+		"a failed teardown must keep the claim; freeing it lets a re-open race the leaked handles")
+
+	require.NoError(t, bucket.Shutdown(context.Background()))
+	reopened, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err, "a completed teardown frees the slot")
+	require.NoError(t, reopened.Shutdown(context.Background()))
+}

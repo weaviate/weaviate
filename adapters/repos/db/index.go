@@ -3028,7 +3028,13 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		shard = i.shards.Load(shardName)
 	}()
 
-	if shard == nil {
+	// A map hit on a shard that already COMPLETED a shutdown (the deferred
+	// ref-drain one after a failed-but-restored close) must not pin the tenant
+	// on errAlreadyShutdown forever: the init path below re-creates it, same
+	// as the reactivation belt in initLocalShardWithForcedLoading. Read-only
+	// callers (ensureInit=false) keep surfacing the terminal error — the
+	// eventual-shutdown contract pins GetShard to errAlreadyShutdown.
+	if shard == nil || (ensureInit && shardKnownShut(shard)) {
 		if !ensureInit {
 			return nil, func() {}, nil
 		}
@@ -3044,6 +3050,10 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
+		if shard != nil && shardKnownShut(shard) {
+			i.shards.LoadAndDelete(shardName)
+			shard = nil
+		}
 		if shard == nil {
 			if _, protected := i.backupProtectedShards.Load(shardName); protected {
 				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)

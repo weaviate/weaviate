@@ -1814,7 +1814,16 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	close(drained)
 	defer b.lifetimeLock.Unlock()
 
-	defer GlobalBucketRegistry.Remove(b.registeredPath)
+	defer func() {
+		// Release the registry claim only on a COMPLETED teardown: a failed
+		// one may leave open handles, and the claim is what makes a re-open
+		// over them refuse up front instead of racing a still-live instance
+		// (see the claim in NewBucket). A retried or restart shutdown clears
+		// it once the teardown actually finishes.
+		if err == nil {
+			GlobalBucketRegistry.Remove(b.registeredPath)
+		}
+	}()
 
 	start := time.Now()
 

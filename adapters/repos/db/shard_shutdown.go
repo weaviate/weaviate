@@ -66,14 +66,20 @@ func shardStillAlive(s ShardLike) bool {
 
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.shutdownRequested.Store(true)
+	var lastAttemptErr error
 	err = backoff.Retry(func() error {
 		// this retry to make sure it's retried in case
 		// the performShutdown() returned shard still in use
-		return s.performShutdown(ctx)
+		lastAttemptErr = s.performShutdown(ctx)
+		return lastAttemptErr
 	}, backoff.WithContext(backoff.WithMaxRetries(
 		// this will try with max 2 seconds could be configurable later on
 		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
-	if err != nil && !errors.Is(err, errAlreadyShutdown) && !errors.Is(err, errShardStillInUse) {
+	// ctx cancellation makes backoff return ctx.Err(), swallowing the attempt
+	// error — a cancelled wait on a still-in-use shard is still the in-use
+	// case (refs pending, releases complete the shutdown), not an abort.
+	stillInUse := errors.Is(err, errShardStillInUse) || errors.Is(lastAttemptErr, errShardStillInUse)
+	if err != nil && !errors.Is(err, errAlreadyShutdown) && !stillInUse {
 		// Aborted shutdown: clear the request flag, or the shard callers
 		// restore (restoreShardIfStillAlive) stays gated by preventShutdown
 		// and refCountSub self-completes the shutdown once refs drain. If
