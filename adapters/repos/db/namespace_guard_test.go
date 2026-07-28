@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -205,8 +206,8 @@ func TestNewIndexCarriesNamespaceLookup(t *testing.T) {
 	}
 }
 
-// The empty cell is the one that matters: boot treats a missing tenant status as
-// HOT, so a single-tenant shard — which carries none — must stay desired-open.
+// Two cells matter: a tenant with no status counts as HOT, and a single-tenant
+// shard is decided by the namespace alone without consulting the status at all.
 func TestDesiredOpen(t *testing.T) {
 	states := []struct {
 		name  string
@@ -248,13 +249,6 @@ func TestDesiredOpen(t *testing.T) {
 			})
 		}
 	}
-
-	t.Run("an empty tenant status decides exactly as HOT", func(t *testing.T) {
-		for _, s := range states {
-			assert.Equal(t, desiredOpen(s.state, true, models.TenantActivityStatusHOT),
-				desiredOpen(s.state, true, ""), "state %q", s.state)
-		}
-	})
 }
 
 // dbForDesiredOpen builds the minimum DB DesiredOpenLocalShards reads: a schema
@@ -275,12 +269,12 @@ func dbForDesiredOpen(t *testing.T, className string, e namespaces.Exister, part
 	return &DB{logger: logger, schemaReader: reader, namespacesExister: e}
 }
 
-func localShard(name string) sharding.Physical {
+func localPhysical(name string) sharding.Physical {
 	return sharding.Physical{Name: name, BelongsToNodes: []string{"node1"}}
 }
 
-func coldShard(name string) sharding.Physical {
-	p := localShard(name)
+func coldPhysical(name string) sharding.Physical {
+	p := localPhysical(name)
 	p.Status = models.TenantActivityStatusCOLD
 	return p
 }
@@ -288,103 +282,111 @@ func coldShard(name string) sharding.Physical {
 func TestDesiredOpenLocalShards(t *testing.T) {
 	const class = "alpha:Product"
 
-	existerFor := func(t *testing.T, state api.NamespaceState) namespaces.Exister {
-		e := namespaces.NewMockExister(t)
-		e.EXPECT().GetNamespace("alpha").
-			Return(api.Namespace{Name: "alpha", State: state}, true).Maybe()
-		return e
-	}
-
 	tests := []struct {
-		name   string
-		state  api.NamespaceState
-		shards map[string]sharding.Physical
-		want   []string
+		name                string
+		className           string
+		state               api.NamespaceState
+		namespaced          bool
+		partitioningEnabled bool
+		shards              map[string]sharding.Physical
+		want                []string
+		wantErr             error
 	}{
 		{
-			name:   "no local shards yields an empty set",
-			state:  api.NamespaceStateActive,
+			name: "no local shards yields an empty set", className: class,
+			state: api.NamespaceStateActive, namespaced: true, partitioningEnabled: true,
 			shards: map[string]sharding.Physical{"s1": {Name: "s1", BelongsToNodes: []string{"other"}}},
-			want:   nil,
 		},
 		{
-			name:   "one HOT shard yields that shard",
-			state:  api.NamespaceStateActive,
-			shards: map[string]sharding.Physical{"s1": localShard("s1")},
+			name: "one HOT tenant yields that shard", className: class,
+			state: api.NamespaceStateActive, namespaced: true, partitioningEnabled: true,
+			shards: map[string]sharding.Physical{"s1": localPhysical("s1")},
 			want:   []string{"s1"},
 		},
 		{
-			name:  "an active class yields only its HOT shards",
-			state: api.NamespaceStateActive,
+			name: "an active class yields only its HOT tenants", className: class,
+			state: api.NamespaceStateActive, namespaced: true, partitioningEnabled: true,
 			shards: map[string]sharding.Physical{
-				"hot1": localShard("hot1"), "hot2": localShard("hot2"), "cold1": coldShard("cold1"),
+				"hot1": localPhysical("hot1"), "hot2": localPhysical("hot2"), "cold1": coldPhysical("cold1"),
 			},
 			want: []string{"hot1", "hot2"},
 		},
 		{
-			name:  "a suspended class yields nothing",
-			state: api.NamespaceStateSuspended,
+			name: "a suspended class yields nothing", className: class,
+			state: api.NamespaceStateSuspended, namespaced: true, partitioningEnabled: true,
 			shards: map[string]sharding.Physical{
-				"hot1": localShard("hot1"), "hot2": localShard("hot2"),
+				"hot1": localPhysical("hot1"), "hot2": localPhysical("hot2"),
 			},
-			want: nil,
 		},
 		{
 			// Not the empty set: the shards must reopen for the resume to finish.
-			name:  "a resuming class yields its HOT shards",
-			state: api.NamespaceStateResuming,
+			name: "a resuming class yields its HOT tenants", className: class,
+			state: api.NamespaceStateResuming, namespaced: true, partitioningEnabled: true,
 			shards: map[string]sharding.Physical{
-				"hot1": localShard("hot1"), "cold1": coldShard("cold1"),
+				"hot1": localPhysical("hot1"), "cold1": coldPhysical("cold1"),
 			},
 			want: []string{"hot1"},
 		},
 		{
-			name:   "a deleting class yields nothing",
-			state:  api.NamespaceStateDeleting,
-			shards: map[string]sharding.Physical{"hot1": localShard("hot1")},
-			want:   nil,
+			name: "a deleting class yields nothing", className: class,
+			state: api.NamespaceStateDeleting, namespaced: true, partitioningEnabled: true,
+			shards: map[string]sharding.Physical{"hot1": localPhysical("hot1")},
+		},
+		{
+			// No tenant carries a status, so none of them can close a shard.
+			name: "a single-tenant class ignores a stray shard status", className: class,
+			state: api.NamespaceStateActive, namespaced: true,
+			shards: map[string]sharding.Physical{"s1": localPhysical("s1"), "s2": coldPhysical("s2")},
+			want:   []string{"s1", "s2"},
+		},
+		{
+			name: "a suspended single-tenant class still yields nothing", className: class,
+			state: api.NamespaceStateSuspended, namespaced: true,
+			shards: map[string]sharding.Physical{"s1": localPhysical("s1")},
+		},
+		{
+			name: "an unqualified multi-tenant class yields its HOT tenants", className: "Product",
+			partitioningEnabled: true,
+			shards: map[string]sharding.Physical{
+				"hot1": localPhysical("hot1"), "cold1": coldPhysical("cold1"),
+			},
+			want: []string{"hot1"},
+		},
+		{
+			name: "an unqualified single-tenant class yields every local shard", className: "Product",
+			shards: map[string]sharding.Physical{"s1": localPhysical("s1"), "s2": coldPhysical("s2")},
+			want:   []string{"s1", "s2"},
+		},
+		{
+			// Not an empty set, which a caller would read as "unload everything".
+			name: "a lookup miss returns the error", className: class,
+			namespaced: true, partitioningEnabled: true,
+			shards:  map[string]sharding.Physical{"hot1": localPhysical("hot1")},
+			wantErr: errNamespaceRowMissing,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			db := dbForDesiredOpen(t, class, existerFor(t, tc.state), true, tc.shards)
+			var e namespaces.Exister
+			if tc.namespaced {
+				me := namespaces.NewMockExister(t)
+				me.EXPECT().GetNamespace("alpha").
+					Return(api.Namespace{Name: "alpha", State: tc.state}, tc.state != "").Maybe()
+				e = me
+			}
+			db := dbForDesiredOpen(t, tc.className, e, tc.partitioningEnabled, tc.shards)
 
-			got, err := db.DesiredOpenLocalShards(class)
+			got, err := db.DesiredOpenLocalShards(tc.className)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Nil(t, got)
+				return
+			}
 			require.NoError(t, err)
-			assert.ElementsMatch(t, tc.want, got)
+			assert.Equal(t, tc.want, got, "result must be sorted, not in map order")
 		})
 	}
-
-	t.Run("an unqualified class yields all its local HOT shards", func(t *testing.T) {
-		db := dbForDesiredOpen(t, "Product", nil, true, map[string]sharding.Physical{
-			"hot1": localShard("hot1"), "cold1": coldShard("cold1"),
-		})
-
-		got, err := db.DesiredOpenLocalShards("Product")
-		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"hot1"}, got)
-	})
-
-	// A single-tenant class has no tenant status to filter on, so the namespace
-	// alone decides — matching the single-tenant reload, which filters on nothing.
-	t.Run("a single-tenant class ignores a stray shard status", func(t *testing.T) {
-		db := dbForDesiredOpen(t, class, existerFor(t, api.NamespaceStateActive), false,
-			map[string]sharding.Physical{"s1": localShard("s1"), "s2": coldShard("s2")})
-
-		got, err := db.DesiredOpenLocalShards(class)
-		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"s1", "s2"}, got)
-	})
-
-	t.Run("a suspended single-tenant class still yields nothing", func(t *testing.T) {
-		db := dbForDesiredOpen(t, class, existerFor(t, api.NamespaceStateSuspended), false,
-			map[string]sharding.Physical{"s1": localShard("s1")})
-
-		got, err := db.DesiredOpenLocalShards(class)
-		require.NoError(t, err)
-		assert.Empty(t, got)
-	})
 
 	// Registering no Read expectation asserts the shards are never enumerated:
 	// when nothing may be open the answer is empty whatever the shards are, and a
@@ -400,16 +402,48 @@ func TestDesiredOpenLocalShards(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})
+}
 
-	// The miss must surface as an error, not as an empty set a caller would read
-	// as "unload everything".
-	t.Run("a lookup miss returns the error", func(t *testing.T) {
-		e := namespaces.NewMockExister(t)
-		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
-		db := dbForDesiredOpen(t, class, e, true, map[string]sharding.Physical{"hot1": localShard("hot1")})
+// An absent sharding state must not read as "no shards are desired open" — a
+// sweep would take that as licence to unload the class entirely.
+func TestDesiredOpenLocalShardsAbsentShardingState(t *testing.T) {
+	const class = "alpha:Product"
 
-		got, err := db.DesiredOpenLocalShards(class)
-		require.ErrorIs(t, err, errNamespaceRowMissing)
-		assert.Nil(t, got)
-	})
+	logger, _ := logrustest.NewNullLogger()
+	e := namespaces.NewMockExister(t)
+	e.EXPECT().GetNamespace("alpha").
+		Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true)
+
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.EXPECT().Read(class, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+			return readFunc(&models.Class{Class: class}, nil)
+		})
+
+	db := &DB{logger: logger, schemaReader: reader, namespacesExister: e}
+
+	got, err := db.DesiredOpenLocalShards(class)
+	require.Error(t, err)
+	assert.Nil(t, got)
+}
+
+var errReadFailed = errors.New("read failed")
+
+// A failure to read the sharding state must surface, not answer emptily.
+func TestDesiredOpenLocalShardsReadError(t *testing.T) {
+	const class = "alpha:Product"
+
+	logger, _ := logrustest.NewNullLogger()
+	e := namespaces.NewMockExister(t)
+	e.EXPECT().GetNamespace("alpha").
+		Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true)
+
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.EXPECT().Read(class, mock.Anything, mock.Anything).Return(errReadFailed)
+
+	db := &DB{logger: logger, schemaReader: reader, namespacesExister: e}
+
+	got, err := db.DesiredOpenLocalShards(class)
+	require.ErrorIs(t, err, errReadFailed)
+	assert.Nil(t, got)
 }

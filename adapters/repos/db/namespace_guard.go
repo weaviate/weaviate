@@ -13,6 +13,8 @@ package db
 
 import (
 	"errors"
+	"fmt"
+	"sort"
 
 	"github.com/sirupsen/logrus"
 
@@ -43,13 +45,10 @@ func refuseShardDecision(logger logrus.FieldLogger, namespace, class string, rea
 }
 
 // stateForShardDecision returns the namespace state a shard decision should use.
-//
-// An unqualified class name yields active: nothing can suspend a class that
-// belongs to no namespace, and that is every class on a cluster running with
-// namespaces off. Such a cluster therefore never reaches the lookup, so it never
-// takes the node-wide read lock behind it. A returned error is already logged and
-// every decision refuses on it — including a namespaced class with no lookup,
-// which must not read as a namespace that happens to be active.
+// An unqualified class name yields active — every class on a cluster running with
+// namespaces off — so such a cluster never reaches the lookup and never takes its
+// read lock. A returned error is already logged, and every decision refuses on it
+// rather than reading as an active namespace.
 func stateForShardDecision(e namespaces.Exister, namespace, class string, logger logrus.FieldLogger) (api.NamespaceState, error) {
 	if namespace == "" {
 		return api.NamespaceStateActive, nil
@@ -65,7 +64,7 @@ func stateForShardDecision(e namespaces.Exister, namespace, class string, logger
 }
 
 // shardsShouldBeOpen reports whether this class's shards may be held open on
-// this node. A refused lookup answers false.
+// this node. Any error answers false.
 func shardsShouldBeOpen(e namespaces.Exister, namespace, class string, logger logrus.FieldLogger) bool {
 	state, err := stateForShardDecision(e, namespace, class, logger)
 	if err != nil {
@@ -87,8 +86,8 @@ func requireShardLoadable(e namespaces.Exister, namespace, class string, logger 
 // desiredOpen reports whether a shard should be open, given its namespace's
 // state and, for a multi-tenant class, its tenant's activity status. Only
 // tenants carry an activity status, so a single-tenant shard is decided by the
-// namespace alone — the same filter the single-tenant reload applies. An empty
-// status on a tenant normalizes to HOT, the way boot reads it.
+// namespace alone, the way the single-tenant reload also applies no status
+// filter. An empty tenant status counts as HOT.
 func desiredOpen(state api.NamespaceState, partitioningEnabled bool, tenantStatus string) bool {
 	if !namespaces.ShardsShouldBeOpen(state) {
 		return false
@@ -100,8 +99,8 @@ func desiredOpen(state api.NamespaceState, partitioningEnabled bool, tenantStatu
 }
 
 // DesiredOpenLocalShards returns the class's local shards that should be open on
-// this node. A class in no namespace yields all its local HOT shards, which is
-// the answer for a cluster that uses no namespaces.
+// this node: the HOT tenants of a multi-tenant class, or every local shard of a
+// single-tenant one. A class in no namespace is decided as active.
 func (db *DB) DesiredOpenLocalShards(className string) ([]string, error) {
 	namespace := namespacing.NamespaceFromQualified(className)
 	state, err := stateForShardDecision(db.namespacesExister, namespace, className, db.logger)
@@ -116,7 +115,9 @@ func (db *DB) DesiredOpenLocalShards(className string) ([]string, error) {
 	var desired []string
 	readErr := db.schemaReader.Read(className, true, func(_ *models.Class, shardingState *sharding.State) error {
 		if shardingState == nil {
-			return nil
+			// Returning no shards would read as "keep none open", which a sweep
+			// would act on by unloading the class.
+			return fmt.Errorf("no sharding state for class %q", className)
 		}
 		for name, physical := range shardingState.Physical {
 			if shardingState.IsLocalShard(name) &&
@@ -129,6 +130,8 @@ func (db *DB) DesiredOpenLocalShards(className string) ([]string, error) {
 	if readErr != nil {
 		return nil, readErr
 	}
+	// Map iteration order otherwise makes a sweep's logs and diffs unreproducible.
+	sort.Strings(desired)
 	return desired, nil
 }
 
