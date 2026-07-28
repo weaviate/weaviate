@@ -1419,26 +1419,9 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 func TestSnapshotMultiBlockNodeLossRepro(t *testing.T) {
 	const size = 2000
 
-	c, err := packedconn.NewWithMaxLayer(2)
-	require.Nil(t, err)
-	c.ReplaceLayer(0, connsSlice1)
-
-	state := &DeserializationResult{
-		Entrypoint: 1,
-		Level:      6,
-		Compressed: false,
-		Nodes:      make([]*vertex, size),
-		Tombstones: make(map[uint64]struct{}),
-	}
 	// every slot is a live node — no nil slots, no tombstones — so the ONLY
 	// way a node can go missing on round-trip is the block-boundary bug.
-	for i := 0; i < size; i++ {
-		state.Nodes[i] = &vertex{
-			id:          uint64(i),
-			level:       i % 6,
-			connections: c,
-		}
-	}
+	state := snapshotStateWithNodes(t, size, 0)
 
 	dir := t.TempDir()
 	id := "test"
@@ -1529,6 +1512,75 @@ func TestSnapshotCleanedTombstoneKeepsSlotAlignment(t *testing.T) {
 		}
 		require.NotNilf(t, restored.Nodes[i], "node %d must survive", i)
 		require.Equalf(t, i, restored.Nodes[i].level, "node %d shifted id/level", i)
+	}
+}
+
+func snapshotStateWithNodes(t *testing.T, size, levelOffset int) *DeserializationResult {
+	t.Helper()
+
+	c, err := packedconn.NewWithMaxLayer(2)
+	require.NoError(t, err)
+	c.ReplaceLayer(0, connsSlice1)
+
+	state := &DeserializationResult{
+		Entrypoint: 1,
+		Level:      6,
+		Nodes:      make([]*vertex, size),
+		Tombstones: make(map[uint64]struct{}),
+	}
+	for i := 0; i < size; i++ {
+		state.Nodes[i] = &vertex{id: uint64(i), level: (i + levelOffset) % 6, connections: c}
+	}
+	return state
+}
+
+// TestReadSnapshotRejectsTruncatedBody pins that a truncated body fails instead
+// of reporting success with the nodes that happened to survive.
+func TestReadSnapshotRejectsTruncatedBody(t *testing.T) {
+	const size = 200
+
+	tests := []struct {
+		name string
+		// truncateTo returns the size the snapshot file is truncated to
+		truncateTo func(fileSize, blockSize int64) int64
+		wantErr    string
+	}{
+		{
+			name:       "last block cut in half",
+			truncateTo: func(fileSize, blockSize int64) int64 { return fileSize - blockSize/2 },
+			wantErr:    "is not a whole number of",
+		},
+		{
+			// the body is a whole number of blocks, so the remainder is the metadata
+			name:       "body missing entirely",
+			truncateTo: func(fileSize, blockSize int64) int64 { return fileSize % blockSize },
+			wantErr:    "is not a whole number of",
+		},
+		{
+			// whole blocks still pass their own checksum, so only the node count
+			// recorded in the metadata catches this
+			name:       "last block removed",
+			truncateTo: func(fileSize, blockSize int64) int64 { return fileSize - blockSize },
+			wantErr:    "metadata declares",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			id := "test"
+			cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+			snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+			require.NoError(t, cl.writeSnapshot(snapshotStateWithNodes(t, size, 0), snapshotPath))
+
+			info, err := os.Stat(snapshotPath)
+			require.NoError(t, err)
+			require.NoError(t, os.Truncate(snapshotPath, test.truncateTo(info.Size(), cl.snapshotBlockSize)))
+
+			_, err = cl.readStateFrom(snapshotPath)
+			require.ErrorContains(t, err, test.wantErr)
+		})
 	}
 }
 
