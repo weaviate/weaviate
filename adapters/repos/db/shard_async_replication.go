@@ -39,6 +39,7 @@ import (
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/storobj"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
@@ -1320,8 +1321,9 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 }
 
 var (
-	errAsyncReplicationNotActive = replica.ErrAsyncReplicationNotActive
-	errAsyncCheckpointStale      = replica.ErrAsyncCheckpointStale
+	errAsyncReplicationNotActive   = replica.ErrAsyncReplicationNotActive
+	errAsyncCheckpointStale        = replica.ErrAsyncCheckpointStale
+	errAsyncCheckpointCutoffInPast = replica.ErrAsyncCheckpointCutoffInPast
 )
 
 func (s *Shard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
@@ -1342,6 +1344,13 @@ func (s *Shard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, creat
 	if s.asyncCheckpointHashtree != nil && !createdAt.After(s.asyncCheckpointCreatedAt) {
 		s.metrics.IncAsyncCheckpointCreateFailureCount()
 		return errAsyncCheckpointStale
+	}
+
+	// Checked under the clone lock so it can't go stale: if this node's clock already reached
+	// the cutoff, applied >cutoff writes would be baked into the clone and diverge the root.
+	if cutoffMs <= time.Now().UnixMilli() {
+		s.metrics.IncAsyncCheckpointCreateFailureCount()
+		return errAsyncCheckpointCutoffInPast
 	}
 
 	// Lifetime measured from local activation, never initiator createdAt, to avoid skew.
@@ -1611,6 +1620,8 @@ func (s *Shard) hashBeat(
 
 	s.metrics.IncAsyncReplicationIterationCount()
 	s.metrics.IncAsyncReplicationIterationRunning()
+
+	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessAsyncReplication)()
 
 	defer func() {
 		s.metrics.DecAsyncReplicationIterationRunning()

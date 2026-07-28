@@ -211,6 +211,7 @@ type Config struct {
 	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig           `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
 	IndexMissingTextFilterableAtStartup bool                           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      *runtime.DynamicValue[bool]    `json:"disable_graphql" yaml:"disable_graphql"`
+	ExperimentalRESTSearchEnabled       *runtime.DynamicValue[bool]    `json:"rest_search_enabled" yaml:"rest_search_enabled"`
 	AvoidMmap                           bool                           `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                           `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                           `json:"disable_telemetry" yaml:"disable_telemetry"`
@@ -845,11 +846,22 @@ const DefaultBackupChunkTargetSize = 10 * 1024 * 1024 // 10MB
 // DefaultBackupSplitFileSize is the default size for splitting large files during backup
 const DefaultBackupSplitFileSize = 50 * 1024 * 1024 * 1024 // 50GB
 
+// DefaultBackupMaxIndividualFiles is the default number of files per shard targeted to get their own chunk
+const DefaultBackupMaxIndividualFiles = 100
+
 // Backup contains backup-related configuration
 type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
 	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
 	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
+
+	// MaxIndividualFiles is how many of a shard's biggest files are targeted to get their own
+	// chunk. Only those can be reused by a later incremental backup, so raising it improves
+	// deduplication at the cost of more chunks. It is a target, not a cap: files of equal size
+	// at the resulting threshold all qualify. An incremental backup counts the files it reuses
+	// from its base against the number, so it applies across a backup chain.
+	// Env: BACKUP_MAX_INDIVIDUAL_FILES, runtime config: backup_max_individual_files.
+	MaxIndividualFiles *runtime.DynamicValue[int] `json:"max_individual_files" yaml:"max_individual_files"`
 
 	// SkipAccessCheck disables the write+delete probe the backup client runs on
 	// initialize, deferring write/permission errors to backup time. Use it for

@@ -20,7 +20,6 @@ import (
 type FSMUpdater interface {
 	ReplicationAddReplicaToShard(ctx context.Context, collection string, shard string, nodeId string, opId uint64) (uint64, error)
 	DeleteReplicaFromShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error)
-	SyncShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error)
 	ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) error
 	ReplicationRegisterError(ctx context.Context, id uint64, errorToRegister string) error
 	ReplicationRemoveReplicaOp(ctx context.Context, id uint64) error

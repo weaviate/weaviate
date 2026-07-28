@@ -292,6 +292,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			}
 		}
 
+		if req.HybridSearch.NearText != nil && req.HybridSearch.NearText.Selection != nil {
+			return dto.GetParams{}, errors.New("hybrid: selection must be set on the top-level hybrid search, not on the near_text sub-search")
+		}
+		if req.HybridSearch.NearVector != nil && req.HybridSearch.NearVector.Selection != nil {
+			return dto.GetParams{}, errors.New("hybrid: selection must be set on the top-level hybrid search, not on the near_vector sub-search")
+		}
+
 		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -431,7 +438,22 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
 	if out.Selection != nil {
-		for _, tv := range targetVectors {
+		if mmr := out.Selection.MMR; mmr != nil {
+			if mmr.Limit == 0 {
+				return dto.GetParams{}, errors.New("MMR limit must be at least 1")
+			}
+			if out.Pagination.Limit > 0 && int(mmr.Limit) > out.Pagination.Limit {
+				return dto.GetParams{}, fmt.Errorf("MMR limit (%d) cannot be larger than the query limit (%d)", mmr.Limit, out.Pagination.Limit)
+			}
+			if mmr.Balance < 0 || mmr.Balance > 1 {
+				return dto.GetParams{}, errors.New("MMR balance must be between 0 and 1")
+			}
+		}
+		selectionTargets := targetVectors
+		if len(selectionTargets) == 0 {
+			selectionTargets = []string{""}
+		}
+		for _, tv := range selectionTargets {
 			if isTargetVectorMultiVector(class, tv) {
 				return dto.GetParams{}, fmt.Errorf("MMR selection is not supported with multi-vector indexes (target vector %q)", tv)
 			}
@@ -988,7 +1010,7 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 				})
 				continue
 			}
-			nestedProps, err := getAllNonRefNonBlobNestedProperties(&Property{Property: schemaProp})
+			nestedProps, err := search.AllNonRefNonBlobNestedProperties(&Property{Property: schemaProp})
 			if err != nil {
 				return nil, errors.Wrapf(err, "get all non ref non blob nested properties for property %v", normalizedRefPropName)
 			}
@@ -1153,78 +1175,14 @@ func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
 		!metadata.IsConsistent)
 }
 
+// getAllNonRefNonBlobProperties authorizes access to className and delegates
+// the property selection to the canonical search.AllNonRefNonBlobProperties.
 func getAllNonRefNonBlobProperties(authorizedGetClass classGetterWithAuthzFunc, className string) ([]search.SelectProperty, error) {
-	var props []search.SelectProperty
 	class, err := authorizedGetClass(className)
 	if err != nil {
 		return nil, err
 	}
-	for _, prop := range class.Properties {
-		dt, err := schema.GetPropertyDataType(class, prop.Name)
-		if err != nil {
-			return []search.SelectProperty{}, errors.Wrap(err, "get property data type")
-		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
-			continue
-		}
-		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
-			nested, err := schema.GetPropertyByName(class, prop.Name)
-			if err != nil {
-				return []search.SelectProperty{}, errors.Wrap(err, "get nested property by name")
-			}
-			nestedProps, err := getAllNonRefNonBlobNestedProperties(&Property{Property: nested})
-			if err != nil {
-				return []search.SelectProperty{}, errors.Wrap(err, "get all non ref non blob nested properties")
-			}
-			props = append(props, search.SelectProperty{
-				Name:        prop.Name,
-				IsPrimitive: false,
-				IsObject:    true,
-				Props:       nestedProps,
-			})
-		} else {
-			props = append(props, search.SelectProperty{
-				Name:        prop.Name,
-				IsPrimitive: true,
-			})
-		}
-	}
-	return props, nil
-}
-
-func getAllNonRefNonBlobNestedProperties[P schema.PropertyInterface](property P) ([]search.SelectProperty, error) {
-	var props []search.SelectProperty
-	for _, prop := range property.GetNestedProperties() {
-		dt, err := schema.GetNestedPropertyDataType(property, prop.Name)
-		if err != nil {
-			return []search.SelectProperty{}, errors.Wrap(err, "get nested property data type")
-		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
-			continue
-		}
-		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
-			nested, err := schema.GetNestedPropertyByName(property, prop.Name)
-			if err != nil {
-				return []search.SelectProperty{}, errors.Wrap(err, "get nested property by name")
-			}
-			nestedProps, err := getAllNonRefNonBlobNestedProperties(&NestedProperty{NestedProperty: nested})
-			if err != nil {
-				return []search.SelectProperty{}, errors.Wrap(err, "get all non ref non blob nested properties")
-			}
-			props = append(props, search.SelectProperty{
-				Name:        prop.Name,
-				IsPrimitive: false,
-				IsObject:    true,
-				Props:       nestedProps,
-			})
-		} else {
-			props = append(props, search.SelectProperty{
-				Name:        prop.Name,
-				IsPrimitive: true,
-			})
-		}
-	}
-	return props, nil
+	return search.AllNonRefNonBlobProperties(class)
 }
 
 func parseNearImage(n *pb.NearImageSearch, targetVectors []string) (*nearImage.NearImageParams, error) {
