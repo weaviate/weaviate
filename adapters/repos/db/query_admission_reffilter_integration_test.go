@@ -70,12 +70,37 @@ func TestQueryAdmissionRefFilterNoWedge(t *testing.T) {
 	qctx, qcancel := context.WithCancel(ctx)
 	defer qcancel()
 
+	// The drain check below cannot tell "every grant was returned" apart from
+	// "the gauge never moved", so sample the burst to establish budget was really
+	// held while the queries ran.
+	var sawUsed atomic.Bool
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(200 * time.Microsecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if readAdmissionGauge(reg, "query_admission_used_budget") > 0 {
+					sawUsed.Store(true)
+				}
+			}
+		}
+	}()
+
 	if !burstRefFilterSearches(t, qctx, shard, refFilter, numQueries) {
+		close(stop)
 		qcancel()
 		t.Fatalf("admission wedge: %d ref-filter queries did not complete within 30s; "+
 			"the nested cross-reference search re-entered Admit as a fresh acquirer and "+
 			"parked on a never-expiring ctx while the parent held its grant", numQueries)
 	}
+	close(stop)
+
+	require.True(t, sawUsed.Load(),
+		"expected the ref-filter queries to hold admission budget (used_budget > 0)")
 
 	// (b) No grant leak: once every query has returned, every unit must be back
 	// in the pool. Read from the real limiter gauge, not a test-only accessor.
