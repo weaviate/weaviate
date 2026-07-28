@@ -60,10 +60,19 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	s.haltForTransferCount++
 
 	defer func() {
-		if err == nil && inactivityTimeout > 0 {
+		if err != nil {
+			return
+		}
+		if inactivityTimeout > 0 {
 			s.mayUpdateInactivityTimeout(inactivityTimeout)
 			s.mayInitInactivityMonitoring()
 		}
+		// A successful halt is liveness. An overlapping consumer otherwise
+		// inherits the first consumer's deadline untouched while the seal steps
+		// it just ran spent wall-clock time against it, so the monitor can
+		// force-resume the moment the halt returns — and a force-resume zeroes
+		// the count for every holder, not just the one that timed out.
+		s.mayResetInactivityDeadline()
 	}()
 
 	if offloading {
