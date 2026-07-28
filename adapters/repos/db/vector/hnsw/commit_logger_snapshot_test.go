@@ -16,12 +16,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -1535,35 +1537,122 @@ func snapshotStateWithNodes(t *testing.T, size, levelOffset int) *Deserializatio
 	return state
 }
 
-// TestReadSnapshotBufferAllocation pins that a snapshot read allocates a block
-// buffer for each block it actually reads, not one per reader goroutine.
+// TestReadSnapshotBufferAllocation pins both halves of how a snapshot read gets
+// its block buffers: one per block actually read rather than one per reader
+// goroutine, and taken from the pool once it holds any.
 func TestReadSnapshotBufferAllocation(t *testing.T) {
 	const size = 10
 
-	dir := t.TempDir()
-	id := "test"
-	cl := createTestCommitLoggerForSnapshots(t, dir, id)
-	cl.snapshotBlockSize = blockSize // production size, so this small state is one block
-
-	snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
-	require.NoError(t, cl.writeSnapshot(snapshotStateWithNodes(t, size, 0), snapshotPath))
-
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	restored, err := cl.readStateFrom(snapshotPath)
-	runtime.ReadMemStats(&after)
-	require.NoError(t, err)
-
-	for i := 0; i < size; i++ {
-		require.NotNilf(t, restored.Nodes[i], "node %d must survive the round-trip", i)
+	tests := []struct {
+		name string
+		// reads above 1 leave the pool filled from the read before, so the
+		// cheapest of them is the one that reuses a buffer
+		reads        int
+		maxAllocated uint64
+	}{
+		{
+			// one block, so one buffer; the bound is two because TotalAlloc also
+			// counts whatever else the process allocates
+			name:         "empty pool allocates per block, not per reader goroutine",
+			reads:        1,
+			maxAllocated: 2 * blockSize,
+		},
+		{
+			name:         "filled pool hands the buffer back",
+			reads:        5,
+			maxAllocated: blockSize / 2,
+		},
 	}
 
-	// one block, so one buffer; the bound is two because TotalAlloc also counts
-	// whatever else the process allocates
-	allocated := after.TotalAlloc - before.TotalAlloc
-	require.Lessf(t, allocated, uint64(2*blockSize),
-		"reading a single-block snapshot allocated %d bytes; one buffer per reader goroutine would be %d",
-		allocated, snapshotConcurrency*blockSize)
+	// a GC empties the pool, so hold it off to keep reuse observable
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			id := "test"
+			cl := createTestCommitLoggerForSnapshots(t, dir, id)
+			cl.snapshotBlockSize = blockSize // production size, so this small state is one block
+
+			snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+			require.NoError(t, cl.writeSnapshot(snapshotStateWithNodes(t, size, 0), snapshotPath))
+
+			// TotalAlloc counts the whole process, and that noise only ever adds,
+			// so the cheapest read is the honest measurement
+			var lowest uint64
+			var restored *DeserializationResult
+			for i := 0; i < test.reads; i++ {
+				var before, after runtime.MemStats
+				var err error
+
+				runtime.ReadMemStats(&before)
+				restored, err = cl.readStateFrom(snapshotPath)
+				runtime.ReadMemStats(&after)
+				require.NoError(t, err)
+
+				if allocated := after.TotalAlloc - before.TotalAlloc; i == 0 || allocated < lowest {
+					lowest = allocated
+				}
+			}
+
+			for i := 0; i < size; i++ {
+				require.NotNilf(t, restored.Nodes[i], "node %d must survive the round-trip", i)
+			}
+
+			require.Lessf(t, lowest, test.maxAllocated,
+				"reading a single-block snapshot allocated %d bytes; one buffer per reader goroutine would be %d",
+				lowest, snapshotConcurrency*blockSize)
+		})
+	}
+}
+
+// TestReadSnapshotConcurrent pins that snapshots read at the same time keep
+// their own content, since the readers share their block buffers.
+func TestReadSnapshotConcurrent(t *testing.T) {
+	const shards = 4
+	const readsPerShard = 5
+
+	dir := t.TempDir()
+
+	paths := make([]string, shards)
+	loggers := make([]*hnswCommitLogger, shards)
+	sizes := make([]int, shards)
+
+	for s := 0; s < shards; s++ {
+		id := fmt.Sprintf("shard-%d", s)
+		sizes[s] = 100 * (s + 1)
+		loggers[s] = createTestCommitLoggerForSnapshots(t, dir, id)
+		paths[s] = filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+		require.NoError(t, loggers[s].writeSnapshot(snapshotStateWithNodes(t, sizes[s], s), paths[s]))
+	}
+
+	var wg sync.WaitGroup
+	for s := 0; s < shards; s++ {
+		for range readsPerShard {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				// assert rather than require: require stops the calling goroutine,
+				// which here is not the one running the test
+				restored, err := loggers[s].readStateFrom(paths[s])
+				if !assert.NoError(t, err) || !assert.Len(t, restored.Nodes, sizes[s]) {
+					return
+				}
+
+				for i := 0; i < sizes[s]; i++ {
+					node := restored.Nodes[i]
+					if !assert.NotNilf(t, node, "shard %d node %d missing", s, i) {
+						return
+					}
+					if !assert.Equalf(t, (i+s)%6, node.level, "shard %d node %d holds another shard's data", s, i) {
+						return
+					}
+				}
+			}()
+		}
+	}
+	wg.Wait()
 }
 
 // TestReadSnapshotRejectsTruncatedBody pins that a truncated body fails instead

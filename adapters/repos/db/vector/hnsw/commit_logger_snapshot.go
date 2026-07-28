@@ -1272,6 +1272,14 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 	return nil
 }
 
+// snapshotBlockBufferPool holds readSnapshotBody's block-sized read buffers. Each
+// shard re-reads its previous snapshot every time it writes a new one, so a fresh
+// multi-megabyte buffer per worker per read is a large share of allocation churn.
+// *[]byte so Put won't allocate.
+var snapshotBlockBufferPool = sync.Pool{
+	New: func() any { return new([]byte) },
+}
+
 // readSnapshotBody reads the snapshot body from the file for snapshot versions >= 3.
 func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationResult) error {
 	var mu sync.Mutex
@@ -1304,7 +1312,14 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 	// blocks costs a block-sized buffer each and reads nothing
 	for i := 0; i < min(snapshotConcurrency, blockCount); i++ {
 		eg.Go(func() error {
-			buf := make([]byte, snapshotBlockSize)
+			bufPtr := snapshotBlockBufferPool.Get().(*[]byte)
+			defer snapshotBlockBufferPool.Put(bufPtr)
+			// New cannot see the block size, so a pool miss comes back empty
+			if cap(*bufPtr) < snapshotBlockSize {
+				*bufPtr = make([]byte, snapshotBlockSize)
+			}
+			buf := (*bufPtr)[:snapshotBlockSize]
+
 			var b [8]byte
 
 			for {
