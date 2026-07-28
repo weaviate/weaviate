@@ -227,8 +227,10 @@ type mutateInWindowCase struct {
 }
 
 // seedPostSwapPreFlipObject seeds the shared setup for the update/delete
-// journeys: a target object, an optional bystander, and the drive into the
-// post-swap pre-flip window.
+// journeys: a target object, an optional bystander, the drive into the
+// post-swap pre-flip window, and the precondition that the backfill indexed
+// seedToken before the mutation — without it the mutation is not exercising
+// the window and the test would pass vacuously.
 func seedPostSwapPreFlipObject(
 	t *testing.T, ctx context.Context, c mutateInWindowCase, seedToken string,
 ) (shard *Shard, className, targetID string, bucket *lsmkv.Bucket) {

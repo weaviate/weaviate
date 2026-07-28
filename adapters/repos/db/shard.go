@@ -995,8 +995,10 @@ func (s *Shard) ClearForceIndexOverlay(propName string) {
 
 // SnapshotForceIndexOverlay returns active force-index-overlay entries for
 // props, skipping (and self-clearing) ones the live schema already
-// satisfies — a stale entry risks masking a later index DELETE. Nil when
-// nothing applies (the analyzer's fast path).
+// satisfies — a stale entry risks masking a later index DELETE. The
+// self-clear is a backstop for a missed explicit clear, mirroring
+// [Shard.TokenizationFor]. Nil when nothing applies (the analyzer's fast
+// path).
 func (s *Shard) SnapshotForceIndexOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

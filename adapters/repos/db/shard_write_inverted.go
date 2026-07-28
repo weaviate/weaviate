@@ -113,7 +113,8 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 //     target index flag on so HasAnyInvertedIndex doesn't drop them
 //     (weaviate/0-weaviate-issues#319).
 //
-// The two never target the same property; the merge keeps both defensively.
+// The two never target the same property (a submit-time conflict guard
+// enforces that); the merge keeps both defensively.
 func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	overlay := s.tokenizationAnalyzerOverlay(props)
 	forced := s.SnapshotForceIndexOverlay(props)
