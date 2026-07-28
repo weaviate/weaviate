@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -296,7 +297,8 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBu
 		if len(pv.containsValues) < containsAnyAccumulatorMinKeys {
 			acc, accRelease, err = foldContainsIncremental(ctx, b, view, pv.containsValues, filters.ContainsAny, maxConc)
 		} else {
-			acc, accRelease, err = foldContainsAnyAccumulator(ctx, b, view, pv.containsValues, maxConc)
+			acc, accRelease, err = foldContainsAnyAccumulator(ctx, b, view, pv.containsValues,
+				s.bitmapFactory.BufPool(), maxConc)
 		}
 	default:
 		// defensive: a non-Contains operator must never pick a fold — a
@@ -322,13 +324,14 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBu
 // foldContainsAnyAccumulator unions the rows of all keys through a
 // sroar.Accumulator: each fetched row is deposited into the accumulator's
 // dense per-64K-range staging blocks and its buffer released immediately, and
-// the final bitmap is assembled once, exactly sized, in Bitmap(). This
+// the final bitmap is assembled once, exactly sized, into a pooled buffer
+// (the returned release puts it back). This
 // replaces one structural Or per key (an O(container) memmove even for a
 // single-doc row) with O(1) bit deposits, and bounds peak memory at the
 // staging blocks (proportional to the doc-ID spread of the result, not to
 // the number of keys) plus a single row in flight.
 func foldContainsAnyAccumulator(ctx context.Context, b containsBatchBucket,
-	view lsmkv.BucketConsistentView, keys [][]byte, maxConc int,
+	view lsmkv.BucketConsistentView, keys [][]byte, pool roaringset.BitmapBufPool, maxConc int,
 ) (*sroar.Bitmap, func(), error) {
 	// TODO aliszka:gh12242 wire maxConc into the accumulator's Or once sroar
 	// supports concurrent deposits; today the accumulator is single-threaded
@@ -347,7 +350,8 @@ func foldContainsAnyAccumulator(ctx context.Context, b containsBatchBucket,
 		release()
 	}
 
-	return acc.Bitmap(), noopRelease, nil
+	result, put := pool.AccumulatorToBuf(acc)
+	return result, put, nil
 }
 
 // foldContainsIncremental merges rows one key at a time under op: union for

@@ -237,15 +237,19 @@ func TestDocBitmapContainsBatch_ContainsAnyAccumulatorFold(t *testing.T) {
 		},
 	}
 
-	s := &Searcher{}
+	pool := roaringset.NewBitmapBufPoolTrackingForTests()
+	s := &Searcher{bitmapFactory: roaringset.NewBitmapFactory(pool, func() uint64 { return 300_000 })}
 	dbm, err := s.docBitmapContainsBatch(ctx, spy, pv)
 	require.NoError(t, err)
-	defer dbm.release()
 
 	require.Equal(t, []uint64{1, 2, 3, 4, 5, 70_000, 200_000}, dbm.docIDs.ToArray())
 	require.False(t, dbm.IsDenyList())
 	require.Equal(t, []string{"present-a", "missing", "present-b", "present-c"}, spy.reads,
 		"every key must be read for ContainsAny, absent key included")
+
+	dbm.release()
+	require.Zero(t, pool.Outstanding(),
+		"the pooled result buffer must flow back through dbm.release")
 }
 
 func TestDocBitmapContainsBatch_ContainsAllFold(t *testing.T) {
