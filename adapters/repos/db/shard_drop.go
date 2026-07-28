@@ -34,6 +34,19 @@ import (
 // If keepFiles==true, all files on disk are kept, only in-memory structures are removed. This is used to allow backups
 // to complete before the files are deleted.
 func (s *Shard) drop(keepFiles bool) (err error) {
+	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
+	defer cancel()
+
+	// Drain before touching anything an in-flight user might hold: without this
+	// a concurrent batch kept a *Shard whose store was being shut down under it.
+	s.lifecycle.requestTeardown(shardDropping)
+	claimed, err := s.awaitTeardown(ctx, shardDropping)
+	if err != nil {
+		return fmt.Errorf("drop shard %q: %w", s.ID(), err)
+	}
+	// an unload already tore the in-memory state down; the files still have to go
+	alreadyUnloaded := !claimed
+
 	s.shutCtxCancel(fmt.Errorf("drop %q", s.ID()))
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
@@ -54,9 +67,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	// also drops an already-fired monitor waiting on the mux, so it can't resume mid-teardown.
 	s.mayStopInactivityMonitoring()
 	s.haltForTransferMux.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
-	defer cancel()
 
 	// Guarantee the lsmkv store is shut down on every exit. The pre-Shutdown
 	// steps below (queue/geo/vector-index Drop, cycle-callback Unregister)
@@ -121,7 +131,8 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return err
 	}
 
-	if err = s.store.Shutdown(ctx); err != nil {
+	// an unload that beat us here already closed the store
+	if err = s.store.Shutdown(ctx); err != nil && !(alreadyUnloaded && errors.Is(err, lsmkv.ErrAlreadyClosed)) {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 

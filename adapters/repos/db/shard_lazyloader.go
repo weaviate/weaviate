@@ -463,9 +463,10 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	// - remove entire shard directory
 	// use lock to prevent eventual concurrent droping and loading
 	l.mutex.Lock()
-	defer l.mutex.Unlock()
 
 	if !l.loaded {
+		defer l.mutex.Unlock()
+
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -512,7 +513,13 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		return nil
 	}
 
-	return l.shard.drop(keepFiles)
+	// Drain outside the mutex: Shard.drop waits for in-flight users, and those
+	// re-enter through this wrapper's Load(), so holding it would block the very
+	// releases it waits for. Nothing reloads meanwhile — l.loaded stays true, and
+	// anything building a fresh shard holds shardCreateLocks for writing.
+	shard := l.shard
+	l.mutex.Unlock()
+	return shard.drop(keepFiles)
 }
 
 func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
@@ -768,15 +775,20 @@ func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
 	if !l.loaded {
+		l.mutex.Unlock()
 		return nil
 	}
+	// as in drop(): the drain must not run under l.mutex
+	shard := l.shard
+	l.mutex.Unlock()
 
-	if err := l.shard.Shutdown(ctx); err != nil {
+	if err := shard.Shutdown(ctx); err != nil {
 		return err
 	}
+
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
 
 	// Mark as unloaded so drop() knows the correct state
 	l.loaded = false
