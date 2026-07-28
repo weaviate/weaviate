@@ -56,9 +56,23 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// flip landed leaves a canonical bucket indistinguishable from a deleted
 	// index. Read pending migrations first, or removal destroys the only copy
 	// of the migrated data.
-	pendingFlips := newPendingFlipLookup(
-		scanPendingFlips(shardPathLSM(index.path(), shardName), index.logger))
-	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class, pendingFlips); err != nil {
+	//
+	// An unreadable marker means a migration was recorded and we cannot tell
+	// which, so the sweep runs blind. Skip it entirely for this shard: keeping
+	// a bucket that may be garbage costs disk, sweeping one that may be the
+	// only copy is permanent, and from the second restart on the sidecars it
+	// was built from are gone. An absent marker is not that state — it proves
+	// there is no pending flip, so the sweep runs as usual.
+	flips, unreadable := scanPendingFlips(shardPathLSM(index.path(), shardName), index.logger)
+	if unreadable {
+		index.logger.WithFields(logrus.Fields{
+			"action": "init_shard",
+			"shard":  shardName,
+			"index":  index.ID(),
+		}).Warn("reindex: flip-pending records unreadable; skipping the nonexistent-property-index sweep " +
+			"so a swapped-but-not-flipped migration cannot lose its bucket")
+	} else if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
+		index.path(), shardName, class, newPendingFlipLookup(flips)); err != nil {
 		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
 	}
 

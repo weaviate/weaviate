@@ -1619,6 +1619,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 
 	if IsTokenizationChangingMigration(payload.MigrationType) || isEnableIndexMigration(payload.MigrationType) {
 		className := entschema.ClassName(payload.Collection)
+		// Everything force-index-shaped is scoped to the index type this
+		// migration owns: a property can be mid-flip for the other one too,
+		// and that window must outlive this flip (see [PendingFlip]).
+		indexType, isEnable := enableMigrationIndexTypeOf(payload.MigrationType)
 		if idx := p.db.GetIndex(className); idx != nil {
 			idx.ForEachShard(func(shardName string, sh ShardLike) error {
 				// Unwrap so the clear reaches the concrete shard whose
@@ -1636,11 +1640,15 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// already shows the flip.
 				for _, propName := range payload.Properties {
 					concreteShard.ClearTokenizationOverlay(propName)
-					concreteShard.ClearForceIndexOverlay(propName)
+					if isEnable {
+						concreteShard.ClearForceIndexOverlay(propName, indexType)
+					}
 				}
 				// The durable twin of the force-index overlay goes with it,
 				// or the next restart re-arms a window that has closed.
-				dropPendingFlipRecords(concreteShard.pathLSM(), payload.Properties, logger)
+				if isEnable {
+					dropPendingFlipRecords(concreteShard.pathLSM(), payload.Properties, indexType, logger)
+				}
 				return nil
 			})
 		}
@@ -1652,7 +1660,23 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 // isEnableIndexMigration reports whether the migration arms the per-shard
 // force-index overlay for its post-swap pre-flip window (weaviate/0-weaviate-issues#319).
 func isEnableIndexMigration(mt ReindexMigrationType) bool {
-	return mt == ReindexTypeEnableFilterable || mt == ReindexTypeEnableSearchable
+	_, ok := enableMigrationIndexTypeOf(mt)
+	return ok
+}
+
+// enableMigrationIndexTypeOf maps an enable-* migration to the inverted-index
+// type it promotes — the scope every arm and clear of the force-index overlay
+// and of its durable [PendingFlip] twin is keyed on. Any other migration type
+// reports false: it has no swap-vs-flip window on the write path.
+func enableMigrationIndexTypeOf(mt ReindexMigrationType) (string, bool) {
+	switch mt {
+	case ReindexTypeEnableFilterable:
+		return "filterable", true
+	case ReindexTypeEnableSearchable:
+		return "searchable", true
+	default:
+		return "", false
+	}
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
@@ -2296,9 +2320,12 @@ func maybeClearMigrationOverlaysOnAllFailed(
 	if !wasSet || anySwapped {
 		return false
 	}
+	indexType, isEnable := enableMigrationIndexTypeOf(payload.MigrationType)
 	for _, propName := range payload.Properties {
 		shard.ClearTokenizationOverlay(propName)
-		shard.ClearForceIndexOverlay(propName)
+		if isEnable {
+			shard.ClearForceIndexOverlay(propName, indexType)
+		}
 	}
 	return true
 }

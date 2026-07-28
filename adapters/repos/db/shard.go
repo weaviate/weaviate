@@ -474,17 +474,23 @@ type Shard struct {
 	// [Shard.AnalyzeObject] so in-window writes land in the canonical
 	// bucket.
 	//
+	// One entry can carry several forced flags at once: a property can be
+	// mid-flip for more than one index type (see [PendingFlip]), so every
+	// step below works per forced flag rather than per entry.
+	//
 	// Lifecycle mirrors tokenizationOverlay:
 	//   1. SET: per prop, atomic with each bucket-pointer flip (the
 	//      onPropSwapped hook wired by maybeWirePerPropOverlaySet), plus
 	//      the recovery/replay re-arm in finalizeMigrationAfterRecovery.
-	//   2. CLEAR (success): OnTaskCompleted clears per-shard after
-	//      flipSemanticMigrationSchema returns — the flip waits for
-	//      local FSM apply, so the live schema is already visible here.
+	//      Merges into what is already there.
+	//   2. CLEAR (success): OnTaskCompleted clears the flipping migration's
+	//      own index type per-shard after flipSemanticMigrationSchema
+	//      returns — the flip waits for local FSM apply, so the live schema
+	//      is already visible here.
 	//   3. CLEAR (all-failed): maybeClearMigrationOverlaysOnAllFailed.
-	//   4. Backstop: SnapshotForceIndexOverlay skips (and self-clears)
-	//      entries the live schema already satisfies, so a missed clear
-	//      can never force stale analysis after the flip is visible.
+	//   4. Backstop: SnapshotForceIndexOverlay drops (and self-clears) the
+	//      flags the live schema already satisfies, so a missed clear can
+	//      never force stale analysis after the flip is visible.
 	forceIndexOverlayMu sync.RWMutex
 	forceIndexOverlay   map[string]inverted.PropertyOverlay
 
@@ -966,8 +972,12 @@ func (s *Shard) SnapshotTokenizationOverlay(propNames []string) map[string]strin
 // overlay were already live. Set per-prop atomically with the bucket flip
 // (see [forceIndexOverlay] for the lifecycle); a zero-value overlay is a
 // no-op, so cleanup paths don't need to guard the call.
+//
+// Merges into any entry already there rather than replacing it: one property
+// can be mid-flip for more than one index type at a time (see [PendingFlip]),
+// and replacing would silently disarm the other one's window.
 func (s *Shard) SetForceIndexOverlay(propName string, overlay inverted.PropertyOverlay) {
-	if propName == "" || (!overlay.ForceFilterable && !overlay.ForceSearchable && !overlay.ForceRangeable) {
+	if propName == "" || forcesNoIndex(overlay) {
 		return
 	}
 	s.forceIndexOverlayMu.Lock()
@@ -975,7 +985,25 @@ func (s *Shard) SetForceIndexOverlay(propName string, overlay inverted.PropertyO
 	if s.forceIndexOverlay == nil {
 		s.forceIndexOverlay = map[string]inverted.PropertyOverlay{}
 	}
-	s.forceIndexOverlay[propName] = overlay
+	s.forceIndexOverlay[propName] = mergeForceIndexOverlay(s.forceIndexOverlay[propName], overlay)
+}
+
+// mergeForceIndexOverlay ORs next's forced flags onto prev. Only
+// enable-searchable carries a tokenization, so a non-empty one always wins
+// and an empty one never clears what is already there.
+func mergeForceIndexOverlay(prev, next inverted.PropertyOverlay) inverted.PropertyOverlay {
+	prev.ForceFilterable = prev.ForceFilterable || next.ForceFilterable
+	prev.ForceSearchable = prev.ForceSearchable || next.ForceSearchable
+	prev.ForceRangeable = prev.ForceRangeable || next.ForceRangeable
+	if next.Tokenization != "" {
+		prev.Tokenization = next.Tokenization
+	}
+	return prev
+}
+
+// forcesNoIndex reports an overlay with nothing left to force.
+func forcesNoIndex(overlay inverted.PropertyOverlay) bool {
+	return !overlay.ForceFilterable && !overlay.ForceSearchable && !overlay.ForceRangeable
 }
 
 // forcedIndexOverlay returns the force-index-overlay entry for propName. Used
@@ -993,27 +1021,52 @@ func (s *Shard) forcedIndexOverlay(propName string) (inverted.PropertyOverlay, b
 	return overlay, ok
 }
 
-// ClearForceIndexOverlay removes any force-index-overlay entry for propName.
-// Idempotent — called by OnTaskCompleted once flipSemanticMigrationSchema has
-// applied locally, and by the all-failed cleanup path.
-func (s *Shard) ClearForceIndexOverlay(propName string) {
+// ClearForceIndexOverlay drops propName's forced flag for indexType
+// ("filterable", "searchable" or "rangeable"), leaving any other index type's
+// still-pending flip armed. Idempotent — called by OnTaskCompleted once
+// flipSemanticMigrationSchema has applied locally, and by the all-failed
+// cleanup path.
+//
+// Per index type because a property can be mid-flip for two of them at once
+// (see [PendingFlip]); clearing the whole entry would disarm the window the
+// other migration still needs.
+func (s *Shard) ClearForceIndexOverlay(propName, indexType string) {
 	if propName == "" {
 		return
 	}
 	s.forceIndexOverlayMu.Lock()
 	defer s.forceIndexOverlayMu.Unlock()
-	if s.forceIndexOverlay == nil {
+	overlay, ok := s.forceIndexOverlay[propName]
+	if !ok {
 		return
 	}
-	delete(s.forceIndexOverlay, propName)
+	switch indexType {
+	case "filterable":
+		overlay.ForceFilterable = false
+	case "searchable":
+		overlay.ForceSearchable = false
+		overlay.Tokenization = ""
+	case "rangeable":
+		overlay.ForceRangeable = false
+	default:
+		return
+	}
+	if forcesNoIndex(overlay) {
+		delete(s.forceIndexOverlay, propName)
+		return
+	}
+	s.forceIndexOverlay[propName] = overlay
 }
 
 // SnapshotForceIndexOverlay returns active force-index-overlay entries for
-// props, skipping (and self-clearing) ones the live schema already
-// satisfies — a stale entry risks masking a later index DELETE. The
+// props, dropping (and self-clearing) the forced flags the live schema
+// already satisfies — a stale flag risks masking a later index DELETE. The
 // self-clear is a backstop for a missed explicit clear, mirroring
 // [Shard.TokenizationFor]. Nil when nothing applies (the analyzer's fast
 // path).
+//
+// Per forced flag, not per entry: one property's entry can cover two index
+// types whose flips land at different times (see [PendingFlip]).
 func (s *Shard) SnapshotForceIndexOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
@@ -1033,48 +1086,63 @@ func (s *Shard) SnapshotForceIndexOverlay(props []*models.Property) map[string]i
 		if !ok {
 			continue
 		}
-		if forceOverlaySatisfiedByLiveSchema(overlay, prop) {
+		pending := unsatisfiedForceIndexOverlay(overlay, prop)
+		if pending != overlay {
 			satisfied = append(satisfied, prop)
+		}
+		if forcesNoIndex(pending) {
 			continue
 		}
 		if out == nil {
 			out = make(map[string]inverted.PropertyOverlay, len(props))
 		}
-		out[prop.Name] = overlay
+		out[prop.Name] = pending
 	}
 	s.forceIndexOverlayMu.RUnlock()
 
 	for _, prop := range satisfied {
 		// Re-verify under the write lock: a concurrent re-arm could land
-		// between the RUnlock above and this delete.
+		// between the RUnlock above and this update.
 		s.forceIndexOverlayMu.Lock()
-		if current, ok := s.forceIndexOverlay[prop.Name]; ok && forceOverlaySatisfiedByLiveSchema(current, prop) {
-			delete(s.forceIndexOverlay, prop.Name)
+		if current, ok := s.forceIndexOverlay[prop.Name]; ok {
+			if pending := unsatisfiedForceIndexOverlay(current, prop); pending != current {
+				if forcesNoIndex(pending) {
+					delete(s.forceIndexOverlay, prop.Name)
+				} else {
+					s.forceIndexOverlay[prop.Name] = pending
+				}
+			}
 		}
 		s.forceIndexOverlayMu.Unlock()
 	}
 	return out
 }
 
+// unsatisfiedForceIndexOverlay strips the forced flags the live property
+// already provides, leaving what still has to be forced. The tokenization
+// goes with ForceSearchable, the only flag it belongs to.
+func unsatisfiedForceIndexOverlay(overlay inverted.PropertyOverlay, prop *models.Property) inverted.PropertyOverlay {
+	if overlay.ForceFilterable && inverted.HasFilterableIndex(prop) {
+		overlay.ForceFilterable = false
+	}
+	if overlay.ForceSearchable && inverted.HasSearchableIndex(prop) &&
+		(overlay.Tokenization == "" || prop.Tokenization == overlay.Tokenization) {
+		overlay.ForceSearchable = false
+	}
+	if overlay.ForceRangeable && inverted.HasRangeableIndex(prop) {
+		overlay.ForceRangeable = false
+	}
+	if !overlay.ForceSearchable {
+		overlay.Tokenization = ""
+	}
+	return overlay
+}
+
 // forceOverlaySatisfiedByLiveSchema reports whether the live property already
 // has every flag (and tokenization) the overlay would force — i.e. the
 // schema flip has applied here and the entry is obsolete.
 func forceOverlaySatisfiedByLiveSchema(overlay inverted.PropertyOverlay, prop *models.Property) bool {
-	if overlay.ForceFilterable && !inverted.HasFilterableIndex(prop) {
-		return false
-	}
-	if overlay.ForceSearchable {
-		if !inverted.HasSearchableIndex(prop) {
-			return false
-		}
-		if overlay.Tokenization != "" && prop.Tokenization != overlay.Tokenization {
-			return false
-		}
-	}
-	if overlay.ForceRangeable && !inverted.HasRangeableIndex(prop) {
-		return false
-	}
-	return true
+	return forcesNoIndex(unsatisfiedForceIndexOverlay(overlay, prop))
 }
 
 func (s *Shard) tenant() string {

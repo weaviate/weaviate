@@ -35,6 +35,14 @@ const pendingFlipFile = "flip_pending.mig"
 // false (weaviate/0-weaviate-issues#319). Nothing else survives a restart:
 // disk alone can't tell that bucket apart from what a deleted index leaves
 // behind, which [propertyDeleteIndexHelper] removes on sight.
+//
+// One property can hold one record per index type at the same time. The
+// submit-time conflict rule ([ReindexProvider.CheckConflict]) rejects a
+// second migration only while the first is still ACTIVE, so an
+// enable-filterable that reached FAILED after swapping on this shard leaves
+// its flag false and its record live, and an enable-searchable on the same
+// property is then accepted and swaps alongside it. Everything keyed off a
+// record therefore keys off (prop, indexType), never the property alone.
 type PendingFlip struct {
 	Prop string `json:"prop"`
 	// IndexType is the canonical inverted-index discriminator,
@@ -89,23 +97,33 @@ func (l pendingFlipLookup) has(propName, indexType string) bool {
 // not consumed yet. Read-only by construction, so it is safe to call before
 // finalize creates .migrations — contrast [fileReindexTracker.init], which
 // MkdirAlls and so cannot be used here.
-func scanPendingFlips(lsmPath string, logger logrus.FieldLogger) []PendingFlip {
-	return mergePendingFlips(readPendingFlips(lsmPath, logger), pendingFlipTrackers(lsmPath))
+//
+// The second return value forwards [readPendingFlips]'s unreadable flag.
+func scanPendingFlips(lsmPath string, logger logrus.FieldLogger) ([]PendingFlip, bool) {
+	persisted, unreadable := readPendingFlips(lsmPath, logger)
+	return mergePendingFlips(persisted, pendingFlipTrackers(lsmPath)), unreadable
 }
 
 // readPendingFlips returns the records persisted under lsmPath. Unreadable or
-// malformed content yields nil: startup must not block on it, but it is
-// logged because the fallback is the pre-#319 behaviour, which can drop the
-// migrated bucket.
-func readPendingFlips(lsmPath string, logger logrus.FieldLogger) []PendingFlip {
+// malformed content yields nil records and unreadable=true: startup must not
+// block on it, but it must not treat it as "no migration is pending" either.
+//
+// A missing file is the ordinary case and reports unreadable=false. The two
+// states have to stay distinguishable at every call site: absent means there
+// is provably no pending flip, present-but-unparseable means something was
+// recorded and we cannot tell what.
+func readPendingFlips(lsmPath string, logger logrus.FieldLogger) ([]PendingFlip, bool) {
 	path := filepath.Join(lsmPath, ".migrations", pendingFlipFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if !os.IsNotExist(err) && logger != nil {
+		if os.IsNotExist(err) {
+			return nil, false
+		}
+		if logger != nil {
 			logger.WithField("path", path).
 				Warnf("reindex: unable to read flip-pending records; a property mid-migration may lose its bucket: %v", err)
 		}
-		return nil
+		return nil, true
 	}
 	var flips []PendingFlip
 	if err := json.Unmarshal(data, &flips); err != nil {
@@ -113,9 +131,9 @@ func readPendingFlips(lsmPath string, logger logrus.FieldLogger) []PendingFlip {
 			logger.WithField("path", path).
 				Warnf("reindex: malformed flip-pending records; a property mid-migration may lose its bucket: %v", err)
 		}
-		return nil
+		return nil, true
 	}
-	return flips
+	return flips, false
 }
 
 // writePendingFlips replaces the persisted record set; an empty set removes
@@ -330,10 +348,19 @@ func (s *Shard) resolvePendingFlips(promoted []PendingFlip, class *models.Class)
 		return nil
 	}
 	lsmPath := s.pathLSM()
-	kept := livePendingFlips(lsmPath,
-		mergePendingFlips(readPendingFlips(lsmPath, s.index.logger), promoted), class)
+	persisted, unreadable := readPendingFlips(lsmPath, s.index.logger)
+	kept := livePendingFlips(lsmPath, mergePendingFlips(persisted, promoted), class)
 
-	if err := writePendingFlips(lsmPath, kept); err != nil {
+	if unreadable {
+		// Writing here would replace records we could not read with the ones
+		// this startup happens to know about, and a parseable file is what
+		// re-enables the sweep [NewShard] skipped. Leaving it keeps the skip
+		// in force on every later restart too.
+		s.index.logger.WithField("shard", s.name).
+			WithField("path", filepath.Join(lsmPath, ".migrations", pendingFlipFile)).
+			Error("reindex: keeping the unreadable flip-pending marker; the nonexistent-property-index " +
+				"sweep stays disabled for this shard until the file is removed by hand")
+	} else if err := writePendingFlips(lsmPath, kept); err != nil {
 		s.index.logger.WithField("shard", s.name).
 			Errorf("reindex: failed to persist flip-pending records; another restart before the schema flip would drop the migrated bucket: %v", err)
 	}
@@ -343,22 +370,28 @@ func (s *Shard) resolvePendingFlips(promoted []PendingFlip, class *models.Class)
 	return kept
 }
 
-// dropPendingFlipRecords retires the persisted records for props. Called once
-// the cluster-wide flip commits, because the records are what a restart
-// re-arms from: a stale one would keep forcing an index the migration no
-// longer owns, and would shield a bucket the next index DELETE wants gone.
-func dropPendingFlipRecords(lsmPath string, props []string, logger logrus.FieldLogger) {
-	existing := readPendingFlips(lsmPath, logger)
+// dropPendingFlipRecords retires the persisted records of props for one
+// index type. Called once that migration's cluster-wide flip commits,
+// because the records are what a restart re-arms from: a stale one would
+// keep forcing an index the migration no longer owns, and would shield a
+// bucket the next index DELETE wants gone.
+//
+// Scoped to indexType because a property can carry a record per index type
+// (see [PendingFlip]): retiring the filterable record when the searchable
+// migration flipped would hand a bucket whose own flip is still pending to
+// the [propertyDeleteIndexHelper] sweep, and its sidecars are already gone.
+func dropPendingFlipRecords(lsmPath string, props []string, indexType string, logger logrus.FieldLogger) {
+	existing, _ := readPendingFlips(lsmPath, logger)
 	if len(existing) == 0 {
 		return
 	}
-	drop := make(map[string]struct{}, len(props))
+	drop := make(map[pendingFlipKey]struct{}, len(props))
 	for _, p := range props {
-		drop[p] = struct{}{}
+		drop[pendingFlipKey{prop: p, indexType: indexType}] = struct{}{}
 	}
 	kept := make([]PendingFlip, 0, len(existing))
 	for _, flip := range existing {
-		if _, ok := drop[flip.Prop]; !ok {
+		if _, ok := drop[flip.key()]; !ok {
 			kept = append(kept, flip)
 		}
 	}

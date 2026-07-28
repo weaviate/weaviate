@@ -36,6 +36,15 @@ func writeFlipTracker(t *testing.T, lsmPath, dirName, props string, sentinels ..
 	return migDir
 }
 
+// corruptPendingFlipMarker overwrites the marker with content no reader can
+// turn into records, the state [readPendingFlips] reports as unreadable.
+func corruptPendingFlipMarker(t *testing.T, lsmPath string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, ".migrations"), 0o777))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsmPath, ".migrations", pendingFlipFile), []byte("{not json"), 0o644))
+}
+
 func TestPendingFlipsPersistence(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -46,7 +55,9 @@ func TestPendingFlipsPersistence(t *testing.T) {
 			{Prop: "body", IndexType: "searchable", Tokenization: models.PropertyTokenizationField},
 		}
 		require.NoError(t, writePendingFlips(lsmPath, want))
-		require.Equal(t, want, readPendingFlips(lsmPath, logger))
+		got, unreadable := readPendingFlips(lsmPath, logger)
+		require.Equal(t, want, got)
+		require.False(t, unreadable)
 	})
 
 	t.Run("empty set removes the file", func(t *testing.T) {
@@ -54,7 +65,9 @@ func TestPendingFlipsPersistence(t *testing.T) {
 		require.NoError(t, writePendingFlips(lsmPath, []PendingFlip{{Prop: "title", IndexType: "filterable"}}))
 		require.NoError(t, writePendingFlips(lsmPath, nil))
 		require.NoFileExists(t, filepath.Join(lsmPath, ".migrations", pendingFlipFile))
-		require.Nil(t, readPendingFlips(lsmPath, logger))
+		got, unreadable := readPendingFlips(lsmPath, logger)
+		require.Nil(t, got)
+		require.False(t, unreadable, "an absent marker proves there is no pending flip")
 	})
 
 	t.Run("no records writes no migrations dir", func(t *testing.T) {
@@ -63,42 +76,80 @@ func TestPendingFlipsPersistence(t *testing.T) {
 		require.NoDirExists(t, filepath.Join(lsmPath, ".migrations"))
 	})
 
-	t.Run("malformed content degrades to no records", func(t *testing.T) {
+	t.Run("malformed content reports unreadable", func(t *testing.T) {
 		lsmPath := t.TempDir()
-		require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, ".migrations"), 0o777))
-		require.NoError(t, os.WriteFile(
-			filepath.Join(lsmPath, ".migrations", pendingFlipFile), []byte("{not json"), 0o644))
-		require.Nil(t, readPendingFlips(lsmPath, logger))
+		corruptPendingFlipMarker(t, lsmPath)
+		got, unreadable := readPendingFlips(lsmPath, logger)
+		require.Nil(t, got)
+		require.True(t, unreadable,
+			"a present-but-unparseable marker must not read as 'nothing is pending'")
+
+		scanned, scanUnreadable := scanPendingFlips(lsmPath, logger)
+		require.Nil(t, scanned)
+		require.True(t, scanUnreadable, "scanPendingFlips must forward the flag")
+	})
+
+	t.Run("unreadable marker survives a drop", func(t *testing.T) {
+		lsmPath := t.TempDir()
+		corruptPendingFlipMarker(t, lsmPath)
+		dropPendingFlipRecords(lsmPath, []string{"title"}, "filterable", logger)
+		_, unreadable := readPendingFlips(lsmPath, logger)
+		require.True(t, unreadable, "a drop must not rewrite records it could not read")
 	})
 }
 
-// TestDropPendingFlipRecords pins that a retired record can't re-arm a later restart.
+// TestDropPendingFlipRecords pins that a retired record can't re-arm a later
+// restart, and that the drop stays inside the flipping migration's own index
+// type — the other one's window is still open.
 func TestDropPendingFlipRecords(t *testing.T) {
 	logger, _ := test.NewNullLogger()
+	titleSearchable := PendingFlip{
+		Prop: "title", IndexType: "searchable", Tokenization: models.PropertyTokenizationField,
+	}
 	seed := []PendingFlip{
 		{Prop: "title", IndexType: "filterable"},
-		{Prop: "title", IndexType: "searchable", Tokenization: models.PropertyTokenizationField},
+		titleSearchable,
 		{Prop: "body", IndexType: "searchable"},
 	}
 
 	tests := []struct {
-		name  string
-		props []string
-		want  []PendingFlip
+		name      string
+		props     []string
+		indexType string
+		want      []PendingFlip
 	}{
 		{
-			name:  "drops every index type of the flipped property",
-			props: []string{"title"},
-			want:  []PendingFlip{{Prop: "body", IndexType: "searchable"}},
+			name:      "keeps the property's other index type",
+			props:     []string{"title"},
+			indexType: "filterable",
+			want:      []PendingFlip{titleSearchable, {Prop: "body", IndexType: "searchable"}},
 		},
 		{
-			name:  "multi-property flip drops all of them",
-			props: []string{"title", "body"},
+			name:      "drops only the flipped index type",
+			props:     []string{"title"},
+			indexType: "searchable",
+			want: []PendingFlip{
+				{Prop: "title", IndexType: "filterable"},
+				{Prop: "body", IndexType: "searchable"},
+			},
 		},
 		{
-			name:  "unrelated property leaves the set untouched",
-			props: []string{"other"},
-			want:  seed,
+			name:      "multi-property flip drops each of them for that type",
+			props:     []string{"title", "body"},
+			indexType: "searchable",
+			want:      []PendingFlip{{Prop: "title", IndexType: "filterable"}},
+		},
+		{
+			name:      "unrelated property leaves the set untouched",
+			props:     []string{"other"},
+			indexType: "filterable",
+			want:      seed,
+		},
+		{
+			name:      "unrelated index type leaves the set untouched",
+			props:     []string{"title", "body"},
+			indexType: "rangeable",
+			want:      seed,
 		},
 	}
 	for _, tc := range tests {
@@ -106,8 +157,10 @@ func TestDropPendingFlipRecords(t *testing.T) {
 			lsmPath := t.TempDir()
 			require.NoError(t, writePendingFlips(lsmPath, seed))
 
-			dropPendingFlipRecords(lsmPath, tc.props, logger)
-			require.Equal(t, tc.want, readPendingFlips(lsmPath, logger))
+			dropPendingFlipRecords(lsmPath, tc.props, tc.indexType, logger)
+			got, unreadable := readPendingFlips(lsmPath, logger)
+			require.False(t, unreadable)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -209,7 +262,9 @@ func TestScanPendingFlips(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			lsmPath := t.TempDir()
 			tc.arrange(t, lsmPath)
-			require.ElementsMatch(t, tc.want, scanPendingFlips(lsmPath, logger))
+			got, unreadable := scanPendingFlips(lsmPath, logger)
+			require.False(t, unreadable)
+			require.ElementsMatch(t, tc.want, got)
 		})
 	}
 }

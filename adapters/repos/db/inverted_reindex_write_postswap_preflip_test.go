@@ -423,7 +423,7 @@ func TestReindexPostSwapPreFlip_FlipVisible_OverlayObsolete(t *testing.T) {
 	require.NotEmpty(t, fp["yankee"], "post-flip write must be indexed via the live schema flag")
 
 	// Mirrors the explicit clear OnTaskCompleted performs.
-	shard.ClearForceIndexOverlay(propName)
+	shard.ClearForceIndexOverlay(propName, "filterable")
 	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "xray")))
 	fp = fingerprintRoaringSetBucket(t, shard.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
 	require.NotEmpty(t, fp["xray"], "write after explicit clear must be indexed via the live schema flag")
