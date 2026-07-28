@@ -387,10 +387,21 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 	if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, payload) {
 		return nil
 	}
-	// Fsync order matters: the orphan audit relies on payload.mig landing
-	// durably before started.mig to distinguish a pre-start tracker from a lost record.
-	if err := diskio.Fsync(filepath.Dir(migDir)); err != nil {
-		return fmt.Errorf("fsync migrations dir for %q: %w", migDir, err)
+	// MkdirAll above may create both .migrations and its <name> child, and a
+	// new dir entry is durable only once its PARENT is fsynced. Fsync both
+	// levels or a crash can lose the directory payload.mig lives in, leaving
+	// the orphan audit with no record that this task ever started.
+	//
+	// This guarantees directory durability only. The payload.mig-before-
+	// started.mig ordering the audit relies on comes from the call sequence
+	// in the single caller, ReindexProvider.persistRecoveryRecord.
+	migrationsDir := filepath.Dir(migDir) // <lsm>/.migrations
+	if err := diskio.Fsync(migrationsDir); err != nil {
+		return fmt.Errorf("fsync migrations dir %q: %w", migrationsDir, err)
+	}
+	lsmDir := filepath.Dir(migrationsDir) // <lsm>
+	if err := diskio.Fsync(lsmDir); err != nil {
+		return fmt.Errorf("fsync lsm dir %q: %w", lsmDir, err)
 	}
 	return diskio.WriteFileSync(target, payload, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 }
