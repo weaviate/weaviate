@@ -76,16 +76,8 @@ func newPrecheckGateTestDB(t *testing.T, collections, shardsPerCollection int) (
 	return db, classNames
 }
 
-// TestBackupable_BuildsReindexLookupOncePerPrecheck pins the invocation
-// count of the backup gate's lookup builders.
-//
-// Building the activity lookup costs a full cluster-wide
-// ListDistributedTasks RAFT query against the leader, so the number of
-// builds — not wall-clock latency — is the property worth asserting. It is
-// also the property a unit test can pin exactly: one precheck must build
-// one lookup no matter how many shards it walks. Before the fix the
-// builder was invoked at the per-shard leaf, so this reported one build
-// per local shard.
+// TestBackupable_BuildsReindexLookupOncePerPrecheck pins that one precheck
+// builds each lookup exactly once, regardless of shard count.
 func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -141,9 +133,7 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
 				activityBuilds.Add(1)
 				if tc.dtmUnreachable {
-					// Mirrors the configure_api.go fallback: when
-					// ListDistributedTasks fails, every backup is refused
-					// until DTM is reachable again.
+					// Mirrors the configure_api.go fail-closed fallback.
 					return func(string, string) bool { return true }
 				}
 				return func(string, string) bool { return false }
@@ -177,14 +167,9 @@ func TestBackupable_BuildsReindexLookupOncePerPrecheck(t *testing.T) {
 	}
 }
 
-// TestBackupable_AllShardsJudgedAgainstOneSnapshot pins the behavioural
-// half of the memoization: every shard in one precheck must be judged
-// against the same DTM snapshot.
-//
-// The builder here answers from state captured at BUILD time, so a
-// per-shard build gives successive shards contradictory verdicts and the
-// operator sees a partial refusal list that matches no single moment in
-// cluster history. One build per precheck makes the verdict coherent.
+// TestBackupable_AllShardsJudgedAgainstOneSnapshot pins that every shard in
+// one precheck is judged against the same DTM snapshot, not one taken fresh
+// per shard.
 func TestBackupable_AllShardsJudgedAgainstOneSnapshot(t *testing.T) {
 	db, classes := newPrecheckGateTestDB(t, 1, 4)
 

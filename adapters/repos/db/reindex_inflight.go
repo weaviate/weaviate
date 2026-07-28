@@ -29,21 +29,11 @@ import (
 // the lookup installed.
 var unwiredGateWarnOnce sync.Once
 
-// reindexGate is the resolved pair of backup-gate lookups for ONE backup
-// precheck. Build one gate per precheck and reuse it for every shard the
-// precheck touches.
-//
-// The gate exists because the activity lookup is expensive to build: its
-// builder issues a cluster-wide ListDistributedTasks RAFT query against
-// the leader. Resolving it at the per-shard leaf turned one precheck into
-// one round trip per local shard — paid even when no reindex task exists
-// anywhere — which on a multi-tenant node with many shards is thousands of
-// queries per backup. Holding the resolved lookups in a value the caller
-// passes down also keeps the cost visible at the call site rather than
-// hidden behind a closure invocation at the leaf.
-//
-// Resolution is lazy so a precheck that never reaches a shard (all classes
-// missing, or no local shards) issues no RAFT query at all.
+// reindexGate holds the backup-gate lookups resolved once per precheck
+// and reused for every shard. Building the activity lookup costs a
+// cluster-wide RAFT query; resolving it per shard instead of once turned
+// an ordinary precheck into thousands of queries on a multi-tenant node.
+// Resolution is lazy: a precheck that never reaches a shard issues none.
 type reindexGate struct {
 	activityBuilder ShardReindexActivityLookupBuilder
 	cleanupBuilder  CleanupInProgressLookupBuilder
@@ -187,10 +177,8 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 // filesystem-marker variant it replaced only saw the local node and
 // lagged DTM's actual state.
 //
-// The gate is a parameter rather than something this function resolves
-// itself so that multi-shard callers pay one cluster-wide DTM query for
-// the whole precheck instead of one per shard. Single-shard callers pass
-// [Index.newReindexGate] inline.
+// The gate is caller-resolved (see [reindexGate]) so multi-shard callers
+// reuse one query instead of paying one per shard.
 //
 // If i.db is nil the gate is conservative: it refuses the backup, on
 // the assumption that wiring is in progress.

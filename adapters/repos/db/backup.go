@@ -65,11 +65,9 @@ const (
 // circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	nodeName := db.localNodeName
-	// One gate for the whole precheck. Its activity lookup costs a
-	// cluster-wide ListDistributedTasks RAFT query, and the no-short-circuit
-	// policy above means every shard of every class is visited even once the
-	// backup is already doomed — resolving the lookup per shard made an
-	// ordinary precheck N round trips against the leader.
+	// Built once and reused below: the no-short-circuit policy above means
+	// every shard is visited, so resolving per-shard would multiply the
+	// gate's RAFT query by shard count.
 	gate := db.newReindexGate()
 	var errs []error
 	for _, c := range classes {
