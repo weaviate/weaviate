@@ -850,7 +850,7 @@ func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string
 	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
 
 	defer func() {
-		if duration := time.Since(start); duration > 100*time.Millisecond {
+		if duration := time.Since(start); duration > 100*time.Millisecond && b.logger != nil {
 			b.logger.WithFields(logrus.Fields{
 				"duration": duration,
 				"action":   fmt.Sprintf("lsm_bucket_get_%s", component),
@@ -877,7 +877,7 @@ func (b *Bucket) getBySecondaryFromMemtable(pos int, seckey []byte, memtable mem
 	b.metrics.IncBucketReadOpOngoingByComponent(op, component)
 
 	defer func() {
-		if duration := time.Since(start); duration > 100*time.Millisecond {
+		if duration := time.Since(start); duration > 100*time.Millisecond && b.logger != nil {
 			b.logger.WithFields(logrus.Fields{
 				"duration": duration,
 				"action":   fmt.Sprintf("lsm_bucket_getbysecondary_%s", component),
