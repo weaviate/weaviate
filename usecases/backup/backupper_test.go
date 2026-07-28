@@ -708,6 +708,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		{
 			name:            "LegacyBaseByStructureVersion",
 			baseBackupID:    "backup-1",
+			childStartedAt:  t1,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
@@ -717,6 +718,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						Version:         "1.0",
 						ServerVersion:   "1.23",
 						Status:          backup.Success,
+						StartedAt:       t0,
 					}, nil
 				}
 			},
@@ -725,6 +727,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 		{
 			name:            "LegacyBaseDeeperInChain",
 			baseBackupID:    "backup-2",
+			childStartedAt:  t2,
 			compressionType: gzipCompression,
 			setupFetchMeta: func() fetchMetaFunc {
 				descriptors := map[string]*backup.BackupDescriptor{
@@ -734,6 +737,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						Version:         Version,
 						ServerVersion:   "1.22",
 						Status:          backup.Success,
+						StartedAt:       t0,
 					},
 					"backup-2": {
 						ID:              "backup-2",
@@ -742,6 +746,7 @@ func TestResolveBaseBackupChain(t *testing.T) {
 						ServerVersion:   "1.23",
 						BaseBackupID:    "backup-1",
 						Status:          backup.Success,
+						StartedAt:       t1,
 					},
 				}
 				return func(ctx context.Context, backupID, bucket, path string) (*backup.BackupDescriptor, error) {
