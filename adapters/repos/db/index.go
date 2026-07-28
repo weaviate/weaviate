@@ -1396,6 +1396,13 @@ func (i *Index) getShardForDirectLocalOperation(
 ) (ShardLike, func(), error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
+		// A shard that is draining or already torn down is not servable here,
+		// which is the same answer as "not resident on this node": report it as
+		// such so the caller can forward to a replica instead of failing the
+		// request for the duration of an ordinary tenant deactivation.
+		if isTeardownRefusal(err) {
+			return nil, release, nil
+		}
 		return nil, release, err
 	}
 

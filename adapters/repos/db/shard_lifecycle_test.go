@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -409,4 +410,19 @@ func TestPreventShutdownDoubleReleaseKeepsOtherReferences(t *testing.T) {
 	require.Equal(t, shardUnloading, s.lifecycle.requestTeardown(shardUnloading))
 	claimed, _ := s.lifecycle.claimTeardown(shardUnloading)
 	assert.False(t, claimed, "teardown must not start while a user is still in flight")
+}
+
+// TestLazyLoadShardIsTerminalAfterShutdown pins the flag that stops a shut
+// wrapper from rebuilding a shard for the same name. ForEachShard acquires a
+// reference, and acquiring on a LazyLoadShard loads, so without this iteration
+// would resurrect a shard that had already been torn down.
+func TestLazyLoadShardIsTerminalAfterShutdown(t *testing.T) {
+	l := &LazyLoadShard{shardOpts: &deferredShardOpts{name: "test"}}
+
+	// never loaded, so Shutdown is the cold path — the flag has to be set there
+	// too, since that is exactly when Load would build the shard from scratch
+	require.NoError(t, l.Shutdown(context.Background()))
+
+	require.ErrorIs(t, l.Load(context.Background()), errAlreadyShutdown,
+		"a shut wrapper must refuse to load rather than resurrect the shard")
 }

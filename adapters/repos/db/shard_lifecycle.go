@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"sync/atomic"
 )
@@ -77,6 +78,14 @@ func (l *shardLifecycle) phase() shardPhase {
 func (l *shardLifecycle) inUse() uint64 {
 	_, refs := unpackShardState(l.state.Load())
 	return refs
+}
+
+// isTeardownRefusal reports whether err is [shardLifecycle.acquire] refusing
+// because the shard has left shardLive — draining, or already torn down. It
+// lives next to acquire so that adding a phase updates the predicate and its
+// producer together, instead of leaving call sites enumerating sentinels.
+func isTeardownRefusal(err error) bool {
+	return errors.Is(err, errShutdownInProgress) || errors.Is(err, errAlreadyShutdown)
 }
 
 // acquire must be paired with exactly one release.

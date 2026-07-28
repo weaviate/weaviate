@@ -57,9 +57,13 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts        *deferredShardOpts
-	shard            *Shard
-	loaded           bool
+	shardOpts *deferredShardOpts
+	shard     *Shard
+	loaded    bool
+	// Teardown phase of the wrapper itself. The inner shard counts the in-flight
+	// users; this only has to stop a torn-down wrapper from rebuilding a shard
+	// for the same name, which it does by leaving shardLive.
+	lifecycle        shardLifecycle
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
@@ -120,6 +124,9 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
+	if phase := l.lifecycle.phase(); phase != shardLive {
+		return fmt.Errorf("load shard %q: %s: %w", l.shardOpts.name, phase, errAlreadyShutdown)
+	}
 	if l.loaded {
 		return nil
 	}
@@ -462,8 +469,9 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	// - perform required actions
 	// - remove entire shard directory
 	// use lock to prevent eventual concurrent droping and loading
-	l.mutex.Lock()
+	l.lifecycle.requestTeardown(shardDropping)
 
+	l.mutex.Lock()
 	if !l.loaded {
 		defer l.mutex.Unlock()
 
@@ -774,9 +782,12 @@ func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
+	l.lifecycle.requestTeardown(shardUnloading)
+
 	l.mutex.Lock()
 	if !l.loaded {
 		l.mutex.Unlock()
+		l.lifecycle.claimTeardown(shardUnloading)
 		return nil
 	}
 	// as in drop(): the drain must not run under l.mutex
@@ -792,6 +803,7 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 
 	// Mark as unloaded so drop() knows the correct state
 	l.loaded = false
+	l.lifecycle.claimTeardown(shardUnloading)
 	return nil
 }
 
