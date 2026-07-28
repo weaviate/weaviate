@@ -223,6 +223,29 @@ func TestRotateMatchesLegacySwapLoop(t *testing.T) {
 	}
 }
 
+// TestRestoreFastRotationSwapValidation pins the derived-table invariant
+// check: persisted swap lists in which an index takes part in more than one
+// swap per round (or is out of range) must disable the flattened permutation
+// path — the flattening is last-write-wins and would silently diverge from
+// the sequential swap loop — while a valid persisted network keeps it.
+func TestRestoreFastRotationSwapValidation(t *testing.T) {
+	valid := NewFastRotation(256, 3, DefaultFastRotationSeed)
+
+	restored := RestoreFastRotation(int(valid.OutputDim), int(valid.Rounds), valid.Swaps, valid.Signs)
+	require.NotNil(t, restored.derived, "valid persisted swaps must keep the derived path")
+
+	malformed := map[string][]Swap{
+		"duplicate index":  {{I: 0, J: 1}, {I: 1, J: 2}},
+		"self swap":        {{I: 3, J: 3}},
+		"index out of dim": {{I: 0, J: uint16(valid.OutputDim)}},
+	}
+	for name, round := range malformed {
+		swaps := [][]Swap{valid.Swaps[0], round, valid.Swaps[2]}
+		r := RestoreFastRotation(int(valid.OutputDim), int(valid.Rounds), swaps, valid.Signs)
+		require.Nil(t, r.derived, "%s: malformed swaps must fall back to the legacy swap loop", name)
+	}
+}
+
 // TestRotateIntoDirtyBuffer verifies RotateInto fully overwrites a polluted
 // output buffer and matches Rotate, for both even and odd round counts (the
 // two ping-pong parities).

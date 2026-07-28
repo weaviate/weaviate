@@ -51,14 +51,28 @@ type fastRotationDerived struct {
 	pool sync.Pool  // scratch *[]float32 of length OutputDim for the ping-pong
 }
 
+// buildFastRotationDerived flattens the swap network into per-round
+// permutation tables. The flattening is only equivalent to the sequential
+// swap loop when every index takes part in at most one swap per round;
+// generated swaps always satisfy this, but persisted swap lists
+// (RestoreFastRotation) are validated here and a violating input returns nil
+// so that Rotate falls back to the bit-identical legacy swap loop instead of
+// silently applying a different rotation.
 func buildFastRotationDerived(outputDim int, swaps [][]Swap) *fastRotationDerived {
 	d := &fastRotationDerived{perm: make([][]uint16, len(swaps))}
+	seen := make([]bool, outputDim)
 	for r, roundSwaps := range swaps {
 		p := make([]uint16, outputDim)
 		for i := range p {
 			p[i] = uint16(i)
+			seen[i] = false
 		}
 		for _, s := range roundSwaps {
+			if int(s.I) >= outputDim || int(s.J) >= outputDim ||
+				s.I == s.J || seen[s.I] || seen[s.J] {
+				return nil
+			}
+			seen[s.I], seen[s.J] = true, true
 			p[s.I] = s.J
 			p[s.J] = s.I
 		}
