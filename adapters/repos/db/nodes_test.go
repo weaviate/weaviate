@@ -14,7 +14,9 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -92,48 +94,71 @@ func TestGetShardReplicationDetails(t *testing.T) {
 }
 
 // TestLocalNodeShardStats pins that a verbose scan leaves indexLock free while
-// still holding the scanned index against a drop or a shutdown.
+// still holding the scanned index against a drop, and that a drop requested
+// mid-scan aborts it and leaves that index out of the response.
 func TestLocalNodeShardStats(t *testing.T) {
 	const className = "Slow"
 
 	tests := []struct {
 		name           string
 		class          string
+		shards         []string
 		shard          string
 		extraIndices   int
 		withNilIndex   bool
 		closeIndex     bool
+		signalDrop     bool
+		cancelCaller   bool
 		wantShards     int
 		wantShardCount int64
+		wantScanned    int32
 	}{
-		{name: "all classes", class: "", wantShards: 1, wantShardCount: 1},
-		{name: "single class", class: className, wantShards: 1, wantShardCount: 1},
+		{name: "all classes", class: "", wantShards: 1, wantShardCount: 1, wantScanned: 1},
+		{name: "single class", class: className, wantShards: 1, wantShardCount: 1, wantScanned: 1},
 		{
 			name: "all classes, one index entry missing", class: "",
-			withNilIndex: true, wantShards: 1, wantShardCount: 1,
+			withNilIndex: true, wantShards: 1, wantShardCount: 1, wantScanned: 1,
 		},
 		{
 			name: "all classes, counts summed across indices", class: "",
-			extraIndices: 2, wantShards: 3, wantShardCount: 3,
+			extraIndices: 2, wantShards: 3, wantShardCount: 3, wantScanned: 1,
 		},
 		{
 			name: "shard filter matches one of many", class: "", shard: "s1",
-			extraIndices: 2, wantShards: 1, wantShardCount: 1,
+			extraIndices: 2, wantShards: 1, wantShardCount: 1, wantScanned: 1,
 		},
 		{
 			name: "shard filter matches nothing", class: "", shard: "nosuchshard",
-			wantShards: 0, wantShardCount: 0,
+			wantShards: 0, wantShardCount: 0, wantScanned: 0,
 		},
 		{
 			name: "index already shut down", class: className,
-			closeIndex: true, wantShards: 0, wantShardCount: 0,
+			closeIndex: true, wantShards: 0, wantShardCount: 0, wantScanned: 0,
+		},
+		{
+			name: "drop requested mid-scan", class: "", shards: []string{"s1", "s2"},
+			signalDrop: true, wantShards: 0, wantShardCount: 0, wantScanned: 1,
+		},
+		{
+			name: "drop requested mid-scan keeps the other indices", class: "",
+			shards: []string{"s1", "s2"}, signalDrop: true, extraIndices: 2,
+			wantShards: 2, wantShardCount: 2, wantScanned: 1,
+		},
+		{
+			name: "drop requested mid-scan with a cancelled caller", class: "",
+			shards: []string{"s1", "s2"}, signalDrop: true, cancelCaller: true,
+			wantShards: 0, wantShardCount: 0, wantScanned: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// the scan only reaches the blocking shard when that shard is scanned
-			blocking := tt.wantShardCount > 0 && !tt.closeIndex
+			shardNames := tt.shards
+			if shardNames == nil {
+				shardNames = []string{"s1"}
+			}
+			// the scan only blocks once it reaches a shard of the index under test
+			blocking := !tt.closeIndex && (tt.shard == "" || slices.Contains(shardNames, tt.shard))
 
 			entered := make(chan struct{})
 			release := make(chan struct{})
@@ -142,7 +167,7 @@ func TestLocalNodeShardStats(t *testing.T) {
 			defer releaseScan()
 
 			logger, _ := test.NewNullLogger()
-			idx := shardedIndex(t, className, "s1", entered, release, blocking)
+			idx, scanned := shardedIndex(t, className, shardNames, entered, release, blocking)
 			if tt.closeIndex {
 				idx.closed = true
 			}
@@ -151,16 +176,20 @@ func TestLocalNodeShardStats(t *testing.T) {
 				db.indices["gone"] = nil
 			}
 			for i := 0; i < tt.extraIndices; i++ {
-				extra := shardedIndex(t, fmt.Sprintf("Other%d", i), fmt.Sprintf("extra%d", i), nil, nil, false)
+				extra, _ := shardedIndex(t, fmt.Sprintf("Other%d", i),
+					[]string{fmt.Sprintf("extra%d", i)}, nil, nil, false)
 				db.indices[extra.ID()] = extra
 			}
+
+			callerCtx, cancelCaller := context.WithCancel(context.Background())
+			defer cancelCaller()
 
 			var shards []*models.NodeShardStatus
 			var stats *models.NodeStats
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				stats = db.localNodeShardStats(context.Background(), &shards, tt.class, tt.shard)
+				stats = db.localNodeShardStats(callerCtx, &shards, tt.class, tt.shard)
 			}()
 
 			if blocking {
@@ -179,7 +208,16 @@ func TestLocalNodeShardStats(t *testing.T) {
 					idx.dropIndex.Unlock()
 					assert.Fail(t, "the scanned index must be held against a drop")
 				}
-				releaseScan()
+				if tt.cancelCaller {
+					cancelCaller()
+				}
+				// a requested drop must unblock the scan on its own; every other
+				// case needs the test to release it
+				if tt.signalDrop {
+					idx.signalDropRequested()
+				} else {
+					releaseScan()
+				}
 			}
 
 			select {
@@ -192,25 +230,31 @@ func TestLocalNodeShardStats(t *testing.T) {
 			require.Len(t, shards, tt.wantShards)
 			assert.Equal(t, tt.wantShardCount, stats.ShardCount, "shard count")
 			assert.Equal(t, tt.wantShardCount, stats.ObjectCount, "object count")
+			assert.Equal(t, tt.wantScanned, scanned.Load(), "shards scanned")
 			for _, shard := range shards {
 				assert.Equal(t, int64(1), shard.NumberOfReplicas, "number of replicas")
+				if tt.signalDrop {
+					assert.NotEqual(t, className, shard.Class, "an aborted index must not report shards")
+				}
 			}
 		})
 	}
 }
 
-// shardedIndex builds an index holding a single shard reporting one object. When
-// blocking, the shard's ObjectCountAsync closes entered and waits for release.
-func shardedIndex(t *testing.T, className, shardName string,
+// shardedIndex builds an index holding one shard per name, each reporting a
+// single object. When blocking, the first shard the scan reaches closes entered
+// and waits for release. The counter records how many shards were scanned.
+func shardedIndex(t *testing.T, className string, shardNames []string,
 	entered, release chan struct{}, blocking bool,
-) *Index {
+) (*Index, *atomic.Int32) {
 	t.Helper()
 
 	logger, _ := test.NewNullLogger()
-	state := &sharding.State{
-		Physical:          map[string]sharding.Physical{shardName: {Name: shardName, BelongsToNodes: []string{"node1"}}},
-		ReplicationFactor: 1,
+	physical := make(map[string]sharding.Physical, len(shardNames))
+	for _, name := range shardNames {
+		physical[name] = sharding.Physical{Name: name, BelongsToNodes: []string{"node1"}}
 	}
+	state := &sharding.State{Physical: physical, ReplicationFactor: 1}
 
 	reader := schemaUC.NewMockSchemaReader(t)
 	// the false matcher pins that the scan never asks for a retry
@@ -219,22 +263,33 @@ func shardedIndex(t *testing.T, className, shardName string,
 			return read(&models.Class{Class: className}, state)
 		}).Maybe()
 
-	shard := NewMockShardLike(t)
-	shard.EXPECT().Name().Return(shardName).Maybe()
-	shard.EXPECT().GetStatus().Return(storagestate.StatusReady).Maybe()
-	shard.EXPECT().ForEachVectorQueue(mock.Anything).Return(nil).Maybe()
-	shard.EXPECT().ForEachGeoQueue(mock.Anything).Return(nil).Maybe()
-	shard.EXPECT().ForEachVectorIndex(mock.Anything).Return(nil).Maybe()
-	shard.EXPECT().getAsyncReplicationStats(mock.Anything).Return(nil).Maybe()
-	shard.EXPECT().ObjectCountAsync(mock.Anything).RunAndReturn(func(context.Context) (int64, error) {
-		if blocking {
-			close(entered)
-			<-release
-		}
-		return 1, nil
-	}).Maybe()
+	var scanned atomic.Int32
+	shards := make(map[string]ShardLike, len(shardNames))
+	for _, name := range shardNames {
+		shard := NewMockShardLike(t)
+		shard.EXPECT().Name().Return(name).Maybe()
+		shard.EXPECT().GetStatus().Return(storagestate.StatusReady).Maybe()
+		shard.EXPECT().ForEachVectorQueue(mock.Anything).Return(nil).Maybe()
+		shard.EXPECT().ForEachGeoQueue(mock.Anything).Return(nil).Maybe()
+		shard.EXPECT().ForEachVectorIndex(mock.Anything).Return(nil).Maybe()
+		shard.EXPECT().getAsyncReplicationStats(mock.Anything).Return(nil).Maybe()
+		shard.EXPECT().ObjectCountAsync(mock.Anything).RunAndReturn(func(ctx context.Context) (int64, error) {
+			first := scanned.Add(1) == 1
+			if blocking && first {
+				close(entered)
+				// an aborted scan releases the shard through its context, so a
+				// test that never closes release still finishes
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+			}
+			return 1, nil
+		}).Maybe()
+		shards[name] = shard
+	}
 
-	return newTestIndex(logger, className, reader, map[string]ShardLike{shardName: shard})
+	return newTestIndex(logger, className, reader, shards), &scanned
 }
 
 // retryingSchemaReader stands in for the real schema reader, reproducing how it

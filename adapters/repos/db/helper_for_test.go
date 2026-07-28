@@ -573,6 +573,7 @@ func newTestIndex(logger logrus.FieldLogger, className string,
 		schemaReader: reader,
 		closingCtx:   context.Background(),
 	}
+	idx.dropRequestedCtx, idx.signalDropRequested = context.WithCancel(context.Background())
 	for name, shard := range shards {
 		idx.shards.Store(name, shard)
 	}

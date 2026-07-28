@@ -157,9 +157,10 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 	}
 }
 
-// scanIndexShards collects the shard statuses of one index, holding it against
-// a concurrent drop or shutdown for the duration of the scan. Returns zeroes
-// once the index is closed.
+// scanIndexShards appends the shard statuses of one index to status, holding it
+// against a concurrent shutdown for the whole scan. A requested drop aborts the
+// scan instead, so the drop does not wait for it, and an index that is closed or
+// being dropped contributes nothing.
 func scanIndexShards(ctx context.Context, idx *Index,
 	status *[]*models.NodeShardStatus, shardName string,
 ) (objectCount, shardCount int64) {
@@ -172,7 +173,18 @@ func scanIndexShards(ctx context.Context, idx *Index,
 		return 0, 0
 	}
 
-	return idx.getShardsNodeStatus(ctx, status, shardName)
+	scanCtx, done := idx.cancelOnDropRequested(ctx)
+	defer done()
+
+	var shards []*models.NodeShardStatus
+	objectCount, shardCount = idx.getShardsNodeStatus(scanCtx, &shards, shardName)
+	if idx.dropRequestedCtx.Err() != nil {
+		// the collection is going away: report it as gone rather than as the
+		// shards the scan happened to reach before it aborted
+		return 0, 0
+	}
+	*status = append(*status, shards...)
+	return objectCount, shardCount
 }
 
 func (db *DB) localNodeBatchStats() *models.BatchStats {

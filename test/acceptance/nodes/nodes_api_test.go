@@ -14,6 +14,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -237,6 +238,121 @@ func Test_NodesAPI(t *testing.T) {
 
 		testStatusResponse(t, minimalAssertions, verboseAssertions, "")
 	})
+
+	t.Run("verbose status racing a class delete", func(t *testing.T) {
+		const (
+			doomedTenants   = 20
+			survivorTenants = 5
+			pollers         = 4
+		)
+
+		doomed := createMultiTenantClass(t, "NodesRaceDoomed", doomedTenants)
+		survivor := createMultiTenantClass(t, "NodesRaceSurvivor", survivorTenants)
+		defer helper.DeleteClass(t, survivor.Class)
+		// best effort: the test deletes this class itself, this only cleans up
+		// after an early failure
+		defer helper.DeleteClassObject(t, doomed.Class)
+
+		// wait for both collections to be fully reported before racing them
+		assert.EventuallyWithT(t, func(t *assert.CollectT) {
+			counts := shardsPerClass(t, doomed.Class, survivor.Class)
+			assert.Equal(t, doomedTenants, counts[doomed.Class])
+			assert.Equal(t, survivorTenants, counts[survivor.Class])
+		}, 30*time.Second, 200*time.Millisecond)
+
+		var (
+			wg       sync.WaitGroup
+			mu       sync.Mutex
+			problems []string
+			polls    int
+		)
+		stop := make(chan struct{})
+		for i := 0; i < pollers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+
+					counts := shardsPerClass(t, doomed.Class, survivor.Class)
+					mu.Lock()
+					polls++
+					if counts[survivor.Class] != survivorTenants {
+						problems = append(problems, fmt.Sprintf(
+							"untouched collection reported %d of %d shards",
+							counts[survivor.Class], survivorTenants))
+					}
+					if n := counts[doomed.Class]; n != 0 && n != doomedTenants {
+						problems = append(problems, fmt.Sprintf(
+							"deleted collection reported %d shards, want 0 or %d", n, doomedTenants))
+					}
+					mu.Unlock()
+				}
+			}()
+		}
+
+		helper.DeleteClass(t, doomed.Class)
+		close(stop)
+		wg.Wait()
+
+		mu.Lock()
+		defer mu.Unlock()
+		assert.Empty(t, problems)
+		assert.Positive(t, polls, "the race never polled the nodes API")
+
+		counts := shardsPerClass(t, doomed.Class, survivor.Class)
+		assert.Zero(t, counts[doomed.Class], "deleted collection still reports shards")
+		assert.Equal(t, survivorTenants, counts[survivor.Class])
+	})
+}
+
+// createMultiTenantClass creates a class with the given number of HOT tenants,
+// so every tenant shows up as its own shard in the verbose node status.
+func createMultiTenantClass(t *testing.T, name string, tenantCount int) *models.Class {
+	t.Helper()
+
+	class := &models.Class{
+		Class:              name,
+		Vectorizer:         "none",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	helper.CreateClass(t, class)
+
+	tenants := make([]*models.Tenant, tenantCount)
+	for i := range tenants {
+		tenants[i] = &models.Tenant{
+			Name:           fmt.Sprintf("%s-tenant-%d", name, i),
+			ActivityStatus: models.TenantActivityStatusHOT,
+		}
+	}
+	helper.CreateTenants(t, name, tenants)
+	return class
+}
+
+// shardsPerClass counts the shards the verbose node status reports for each of
+// the given classes. Safe to call concurrently.
+func shardsPerClass(t require.TestingT, classes ...string) map[string]int {
+	output := verbosity.OutputVerbose
+	params := nodes.NewNodesGetParams().WithOutput(&output)
+	body, err := helper.Client(nil).Nodes.NodesGet(params, nil)
+	require.NoError(t, err)
+	require.NotNil(t, body.Payload)
+	require.Len(t, body.Payload.Nodes, 1)
+
+	counts := make(map[string]int, len(classes))
+	for _, class := range classes {
+		counts[class] = 0
+	}
+	for _, shard := range body.Payload.Nodes[0].Shards {
+		if _, ok := counts[shard.Class]; ok {
+			counts[shard.Class]++
+		}
+	}
+	return counts
 }
 
 func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {

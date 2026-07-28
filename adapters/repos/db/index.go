@@ -700,6 +700,18 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 	})
 }
 
+// cancelOnDropRequested derives a context that is cancelled as soon as a drop of
+// this index is requested, so the drop does not wait behind a dropIndex.RLock the
+// caller holds. The returned func must be called once the work is done.
+func (i *Index) cancelOnDropRequested(ctx context.Context) (context.Context, func()) {
+	derived, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(i.dropRequestedCtx, cancel)
+	return derived, func() {
+		stop()
+		cancel()
+	}
+}
+
 // ForEachShard applies func f on each shard in the index.
 //
 // WARNING: only use this if you expect all LazyLoadShards to be loaded!
