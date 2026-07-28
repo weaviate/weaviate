@@ -86,35 +86,38 @@ func (f PendingFlip) key() pendingFlipKey {
 	return pendingFlipKey{prop: f.Prop, indexType: f.IndexType}
 }
 
-// pendingFlipLookup answers "does (prop, indexType) have a
-// swapped-but-not-flipped migration on this shard?".
+// pendingFlipLookup is the shield's storage: the set of (prop, indexType)
+// tuples with a swapped-but-not-flipped migration on this shard.
 type pendingFlipLookup map[pendingFlipKey]struct{}
 
 // pendingFlipShield reports which buckets the nonexistent-property-index sweep
-// must leave alone. Its zero value protects everything: a caller that has not
-// run scanPendingFlips cannot present itself as having looked and found none,
-// which is the only mistake here that costs data (weaviate/0-weaviate-issues#438).
+// must leave alone. Its zero value protects everything, so a caller that never
+// ran scanPendingFlips cannot present itself as having looked and found none
+// (weaviate/0-weaviate-issues#438).
+//
+// One field, deliberately: a separate "did we scan" flag could be set without
+// the records it claims to summarise, which spells the pre-fix behaviour in
+// fewer characters than the constructor.
 type pendingFlipShield struct {
-	scanned bool
-	flips   pendingFlipLookup
+	flips *pendingFlipLookup
 }
 
-// newPendingFlipShield records that the scan ran, so an empty result means
-// "provably no pending flip" rather than "never asked".
+// newPendingFlipShield is the only way to say "the scan ran", so an empty
+// result means "provably no pending flip" rather than "never asked".
 func newPendingFlipShield(flips []PendingFlip) pendingFlipShield {
 	out := make(pendingFlipLookup, len(flips))
 	for _, f := range flips {
 		out[f.key()] = struct{}{}
 	}
-	return pendingFlipShield{scanned: true, flips: out}
+	return pendingFlipShield{flips: &out}
 }
 
 // protects reports whether the bucket for (propName, indexType) must be kept.
 func (s pendingFlipShield) protects(propName, indexType string) bool {
-	if !s.scanned {
+	if s.flips == nil {
 		return true
 	}
-	_, ok := s.flips[pendingFlipKey{prop: propName, indexType: indexType}]
+	_, ok := (*s.flips)[pendingFlipKey{prop: propName, indexType: indexType}]
 	return ok
 }
 

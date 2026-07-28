@@ -16,11 +16,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // writeFlipTracker lays down a migration tracker dir with the given sentinels
@@ -490,8 +493,10 @@ func TestEnsureBucketsAreRemoved_PendingFlipSuppressed(t *testing.T) {
 // (weaviate/0-weaviate-issues#438).
 func TestPendingFlipShield_ZeroValueProtectsEverything(t *testing.T) {
 	var unscanned pendingFlipShield
-	require.True(t, unscanned.protects("title", "filterable"))
-	require.True(t, unscanned.protects("anything", "searchable"))
+	require.True(t, unscanned.protects("title", "filterable"),
+		"an unscanned shield must protect: the sweep deletes the only copy of a swapped-but-not-flipped migration's data")
+	require.True(t, unscanned.protects("anything", "searchable"),
+		"protection cannot depend on the property or index type being known in advance")
 
 	scannedEmpty := newPendingFlipShield(nil)
 	require.False(t, scannedEmpty.protects("title", "filterable"),
@@ -500,4 +505,38 @@ func TestPendingFlipShield_ZeroValueProtectsEverything(t *testing.T) {
 	scanned := newPendingFlipShield([]PendingFlip{{Prop: "title", IndexType: "filterable"}})
 	require.True(t, scanned.protects("title", "filterable"))
 	require.False(t, scanned.protects("title", "searchable"), "the shield is keyed on the tuple, not the property")
+}
+
+// The predicate above is one level above the damage. This drives the sweep
+// itself, so what reddens is a deleted bucket rather than a false boolean.
+func TestPendingFlipShield_UnscannedStopsTheSweep(t *testing.T) {
+	const propName = "title"
+	ctx := testCtx()
+	className := "ShieldSweep_" + uuid.NewString()[:8]
+	class := newNoIndexTestClass(className, []string{propName})
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	lsmPath := shardPathLSM(idx.path(), shard.Name())
+	bucketPath := filepath.Join(lsmPath, helpers.BucketFromPropNameLSM(propName))
+
+	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "alpha")))
+	driveEnableFilterableToPostSwapWindow(t, shard, idx, className, propName)
+	require.NoError(t, shard.Shutdown(ctx))
+
+	// The restart consumes the tracker dir, persists the marker and promotes the
+	// bucket to its canonical name -- which is also the name the sweep looks for.
+	shd1, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+	require.NoError(t, err)
+	idx.shards.Store(shard.Name(), shd1)
+	require.NoError(t, shd1.(*Shard).Shutdown(ctx))
+	require.DirExists(t, bucketPath, "arrange failed: the swapped bucket must be under its canonical name before the sweep runs")
+
+	// What a caller that never ran scanPendingFlips holds.
+	var unscanned pendingFlipShield
+	require.NoError(t, newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(
+		idx.path(), shard.Name(), class, unscanned))
+
+	require.DirExists(t, bucketPath,
+		"a caller that never scanned must not be able to delete the bucket: on disk an open swap window and a user-deleted index are identical, and the scan is the only discriminator")
 }
