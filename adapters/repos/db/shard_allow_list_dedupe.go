@@ -48,8 +48,12 @@ type allowListBuild struct {
 	// waiters counts participants that intend to consume the result; refs alone
 	// can't express that because join holds a reference across the filter check.
 	waiters int
-	owner   helpers.AllowList
-	bm      *sroar.Bitmap
+	// published closes the group to new participants. Without it a joiner can
+	// still find the entry after publish has counted the waiters, admit too
+	// late, and then report a share the leader never counted.
+	published bool
+	owner     helpers.AllowList
+	bm        *sroar.Bitmap
 }
 
 // do coalesces callers sharing a token and filter into one build; any failure
@@ -66,10 +70,10 @@ func (d *allowListDedupe) do(ctx context.Context, token string, filter *filters.
 		return list, "", err
 	}
 
-	b, leader := d.join(token, filter)
+	b, leader, fallback := d.join(token, filter)
 	if b == nil {
 		list, err := build(ctx)
-		return list, helpers.AllowListDedupeFilterMismatch, err
+		return list, fallback, err
 	}
 
 	if leader {
@@ -133,11 +137,12 @@ func (d *allowListDedupe) lead(ctx context.Context, token string, b *allowListBu
 }
 
 // join registers a participant for token, returning the entry to wait on and
-// whether the caller must lead the build; nil means build without dedupe.
+// whether the caller must lead the build. A nil entry means build without
+// dedupe, and the third return is the outcome that caller must report.
 //
 // The filter comparison runs outside d.mu: a retained reference keeps the
 // entry alive while comparing, without holding the shard-wide lock for it.
-func (d *allowListDedupe) join(token string, filter *filters.LocalFilter) (*allowListBuild, bool) {
+func (d *allowListDedupe) join(token string, filter *filters.LocalFilter) (*allowListBuild, bool, string) {
 	d.mu.Lock()
 	existing, ok := d.inFlight[token]
 	if !ok {
@@ -147,7 +152,7 @@ func (d *allowListDedupe) join(token string, filter *filters.LocalFilter) (*allo
 		}
 		d.inFlight[token] = b
 		d.mu.Unlock()
-		return b, true
+		return b, true, ""
 	}
 	existing.retain()
 	d.mu.Unlock()
@@ -156,11 +161,16 @@ func (d *allowListDedupe) join(token string, filter *filters.LocalFilter) (*allo
 	// return wrong results.
 	if !sameFilter(existing.filter, filter) {
 		existing.drop()
-		return nil, false
+		return nil, false, helpers.AllowListDedupeFilterMismatch
 	}
 
-	existing.admit()
-	return existing, false
+	if !existing.admit() {
+		// The build finished while this caller was joining, so there is nothing
+		// in flight to share and the leader has already counted its waiters.
+		existing.drop()
+		return nil, false, helpers.AllowListDedupeUnshared
+	}
+	return existing, false, ""
 }
 
 // publish hands the build's outcome to the waiters, stops new joiners, and
@@ -170,6 +180,9 @@ func (d *allowListDedupe) publish(token string, b *allowListBuild,
 ) bool {
 	b.mu.Lock()
 	b.owner, b.bm = owner, bm
+	// Closing the group and counting the waiters must be one step, or a joiner
+	// admitted between them shares a bitmap the leader reported as unshared.
+	b.published = true
 	shared := b.waiters > 0
 	b.mu.Unlock()
 
@@ -192,11 +205,16 @@ func (b *allowListBuild) retain() {
 }
 
 // admit promotes a retained reference into a participant that intends to consume
-// the result.
-func (b *allowListBuild) admit() {
+// the result. It reports false once the build has published, when joining would
+// mean taking a bitmap from a build that had already finished.
+func (b *allowListBuild) admit() bool {
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.published {
+		return false
+	}
 	b.waiters++
-	b.mu.Unlock()
+	return true
 }
 
 // leave releases an admitted participant that ends up not consuming the

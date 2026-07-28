@@ -241,6 +241,30 @@ func TestAllowListDedupeSharesOneBuild(t *testing.T) {
 	}
 }
 
+// TestAllowListDedupeAdmitClosesAtPublish pins the window that made sharing
+// asymmetric: a joiner could still reach an entry after publish had counted the
+// waiters, so it reported a share the leader had already reported as unshared.
+// Deterministic here because it drives admit directly; through the call site it
+// depends on two legs hitting one instant.
+func TestAllowListDedupeAdmitClosesAtPublish(t *testing.T) {
+	d := &allowListDedupe{}
+	filter := testFilter(100)
+
+	b, leader, fallback := d.join("tok", filter)
+	require.True(t, leader, "the first caller leads")
+	require.Empty(t, fallback)
+
+	require.True(t, b.admit(), "the group is open while the build is in flight")
+
+	bm := roaringset.NewBitmap(1, 2, 3)
+	list := helpers.NewAllowListCloseableFromBitmap(bm, func() {})
+	require.True(t, d.publish("tok", b, list, bm),
+		"a waiter was admitted before publish, so the build counts as shared")
+
+	require.False(t, b.admit(),
+		"a joiner arriving after publish must be refused, not handed a finished build")
+}
+
 func TestAllowListDedupeDoubleCloseReleasesOnce(t *testing.T) {
 	d := &allowListDedupe{}
 	builder := &allowListBuilder{gate: make(chan struct{})}
