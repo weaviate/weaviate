@@ -984,7 +984,8 @@ func (s *Shard) SetForceIndexOverlay(propName string, overlay inverted.PropertyO
 //
 // Unlike [Shard.SnapshotForceIndexOverlay] it does not check the live schema:
 // the caller has no property to compare against, and a stale entry only
-// costs an extra open bucket.
+// costs an extra open bucket — the snapshot's backstop still keeps analysis
+// honest.
 func (s *Shard) forcedIndexOverlay(propName string) (inverted.PropertyOverlay, bool) {
 	s.forceIndexOverlayMu.RLock()
 	defer s.forceIndexOverlayMu.RUnlock()

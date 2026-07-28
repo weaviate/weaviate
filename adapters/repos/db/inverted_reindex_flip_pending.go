@@ -87,7 +87,8 @@ func (l pendingFlipLookup) has(propName, indexType string) bool {
 // scanPendingFlips reports every swapped-but-not-flipped enable-* migration
 // visible on disk: persisted records plus tracker dirs a finalize pass has
 // not consumed yet. Read-only by construction, so it is safe to call before
-// finalize creates .migrations.
+// finalize creates .migrations — contrast [fileReindexTracker.init], which
+// MkdirAlls and so cannot be used here.
 func scanPendingFlips(lsmPath string, logger logrus.FieldLogger) []PendingFlip {
 	return mergePendingFlips(readPendingFlips(lsmPath, logger), pendingFlipTrackers(lsmPath))
 }
