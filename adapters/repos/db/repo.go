@@ -518,8 +518,8 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
-// copyIndices returns a copy of the index map, so long-running scans can iterate
-// it without holding indexLock. A writer waiting on indexLock blocks every index
+// copyIndices returns a copy of the index map so long-running scans can iterate it
+// without holding indexLock. A writer waiting on indexLock blocks every index
 // lookup on the node, including the ones the schema apply loop needs.
 func (db *DB) copyIndices() map[string]*Index {
 	db.indexLock.RLock()
@@ -579,9 +579,8 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 		return nil
 	}
 
-	// abort in-flight usage scans so the dropIndex write lock below is not
-	// blocked behind an hours-long reader while db.indexLock is held
-	index.signalDropRequested()
+	// a reader holding dropIndex would block the drop below while db.indexLock is held
+	index.signalCloseRequested(errIndexDropped)
 
 	// drop index
 	db.indexLock.Lock()

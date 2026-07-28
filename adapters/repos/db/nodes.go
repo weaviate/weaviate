@@ -127,8 +127,7 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 ) *models.NodeStats {
 	var objectCount, shardCount int64
 	if className == "" {
-		// Scanning every shard takes far too long to do under indexLock, so
-		// iterate a copy of the index map instead.
+		// scanning every shard takes far too long to hold indexLock
 		for name, idx := range db.copyIndices() {
 			if idx == nil {
 				db.logger.WithField("action", "local_node_status_for_all").
@@ -157,10 +156,8 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 	}
 }
 
-// scanIndexShards appends the shard statuses of one index to status, holding it
-// against a concurrent shutdown for the whole scan. A requested drop aborts the
-// scan instead, so the drop does not wait for it, and an index that is closed or
-// being dropped contributes nothing.
+// scanIndexShards appends the shard statuses of one index to status. A requested
+// drop or shutdown aborts the scan, and a closing index contributes nothing.
 func scanIndexShards(ctx context.Context, idx *Index,
 	status *[]*models.NodeShardStatus, shardName string,
 ) (objectCount, shardCount int64) {
@@ -173,14 +170,13 @@ func scanIndexShards(ctx context.Context, idx *Index,
 		return 0, 0
 	}
 
-	scanCtx, done := idx.cancelOnDropRequested(ctx)
+	scanCtx, done := idx.cancelOnCloseRequested(ctx)
 	defer done()
 
 	var shards []*models.NodeShardStatus
 	objectCount, shardCount = idx.getShardsNodeStatus(scanCtx, &shards, shardName)
-	if idx.dropRequestedCtx.Err() != nil {
-		// the collection is going away: report it as gone rather than as the
-		// shards the scan happened to reach before it aborted
+	if idx.closeRequestedCtx.Err() != nil {
+		// report it as gone, not as the shards the scan reached before aborting
 		return 0, 0
 	}
 	*status = append(*status, shards...)
@@ -279,9 +275,8 @@ func getShardReplicationDetails(i *Index, shardName string) (int64, int64) {
 	var numberOfReplicas int64
 	var replicationFactor int64
 	class := i.Config.ClassName.String()
-	// A class or shard that has left the schema keeps its local index or shard
-	// for a moment. Neither lookup can start succeeding by waiting, so both fail
-	// immediately instead of letting the schema reader retry once per shard.
+	// a class or shard that has left the schema keeps its local index or shard for
+	// a moment. Neither comes back by waiting, so don't spend a retry per shard.
 	err := i.schemaReader.Read(class, false, func(class *models.Class, state *sharding.State) error {
 		var err error
 		replicationFactor = state.ReplicationFactor

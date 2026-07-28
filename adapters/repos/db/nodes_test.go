@@ -29,6 +29,7 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -80,7 +81,7 @@ func TestGetShardReplicationDetails(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			reader := &retryingSchemaReader{class: &models.Class{Class: className}, state: tt.state}
-			idx := newTestIndex(logger, className, reader, nil)
+			idx := newTestIndex(t, logger, className, reader, nil)
 
 			numberOfReplicas, replicationFactor := getShardReplicationDetails(idx, tt.shard)
 
@@ -94,8 +95,7 @@ func TestGetShardReplicationDetails(t *testing.T) {
 }
 
 // TestLocalNodeShardStats pins that a verbose scan leaves indexLock free while
-// still holding the scanned index against a drop, and that a drop requested
-// mid-scan aborts it and leaves that index out of the response.
+// holding the scanned index against a drop, and that a drop mid-scan aborts it.
 func TestLocalNodeShardStats(t *testing.T) {
 	const className = "Slow"
 
@@ -211,10 +211,9 @@ func TestLocalNodeShardStats(t *testing.T) {
 				if tt.cancelCaller {
 					cancelCaller()
 				}
-				// a requested drop must unblock the scan on its own; every other
-				// case needs the test to release it
+				// a requested drop must unblock the scan on its own
 				if tt.signalDrop {
-					idx.signalDropRequested()
+					idx.signalCloseRequested(errIndexDropped)
 				} else {
 					releaseScan()
 				}
@@ -241,15 +240,11 @@ func TestLocalNodeShardStats(t *testing.T) {
 	}
 }
 
-// shardedIndex builds an index holding one shard per name, each reporting a
-// single object. When blocking, the first shard the scan reaches closes entered
-// and waits for release. The counter records how many shards were scanned.
-func shardedIndex(t *testing.T, className string, shardNames []string,
-	entered, release chan struct{}, blocking bool,
-) (*Index, *atomic.Int32) {
+// scannableSchemaReader reports each shard name as a single-replica shard of the
+// given class, which is all a node status scan reads.
+func scannableSchemaReader(t *testing.T, className string, shardNames []string) schemaUC.SchemaReader {
 	t.Helper()
 
-	logger, _ := test.NewNullLogger()
 	physical := make(map[string]sharding.Physical, len(shardNames))
 	for _, name := range shardNames {
 		physical[name] = sharding.Physical{Name: name, BelongsToNodes: []string{"node1"}}
@@ -262,6 +257,16 @@ func shardedIndex(t *testing.T, className string, shardNames []string,
 		RunAndReturn(func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
 			return read(&models.Class{Class: className}, state)
 		}).Maybe()
+	return reader
+}
+
+// scannableShards builds one mock shard per name, each reporting a single object.
+// When blocking, the first shard a scan reaches closes entered, then waits for
+// release or a cancelled scan. The counter records how many shards were scanned.
+func scannableShards(t *testing.T, shardNames []string,
+	entered, release chan struct{}, blocking bool,
+) (map[string]ShardLike, *atomic.Int32) {
+	t.Helper()
 
 	var scanned atomic.Int32
 	shards := make(map[string]ShardLike, len(shardNames))
@@ -273,12 +278,12 @@ func shardedIndex(t *testing.T, className string, shardNames []string,
 		shard.EXPECT().ForEachGeoQueue(mock.Anything).Return(nil).Maybe()
 		shard.EXPECT().ForEachVectorIndex(mock.Anything).Return(nil).Maybe()
 		shard.EXPECT().getAsyncReplicationStats(mock.Anything).Return(nil).Maybe()
+		shard.EXPECT().Shutdown(mock.Anything).Return(nil).Maybe()
 		shard.EXPECT().ObjectCountAsync(mock.Anything).RunAndReturn(func(ctx context.Context) (int64, error) {
 			first := scanned.Add(1) == 1
 			if blocking && first {
 				close(entered)
-				// an aborted scan releases the shard through its context, so a
-				// test that never closes release still finishes
+				// an aborted scan releases the shard through its context
 				select {
 				case <-release:
 				case <-ctx.Done():
@@ -288,13 +293,22 @@ func shardedIndex(t *testing.T, className string, shardNames []string,
 		}).Maybe()
 		shards[name] = shard
 	}
-
-	return newTestIndex(logger, className, reader, shards), &scanned
+	return shards, &scanned
 }
 
-// retryingSchemaReader stands in for the real schema reader, reproducing how it
-// resolves a class and retries every error the read returns that is not
-// permanent. reads counts how often the read actually ran.
+// shardedIndex builds an index holding one shard per name, ready to be scanned.
+func shardedIndex(t *testing.T, className string, shardNames []string,
+	entered, release chan struct{}, blocking bool,
+) (*Index, *atomic.Int32) {
+	t.Helper()
+
+	logger, _ := test.NewNullLogger()
+	shards, scanned := scannableShards(t, shardNames, entered, release, blocking)
+	return newTestIndex(t, logger, className, scannableSchemaReader(t, className, shardNames), shards), scanned
+}
+
+// retryingSchemaReader reproduces how the real schema reader resolves a class and
+// retries every non-permanent error. reads counts how often the read ran.
 type retryingSchemaReader struct {
 	schemaUC.SchemaReader
 	class *models.Class
@@ -315,4 +329,48 @@ func (r *retryingSchemaReader) Read(_ string, retryIfClassNotFound bool,
 		}
 		return read(r.class, r.state)
 	}, utils.NewBackoff())
+}
+
+// TestIndexShutdownAbortsInFlightNodeStatusScan pins that Shutdown does not wait
+// for a verbose scan holding closeLock, and that the closing index reports nothing.
+func TestIndexShutdownAbortsInFlightNodeStatusScan(t *testing.T) {
+	const className = "Closing"
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+
+	idx := newShutdownTestIndex(t, nil)
+	idx.Config.ClassName = schema.ClassName(className)
+	idx.schemaReader = scannableSchemaReader(t, className, []string{"s1"})
+	shards, _ := scannableShards(t, []string{"s1"}, entered, release, true)
+	for name, shard := range shards {
+		idx.shards.Store(name, shard)
+	}
+
+	var status []*models.NodeShardStatus
+	scanDone := make(chan struct{})
+	go func() {
+		defer close(scanDone)
+		scanIndexShards(context.Background(), idx, &status, "")
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("shard scan never started")
+	}
+
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- idx.Shutdown(context.Background()) }()
+
+	select {
+	case err := <-shutdownDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown is blocked behind the in-flight node status scan")
+	}
+
+	<-scanDone
+	assert.Empty(t, status, "a closing index must not report shards")
 }

@@ -225,6 +225,12 @@ func (m *shardMap) LoadAndDelete(name string) (ShardLike, bool) {
 	return v.(ShardLike), ok
 }
 
+// causes of Index.closeRequestedCtx
+var (
+	errIndexDropped  = stderrors.New("collection is being deleted")
+	errIndexShutdown = stderrors.New("node is shutting down")
+)
+
 // Index is the logical unit which contains all the data for one particular
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
@@ -271,12 +277,13 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
-	// dropRequestedCtx is cancelled as soon as a drop of this index is requested,
-	// before the drop starts waiting for dropIndex. Long-running readers holding
-	// dropIndex.RLock (e.g. usage scans) watch it to abort promptly and unblock
-	// the drop.
-	dropRequestedCtx    context.Context
-	signalDropRequested context.CancelFunc
+	// closeRequestedCtx is cancelled when a drop or shutdown is requested, before
+	// it waits for dropIndex or closeLock, so readers holding either can abort
+	// instead of blocking the teardown. Its cause tells the two apart: a reader may
+	// leave out a collection being deleted, but not one that is only shutting down.
+	// Shutdown signals unconditionally, so an index built without these panics.
+	closeRequestedCtx    context.Context
+	signalCloseRequested context.CancelCauseFunc
 
 	// The other locks in the index should always be called in the given order to prevent deadlocks:
 	// 1. closeLock
@@ -431,7 +438,7 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
-	index.dropRequestedCtx, index.signalDropRequested = context.WithCancel(context.Background())
+	index.closeRequestedCtx, index.signalCloseRequested = context.WithCancelCause(context.Background())
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
 	getDeletionStrategy := func() string {
@@ -700,12 +707,11 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 	})
 }
 
-// cancelOnDropRequested derives a context that is cancelled as soon as a drop of
-// this index is requested, so the drop does not wait behind a dropIndex.RLock the
-// caller holds. The returned func must be called once the work is done.
-func (i *Index) cancelOnDropRequested(ctx context.Context) (context.Context, func()) {
+// cancelOnCloseRequested derives a context cancelled on close request, so a teardown
+// does not wait behind a lock the caller holds. Call the returned func when done.
+func (i *Index) cancelOnCloseRequested(ctx context.Context) (context.Context, func()) {
 	derived, cancel := context.WithCancel(ctx)
-	stop := context.AfterFunc(i.dropRequestedCtx, cancel)
+	stop := context.AfterFunc(i.closeRequestedCtx, cancel)
 	return derived, func() {
 		stop()
 		cancel()
@@ -3235,6 +3241,9 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
+	// a reader holding closeLock would hold up the whole DB shutdown
+	i.signalCloseRequested(errIndexShutdown)
+
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
 
