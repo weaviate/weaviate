@@ -495,46 +495,61 @@ func TestSnapshotForceIndexOverlay_LiveSchemaSatisfaction(t *testing.T) {
 		}
 	}
 	tests := []struct {
-		name      string
-		overlay   inverted.PropertyOverlay
-		prop      *models.Property
-		wantAlive bool
+		name    string
+		overlay inverted.PropertyOverlay
+		prop    *models.Property
+		// wantPending is what must still be forced after the live schema is
+		// taken into account, in the snapshot and in the stored entry alike.
+		// The zero value means the entry is fully satisfied: skipped and cleared.
+		wantPending inverted.PropertyOverlay
 	}{
 		{
-			name:      "filterable pending: flag still false",
-			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
-			prop:      textProp(&vFalse, &vFalse, models.PropertyTokenizationWord),
-			wantAlive: true,
+			name:        "filterable pending: flag still false",
+			overlay:     inverted.PropertyOverlay{ForceFilterable: true},
+			prop:        textProp(&vFalse, &vFalse, models.PropertyTokenizationWord),
+			wantPending: inverted.PropertyOverlay{ForceFilterable: true},
 		},
 		{
-			name:      "filterable satisfied: flag true",
-			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
-			prop:      textProp(&vTrue, &vFalse, models.PropertyTokenizationWord),
-			wantAlive: false,
+			name:    "filterable satisfied: flag true",
+			overlay: inverted.PropertyOverlay{ForceFilterable: true},
+			prop:    textProp(&vTrue, &vFalse, models.PropertyTokenizationWord),
 		},
 		{
-			name:      "searchable pending: flag still false",
-			overlay:   inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord},
-			prop:      textProp(&vFalse, &vFalse, models.PropertyTokenizationWord),
-			wantAlive: true,
+			name:        "searchable pending: flag still false",
+			overlay:     inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord},
+			prop:        textProp(&vFalse, &vFalse, models.PropertyTokenizationWord),
+			wantPending: inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationWord},
 		},
 		{
-			name:      "searchable pending: flag true but tokenization not yet flipped",
-			overlay:   inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField},
-			prop:      textProp(&vFalse, &vTrue, models.PropertyTokenizationWord),
-			wantAlive: true,
+			name:        "searchable pending: flag true but tokenization not yet flipped",
+			overlay:     inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField},
+			prop:        textProp(&vFalse, &vTrue, models.PropertyTokenizationWord),
+			wantPending: inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField},
 		},
 		{
-			name:      "searchable satisfied: flag true and tokenization matches",
-			overlay:   inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField},
-			prop:      textProp(&vFalse, &vTrue, models.PropertyTokenizationField),
-			wantAlive: false,
+			name:    "searchable satisfied: flag true and tokenization matches",
+			overlay: inverted.PropertyOverlay{ForceSearchable: true, Tokenization: models.PropertyTokenizationField},
+			prop:    textProp(&vFalse, &vTrue, models.PropertyTokenizationField),
 		},
 		{
-			name:      "rangeable pending on text prop (never satisfiable) stays alive",
-			overlay:   inverted.PropertyOverlay{ForceRangeable: true},
-			prop:      textProp(&vTrue, &vTrue, models.PropertyTokenizationWord),
-			wantAlive: true,
+			name:        "rangeable pending on text prop (never satisfiable) stays alive",
+			overlay:     inverted.PropertyOverlay{ForceRangeable: true},
+			prop:        textProp(&vTrue, &vTrue, models.PropertyTokenizationWord),
+			wantPending: inverted.PropertyOverlay{ForceRangeable: true},
+		},
+		{
+			// One entry covering two index types whose flips land at different
+			// times: satisfaction has to be decided per forced flag. Deciding it
+			// per entry keeps the retired searchable flag armed, which is what
+			// goes on to mask a later index DELETE.
+			name: "two forced flags, only searchable satisfied: filterable survives alone",
+			overlay: inverted.PropertyOverlay{
+				ForceFilterable: true,
+				ForceSearchable: true,
+				Tokenization:    models.PropertyTokenizationWord,
+			},
+			prop:        textProp(&vFalse, &vTrue, models.PropertyTokenizationWord),
+			wantPending: inverted.PropertyOverlay{ForceFilterable: true},
 		},
 	}
 	for _, tc := range tests {
@@ -543,15 +558,57 @@ func TestSnapshotForceIndexOverlay_LiveSchemaSatisfaction(t *testing.T) {
 			s.SetForceIndexOverlay(tc.prop.Name, tc.overlay)
 
 			snap := s.SnapshotForceIndexOverlay([]*models.Property{tc.prop})
-			if tc.wantAlive {
-				require.Equal(t, map[string]inverted.PropertyOverlay{tc.prop.Name: tc.overlay}, snap)
+
+			s.forceIndexOverlayMu.RLock()
+			stored, stillThere := s.forceIndexOverlay[tc.prop.Name]
+			s.forceIndexOverlayMu.RUnlock()
+
+			if forcesNoIndex(tc.wantPending) {
+				require.Nil(t, snap, "fully satisfied entry must be skipped")
+				require.False(t, stillThere, "fully satisfied entry must self-clear")
 				return
 			}
-			require.Nil(t, snap, "satisfied entry must be skipped")
-			s.forceIndexOverlayMu.RLock()
-			_, stillThere := s.forceIndexOverlay[tc.prop.Name]
-			s.forceIndexOverlayMu.RUnlock()
-			require.False(t, stillThere, "satisfied entry must self-clear")
+			require.Equal(t, map[string]inverted.PropertyOverlay{tc.prop.Name: tc.wantPending}, snap,
+				"the snapshot must carry exactly the flags the live schema does not provide yet")
+			require.True(t, stillThere, "a partially satisfied entry must stay armed")
+			require.Equal(t, tc.wantPending, stored,
+				"the stored entry must retire the satisfied flags and keep the pending ones")
 		})
 	}
+}
+
+// TestSnapshotForceIndexOverlay_RetiredFlagDoesNotMaskLaterIndexDelete covers
+// the consequence of keeping a satisfied flag armed: writes would still be
+// analyzed with an index forced after the user deleted it. The explicit
+// ClearForceIndexOverlay is deliberately not called here, so the snapshot's
+// backstop is the only thing that can retire the flag.
+func TestSnapshotForceIndexOverlay_RetiredFlagDoesNotMaskLaterIndexDelete(t *testing.T) {
+	vTrue, vFalse := true, false
+	prop := &models.Property{
+		Name:            "title",
+		DataType:        schema.DataTypeText.PropString(),
+		Tokenization:    models.PropertyTokenizationWord,
+		IndexFilterable: &vFalse,
+		IndexSearchable: &vTrue,
+	}
+
+	s := &Shard{}
+	s.SetForceIndexOverlay(prop.Name, inverted.PropertyOverlay{ForceFilterable: true})
+	s.SetForceIndexOverlay(prop.Name, inverted.PropertyOverlay{
+		ForceSearchable: true,
+		Tokenization:    models.PropertyTokenizationWord,
+	})
+
+	// The searchable flip has landed, the filterable one has not.
+	_ = s.SnapshotForceIndexOverlay([]*models.Property{prop})
+
+	// The user now deletes the searchable index on the same property.
+	prop.IndexSearchable = &vFalse
+
+	snap := s.SnapshotForceIndexOverlay([]*models.Property{prop})
+	require.False(t, snap[prop.Name].ForceSearchable,
+		"a deleted searchable index must not still be forced: the backstop had to retire that "+
+			"flag while the live schema still satisfied it")
+	require.True(t, snap[prop.Name].ForceFilterable,
+		"the still-pending filterable flip must remain armed")
 }

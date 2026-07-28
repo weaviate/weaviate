@@ -276,8 +276,10 @@ func TestReindexPostSwapPreFlip_UnreadableMarker_KeepsBucket(t *testing.T) {
 
 	corruptPendingFlipMarker(t, lsmPath)
 
-	// Twice: a guard that survives one restart and then rewrites the marker
-	// would put the bucket back in front of the sweep on the next one.
+	// Twice: rewriting the marker costs nothing on the restart that does it, so
+	// the bucket only disappears on the restart after. Both iterations have to
+	// run before the marker itself is inspected, otherwise the test reports the
+	// replaced marker and never reaches the deletion that is the actual damage.
 	for i := 1; i <= 2; i++ {
 		shd, err := idx.initShard(ctx, shardName, class, nil, true, true)
 		require.NoErrorf(t, err, "restart %d with an unreadable marker must succeed", i)
@@ -288,8 +290,9 @@ func TestReindexPostSwapPreFlip_UnreadableMarker_KeepsBucket(t *testing.T) {
 			"weaviate/0-weaviate-issues#319: restart %d with an unparseable flip-pending marker must "+
 				"skip the nonexistent-property-index sweep; the swapped bucket is the only copy of "+
 				"its data and deleting it is permanent", i)
-		_, unreadable := readPendingFlips(lsmPath, idx.logger)
-		require.Truef(t, unreadable,
-			"restart %d must keep the unreadable marker; replacing it re-enables the sweep", i)
 	}
+
+	_, unreadable := readPendingFlips(lsmPath, idx.logger)
+	require.True(t, unreadable,
+		"the unreadable marker must survive every restart; replacing it re-enables the sweep")
 }
