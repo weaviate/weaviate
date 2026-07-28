@@ -14,6 +14,7 @@ package v1
 import (
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -95,6 +96,13 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*
 			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
 				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: val},
+			}, nil
+		case strfmt.URI:
+			// Defensive: the grouper emits beacons as plain string; this only
+			// catches a stray named type so it can't fall through to the 500.
+			return &pb.AggregateReply_Group_GroupedBy{
+				Path:  in.Path,
+				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: string(val)},
 			}, nil
 		case bool:
 			return &pb.AggregateReply_Group_GroupedBy{
