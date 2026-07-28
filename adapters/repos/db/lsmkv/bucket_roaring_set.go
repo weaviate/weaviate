@@ -147,10 +147,10 @@ func (b *Bucket) roaringSetGetFromConsistentView(
 		}
 	}()
 
-	// Fold the disk-flattened layer with the flushing and active memtable layers
-	// one at a time, chronologically oldest first, instead of materializing a
-	// []BitmapLayer. diskLayer.Additions is the pooled base (with headroom), so
-	// the memtable layers merge into it in place.
+	// Fold the disk, flushing and active layers one at a time, oldest first,
+	// without materializing a []BitmapLayer. diskLayer.Additions is the pooled
+	// base (with headroom); on a disk miss it is nil and the merger adopts the
+	// first memtable layer's clone instead of copying it.
 	merger := roaringset.NewLayerMerger(diskLayer.Additions, false, maxConc)
 
 	if view.Flushing != nil {

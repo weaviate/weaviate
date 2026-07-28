@@ -80,8 +80,7 @@ func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {
 	}
 }
 
-// Pre-built (and never mutated) so the RoaringSet check doesn't allocate a
-// []Strategy per call.
+// pre-built and never mutated, so the RoaringSet check doesn't allocate per call
 var strategiesRoaringSet = []Strategy{StrategyRoaringSet}
 
 func CheckStrategyRoaringSet(strategy Strategy) error {

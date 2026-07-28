@@ -40,11 +40,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// baseLayerHeadroomFactor sizes the first (base) layer's pooled buffer with
-// 25% headroom, so the in-place merges of the following segments' layers can
-// usually grow the bitmap without leaving the pooled buffer. Too little
-// headroom forces off-pool reallocation, defeating the pooling; more wastes
-// pooled memory.
+// baseLayerHeadroomFactor sizes the base layer's pooled buffer with 25%
+// headroom so the in-place merges of later layers usually fit without
+// reallocating off-pool.
 const baseLayerHeadroomFactor = 1.25
 
 type SegmentGroup struct {
@@ -105,10 +103,8 @@ type SegmentGroup struct {
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bitmapBufPool                  roaringset.BitmapBufPool
-	// bitmapBufPoolWithHeadroom wraps bitmapBufPool with
-	// baseLayerHeadroomFactor so the first layer of a multi-segment
-	// roaringSetGet gets a buffer with headroom for the in-place merges of
-	// the following layers. Built once at construction.
+	// bitmapBufPool wrapped with baseLayerHeadroomFactor for roaringSetGet's
+	// base layer; built once at construction
 	bitmapBufPoolWithHeadroom    roaringset.BitmapBufPool
 	bm25config                   *schema.BM25Config
 	lazyPropertyLengths          *configRuntime.DynamicValue[bool]
@@ -950,17 +946,12 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-// roaringSetGet folds all disk segments holding key into a single BitmapLayer.
-// The first segment that has the key becomes the base (its additions are cloned
-// into a pooled buffer with headroom); every later segment is merged in place
-// into that base via roaringSetMergeWith, so no per-layer slice is materialized.
-// If no segment has the key, a zero BitmapLayer (nil bitmaps) and a noop release
-// are returned. Callers fold this base together with the memtable layers using
-// roaringset.LayerMerger.
-//
-// Only Additions is fully folded; Deletions is the first found segment's
-// deletions, retained solely so its buffer gets released, and must not be
-// read as the flattened deletions.
+// roaringSetGet folds all disk segments holding key into a single BitmapLayer:
+// the first segment with the key becomes the base (additions cloned into a
+// pooled buffer with headroom), every later segment merges into it in place.
+// If no segment has the key, a zero BitmapLayer and noop release are returned.
+// Only Additions is fully folded; Deletions is the first segment's deletions,
+// retained solely so its buffer gets released — not the flattened deletions.
 func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayer, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {

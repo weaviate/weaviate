@@ -30,12 +30,10 @@ import (
 type BitmapBufPool interface {
 	Get(minCap int) (buf []byte, put func())
 	CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func())
-	// CloneBytesToBuf clones an already-serialized bitmap (e.g. a segment
-	// node's additions/deletions region) into a pooled buffer, without
-	// materializing an intermediate bitmap over src first. src must be a
-	// valid, non-empty sroar serialization. The returned bitmap owns the
-	// pooled buffer's full capacity, so it can grow in place (same contract
-	// as CloneToBuf).
+	// CloneBytesToBuf clones an already-serialized bitmap into a pooled
+	// buffer without materializing an intermediate bitmap over src. src must
+	// be a valid, non-empty sroar serialization. Like CloneToBuf, the clone
+	// owns the buffer's full capacity and can grow in place.
 	CloneBytesToBuf(src []byte) (cloned *sroar.Bitmap, put func())
 }
 
@@ -241,9 +239,8 @@ type BufPoolFixedSync struct {
 	pool *sync.Pool
 }
 
-// pooledBuf holds a reusable buffer together with a release closure bound to
-// it once, at creation, so Get returns the pre-bound closure instead of
-// allocating a fresh one per call.
+// pooledBuf pairs a reusable buffer with its release closure, bound once at
+// creation so Get doesn't allocate a closure per call.
 type pooledBuf struct {
 	buf []byte
 	put func()
@@ -290,8 +287,7 @@ func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
 	case pb = <-p.bufsCh:
 		p.metrics.bufGot()
 	default:
-		// New buffers bind their release closure once here; reused buffers keep
-		// it, so Get never allocates a fresh closure on the reuse path.
+		// bind the release closure once; reused buffers keep theirs
 		pb = &pooledBuf{buf: make([]byte, 0, p.cap)}
 		pb.put = func() { p.put(pb) }
 		p.metrics.bufCreated()

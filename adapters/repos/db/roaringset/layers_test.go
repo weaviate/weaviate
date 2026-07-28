@@ -183,6 +183,21 @@ func Test_LayerMerger_MatchesFlatten(t *testing.T) {
 					}
 
 					assert.Equal(t, want, got)
+
+					// nil base: the merger adopts the first Add'd layer, so
+					// folding every layer through Add must equal Flatten too;
+					// fresh layers because the adopted bitmap is mutated in
+					// place
+					layers = make(BitmapLayers, len(test.inputs))
+					for i, inp := range test.inputs {
+						layers[i].Additions = NewBitmap(inp.additions...)
+						layers[i].Deletions = NewBitmap(inp.deletions...)
+					}
+					m := NewLayerMerger(nil, false, maxConc)
+					for _, layer := range layers {
+						m.Add(layer)
+					}
+					assert.Equal(t, want, m.Result().ToArray())
 				})
 			}
 		})
@@ -190,11 +205,43 @@ func Test_LayerMerger_MatchesFlatten(t *testing.T) {
 }
 
 func Test_LayerMerger_NilBase(t *testing.T) {
-	// nil base (disk miss) folds the memtable layers into a fresh empty bitmap.
-	m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
-	m.Add(BitmapLayer{Additions: NewBitmap(1, 2), Deletions: NewBitmap()})
-	m.Add(BitmapLayer{Additions: NewBitmap(3), Deletions: NewBitmap(1)})
-	assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	t.Run("layers fold like Flatten", func(t *testing.T) {
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: NewBitmap(1, 2), Deletions: NewBitmap()})
+		m.Add(BitmapLayer{Additions: NewBitmap(3), Deletions: NewBitmap(1)})
+		assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	})
+
+	t.Run("no layers yield an empty, non-nil result", func(t *testing.T) {
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		require.NotNil(t, m.Result())
+		assert.Empty(t, m.Result().ToArray())
+	})
+
+	t.Run("first layer's additions are adopted, not copied", func(t *testing.T) {
+		first := NewBitmap(1, 2)
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: first, Deletions: NewBitmap()})
+		assert.Same(t, first, m.Result())
+		m.Add(BitmapLayer{Additions: NewBitmap(3), Deletions: NewBitmap(1)})
+		assert.Same(t, first, m.Result())
+		assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	})
+
+	t.Run("adopted layer's own deletions are dropped", func(t *testing.T) {
+		// the first layer's deletions delete from older state, of which there
+		// is none — Flatten drops the base layer's deletions the same way
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: NewBitmap(1, 2), Deletions: NewBitmap(1)})
+		assert.Equal(t, []uint64{1, 2}, m.Result().ToArray())
+	})
+
+	t.Run("nil-additions layer defers adoption to the next layer", func(t *testing.T) {
+		m := NewLayerMerger(nil, false, concurrency.SROAR_MERGE)
+		m.Add(BitmapLayer{Additions: nil, Deletions: NewBitmap(1)})
+		m.Add(BitmapLayer{Additions: NewBitmap(2, 3), Deletions: NewBitmap(2)})
+		assert.Equal(t, []uint64{2, 3}, m.Result().ToArray())
+	})
 }
 
 func Test_BitmapLayers_Merge(t *testing.T) {

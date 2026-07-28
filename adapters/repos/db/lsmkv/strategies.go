@@ -82,8 +82,7 @@ func MustBeExpectedStrategy(strategy string, expectedStrategies ...string) {
 	}
 }
 
-// Pre-built (and never mutated) so the strategy checks don't allocate a
-// []string per call.
+// pre-built and never mutated, so the strategy checks don't allocate per call
 var (
 	strategiesRoaringSet      = []string{StrategyRoaringSet}
 	strategiesRoaringSetRange = []string{StrategyRoaringSetRange}

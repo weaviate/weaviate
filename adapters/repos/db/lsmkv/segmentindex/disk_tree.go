@@ -46,15 +46,12 @@ func NewDiskTree(data []byte) *DiskTree {
 	}
 }
 
-// GetOffsets walks the tree for key and returns the payload position
-// (start, end) of the matching node, or lsmkv.NotFound. It allocates nothing:
-// node keys are compared in place against the tree data and no key is
-// materialized. Prefer it on hot read paths that only need the payload offsets
-// and never read Node.Key.
-//
-// pos can be an arbitrary child offset read from possibly corrupt data, so
-// every read is bounds-checked against dataLen-pos (never pos+n, which would
-// wrap). Truncated or corrupt data yields NotFound or an error, never a panic.
+// GetOffsets walks the tree for key and returns the payload position (start,
+// end) of the matching node, or lsmkv.NotFound. It allocates nothing: keys
+// are compared in place against the tree data. pos can be an arbitrary child
+// offset read from possibly corrupt data, so every read is bounds-checked
+// against dataLen-pos (never pos+n, which would wrap) — corrupt or truncated
+// data yields NotFound or an error, never a panic.
 func (t *DiskTree) GetOffsets(key []byte) (start, end uint64, err error) {
 	if len(t.data) == 0 {
 		return 0, 0, lsmkv.NotFound
@@ -116,10 +113,9 @@ func maxDescentSteps(dataLen int) int {
 }
 
 // Get returns the matching node with an owned copy of its key, safe to keep
-// beyond the underlying segment's lifetime. A match requires exact key equality,
-// so the matched node's key is byte-identical to the argument key — Get clones
-// the caller's key rather than the (equal) in-tree bytes, which keeps the whole
-// allocation-free descent in GetOffsets.
+// beyond the segment's lifetime. A match means the in-tree key equals the
+// argument, so Get clones the caller's key, keeping the descent in
+// GetOffsets allocation-free.
 func (t *DiskTree) Get(key []byte) (Node, error) {
 	start, end, err := t.GetOffsets(key)
 	if err != nil {

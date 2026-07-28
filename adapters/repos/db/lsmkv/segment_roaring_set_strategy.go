@@ -19,9 +19,8 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// combineReleases folds the additions and deletions release funcs into the
-// single release the caller expects. Either may be nil (empty region, nothing
-// pooled). A wrapper closure — which escapes and thus heap-allocates — is
+// combineReleases folds the additions and deletions releases into one. Either
+// may be nil (empty region); the wrapper closure — which heap-allocates — is
 // only built when both are non-nil.
 func combineReleases(releaseAdd, releaseDel func()) func() {
 	switch {
@@ -75,10 +74,9 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 	}
 
 	if out.Additions == nil {
-		// deletions-only node (both read branches return nil additions for an
-		// empty region): additions become the mutable accumulator base when
-		// layers are folded, so a non-nil (and non-shared, as it is mutated)
-		// bitmap is needed even when the node holds none
+		// deletions-only node: additions become the mutable accumulator base
+		// when layers are folded, so a non-nil, unshared bitmap is needed
+		// even when the node holds none
 		out.Additions = sroar.NewBitmap()
 	}
 
