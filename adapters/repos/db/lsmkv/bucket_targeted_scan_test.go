@@ -20,7 +20,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // targetedTestValue builds a value identifiable from its peek: 8-byte BE id, then a
@@ -99,40 +102,48 @@ func TestScanTargetedReplace(t *testing.T) {
 			}
 			c.Close()
 
-			const peekSize = 16
-			var mu sync.Mutex
-			got := map[string]int{}
-			err := b.ScanTargetedReplace(ctx, peekSize, 4, func(e *TargetedScanEntry) error {
-				wantPeek := e.ValueSize
-				if wantPeek > peekSize {
-					wantPeek = peekSize
-				}
-				require.Equal(t, wantPeek, uint64(len(e.Peek)))
+			// parallel=1 splits nothing, 4 exercises the single-seed split, 16 the
+			// multi-seed path (sorted/deduped quantile bounds, both-bounded ranges)
+			for _, parallel := range []int{1, 4, 16} {
+				const peekSize = 16
+				var mu sync.Mutex
+				got := map[string]int{}
+				err := b.ScanTargetedReplace(ctx, peekSize, parallel, func(e *TargetedScanEntry) error {
+					// assert, not require: the callback runs on worker goroutines and
+					// FailNow must not run off the test goroutine
+					wantPeek := e.ValueSize
+					if wantPeek > peekSize {
+						wantPeek = peekSize
+					}
+					assert.Equal(t, wantPeek, uint64(len(e.Peek)))
 
-				raw, err := e.ReadRange(0, 0)
+					raw, err := e.ReadRange(0, 0)
+					if !assert.NoError(t, err) {
+						return err
+					}
+					assert.Equal(t, e.ValueSize, uint64(len(raw)))
+					// a second ReadRange invalidates raw (shared scratch buffer): copy first
+					whole := make([]byte, len(raw))
+					copy(whole, raw)
+					assert.Equal(t, whole[:len(e.Peek)], e.Peek)
+
+					if e.ValueSize >= 11 {
+						part, err := e.ReadRange(3, 11)
+						assert.NoError(t, err)
+						assert.Equal(t, whole[3:11], part)
+					}
+					_, err = e.ReadRange(0, e.ValueSize+1)
+					assert.Error(t, err)
+
+					mu.Lock()
+					got[string(whole)]++
+					mu.Unlock()
+					return nil
+				}, nullLogger())
 				require.NoError(t, err)
-				require.Equal(t, e.ValueSize, uint64(len(raw)))
-				// a second ReadRange invalidates raw (shared scratch buffer): copy first
-				whole := make([]byte, len(raw))
-				copy(whole, raw)
-				require.Equal(t, whole[:len(e.Peek)], e.Peek)
 
-				if e.ValueSize >= 11 {
-					part, err := e.ReadRange(3, 11)
-					require.NoError(t, err)
-					require.Equal(t, whole[3:11], part)
-				}
-				_, err = e.ReadRange(0, e.ValueSize+1)
-				require.Error(t, err)
-
-				mu.Lock()
-				got[string(whole)]++
-				mu.Unlock()
-				return nil
-			}, nullLogger())
-			require.NoError(t, err)
-
-			require.Equal(t, expected, got)
+				require.Equal(t, expected, got, "parallel=%d", parallel)
+			}
 		})
 	}
 }
@@ -144,7 +155,7 @@ func TestScanTargetedReplaceEdgeCases(t *testing.T) {
 		b := newReusableTestBucket(t, ctx)
 		defer b.Shutdown(ctx)
 		err := b.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
-			t.Fatal("callback must not run on an empty bucket")
+			t.Error("callback must not run on an empty bucket")
 			return nil
 		}, nullLogger())
 		require.NoError(t, err)
@@ -164,5 +175,184 @@ func TestScanTargetedReplaceEdgeCases(t *testing.T) {
 			return nil
 		}, nullLogger())
 		require.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+// TestScanTargetedReplaceFlushingMemtable pins the two-memtable visibility path:
+// with a flushing memtable parked, active entries and tombstones must hide
+// flushing rows, and both memtables must hide segment rows.
+func TestScanTargetedReplaceFlushingMemtable(t *testing.T) {
+	ctx := context.Background()
+	b := newReusableTestBucket(t, ctx)
+	defer b.Shutdown(ctx)
+
+	put := func(id uint64, fillerLen int) {
+		require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen)))
+	}
+	putEmpty := func(id uint64) {
+		require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), []byte{}))
+	}
+
+	// segment: ids 0..19
+	for i := uint64(0); i < 20; i++ {
+		put(i, 40)
+	}
+	require.NoError(t, b.FlushAndSwitch())
+
+	// this generation is parked below as the flushing memtable: updates 0..4, a
+	// tombstone and an empty over segment rows, new ids 100..104
+	for i := uint64(0); i < 5; i++ {
+		put(i, 200)
+	}
+	require.NoError(t, b.Delete([]byte("key-010")))
+	putEmpty(15)
+	for i := uint64(100); i < 105; i++ {
+		put(i, 60)
+	}
+	switched, err := b.atomicallySwitchMemtable(b.createNewActiveMemtable)
+	require.NoError(t, err)
+	require.True(t, switched)
+	require.NotNil(t, b.flushing)
+
+	// active: supersedes flushing rows (update, tombstone, empty-over-value) and
+	// segment rows, plus fresh ids 200..204
+	put(0, 700)
+	require.NoError(t, b.Delete([]byte("key-100")))
+	putEmpty(101)
+	put(12, 300)
+	for i := uint64(200); i < 205; i++ {
+		put(i, 80)
+	}
+
+	expected := map[string]int{}
+	c := b.Cursor()
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		expected[string(v)]++
+		_ = k
+	}
+	c.Close()
+
+	var mu sync.Mutex
+	got := map[string]int{}
+	require.NoError(t, b.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
+		raw, err := e.ReadRange(0, 0)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		got[string(raw)]++
+		mu.Unlock()
+		return nil
+	}, nullLogger()))
+	require.Equal(t, expected, got)
+
+	// finish the parked flush the same way FlushAndSwitch would, so Shutdown
+	// sees a normal bucket
+	segPath, err := b.flushing.flush()
+	require.NoError(t, err)
+	seg, err := b.disk.initAndPrecomputeNewSegment(segPath)
+	require.NoError(t, err)
+	require.NoError(t, b.atomicallyAddDiskSegmentAndRemoveFlushing(seg))
+}
+
+// TestScanTargetedReplaceLazySegments reopens a populated bucket with lazy
+// segment loading, so the scan runs through lazySegment's forwarders (fresh
+// buckets only ever hold eager segments).
+func TestScanTargetedReplaceLazySegments(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	newB := func(opts ...BucketOption) *Bucket {
+		o := append([]BucketOption{WithStrategy(StrategyReplace)}, opts...)
+		b, err := NewBucketCreator().NewBucket(ctx, dir, dir, nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), o...)
+		require.NoError(t, err)
+		b.SetMemtableThreshold(1e9)
+		return b
+	}
+
+	b := newB()
+	put := func(id uint64, fillerLen int) {
+		require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", id)), targetedTestValue(id, fillerLen)))
+	}
+	for i := uint64(0); i < 30; i++ {
+		put(i, 50)
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	for i := uint64(5); i < 10; i++ {
+		put(i, 300)
+	}
+	require.NoError(t, b.Delete([]byte("key-020")))
+	for i := uint64(40); i < 50; i++ {
+		put(i, 25)
+	}
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	b = newB(WithLazySegmentLoading(true))
+	defer b.Shutdown(ctx)
+
+	segments, release := b.disk.getConsistentViewOfSegments()
+	require.NotEmpty(t, segments)
+	_, isLazy := segments[0].(*lazySegment)
+	release()
+	require.True(t, isLazy, "reopen with lazy loading must yield lazy segments")
+
+	expected := map[string]int{}
+	c := b.Cursor()
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		expected[string(v)]++
+		_ = k
+	}
+	c.Close()
+
+	var mu sync.Mutex
+	got := map[string]int{}
+	require.NoError(t, b.ScanTargetedReplace(ctx, 16, 4, func(e *TargetedScanEntry) error {
+		raw, err := e.ReadRange(0, 0)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		got[string(raw)]++
+		mu.Unlock()
+		return nil
+	}, nullLogger()))
+	require.Equal(t, expected, got)
+}
+
+func TestEstimatedEntrySize(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("with net-additions tracking", func(t *testing.T) {
+		b := newReusableTestBucket(t, ctx, WithCalcCountNetAdditions(true))
+		defer b.Shutdown(ctx)
+
+		require.Zero(t, b.EstimatedEntrySize())
+
+		const entries = 100
+		for i := uint64(0); i < entries; i++ {
+			require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", i)), targetedTestValue(i, 100)))
+		}
+		require.NoError(t, b.FlushAndSwitch())
+
+		segments, release := b.disk.getConsistentViewOfSegments()
+		var size int64
+		for _, seg := range segments {
+			size += seg.Size()
+		}
+		release()
+		require.Equal(t, size/entries, b.EstimatedEntrySize())
+	})
+
+	t.Run("without net-additions tracking", func(t *testing.T) {
+		b := newReusableTestBucket(t, ctx)
+		defer b.Shutdown(ctx)
+
+		for i := uint64(0); i < 10; i++ {
+			require.NoError(t, b.Put([]byte(fmt.Sprintf("key-%03d", i)), targetedTestValue(i, 100)))
+		}
+		require.NoError(t, b.FlushAndSwitch())
+		require.Zero(t, b.EstimatedEntrySize())
 	})
 }

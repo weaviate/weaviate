@@ -81,7 +81,7 @@ type Segment interface {
 	// key probe, and a byte-range read that is zero-copy in mmap mode and fills
 	// *buf (grown in place as needed) via pread otherwise.
 	scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error
-	hasKeyReplace(key []byte) bool
+	hasKeyReplace(key []byte) (bool, error)
 	readRange(offset nodeOffset, operation string, buf *[]byte) ([]byte, error)
 	newRoaringSetCursor() roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor

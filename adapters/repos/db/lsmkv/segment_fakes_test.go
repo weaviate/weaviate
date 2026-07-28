@@ -760,7 +760,7 @@ func (f *fakeSegment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRan
 	panic("not implemented")
 }
 
-func (f *fakeSegment) hasKeyReplace(key []byte) bool {
+func (f *fakeSegment) hasKeyReplace(key []byte) (bool, error) {
 	panic("not implemented")
 }
 

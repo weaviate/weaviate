@@ -77,15 +77,7 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 		return err
 	}
 
-	b.flushLock.RLock()
-	// memtable cursors flatten node pointers at init; concurrent same-key updates
-	// reassign value slices afterwards — the same exposure Bucket.Cursor has
-	inMem := []innerCursorReplace{b.active.newCursor()}
-	if b.flushing != nil {
-		inMem = append(inMem, b.flushing.newCursor())
-	}
-	segments, release := b.disk.getConsistentViewOfSegments()
-	b.flushLock.RUnlock()
+	inMem, segments, release := b.targetedScanSnapshot()
 	defer release()
 
 	// inMem[0] is the active memtable (newest); a flushing memtable follows
@@ -115,6 +107,24 @@ func (b *Bucket) ScanTargetedReplace(ctx context.Context, peekSize, parallel int
 	return eg.Wait()
 }
 
+// targetedScanSnapshot grabs the (active, flushing, segments) triple under one
+// flushLock hold — the same point-in-time snapshot Bucket.Cursor takes. The
+// deferred unlock matters: incRef on a lazy segment can panic on a load error,
+// and a skipped RUnlock would wedge the bucket's flush path permanently.
+func (b *Bucket) targetedScanSnapshot() ([]innerCursorReplace, []Segment, func()) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	// memtable cursors flatten node pointers at init; concurrent same-key updates
+	// reassign value slices afterwards — the same exposure Bucket.Cursor has
+	inMem := []innerCursorReplace{b.active.newCursor()}
+	if b.flushing != nil {
+		inMem = append(inMem, b.flushing.newCursor())
+	}
+	segments, release := b.disk.getConsistentViewOfSegments()
+	return inMem, segments, release
+}
+
 type targetedScanTask struct {
 	seg        Segment
 	start, end []byte // key range [start,end); nil = open-ended
@@ -140,8 +150,8 @@ func buildTargetedScanTasks(segments []Segment, parallel int) []targetedScanTask
 		}
 		seeds := [][]byte{}
 		if rangesPerSeg > 1 {
-			// quantileKeys yields BFS order; ranges need sorted, unique bounds or they
-			// overlap and nodes get visited twice
+			// quantileKeys yields index-traversal (preorder) order; ranges need
+			// sorted, unique bounds or they overlap and nodes get visited twice
 			seeds = seg.quantileKeys(rangesPerSeg - 1)
 			slices.SortFunc(seeds, bytes.Compare)
 			seeds = slices.CompactFunc(seeds, bytes.Equal)
@@ -240,17 +250,17 @@ func scanTargetedSegmentRange(ctx context.Context, task targetedScanTask, peekSi
 				return err
 			}
 		}
-		if n.End-n.Start < 9 {
-			return fmt.Errorf("targeted scan: node at %d smaller than its header", n.Start)
-		}
-
 		for _, s := range hideSets {
 			if _, ok := s[string(n.Key)]; ok {
 				return nil
 			}
 		}
 		for _, newer := range task.newer {
-			if newer.hasKeyReplace(n.Key) {
+			has, err := newer.hasKeyReplace(n.Key)
+			if err != nil {
+				return err
+			}
+			if has {
 				return nil
 			}
 		}
@@ -305,7 +315,9 @@ type segmentNodeRange struct {
 
 // scanNodeRanges visits the primary index over key range [start,end) — nil bounds
 // (not merely empty) are open-ended — in key order, yielding each node's byte range
-// without reading any value bytes.
+// without reading any value bytes. Yielded ranges are validated against the
+// segment's data bounds, so a corrupt index offset surfaces as an error here
+// rather than sizing a read downstream.
 func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) error) error {
 	node, err := s.index.Seek(start)
 	for {
@@ -318,6 +330,12 @@ func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) 
 		if end != nil && bytes.Compare(node.Key, end) >= 0 {
 			return nil
 		}
+		// ordered so the subtraction cannot wrap on End < Start
+		if node.End <= node.Start || node.End-node.Start < 9 ||
+			node.Start < s.dataStartPos || node.End > s.dataEndPos {
+			return fmt.Errorf("targeted scan: node [%d,%d) outside data bounds [%d,%d) or smaller than its header",
+				node.Start, node.End, s.dataStartPos, s.dataEndPos)
+		}
 		if err := fn(segmentNodeRange{Key: node.Key, Start: node.Start, End: node.End}); err != nil {
 			return err
 		}
@@ -326,16 +344,22 @@ func (s *segment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRange) 
 }
 
 // hasKeyReplace: does the segment hold an entry (live or tombstoned) for key,
-// answered from the in-memory bloom filter and index only.
-func (s *segment) hasKeyReplace(key []byte) bool {
+// answered from the in-memory bloom filter and index only. Index errors are
+// propagated — treating them as "absent" would serve superseded rows.
+func (s *segment) hasKeyReplace(key []byte) (bool, error) {
 	if s.strategy != segmentindex.StrategyReplace {
-		return false
+		return false, nil
 	}
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		return false
+		return false, nil
 	}
-	_, err := s.index.Get(key)
-	return err == nil
+	if _, err := s.index.Get(key); err != nil {
+		if errors.Is(err, entlsmkv.NotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // readRange serves the segment bytes in [offset.start, offset.end). In mmap mode

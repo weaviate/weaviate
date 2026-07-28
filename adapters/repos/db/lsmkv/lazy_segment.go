@@ -314,7 +314,7 @@ func (s *lazySegment) scanNodeRanges(start, end []byte, fn func(n segmentNodeRan
 	return s.segment.scanNodeRanges(start, end, fn)
 }
 
-func (s *lazySegment) hasKeyReplace(key []byte) bool {
+func (s *lazySegment) hasKeyReplace(key []byte) (bool, error) {
 	s.mustLoad()
 	return s.segment.hasKeyReplace(key)
 }
