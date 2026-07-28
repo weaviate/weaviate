@@ -159,3 +159,20 @@ func TestPerformShutdown_TeardownErrorSticks(t *testing.T) {
 	clean.shut.Store(true)
 	require.NoError(t, clean.Shutdown(context.Background()))
 }
+
+// TestShardKnownShut pins the reactivation-eviction predicate: ONLY a shard
+// that completed a shutdown may be evicted from the map. An unloaded
+// LazyLoadShard is the normal steady state of a not-yet-loaded shard —
+// evicting it would race a concurrent Load() on the old wrapper into a second
+// instance over the same directory.
+func TestShardKnownShut(t *testing.T) {
+	require.False(t, shardKnownShut(&Shard{}))
+	require.False(t, shardKnownShut(&LazyLoadShard{}),
+		"never-loaded lazy shard must NOT be treated as shut")
+
+	shut := &Shard{}
+	shut.shut.Store(true)
+	require.True(t, shardKnownShut(shut))
+	require.True(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: shut}))
+	require.False(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: &Shard{}}))
+}

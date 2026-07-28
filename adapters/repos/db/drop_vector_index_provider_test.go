@@ -1450,7 +1450,15 @@ func TestShouldRetainCompletedTask(t *testing.T) {
 		"marker pending: the completed record must survive the TTL")
 	require.True(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusSwapping, nil)))
 	require.False(t, p.ShouldRetainCompletedTask(dropTask(distributedtask.TaskStatusFailed, nil)),
-		"FAILED records feed no coverage; TTL applies")
+		"a FAILED record with no completed units feeds nothing; TTL applies")
+
+	// A FAILED round's COMPLETED units DO feed coverage (EpochCoveredShards),
+	// so such records must survive the TTL while the marker is pending.
+	failedWithUnit := dropTask(distributedtask.TaskStatusFailed, map[string]*distributedtask.Unit{
+		"u1": {Status: distributedtask.UnitStatusCompleted},
+	})
+	require.True(t, p.ShouldRetainCompletedTask(failedWithUnit),
+		"failed-round completed-unit coverage is load-bearing and must not expire")
 
 	// Marker finalized (entry re-created live): nothing left to protect.
 	p.sharding = &fakeShardingReader{

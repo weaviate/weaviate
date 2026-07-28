@@ -99,6 +99,14 @@ func TestNewBucket_FailsWhenSidecarLocked(t *testing.T) {
 	_, err := newInterlockTestBucket(t, dir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "still locked by a previous instance")
+
+	// The failed load must not itself leak a handle: once the previous
+	// instance releases the lock, a retry succeeds (a leak would wedge every
+	// reload until process restart).
+	require.NoError(t, ext.Close())
+	b, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err, "retry after the lock is released must succeed")
+	require.NoError(t, b.Shutdown(context.Background()))
 }
 
 // TestSegmentEditOps_SidecarRemovedWithLastOp pins that deleting the last op

@@ -441,12 +441,20 @@ func (p *DropVectorIndexProvider) pollUntilEmpty(
 // records feed nothing and are never retained. A leader-read failure retains
 // (deletion is the irreversible direction; re-evaluated next tick).
 func (p *DropVectorIndexProvider) ShouldRetainCompletedTask(task *distributedtask.Task) bool {
-	if !task.Status.IsCompleted() {
-		return false
-	}
 	payload, err := decodeDropVectorIndexPayload(task.Payload)
 	if err != nil {
 		return false // unparseable records cannot feed coverage inheritance
+	}
+	// Mirror EpochCoveredShards exactly: completed (SWAPPING/FINISHED)
+	// records feed their full CoveredShards; a FAILED record feeds its
+	// COMPLETED units — expiring either while the marker is pending would
+	// erase load-bearing coverage and force a full re-clean. FAILED records
+	// with no completed units feed nothing; TTL takes them.
+	switch {
+	case task.Status.IsCompleted():
+	case task.Status == distributedtask.TaskStatusFailed && len(CompletedUnitShards(task, payload)) > 0:
+	default:
+		return false
 	}
 	stillDropped, err := p.targetsStillDropped(payload)
 	if err != nil {

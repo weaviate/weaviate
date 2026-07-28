@@ -162,7 +162,7 @@ type sgConfig struct {
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
 	compactionCallbacks cyclemanager.CycleCallbackGroup, b *Bucket, files map[string]int64,
-) (*SegmentGroup, error) {
+) (_ *SegmentGroup, err error) {
 	now := time.Now()
 	deleteMarkerCounter := new(atomic.Int64)
 	deleteMarkerCounter.Store(now.UnixMilli())
@@ -508,6 +508,17 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	if cfg.className != "" && cfg.strategy == StrategyReplace {
 		sg.editOps = newSegmentEditOps(cfg.dir, cfg.className)
 		sg.editOps.logger = sg.logger
+		// Any later init failure discards sg without a shutdown — the probe
+		// or recovery may have opened the sidecar's bolt (flock held), and a
+		// leaked handle wedges every reload retry until process restart.
+		defer func() {
+			if err != nil {
+				if closeErr := sg.editOps.Close(); closeErr != nil {
+					sg.logger.WithField("path", cfg.dir).
+						Warnf("close edit-ops sidecar after failed init: %v", closeErr)
+				}
+			}
+		}()
 	}
 
 	if err := b.mayRecoverFromCommitLogs(ctx, sg, files); err != nil {

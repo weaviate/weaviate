@@ -2929,10 +2929,13 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Load(shardName); shard != nil {
-		// Never trust a map hit on a shard that already shut down (e.g. the
-		// deferred ref-drain shutdown) — re-initialize fresh instead of
-		// leaving the tenant serving errAlreadyShutdown forever.
-		if !shardStillAlive(shard) {
+		// Never trust a map hit on a shard that already COMPLETED a shutdown
+		// (e.g. the deferred ref-drain one) — re-initialize fresh instead of
+		// leaving the tenant serving errAlreadyShutdown forever. Only
+		// known-shut entries qualify: an unloaded LazyLoadShard is normal
+		// steady state, and evicting it would race a concurrent Load() into
+		// a duplicate instance over the same directory.
+		if shardKnownShut(shard) {
 			i.shards.LoadAndDelete(shardName)
 		} else {
 			if mustLoad {

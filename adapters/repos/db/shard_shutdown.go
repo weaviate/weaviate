@@ -30,6 +30,24 @@ import (
 // it is still in use, so a failed close usually leaves a fully live instance —
 // the caller must then restore it to the shard map rather than orphan it (an
 // orphaned live instance lets a reactivation double-open the same directory).
+// shardKnownShut reports whether a map entry points at a shard that already
+// COMPLETED a shutdown — the only state a reactivation may evict. Distinct
+// from !shardStillAlive: an unloaded LazyLoadShard is the normal steady state
+// of every not-yet-loaded shard, and evicting it would race a concurrent
+// Load() on the old wrapper into a second instance over the same directory.
+func shardKnownShut(s ShardLike) bool {
+	switch sh := s.(type) {
+	case *Shard:
+		return sh.shut.Load()
+	case *LazyLoadShard:
+		sh.mutex.Lock()
+		defer sh.mutex.Unlock()
+		return sh.loaded && sh.shard.shut.Load()
+	default:
+		return false
+	}
+}
+
 func shardStillAlive(s ShardLike) bool {
 	switch sh := s.(type) {
 	case *Shard:
