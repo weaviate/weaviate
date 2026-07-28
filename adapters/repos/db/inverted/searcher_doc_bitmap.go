@@ -330,6 +330,9 @@ func (s *Searcher) docBitmapContainsBatch(ctx context.Context, b containsBatchBu
 func foldContainsAnyAccumulator(ctx context.Context, b containsBatchBucket,
 	view lsmkv.BucketConsistentView, keys [][]byte, maxConc int,
 ) (*sroar.Bitmap, func(), error) {
+	// TODO aliszka:gh12242 wire maxConc into the accumulator's Or once sroar
+	// supports concurrent deposits; today the accumulator is single-threaded
+	// and the budget goes unused here.
 	acc := sroar.NewAccumulator()
 	for _, key := range keys {
 		if err := ctxExpired(ctx); err != nil {

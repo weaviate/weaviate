@@ -1022,13 +1022,11 @@ const (
 )
 
 // classifyContainsBatch runs every shape check for the batched flat
-// ContainsAny/ContainsAll/ContainsNone fast path and reconciles the property with the
-// filter's value type, in one place: flat single-property path, no
-// internal/length/nested/ref/geo shape, filterable index backed by an actual
-// roaringset bucket, and a base value type matching the property (the
+// ContainsAny/ContainsAll/ContainsNone fast path and reconciles the property
+// with the filter's value type, in one place. Array value types decline: the
 // API layers normalize Contains value types to the base type before the
 // searcher, and the desugared per-value leaf extractors error on array value
-// types — batching them would succeed where the fallback path errors).
+// types — batching them would succeed where the fallback path errors.
 //
 // On decline it returns containsNotBatchable plus a containsDecline* reason,
 // which desugaredContains surfaces in the slow-query details; on success the
@@ -1127,7 +1125,7 @@ func encodeBatchedContainsKeys[T any](values []T, encode func(interface{}) ([]by
 	for i, v := range values {
 		k, err := encode(v)
 		if err != nil {
-			return nil, fmt.Errorf("value %d: %w", i, err)
+			return nil, fmt.Errorf("extract contains values: value %d: %w", i, err)
 		}
 		keys[i] = k
 	}
@@ -1159,7 +1157,7 @@ func (s *Searcher) batchedContainsUUID(property *models.Property, operator filte
 ) (*propValuePair, error) {
 	keys, err := encodeBatchedContainsKeys(values, s.extractUUIDValue)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1192,7 +1190,7 @@ func (s *Searcher) batchedContainsInt(property *models.Property, operator filter
 ) (*propValuePair, error) {
 	keys, err := encodeBatchedContainsKeys(values, s.extractIntValue)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1202,7 +1200,7 @@ func (s *Searcher) batchedContainsNumber(property *models.Property, operator fil
 ) (*propValuePair, error) {
 	keys, err := encodeBatchedContainsKeys(values, s.extractNumberValue)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1212,7 +1210,7 @@ func (s *Searcher) batchedContainsBool(property *models.Property, operator filte
 ) (*propValuePair, error) {
 	keys, err := encodeBatchedContainsKeys(values, s.extractBoolValue)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1222,7 +1220,7 @@ func (s *Searcher) batchedContainsDate(property *models.Property, operator filte
 ) (*propValuePair, error) {
 	keys, err := encodeBatchedContainsKeys(values, s.extractDateValue)
 	if err != nil {
-		return nil, fmt.Errorf("extract contains values: %w", err)
+		return nil, err
 	}
 	return newBatchedContainsPair(property, operator, class, keys)
 }
@@ -1234,7 +1232,7 @@ func (s *Searcher) batchedContainsDate(property *models.Property, operator filte
 // into per-value Equal operands.
 //
 // Batching additionally requires len(values) >= 2: a single desugared leaf
-// threads the query limit into its resolution, which the batched fold does
+// applies the query limit while resolving, which the batched fold does
 // not — and one value has no per-value overhead to amortize anyway.
 func (s *Searcher) extractContains(ctx context.Context,
 	path *filters.Path, propType schema.DataType, value interface{},

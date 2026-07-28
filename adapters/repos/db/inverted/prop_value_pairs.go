@@ -46,9 +46,7 @@ type propValuePair struct {
 
 	// containsValues holds pre-encoded on-disk keys for a flat, single-property
 	// Contains(Any|All|None) filter. When non-nil, resolveDocIDs routes to
-	// fetchContainsBatch instead of the children-based dispatch below;
-	// operator selects the fold: ContainsAll intersects, ContainsAny unions,
-	// ContainsNone unions and marks the result a deny list.
+	// fetchContainsBatch instead of the children-based dispatch below.
 	containsValues [][]byte
 }
 
