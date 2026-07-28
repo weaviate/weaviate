@@ -328,9 +328,11 @@ func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store 
 		t.onPropSwapped(propName)
 	}
 	// Legacy path writes the sentinel here; the atomic path defers it to
-	// SwapBucketAndSetOverlay's afterOverlay step (F1).
+	// SwapBucketAndSetOverlay's afterOverlay step (F1). Either way the write
+	// is unsynced — runtimeSwap fsyncs the dir once after the loop, because
+	// an fsync per prop blows the Phase 2a wall-clock budget.
 	if t.swapPropAtomic == nil {
-		if err := rt.markSwappedProp(propName); err != nil {
+		if err := rt.markSwappedPropUnsynced(propName); err != nil {
 			return nil, fmt.Errorf("marking swapped prop %q: %w", propName, err)
 		}
 	}
@@ -2001,6 +2003,20 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		if oldMainBucket != nil {
 			oldMainBuckets[propName] = oldMainBucket
 		}
+	}
+	// Batched durability for the per-prop sentinels written above. One dir
+	// fsync covers every entry, where an fsync per prop inside the loop cost
+	// ~35x the loop's entire base wall-clock and broke the atomic-phase
+	// budget on CI disks.
+	//
+	// A crash before this point leaves some or none of the sentinels durable,
+	// which is safe: the aggregate swapped.mig is written further below, so
+	// recovery re-enters via the merged state and recoverRuntimeSwapBuckets
+	// re-derives every prop from on-disk dir state, never from these
+	// sentinels (see its godoc). Phase 2a renames nothing, so the dirs are
+	// still exactly as they were.
+	if err := rt.syncSentinelDir(); err != nil {
+		return fmt.Errorf("syncing per-prop swap sentinels: %w", err)
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 

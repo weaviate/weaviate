@@ -53,6 +53,8 @@ type reindexTracker interface {
 	unmarkSwapped() error
 	IsSwappedProp(propName string) bool
 	markSwappedProp(propName string) error
+	markSwappedPropUnsynced(propName string) error
+	syncSentinelDir() error
 	unmarkSwappedProp(propName string) error
 
 	IsTidied() bool
@@ -432,6 +434,41 @@ func (t *fileReindexTracker) IsSwappedProp(propName string) bool {
 
 func (t *fileReindexTracker) markSwappedProp(propName string) error {
 	return t.createFile(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
+}
+
+// markSwappedPropUnsynced writes the per-prop sentinel without fsyncing it.
+// Phase 2a writes one of these per prop inside a loop with a wall-clock
+// budget, and an fsync per prop blows that budget on a slow disk; the
+// durability is batched into a single [fileReindexTracker.syncSentinelDir]
+// once the loop is done.
+//
+// Safe because IsSwappedProp is existence-only and nothing reads the file's
+// contents, so a directory fsync is the entire requirement — it makes the
+// entry durable even if the (unread) timestamp inside is lost.
+func (t *fileReindexTracker) markSwappedPropUnsynced(propName string) error {
+	return t.createFileUnsynced(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
+}
+
+// syncSentinelDir makes every sentinel written into the migration dir durable
+// in one fsync. Pairs with markSwappedPropUnsynced.
+func (t *fileReindexTracker) syncSentinelDir() error {
+	return diskio.Fsync(t.config.migrationPath)
+}
+
+// createFileUnsynced is createFile minus the fsyncs; the caller is
+// responsible for making the entry durable. See markSwappedPropUnsynced.
+func (t *fileReindexTracker) createFileUnsynced(filename string, content []byte) error {
+	f, err := os.OpenFile(t.filepath(filename), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
+	if err != nil {
+		return err
+	}
+	if len(content) > 0 {
+		if _, err := f.Write(content); err != nil {
+			f.Close()
+			return err
+		}
+	}
+	return f.Close()
 }
 
 func (t *fileReindexTracker) unmarkSwappedProp(propName string) error {

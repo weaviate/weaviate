@@ -361,6 +361,77 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 				"tidied":    false,
 			},
 		},
+		// The next two cases are the crash window Phase 2a's batched sentinel
+		// fsync introduces. Phase 2a flips pointers in memory and writes the
+		// per-prop sentinels unsynced, then fsyncs the dir once; it renames
+		// nothing, so a crash anywhere inside it leaves the disk in the merged
+		// state either way. What differs is how many sentinels survived:
+		// per-prop fsyncing (the old shape) kept them, batching can lose all
+		// of them. Both must converge, which is what makes the batching safe.
+		{
+			name: "Phase2a_crash_per_prop_sentinel_survived",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				task.skipSwapOnFinish.Store(true)
+				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+				for {
+					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					require.NoError(t, err)
+					if rerunAt.IsZero() {
+						break
+					}
+				}
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				props, err := task.readPropsToReindex(rt)
+				require.NoError(t, err)
+				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+				for _, p := range props {
+					require.NoError(t, rt.markSwappedPropUnsynced(p))
+				}
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true,
+				"prepended": true,
+				"merged":    true,
+				"swapped":   false,
+				"tidied":    false,
+			},
+		},
+		{
+			name: "Phase2a_crash_all_per_prop_sentinels_lost",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				task.skipSwapOnFinish.Store(true)
+				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+				for {
+					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					require.NoError(t, err)
+					if rerunAt.IsZero() {
+						break
+					}
+				}
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				props, err := task.readPropsToReindex(rt)
+				require.NoError(t, err)
+				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+
+				// Written, then lost with the un-fsynced dir entry.
+				ftr := rt.(*fileReindexTracker)
+				for _, p := range props {
+					require.NoError(t, rt.markSwappedPropUnsynced(p))
+					require.NoError(t, os.Remove(filepath.Join(ftr.config.migrationPath,
+						ftr.config.filenameSwapped+"."+p)))
+					require.False(t, rt.IsSwappedProp(p))
+				}
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true,
+				"prepended": true,
+				"merged":    true,
+				"swapped":   false,
+				"tidied":    false,
+			},
+		},
 		{
 			name: "IsSwapped_synthetic_tidied_sentinel_removed",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
