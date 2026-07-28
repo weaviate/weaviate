@@ -165,6 +165,17 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 // perfectly plausible 6.0, so neither the searcher's validity check nor the
 // untrack clamp ever sees anything wrong.
 func (t *JsonShardMetaData) clampCorruptTallies() {
+	// An explicit null in the file leaves either map nil, and the repair below
+	// writes to both. A nil-map write panics out of the load, and the recover
+	// returns before the repair is flushed -- so the file stays as it was and
+	// every later restart fails identically. Materialize first.
+	if t.data.CountData == nil {
+		t.data.CountData = map[string]int{}
+	}
+	if t.data.SumData == nil {
+		t.data.SumData = map[string]int{}
+	}
+
 	props := make(map[string]struct{}, len(t.data.CountData))
 	for prop := range t.data.CountData {
 		props[prop] = struct{}{}

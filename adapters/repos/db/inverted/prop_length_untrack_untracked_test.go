@@ -150,3 +150,36 @@ func TestNewJsonShardMetaData_ClampsInheritedCorruption(t *testing.T) {
 		})
 	}
 }
+
+// A file carrying an explicit null leaves one map nil. The repair writes to
+// both, so a nil-map write would panic out of the load -- and because recover
+// returns before the repair is flushed, the file would stay as it was and every
+// later restart would fail identically. Weaviate never writes null itself, so
+// this is only reachable from a file it did not produce, which is exactly what
+// the clamp is for.
+func TestNewJsonShardMetaData_NullMapDoesNotFailTheLoad(t *testing.T) {
+	tests := []struct {
+		name, raw string
+	}{
+		{"null counts against a corrupt sum", `{"BucketedData":{},"SumData":{"title":-12},"CountData":null}`},
+		{"null sums against a corrupt count", `{"BucketedData":{},"SumData":null,"CountData":{"title":-2}}`},
+		{"null counts against a healthy sum", `{"BucketedData":{},"SumData":{"title":50},"CountData":null}`},
+		{"both null", `{"BucketedData":{},"SumData":null,"CountData":null}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			trackerPath := path.Join(t.TempDir(), "proplengths")
+			require.NoError(t, os.WriteFile(trackerPath, []byte(tt.raw), 0o644))
+
+			tracker, err := NewJsonShardMetaData(trackerPath, logger)
+			require.NoError(t, err, "a null map must not fail the load: the recover path skips the repair flush, so the failure would repeat on every restart")
+			require.NotNil(t, tracker)
+
+			mean, err := tracker.PropertyMean("title")
+			require.NoError(t, err)
+			require.False(t, mean < 0, "a repaired tally must never yield a negative mean length")
+		})
+	}
+}
