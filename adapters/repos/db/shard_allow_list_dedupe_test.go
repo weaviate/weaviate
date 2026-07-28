@@ -71,6 +71,10 @@ func testFilter(value int) *filters.LocalFilter {
 
 // waitForParticipants blocks until n callers have joined token's build, so tests
 // can order leader and follower without sleeping.
+//
+// Counted as the leader plus admitted waiters, not as refs: join retains before
+// it admits, so a refs-based barrier releases between the two and lets the gate
+// open while the follower has not yet been counted as a participant.
 func waitForParticipants(t *testing.T, d *allowListDedupe, token string, n int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -80,9 +84,9 @@ func waitForParticipants(t *testing.T, d *allowListDedupe, token string, n int) 
 		d.mu.Unlock()
 		if ok {
 			b.mu.Lock()
-			refs := b.refs
+			participants := 1 + b.waiters
 			b.mu.Unlock()
-			if refs >= n {
+			if participants >= n {
 				return
 			}
 		}
@@ -263,6 +267,57 @@ func TestAllowListDedupeAdmitClosesAtPublish(t *testing.T) {
 
 	require.False(t, b.admit(),
 		"a joiner arriving after publish must be refused, not handed a finished build")
+}
+
+// TestAllowListDedupeCancelAtPublishReportsAsymmetric_Characterization asserts
+// CURRENT, KNOWN-WRONG behaviour, not desired behaviour. publish counts a
+// follower and reports shared; that same follower can still take do's ctx.Done()
+// branch when its context is cancelled in the same instant, and reports
+// cancelled. The pair reads shared : cancelled, which no other test covers.
+//
+// Probed at 31 in 200,000 two-leg queries, and 5,553 in 200,000 under -race, a
+// ~179x amplification. That makes it a CI-flake source rather than a
+// production-correctness one: waiters lands on zero rather than going negative,
+// and the bitmap is still released exactly once, both asserted below.
+//
+// Closing it means choosing between two meanings of shared — "a waiter was
+// counted at publish" or "a bitmap actually changed hands" — which is a
+// semantics decision for its own PR. Flip this test deliberately when that
+// lands; it exists so the flake is not re-derived from scratch by whoever
+// triages it.
+func TestAllowListDedupeCancelAtPublishReportsAsymmetric_Characterization(t *testing.T) {
+	d := &allowListDedupe{}
+
+	b, leader, fallback := d.join("tok", testFilter(100))
+	require.True(t, leader)
+	require.Empty(t, fallback)
+
+	// A follower joins while the build is still in flight, as join does: one
+	// reference, then counted as a participant.
+	b.retain()
+	require.True(t, b.admit(), "the follower is counted before publish")
+
+	var releases atomic.Int32
+	bm := roaringset.NewBitmap(1, 2, 3)
+	list := helpers.NewAllowListCloseableFromBitmap(bm, func() { releases.Add(1) })
+
+	require.True(t, d.publish("tok", b, list, bm),
+		"the leader reports shared, because a waiter was counted at publish")
+
+	// leave is not closed at publish the way admit now is, so a follower that
+	// gives up here un-counts itself after it has already been counted. This is
+	// the asymmetry: the leader has said shared, this leg will say cancelled.
+	b.leave()
+
+	b.mu.Lock()
+	waiters := b.waiters
+	b.mu.Unlock()
+	require.Equal(t, 0, waiters, "the follower un-counts to zero, never below")
+
+	require.EqualValues(t, 0, releases.Load(),
+		"the follower leaving must not release a buffer the leader still holds")
+	b.handle(bm).Close()
+	require.EqualValues(t, 1, releases.Load(), "the bitmap is released exactly once")
 }
 
 func TestAllowListDedupeDoubleCloseReleasesOnce(t *testing.T) {

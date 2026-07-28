@@ -403,9 +403,9 @@ func awaitParticipants(d *allowListDedupe, token string, n int, timeout time.Dur
 		d.mu.Unlock()
 		if ok {
 			b.mu.Lock()
-			refs := b.refs
+			participants := 1 + b.waiters
 			b.mu.Unlock()
-			if refs >= n {
+			if participants >= n {
 				return true
 			}
 		}
