@@ -110,7 +110,7 @@ type dynamic struct {
 	threshold                    uint64
 	index                        VectorIndex
 	upgraded                     atomic.Bool
-	upgradeOnce                  sync.Once
+	upgradeInFlight              atomic.Bool
 	tombstoneCallbacks           cyclemanager.CycleCallbackGroup
 	uc                           ent.UserConfig
 	db                           *bbolt.DB
@@ -540,19 +540,29 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return dynamic.index.(upgradableIndexer).Upgrade(callback)
 	}
 
-	dynamic.upgradeOnce.Do(func() {
-		enterrors.GoWrapper(func() {
-			defer callback()
-			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
+	// A gate rather than a sync.Once: a Once is spent by a FAILED attempt, after
+	// which every later call starts no goroutine, fires no callback and returns
+	// nil — leaving the caller's paused queue with nothing left to resume it.
+	// Once-ever semantics already come from dynamic.upgraded above.
+	if !dynamic.upgradeInFlight.CompareAndSwap(false, true) {
+		// Another upgrade is running; its callback resumes the queue, and the
+		// scheduler's paused flag is a boolean, so that one resume covers this
+		// caller's pause too.
+		return nil
+	}
 
-			err := dynamic.doUpgrade()
-			if err != nil {
-				dynamic.logger.WithError(err).Error("failed to upgrade index")
-				return
-			}
-			dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
-		}, dynamic.logger)
-	})
+	enterrors.GoWrapper(func() {
+		defer callback()
+		defer dynamic.upgradeInFlight.Store(false)
+		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW started")
+
+		err := dynamic.doUpgrade()
+		if err != nil {
+			dynamic.logger.WithError(err).Error("failed to upgrade index")
+			return
+		}
+		dynamic.logger.WithField("shard", dynamic.shardName).WithField("class", dynamic.className).Debugf("upgrade to HNSW completed")
+	}, dynamic.logger)
 
 	return nil
 }
