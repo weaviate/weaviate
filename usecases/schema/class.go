@@ -501,6 +501,20 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
+	// Removing a VectorConfig entry through the generic update is the same
+	// surface DeleteClassVectorIndex hardens: dropping a "none"-marked entry
+	// performs the drop's schema-visible completion, and dropping a live one
+	// discards an index outright. Both demand the drop endpoint's scope
+	// (Collections = metadata + data), not metadata-only.
+	for name := range initial.VectorConfig {
+		if _, ok := updated.VectorConfig[name]; !ok {
+			if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
+				return err
+			}
+			break
+		}
+	}
+
 	return UpdateClassInternal(h, ctx, className, updated)
 }
 

@@ -104,3 +104,82 @@ func TestAuthzDeleteClassVectorIndex(t *testing.T) {
 		require.NoError(t, dropVectorIndex("toDrop", customKey))
 	})
 }
+
+// TestAuthzUpdateClassVectorConfigRemoval pins the generic-update side of the
+// same hardened surface: PUT /v1/schema/{class} with a VectorConfig entry
+// missing reaches the identical removal checkpoint the drop endpoint guards,
+// so it demands the drop endpoint's scope (Collections, not metadata-only).
+// An update that keeps every entry must NOT be escalated.
+func TestAuthzUpdateClassVectorConfigRemoval(t *testing.T) {
+	adminAuth := helper.CreateAuth(sharedRootKey)
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	_, down := composeUpShared(t)
+	defer down()
+
+	className := "AuthzUpdateVectorRemoval"
+	deleteObjectClass(t, className, adminAuth)
+
+	noneVectorizer := map[string]any{"none": map[string]any{}}
+	c := &models.Class{
+		Class: className,
+		VectorConfig: map[string]models.VectorConfig{
+			"toRemove": {Vectorizer: noneVectorizer, VectorIndexType: "hnsw"},
+			"sibling":  {Vectorizer: noneVectorizer, VectorIndexType: "hnsw"},
+		},
+	}
+	helper.CreateClassAuth(t, c, sharedRootKey)
+	defer deleteObjectClass(t, className, adminAuth)
+
+	roleName := "updateCollectionsOnlyPut"
+	role := &models.Role{
+		Name: &roleName,
+		Permissions: []*models.Permission{
+			helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(className).Permission(),
+		},
+	}
+	helper.CreateRole(t, sharedRootKey, role)
+	defer helper.DeleteRole(t, sharedRootKey, roleName)
+	helper.AssignRoleToUser(t, sharedRootKey, roleName, customUser)
+	defer helper.RevokeRoleFromUser(t, sharedRootKey, roleName, customUser)
+
+	t.Run("metadata-only may update without removing entries", func(t *testing.T) {
+		full := helper.GetClassAuth(t, className, sharedRootKey)
+		full.Description = "still all vectors present"
+		_, err := helper.UpdateClassAuthWithReturn(t, className, full, customKey)
+		require.NoError(t, err, "no escalation may fire when every VectorConfig entry is kept")
+	})
+
+	t.Run("metadata-only is denied a vector-entry removal", func(t *testing.T) {
+		stripped := helper.GetClassAuth(t, className, sharedRootKey)
+		delete(stripped.VectorConfig, "toRemove")
+		_, err := helper.UpdateClassAuthWithReturn(t, className, stripped, customKey)
+		require.Error(t, err, "metadata-only update must not authorize a vector-entry removal")
+		var forbidden *clschema.SchemaObjectsUpdateForbidden
+		require.True(t, errors.As(err, &forbidden))
+	})
+
+	t.Run("collections + data scope passes the authz checkpoint", func(t *testing.T) {
+		dataRoleName := "updateCollectionsAndDataPut"
+		dataRole := &models.Role{
+			Name: &dataRoleName,
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(className).Permission(),
+				helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(className).Permission(),
+			},
+		}
+		helper.CreateRole(t, sharedRootKey, dataRole)
+		defer helper.DeleteRole(t, sharedRootKey, dataRoleName)
+		helper.AssignRoleToUser(t, sharedRootKey, dataRoleName, customUser)
+		defer helper.RevokeRoleFromUser(t, sharedRootKey, dataRoleName, customUser)
+
+		stripped := helper.GetClassAuth(t, className, sharedRootKey)
+		delete(stripped.VectorConfig, "toRemove")
+		_, err := helper.UpdateClassAuthWithReturn(t, className, stripped, customKey)
+		var forbidden *clschema.SchemaObjectsUpdateForbidden
+		require.False(t, errors.As(err, &forbidden),
+			"the drop endpoint's scope must clear the authz checkpoint (got %v)", err)
+	})
+}

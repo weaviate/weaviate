@@ -612,6 +612,8 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 			h.testProviders = append(h.testProviders, tp)
 		case *unitAwareTestProvider:
 			h.testProviders = append(h.testProviders, tp.testTaskProvider)
+		case *retainingTestProvider:
+			h.testProviders = append(h.testProviders, tp.testTaskProvider)
 		}
 	}
 

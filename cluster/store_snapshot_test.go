@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/mocks"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -98,6 +100,70 @@ func TestSnapshotCapturesStateAtSnapshotTime(t *testing.T) {
 	require.NoError(t, snapshot.Persist(sink))
 	require.NotContains(t, sink.Buffer.String(), "committed-after-snapshot",
 		"state committed after Snapshot() leaked into the persisted snapshot")
+}
+
+// TestSnapshotRestore_DistributedTaskStateRoundTrip pins that DTM state — the
+// records the drop-vector purge-refusal and removal-gate verdicts read —
+// survives an actual Persist→Restore round trip, and that Restore REPLACES
+// the target's DTM state rather than merging: a pre-existing task on the
+// restoring node that the snapshot's producer never had must be gone, or this
+// node alone would refuse applies its peers accept.
+func TestSnapshotRestore_DistributedTaskStateRoundTrip(t *testing.T) {
+	source := NewMockStore(t, "dtm-source-node", utils.MustGetFreeTCPPort())
+	setupTestSchema(t, source)
+
+	payloadBytes, err := json.Marshal(map[string]string{"collection": "Product"})
+	require.NoError(t, err)
+	applyDTM := func(ms MockStore, typ cmd.ApplyRequest_Type, sub any) {
+		t.Helper()
+		log := raft.Log{Data: cmdAsBytes("", typ, sub, nil)}
+		resp, ok := ms.store.Apply(&log).(Response)
+		require.True(t, ok)
+		require.NoError(t, resp.Error)
+	}
+
+	// One task with two units, one unit completed — the exact per-unit shape
+	// coverage inheritance keys off.
+	applyDTM(source, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+		&cmd.AddDistributedTaskRequest{
+			Namespace: "test-namespace", Id: "drop-a", Payload: payloadBytes,
+			SubmittedAtUnixMillis: 1, UnitIds: []string{"s1", "s2"},
+		})
+	applyDTM(source, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED,
+		&cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace: "test-namespace", Id: "drop-a",
+			NodeId: "dtm-source-node", UnitId: "s1", FinishedAtUnixMillis: 2,
+		})
+
+	snapshot, err := source.store.Snapshot()
+	require.NoError(t, err)
+	sink := &mocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+	require.NoError(t, snapshot.Persist(sink))
+
+	target := NewMockStore(t, "dtm-target-node", utils.MustGetFreeTCPPort())
+	target.store.init()
+	target.parser.On("ParseClass", mock.Anything).Return(nil)
+	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+	target.indexer.On("AddClass", mock.Anything).Return(nil)
+	// Pre-existing task the snapshot producer never had: must NOT survive.
+	applyDTM(target, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+		&cmd.AddDistributedTaskRequest{
+			Namespace: "test-namespace", Id: "pre-existing", Payload: payloadBytes,
+			SubmittedAtUnixMillis: 1, UnitIds: []string{"u-1"},
+		})
+
+	require.NoError(t, target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes()))))
+
+	tasks, err := target.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tasks["test-namespace"], 1, "post-Restore state must equal the snapshot, not pre-state ∪ snapshot")
+	restored := tasks["test-namespace"][0]
+	require.Equal(t, "drop-a", restored.ID)
+	require.Equal(t, distributedtask.UnitStatusCompleted, restored.Units["s1"].Status,
+		"per-unit completion state must survive the round trip")
+	require.Equal(t, distributedtask.UnitStatusPending, restored.Units["s2"].Status)
 }
 
 // TestSchemaSnapshotEmptyStore tests snapshot persistence and restoration with an empty store

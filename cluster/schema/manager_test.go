@@ -923,6 +923,30 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 			"retriggers and unrelated updates must not purge the ACTIVE drop's records")
 	})
 
+	t.Run("db-side apply failure cannot strand the purge: marker still stands", func(t *testing.T) {
+		// The purge is irreversible and commits inside the same updateSchema
+		// closure as the marker assignment; db.UpdateClass runs AFTER both
+		// and its failure is node-local. The invariant that keeps the purge
+		// sound is "purge committed ⇒ marker committed": the drop then
+		// proceeds from the schema marker via reconciliation regardless of
+		// the store-side error, so the purged records are never missed.
+		deleter := &fakeCascadeDeleter{}
+		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": hnsw}}
+		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
+		sm := newSM(deleter, initial, parsed)
+		indexer := fakes.NewMockSchemaExecutor()
+		indexer.On("UpdateClass", mock.Anything).Return(fmt.Errorf("disk full"))
+		sm.db = indexer
+
+		err := sm.UpdateClass(mkRequest(parsed), "test-node", false, false)
+		require.Error(t, err, "the store-side failure must surface to the proposer")
+		require.Len(t, deleter.targetCalls, 1, "purge committed with the schema update")
+		got, _ := sm.schema.ReadOnlyClass("C")
+		require.NotNil(t, got)
+		require.Equal(t, none, got.VectorConfig["vec1"].VectorIndexType,
+			"the marker must stand whenever the purge ran — purge-without-marker is the unsound state")
+	})
+
 	t.Run("a rejected apply must not purge (gate runs first)", func(t *testing.T) {
 		// One PUT that both introduces a marker on vecA and illegally removes
 		// the dropped vecB: the removal gate rejects the apply, and vecA's
