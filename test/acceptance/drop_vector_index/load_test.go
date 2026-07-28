@@ -33,9 +33,10 @@ import (
 // propagates to every node's local schema (each node's shard-level reject
 // reads its own view, so a carrying write in the propagation window can be
 // accepted by a not-yet-applied owner — by design), and the collection stays
-// fully available while the drop task runs. The task cannot finalize before
-// its first 30s poll tick, so a ~35s write/query loop is guaranteed to
-// overlap an active drop end to end.
+// fully available while the drop task runs. Arming the drop snapshots every
+// current segment as pending, so the task's immediate first poll always finds
+// work and the earliest possible finalize is one 30s tick later; a ~35s
+// write/query loop is guaranteed to overlap an active drop end to end.
 func testSustainedLoad(compose *docker.DockerCompose) func(t *testing.T) {
 	return func(t *testing.T) {
 		const (
@@ -109,11 +110,15 @@ func testSustainedLoad(compose *docker.DockerCompose) func(t *testing.T) {
 			t.Logf("%d/%d objects still surface the dropped vector right after the drop", stillCarrying, baseCount)
 		})
 
+		// Strict: the marker is this subtest's subject, and the base objects
+		// occupy flushed segments that gate finalize behind a 30s tick, so an
+		// already-removed entry here means the marker was never observed rather
+		// than that the finalizer raced ahead.
 		t.Run("marker is visible on every node", func(t *testing.T) {
 			defer helper.SetupClient(compose.GetWeaviate().URI())
 			for _, uri := range weaviateNodeURIs(compose) {
 				helper.SetupClient(uri)
-				helper.AssertVectorIndexDropped(t, className, dropped)
+				helper.AssertVectorIndexDropMarked(t, className, dropped)
 			}
 		})
 
