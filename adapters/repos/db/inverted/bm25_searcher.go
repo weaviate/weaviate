@@ -459,7 +459,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	if params.SearchOperator == common_filters.SearchOperatorAndCross {
 		analyzerByTokenization := make(map[string]string, len(props))
 		for _, pi := range props {
-			analyzerByTokenization[pi.tokKey] = analyzerFingerprint(pi.prop)
+			analyzerByTokenization[pi.tokKey] = analyzerFingerprint(pi.prop, pi.effectiveTokenization)
 		}
 		crossPropQueryTerms, crossPropDuplicateBoosts, err = sharedCrossPropQueryTerms(analyzerByTokenization,
 			propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization)
@@ -486,7 +486,11 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 // analyzerFingerprint identifies the settings that decide how a property tokenizes
 // the query. Properties agreeing on it produce the same query terms.
-func analyzerFingerprint(prop *models.Property) string {
+//
+// The tokenization must be the effective one, not prop.Tokenization: the per-shard
+// overlay can resolve two properties carrying identical schema settings to different
+// live analyzers, and those tokenize the same query differently.
+func analyzerFingerprint(prop *models.Property, effectiveTokenization string) string {
 	asciiFold := false
 	stopwordPreset := ""
 	var asciiFoldIgnore []string
@@ -496,7 +500,7 @@ func analyzerFingerprint(prop *models.Property) string {
 		slices.Sort(asciiFoldIgnore)
 	}
 	return fmt.Sprintf("%s|asciiFold=%t|asciiFoldIgnore=%s|stopwordPreset=%s",
-		prop.Tokenization, asciiFold, strings.Join(asciiFoldIgnore, ","), stopwordPreset)
+		effectiveTokenization, asciiFold, strings.Join(asciiFoldIgnore, ","), stopwordPreset)
 }
 
 // sharedCrossPropQueryTerms returns the terms every searched property agrees on,
