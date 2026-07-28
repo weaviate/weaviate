@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -27,9 +28,17 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	dbqueue "github.com/weaviate/weaviate/adapters/repos/db/queue"
+	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	vhnsw "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // Pins the shared-halt lost-write bug: a transfer consumer that halts a shard
@@ -214,20 +223,9 @@ func objectsSnapshotHas(t *testing.T, rootPath string, files []string, id string
 	ctx := context.Background()
 
 	bucketDir := filepath.Join(t.TempDir(), helpers.ObjectsBucketLSM)
-	require.NoError(t, os.MkdirAll(bucketDir, 0o755))
-
-	segmentPrefix := filepath.Join("lsm", helpers.ObjectsBucketLSM) + string(filepath.Separator)
-	copied := 0
-	for _, relPath := range files {
-		if !strings.Contains(relPath, segmentPrefix) {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(rootPath, relPath))
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(bucketDir, filepath.Base(relPath)), data, 0o644))
-		copied++
-	}
-	require.Positive(t, copied, "no objects-bucket segment was listed for the snapshot")
+	segmentDir := filepath.Join("lsm", helpers.ObjectsBucketLSM) + string(filepath.Separator)
+	require.Positive(t, copyListedFiles(t, rootPath, files, segmentDir, bucketDir),
+		"no objects-bucket segment was listed for the snapshot")
 
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx, bucketDir, "", logrus.New(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
@@ -273,3 +271,137 @@ func (t *lateWriteTask) Execute(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
+// The HNSW half of the same defect, and the half that stays exposed even where
+// the LSM half does not: IncomingListFiles flushes memtables itself before
+// listing, but nothing outside index.PrepareForBackup switches the commit log,
+// and hnsw.ListFiles deliberately excludes the active one. So a replica COPY
+// overlapping another COPY — which the replication FSM explicitly permits on a
+// shared source shard — silently ships a replica missing every vector written
+// since the first COPY halted.
+func TestShard_SharedHaltSealsLateVectors(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className},
+		enthnsw.NewDefaultUserConfig(), false, false, false)
+	t.Cleanup(func() {
+		_ = idx.drop()
+		_ = os.RemoveAll(idx.Config.RootPath)
+	})
+	s := shd.(*Shard)
+
+	baseline := testObject(className)
+	baseline.Vector = []float32{1, 0, 0}
+	require.NoError(t, s.PutObject(ctx, baseline))
+
+	require.NoError(t, s.HaltForTransfer(ctx, false, 0))
+	t.Cleanup(func() {
+		for s.haltForTransferCount > 0 {
+			require.NoError(t, s.resumeMaintenanceCycles(ctx))
+		}
+	})
+
+	// Commit-log file names are unix seconds, so a switch within the same second
+	// as the previous one reopens the same path in append mode and the late
+	// write's file stays the active — and therefore unlisted — one.
+	time.Sleep(1100 * time.Millisecond)
+
+	late := testObject(className)
+	late.Vector = []float32{0, 1, 0}
+	require.NoError(t, s.PutObject(ctx, late))
+
+	require.NoError(t, s.HaltForTransfer(ctx, false, 0))
+	require.Equal(t, 2, s.haltForTransferCount)
+
+	files, err := s.ListBackupFiles(ctx, &backup.ShardDescriptor{})
+	require.NoError(t, err)
+
+	baselineDocID := docIDOf(t, s, baseline.ID())
+	lateDocID := docIDOf(t, s, late.ID())
+
+	restored := restoreIndexFromListedCommitLogs(t, s.index.Config.RootPath, files, map[uint64][]float32{
+		baselineDocID: baseline.Vector,
+		lateDocID:     late.Vector,
+	})
+
+	require.True(t, restored.ContainsDoc(baselineDocID),
+		"vector sealed before any halt is missing from the restored index — the reconstruction itself is broken")
+	require.True(t, restored.ContainsDoc(lateDocID),
+		"vector written before this consumer's halt is missing from its file list — the commit log was never switched")
+
+	ids, _, err := restored.SearchByVector(ctx, late.Vector, 2, nil)
+	require.NoError(t, err)
+	require.Contains(t, ids, lateDocID, "late vector is present but unreachable in the restored graph")
+}
+
+// restoreIndexFromListedCommitLogs rebuilds an HNSW index from exactly the
+// commit-log files in the listing — what a transfer target receives — by
+// replaying them into a throwaway root. vectors backs the restored index's
+// VectorForID, standing in for the LSM store that would be shipped alongside.
+func restoreIndexFromListedCommitLogs(t *testing.T, rootPath string, files []string, vectors map[uint64][]float32) *vhnsw.HNSW {
+	t.Helper()
+
+	// The commit-log directory name embeds the shard's legacy (unnamed) vector
+	// index id, which is what a default single-vector collection uses.
+	const commitLogDir = "main.hnsw.commitlog.d"
+	restoreRoot := filepath.Join(t.TempDir(), "shard")
+	// Deliberately not asserting a non-zero copy count: when the switch never
+	// happens the listing legitimately holds no commit log at all, and that
+	// belongs on the missing-vector assertion rather than on file plumbing.
+	copyListedFiles(t, rootPath, files, commitLogDir, filepath.Join(restoreRoot, commitLogDir))
+
+	logger := logrus.New()
+	restored, err := vhnsw.New(vhnsw.Config{
+		RootPath:         restoreRoot,
+		ID:               "main",
+		Logger:           logger,
+		DistanceProvider: distancer.NewCosineDistanceProvider(),
+		AllocChecker:     memwatch.NewDummyMonitor(),
+		DisableSnapshots: true,
+		MakeCommitLoggerThunk: func() (vhnsw.CommitLogger, error) {
+			return vhnsw.NewCommitLogger(restoreRoot, "main", logger,
+				cyclemanager.NewCallbackGroupNoop(), vhnsw.WithSnapshotDisabled(true))
+		},
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[id], nil
+		},
+		GetViewThunk:      func() vcommon.BucketView { return sharedHaltNoopBucketView{} },
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = restored.Shutdown(context.Background()) })
+
+	return restored
+}
+
+// copyListedFiles copies every listed file whose path contains dirMarker into
+// dstDir, flattened, and returns how many were copied.
+func copyListedFiles(t *testing.T, rootPath string, files []string, dirMarker, dstDir string) int {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dstDir, 0o755))
+
+	copied := 0
+	for _, relPath := range files {
+		if !strings.Contains(relPath, dirMarker) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(rootPath, relPath))
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dstDir, filepath.Base(relPath)), data, 0o644))
+		copied++
+	}
+	return copied
+}
+
+func docIDOf(t *testing.T, s *Shard, id strfmt.UUID) uint64 {
+	t.Helper()
+
+	obj, err := s.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{})
+	require.NoError(t, err)
+	require.NotNil(t, obj)
+	return obj.DocID
+}
+
+type sharedHaltNoopBucketView struct{}
+
+func (sharedHaltNoopBucketView) ReleaseView() {}
