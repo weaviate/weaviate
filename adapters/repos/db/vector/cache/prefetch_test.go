@@ -42,6 +42,28 @@ func TestPrefetch(t *testing.T) {
 		c.Prefetch(id)
 	}
 
+	// Out-of-range ids must be a safe no-op for Prefetch and return nil from
+	// PrefetchGet, on both cache flavors.
+	outOfRange := uint64(InitialSize + 10)
+	c.Prefetch(outOfRange)
+	if got := c.PrefetchGet(outOfRange); got != nil {
+		t.Errorf("PrefetchGet(%d) = %v, want nil", outOfRange, got)
+	}
+	mc := NewShardedMultiByteLockCache(vecForID, 1000, logger, 0, memwatch.NewDummyMonitor())
+	defer mc.Drop()
+	mc.Prefetch(outOfRange)
+	if got := mc.PrefetchGet(outOfRange); got != nil {
+		t.Errorf("multi PrefetchGet(%d) = %v, want nil", outOfRange, got)
+	}
+
+	// PrefetchGet returns the cached slice without loading; empty slots are nil.
+	if got := c.PrefetchGet(1); len(got) != 784 {
+		t.Errorf("PrefetchGet(1) len = %d, want 784", len(got))
+	}
+	if got := c.PrefetchGet(3); got != nil { // never loaded
+		t.Errorf("PrefetchGet(3) = %v, want nil", got)
+	}
+
 	var wg sync.WaitGroup
 	for w := range 4 {
 		wg.Add(1)

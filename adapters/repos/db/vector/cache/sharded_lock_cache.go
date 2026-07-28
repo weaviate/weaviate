@@ -321,6 +321,10 @@ func (s *shardedLockCache[T]) UnlockAll() {
 
 func (s *shardedLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return
+	}
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
 
@@ -767,6 +771,10 @@ func (s *shardedMultipleLockCache[T]) UnlockAll() {
 
 func (s *shardedMultipleLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return
+	}
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
 

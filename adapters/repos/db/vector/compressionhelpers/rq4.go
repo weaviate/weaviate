@@ -172,8 +172,9 @@ func ZeroRQ4Code(d int) RQ4Code {
 }
 
 func (c RQ4Code) String() string {
+	packed := c.Packed()
 	return fmt.Sprintf("RQ4Code{Lower: %.4f, Step: %.4f, CodeSum: %.4f, Norm2: %.4f, Packed[:5]: %v}",
-		c.Lower(), c.Step(), c.CodeSum(), c.Norm2(), c.Packed()[:5])
+		c.Lower(), c.Step(), c.CodeSum(), c.Norm2(), packed[:min(5, len(packed))])
 }
 
 // rq4ClipFactors are the candidate shrink factors for the per-vector
