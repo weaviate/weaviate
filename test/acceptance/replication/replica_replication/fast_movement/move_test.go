@@ -22,11 +22,12 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceReplica() {
+func (suite *ReplicationMovementTestSuite) TestReplicationReplicateMOVEDeletesSourceReplica() {
 	t := suite.T()
 
 	helper.SetupClient(suite.compose.GetWeaviate().URI())
@@ -43,7 +44,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 	}
 	helper.CreateObjectsBatch(t, batch)
 
-	req := getRequest(t, paragraphClass.Class)
+	req := common.GetRequest(t, paragraphClass.Class)
 
 	move := "MOVE"
 	req.Type = &move

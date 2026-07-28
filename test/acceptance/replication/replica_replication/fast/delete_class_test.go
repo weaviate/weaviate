@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
@@ -55,7 +56,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 
 		var id strfmt.UUID
 		t.Run("create replication operation", func(t *testing.T) {
-			created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+			created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(common.GetRequest(t, paragraphClass.Class)), nil)
 			require.Nil(t, err)
 			require.NotNil(t, created)
 			require.NotNil(t, created.Payload)

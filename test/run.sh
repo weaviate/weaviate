@@ -20,6 +20,7 @@ function main() {
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
   run_acceptance_replica_replication_fast_tests=false
+  run_acceptance_replica_replication_fast_movement_tests=false
   run_acceptance_replica_replication_slow_tests=false
   run_acceptance_async_replication_tests=false
   run_acceptance_objects=false
@@ -75,6 +76,7 @@ function main() {
           --acceptance-only-mcp|-aom) run_all_tests=false; run_acceptance_only_mcp=true;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
           --acceptance-only-replica-replication-fast|-aorrf) run_all_tests=false; run_acceptance_replica_replication_fast_tests=true ;;
+          --acceptance-only-replica-replication-fast-movement|-aorrfm) run_all_tests=false; run_acceptance_replica_replication_fast_movement_tests=true ;;
           --acceptance-only-replica-replication-slow|-aorrs) run_all_tests=false; run_acceptance_replica_replication_slow_tests=true ;;
           --acceptance-only-async-replication|-aoar) run_all_tests=false; run_acceptance_async_replication_tests=true ;;
           --acceptance-only-objects|-aoob) run_all_tests=false; run_acceptance_objects=true ;;
@@ -159,7 +161,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
+  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_fast_movement_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -190,7 +192,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects
+    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_fast_movement_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -363,6 +365,10 @@ function run_acceptance_tests() {
   if $run_acceptance_replica_replication_fast_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance replica replication replication fast"
     run_acceptance_replica_replication_fast_tests "$@"
+  fi
+  if $run_acceptance_replica_replication_fast_movement_tests || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance replica replication replication fast movement"
+    run_acceptance_replica_replication_fast_movement_tests "$@"
   fi
   if $run_acceptance_replica_replication_slow_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance replica replication replication slow"
@@ -736,7 +742,16 @@ function run_acceptance_only_mcp() {
 }
 
 function run_acceptance_replica_replication_fast_tests() {
-  for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/fast'); do
+  for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/fast$'); do
+    if ! go test -timeout=30m -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_acceptance_replica_replication_fast_movement_tests() {
+  for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/fast_movement$'); do
     if ! go test -timeout=30m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1

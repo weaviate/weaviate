@@ -24,8 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
@@ -99,7 +98,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get collection and shard sharding state", func(t *testing.T) {
-		shard := getRequest(t, paragraphClass.Class).Shard
+		shard := common.GetRequest(t, paragraphClass.Class).Shard
 		shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
 		require.Nil(t, err)
 		require.NotNil(t, shardingState)
@@ -135,7 +134,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("create replication operation", func(t *testing.T) {
-		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(common.GetRequest(t, paragraphClass.Class)), nil)
 		require.Nil(t, err)
 		require.NotNil(t, created)
 		require.NotNil(t, created.Payload)
@@ -178,7 +177,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get replication operation by collection and shard", func(t *testing.T) {
-		shard := getRequest(t, paragraphClass.Class).Shard
+		shard := common.GetRequest(t, paragraphClass.Class).Shard
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
 		require.Nil(t, err)
 		found := false
@@ -192,7 +191,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get replication operation by target node", func(t *testing.T) {
-		nodeID := getRequest(t, paragraphClass.Class).TargetNode
+		nodeID := common.GetRequest(t, paragraphClass.Class).TargetNode
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithTargetNode(nodeID), nil)
 		require.Nil(t, err)
 		found := false
@@ -281,7 +280,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("create one op and immediately delete all replication ops", func(t *testing.T) {
-		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(common.GetRequest(t, paragraphClass.Class)), nil)
 		require.Nil(t, err)
 		require.NotNil(t, created)
 		require.NotNil(t, created.Payload)
@@ -319,35 +318,4 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 			}
 		}
 	})
-}
-
-func getRequest(t *testing.T, className string) *models.ReplicationReplicateReplicaRequest {
-	verbose := verbosity.OutputVerbose
-	var nodesResp *nodes.NodesGetClassOK
-	var err error
-
-	// Wait for the class to be fully initialized and propagated across the cluster
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		nodesResp, err = helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
-		assert.Nil(ct, err, "NodesGetClass should succeed")
-		if err == nil {
-			assert.NotNil(ct, nodesResp, "nodes response should not be nil")
-			if nodesResp != nil && nodesResp.Payload != nil && len(nodesResp.Payload.Nodes) >= 2 {
-				assert.GreaterOrEqual(ct, len(nodesResp.Payload.Nodes[0].Shards), 1, "first node should have at least one shard")
-			}
-		}
-	}, 30*time.Second, 100*time.Millisecond, "class %s should be initialized and available on nodes", className)
-
-	require.NoError(t, err)
-	require.NotNil(t, nodesResp)
-	require.NotNil(t, nodesResp.Payload)
-	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes), 2, "should have at least 2 nodes")
-	require.GreaterOrEqual(t, len(nodesResp.Payload.Nodes[0].Shards), 1, "first node should have at least one shard")
-
-	return &models.ReplicationReplicateReplicaRequest{
-		Collection: &className,
-		SourceNode: &nodesResp.Payload.Nodes[0].Name,
-		TargetNode: &nodesResp.Payload.Nodes[1].Name,
-		Shard:      &nodesResp.Payload.Nodes[0].Shards[0].Name,
-	}
 }

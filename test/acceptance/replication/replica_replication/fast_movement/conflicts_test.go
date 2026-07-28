@@ -23,11 +23,12 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
+func (suite *ReplicationMovementTestSuite) TestReplicationReplicateConflictsCOPY() {
 	t := suite.T()
 
 	helper.SetupClient(suite.compose.GetWeaviate().URI())
@@ -43,7 +44,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 	}
 	helper.CreateObjectsBatch(t, batch)
 
-	req := getRequest(t, paragraphClass.Class)
+	req := common.GetRequest(t, paragraphClass.Class)
 
 	var id strfmt.UUID
 	t.Run("create COPY replication operation and wait until the replica is in the sharding state", func(t *testing.T) {
@@ -123,7 +124,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 	})
 }
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
+func (suite *ReplicationMovementTestSuite) TestReplicationReplicateConflictsMOVE() {
 	t := suite.T()
 
 	helper.SetupClient(suite.compose.GetWeaviate().URI())
@@ -131,7 +132,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)
 
-	req := getRequest(t, paragraphClass.Class)
+	req := common.GetRequest(t, paragraphClass.Class)
 
 	move := "MOVE"
 	req.Type = &move
