@@ -168,12 +168,23 @@ func TestDocBitmapContainsBatch_UnsupportedOperator(t *testing.T) {
 }
 
 func TestResolveDocIDs_ContainsKeysRequireContainsOperator(t *testing.T) {
-	pv := &propValuePair{
-		operator:       filters.OperatorEqual,
-		containsValues: [][]byte{[]byte("a"), []byte("b")},
+	tests := []struct {
+		name     string
+		operator filters.Operator
+	}{
+		{name: "defined non-contains operator", operator: filters.OperatorEqual},
+		{name: "operator outside the enum", operator: filters.Operator(999)},
 	}
-	_, err := pv.resolveDocIDs(context.Background(), &Searcher{}, 0)
-	require.ErrorContains(t, err, "non-contains operator")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := &propValuePair{
+				operator:       tc.operator,
+				containsValues: [][]byte{[]byte("a"), []byte("b")},
+			}
+			_, err := pv.resolveDocIDs(context.Background(), &Searcher{}, 0)
+			require.ErrorContains(t, err, "non-contains operator")
+		})
+	}
 }
 
 // TestDocBitmapContainsBatch_ContainsNoneFold pins ContainsNone as
