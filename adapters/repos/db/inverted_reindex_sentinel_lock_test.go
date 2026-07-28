@@ -24,8 +24,8 @@ import (
 )
 
 // sentinelLockProbeTracker wraps a real reindexTracker to observe whether
-// tokenizationOverlayMu is held when the per-prop sentinel fsync
-// (markSwappedProp) runs.
+// tokenizationOverlayMu is held when the per-prop sentinel write
+// (markSwappedPropUnsynced) runs.
 type sentinelLockProbeTracker struct {
 	reindexTracker
 	shard          *Shard
@@ -33,8 +33,11 @@ type sentinelLockProbeTracker struct {
 	lockHeldAtMark atomic.Bool
 }
 
-func (w *sentinelLockProbeTracker) markSwappedProp(propName string) error {
-	// F1: the sentinel fsync must run with tokenizationOverlayMu released.
+// markSwappedPropUnsynced is what the atomic path's afterOverlay step calls;
+// its fsync is batched into syncSentinelDir after the Phase 2a loop, so this
+// is the only sentinel file I/O that could land inside the critical section.
+func (w *sentinelLockProbeTracker) markSwappedPropUnsynced(propName string) error {
+	// F1: the sentinel write must run with tokenizationOverlayMu released.
 	// TryRLock fails here if a writer still holds it.
 	if w.shard.tokenizationOverlayMu.TryRLock() {
 		w.shard.tokenizationOverlayMu.RUnlock()
@@ -42,7 +45,7 @@ func (w *sentinelLockProbeTracker) markSwappedProp(propName string) error {
 		w.lockHeldAtMark.Store(true)
 	}
 	w.markRan.Store(true)
-	return w.reindexTracker.markSwappedProp(propName)
+	return w.reindexTracker.markSwappedPropUnsynced(propName)
 }
 
 // Pins F1: on the atomic swap path, the per-prop sentinel fsync must run
@@ -85,7 +88,7 @@ func TestSwapBucketAndSetOverlay_SentinelFsyncOutsideLock(t *testing.T) {
 		"overlay wiring must be active for a tokenization-changing migration")
 
 	// Real tracker (its init() creates .migrations/<name>), wrapped so the
-	// deferred markSwappedProp can probe the lock state.
+	// deferred sentinel write can probe the lock state.
 	realRT, err := task.newReindexTracker(shard.pathLSM())
 	require.NoError(t, err)
 	rt := &sentinelLockProbeTracker{reindexTracker: realRT, shard: shard}
@@ -96,9 +99,9 @@ func TestSwapBucketAndSetOverlay_SentinelFsyncOutsideLock(t *testing.T) {
 	require.NotNil(t, oldBucket, "swap must return the displaced old FIELD bucket")
 
 	require.True(t, rt.markRan.Load(),
-		"the per-prop sentinel fsync must run on the atomic path")
+		"the per-prop sentinel write must run on the atomic path")
 	require.False(t, rt.lockHeldAtMark.Load(),
-		"F1: the sentinel fsync must run with tokenizationOverlayMu RELEASED, not inside the query-blocking critical section")
+		"F1: the sentinel write must run with tokenizationOverlayMu RELEASED, not inside the query-blocking critical section")
 	require.False(t, flipSawLockFree.Load(),
 		"the bucket-pointer flip must run UNDER tokenizationOverlayMu (atomic with the overlay set)")
 
