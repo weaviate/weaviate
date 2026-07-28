@@ -52,6 +52,109 @@ func TestSerialization_HappyPath(t *testing.T) {
 	assert.True(t, newDeletions.Contains(5))
 }
 
+func TestSerialization_EmptyBitmapsReturnNil(t *testing.T) {
+	// A node holding no additions/deletions writes a length indicator of 0 for
+	// the empty region(s). Additions()/Deletions() return nil in that case
+	// rather than allocating an empty bitmap.
+	key := []byte("my-key")
+
+	t.Run("both empty", func(t *testing.T) {
+		sn, err := NewSegmentNode(key, NewBitmap(), NewBitmap())
+		require.Nil(t, err)
+
+		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+		assert.Nil(t, newSN.Additions())
+		assert.Nil(t, newSN.Deletions())
+		assert.Equal(t, key, newSN.PrimaryKey())
+	})
+
+	t.Run("additions present, deletions empty", func(t *testing.T) {
+		sn, err := NewSegmentNode(key, NewBitmap(1, 2, 3), NewBitmap())
+		require.Nil(t, err)
+
+		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+		require.NotNil(t, newSN.Additions())
+		assert.True(t, newSN.Additions().Contains(2))
+		assert.Nil(t, newSN.Deletions())
+	})
+
+	t.Run("additions empty, deletions present", func(t *testing.T) {
+		sn, err := NewSegmentNode(key, NewBitmap(), NewBitmap(5, 7))
+		require.Nil(t, err)
+
+		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+		assert.Nil(t, newSN.Additions())
+		require.NotNil(t, newSN.Deletions())
+		assert.True(t, newSN.Deletions().Contains(5))
+	})
+}
+
+func TestSerialization_CloneToBuf(t *testing.T) {
+	key := []byte("my-key")
+
+	t.Run("clones match the plain accessors and are independent of the node", func(t *testing.T) {
+		additions := NewBitmap(1, 2, 3, 4, 6)
+		deletions := NewBitmap(5, 7)
+		sn, err := NewSegmentNode(key, additions, deletions)
+		require.Nil(t, err)
+		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+
+		pool := NewBitmapBufPoolTrackingForTests()
+		addClone, addRelease := newSN.AdditionsCloneToBuf(pool)
+		delClone, delRelease := newSN.DeletionsCloneToBuf(pool)
+		require.NotNil(t, addClone)
+		require.NotNil(t, addRelease)
+		require.NotNil(t, delClone)
+		require.NotNil(t, delRelease)
+
+		assert.Equal(t, additions.ToArray(), addClone.ToArray())
+		assert.Equal(t, deletions.ToArray(), delClone.ToArray())
+
+		// mutating the clones must not touch the node's memory
+		addClone.Set(100)
+		delClone.Set(200)
+		assert.Equal(t, additions.ToArray(), newSN.Additions().ToArray())
+		assert.Equal(t, deletions.ToArray(), newSN.Deletions().ToArray())
+
+		addRelease()
+		delRelease()
+		assert.Equal(t, int64(0), pool.Outstanding())
+	})
+
+	t.Run("clone can grow in place within the pooled buffer's capacity", func(t *testing.T) {
+		sn, err := NewSegmentNode(key, NewBitmap(1), NewBitmap())
+		require.Nil(t, err)
+		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+
+		// factor wrapper hands out a buffer with headroom, mirroring the first
+		// disk layer's pool in SegmentGroup.roaringSetGet
+		pool := NewBitmapBufPoolFactorWrapper(NewBitmapBufPoolTrackingForTests(), 2)
+		addClone, addRelease := newSN.AdditionsCloneToBuf(pool)
+		require.NotNil(t, addClone)
+		defer addRelease()
+
+		for i := uint64(2); i < 100; i++ {
+			addClone.Set(i)
+		}
+		assert.Equal(t, 99, addClone.GetCardinality())
+	})
+
+	t.Run("empty regions return nil bitmap and nil release", func(t *testing.T) {
+		sn, err := NewSegmentNode(key, NewBitmap(), NewBitmap())
+		require.Nil(t, err)
+		newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+
+		pool := NewBitmapBufPoolTrackingForTests()
+		addClone, addRelease := newSN.AdditionsCloneToBuf(pool)
+		delClone, delRelease := newSN.DeletionsCloneToBuf(pool)
+		assert.Nil(t, addClone)
+		assert.Nil(t, addRelease)
+		assert.Nil(t, delClone)
+		assert.Nil(t, delRelease)
+		assert.Equal(t, int64(0), pool.Outstanding())
+	})
+}
+
 func TestSerialization_InitializingFromBufferTooLarge(t *testing.T) {
 	additions := NewBitmap(1, 2, 3, 4, 6)
 	deletions := NewBitmap(5, 7)

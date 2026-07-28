@@ -850,9 +850,9 @@ func TestValidateBufferRanges(t *testing.T) {
 	}
 }
 
-func TestBitmapBufPoolTracking_Get(t *testing.T) {
+func TestBitmapBufPoolTrackingForTests_Get(t *testing.T) {
 	t.Run("outstanding increments on Get and decrements on release", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 		assert.Equal(t, int64(0), pool.Outstanding())
 
 		_, rel1 := pool.Get(64)
@@ -869,7 +869,7 @@ func TestBitmapBufPoolTracking_Get(t *testing.T) {
 	})
 
 	t.Run("release zeroes backing buffer", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 		buf, release := pool.Get(64)
 		// Write into the backing array through the cap slice.
 		full := buf[:cap(buf)]
@@ -887,16 +887,16 @@ func TestBitmapBufPoolTracking_Get(t *testing.T) {
 	})
 
 	t.Run("double release panics", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 		_, release := pool.Get(64)
 		release()
 		assert.Panics(t, release)
 	})
 }
 
-func TestBitmapBufPoolTracking_CloneToBuf(t *testing.T) {
+func TestBitmapBufPoolTrackingForTests_CloneToBuf(t *testing.T) {
 	t.Run("outstanding increments on CloneToBuf and decrements on release", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 
 		bm := sroar.NewBitmap()
 		bm.SetMany([]uint64{1, 2, 3})
@@ -910,7 +910,7 @@ func TestBitmapBufPoolTracking_CloneToBuf(t *testing.T) {
 	})
 
 	t.Run("release zeroes cloned bitmap backing buffer", func(t *testing.T) {
-		pool := NewBitmapBufPoolTracking()
+		pool := NewBitmapBufPoolTrackingForTests()
 
 		bm := sroar.NewBitmap()
 		bm.SetMany([]uint64{10, 20, 30})

@@ -104,6 +104,52 @@ func (bml BitmapLayers) Flatten(clone bool, maxConc int) *sroar.Bitmap {
 	return merged
 }
 
+// LayerMerger performs the same left-fold as [BitmapLayers.Flatten], one
+// layer at a time, so callers that produce layers incrementally (disk →
+// flushing → active on a read) need not materialize a []BitmapLayer. Seed it
+// with the chronologically-first layer's additions (or nil when there is
+// none yet), Add each later layer in order, then read Result. Result returns
+// the accumulator itself: do not Add after reading Result, and do not copy a
+// merger.
+type LayerMerger struct {
+	merged  *sroar.Bitmap
+	maxConc int
+}
+
+// NewLayerMerger starts a fold from base, which becomes the accumulator and
+// is mutated in place by Add; pass clone=true when base must not be mutated.
+// A nil base means no layer yet: the first Add'd layer's additions are
+// adopted as the accumulator without a copy, as in Flatten.
+func NewLayerMerger(base *sroar.Bitmap, clone bool, maxConc int) LayerMerger {
+	if clone && base != nil {
+		base = base.Clone()
+	}
+	return LayerMerger{merged: base, maxConc: maxConc}
+}
+
+// Add folds one layer into the accumulator: deletions remove existing
+// elements, then additions are unioned in — one iteration of Flatten's loop.
+// With no accumulator yet, the layer's additions are adopted (and mutated by
+// later Adds); its deletions would delete from nothing and are dropped, as
+// Flatten drops the base layer's. A nil Additions/Deletions is treated as
+// empty.
+func (m *LayerMerger) Add(layer BitmapLayer) {
+	if m.merged == nil {
+		m.merged = layer.Additions
+		return
+	}
+	m.merged.AndNotConc(layer.Deletions, m.maxConc)
+	m.merged.OrConc(layer.Additions, m.maxConc)
+}
+
+// Result returns the flattened bitmap accumulated so far, never nil.
+func (m LayerMerger) Result() *sroar.Bitmap {
+	if m.merged == nil {
+		return sroar.NewBitmap()
+	}
+	return m.merged
+}
+
 // Merge turns two successive layers into one. It does not flatten the segment,
 // but keeps additions and deletions separate. This is because there are no
 // guarantees that the first segment was the root segment. A merge could run on
