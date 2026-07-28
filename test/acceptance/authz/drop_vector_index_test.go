@@ -63,7 +63,7 @@ func TestAuthzDeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("fail without any permission", func(t *testing.T) {
 		err := dropVectorIndex("toDrop", customKey)
-		require.NotNil(t, err)
+		require.Error(t, err)
 		var forbidden *clschema.SchemaObjectsVectorsDeleteForbidden
 		require.True(t, errors.As(err, &forbidden))
 	})
@@ -82,7 +82,7 @@ func TestAuthzDeleteClassVectorIndex(t *testing.T) {
 		defer helper.RevokeRoleFromUser(t, sharedRootKey, roleName, customUser)
 
 		err := dropVectorIndex("toDrop", customKey)
-		require.NotNil(t, err, "metadata-only update must not authorize a data-rewriting drop")
+		require.Error(t, err, "metadata-only update must not authorize a data-rewriting drop")
 		var forbidden *clschema.SchemaObjectsVectorsDeleteForbidden
 		require.True(t, errors.As(err, &forbidden))
 	})
@@ -101,6 +101,6 @@ func TestAuthzDeleteClassVectorIndex(t *testing.T) {
 		helper.AssignRoleToUser(t, sharedRootKey, roleName, customUser)
 		defer helper.RevokeRoleFromUser(t, sharedRootKey, roleName, customUser)
 
-		require.Nil(t, dropVectorIndex("toDrop", customKey))
+		require.NoError(t, dropVectorIndex("toDrop", customKey))
 	})
 }

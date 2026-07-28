@@ -175,4 +175,16 @@ func TestShardKnownShut(t *testing.T) {
 	require.True(t, shardKnownShut(shut))
 	require.True(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: shut}))
 	require.False(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: &Shard{}}))
+
+	// A deep-teardown failure (shut=true, sticky teardownErr) reads the same
+	// as a clean shutdown: known-shut, so the reactivation belt evicts it and
+	// restore predicates refuse it. Re-init then either succeeds (teardown got
+	// far enough to release the buckets) or is refused loudly by the bucket
+	// registry until the leaked handles clear — pinned in lsmkv's
+	// TestBucketReinit_RefusedWhileLeakedOpenThenHealsAfterClose. It is never
+	// silently double-opened and never restored as if healthy.
+	torn := &Shard{teardownErr: errors.New("bucket close failed")}
+	torn.shut.Store(true)
+	require.True(t, shardKnownShut(torn))
+	require.False(t, shardStillAlive(torn))
 }

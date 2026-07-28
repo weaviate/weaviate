@@ -1377,12 +1377,7 @@ func FromEnv(config *Config) error {
 		"DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
 		int(DefaultDistributedTasksSchedulerTickInterval.Seconds()),
 		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
-		func(val int, envName string) error {
-			if val < 1 || val > maxDistributedTasksSchedulerTickIntervalSeconds {
-				return fmt.Errorf("%s must be between 1 and %d, got %d", envName, maxDistributedTasksSchedulerTickIntervalSeconds, val)
-			}
-			return nil
-		},
+		validateIntRange(1, maxDistributedTasksSchedulerTickIntervalSeconds),
 	); err != nil {
 		return err
 	}
@@ -1394,12 +1389,7 @@ func FromEnv(config *Config) error {
 		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
 		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
-		func(val int, envName string) error {
-			if val < 0 || val > maxDistributedTasksCompletedTaskTTLHours {
-				return fmt.Errorf("%s must be between 0 and %d, got %d", envName, maxDistributedTasksCompletedTaskTTLHours, val)
-			}
-			return nil
-		},
+		validateIntRange(0, maxDistributedTasksCompletedTaskTTLHours),
 	); err != nil {
 		return err
 	}
@@ -1408,12 +1398,7 @@ func FromEnv(config *Config) error {
 		"DROP_VECTOR_INDEX_RECONCILE_INTERVAL_SECONDS",
 		int(DefaultDropVectorReconcileInterval.Seconds()),
 		func(val int) { config.DistributedTasks.DropVectorReconcileInterval = time.Duration(val) * time.Second },
-		func(val int, envName string) error {
-			if val < 1 || val > maxDropVectorReconcileIntervalSeconds {
-				return fmt.Errorf("%s must be between 1 and %d, got %d", envName, maxDropVectorReconcileIntervalSeconds, val)
-			}
-			return nil
-		},
+		validateIntRange(1, maxDropVectorReconcileIntervalSeconds),
 	); err != nil {
 		return err
 	}
@@ -1805,6 +1790,16 @@ func parsePositiveIntOrZero(envName string, cb func(val int)) error {
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
+}
+
+// validateIntRange builds a parseIntVerify verifier enforcing min <= val <= max.
+func validateIntRange(min, max int) func(val int, envName string) error {
+	return func(val int, envName string) error {
+		if val < min || val > max {
+			return fmt.Errorf("%s must be between %d and %d, got %d", envName, min, max, val)
+		}
+		return nil
+	}
 }
 
 func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {

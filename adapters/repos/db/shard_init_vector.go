@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
@@ -306,7 +307,9 @@ func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
 	if s.dynamicVectorIndexDB == nil {
 		path := filepath.Join(s.path(), dynamic.StateDBFileName)
 
-		db, err := bbolt.Open(path, 0o600, nil)
+		// Timeout: a leaked handle from a failed shard teardown holds the flock;
+		// without it this open retries forever and wedges the loading goroutine.
+		db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: 5 * time.Second})
 		if err != nil {
 			return nil, errors.Wrapf(err, "open %q", path)
 		}

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -35,7 +36,9 @@ type Checkpoints struct {
 func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 	path := filepath.Join(dir, "index.db")
 
-	db, err := bolt.Open(path, 0o600, nil)
+	// Timeout: a leaked handle from a failed teardown holds the flock; without
+	// it this open retries forever and wedges the loading goroutine.
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		return nil, errors.Wrapf(err, "open %q", path)
 	}

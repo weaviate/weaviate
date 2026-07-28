@@ -156,7 +156,9 @@ func (index *flat) openMetadata() error {
 	}
 
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
-	db, err := bolt.Open(path, 0o600, nil)
+	// Timeout: a leaked handle from a failed shard teardown holds the flock;
+	// without it this open retries forever and wedges the loading goroutine.
+	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		return errors.Wrapf(err, "open %q", path)
 	}

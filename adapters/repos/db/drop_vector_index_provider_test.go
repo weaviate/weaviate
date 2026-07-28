@@ -962,6 +962,52 @@ func TestOnTaskCompleted_UncoveredTenant_DefersFinalize(t *testing.T) {
 	require.False(t, fin.called, "schema removal must be deferred while a shard is uncovered")
 }
 
+// TestOnTaskCompleted_ReconcileNudge pins when the completion callback pokes
+// the reconcile loop: on every path that leaves the marker waiting for another
+// round (FAILED/CANCELLED terminal, uncovered-shard deferral) it must nudge so
+// healing starts within dropVectorNudgeDelay instead of a full poll interval —
+// and on paths reconciliation cannot help (success, replay) it must stay quiet.
+// The hook is optional wiring (SetReconcileNudge); unset must not panic.
+func TestOnTaskCompleted_ReconcileNudge(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    distributedtask.TaskStatus
+		uncovered bool
+		wantNudge bool
+	}{
+		{name: "FAILED nudges", status: distributedtask.TaskStatusFailed, wantNudge: true},
+		{name: "CANCELLED nudges", status: distributedtask.TaskStatusCancelled, wantNudge: true},
+		{name: "uncovered deferral nudges", status: distributedtask.TaskStatusSwapping, uncovered: true, wantNudge: true},
+		{name: "clean finalize does not nudge", status: distributedtask.TaskStatusSwapping},
+		{name: "FINISHED replay does not nudge", status: distributedtask.TaskStatusFinished},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, &fakeFinalizer{}, newFakeRecorder())
+			if tc.uncovered {
+				p.sharding = &fakeShardingReader{shards: []string{"shard1", "coldTenant"}}
+			}
+			nudges := 0
+			p.SetReconcileNudge(func() { nudges++ })
+
+			p.OnTaskCompleted(dropTask(tc.status, nil))
+
+			if tc.wantNudge {
+				require.Equal(t, 1, nudges)
+			} else {
+				require.Zero(t, nudges)
+			}
+		})
+	}
+
+	t.Run("no hook installed does not panic", func(t *testing.T) {
+		p := newTestDropProvider(&fakeShards{bucket: &fakeEditOpBucket{}}, &fakeFinalizer{}, newFakeRecorder())
+		require.NotPanics(t, func() {
+			p.OnTaskCompleted(dropTask(distributedtask.TaskStatusFailed, nil))
+		})
+	})
+}
+
 // TestOnTaskCompleted_CleanedShardsVouchForColdTenant pins the cross-task
 // coverage memory: a shard with no unit in THIS task but recorded as cleaned by
 // an earlier task of the same epoch (CleanedShards) counts as covered, so the

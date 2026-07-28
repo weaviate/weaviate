@@ -303,6 +303,21 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 ) (b *Bucket, err error) {
 	beforeAll := time.Now()
 
+	// Claim the registry entry BEFORE touching any file: a second open of a
+	// still-live bucket (e.g. re-init after a shard teardown failed deep and
+	// leaked this bucket open) must be refused up front. Checking last let a
+	// doomed re-open run WAL recovery first — deleting the live instance's
+	// active WAL, whose buffered writes then flushed into an unlinked inode
+	// on shutdown: silent data loss.
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			GlobalBucketRegistry.Remove(dir)
+		}
+	}()
+
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterDirty := FlushAfterDirtyDefault
@@ -311,8 +326,12 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 	defaultStrategy := unsetStrategy
 
 	b = &Bucket{
-		dir:                          dir,
-		rootDir:                      rootDir,
+		dir:     dir,
+		rootDir: rootDir,
+		// The actual path of the bucket can change, e.g. on delete, without
+		// updating the registry. Keep the registered path (claimed at the top
+		// of this function) so shutdown can release the right entry.
+		registeredPath:               dir,
 		memtableThreshold:            defaultMemTableThreshold,
 		walThreshold:                 defaultWalThreshold,
 		flushDirtyAfter:              defaultFlushAfterDirty,
@@ -417,13 +436,6 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 
 	b.metrics.TrackStartupBucket(beforeAll)
 
-	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
-		// prevent accidentally trying to register the same bucket twice
-		return nil, err
-	}
-	// The actual path of the bucket can change, e.g. on delete, without updating the registry. Keep the registered path in the bucket so we can remove it from the registry on shutdown.
-	b.registeredPath = dir
-
 	return b, nil
 }
 
@@ -459,6 +471,11 @@ func (b *Bucket) RegisterEditOp(opID string, desc OpDescriptor) error {
 	// the pending set is exactly the resurrection this guard exists to stop).
 	b.flushAndSwitchMu.Lock()
 	defer b.flushAndSwitchMu.Unlock()
+	// flushAndSwitchLocked skips FlushAndSwitch's read-only guard; re-check
+	// here — arming triggers a flush, the exact write StatusReadOnly blocks.
+	if err := b.readOnlyErr(); err != nil {
+		return err
+	}
 	if b.shuttingDown.Load() {
 		// Arming against a closing bucket is unsound: the flush + segment
 		// snapshot race the dismantling, and an empty or partial snapshot

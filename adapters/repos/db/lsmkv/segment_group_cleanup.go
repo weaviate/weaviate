@@ -140,7 +140,9 @@ func (c *segmentCleanerCommon) init() error {
 	var db *bolt.DB
 	var err error
 
-	if db, err = bolt.Open(path, 0o600, nil); err != nil {
+	// Timeout: a leaked handle from a failed shard teardown holds the flock;
+	// without it this open retries forever and wedges the loading goroutine.
+	if db, err = bolt.Open(path, 0o600, &bolt.Options{Timeout: 5 * time.Second}); err != nil {
 		return fmt.Errorf("open cleanup bolt db %q: %w", path, err)
 	}
 

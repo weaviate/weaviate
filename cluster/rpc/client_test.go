@@ -164,6 +164,10 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrNamespaceResuming", send: namespaces.ErrNamespaceResuming},
 		{name: "ErrStateChangedConcurrently", send: namespaces.ErrStateChangedConcurrently},
 		{name: "ErrNotFound", send: namespaces.ErrNotFound},
+		// schema.ErrBadRequest guards the drop-vector marker refusal and removal
+		// gate; unmapped it arrives as codes.Internal and renders HTTP 500
+		// instead of 422 on the forwarding node.
+		{name: "SchemaErrBadRequest", send: schema.ErrBadRequest},
 		{name: "ErrNotLeader", send: types.ErrNotLeader},
 		{name: "ErrLeaderNotFound", send: types.ErrLeaderNotFound},
 	}

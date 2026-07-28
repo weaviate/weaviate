@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 func newInterlockTestBucket(t *testing.T, dir string) (*Bucket, error) {
@@ -160,4 +161,51 @@ func TestRecover_SweepOfLastOpRemovesSidecar(t *testing.T) {
 
 	_, err = os.Stat(sidecar)
 	require.ErrorIs(t, err, os.ErrNotExist, "sweeping the last op must also remove the sidecar file")
+}
+
+// TestRegisterEditOp_RefusedOnReadOnlyBucket pins the read-only guard:
+// RegisterEditOp bypasses FlushAndSwitch's public entry (lock-ordering), so
+// it must re-check readOnlyErr itself — arming flushes the memtable, the
+// exact write StatusReadOnly (disk pressure, backup) exists to block.
+func TestRegisterEditOp_RefusedOnReadOnlyBucket(t *testing.T) {
+	bucket, _ := newReplaceBucketWithEditOps(t, prefixTransformer)
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+
+	bucket.UpdateStatus(storagestate.StatusReadOnly)
+	err := bucket.RegisterEditOp("op1", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1})
+	require.Error(t, err, "arming on a read-only bucket must be refused")
+
+	bucket.UpdateStatus(storagestate.StatusReady)
+	require.NoError(t, bucket.RegisterEditOp("op1", OpDescriptor{Type: OpTypeRemoveTargetVectors, CreatedAt: 1}))
+}
+
+// TestBucketReinit_RefusedWhileLeakedOpenThenHealsAfterClose pins the
+// reactivation contract behind a deep shard-teardown failure: a bucket the
+// failed teardown left open keeps its GlobalBucketRegistry entry, so a
+// tenant re-init over the same directory must be refused BEFORE it touches
+// any file, and must succeed once the leaked handle is finally shut down
+// (in practice: process restart). Writing this pin found two bugs: the
+// registry was checked LAST, so a doomed re-open first hung forever on the
+// cleanup.db flock and, once that got a timeout, deleted the live
+// instance's active WAL during recovery — the leaked bucket's buffered
+// writes then flushed into the unlinked inode: silent data loss.
+func TestBucketReinit_RefusedWhileLeakedOpenThenHealsAfterClose(t *testing.T) {
+	dir := t.TempDir()
+
+	leaked, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err)
+	require.NoError(t, leaked.Put([]byte("k1"), []byte("v1")))
+
+	_, err = newInterlockTestBucket(t, dir)
+	require.ErrorIs(t, err, ErrBucketAlreadyRegistered,
+		"re-init over a leaked open bucket must be refused before touching any file")
+
+	require.NoError(t, leaked.Shutdown(context.Background()))
+
+	reinit, err := newInterlockTestBucket(t, dir)
+	require.NoError(t, err, "once the leak clears, the tenant must be re-initializable")
+	v, err := reinit.Get([]byte("k1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("v1"), v)
+	require.NoError(t, reinit.Shutdown(context.Background()))
 }
