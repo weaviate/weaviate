@@ -1137,6 +1137,17 @@ func (i *Index) replicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1
 }
 
+// ensureShardLocallyReady rejects reads of a loading shard so the caller retries
+// on a replica. With replication off there is none, so the shard is used as it is
+// rather than failing a read that would otherwise only be slow.
+func (i *Index) ensureShardLocallyReady(shard ShardLike) error {
+	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
+		return enterrors.NewErrUnprocessable(
+			fmt.Errorf("local %s shard is not ready", shard.Name()))
+	}
+	return nil
+}
+
 func (i *Index) shardHasMultipleReplicasWrite(tenantName, shardName string) bool {
 	// if replication is enabled, we always have multiple replicas
 	if i.replicationEnabled() {
@@ -1755,8 +1766,8 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return nil, err
 	}
 
 	return shard.ObjectByID(ctx, id, props, additional)
@@ -1775,8 +1786,8 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return nil, err
 	}
 
 	return shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
@@ -1916,8 +1927,8 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 		return false, fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return false, err
 	}
 
 	return shard.Exists(ctx, id)
@@ -2209,8 +2220,8 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 ) ([]*storobj.Object, []float32, error) {
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return nil, nil, err
 	}
 	var shardStart time.Time
 	if additional.QueryProfile {
@@ -2618,8 +2629,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return nil, nil, nil, err
 	}
 
 	ctx = helpers.InitSlowQueryDetails(ctx)
@@ -3032,8 +3043,8 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return nil, err
 	}
 
 	return shard.Aggregate(ctx, params, mods.(*modules.Provider))
@@ -3349,8 +3360,8 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 		return 0, fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return 0, err
 	}
 	var size int64
 	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
@@ -3405,8 +3416,8 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 		return "", fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return "", err
 	}
 	return shard.GetStatus().String(), nil
 }
@@ -3516,8 +3527,8 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("local %s shard not found", shardName)
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
-		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	if err := i.ensureShardLocallyReady(shard); err != nil {
+		return nil, err
 	}
 
 	return shard.FindUUIDs(ctx, filters, limit)
