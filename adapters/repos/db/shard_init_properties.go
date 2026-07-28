@@ -560,9 +560,8 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 
 // ensureNullLengthBucketsForMigration creates the null/length buckets that
 // initPropertyBuckets skips for an unindexed property. An enable-* migration
-// makes such a property analyzable (force-index overlay, then the live
-// flag), and writes then emit length/null entries for it, which would
-// otherwise fail with a missing-bucket error. Idempotent; errors are logged.
+// makes such a property analyzable, so writes start emitting null/length
+// entries for it — without this they'd hit a missing-bucket error.
 func (s *Shard) ensureNullLengthBucketsForMigration(ctx context.Context, propName string) {
 	if !s.index.invertedIndexConfig.IndexNullState && !s.index.invertedIndexConfig.IndexPropertyLength {
 		return

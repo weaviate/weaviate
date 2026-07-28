@@ -130,10 +130,9 @@ func (s *EnableFilterableStrategy) MakeDeleteCallback(bucketNamer func(string) s
 
 // PreReindexHook creates empty filterable (RoaringSet) buckets for the
 // targeted properties so the generic state machine has a "source" bucket
-// to swap with the populated ingest bucket. Null/length buckets are created
-// too: an unindexed property has none (shard init skips it), but the
-// force-index/live-flag overlay makes writes emit null/length entries once
-// the class config enables them, which would otherwise hit missing buckets.
+// to swap with the populated ingest bucket, plus the null/length buckets
+// an unindexed property lacks — the force-index overlay makes writes emit
+// them before the live schema flag would otherwise trigger creation.
 func (s *EnableFilterableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {

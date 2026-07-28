@@ -30,13 +30,11 @@ import (
 )
 
 // Regression tests for weaviate/0-weaviate-issues#319: writes landing in
-// the post-swap pre-flip window of enable-filterable / enable-searchable
-// migrations must not be lost (see maybeWirePerPropOverlaySet for the fix).
+// the post-swap pre-flip window of enable-* migrations must not be lost.
 
-// newNoIndexTestClass builds a class whose properties have no enabled
-// inverted index — the worst-case enable-* input. IndexNullState/
-// IndexPropertyLength stay on, so the tests also cover the null/length
-// bucket creation for a previously-unindexed property.
+// newNoIndexTestClass builds a class with no property indexed — the
+// worst-case enable-* input. IndexNullState/IndexPropertyLength stay on
+// to also cover null/length bucket creation for a previously-unindexed prop.
 func newNoIndexTestClass(className string, propNames []string) *models.Class {
 	vFalse := false
 	props := make([]*models.Property, len(propNames))
@@ -124,9 +122,8 @@ func driveEnableSearchableToPostSwapWindow(
 
 // postSwapPreFlipTarget bundles the enable-filterable vs enable-searchable
 // specific pieces (bucket accessor, fingerprint helper, window-arming drive
-// function) so the Insert/Update/Delete scenario runners below don't
-// duplicate the migration-flavor dispatch. This is the structural source of
-// what were 6 nearly-identical top-level test bodies.
+// function) so the scenario runners below don't duplicate the
+// migration-flavor dispatch.
 type postSwapPreFlipTarget struct {
 	label       string // "filterable" / "searchable" -- used in failure text
 	bucket      func(shard *Shard, propName string) *lsmkv.Bucket
@@ -229,10 +226,9 @@ type mutateInWindowCase struct {
 	withBystander bool
 }
 
-// seedPostSwapPreFlipObject arranges what the update and delete journeys
-// share: one target object carrying seedToken, an optional unrelated
-// bystander, the drive into the post-swap pre-flip window, and the
-// precondition that the backfill indexed seedToken before the mutation.
+// seedPostSwapPreFlipObject seeds the shared setup for the update/delete
+// journeys: a target object, an optional bystander, and the drive into the
+// post-swap pre-flip window.
 func seedPostSwapPreFlipObject(
 	t *testing.T, ctx context.Context, c mutateInWindowCase, seedToken string,
 ) (shard *Shard, className, targetID string, bucket *lsmkv.Bucket) {
@@ -321,7 +317,7 @@ func TestReindexPostSwapPreFlip_EnableSearchable_DeleteRemovesPostings(t *testin
 }
 
 // TestReindexPostSwapPreFlip_EnableFilterable_MultiProp: both migrating
-// props must receive the in-window write.
+// props in a single task must receive the in-window write.
 func TestReindexPostSwapPreFlip_EnableFilterable_MultiProp(t *testing.T) {
 	ctx := testCtx()
 	propNames := []string{"title", "subtitle"}
@@ -397,8 +393,7 @@ func TestReindexPostSwapPreFlip_EnableFilterable_MultiProp(t *testing.T) {
 }
 
 // TestReindexPostSwapPreFlip_FlipVisible_OverlayObsolete pins the overlay's
-// backstop self-clear once the live schema satisfies it, plus the explicit
-// ClearForceIndexOverlay path.
+// backstop self-clear and the explicit ClearForceIndexOverlay path.
 func TestReindexPostSwapPreFlip_FlipVisible_OverlayObsolete(t *testing.T) {
 	const propName = "title"
 	ctx := testCtx()
@@ -432,9 +427,8 @@ func TestReindexPostSwapPreFlip_FlipVisible_OverlayObsolete(t *testing.T) {
 	require.NotEmpty(t, fp["xray"], "write after explicit clear must be indexed via the live schema flag")
 }
 
-// TestMaybeWirePerPropOverlaySet_EnableMigrations pins the provider wiring:
-// the onPropSwapped hook must arm the force-index overlay with exactly the
-// flags (and tokenization) the migration's backfill overlay used.
+// TestMaybeWirePerPropOverlaySet_EnableMigrations pins that onPropSwapped
+// arms the force-index overlay with the migration's exact flags/tokenization.
 func TestMaybeWirePerPropOverlaySet_EnableMigrations(t *testing.T) {
 	tests := []struct {
 		name    string

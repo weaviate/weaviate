@@ -810,15 +810,11 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
 	rt reindexTracker, props []string,
 ) error {
-	// Re-fire onPropSwapped for every prop: the IsTidied/IsSwapped recovery
-	// branches skip the loops that normally trigger it, and a restarted
-	// process's in-memory overlays are gone. Without this, a node resuming
-	// inside the swap-vs-flip window mis-tokenizes queries and silently
-	// drops writes to the migrating property (weaviate/0-weaviate-issues#319).
-	// Safe to re-fire: map writes are idempotent.
-	//
-	// Runs before the rebuild below to mirror runtimeSwap, where the hook
-	// fires in the Phase 2a per-prop loop and the rebuild only afterwards.
+	// Re-fires onPropSwapped for every prop: recovery skips the loops that
+	// normally trigger it, and a restarted process's in-memory overlays are
+	// gone. Without this, a resuming node mis-tokenizes queries and silently
+	// drops writes in the swap-vs-flip window (weaviate/0-weaviate-issues#319).
+	// Idempotent; runs before the rebuild below to mirror runtimeSwap's order.
 	for _, propName := range props {
 		if t.onPropSwapped != nil {
 			t.onPropSwapped(propName)

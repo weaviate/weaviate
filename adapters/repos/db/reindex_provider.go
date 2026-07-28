@@ -2186,17 +2186,15 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 
 // maybeWirePerPropOverlaySet installs the per-prop onPropSwapped hook
 // on every task of a migration that opens a swap-vs-flip window, so the
-// per-shard overlay is SET atomically with each property's
-// bucket-pointer flip, inside the swap's Phase 2a tight loop:
-//
+// per-shard overlay is SET atomically with each bucket-pointer flip,
+// inside the swap's Phase 2a tight loop:
 //   - tokenization-changing migrations wire the tokenization overlay
-//     (read-side alignment, weaviate/0-weaviate-issues#216);
-//   - enable-filterable / enable-searchable wire the force-index overlay
-//     (write-side coverage of the post-swap pre-flip window,
-//     weaviate/0-weaviate-issues#319). enable-searchable also carries the
-//     target tokenization so in-window writes tokenize like the backfill.
+//     (weaviate/0-weaviate-issues#216, read-side);
+//   - enable-filterable/-searchable wire the force-index overlay
+//     (weaviate/0-weaviate-issues#319, write-side); enable-searchable
+//     also carries the target tokenization for in-window writes.
 //
-// Returns true iff a hook was wired, so the caller can match
+// Returns true iff a hook was wired, matching
 // [maybeClearMigrationOverlaysOnAllFailed]'s clear decision.
 //
 // Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble

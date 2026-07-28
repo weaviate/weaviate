@@ -425,11 +425,8 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			require.True(t, strategy.migrationCompleted,
 				"OnMigrationComplete should have fired (finalizeMigrationAfterRecovery tail of every recovery branch)")
 
-			// A recovering node has no in-memory force-index overlay: the
-			// process that armed it is gone. Unless the recovery tail
-			// re-fires the hook, writes to the migrating property in the
-			// post-swap pre-flip window are silently dropped
-			// (weaviate/0-weaviate-issues#319).
+			// Pins weaviate/0-weaviate-issues#319: recovery must re-fire
+			// onPropSwapped or in-window writes drop silently.
 			swappedMu.Lock()
 			defer swappedMu.Unlock()
 			require.Contains(t, swappedProps, "title",

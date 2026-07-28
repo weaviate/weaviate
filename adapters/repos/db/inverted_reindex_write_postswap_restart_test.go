@@ -21,11 +21,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost is a RED pin for
-// the restart residual of weaviate/0-weaviate-issues#319 (see t.Skip for the
-// mechanism). Fixing it needs a durable per-shard flip-pending marker, which
-// the pre-commit staging design for weaviate/0-weaviate-issues#220
-// (weaviate/weaviate#11995) already plans to add — un-skip when it lands.
+// TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost: RED pin for the
+// weaviate/0-weaviate-issues#319 restart residual (see t.Skip for details).
 func TestReindexPostSwapPreFlip_RestartInWindow_InsertNotLost(t *testing.T) {
 	t.Skip("RED pin for weaviate/0-weaviate-issues#319 restart residual: a node restart inside " +
 		"the post-swap pre-flip window loses the in-memory force-index overlay, does not re-load the " +

@@ -108,13 +108,12 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 // writeAnalyzerOverlay merges the two per-shard migration overlays for the
 // write path:
 //   - tokenization overlay: SWAPPING-window writes use TARGET-tokenized keys
-//     so they land in the canonical bucket (weaviate/0-weaviate-issues#240).
-//   - force-index overlay: post-swap pre-flip writes are analyzed with the
-//     target index flag on, so HasAnyInvertedIndex doesn't drop them
+//     (weaviate/0-weaviate-issues#240);
+//   - force-index overlay: post-swap pre-flip writes analyze with the
+//     target index flag on so HasAnyInvertedIndex doesn't drop them
 //     (weaviate/0-weaviate-issues#319).
 //
-// The two never target the same property (submit-time conflict guard); the
-// merge below keeps both defensively.
+// The two never target the same property; the merge keeps both defensively.
 func (s *Shard) writeAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	overlay := s.tokenizationAnalyzerOverlay(props)
 	forced := s.SnapshotForceIndexOverlay(props)

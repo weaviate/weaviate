@@ -457,29 +457,22 @@ type Shard struct {
 	tokenizationOverlayMu sync.RWMutex
 	tokenizationOverlay   map[string]string
 
-	// forceIndexOverlayMu guards forceIndexOverlay. Holds the per-prop
-	// "analyze writes on this shard as if the target index flag were
-	// already enabled" override that closes the post-swap pre-flip
-	// WRITE-loss window of an enable-* migration
-	// (weaviate/0-weaviate-issues#319).
+	// forceIndexOverlayMu guards forceIndexOverlay: the per-prop "analyze
+	// writes as if the target index flag were already enabled" override
+	// that closes the post-swap pre-flip WRITE-loss window of an
+	// enable-* migration (weaviate/0-weaviate-issues#319).
 	//
-	// Mechanism: an enable-filterable / enable-searchable migration's
-	// per-shard runtimeSwap flips the canonical bucket pointer to the
-	// backfilled bucket AND tears down the double-write callbacks BEFORE
-	// the cluster-wide schema flip in
-	// OnTaskCompleted.flipSemanticMigrationSchema commits via RAFT.
-	// During that window on each replica the analyzer still sees the
-	// pre-flip schema (index flag false), so analyzeProps drops the
-	// migrating property (inverted/objects.go HasAnyInvertedIndex) and a
-	// write in the window never reaches the just-swapped bucket: fresh
-	// inserts are silently missing after the flip, updates leave a stale
-	// ghost. This overlay is the write-side sibling of
-	// [tokenizationOverlay] (which fixes the read side for tokenization
-	// migrations): it carries the Force* flags (and, for
-	// enable-searchable, the target tokenization) into the write path's
-	// [Shard.AnalyzeObject] so in-window writes are analyzed under the
-	// TARGET schema and land in the canonical (post-swap) bucket via the
-	// ordinary inline path.
+	// Mechanism: an enable-* migration's runtimeSwap flips the canonical
+	// bucket pointer and tears down the double-write callbacks BEFORE the
+	// cluster-wide schema flip (OnTaskCompleted.flipSemanticMigrationSchema)
+	// commits via RAFT. In that window the analyzer here still sees the
+	// pre-flip schema, so analyzeProps drops the migrating property and
+	// writes never reach the just-swapped bucket — inserts silently
+	// vanish, updates leave a stale ghost. This is the write-side sibling
+	// of [tokenizationOverlay]: it carries the Force* flags (and, for
+	// enable-searchable, the target tokenization) into
+	// [Shard.AnalyzeObject] so in-window writes land in the canonical
+	// bucket.
 	//
 	// Lifecycle mirrors tokenizationOverlay:
 	//   1. SET: per prop, atomic with each bucket-pointer flip (the
@@ -1001,10 +994,9 @@ func (s *Shard) ClearForceIndexOverlay(propName string) {
 }
 
 // SnapshotForceIndexOverlay returns active force-index-overlay entries for
-// props, skipping (and self-clearing) any the live schema already satisfies —
-// keeping a stale entry risks masking a later index DELETE. Self-clear
-// mirrors [Shard.TokenizationFor]'s backstop, covering a missed explicit
-// clear. Nil when nothing applies (the analyzer's fast path).
+// props, skipping (and self-clearing) ones the live schema already
+// satisfies — a stale entry risks masking a later index DELETE. Nil when
+// nothing applies (the analyzer's fast path).
 func (s *Shard) SnapshotForceIndexOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

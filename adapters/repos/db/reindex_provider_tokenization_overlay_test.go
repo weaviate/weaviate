@@ -76,9 +76,8 @@ func TestMaybeWirePerPropOverlaySet_FilterableVariant_WiresAndSets(t *testing.T)
 	assert.Equal(t, "word", s.TokenizationFor("name", "field"))
 }
 
-// TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp covers types with
-// no swap-vs-flip window. enable-* migrations wire the force-index overlay
-// instead; see TestMaybeWirePerPropOverlaySet_EnableMigrations.
+// TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp covers migration
+// types with no swap-vs-flip window (enable-* is covered separately).
 func TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp(t *testing.T) {
 	for _, mt := range []ReindexMigrationType{
 		ReindexTypeEnableRangeable,
@@ -104,9 +103,7 @@ func TestMaybeWirePerPropOverlaySet_NonOverlayMigration_NoOp(t *testing.T) {
 }
 
 // TestMaybeWirePerPropOverlaySet_EnableMigrations_NoTokenizationOverlay pins
-// that enable-* arms only the force-index overlay; the query-path
-// tokenization overlay stays untouched since enable-* doesn't retokenize an
-// existing index.
+// that enable-* arms only the force-index overlay, not the tokenization one.
 func TestMaybeWirePerPropOverlaySet_EnableMigrations_NoTokenizationOverlay(t *testing.T) {
 	for _, mt := range []ReindexMigrationType{
 		ReindexTypeEnableFilterable,
