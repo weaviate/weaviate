@@ -37,6 +37,8 @@ type Snapshot struct {
 	DbUsers []byte `json:"dbusers,omitempty"`
 	// Namespaces is the state of cluster-level namespace control-plane entities
 	Namespaces []byte `json:"namespaces,omitempty"`
+	// ClusterID is the stable UUID committed once per cluster lifetime.
+	ClusterID string `json:"cluster_id,omitempty"`
 }
 
 // Snapshotter is used to snapshot and restore any (FSM) state

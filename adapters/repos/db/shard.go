@@ -597,7 +597,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		} else {
 			// dont lazy load segments on config update
 			if err = s.initTargetVector(ctx, targetVector, targetCfg, false); err != nil {
-				return fmt.Errorf("creating new vector index: %w", err)
+				// break, don't return: the deferred-like goroutine below must still
+				// run to restore StatusReady, otherwise a failure here leaves the
+				// shard read-only until restart.
+				err = fmt.Errorf("creating new vector index: %w", err)
+				break
 			}
 		}
 	}

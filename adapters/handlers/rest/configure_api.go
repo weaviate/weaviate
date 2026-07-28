@@ -1435,6 +1435,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		getTelemetryURL(appState),
 		appState.ServerConfig.Config.TelemetryPushInterval,
 		telemetryEnabled(appState),
+		telemetry.Config{
+			ConsumerURL:          getTelemetryURL(appState),
+			PushInterval:         appState.ServerConfig.Config.TelemetryPushInterval,
+			Enabled:              telemetryEnabled(appState),
+			NodeID:               appState.ServerConfig.Config.Cluster.Hostname,
+			AsyncIndexingEnabled: appState.ServerConfig.Config.AsyncIndexingEnabled,
+			ClusterID:            appState.ClusterService.ClusterID,
+		},
 	)
 
 	var grpcInstrument []grpc.ServerOption
@@ -2690,6 +2698,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
 		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
 		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
+		registered.BackupMaxIndividualFiles = appState.ServerConfig.Config.Backup.MaxIndividualFiles
 		registered.DebugEndpointsEnabled = appState.ServerConfig.Config.Profiling.DebugEndpointsEnabled
 		registered.GRPCWebEnabled = appState.ServerConfig.Config.GRPC.GrpcWebEnabled
 		registered.DisableGraphQL = appState.ServerConfig.Config.DisableGraphQL

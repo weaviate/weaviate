@@ -41,23 +41,57 @@ func (d *DockerCompose) Containers() []*DockerContainer {
 // Call from TestMain on failure to capture the leader side; the start-failure
 // dump only covers boot crashes, not mid-test misbehavior.
 func (d *DockerCompose) DumpWeaviateLogs(ctx context.Context, w io.Writer, tail int) {
+	// crash traces can run to thousands of lines (full goroutine dumps);
+	// bound the per-node dump so a marker-triggered dump can't flood CI.
+	const dumpCeiling = 6000
+
 	for _, c := range d.containers {
 		if !strings.HasPrefix(c.name, "weaviate") {
 			continue
 		}
+
+		header := fmt.Sprintf("--- %s", c.name)
+		if ep, ok := c.endpoints[HTTP]; ok {
+			header += fmt.Sprintf(" (http %s)", ep.uri)
+		}
+		if state, err := c.container.State(ctx); err != nil {
+			header += fmt.Sprintf(" state-unavailable=%q", err.Error())
+		} else {
+			header += fmt.Sprintf(" status=%s exitCode=%d oomKilled=%v", state.Status, state.ExitCode, state.OOMKilled)
+		}
+
 		reader, err := c.container.Logs(ctx)
 		if err != nil {
-			fmt.Fprintf(w, "--- %s logs unavailable: %v ---\n", c.name, err)
+			fmt.Fprintf(w, "%s logs unavailable: %v ---\n", header, err)
 			continue
 		}
 		logs, _ := io.ReadAll(reader)
 		reader.Close()
 		lines := strings.Split(string(logs), "\n")
-		if len(lines) > tail {
-			lines = lines[len(lines)-tail:]
-		}
-		fmt.Fprintf(w, "--- %s logs (last %d lines) ---\n%s\n", c.name, tail, strings.Join(lines, "\n"))
+
+		start := dumpWindowStart(lines, tail, dumpCeiling)
+		fmt.Fprintf(w, "%s logs (%d of %d lines) ---\n%s\n", header, len(lines)-start, len(lines), strings.Join(lines[start:], "\n"))
 	}
+}
+
+func dumpWindowStart(lines []string, tail, ceiling int) int {
+	start := len(lines) - tail
+	for i, line := range lines {
+		if strings.Contains(line, "panic:") || strings.Contains(line, "fatal error:") || strings.Contains(line, "WARNING: DATA RACE") {
+			// back up a little so the lines leading into the crash are visible
+			if i-20 < start {
+				start = i - 20
+			}
+			break
+		}
+	}
+	if start < len(lines)-ceiling {
+		start = len(lines) - ceiling
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start
 }
 
 func (d *DockerCompose) Terminate(ctx context.Context) error {
