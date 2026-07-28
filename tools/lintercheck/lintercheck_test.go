@@ -113,9 +113,10 @@ func TestHiddenUnicodeLinterFiresOnKnownViolation(t *testing.T) {
 	}
 }
 
-// stageFixture stages a fixture in a throwaway git repo. The linters run
-// `git ls-files` on whatever repo they're invoked from, so testdata/ fixtures
-// would otherwise also trip the real lint pass over this repo.
+// stageFixture stages a fixture in a throwaway git repo, because the linters
+// enumerate files with `git ls-files` and cannot be pointed at a path. Keeping
+// them out of the real lint pass is a separate mechanism: the fixtures carry a
+// .go.txt extension, which every linter's .go filter skips.
 func stageFixture(t *testing.T, fixture, stagedPath string) string {
 	t.Helper()
 
