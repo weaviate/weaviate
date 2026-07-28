@@ -231,7 +231,10 @@ func toRPCError(err error) error {
 			return d.Err()
 		}
 		return st.Err()
-	case errors.Is(err, types.ErrNotLeader), errors.Is(err, types.ErrLeaderNotFound):
+	case types.IsNoLeader(err):
+		// Also covers hashicorp's raw sentinels: raft.ErrLeadershipLost from a
+		// leader-local apply would otherwise reach the follower as
+		// codes.Internal and render 500.
 		ec = NotLeaderRPCCode
 	case errors.Is(err, types.ErrNotOpen):
 		ec = codes.Unavailable
@@ -245,6 +248,7 @@ func toRPCError(err error) error {
 		errors.Is(err, namespaces.ErrNamespaceSuspended),
 		errors.Is(err, namespaces.ErrCollectionSuspended),
 		errors.Is(err, namespaces.ErrNamespaceResuming),
+		errors.Is(err, namespaces.ErrStateChangedConcurrently),
 		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
 	case errors.Is(err, namespaces.ErrAlreadyExists):

@@ -422,6 +422,17 @@ func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName s
 	return idx.LoadLocalShard(ctx, shardName, false)
 }
 
+// DropLocalShard removes the local shard and its on-disk files. It is the
+// teardown counterpart to LoadLocalShard. Idempotent on an absent/unloaded shard.
+func (c *Copier) DropLocalShard(ctx context.Context, collectionName, shardName string) error {
+	idx := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if idx == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	return idx.DropLocalShard(shardName)
+}
+
 func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames []string) error {
 	fileNamesMap := make(map[string]struct{}, len(fileNames))
 	for _, fileName := range fileNames {

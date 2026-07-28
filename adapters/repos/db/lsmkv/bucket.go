@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -82,12 +83,13 @@ type BucketCreator interface {
 }
 
 type Bucket struct {
-	dir      string
-	rootDir  string
-	active   memtable
-	flushing memtable
-	disk     *SegmentGroup
-	logger   logrus.FieldLogger
+	dir            string
+	registeredPath string
+	rootDir        string
+	active         memtable
+	flushing       memtable
+	disk           *SegmentGroup
+	logger         logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -233,6 +235,21 @@ type Bucket struct {
 	// keep segments in memory for more performant search
 	// (currently used by roaringsetrange inverted indexes)
 	keepSegmentsInMemory bool
+
+	// rangeableInMemoryDeferred marks a bucket whose rep was intentionally left
+	// unbuilt (reindex ingest path). Selects a diagnostic log line only;
+	// rangeableServesFromMemory alone governs read-path selection.
+	rangeableInMemoryDeferred bool
+
+	// rangeableRepRebuilt flips once RebuildRangeableSegmentInMemory
+	// publishes a rep. Atomic and read unlocked; the false->true store
+	// happens under flushLock after the rep is fully built, so a reader
+	// observing true is guaranteed a populated rep.
+	rangeableRepRebuilt atomic.Bool
+
+	// Dedup for the rangeable diagnostic log lines, once per bucket-open.
+	rangeableDeferredLogOnce  sync.Once
+	rangeableFallbackWarnOnce sync.Once
 
 	// pool of buffers for bitmaps merges
 	// (currently used by roaringsetrange inverted indexes)
@@ -392,6 +409,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		// prevent accidentally trying to register the same bucket twice
 		return nil, err
 	}
+	// The actual path of the bucket can change, e.g. on delete, without updating the registry. Keep the registered path in the bucket so we can remove it from the registry on shutdown.
+	b.registeredPath = dir
 
 	return b, nil
 }
@@ -1688,7 +1707,7 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	close(drained)
 	defer b.lifetimeLock.Unlock()
 
-	defer GlobalBucketRegistry.Remove(b.GetDir())
+	defer GlobalBucketRegistry.Remove(b.registeredPath)
 
 	start := time.Now()
 
@@ -2128,7 +2147,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 		}
 
 	case StrategyRoaringSetRange:
-		if b.keepSegmentsInMemory {
+		if b.rangeableServesFromMemory() {
 			b.disk.roaringSetRangeSegmentInMemory.MergeMemtableEventually(flushing.extractRoaringSetRange())
 		}
 	case StrategyInverted:

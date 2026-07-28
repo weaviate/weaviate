@@ -163,6 +163,14 @@ func TestStore_Apply_CommandTypes(t *testing.T) {
 			expectError: false, // Unknown commands don't return errors, they just log
 			cmdData:     nil,
 		},
+		{
+			name:    "deprecated SyncShard wire value applies as an explicit no-op",
+			cmdType: api.ApplyRequest_Type(210), // raw wire value: pins acceptance independent of the generated constant
+			setupMocks: func(ms MockStore) {
+			},
+			expectError: false,
+			cmdData:     nil,
+		},
 	}
 
 	for _, tt := range tests {

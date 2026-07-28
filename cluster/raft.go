@@ -154,3 +154,8 @@ func (s *Raft) SetInflightDrainer(fn func(ctx context.Context, class, shard stri
 func (s *Raft) IsLeader() bool {
 	return s.store.IsLeader()
 }
+
+// ClusterID returns the stable cluster identity UUIDv7, or "" if not yet committed.
+func (s *Raft) ClusterID() string {
+	return s.store.ClusterID()
+}

@@ -24,9 +24,8 @@ type Namespace struct {
 	Name      string
 	HomeNodes []string
 	State     NamespaceState
-	// StateChangeIndex is the RAFT log index of the last accepted State flip.
-	// Treat 0 as unknown, not "never flipped": an older binary re-writing a
-	// snapshot drops the field silently.
+	// StateChangeIndex is the RAFT log index of the create command, or of the
+	// last accepted State flip. 0 means unknown.
 	StateChangeIndex uint64
 }
 
@@ -73,7 +72,15 @@ type UpdateNamespaceRequest struct {
 type ChangeNamespaceStateRequest struct {
 	Name        string
 	TargetState NamespaceState
-	Version     int
+	// Version is the command policy version, not a RAFT index. The apply's
+	// log index arrives separately as ApplyRequest.Version.
+	Version int
+	// ExpectedStateChangeIndex stops a re-proposed command from undoing a
+	// state change made after it was first proposed: the apply refuses the
+	// flip unless the namespace's stored StateChangeIndex still equals this
+	// value. 0 skips the check, for callers whose command cannot undo
+	// anything.
+	ExpectedStateChangeIndex uint64
 }
 
 // RemoveNamespaceEntityRequest removes a deleting namespace's entity.

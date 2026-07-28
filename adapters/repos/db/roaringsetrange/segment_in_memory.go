@@ -68,6 +68,9 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 		}
 	}
 	for ; ok; key, layer, ok = cursor.Next() {
+		if int(key) >= len(s.bitmaps) {
+			return fmt.Errorf("invalid key %d from merged segment cursor: exceeds rangeable bitmap count %d", key, len(s.bitmaps))
+		}
 		s.bitmaps[key].OrConc(layer.Additions, concurrency.SROAR_MERGE)
 	}
 	return nil
@@ -122,6 +125,27 @@ func (s *SegmentInMemory) countPendingMemtables() int {
 	defer s.memtablesLock.Unlock()
 
 	return len(s.memtables)
+}
+
+// IsUnpopulated reports whether the rep would serve no rows. Size() can't
+// substitute: an unpopulated rep still allocates 65 empty bitmap skeletons.
+// Also checks pending memtables to avoid a false positive in the post-flush
+// window, where bitmaps[0] is briefly empty but Readers() already serves it.
+//
+// Locks bitmapsLock then memtablesLock (matches Readers()); never alongside
+// the segment group's maintenanceLock.
+func (s *SegmentInMemory) IsUnpopulated() bool {
+	s.bitmapsLock.RLock()
+	defer s.bitmapsLock.RUnlock()
+
+	if !s.bitmaps[0].IsEmpty() {
+		return false
+	}
+
+	s.memtablesLock.Lock()
+	defer s.memtablesLock.Unlock()
+
+	return len(s.memtables) == 0
 }
 
 func (s *SegmentInMemory) Size() int {

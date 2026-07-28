@@ -253,6 +253,14 @@ func (d *DistributedBackupDescriptor) GetStatus() Status {
 	return d.Status
 }
 
+func (d *DistributedBackupDescriptor) GetVersion() string {
+	return d.Version
+}
+
+func (d *DistributedBackupDescriptor) GetServerVersion() string {
+	return d.ServerVersion
+}
+
 func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
 	return d.CompressionType
 }
@@ -356,10 +364,11 @@ type ShardAndID struct {
 type FileList struct {
 	Files     []string
 	FileSizes map[string]int64 // map of relative file path to file size in bytes
-	// Top100Size is the size of the 100th biggest file (or smallest if fewer than 100 files),
-	// with a minimum of 1MB. This can be used for chunk size optimization.
-	Top100Size int64
-	start      int
+	// BigFilesThreshold is the size of the n-th biggest file, clamped to a minimum chunk size,
+	// where n is the configured number of files that may get their own chunk, minus the files
+	// reused from the base backup.
+	BigFilesThreshold int64
+	start             int
 }
 
 // Len returns the number of files in the list
@@ -528,6 +537,14 @@ func (d *BackupDescriptor) GetStatus() Status {
 	return d.Status
 }
 
+func (d *BackupDescriptor) GetVersion() string {
+	return d.Version
+}
+
+func (d *BackupDescriptor) GetServerVersion() string {
+	return d.ServerVersion
+}
+
 // List all existing classes in d
 func (d *BackupDescriptor) List() []string {
 	lst := make([]string, len(d.Classes))
@@ -618,38 +635,10 @@ func (d *BackupDescriptor) GetClassDescriptor(className string) *ClassDescriptor
 	return nil
 }
 
-// ValidateV1 validates d
-func (d *BackupDescriptor) validateV1() error {
-	for _, c := range d.Classes {
-		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
-			return fmt.Errorf("invalid class %q: [name schema sharding]", c.Name)
-		}
-		for _, s := range c.Shards {
-			n := len(s.Files)
-			if s.Name == "" || s.Node == "" || s.DocIDCounterPath == "" ||
-				s.ShardVersionPath == "" || s.PropLengthTrackerPath == "" ||
-				(n > 0 && (len(s.DocIDCounter) == 0 ||
-					len(s.PropLengthTracker) == 0 ||
-					len(s.Version) == 0)) {
-				return fmt.Errorf("invalid shard %q.%q", c.Name, s.Name)
-			}
-			for i, fpath := range s.Files {
-				if fpath == "" {
-					return fmt.Errorf("invalid shard %q.%q: file number %d", c.Name, s.Name, i)
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func (d *BackupDescriptor) Validate(newSchema bool) error {
+func (d *BackupDescriptor) Validate() error {
 	if d.StartedAt.IsZero() || d.ID == "" ||
 		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
 		return fmt.Errorf("attribute mismatch: [id versions time error]")
-	}
-	if !newSchema {
-		return d.validateV1()
 	}
 	for _, c := range d.Classes {
 		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
@@ -662,28 +651,4 @@ func (d *BackupDescriptor) Validate(newSchema bool) error {
 		}
 	}
 	return nil
-}
-
-// ToDistributed is used just for backward compatibility with the old version.
-func (d *BackupDescriptor) ToDistributed() *DistributedBackupDescriptor {
-	node, cs := "", d.List()
-	for _, xs := range d.Classes {
-		for _, s := range xs.Shards {
-			node = s.Node
-		}
-	}
-	result := &DistributedBackupDescriptor{
-		StartedAt:               d.StartedAt,
-		CompletedAt:             d.CompletedAt,
-		ID:                      d.ID,
-		Status:                  Status(d.Status),
-		Version:                 d.Version,
-		ServerVersion:           d.ServerVersion,
-		Error:                   d.Error,
-		PreCompressionSizeBytes: d.PreCompressionSizeBytes, // Copy pre-compression size
-	}
-	if node != "" && len(cs) > 0 {
-		result.Nodes = map[string]*NodeDescriptor{node: {Classes: cs}}
-	}
-	return result
 }
