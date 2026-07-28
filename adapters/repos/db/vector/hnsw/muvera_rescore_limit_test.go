@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -24,8 +25,9 @@ import (
 )
 
 // minimalMuveraHnsw returns a minimal hnsw instance configured for
-// computeScoreWithView testing, with the TempMultiVectorForIDWithViewThunk
-// returning the provided docVecs for every docID.
+// computeScoreWithView and computeLateInteraction testing, with the
+// TempMultiVectorForIDWithViewThunk returning the provided docVecs for every
+// docID.
 func minimalMuveraHnsw(t *testing.T, docVecs [][]float32, limit *configRuntime.DynamicValue[int]) *hnsw {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -33,11 +35,14 @@ func minimalMuveraHnsw(t *testing.T, docVecs [][]float32, limit *configRuntime.D
 		logger:                 logger,
 		multiDistancerProvider: distancer.NewDotProductProvider(),
 		muveraRescoreLimit:     limit,
+		rescoreConcurrency:     1,
+		GetViewThunk:           func() common.BucketView { return &noopBucketView{} },
 		TempMultiVectorForIDWithViewThunk: func(_ context.Context, _ uint64, _ *common.VectorSlice, _ common.BucketView) ([][]float32, error) {
 			return docVecs, nil
 		},
 	}
 	h.muvera.Store(true)
+	h.pools = newPools(2, 512)
 	return h
 }
 
@@ -143,75 +148,70 @@ func TestComputeScoreWithView_Determinism(t *testing.T) {
 	}
 }
 
-// TestVectorsPerCandidateCalculation verifies the budget → per-candidate math.
-func TestVectorsPerCandidateCalculation(t *testing.T) {
+// TestComputeLateInteraction_RespectsMuveraRescoreLimit pins that the configured
+// rescore budget reaches the per-candidate sampling stride, including the
+// division and the clamp that turns a budget thinner than the candidate count
+// into one vector each.
+//
+// Every candidate returns the same ten doc vectors, whose distances against the
+// query are -1..-10, so the returned score alone identifies which vectors were
+// sampled: a full scan reaches the best (-10) vector, while a budget that forces
+// a stride only ever reaches a worse one. A limit that binds therefore has to
+// produce a different score from one that does not.
+func TestComputeLateInteraction_RespectsMuveraRescoreLimit(t *testing.T) {
+	const (
+		nCandidates = 100
+		nVecsPerDoc = 10
+		k           = 10
+	)
+
+	// docVecs[i] = {i+1, 0} against query {1, 0} yields dot product i+1 and thus
+	// distance -(i+1), so the sampled vector with the highest index wins.
+	docVecs := make([][]float32, nVecsPerDoc)
+	for i := range docVecs {
+		docVecs[i] = []float32{float32(i + 1), 0}
+	}
+	queryVectors := [][]float32{{1, 0}}
+
 	tests := []struct {
-		name        string
-		limit       int
-		nCandidates int
-		want        int
+		name     string
+		limit    *configRuntime.DynamicValue[int]
+		wantDist float32
 	}{
-		{"zero limit means no sampling", 0, 100, 0},
-		{"1000 budget / 100 candidates = 10", 1000, 100, 10},
-		{"budget smaller than candidates gets clamped to 1", 50, 100, 1},
-		{"exact division", 200, 10, 20},
-		{"limit=1 / 1 candidate = 1", 1, 1, 1},
+		{"unset limit scans every vector", nil, -10},
+		{"zero limit scans every vector", configRuntime.NewDynamicValue(0), -10},
+		{"budget of one vector per candidate samples index 0 only", configRuntime.NewDynamicValue(100), -1},
+		{"budget below the candidate count is clamped to one vector each", configRuntime.NewDynamicValue(50), -1},
+		{"budget of two vectors per candidate samples indices 0 and 5", configRuntime.NewDynamicValue(200), -6},
+		{"budget above the vectors available does not bind", configRuntime.NewDynamicValue(2000), -10},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var got int
-			if tc.limit > 0 && tc.nCandidates > 0 {
-				got = max(1, tc.limit/tc.nCandidates)
+			h := minimalMuveraHnsw(t, docVecs, tc.limit)
+			var scored atomic.Int64
+			h.TempMultiVectorForIDWithViewThunk = func(_ context.Context, _ uint64, _ *common.VectorSlice, _ common.BucketView) ([][]float32, error) {
+				scored.Add(1)
+				return docVecs, nil
 			}
-			assert.Equal(t, tc.want, got)
+
+			candidateSet := make(map[uint64]struct{}, nCandidates)
+			for i := 0; i < nCandidates; i++ {
+				candidateSet[uint64(i)] = struct{}{}
+			}
+
+			ids, dists, err := h.computeLateInteraction(context.Background(), queryVectors, k, candidateSet)
+			require.NoError(t, err)
+			require.Len(t, ids, k)
+			require.Len(t, dists, k)
+
+			for i, got := range dists {
+				assert.Equal(t, tc.wantDist, got, "result %d was scored on the wrong doc vectors", i)
+			}
+
+			// The budget caps vectors per candidate, never the candidate count, so
+			// every candidate must still be rescored.
+			assert.Equal(t, int64(nCandidates), scored.Load())
 		})
 	}
-}
-
-// TestComputeLateInteraction_RespectsMuveraRescoreLimit verifies the wiring
-// from muveraRescoreLimit → vectorsPerCandidate inside computeLateInteraction.
-func TestComputeLateInteraction_RespectsMuveraRescoreLimit(t *testing.T) {
-	// Candidates: 100 docs, each with 10 vectors.
-	// limit = 100 → vectorsPerCandidate = max(1, 100/100) = 1 → step = 10/1 = 10.
-	// Only index 0 of each doc's vectors is used.
-	nCandidates := 100
-	nVecsPerDoc := 10
-
-	docVecsCalled := 0
-	// Use a custom thunk to count how many vec comparisons happen.
-	// Return nVecsPerDoc vectors per doc.
-	docVecs := make([][]float32, nVecsPerDoc)
-	for i := range docVecs {
-		docVecs[i] = []float32{float32(i), 0}
-	}
-
-	logger, _ := test.NewNullLogger()
-	limit := configRuntime.NewDynamicValue(nCandidates) // 100 total → 1 per candidate
-
-	h := &hnsw{
-		logger:                 logger,
-		multiDistancerProvider: distancer.NewDotProductProvider(),
-		muveraRescoreLimit:     limit,
-		rescoreConcurrency:     1,
-		GetViewThunk:           func() common.BucketView { return &noopBucketView{} },
-		TempMultiVectorForIDWithViewThunk: func(_ context.Context, _ uint64, _ *common.VectorSlice, _ common.BucketView) ([][]float32, error) {
-			docVecsCalled++
-			return docVecs, nil
-		},
-	}
-	h.muvera.Store(true)
-	h.pools = newPools(2, 512)
-
-	candidateSet := make(map[uint64]struct{}, nCandidates)
-	for i := 0; i < nCandidates; i++ {
-		candidateSet[uint64(i)] = struct{}{}
-	}
-
-	queryVectors := [][]float32{{1, 0}}
-	_, _, err := h.computeLateInteraction(context.Background(), queryVectors, 10, candidateSet)
-	require.NoError(t, err)
-
-	// Each candidate's TempMultiVectorForIDWithViewThunk should be called once.
-	assert.Equal(t, nCandidates, docVecsCalled)
 }
