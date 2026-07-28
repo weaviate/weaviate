@@ -221,28 +221,42 @@ func TestReindexPostSwapPreFlip_EnableSearchable_InsertNotLost(t *testing.T) {
 	})
 }
 
-type updateNoGhostCase struct {
+// mutateInWindowCase drives the update and delete journeys, which differ
+// only in the mutation applied once the window is open.
+type mutateInWindowCase struct {
 	target        postSwapPreFlipTarget
 	classPrefix   string
 	withBystander bool
 }
 
-func runPostSwapPreFlipUpdateLeavesNoGhost(t *testing.T, c updateNoGhostCase) {
+// seedPostSwapPreFlipObject arranges what the update and delete journeys
+// share: one target object carrying seedToken, an optional unrelated
+// bystander, the drive into the post-swap pre-flip window, and the
+// precondition that the backfill indexed seedToken before the mutation.
+func seedPostSwapPreFlipObject(
+	t *testing.T, ctx context.Context, c mutateInWindowCase, seedToken string,
+) (shard *Shard, className, targetID string, bucket *lsmkv.Bucket) {
+	t.Helper()
 	const propName = "title"
-	ctx := testCtx()
 	shard, idx, className := newPostSwapPreFlipShard(t, ctx, c.classPrefix, []string{propName})
 
-	targetID := uuid.NewString()
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "ghosttoken")))
+	targetID = uuid.NewString()
+	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, seedToken)))
 	if c.withBystander {
 		require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "bystander")))
 	}
 
 	c.target.drive(t, shard, idx, className, propName)
 
-	bucket := c.target.bucket(shard, propName)
-	require.NotEmpty(t, c.target.fingerprint(t, bucket)["ghosttoken"],
-		"backfill must have indexed the pre-update value")
+	bucket = c.target.bucket(shard, propName)
+	require.NotEmptyf(t, c.target.fingerprint(t, bucket)[seedToken],
+		"backfill must have indexed %q before the in-window mutation", seedToken)
+	return shard, className, targetID, bucket
+}
+
+func runPostSwapPreFlipUpdateLeavesNoGhost(t *testing.T, c mutateInWindowCase) {
+	ctx := testCtx()
+	shard, className, targetID, bucket := seedPostSwapPreFlipObject(t, ctx, c, "ghosttoken")
 
 	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "freshtoken")),
 		"in-window update must not error")
@@ -260,7 +274,7 @@ func runPostSwapPreFlipUpdateLeavesNoGhost(t *testing.T, c updateNoGhostCase) {
 }
 
 func TestReindexPostSwapPreFlip_EnableFilterable_UpdateLeavesNoGhost(t *testing.T) {
-	runPostSwapPreFlipUpdateLeavesNoGhost(t, updateNoGhostCase{
+	runPostSwapPreFlipUpdateLeavesNoGhost(t, mutateInWindowCase{
 		target:        filterableTarget(),
 		classPrefix:   "PostSwapPreFlipEfUpdate",
 		withBystander: true,
@@ -268,34 +282,15 @@ func TestReindexPostSwapPreFlip_EnableFilterable_UpdateLeavesNoGhost(t *testing.
 }
 
 func TestReindexPostSwapPreFlip_EnableSearchable_UpdateLeavesNoGhost(t *testing.T) {
-	runPostSwapPreFlipUpdateLeavesNoGhost(t, updateNoGhostCase{
+	runPostSwapPreFlipUpdateLeavesNoGhost(t, mutateInWindowCase{
 		target:      searchableTarget(),
 		classPrefix: "PostSwapPreFlipEsUpdate",
 	})
 }
 
-type deleteRemovesPostingsCase struct {
-	target        postSwapPreFlipTarget
-	classPrefix   string
-	withBystander bool
-}
-
-func runPostSwapPreFlipDeleteRemovesPostings(t *testing.T, c deleteRemovesPostingsCase) {
-	const propName = "title"
+func runPostSwapPreFlipDeleteRemovesPostings(t *testing.T, c mutateInWindowCase) {
 	ctx := testCtx()
-	shard, idx, className := newPostSwapPreFlipShard(t, ctx, c.classPrefix, []string{propName})
-
-	targetID := uuid.NewString()
-	require.NoError(t, shard.PutObject(ctx, objWithTitle(className, targetID, "deltoken")))
-	if c.withBystander {
-		require.NoError(t, shard.PutObject(ctx, objWithTitle(className, uuid.NewString(), "bystander")))
-	}
-
-	c.target.drive(t, shard, idx, className, propName)
-
-	bucket := c.target.bucket(shard, propName)
-	require.NotEmpty(t, c.target.fingerprint(t, bucket)["deltoken"],
-		"backfill must have indexed the to-be-deleted object")
+	shard, _, targetID, bucket := seedPostSwapPreFlipObject(t, ctx, c, "deltoken")
 
 	require.NoError(t, shard.DeleteObject(ctx, strfmt.UUID(targetID), time.Now()),
 		"in-window delete must not error")
@@ -311,7 +306,7 @@ func runPostSwapPreFlipDeleteRemovesPostings(t *testing.T, c deleteRemovesPostin
 }
 
 func TestReindexPostSwapPreFlip_EnableFilterable_DeleteRemovesPostings(t *testing.T) {
-	runPostSwapPreFlipDeleteRemovesPostings(t, deleteRemovesPostingsCase{
+	runPostSwapPreFlipDeleteRemovesPostings(t, mutateInWindowCase{
 		target:        filterableTarget(),
 		classPrefix:   "PostSwapPreFlipEfDelete",
 		withBystander: true,
@@ -319,7 +314,7 @@ func TestReindexPostSwapPreFlip_EnableFilterable_DeleteRemovesPostings(t *testin
 }
 
 func TestReindexPostSwapPreFlip_EnableSearchable_DeleteRemovesPostings(t *testing.T) {
-	runPostSwapPreFlipDeleteRemovesPostings(t, deleteRemovesPostingsCase{
+	runPostSwapPreFlipDeleteRemovesPostings(t, mutateInWindowCase{
 		target:      searchableTarget(),
 		classPrefix: "PostSwapPreFlipEsDelete",
 	})
