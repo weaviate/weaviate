@@ -242,8 +242,11 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
 		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
-	// Never-tracked property (e.g. a pre-migration object touched after
-	// enable-searchable): no-op instead of erroring or corrupting Sum/Count
+	// No bucket map means the property was never tracked at all, so there is
+	// nothing to subtract. It does NOT mean this object was tracked: the map is
+	// created by the first post-migration write, and from then on untracking an
+	// object that predates enable-* reaches the arithmetic below and subtracts a
+	// length that was never added, because enable-* does not backfill the tally
 	// (weaviate/0-weaviate-issues#319).
 	if _, ok := t.data.BucketedData[propName]; !ok {
 		return nil
@@ -251,6 +254,23 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
+
+	// Subtracting objects the tally never held drives it below zero. Both fields
+	// must be clamped: a lone sum over a zero count gives PropertyMean +/-Inf,
+	// and a zero sum over a negative count gives -0.0 — neither is NaN, so both
+	// survive the searcher's validity check and are averaged in as if real.
+	// Collapsing to the empty tally is the one state a consumer recognises as
+	// absent. This contains the damage; backfilling the tally is the fix.
+	if t.data.CountData[propName] <= 0 {
+		if t.data.SumData[propName] != 0 || t.data.CountData[propName] < 0 {
+			t.logger.Warnf(
+				"prop length tally for %q went non-positive (sum=%d count=%d); "+
+					"objects predating enable-* are untracked but still subtracted. Resetting to empty",
+				propName, t.data.SumData[propName], t.data.CountData[propName])
+		}
+		t.data.CountData[propName] = 0
+		t.data.SumData[propName] = 0
+	}
 
 	bucketId := t.bucketFromValue(value)
 	t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] - 1
