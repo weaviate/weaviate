@@ -175,7 +175,7 @@ func (db *DB) localNodeBatchStats() *models.BatchStats {
 func (i *Index) getShardsNodeStatus(ctx context.Context,
 	status *[]*models.NodeShardStatus, shardName string,
 ) (totalCount, shardCount int64) {
-	i.ForEachShard(func(name string, shard ShardLike) error {
+	i.ForEachShardMeta(func(name string, shard ShardLike) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

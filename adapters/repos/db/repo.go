@@ -281,7 +281,7 @@ func (db *DB) scanStartupProgress(classNames []string) (loaded, total int64) {
 	db.indexLock.RUnlock()
 
 	for _, idx := range indices {
-		_ = idx.ForEachShard(func(_ string, shard ShardLike) error {
+		_ = idx.ForEachShardMeta(func(_ string, shard ShardLike) error {
 			if _, ok := shard.(*LazyLoadShard); ok {
 				total--
 				return nil
@@ -547,7 +547,7 @@ func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 		return nil, fmt.Errorf("collection %q not found", collection)
 	}
 	var names []string
-	if err := index.ForEachShard(func(name string, _ ShardLike) error {
+	if err := index.ForEachShardMeta(func(name string, _ ShardLike) error {
 		names = append(names, name)
 		return nil
 	}); err != nil {

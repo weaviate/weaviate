@@ -2458,7 +2458,7 @@ func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[
 // error.
 func lookupShardByName(idx *Index, shardName string) (ShardLike, error) {
 	var found ShardLike
-	if err := idx.ForEachShard(func(name string, s ShardLike) error {
+	if err := idx.ForEachShardMeta(func(name string, s ShardLike) error {
 		if name == shardName {
 			found = s
 		}

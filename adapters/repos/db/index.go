@@ -734,14 +734,42 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 	})
 }
 
-// ForEachShard applies func f on each shard in the index.
+// ForEachShard applies f to every shard, force-loading cold ones and holding a
+// reference, so f may touch the store and vector indexes.
 //
-// WARNING: only use this if you expect all LazyLoadShards to be loaded!
-// Calling this method may lead to shards being force-loaded, causing
-// unexpected CPU spikes. If you only want to apply f on loaded shards,
-// call ForEachLoadedShard instead.
+// WARNING: force-loading every LazyLoadShard can cause large CPU and memory
+// spikes. For identity or status only use ForEachShardMeta; to skip cold shards
+// use ForEachLoadedShard.
 // Note: except Dropping and Shutting Down
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
+	return i.ForEachShardMeta(func(name string, shard ShardLike) error {
+		release, err := shard.preventShutdown()
+		if err != nil {
+			return nil // being torn down; nothing to operate on
+		}
+		defer release()
+
+		return f(name, shard)
+	})
+}
+
+// takeShardForTeardown unmaps name for a caller about to destroy the shard. It
+// is the one accessor that takes no reference: drop and Shutdown drain on their
+// own, and holding one here would deadlock against that.
+//
+// Callers must hold shardCreateLocks for name.
+func (i *Index) takeShardForTeardown(shardName string) (ShardLike, bool) {
+	return i.shards.LoadAndDelete(shardName)
+}
+
+// ForEachShardMeta applies f to every shard without loading cold ones and
+// without holding a reference, so f may be handed a shard that is already
+// tearing down: identity, activity and storage state only.
+//
+// It is also the variant for iterating in order to tear shards down, since
+// holding a reference would deadlock against Shutdown's own drain.
+// Note: except Dropping and Shutting Down
+func (i *Index) ForEachShardMeta(f func(name string, shard ShardLike) error) error {
 	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
 	if i.closingCtx.Err() != nil {
 		i.logger.WithField("action", "for_each_shard").Debug("index is being dropped or shut down")
@@ -759,11 +787,32 @@ func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) e
 				return nil
 			}
 		}
+		// already loaded, so this cannot force-load
+		release, err := shard.preventShutdown()
+		if err != nil {
+			return nil // being torn down; nothing to operate on
+		}
+		defer release()
+
 		return f(name, shard)
 	})
 }
 
+// ForEachShardConcurrently is [Index.ForEachShard], run concurrently.
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
+	return i.ForEachShardMetaConcurrently(func(name string, shard ShardLike) error {
+		release, err := shard.preventShutdown()
+		if err != nil {
+			return nil // being torn down; nothing to operate on
+		}
+		defer release()
+
+		return f(name, shard)
+	})
+}
+
+// ForEachShardMetaConcurrently is [Index.ForEachShardMeta], run concurrently.
+func (i *Index) ForEachShardMetaConcurrently(f func(name string, shard ShardLike) error) error {
 	// Check if the index is being dropped or shut down to avoid panics when the index is being deleted
 	if i.closingCtx.Err() != nil {
 		i.logger.WithField("action", "for_each_shard_concurrently").Debug("index is being dropped or shut down")
@@ -780,6 +829,15 @@ func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLi
 				return nil
 			}
 		}
+		// The shard is loaded, so this cannot force-load it; it pins the store
+		// and vector indexes for the callback. Callers used to hand-roll this
+		// with shardCreateLocks.RLock plus a shards.Load nil check.
+		release, err := shard.preventShutdown()
+		if err != nil {
+			return nil // being torn down; nothing to operate on
+		}
+		defer release()
+
 		return f(name, shard)
 	})
 }
@@ -2941,7 +2999,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
-	shardLike, ok := i.shards.LoadAndDelete(shardName)
+	shardLike, ok := i.takeShardForTeardown(shardName)
 	if !ok {
 		return nil // shard was not found, nothing to unload
 	}
@@ -3201,7 +3259,7 @@ func (i *Index) drop() error {
 			i.shardCreateLocks.Lock(shardName)
 			defer i.shardCreateLocks.Unlock(shardName)
 
-			shard, ok := i.shards.LoadAndDelete(shardName)
+			shard, ok := i.takeShardForTeardown(shardName)
 			if !ok {
 				return nil // shard already does not exist
 			}
@@ -3309,7 +3367,7 @@ func (i *Index) dropShards(names []string) error {
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
-			shard, ok := i.shards.LoadAndDelete(name)
+			shard, ok := i.takeShardForTeardown(name)
 			if !ok {
 				// Ensure that if the shard is not loaded we delete any reference on disk for any data.
 				// This ensures that we also delete inactive shards/tenants

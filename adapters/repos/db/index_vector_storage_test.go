@@ -343,7 +343,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				release()
 
 				// Explicitly shutdown all shards to ensure data is flushed to disk
-				err = index.ForEachShard(func(name string, shard ShardLike) error {
+				err = index.ForEachShardMeta(func(name string, shard ShardLike) error {
 					return shard.Shutdown(ctx)
 				})
 				require.NoError(t, err)
@@ -383,7 +383,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				release()
 
 				// Explicitly shutdown all shards to ensure data is flushed to disk
-				err = index.ForEachShard(func(name string, shard ShardLike) error {
+				err = index.ForEachShardMeta(func(name string, shard ShardLike) error {
 					return shard.Shutdown(ctx)
 				})
 				require.NoError(t, err)
@@ -611,7 +611,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				release()
 
 				// Explicitly shutdown all shards to ensure data is flushed to disk
-				err = index.ForEachShard(func(name string, shard ShardLike) error {
+				err = index.ForEachShardMeta(func(name string, shard ShardLike) error {
 					return shard.Shutdown(ctx)
 				})
 				require.NoError(t, err)
@@ -642,7 +642,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				release()
 
 				// Explicitly shutdown all shards to ensure data is flushed to disk
-				err = index.ForEachShard(func(name string, shard ShardLike) error {
+				err = index.ForEachShardMeta(func(name string, shard ShardLike) error {
 					return shard.Shutdown(ctx)
 				})
 				require.NoError(t, err)
@@ -831,7 +831,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	release()
 
 	// Explicitly shutdown all shards to ensure data is flushed to disk
-	err = index.ForEachShard(func(name string, shard ShardLike) error {
+	err = index.ForEachShardMeta(func(name string, shard ShardLike) error {
 		return shard.Shutdown(ctx)
 	})
 	require.NoError(t, err)
@@ -873,7 +873,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	defer newIndex.Shutdown(ctx)
 
 	// Explicitly shutdown all shards to ensure data is flushed to disk
-	require.NoError(t, newIndex.ForEachShard(func(name string, shard ShardLike) error {
+	require.NoError(t, newIndex.ForEachShardMeta(func(name string, shard ShardLike) error {
 		return shard.Shutdown(ctx)
 	}))
 	newIndex.shards.LoadAndDelete(tenantNamePopulated)

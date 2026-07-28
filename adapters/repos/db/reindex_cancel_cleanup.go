@@ -68,7 +68,7 @@ func (i *Index) CleanStalePartialReindexState(
 	propName, indexType string,
 ) error {
 	var firstErr error
-	if err := i.ForEachShard(func(name string, shardLike ShardLike) error {
+	if err := i.ForEachShardMeta(func(name string, shardLike ShardLike) error {
 		shard, ok := shardLike.(*Shard)
 		if !ok {
 			// LazyLoadShard or other wrapper — skip cleanly. If the shard
@@ -91,6 +91,13 @@ func (i *Index) CleanStalePartialReindexState(
 			}
 			shard = unwrapped
 		}
+		// ForEachShardMeta holds no reference, so pin the one shard we touch.
+		release, err := shard.preventShutdown()
+		if err != nil {
+			return nil // being torn down; its on-disk state goes with it
+		}
+		defer release()
+
 		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("shard %q: %w", name, err)
