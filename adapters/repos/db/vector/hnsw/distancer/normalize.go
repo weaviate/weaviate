@@ -17,13 +17,20 @@ import (
 	"github.com/tphakala/simd/f32"
 )
 
+func squaredNorm(v []float32) float32 {
+	if len(v) == 0 {
+		return 0
+	}
+	return dotProductImplementation(v, v)
+}
+
 // Normalize returns v scaled to unit length as a new slice. A zero vector
 // normalizes to the zero vector. The norm is applied as a multiplication by
 // the reciprocal, which is substantially faster than per-element division
 // and differs from it by at most one ulp per element.
 func Normalize(v []float32) []float32 {
 	out := make([]float32, len(v))
-	norm2 := dotProductImplementation(v, v)
+	norm2 := squaredNorm(v)
 	if norm2 == 0 {
 		return out
 	}
@@ -35,7 +42,7 @@ func Normalize(v []float32) []float32 {
 // Use this when you own the vector and don't need to preserve the original.
 // A zero vector is left unchanged.
 func NormalizeInPlace(v []float32) {
-	norm2 := dotProductImplementation(v, v)
+	norm2 := squaredNorm(v)
 	if norm2 == 0 {
 		return
 	}
@@ -51,7 +58,7 @@ func NormalizeInto(dst, v []float32) []float32 {
 		dst = make([]float32, len(v))
 	}
 	dst = dst[:len(v)]
-	norm2 := dotProductImplementation(v, v)
+	norm2 := squaredNorm(v)
 	if norm2 == 0 {
 		clear(dst)
 		return dst
