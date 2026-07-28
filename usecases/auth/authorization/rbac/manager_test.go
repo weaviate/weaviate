@@ -101,7 +101,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 			require.NoError(t, err)
 
 			// Restore from snapshot
-			err = m2.Restore(snapshotData)
+			err = m2.Restore(snapshotData, false)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -238,7 +238,7 @@ func TestSnapshotRolesFilter(t *testing.T) {
 
 		dst, err := setupTestManager(t, logger)
 		require.NoError(t, err)
-		require.NoError(t, dst.Restore(blob))
+		require.NoError(t, dst.Restore(blob, false))
 
 		assert.NotEmpty(t, roleP(t, dst, "customAdmin"))
 		assert.NotEmpty(t, roleG(t, dst, "customAdmin"))
@@ -255,7 +255,7 @@ func TestSnapshotRolesFilter(t *testing.T) {
 
 		dst, err := setupTestManager(t, logger)
 		require.NoError(t, err)
-		require.NoError(t, dst.Restore(blob))
+		require.NoError(t, dst.Restore(blob, false))
 
 		assert.NotEmpty(t, roleP(t, dst, "customAdmin"))
 		assert.NotEmpty(t, roleP(t, dst, "editor"))
@@ -292,6 +292,231 @@ func equalPolicies(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestStripRBACSnapshot pins the graduation strip over the casbin blob: the
+// N-aware rule (only namespaces named by a role name strip, so global OIDC
+// identities and the placeholder survive), the full-row rewrite (p[0]/p[1]/
+// g[0]/g[1]), and the four fail-loud collision classes casbin would otherwise
+// merge silently.
+func TestStripRBACSnapshot(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      snapshot
+		wantP   [][]string
+		wantG   [][]string
+		wantErr []string // substrings; empty means the strip must succeed
+	}{
+		{
+			// p[0] role, p[1] resource, g[0] subject and g[1] role all lose the
+			// ns1 qualifier; the db:wv_internal_empty placeholder (namespace "")
+			// survives so the role keeps a row.
+			name: "clean single-namespace strip rewrites every column",
+			in: snapshot{
+				Policy: [][]string{{"role:ns1:editor", "data/collections/ns1:Movies/shards/*/objects/*", "R", "data"}},
+				GroupingPolicy: [][]string{
+					{"db:ns1:alice", "role:ns1:editor"},
+					{"db:wv_internal_empty", "role:ns1:editor"},
+				},
+			},
+			wantP: [][]string{{"role:editor", "data/collections/Movies/shards/*/objects/*", "R", "data"}},
+			wantG: [][]string{
+				{"db:alice", "role:editor"},
+				{"db:wv_internal_empty", "role:editor"},
+			},
+		},
+		{
+			// N is derived from role names only, so a namespace not named by any
+			// role never strips: a global OIDC "a:b" and a db subject in an
+			// unnamed namespace (assigned only this role) stay qualified: the
+			// intentional under-strip residue, not an error. Group subjects are
+			// global and untouched.
+			name: "N-aware subject rules leave non-N and global subjects intact",
+			in: snapshot{
+				Policy: [][]string{{"role:ns1:editor", "roles/ns1:editor", "R", "roles"}},
+				GroupingPolicy: [][]string{
+					{"oidc:ns1:carol", "role:ns1:editor"},
+					{"oidc:a:b", "role:ns1:editor"},
+					{"db:ns2:dave", "role:ns1:editor"},
+					{"group:ns1:team", "role:ns1:editor"},
+				},
+			},
+			wantP: [][]string{{"role:editor", "roles/editor", "R", "roles"}},
+			wantG: [][]string{
+				{"oidc:carol", "role:editor"},
+				{"oidc:a:b", "role:editor"},
+				{"db:ns2:dave", "role:editor"},
+				{"group:ns1:team", "role:editor"},
+			},
+		},
+		{
+			// A whole-cluster blob carries genuine built-in rows; they strip to
+			// themselves (no namespaced source) and must not be flagged.
+			name: "built-in rows are a no-op alongside a namespaced role",
+			in: snapshot{
+				Policy: [][]string{
+					{"role:viewer", "*", "R", "*"},
+					{"role:ns1:editor", "data/collections/ns1:Movies/shards/*/objects/*", "R", "data"},
+				},
+				GroupingPolicy: [][]string{{"db:wv_internal_empty", "role:ns1:editor"}},
+			},
+			wantP: [][]string{
+				{"role:viewer", "*", "R", "*"},
+				{"role:editor", "data/collections/Movies/shards/*/objects/*", "R", "data"},
+			},
+			wantG: [][]string{{"db:wv_internal_empty", "role:editor"}},
+		},
+		{
+			name: "class 1: two namespaces' roles with distinct perms fuse",
+			in: snapshot{Policy: [][]string{
+				{"role:ns1:editor", "data/collections/ns1:A", "R", "data"},
+				{"role:ns2:editor", "data/collections/ns2:B", "R", "data"},
+			}},
+			wantErr: []string{"role:ns1:editor", "role:ns2:editor", `"editor"`},
+		},
+		{
+			// Even when the stripped rows are byte-identical, two distinct source
+			// role names collapsing to one must fail: casbin would dedupe silently.
+			name: "class 2: two namespaces' roles with identical rows dedupe",
+			in: snapshot{Policy: [][]string{
+				{"role:ns1:editor", "data/collections/ns1:A", "R", "data"},
+				{"role:ns2:editor", "data/collections/ns2:A", "R", "data"},
+			}},
+			wantErr: []string{"role:ns1:editor", "role:ns2:editor", `"editor"`},
+		},
+		{
+			name: "class 3: a namespaced role strips onto a built-in name",
+			in: snapshot{Policy: [][]string{
+				{"role:ns1:viewer", "*", "R", "*"},
+			}},
+			wantErr: []string{"built-in role", `"viewer"`, "role:ns1:viewer"},
+		},
+		{
+			// Distinct roles so no role collision fires: the error must be
+			// attributable to the subject class alone.
+			name: "class 4: two namespaced principals fuse into one subject",
+			in: snapshot{GroupingPolicy: [][]string{
+				{"db:ns1:bob", "role:ns1:editor"},
+				{"db:ns2:bob", "role:ns2:auditor"},
+			}},
+			wantErr: []string{"db:ns1:bob", "db:ns2:bob", `"db:bob"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := stripRBACSnapshot(tt.in)
+			if len(tt.wantErr) > 0 {
+				require.Error(t, err)
+				for _, want := range tt.wantErr {
+					assert.Contains(t, err.Error(), want)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.wantP, got.Policy)
+			assert.ElementsMatch(t, tt.wantG, got.GroupingPolicy)
+		})
+	}
+}
+
+// TestValidateNamespaceStrip pins the coordinator-side dry run: it returns the
+// exact collision error a real strip-restore would hit, decodes without touching
+// any store, and no-ops on an empty blob.
+func TestValidateNamespaceStrip(t *testing.T) {
+	marshal := func(t *testing.T, s snapshot) []byte {
+		b, err := json.Marshal(s)
+		require.NoError(t, err)
+		return b
+	}
+	colliding := marshal(t, snapshot{Policy: [][]string{
+		{"role:ns1:editor", "data/collections/ns1:A", "R", "data"},
+		{"role:ns2:editor", "data/collections/ns2:B", "R", "data"},
+	}})
+	clean := marshal(t, snapshot{Policy: [][]string{
+		{"role:ns1:editor", "data/collections/ns1:A", "R", "data"},
+		{"role:ns1:auditor", "data/collections/ns1:B", "R", "data"},
+	}})
+
+	t.Run("CollidingSnapshotErrors", func(t *testing.T) {
+		err := ValidateNamespaceStrip(colliding)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `"editor"`)
+	})
+	t.Run("CleanSnapshotPasses", func(t *testing.T) {
+		require.NoError(t, ValidateNamespaceStrip(clean))
+	})
+	t.Run("EmptySnapshotIsNoOp", func(t *testing.T) {
+		require.NoError(t, ValidateNamespaceStrip(nil))
+	})
+	t.Run("MalformedSnapshotErrors", func(t *testing.T) {
+		require.Error(t, ValidateNamespaceStrip([]byte("{")))
+	})
+}
+
+// TestRestoreStripNamespaces drives the graduation restore end to end through
+// casbin: a namespaced backup restored with stripNamespaces=true lands the
+// unqualified role, its resource, and its assigned subject, with the empty-role
+// placeholder intact.
+func TestRestoreStripNamespaces(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	src, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+	require.NoError(t, src.CreateRolesPermissions(map[string][]authorization.Policy{
+		"ns1:editor": {{Resource: "data/collections/ns1:Movies/shards/*/objects/*", Verb: authorization.READ, Domain: authorization.DataDomain}},
+	}))
+	require.NoError(t, src.AddRolesForUser(conv.UserNameWithTypeFromId("ns1:alice", authentication.AuthTypeDb), []string{"ns1:editor"}))
+
+	blob, err := src.Snapshot()
+	require.NoError(t, err)
+
+	dst, err := setupTestManager(t, logger) // namespacesEnabled=false → strip path
+	require.NoError(t, err)
+	require.NoError(t, dst.Restore(blob, true))
+
+	editorP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName("editor"))
+	require.NoError(t, err)
+	assert.Equal(t, [][]string{{"role:editor", "data/collections/Movies/shards/*/objects/*", "R", "data"}}, editorP)
+
+	nsP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, "role:ns1:editor")
+	require.NoError(t, err)
+	assert.Empty(t, nsP, "namespaced role name must not survive the strip")
+
+	editorG, err := dst.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName("editor"))
+	require.NoError(t, err)
+	subjects := make([]string, len(editorG))
+	for i, g := range editorG {
+		subjects[i] = g[0]
+	}
+	assert.Contains(t, subjects, "db:alice", "stripped subject must keep its assignment")
+	assert.Contains(t, subjects, "db:wv_internal_empty", "placeholder must survive")
+}
+
+// TestRestoreStripFalseUnchanged pins the RAFT-path invariant: stripNamespaces=
+// false leaves qualifiers intact, so the RAFT snapshot-restore path (which always
+// passes false) is byte-faithful to the pre-strip restore.
+func TestRestoreStripFalseUnchanged(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	src, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+	require.NoError(t, src.CreateRolesPermissions(map[string][]authorization.Policy{
+		"ns1:editor": {{Resource: "data/collections/ns1:Movies/shards/*/objects/*", Verb: authorization.READ, Domain: authorization.DataDomain}},
+	}))
+
+	blob, err := src.Snapshot()
+	require.NoError(t, err)
+
+	dst, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+	require.NoError(t, dst.Restore(blob, false))
+
+	nsP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, "role:ns1:editor")
+	require.NoError(t, err)
+	assert.NotEmpty(t, nsP, "strip=false must leave the namespaced role qualified")
+
+	strippedP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName("editor"))
+	require.NoError(t, err)
+	assert.Empty(t, strippedP, "strip=false must not synthesise a stripped role")
 }
 
 // TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload pins that an
@@ -446,7 +671,7 @@ func TestRestoreNilCasbin(t *testing.T) {
 		logger: logger,
 	}
 
-	err := m.Restore([]byte("{}"))
+	err := m.Restore([]byte("{}"), false)
 	require.NoError(t, err)
 }
 
@@ -456,12 +681,12 @@ func TestRestoreInvalidData(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test with invalid JSON
-	err = m.Restore([]byte("invalid json"))
+	err = m.Restore([]byte("invalid json"), false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode json")
 
 	// Test with empty data
-	err = m.Restore([]byte("{}"))
+	err = m.Restore([]byte("{}"), false)
 	require.NoError(t, err)
 }
 
@@ -477,7 +702,7 @@ func TestRestoreEmptyData(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, policies, 5)
 
-	err = m.Restore([]byte{})
+	err = m.Restore([]byte{}, false)
 	require.NoError(t, err)
 
 	// nothing overwritten
@@ -555,7 +780,7 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 		}()
 	}
 
-	err = m.Restore(data)
+	err = m.Restore(data, false)
 	require.NoError(t, err)
 
 	stopWorkers()
@@ -918,7 +1143,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			bytes, err := json.Marshal(sh)
 			require.NoError(t, err)
 
-			err = m.Restore(bytes)
+			err = m.Restore(bytes, false)
 			require.NoError(t, err)
 
 			finalPolicies, err := m.casbin.GetPolicy()

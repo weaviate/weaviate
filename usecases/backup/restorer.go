@@ -179,7 +179,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	}
 
 	if r.rbacSourcer != nil && len(desc.RbacBackups) > 0 && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
-		if err := r.rbacSourcer.Restore(desc.RbacBackups); err != nil {
+		if err := r.rbacSourcer.Restore(desc.RbacBackups, stripNamespaces); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
 		// Check for cancellation after RBAC restore

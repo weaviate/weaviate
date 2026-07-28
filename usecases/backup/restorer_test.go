@@ -314,6 +314,53 @@ func TestRestoreAllCancellation(t *testing.T) {
 	})
 }
 
+// recordingRbacRestorer captures the stripNamespaces flag restoreAll forwards.
+type recordingRbacRestorer struct {
+	called bool
+	strip  bool
+}
+
+func (r *recordingRbacRestorer) Snapshot(roles ...string) ([]byte, error) { return nil, nil }
+
+func (r *recordingRbacRestorer) Restore(_ []byte, stripNamespaces bool) error {
+	r.called = true
+	r.strip = stripNamespaces
+	return nil
+}
+
+// TestRestoreThreadsRbacStripFlag pins the new restore-side hop: restoreAll must
+// forward its stripNamespaces argument (derived per node as !namespacesEnabled)
+// to the RBAC sourcer, not drop it. A missed thread would silently skip the
+// graduation strip while every other test stays green.
+func TestRestoreThreadsRbacStripFlag(t *testing.T) {
+	t.Parallel()
+	for _, strip := range []bool{true, false} {
+		t.Run(map[bool]string{true: "strip", false: "no-strip"}[strip], func(t *testing.T) {
+			backend := newFakeBackend()
+			backend.On("SourceDataPath").Return(t.TempDir())
+			rec := &recordingRbacRestorer{}
+			restorer := newRestorer("node1", nil, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip)
+			restorer.lastOp.set(backup.Transferring)
+
+			desc := &backup.BackupDescriptor{
+				ID:            "rbac-strip",
+				ServerVersion: "1.23",
+				Version:       "1",
+				StartedAt:     time.Now().UTC(),
+				RbacBackups:   []byte(`{"version":1}`),
+			}
+
+			err := restorer.restoreAll(context.Background(), desc, 50, nodeStore{
+				objectStore: objectStore{backend: backend, backupId: desc.ID},
+			}, "", "", "", "", strip)
+
+			assert.NoError(t, err)
+			assert.True(t, rec.called, "rbac restore must be invoked")
+			assert.Equal(t, strip, rec.strip)
+		})
+	}
+}
+
 func TestWithCancellation(t *testing.T) {
 	t.Parallel()
 	var (

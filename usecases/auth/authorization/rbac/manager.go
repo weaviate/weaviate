@@ -531,7 +531,7 @@ func (m *Manager) ListAllRoles() ([]string, error) {
 	return slices.Collect(maps.Keys(roles)), nil
 }
 
-func (m *Manager) Restore(b []byte) error {
+func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	// don't overwrite with empty snapshot to avoid overwriting recovery from file
 	// with a non-existent RBAC snapshot when coming from old versions
 	if m == nil || len(b) == 0 {
@@ -544,6 +544,14 @@ func (m *Manager) Restore(b []byte) error {
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+
+	if stripNamespaces {
+		stripped, err := stripRBACSnapshot(snapshot)
+		if err != nil {
+			return err
+		}
+		snapshot = stripped
 	}
 
 	// Hold the write lock only for the casbin mutation and cache invalidation

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -2065,6 +2069,30 @@ func makeUserSnapshot(t *testing.T, ids ...string) []byte {
 	return snap
 }
 
+// makeRbacSnapshot builds a real RBAC snapshot blob from a set of role names, so
+// the coordinator dry-run exercises the exact apply-time strip logic. Collision
+// is name-based: two roles in different namespaces that strip to the same short
+// name collide; a single-namespace set is clean.
+func makeRbacSnapshot(t *testing.T, roleNames ...string) []byte {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true},
+		config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, true, logger)
+	require.NoError(t, err)
+	perms := make(map[string][]authorization.Policy, len(roleNames))
+	for _, r := range roleNames {
+		perms[r] = []authorization.Policy{{
+			Resource: "data/collections/Movies/shards/*/objects/*",
+			Verb:     authorization.READ,
+			Domain:   authorization.DataDomain,
+		}}
+	}
+	require.NoError(t, m.CreateRolesPermissions(perms))
+	snap, err := m.Snapshot()
+	require.NoError(t, err)
+	return snap
+}
+
 func classDesc(t *testing.T, name string, aliases ...string) backup.ClassDescriptor {
 	t.Helper()
 	d := backup.ClassDescriptor{Name: name}
@@ -2097,16 +2125,20 @@ func TestValidateNamespaceStripping(t *testing.T) {
 	// strip-and-collide logic rather than a stand-in.
 	collidingUsers := makeUserSnapshot(t, "ns1:alice", "ns2:alice")
 	cleanUsers := makeUserSnapshot(t, "ns1:alice", "ns2:bob")
+	collidingRoles := makeRbacSnapshot(t, "ns1:editor", "ns2:editor")
+	cleanRoles := makeRbacSnapshot(t, "ns1:editor", "ns1:auditor")
 
 	tests := []struct {
 		name              string
 		descriptors       func(t *testing.T) []backup.ClassDescriptor
 		selected          []string
 		userBlobs         [][]byte
+		rbacBlobs         [][]byte
 		liveEntities      []string // live class/alias names served by the fake's ClassEqual
 		liveClasses       []string // nil means ListClasses must not be called (it only serves stripped aliases)
 		namespacesEnabled bool
 		userRestoreOption string
+		rbacRestoreOption string
 		nilUserLister     bool
 		wantErr           []string // substrings; empty means no error
 	}{
@@ -2353,6 +2385,34 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			userBlobs: [][]byte{collidingUsers},
 			wantErr:   []string{`"Movies"`, `"alice"`},
 		},
+		{
+			// casbin merges colliding roles silently, so the coordinator dry-run
+			// is the only fail-loud gate before graduation fuses two namespaces.
+			name:      "RoleSnapshotCollisionRejects",
+			rbacBlobs: [][]byte{collidingRoles},
+			wantErr:   []string{"roles:", `"editor"`},
+		},
+		{
+			name:      "CleanRoleSnapshotPasses",
+			rbacBlobs: [][]byte{cleanRoles},
+		},
+		{
+			name:      "EachRoleSnapshotValidated",
+			rbacBlobs: [][]byte{cleanRoles, collidingRoles},
+			wantErr:   []string{"roles:"},
+		},
+		{
+			name:              "RoleOptOutSkipsRoleCheck",
+			rbacBlobs:         [][]byte{collidingRoles},
+			rbacRestoreOption: models.RestoreConfigRolesOptionsNoRestore,
+		},
+		{
+			// Users and roles collisions are reported together in one aggregate.
+			name:      "UserAndRoleCollisionsBothReported",
+			userBlobs: [][]byte{collidingUsers},
+			rbacBlobs: [][]byte{collidingRoles},
+			wantErr:   []string{"dynamic users:", "roles:"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2371,7 +2431,7 @@ func TestValidateNamespaceStripping(t *testing.T) {
 				descriptors = tc.descriptors(t)
 			}
 
-			err := s.validateNamespaceStripping(ctx, descriptors, tc.userBlobs, tc.selected, tc.userRestoreOption)
+			err := s.validateNamespaceStripping(ctx, descriptors, tc.userBlobs, tc.rbacBlobs, tc.selected, tc.userRestoreOption, tc.rbacRestoreOption)
 
 			if len(tc.wantErr) == 0 {
 				assert.NoError(t, err)
@@ -2534,10 +2594,81 @@ func TestFetchSchemaFailsClosed(t *testing.T) {
 	fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 
 	s := fs.scheduler()
-	schema, userBlobs, err := s.fetchSchema(ctx, "gcs", "", "", &meta)
+	schema, userBlobs, rbacBlobs, err := s.fetchSchema(ctx, "gcs", "", "", &meta)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fetch meta of node")
 	assert.Nil(t, schema)
 	assert.Nil(t, userBlobs)
+	assert.Nil(t, rbacBlobs)
+}
+
+// TestFetchSchemaCollectsRbacBlobs pins that fetchSchema gathers the per-node
+// RBAC blob on both the leader and union paths, deduping identical blobs on the
+// union path exactly like the user blobs. Without this the coordinator roles
+// dry-run is blind and a collision only surfaces mid-restore on a node.
+func TestFetchSchemaCollectsRbacBlobs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	rbacBlob := []byte(`{"version":1,"roles_policies":[["role:ns1:editor","*","R","*"]]}`)
+
+	t.Run("UnionDedupesSharedBlob", func(t *testing.T) {
+		backupID := "fetch-rbac-union"
+		nodeA, nodeB := "Node-A", "Node-B"
+		meta := backup.DistributedBackupDescriptor{
+			ID:     backupID,
+			Status: backup.Success,
+			// No Leader: the union path reads every node's meta.
+			Nodes: map[string]*backup.NodeDescriptor{
+				nodeA: {Classes: []string{"ClassA"}},
+				nodeB: {Classes: []string{"ClassB"}},
+			},
+		}
+		// Both nodes carry the same RBAC blob (RAFT-replicated), so it dedupes to one.
+		mkNode := func(cls string) []byte {
+			b, err := json.Marshal(backup.BackupDescriptor{
+				ID: backupID, Status: backup.Success,
+				Classes:     []backup.ClassDescriptor{{Name: cls}},
+				RbacBackups: rbacBlob,
+			})
+			require.NoError(t, err)
+			return b
+		}
+
+		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA, nodeB}))
+		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		fs.backend.On("GetObject", ctx, backupID+"/"+nodeA, BackupFile).Return(mkNode("ClassA"), nil)
+		fs.backend.On("GetObject", ctx, backupID+"/"+nodeB, BackupFile).Return(mkNode("ClassB"), nil)
+
+		_, _, rbacBlobs, err := fs.scheduler().fetchSchema(ctx, "gcs", "", "", &meta)
+		require.NoError(t, err)
+		require.Len(t, rbacBlobs, 1, "identical per-node RBAC blobs must dedupe")
+		assert.Equal(t, rbacBlob, rbacBlobs[0])
+	})
+
+	t.Run("LeaderPathReturnsBlob", func(t *testing.T) {
+		backupID := "fetch-rbac-leader"
+		nodeName := "Node-A"
+		meta := backup.DistributedBackupDescriptor{
+			ID: backupID, Status: backup.Success, Leader: nodeName,
+			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"ClassA"}}},
+		}
+		nodeMeta, err := json.Marshal(backup.BackupDescriptor{
+			ID: backupID, Status: backup.Success,
+			Classes:     []backup.ClassDescriptor{{Name: "ClassA"}},
+			RbacBackups: rbacBlob,
+		})
+		require.NoError(t, err)
+
+		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+		fs.backend.On("GetObject", ctx, backupID+"/"+nodeName, BackupFile).Return(nodeMeta, nil)
+
+		_, _, rbacBlobs, err := fs.scheduler().fetchSchema(ctx, "gcs", "", "", &meta)
+		require.NoError(t, err)
+		require.Len(t, rbacBlobs, 1)
+		assert.Equal(t, rbacBlob, rbacBlobs[0])
+	})
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -243,12 +244,12 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		meta.Include(allowed)
 	}
 
-	schema, userBlobs, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
+	schema, userBlobs, rbacBlobs, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.validateNamespaceStripping(ctx, schema, userBlobs, meta.Classes(), req.UserRestoreOption); err != nil {
+	if err := s.validateNamespaceStripping(ctx, schema, userBlobs, rbacBlobs, meta.Classes(), req.UserRestoreOption, req.RbacRestoreOption); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
 	status := string(backup.Started)
@@ -911,7 +912,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 //
 // Everything is validated from the per-node descriptors (the payload nodes
 // actually restore) filtered down to the selected classes.
-func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors []backup.ClassDescriptor, userBlobs [][]byte, selectedClasses []string, userRestoreOption string) error {
+func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors []backup.ClassDescriptor, userBlobs, rbacBlobs [][]byte, selectedClasses []string, userRestoreOption, rbacRestoreOption string) error {
 	if s.schema.NamespacesEnabled() {
 		return nil // restore does not strip namespaces
 	}
@@ -1029,6 +1030,17 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 		}
 	}
 
+	// casbin merges colliding rows silently on restore, so dry-run the RBAC
+	// blobs through the same strip-and-collide logic the nodes apply. This is
+	// the only fail-loud gate before a graduation restore fuses two namespaces.
+	if rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
+		for _, blob := range rbacBlobs {
+			if err := rbac.ValidateNamespaceStrip(blob); err != nil {
+				errs = append(errs, fmt.Sprintf("roles: %v", err))
+			}
+		}
+	}
+
 	if len(errs) == 0 {
 		return nil
 	}
@@ -1038,15 +1050,15 @@ func (s *Scheduler) validateNamespaceStripping(ctx context.Context, descriptors 
 
 // fetchSchema retrieves and returns the latest schema for all classes
 // In pre-raft scenarios where schema may diverge, some guesswork is necessary.
-// It also returns the per-node dynamic-user snapshot blobs (deduped; empty
-// when the backup carries no users).
+// It also returns the per-node dynamic-user and RBAC snapshot blobs (each
+// deduped; empty when the backup carries no users / no roles).
 func (s *Scheduler) fetchSchema(
 	ctx context.Context,
 	backend string,
 	overrideBucket string,
 	overridePath string,
 	req *backup.DistributedBackupDescriptor,
-) ([]backup.ClassDescriptor, [][]byte, error) {
+) ([]backup.ClassDescriptor, [][]byte, [][]byte, error) {
 	f := func(node string) (*backup.BackupDescriptor, error) {
 		store, err := nodeBackend(node, s.backends, backend, req.ID, overrideBucket, overridePath)
 		if err != nil {
@@ -1062,25 +1074,31 @@ func (s *Scheduler) fetchSchema(
 	if req.Leader != "" {
 		meta, err := f(req.Leader) // raft version of the backup
 		if err != nil {
-			return nil, nil, fmt.Errorf("fetch meta of node %q: %w", req.Leader, err)
+			return nil, nil, nil, fmt.Errorf("fetch meta of node %q: %w", req.Leader, err)
 		}
 		var userBlobs [][]byte
 		if len(meta.UserBackups) > 0 {
 			userBlobs = [][]byte{meta.UserBackups}
 		}
-		return meta.Classes, userBlobs, nil
+		var rbacBlobs [][]byte
+		if len(meta.RbacBackups) > 0 {
+			rbacBlobs = [][]byte{meta.RbacBackups}
+		}
+		return meta.Classes, userBlobs, rbacBlobs, nil
 	}
 
 	// union
 	m := make(map[string]backup.ClassDescriptor, 64)
 	var userBlobs [][]byte
-	seenBlobs := make(map[string]struct{}, 1)
+	seenUserBlobs := make(map[string]struct{}, 1)
+	var rbacBlobs [][]byte
+	seenRbacBlobs := make(map[string]struct{}, 1)
 	for k := range req.Nodes {
 		meta, err := f(k)
 		if err != nil {
 			// Fail closed: a partial union would silently skip the missing
 			// node's classes at restore time and blind the strip validation.
-			return nil, nil, fmt.Errorf("fetch meta of node %q: %w", k, err)
+			return nil, nil, nil, fmt.Errorf("fetch meta of node %q: %w", k, err)
 		}
 		// guess the most up to date version
 		for _, x := range meta.Classes {
@@ -1090,9 +1108,13 @@ func (s *Scheduler) fetchSchema(
 				continue
 			}
 		}
-		if _, ok := seenBlobs[string(meta.UserBackups)]; len(meta.UserBackups) > 0 && !ok {
-			seenBlobs[string(meta.UserBackups)] = struct{}{}
+		if _, ok := seenUserBlobs[string(meta.UserBackups)]; len(meta.UserBackups) > 0 && !ok {
+			seenUserBlobs[string(meta.UserBackups)] = struct{}{}
 			userBlobs = append(userBlobs, meta.UserBackups)
+		}
+		if _, ok := seenRbacBlobs[string(meta.RbacBackups)]; len(meta.RbacBackups) > 0 && !ok {
+			seenRbacBlobs[string(meta.RbacBackups)] = struct{}{}
+			rbacBlobs = append(rbacBlobs, meta.RbacBackups)
 		}
 	}
 	xs := make([]backup.ClassDescriptor, len(m))
@@ -1101,7 +1123,7 @@ func (s *Scheduler) fetchSchema(
 		xs[i] = v
 		i++
 	}
-	return xs, userBlobs, nil
+	return xs, userBlobs, rbacBlobs, nil
 }
 
 func logOperation(logger logrus.FieldLogger, name, id, backend string, begin time.Time, err error) {

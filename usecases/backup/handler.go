@@ -93,7 +93,7 @@ type dynUserSnapshotter interface {
 // Snapshot filters to a role subset for backups; zero args is the full snapshot.
 type rbacSnapshotter interface {
 	Snapshot(roles ...string) ([]byte, error)
-	Restore(snapshot []byte) error
+	Restore(snapshot []byte, stripNamespaces bool) error
 }
 
 type Status struct {

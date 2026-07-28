@@ -212,7 +212,7 @@ func (r fakeRbacBackupWrapper) Snapshot(roles ...string) ([]byte, error) {
 	return nil, nil
 }
 
-func (r fakeRbacBackupWrapper) Restore([]byte) error {
+func (r fakeRbacBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 
