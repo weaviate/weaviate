@@ -92,8 +92,10 @@ func NewWithData(data []byte) *Connections {
 			break // Malformed data
 		}
 
-		layerData := make([]byte, dataLen)
-		copy(layerData, data[offset:offset+int(dataLen)])
+		// View into the caller's blob rather than a copy. cap==len forces any
+		// later append on this layer to reallocate instead of writing into the
+		// blob and corrupting the neighboring layer's bytes.
+		layerData := data[offset : offset+int(dataLen) : offset+int(dataLen)]
 		offset += int(dataLen)
 
 		c.layers[i] = LayerData{

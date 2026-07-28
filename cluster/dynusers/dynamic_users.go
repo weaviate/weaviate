@@ -18,6 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
@@ -147,20 +148,10 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Rebuild the wire type to keep the response shape stable;
-	// these pointers are local and never shared.
-	wireUsers := make(map[string]*cmd.UserWire, len(users))
+	// These pointers are local and never shared.
+	wireUsers := make(map[string]*dbuser.View, len(users))
 	for id, v := range users {
-		wireUsers[id] = &cmd.UserWire{
-			Id:                 v.Id,
-			Active:             v.Active,
-			InternalIdentifier: v.InternalIdentifier,
-			ApiKeyFirstLetters: v.ApiKeyFirstLetters,
-			CreatedAt:          v.CreatedAt,
-			LastUsedAt:         v.LastUsedAt,
-			ImportedWithKey:    v.ImportedWithKey,
-			Namespace:          v.Namespace,
-		}
+		wireUsers[id] = &v
 	}
 	response := cmd.QueryGetUsersResponse{Users: wireUsers}
 	payload, err := json.Marshal(response)

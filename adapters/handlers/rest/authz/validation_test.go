@@ -352,6 +352,33 @@ func TestValidatePermissions(t *testing.T) {
 			expectedErr: "not a valid pattern",
 		},
 		{
+			name: "invalid regex in namespace rejected",
+			permissions: []*models.Permission{
+				{Namespaces: &models.PermissionNamespaces{Namespace: String("[")}},
+			},
+			expectedErr: "not a valid pattern",
+		},
+		{
+			name: "slash in namespace is rejected",
+			permissions: []*models.Permission{
+				{Namespaces: &models.PermissionNamespaces{Namespace: String("a/b")}},
+			},
+			expectedErr: "must not contain '/'",
+		},
+		{
+			name: "over-long namespace target rejected",
+			permissions: []*models.Permission{
+				{Namespaces: &models.PermissionNamespaces{Namespace: String(strings.Repeat("a", 257))}},
+			},
+			expectedErr: "exceeds the maximum length",
+		},
+		{
+			name: "valid namespace regex is accepted",
+			permissions: []*models.Permission{
+				{Namespaces: &models.PermissionNamespaces{Namespace: String("ns|prod")}},
+			},
+		},
+		{
 			name: "over-long user target rejected",
 			permissions: []*models.Permission{
 				{Users: &models.PermissionUsers{Users: String(strings.Repeat("a", 257))}},

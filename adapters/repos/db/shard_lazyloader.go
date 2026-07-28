@@ -488,6 +488,10 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 			}
 		}
 
+		// The registry tracks open buckets in memory, not files, so purge the
+		// shard's residual entries before deleting the files
+		lsmkv.GlobalBucketRegistry.RemoveByPrefixes(shardPathLSM(idx.path(), shardName))
+
 		// rename sync (must complete even if ctx is expired); RemoveAll async.
 		// Mirrors Shard.drop so the unloaded path doesn't reintroduce the
 		// blocking RemoveAll the loaded path was changed to avoid.
@@ -781,7 +785,7 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 	if err := l.Load(context.Background()); err != nil {
-		return nil, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
+		return func() {}, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
 	}
 	return l.shard.preventShutdown()
 }
