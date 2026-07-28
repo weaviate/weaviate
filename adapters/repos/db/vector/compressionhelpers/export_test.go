@@ -124,6 +124,6 @@ func (rq *FourBitRotationalQuantizer) EncodePureRaBitQ4(x []float32) []byte {
 	code.setLower(t * -7.5 * bestStep)
 	code.setStep(t * bestStep)
 	code.setCodeSum(t * bestStep * codeSum)
-	code.setNorm2(f32.SumOfSquares(x))
+	code.setNorm2(dotProduct(x, x))
 	return code
 }

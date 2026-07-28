@@ -13,5 +13,5 @@
 
 package asm
 
-// Prefetch hints the CPU to load the cache line at addr (PRFM PLDL1KEEP).
+// Prefetch hints the CPU to load the cache line at addr (PRFM PLDL2KEEP).
 func Prefetch(addr uintptr)

@@ -28,8 +28,10 @@ import (
 // DistancesToNodes must be indistinguishable from calling DistanceToNode per
 // id: identical distances (bit-exact — both paths run the same kernel on the
 // same codes) and identical error behavior for ids that cannot be resolved.
-// The search layer switches between the two paths based on a type assertion,
-// so any divergence would change search results depending on which path ran.
+// The search layer always calls DistancesToNodes (BatchCompressorDistancer is
+// embedded in CompressorDistancer), which falls back to the per-id path for
+// ids it cannot fetch from cache, so any divergence would change search
+// results depending on which path ran.
 func TestBatchDistancerMatchesDistanceToNode(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	dim := 96

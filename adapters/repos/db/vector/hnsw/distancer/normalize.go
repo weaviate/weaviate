@@ -23,7 +23,7 @@ import (
 // and differs from it by at most one ulp per element.
 func Normalize(v []float32) []float32 {
 	out := make([]float32, len(v))
-	norm2 := f32.SumOfSquares(v)
+	norm2 := dotProductImplementation(v, v)
 	if norm2 == 0 {
 		return out
 	}
@@ -35,7 +35,7 @@ func Normalize(v []float32) []float32 {
 // Use this when you own the vector and don't need to preserve the original.
 // A zero vector is left unchanged.
 func NormalizeInPlace(v []float32) {
-	norm2 := f32.SumOfSquares(v)
+	norm2 := dotProductImplementation(v, v)
 	if norm2 == 0 {
 		return
 	}
@@ -51,7 +51,7 @@ func NormalizeInto(dst, v []float32) []float32 {
 		dst = make([]float32, len(v))
 	}
 	dst = dst[:len(v)]
-	norm2 := f32.SumOfSquares(v)
+	norm2 := dotProductImplementation(v, v)
 	if norm2 == 0 {
 		clear(dst)
 		return dst

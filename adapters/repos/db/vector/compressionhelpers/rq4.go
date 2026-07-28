@@ -339,7 +339,7 @@ func (rq *FourBitRotationalQuantizer) Encode(x []float32) []byte {
 	code.setLower(t * lower)
 	code.setStep(t * step)
 	code.setCodeSum(t * step * codeSum)
-	code.setNorm2(f32.SumOfSquares(x))
+	code.setNorm2(dotProduct(x, x))
 	return code
 }
 

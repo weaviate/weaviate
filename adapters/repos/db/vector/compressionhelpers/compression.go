@@ -47,6 +47,13 @@ type CompressorDistancer interface {
 	DistanceToFloat(vec []float32) (float32, error)
 }
 
+// BatchCompressorDistancer computes distances from the (implicit) query to a
+// batch of stored codes, fetching each code once and overlapping prefetch
+// hints with the distance kernels.
+//
+// Concurrency contract: DistancesToNodes reuses a scratch buffer owned by the
+// distancer and is therefore NOT safe for concurrent use — it must only be
+// called by the single search goroutine that owns the distancer.
 type BatchCompressorDistancer interface {
 	DistancesToNodes(ids []uint64, dists []float32) []error
 }
